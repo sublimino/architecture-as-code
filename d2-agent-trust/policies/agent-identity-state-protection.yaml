@@ -1,0 +1,83 @@
+# CEL ValidatingAdmissionPolicy — Agent Identity & State Protection
+# Protects agent identity and containment state in fe-signalloom-agents:
+# 1. signalloom.ai/state=stunned cannot be removed or mutated by any identity
+#    other than the Swarm Governor (system:serviceaccount:fe-signalloom:swarm-governor)
+#    or cluster admin.
+# 2. Any agent pod (signalloom.ai/agent=true) must carry a valid signalloom.ai/framework label.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sl-agent-identity-state-protection
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+    signalloom.ai/tier: agents
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: wasStunned
+      expression: >-
+        oldObject != null &&
+        has(oldObject.metadata.labels) &&
+        'signalloom.ai/state' in oldObject.metadata.labels &&
+        oldObject.metadata.labels['signalloom.ai/state'] == 'stunned'
+    - name: isStunned
+      expression: >-
+        has(object.metadata.labels) &&
+        'signalloom.ai/state' in object.metadata.labels &&
+        object.metadata.labels['signalloom.ai/state'] == 'stunned'
+    - name: isGovernorOrAdmin
+      expression: >-
+        request.userInfo.username == 'system:serviceaccount:fe-signalloom:swarm-governor' ||
+        request.userInfo.username == 'system:serviceaccount:fe-signalloom-agents:swarm-governor' ||
+        request.userInfo.username == 'kubernetes-admin' ||
+        request.userInfo.username == 'kind-osramp' ||
+        request.userInfo.username.startsWith('system:admin') ||
+        (has(request.userInfo.groups) && request.userInfo.groups.exists(g, g == 'system:masters'))
+    - name: isAgentPod
+      expression: >-
+        has(object.metadata.labels) &&
+        'signalloom.ai/agent' in object.metadata.labels &&
+        object.metadata.labels['signalloom.ai/agent'] == 'true'
+    - name: validFrameworks
+      expression: >-
+        ['kagent', 'langroid', 'autogen', 'custom', 'langgraph', 'crewai', 'llamaindex', 'none']
+    - name: hasValidFramework
+      expression: >-
+        has(object.metadata.labels) &&
+        'signalloom.ai/framework' in object.metadata.labels &&
+        object.metadata.labels['signalloom.ai/framework'] in variables.validFrameworks
+  validations:
+    - expression: >-
+        !variables.wasStunned || variables.isStunned || variables.isGovernorOrAdmin
+      message: >-
+        The signalloom.ai/state=stunned label cannot be removed or mutated by any identity other than the Swarm Governor (system:serviceaccount:fe-signalloom:swarm-governor) or cluster admin.
+      reason: Forbidden
+    - expression: >-
+        !variables.isAgentPod || variables.hasValidFramework
+      message: >-
+        Agent pods (signalloom.ai/agent=true) must carry a valid signalloom.ai/framework label (e.g. kagent, langroid, autogen, custom, langgraph, crewai, llamaindex, none).
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sl-agent-identity-state-protection-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: sl-agent-identity-state-protection
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: ["fe-signalloom-agents"]

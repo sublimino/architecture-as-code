@@ -42,65 +42,58 @@ SCRIPT="$REPO_ROOT/scripts/swarm-deploy.sh"
 
 @test "ResourceSet contains prompt-commit-summarizer Kustomization" {
   grep -q 'name: agent-prompt-commit-summarizer' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/prompt-commit-summarizer' "$RS_FILE"
+  grep -q 'path: ./prompt-commit-summarizer' "$RS_FILE"
 }
 
 @test "ResourceSet contains triage-ci-worker Kustomization" {
   grep -q 'name: agent-triage-ci-worker' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/triage-ci-worker' "$RS_FILE"
+  grep -q 'path: ./triage-ci-worker' "$RS_FILE"
 }
 
 @test "ResourceSet contains zulip-chat-agent Kustomization" {
   grep -q 'name: agent-zulip-chat-agent' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/zulip-chat-agent' "$RS_FILE"
+  grep -q 'path: ./zulip-chat-agent' "$RS_FILE"
 }
 
 @test "ResourceSet contains cpai-engineer Kustomization" {
   grep -q 'name: agent-cpai-engineer' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/cpai-engineer' "$RS_FILE"
+  grep -q 'path: ./cpai-engineer' "$RS_FILE"
 }
 
 @test "ResourceSet contains hosted-daytona-coder Kustomization" {
   grep -q 'name: agent-hosted-daytona-coder' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/hosted-daytona-coder' "$RS_FILE"
+  grep -q 'path: ./hosted-daytona-coder' "$RS_FILE"
 }
 
 @test "ResourceSet contains swarm-governor Kustomization" {
   grep -q 'name: agent-swarm-governor' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/swarm-governor' "$RS_FILE"
+  grep -q 'path: ./swarm-governor' "$RS_FILE"
 }
 
 @test "ResourceSet contains prod-deploy-gate Kustomization" {
   grep -q 'name: agent-prod-deploy-gate' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/prod-deploy-gate' "$RS_FILE"
+  grep -q 'path: ./prod-deploy-gate' "$RS_FILE"
 }
 
 @test "ResourceSet contains agent-cardvault Kustomization" {
   grep -q 'name: agent-cardvault' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/agent-cardvault' "$RS_FILE"
+  grep -q 'path: ./agent-cardvault' "$RS_FILE"
 }
 
 @test "ResourceSet contains nono-containment-probe Kustomization" {
   grep -q 'name: agent-nono-containment-probe' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/nono-containment-probe' "$RS_FILE"
+  grep -q 'path: ./nono-containment-probe' "$RS_FILE"
 }
 
 @test "ResourceSet contains signalloom-stun-sentinel Kustomization" {
   grep -q 'name: agent-signalloom-stun-sentinel' "$RS_FILE"
-  grep -q 'path: ./d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel' "$RS_FILE"
+  grep -q 'path: ./signalloom-stun-sentinel' "$RS_FILE"
 }
 
 @test "ResourceSet has exactly 10 per-agent Kustomizations (plus base)" {
-  local count
-  # Count only spec.resources Kustomization objects (exclude dependsOn refs)
-  # by matching lines with both kind: Kustomization AND a name: agent- prefix nearby.
-  # Simpler: count metadata name lines for agent Kustomizations.
-  count="$(grep -c 'name: agent-' "$RS_FILE")"
-  # 11 base + 10 agents + agent-swarm-flux SA + agent-swarm-flux-namespaces (x2) + agent-swarm-flux-workloads + agent-swarm-flux RB + agent-swarm OCI
-  # Better: count Kustomization resources by their path lines
   local path_count
-  path_count="$(grep -c 'path: ./d2-signalloom/infra/agent-swarm' "$RS_FILE")"
-  # 11 = 1 base (./d2-signalloom/infra/agent-swarm) + 10 agent subdirs
+  path_count="$(grep -c 'path: \.' "$RS_FILE")"
+  # 11 = 1 base (path: .) + 10 agent subdirs (path: ./...)
   [[ "$path_count" -eq 11 ]]
 }
 

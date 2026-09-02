@@ -850,7 +850,7 @@ export default function CredentialInventoryPage() {
             { key: 'provenance', label: 'Source', sortable: true },
           ]}
           data={visibleCredentials}
-          pageSize={25}
+          pageSize={50}
           testIdPrefix="credential-inventory"
           toolbar={
             <Toolbar label="Filter credentials">

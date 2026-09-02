@@ -93,6 +93,38 @@ func TestResolvePodCgroupGuaranteed(t *testing.T) {
 	}
 }
 
+func TestResolvePodCgroupSystemdSlice(t *testing.T) {
+	dir := t.TempDir()
+	podDir := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid.slice")
+	if err := os.MkdirAll(podDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := (&cgroupFreezer{cgroupRoot: dir}).resolvePodCgroup("test-uid")
+	if err != nil || path != podDir {
+		t.Fatalf("resolve systemd cgroup = %q, %v; want %q, nil", path, err, podDir)
+	}
+}
+
+func TestResolvePodCgroupRejectsPartialSystemdUIDMatch(t *testing.T) {
+	dir := t.TempDir()
+	podDir := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid-extra.slice")
+	if err := os.MkdirAll(podDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (&cgroupFreezer{cgroupRoot: dir}).resolvePodCgroup("test-uid")
+	if err == nil {
+		t.Fatal("partial systemd UID match unexpectedly resolved")
+	}
+}
+
 func TestResolvePodCgroupNotFound(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "kubepods"), 0755)
@@ -118,5 +150,41 @@ func TestFreezeIdempotent(t *testing.T) {
 	data, _ := os.ReadFile(cgroupFile)
 	if string(data) != "1" {
 		t.Errorf("cgroup.freeze: got %q, want %q", string(data), "1")
+	}
+}
+
+func TestFreezeWithCgroupEvents(t *testing.T) {
+	dir := t.TempDir()
+	cgroupFile := filepath.Join(dir, "cgroup.freeze")
+	eventsFile := filepath.Join(dir, "cgroup.events")
+	os.WriteFile(cgroupFile, []byte("0"), 0644)
+	os.WriteFile(eventsFile, []byte("populated 1\nfrozen 1\n"), 0644)
+
+	f := &cgroupFreezer{cgroupRoot: dir}
+	if err := f.freeze(dir); err != nil {
+		t.Fatalf("freeze with events: %v", err)
+	}
+
+	data, _ := os.ReadFile(cgroupFile)
+	if string(data) != "1" {
+		t.Errorf("cgroup.freeze: got %q, want 1", string(data))
+	}
+}
+
+func TestUnfreezeWithCgroupEvents(t *testing.T) {
+	dir := t.TempDir()
+	cgroupFile := filepath.Join(dir, "cgroup.freeze")
+	eventsFile := filepath.Join(dir, "cgroup.events")
+	os.WriteFile(cgroupFile, []byte("1"), 0644)
+	os.WriteFile(eventsFile, []byte("populated 1\nfrozen 0\n"), 0644)
+
+	f := &cgroupFreezer{cgroupRoot: dir}
+	if err := f.unfreeze(dir); err != nil {
+		t.Fatalf("unfreeze with events: %v", err)
+	}
+
+	data, _ := os.ReadFile(cgroupFile)
+	if string(data) != "0" {
+		t.Errorf("cgroup.freeze: got %q, want 0", string(data))
 	}
 }

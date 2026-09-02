@@ -230,7 +230,7 @@ export default defineConfig({
       // this project's contract. A spec that matches NO project is silently
       // skipped by Playwright — exit 0, no warning — so leaving it out would
       // reproduce the very blindness it was written to close.
-      testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts/,
+      testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|cloudaudit-dashboard\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         channel: CHANNEL,

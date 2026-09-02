@@ -36,7 +36,7 @@ func ValidLayers() []Layer {
 	}
 }
 
-// InScopeLayers returns the five layers deployed in this build.
+// InScopeLayers returns the active layers deployed in this build.
 func InScopeLayers() []Layer {
 	return []Layer{
 		LayerNetworkEgress,
@@ -44,6 +44,7 @@ func InScopeLayers() []Layer {
 		LayerApplicationSaaS,
 		LayerEndpointHost,
 		LayerBehavioural,
+		LayerCloudControlPlane,
 	}
 }
 

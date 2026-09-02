@@ -120,3 +120,51 @@ func TestRule_ScheduledJobExclusion_WithHint(t *testing.T) {
 		t.Error("scheduled_job with actor_hint should NOT be excluded")
 	}
 }
+
+func TestRule_AuditRBACPrivilegeEscalation_Symmetric(t *testing.T) {
+	var r Rule
+	for _, candidate := range DefaultRules() {
+		if candidate.Name == "audit_rbac_privilege_escalation" {
+			r = candidate
+			break
+		}
+	}
+	if r.Name == "" {
+		t.Fatal("rule audit_rbac_privilege_escalation not found")
+	}
+
+	a := map[string]any{"layer": "cloud_control_plane", "actor_hint": "kagent-sa", "timestamp": int64(100), "source": "apiserver"}
+	b := map[string]any{"layer": "behavioural", "actor_hint": "kagent-sa", "timestamp": int64(200), "source": "kagent-pod"}
+
+	// Forward evaluation
+	if !evalRule(t, r.CEL, a, b) {
+		t.Error("audit_rbac_privilege_escalation should match forward (a, b)")
+	}
+	// Reverse evaluation (commutativity invariant)
+	if !evalRule(t, r.CEL, b, a) {
+		t.Error("audit_rbac_privilege_escalation should match reverse (b, a)")
+	}
+}
+
+func TestRule_AuditSecretHarvesting_Symmetric(t *testing.T) {
+	var r Rule
+	for _, candidate := range DefaultRules() {
+		if candidate.Name == "audit_secret_harvesting_after_egress" {
+			r = candidate
+			break
+		}
+	}
+	if r.Name == "" {
+		t.Fatal("rule audit_secret_harvesting_after_egress not found")
+	}
+
+	a := map[string]any{"layer": "network_egress", "actor_hint": "sa-bot", "timestamp": int64(100), "source": "egress-filter"}
+	b := map[string]any{"layer": "cloud_control_plane", "actor_hint": "sa-bot", "timestamp": int64(150), "source": "k8s-audit"}
+
+	if !evalRule(t, r.CEL, a, b) {
+		t.Error("audit_secret_harvesting should match forward (a, b)")
+	}
+	if !evalRule(t, r.CEL, b, a) {
+		t.Error("audit_secret_harvesting should match reverse (b, a)")
+	}
+}

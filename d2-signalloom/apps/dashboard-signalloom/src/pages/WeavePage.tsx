@@ -35,11 +35,11 @@ const DISPLAY_LAYERS: SignalLayer[] = [
   'application_saas',
   'endpoint_host',
   'behavioural',
+  'cloud_control_plane',
 ]
 
 const ALL_LAYERS: SignalLayer[] = [
   ...DISPLAY_LAYERS,
-  'cloud_control_plane',
   'protocol',
 ]
 

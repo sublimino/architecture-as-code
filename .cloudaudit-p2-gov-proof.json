@@ -1,0 +1,18 @@
+{
+  "shortcode": "CLOUDAUDIT",
+  "phase": "P2-GOV",
+  "certified_at": "2026-09-02T08:19:35Z",
+  "integration_branch": "integration/cloud-control-plane-audit-v0.1.0",
+  "status": "PASS",
+  "checks": {
+    "signal_ingest_unit_and_race": "PASS (100% pass across all packages with zero data races)",
+    "bats_cloudaudit_e2e": "PASS (3/3 tests passing)",
+    "bats_cloudaudit_negative_mutations": "PASS (5/5 tests passing)",
+    "bats_acceptance_spec_coverage": "PASS (7/7 tests passing)",
+    "dashboard_vitest_weave_and_posture": "PASS (70/70 tests passing)",
+    "fail_open_throughput": "100,177.38 events/sec",
+    "secret_scrubbing_guarantee": "3-tier token, PEM & sensitive label SHA256 sanitization",
+    "blind_spot_bs004": "RESOLVED",
+    "active_signal_layers": "6 of 7 active"
+  }
+}

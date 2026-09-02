@@ -110,6 +110,30 @@ const observations: SignalObservation[] = [
     labels: { model: 'data-exfil-detector-v1', risk: 'medium' },
     description: 'Outbound payload sizes follow bimodal distribution — consistent with prompt/response rather than bulk transfer.',
   },
+  {
+    id: 'obs-cloud-001',
+    timestamp: '2026-08-15T02:15:00Z',
+    layer: 'cloud_control_plane',
+    fidelity: 'definitive',
+    source: 'k8s-apiserver-audit',
+    confidence: 0.98,
+    actor_hint: 'sa/ml-inference-sa',
+    raw_evidence_ref: 'k8s-audit://default/secrets/vault-token',
+    labels: { verb: 'get', resource: 'secrets', namespace: 'default', name: 'vault-token', status_code: '200' },
+    description: 'K8s APIServer audit: get secret default/vault-token by sa/ml-inference-sa',
+  },
+  {
+    id: 'obs-cloud-002',
+    timestamp: '2026-08-15T02:45:00Z',
+    layer: 'cloud_control_plane',
+    fidelity: 'definitive',
+    source: 'gcp-cloud-audit',
+    confidence: 0.96,
+    actor_hint: 'deployer-sa@osramp-demo.iam.gserviceaccount.com',
+    raw_evidence_ref: 'gcp-audit://osramp-demo/projects/osramp-demo',
+    labels: { service_name: 'iam.googleapis.com', method_name: 'google.iam.v1.SetIamPolicy', project_id: 'osramp-demo' },
+    description: 'GCP Audit: deployer-sa called google.iam.v1.SetIamPolicy on project osramp-demo',
+  },
 ]
 
 // ─── Provisional Actors ──────────────────────────────────────────────────────
@@ -126,6 +150,7 @@ const actors: ProvisionalActor[] = [
     evidence_chain: [
       { observation_id: 'obs-id-001', layer: 'identity_authorization', fidelity: 'definitive', contribution: 'Unregistered service account accessing secrets — strongest identity signal.', timestamp: '2026-08-15T02:12:00Z' },
       { observation_id: 'obs-net-001', layer: 'network_egress', fidelity: 'strong', contribution: 'High-volume outbound to OpenAI API confirms AI workload classification.', timestamp: '2026-08-15T02:14:00Z' },
+      { observation_id: 'obs-cloud-001', layer: 'cloud_control_plane', fidelity: 'definitive', contribution: 'APIServer audit log proves direct secret token harvesting.', timestamp: '2026-08-15T02:15:00Z' },
       { observation_id: 'obs-app-001', layer: 'application_saas', fidelity: 'strong', contribution: 'CSPM finding independently confirms shadow AI workload.', timestamp: '2026-08-15T02:30:00Z' },
       { observation_id: 'obs-net-002', layer: 'network_egress', fidelity: 'suggestive', contribution: 'GCS egress pattern consistent with model artifact retrieval.', timestamp: '2026-08-15T03:22:00Z' },
       { observation_id: 'obs-id-002', layer: 'identity_authorization', fidelity: 'strong', contribution: 'Same SA writing config outside its namespace scope.', timestamp: '2026-08-15T04:05:00Z' },
@@ -174,16 +199,16 @@ const coverage: CoverageStatement = {
     'application_saas',
     'endpoint_host',
     'behavioural',
+    'cloud_control_plane',
   ],
   blind_spots: [
     { id: 'bs-001', layer: 'network_egress', description: 'Local transport (Unix socket, localhost) — no Hubble visibility on loopback.' },
     { id: 'bs-002', layer: 'network_egress', description: 'Encrypted C2 channels using domain-fronting or steganographic payloads.' },
     { id: 'bs-003', layer: 'identity_authorization', description: 'Session inheritance via leaked tokens — no provenance chain for bearer reuse.' },
-    { id: 'bs-004', layer: 'cloud_control_plane', description: 'All cloud API signals — cloud control plane collector not deployed.' },
     { id: 'bs-005', layer: 'protocol', description: 'All protocol-level signals — protocol analyser not deployed.' },
   ],
   closeable_by_issuance: ['bs-003', 'bs-001'],
-  deployment_coverage: '5 of 7 signal layers active. 2 layers require additional collector deployment.',
+  deployment_coverage: '6 of 7 signal layers active. 1 layer requires additional collector deployment.',
 }
 
 // ─── Store Stats ────────────────────────────────────────────────────────────

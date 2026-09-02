@@ -108,8 +108,8 @@ describe('WeavePage', () => {
     renderPage()
     await waitFor(() => {
       const inactiveStatuses = screen.getAllByTestId('layer-status-inactive')
-      // 7 total layers - 5 active = 2 inactive
-      expect(inactiveStatuses.length).toBe(2)
+      // 7 total layers - 6 active = 1 inactive (protocol)
+      expect(inactiveStatuses.length).toBe(1)
     })
   })
 
@@ -166,13 +166,12 @@ describe('WeavePage', () => {
     }
   })
 
-  it('renders the five structural blind spots from fixture data', async () => {
+  it('renders the structural blind spots from fixture data', async () => {
     renderPage()
     await waitFor(() => {
       expect(screen.getByTestId('coverage-panel')).toBeInTheDocument()
     })
-    // The fixture has exactly 5 blind spots — one per structural gap
-    expect(fakeWeaveData.coverage.blind_spots).toHaveLength(5)
+    expect(fakeWeaveData.coverage.blind_spots).toHaveLength(4)
     // Each is rendered in the panel
     const panel = screen.getByTestId('coverage-panel')
     for (const bs of fakeWeaveData.coverage.blind_spots) {

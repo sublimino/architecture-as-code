@@ -20,6 +20,7 @@ import type {
 import { Section, StatCard } from '../components/DashKit'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import EvidenceDrawer, { LAYER_LABELS, LAYER_COLORS } from '../components/EvidenceDrawer'
+import { IdentityAuditPanel } from '../components/IdentityAuditPanel'
 import {
   fetchSignalFusionSteps,
   startSignalFusionRun,
@@ -249,6 +250,9 @@ export default function WeavePage() {
           ))}
         </div>
       </div>
+
+      {/* Live Cryptographic Identity & OpenBao Audit Panel */}
+      <IdentityAuditPanel />
 
       {/* Stat Cards */}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 24 }}>

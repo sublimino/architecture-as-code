@@ -35,5 +35,21 @@ func DefaultRules() []Rule {
 			CEL:         `a.layer == "behavioural" && a.fidelity == "suggestive" && a.actor_hint == ""`,
 			Negative:    true,
 		},
+		{
+			Name:        "workspace_volume_spike",
+			Description: "Workspace SaaS file download volume spike correlated with identity or network activity",
+			CEL:         `a.layer == "application_saas" && (b.layer == "identity_authorization" || b.layer == "network_egress") && a.actor_hint != "" && a.actor_hint == b.actor_hint && abs(a.timestamp - b.timestamp) <= 300`,
+		},
+		{
+			Name:        "workspace_external_oauth_grant",
+			Description: "External OAuth token grant observed from identity layer correlated with SaaS access",
+			CEL:         `a.layer == "identity_authorization" && b.layer == "application_saas" && a.actor_hint != "" && a.actor_hint == b.actor_hint`,
+		},
+		{
+			Name:        "workspace_suspicious_login_egress",
+			Description: "Suspicious login event from unrecognized IP range correlated with network egress or behavioral anomaly",
+			CEL:         `a.layer == "identity_authorization" && (b.layer == "network_egress" || b.layer == "behavioural") && a.actor_hint != "" && a.actor_hint == b.actor_hint`,
+		},
 	}
 }
+

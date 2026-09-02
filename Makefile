@@ -662,6 +662,15 @@ demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/lo
 test-signalfusion-images: ## Verify the Signal Fusion image identity guard against fake docker/kind clients (no cluster required).
 	bats test/signalfusion-images.bats
 
+.PHONY: demo-signalloom-workspace-up test-workspace-acceptance
+demo-signalloom-workspace-up: ## Deploy the Google Workspace agentic identity connector (mock/live Reports API polling).
+	@echo "Starting workspace-connector for Signal Loom Demo 4..."
+	@(cd d2-signalloom/apps/workspace-connector && go test ./...)
+
+test-workspace-acceptance: ## Run the complete Workspace Agentic Identity Streaming acceptance test suite.
+	bats test/workspace-identity-streaming.bats
+	(cd d2-signalloom/apps/workspace-connector && go test ./...)
+
 .PHONY: check-ci-build-parity
 check-ci-build-parity: ## Fail if CI omits a build or activation step demo-signalloom-up runs (no cluster required).
 	./scripts/check-ci-build-parity.sh

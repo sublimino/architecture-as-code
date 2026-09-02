@@ -250,40 +250,5 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "FUSION-P1-GOV: Phase 1 certified 100% PASS across FrostDB, multi-layer collectors, and CEL correlation (commit 49e66553)"
-  },
-  "441bc": {
-    "task_id": "441bc",
-    "reviewed_at": "2026-09-02T00:04:29Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "FUSION-P2-GOV: Final Governor certification complete. 100% tests PASS across all 11 cards, DoD verified (commit 2f0b520f)"
-  },
-  "4a3ce": {
-    "task_id": "4a3ce",
-    "reviewed_at": "2026-09-02T00:05:33Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "FUSION-P2-PRE: Dashboard routes and Vite build verified 0 TS errors, 38/38 tests pass 100%"
-  },
-  "6e50d": {
-    "task_id": "6e50d",
-    "reviewed_at": "2026-09-02T00:05:33Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "FUSION-P2-1: Real-time SSE streaming & live window join telemetry verified 14/14 tests pass 100%"
-  },
-  "91e73": {
-    "task_id": "91e73",
-    "reviewed_at": "2026-09-02T00:05:33Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "FUSION-P2-2: Explainability drawer with multi-layer provenance and confidence breakdown verified 8/8 tests pass 100%"
-  },
-  "b3edb": {
-    "task_id": "b3edb",
-    "reviewed_at": "2026-09-02T00:05:33Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "FUSION-P2-3: Acceptance test suite & Playwright registry validation verified 7/7 tests pass 100%"
   }
 }

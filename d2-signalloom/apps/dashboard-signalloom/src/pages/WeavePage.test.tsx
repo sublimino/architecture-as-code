@@ -305,4 +305,67 @@ describe('WeavePage', () => {
       expect(mockWeaveApi.seedFixtures).toHaveBeenCalledWith('test-token')
     })
   })
+
+  it('renders eBPF socket telemetry panel and provider badges', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue([
+      {
+        id: 'net-1',
+        timestamp: '2026-09-02T08:00:00Z',
+        layer: 'network_egress',
+        fidelity: 'strong',
+        source: 'sentinel.ebpf.socket_trace',
+        confidence: 0.85,
+        raw_evidence_ref: 'ebpf://1',
+        labels: { provider: 'OpenAI', destination: 'api.openai.com:443' },
+        description: 'OpenAI Egress',
+      },
+      {
+        id: 'net-2',
+        timestamp: '2026-09-02T08:05:00Z',
+        layer: 'network_egress',
+        fidelity: 'strong',
+        source: 'sentinel.ebpf.socket_trace',
+        confidence: 0.85,
+        raw_evidence_ref: 'ebpf://2',
+        labels: { provider: 'Anthropic', destination: 'api.anthropic.com:443' },
+        description: 'Anthropic Egress',
+      },
+    ])
+    mockWeaveApi.getActors.mockResolvedValue([])
+    mockWeaveApi.getCoverage.mockResolvedValue(fakeWeaveData.coverage)
+
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('ebpf-telemetry-status')).toBeInTheDocument()
+      expect(screen.getByText(/eBPF Socket Sentinel: Active/)).toBeInTheDocument()
+      expect(screen.getByTestId('provider-badge-openai')).toBeInTheDocument()
+      expect(screen.getByTestId('provider-badge-anthropic')).toBeInTheDocument()
+    })
+  })
+
+  it('renders telemetry gap fail-closed banner when gap events are present', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue([
+      {
+        id: 'gap-1',
+        timestamp: '2026-09-02T08:00:00Z',
+        layer: 'network_egress',
+        fidelity: 'suggestive',
+        source: 'sentinel.ebpf.gap_detector',
+        confidence: 0.4,
+        raw_evidence_ref: 'ebpf://gap',
+        labels: { type: 'telemetry_gap', dropped_count: '15', reason: 'ringbuf_full' },
+        description: 'Telemetry Gap',
+      },
+    ])
+    mockWeaveApi.getActors.mockResolvedValue([])
+    mockWeaveApi.getCoverage.mockResolvedValue(fakeWeaveData.coverage)
+
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('telemetry-gap-banner')).toBeInTheDocument()
+      expect(screen.getByText(/eBPF Socket Telemetry Gap Detected/)).toBeInTheDocument()
+      expect(screen.getByText(/eBPF Socket Sentinel: Degraded \/ Fail-Closed/)).toBeInTheDocument()
+    })
+  })
 })
+

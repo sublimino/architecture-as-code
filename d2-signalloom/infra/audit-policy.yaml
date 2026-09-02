@@ -1,0 +1,38 @@
+# FLUX ENVSUBST: NO
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - "RequestReceived"
+rules:
+  # Tier 1 & 2: Log Secret, ConfigMap, Token, and ServiceAccount access at Metadata level only (Strict Zero Plaintext Secret Invariant)
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets", "configmaps", "serviceaccounts"]
+      - group: "authentication.k8s.io"
+        resources: ["tokenreviews"]
+      - group: "certificates.k8s.io"
+        resources: ["certificatesigningrequests"]
+
+  # Tier 3: Log RBAC and Authorization changes at RequestResponse level (for privilege escalation detection)
+  - level: RequestResponse
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+      - group: "authorization.k8s.io"
+        resources: ["subjectaccessreviews", "localsubjectaccessreviews"]
+
+  # Log AI Agent workload mutations and pod lifecycle
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: ""
+        resources: ["pods", "pods/exec", "pods/portforward", "pods/attach"]
+      - group: "apps"
+        resources: ["deployments", "daemonsets", "statefulsets"]
+      - group: "kagent.dev"
+        resources: ["agents", "swarms"]
+
+  # Default fallback for control plane cluster changes
+  - level: Metadata
+    verbs: ["create", "update", "patch", "delete"]

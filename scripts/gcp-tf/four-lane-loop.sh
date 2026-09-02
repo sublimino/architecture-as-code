@@ -45,7 +45,7 @@ mkdir -p "$OUT"
 unset SSH_AUTH_SOCK
 export TF_STATE_BUCKET="${TF_STATE_BUCKET:-sl-port-over-sandbox-osramp-tfstate}"
 export GCP_TF_VAR_FILE="${GCP_TF_VAR_FILE:-../../deploy/gcp/sl-port-over-sandbox.tfvars}"
-export KUBESEC_AFM_ROOT="${KUBESEC_AFM_ROOT:-/home/andy/src/cp/kubesec-afm}"
+export KUBESEC_AFM_ROOT="${KUBESEC_AFM_ROOT:-${HOME}/src/cp/kubesec-afm}"
 export GOFLAGS="${GOFLAGS:--buildvcs=false}"
 PROJECT="${GCP_PROJECT:-sl-port-over-sandbox}"
 

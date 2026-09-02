@@ -1,0 +1,21 @@
+{
+  "timestamp": 1788336036,
+  "proposal": "Proposal \u2014 Signal Loom OpenBao & SPIRE Identity Audit Streamer (2026-Q3).md",
+  "shortcode": "BAOAUDIT",
+  "card": "BAOAUDIT-P2-GOV",
+  "gate": "Phase 2 Governor Gate Final Certification",
+  "status": "PASS",
+  "git": {
+    "commit": "011a9fa01007f159da98f92b4bd9a12f68338a26",
+    "branch": "integration/openbao-spire-audit-streamer-v0.1.0"
+  },
+  "verification_summary": {
+    "signal_ingest_race_sweep": "PASS (0 race conditions, 100% test coverage)",
+    "signalloom_stun_sentinel_sweep": "PASS (0 race conditions, 100% test coverage)",
+    "dashboard_vitest": "PASS (31/31 passing in IdentityAuditPanel & WeavePage)",
+    "dashboard_build": "PASS (bun run build clean in 2.87s)",
+    "cel_correlation_rules": "PASS (symmetric evaluation verified)",
+    "bats_preflights": "PASS (baoaudit-preflight 5/5, baoaudit-p2-preflight 4/4)",
+    "spec_registry_coverage": "PASS (7/7 tests green in test/acceptance-spec-coverage.bats)"
+  }
+}

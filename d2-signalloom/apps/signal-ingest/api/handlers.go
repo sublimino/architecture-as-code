@@ -62,6 +62,8 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/correlate", h.handleCorrelate)
 	mux.HandleFunc("POST /api/v1/collectors/seed", h.handleSeed)
 	mux.HandleFunc("GET /api/v1/store/stats", h.handleStoreStats)
+	mux.HandleFunc("GET /api/v1/stream", h.handleStream)
+	mux.HandleFunc("GET /api/v1/observations/stream", h.handleStream)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -396,3 +398,52 @@ func handleCoverage(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Initial connect frame
+	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\",\"time\":\"%s\"}\n\n", time.Now().UTC().Format(time.RFC3339))
+	flusher.Flush()
+
+	// Handle Last-Event-ID replay if provided
+	lastEventID := r.Header.Get("Last-Event-ID")
+	if lastEventID == "" {
+		lastEventID = r.URL.Query().Get("last_event_id")
+	}
+	if lastEventID != "" {
+		if t, err := time.Parse(time.RFC3339, lastEventID); err == nil {
+			obs, err := h.Store.QueryRange(r.Context(), store.Query{After: t, Limit: 100})
+			if err == nil {
+				for _, o := range obs {
+					data, _ := json.Marshal(o)
+					fmt.Fprintf(w, "id: %s\nevent: observation\ndata: %s\n\n", o.Timestamp.UTC().Format(time.RFC3339), string(data))
+				}
+				flusher.Flush()
+			}
+		}
+	}
+
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ":keepalive\n\n")
+			flusher.Flush()
+		}
+	}
+}
+

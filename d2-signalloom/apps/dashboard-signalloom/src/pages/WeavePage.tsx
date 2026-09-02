@@ -151,6 +151,18 @@ export default function WeavePage() {
   const closeableCount = coverage?.closeable_by_issuance.length ?? 0
   const totalBlindSpots = coverage?.blind_spots.length ?? 0
 
+  const activeGaps = observations.filter(
+    (o) => o.layer === 'network_egress' && o.labels?.type === 'telemetry_gap',
+  )
+  const isTelemetryDegraded = activeGaps.length > 0
+
+  const egressObs = observations.filter((o) => o.layer === 'network_egress' && o.labels?.type !== 'telemetry_gap')
+  const providerCounts: Record<string, number> = {}
+  egressObs.forEach((o) => {
+    const p = o.labels?.provider || 'Unknown'
+    providerCounts[p] = (providerCounts[p] || 0) + 1
+  })
+
   return (
     <div data-testid="weave-page">
       {/* Page Header */}
@@ -162,6 +174,80 @@ export default function WeavePage() {
           Signal observations from {DISPLAY_LAYERS.length} active layers, converging on provisional actors.
           Confidence scores are derived from multi-layer evidence correlation.
         </p>
+      </div>
+
+      {/* Telemetry Gap Fail-Closed Alert Banner */}
+      {isTelemetryDegraded && (
+        <div
+          data-testid="telemetry-gap-banner"
+          style={{
+            marginBottom: 20,
+            padding: '12px 16px',
+            borderRadius: 6,
+            background: 'var(--surface-amber, rgba(245, 158, 11, 0.1))',
+            border: '1px solid var(--amber)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--amber)' }}>
+              eBPF Socket Telemetry Gap Detected ({activeGaps.length} gap events)
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text)', marginTop: 2 }}>
+              Kernel ring buffer or sequence gap observed. Fail-closed security invariant active: clean egress assertions are invalidated.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live eBPF Network Telemetry Panel */}
+      <div
+        data-testid="ebpf-telemetry-status"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+          marginBottom: 20,
+          padding: '10px 16px',
+          background: 'var(--surface2)',
+          borderRadius: 6,
+          border: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600 }}>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: isTelemetryDegraded ? 'var(--amber)' : 'var(--teal)',
+            }}
+          />
+          <span>eBPF Socket Sentinel: {isTelemetryDegraded ? 'Degraded / Fail-Closed' : 'Active (Live Tracing)'}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} data-testid="ebpf-provider-badges">
+          {Object.entries(providerCounts).map(([provider, count]) => (
+            <span
+              key={provider}
+              data-testid={`provider-badge-${provider.toLowerCase()}`}
+              style={{
+                fontSize: 11,
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: 'var(--surface1)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+              }}
+            >
+              {provider}: <strong>{count}</strong>
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* Stat Cards */}

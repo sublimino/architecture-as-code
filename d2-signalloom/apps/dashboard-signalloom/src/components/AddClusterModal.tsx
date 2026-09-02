@@ -5,7 +5,7 @@
  * Endpoint. On submit, the cluster is added to a local in-memory list (no
  * backend call). A success toast confirms the add.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type ConnectionMethod = 'kubeconfig' | 'service-account' | 'api-endpoint'
 
@@ -19,7 +19,7 @@ export interface NewClusterEntry {
 }
 
 interface Props {
-  onAdd: (entry: NewClusterEntry) => void
+  onAdd: (cluster: NewClusterEntry) => void
   onClose: () => void
 }
 
@@ -47,6 +47,15 @@ export default function AddClusterModal({ onAdd, onClose }: Props) {
   const [connectionValue, setConnectionValue] = useState('')
   const [apiToken, setApiToken] = useState('')
   const [success, setSuccess] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+      }
+    }
+  }, [])
 
   const canSubmit = name.trim().length > 0 && connectionValue.trim().length > 0
     && (method !== 'api-endpoint' || apiToken.trim().length > 0)
@@ -62,7 +71,8 @@ export default function AddClusterModal({ onAdd, onClose }: Props) {
     })
 
     setSuccess(true)
-    setTimeout(() => onClose(), 1500)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => onClose(), 1500)
   }
 
   return (

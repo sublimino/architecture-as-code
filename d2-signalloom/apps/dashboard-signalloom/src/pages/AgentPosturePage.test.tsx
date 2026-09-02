@@ -372,16 +372,14 @@ describe('AgentPosturePage — Signal Evidence claims match the data', () => {
     renderPage()
     await screen.findByText('Signal Evidence')
 
-    // The fixture's own coverage statement says 5 of 7. Those two dark layers
-    // can never produce a contradicting observation, so if the page does not
-    // state them the bar reads as an all-clear over a partial picture.
-    expect(fakeWeaveData.coverage.covered_layers).toHaveLength(5)
+    // The fixture's own coverage statement says 6 of 7. The protocol layer
+    // has no collector deployed yet.
+    expect(fakeWeaveData.coverage.covered_layers).toHaveLength(6)
 
     expect(screen.getByTestId('posture-layer-coverage-ratio'))
-      .toHaveTextContent('5 of 7 layers instrumented')
+      .toHaveTextContent('6 of 7 layers instrumented')
 
     const blind = screen.getByTestId('posture-blind-spots')
-    expect(blind).toHaveTextContent('Cloud Control Plane')
     expect(blind).toHaveTextContent('Protocol')
     expect(blind.textContent).toContain('no collector')
   })
@@ -418,8 +416,8 @@ describe('AgentPosturePage — Signal Evidence claims match the data', () => {
     renderPage()
     await screen.findByText('Signal Evidence')
 
-    const cloud = screen.getByText('Cloud Control Plane').closest('[title]')
-    expect(cloud).toHaveAttribute('title', expect.stringContaining('collector not deployed'))
+    const protocol = screen.getByText('Protocol').closest('[title]')
+    expect(protocol).toHaveAttribute('title', expect.stringContaining('analyser not deployed'))
   })
 
   it('distinguishes a quiet collector from an absent one', async () => {

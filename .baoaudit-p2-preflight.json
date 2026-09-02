@@ -1,0 +1,17 @@
+{
+  "timestamp": 1788335694,
+  "proposal": "Proposal \u2014 Signal Loom OpenBao & SPIRE Identity Audit Streamer (2026-Q3).md",
+  "shortcode": "BAOAUDIT",
+  "card": "BAOAUDIT-P2-PRE",
+  "status": "PASS",
+  "git": {
+    "commit": "4555acd650f381e5d4f533e6ca638ba56f5070a8",
+    "branch": "integration/openbao-spire-audit-streamer-v0.1.0"
+  },
+  "p2_preflight_gates": {
+    "vitest_dashboard": "PASS (2795/2795 passing across 138 test files)",
+    "cel_correlation_engine": "PASS (all CEL tests passing in signal-ingest/correlation)",
+    "acceptance_coverage": "PASS (100% spec registry coverage)",
+    "bats_suite": "PASS (4/4 tests green in test/baoaudit-p2-preflight.bats)"
+  }
+}

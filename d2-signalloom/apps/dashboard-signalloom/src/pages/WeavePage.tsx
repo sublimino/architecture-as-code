@@ -184,7 +184,7 @@ export default function WeavePage() {
             marginBottom: 20,
             padding: '12px 16px',
             borderRadius: 6,
-            background: 'var(--surface-amber, rgba(245, 158, 11, 0.1))',
+            background: 'rgba(245, 158, 11, 0.1)',
             border: '1px solid var(--amber)',
             display: 'flex',
             alignItems: 'center',
@@ -239,7 +239,7 @@ export default function WeavePage() {
                 fontSize: 11,
                 padding: '2px 8px',
                 borderRadius: 4,
-                background: 'var(--surface1)',
+                background: 'var(--surface)',
                 border: '1px solid var(--border)',
                 color: 'var(--text)',
               }}

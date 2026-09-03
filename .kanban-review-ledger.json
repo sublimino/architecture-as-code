@@ -120,10 +120,10 @@
   },
   "": {
     "task_id": "",
-    "reviewed_at": "2026-08-31T06:58:43Z",
+    "reviewed_at": "2026-09-03T16:14:18Z",
     "reviewer": "cpai-opencode",
     "verdict": "fail",
-    "reason": "Governor live gate failed: force_reconcile rejects all twenty requests because generated UTC requestedAt is not greater than stored +01:00 lastHandledReconcileAt; no 20/20 proof exists."
+    "reason": "Required target and root race gate are absent; qualified errata recorded."
   },
   "9d859": {
     "task_id": "9d859",
@@ -257,5 +257,12 @@
     "reviewer": "cpai-opencode",
     "verdict": "fail",
     "reason": "Governor blocked: required test-celmesh-p1-gov target absent (exit 2); required root go test -race cannot resolve module (exit 1); P1 prerequisites carry failed or malformed errata; cost command rejects mandated --update-table option."
+  },
+  "0304b": {
+    "task_id": "0304b",
+    "reviewed_at": "2026-09-03T16:15:01Z",
+    "reviewer": "cpai-opencode",
+    "verdict": "fail",
+    "reason": "Required target absent (exit 2); root race gate cannot select CELMesh module (exit 1); qualified errata recorded."
   }
 }

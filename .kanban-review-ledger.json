@@ -250,5 +250,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "FUSION-P1-GOV: Phase 1 certified 100% PASS across FrostDB, multi-layer collectors, and CEL correlation (commit 49e66553)"
+  },
+  "3c264": {
+    "task_id": "3c264",
+    "reviewed_at": "2026-09-03T08:35:08Z",
+    "reviewer": "cpai-opencode",
+    "verdict": "fail",
+    "reason": "Governor blocked: required test-celmesh-p1-gov target absent (exit 2); required root go test -race cannot resolve module (exit 1); P1 prerequisites carry failed or malformed errata; cost command rejects mandated --update-table option."
   }
 }

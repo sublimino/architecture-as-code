@@ -21,6 +21,9 @@
   /* legacy aliases kept for existing components */
   --warning: #D97706;
 
+  /* App container maximum ceiling — default 1600px, customizable via WidthToggle */
+  --content-max-width: 1600px;
+
   --motion-fast: .15s;
   --motion-med: .45s;
   --motion-slow: .5s;

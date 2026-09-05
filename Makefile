@@ -1168,23 +1168,53 @@ signalloom-up: ## Restore Signal Loom frontend to the cluster.
 acceptance-test: ## Run browser-driven acceptance tests (Playwright).
 	./scripts/acceptance-test.sh
 
-##@ Public tunnel (ngrok)
+##@ Remote & Public access (Tailscale)
+# SignalLoom uses a contract-first Dex single-issuer lease mechanism.
+# Only one origin (Funnel, Serve, or IAP) can publish at a time.
+# If a lease collision occurs:
+#   1. Check status:   make public-status  (or make serve-status)
+#   2. Release lease:  make public-down    (or make serve-down)
+#   3. Bring up:       make public         (or make serve)
+
+.PHONY: serve
+serve: ## Expose SignalLoom on the Tailnet via Tailscale serve (private to tailnet).
+	./scripts/public-tunnel.sh serve
+
+.PHONY: serve-down
+serve-down: ## Stop serving on the Tailnet and release Dex origin lease.
+	./scripts/public-tunnel.sh serve-down
+
+.PHONY: serve-status
+serve-status: ## Show Tailscale serve status, MagicDNS URL, and Dex lease.
+	@./scripts/public-tunnel.sh status || true
+
+.PHONY: funnel
+funnel: ## Expose SignalLoom to the public internet via Tailscale Funnel.
+	./scripts/public-tunnel.sh funnel
+
+.PHONY: funnel-down
+funnel-down: ## Remove public Funnel listener (leaves Tailnet serve active).
+	./scripts/public-tunnel.sh funnel-down
+
+.PHONY: funnel-status
+funnel-status: ## Show Tailscale Funnel status and public URL.
+	@./scripts/public-tunnel.sh status || true
 
 .PHONY: public
-public: ## Expose SignalLoom publicly via ngrok tunnel (cookie-gated).
-	./scripts/public-tunnel.sh up
+public: ## Expose SignalLoom publicly via Tailscale Funnel (alias for 'funnel').
+	./scripts/public-tunnel.sh funnel
 
 .PHONY: public-down
-public-down: ## Tear down the public tunnel and restore Dex config.
+public-down: ## Tear down Tailscale Funnel and Serve, restore Dex config.
 	./scripts/public-tunnel.sh down
 
 .PHONY: public-status
-public-status: ## Show public tunnel status and URL.
-	./scripts/public-tunnel.sh status
+public-status: ## Show public tunnel / Tailscale status and URL.
+	@./scripts/public-tunnel.sh status || true
 
 .PHONY: public-test
-public-test: ## Run acceptance tests against the public ngrok URL.
-	@url=$$(./scripts/public-tunnel.sh url) || { echo "No tunnel running; run 'make public' first"; exit 1; }; \
+public-test: ## Run acceptance tests against the active public/serve URL.
+	@url=$$(./scripts/public-tunnel.sh url) || { echo "No tunnel running; run 'make serve' or 'make funnel' first"; exit 1; }; \
 	DASHBOARD_URL="$$url" \
 	SIGNALLOOM_API_URL="$$url" \
 	SIGNALLOOM_DEX_URL="$$url" \

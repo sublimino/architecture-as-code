@@ -133,6 +133,11 @@ DEX_ORIGIN_KEY_METHOD="PUBLIC_ORIGIN_METHOD"
 DEX_ORIGIN_KEY_OWNER="PUBLIC_ORIGIN_OWNER"
 DEX_ORIGIN_KEY_SINCE="PUBLIC_ORIGIN_SINCE"
 
+# Returns 0 if the dex-origin mechanism is loaded and callable.
+dex_origin_available() {
+  declare -f dex_origin_apply >/dev/null 2>&1
+}
+
 # ── Validation ───────────────────────────────────────────────────────
 #
 # Pure. No cluster, no network, no side effects — which is what makes the

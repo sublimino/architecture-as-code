@@ -53,3 +53,16 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "signal-ingest: resolver false-merge regression corpus passes with false-merge==0 across all cases" {
+  run bash -c "cd \"$ingest_dir\" && LC_ALL=C LANG=C go test -v -run TestFalseMergeRegression_PermanentZeroGate ./correlation"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"False-Merges=0"* ]]
+}
+
+@test "signal-ingest: end-to-end signal -> resolve -> attest -> who-authorized full pipeline test passes" {
+  run bash -c "cd \"$ingest_dir\" && LC_ALL=C LANG=C go test -v -run TestEndToEndAttestedAuthorizationChain_FullPipeline ./api"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Completeness Status:         true"* ]]
+}
+
+

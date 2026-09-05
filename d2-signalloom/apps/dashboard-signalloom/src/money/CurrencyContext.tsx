@@ -30,6 +30,7 @@ import {
   formatConverted,
   formatConversionNote,
   formatAsOfNote,
+  MONEY_UNAVAILABLE,
   type FormatOptions,
 } from './format'
 
@@ -146,9 +147,9 @@ export interface MoneyRenderer {
    * data — it is per-org and cannot be assumed. See types/compliance.ts for
    * the constant this replaced and why it was a coincidence.
    */
-  fmtMoney: (m: Money, options?: FormatOptions) => string
+  fmtMoney: (m: Money | number | null | undefined, options?: FormatOptions) => string
   /** The Converted behind a figure, for callers that need the working. */
-  convertMoney: (m: Money) => Converted | null
+  convertMoney: (m: Money | number | null | undefined) => Converted | null
   /**
    * Provenance line for a document reported in `sourceCurrency`: the rate and
    * its effective date, or null when nothing was converted and there is
@@ -178,7 +179,12 @@ export function useMoney(): MoneyRenderer {
     const target = currency
     // No provider mounted: show each figure in its own currency, unconverted.
     // The only truthful answer without a user preference — see the file header.
-    const convertMoney = (m: Money): Converted | null => convert(m, target ?? m.currency)
+    const convertMoney = (m: Money | number | null | undefined): Converted | null => {
+      if (m === null || m === undefined) return null
+      const moneyObj: Money = typeof m === 'number' ? { amount: m, currency: 'GBP' } : m
+      if (!moneyObj || typeof moneyObj !== 'object') return null
+      return convert(moneyObj, target ?? moneyObj.currency)
+    }
 
     // One probe per source currency answers whether a disclosure line is needed,
     // since every figure in a document shares its currency.
@@ -187,10 +193,15 @@ export function useMoney(): MoneyRenderer {
 
     return {
       currency: target,
-      fmtMoney: (m, options) => formatConverted(convertMoney(m), options),
+      fmtMoney: (m, options) => {
+        if (m === null || m === undefined) return MONEY_UNAVAILABLE
+        const moneyObj: Money = typeof m === 'number' ? { amount: m, currency: 'GBP' } : m
+        if (!moneyObj || typeof moneyObj !== 'object') return MONEY_UNAVAILABLE
+        return formatConverted(convertMoney(moneyObj), options)
+      },
       convertMoney,
-      noteFor: (source) => formatConversionNote(probe(source)),
-      asOfFor: (source) => formatAsOfNote(probe(source)),
+      noteFor: (source) => source ? formatConversionNote(probe(source)) : null,
+      asOfFor: (source) => source ? formatAsOfNote(probe(source)) : null,
     }
   }, [currency])
 }

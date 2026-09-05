@@ -121,7 +121,7 @@ export default function CompliancePolicyPage() {
           <StatCard label="Total Checks" value={String(summary.totalChecks)} sub={`${summary.passed} passed`} accent={colors.cyanLoom} />
           <StatCard label="Passed" value={String(summary.passed)} sub={fmtPct(summary.passed, summary.totalChecks)} accent={colors.tealLoom} />
           <StatCard label="Failed" value={String(summary.failed)} sub={fmtPct(summary.failed, summary.totalChecks)} accent={summary.failed > 0 ? colors.red : colors.tealLoom} />
-          <StatCard label="Total Exposure" value={fmtMoney(summary.totalCarried)} sub="carried risk" accent={summary.totalCarried.amount > 0 ? colors.amber : colors.tealLoom} />
+          <StatCard label="Total Exposure" value={fmtMoney(summary.totalCarried ?? summary.carried)} sub="carried risk" accent={(summary.totalCarried?.amount ?? summary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom} />
         </div>
       )}
 
@@ -144,7 +144,7 @@ export default function CompliancePolicyPage() {
                   })}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {fw.passedControls}/{fw.totalControls} controls passing ({coverage}%) | {fmtMoney(fw.totalExposure)} exposure
+                  {fw.passedControls}/{fw.totalControls} controls passing ({coverage}%) | {fmtMoney(fw.totalExposure ?? fw.exposure)} exposure
                 </div>
               </div>
             )
@@ -193,7 +193,7 @@ export default function CompliancePolicyPage() {
                 />
                 {' '}{fmtPct(fw.passedControls, fw.totalControls)}
               </td>
-              <td style={td}>{fmtMoney(fw.totalExposure)}</td>
+              <td style={td}>{fmtMoney(fw.totalExposure ?? fw.exposure)}</td>
             </tr>
           ))}
         </Table>

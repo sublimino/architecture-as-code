@@ -155,7 +155,10 @@ export function formatAmount(
 }
 
 /** Format a `Money` in its own currency — no conversion implied. */
-export function formatMoney(m: Money, options: FormatOptions = {}): string {
+export function formatMoney(m: Money | number | null | undefined, options: FormatOptions = {}): string {
+  if (m === null || m === undefined) return MONEY_UNAVAILABLE
+  if (typeof m === 'number') return formatAmount(m, 'GBP', options)
+  if (typeof m !== 'object' || !Number.isFinite(m.amount)) return MONEY_UNAVAILABLE
   return formatAmount(m.amount, m.currency, options)
 }
 
@@ -167,8 +170,8 @@ export function formatMoney(m: Money, options: FormatOptions = {}): string {
  * caller can forget, and there is no path through here that renders the source
  * amount labelled as the target currency.
  */
-export function formatConverted(c: Converted | null, options: FormatOptions = {}): string {
-  if (c === null) return MONEY_UNAVAILABLE
+export function formatConverted(c: Converted | null | undefined, options: FormatOptions = {}): string {
+  if (c === null || c === undefined) return MONEY_UNAVAILABLE
   return formatAmount(c.amount, c.currency, options)
 }
 

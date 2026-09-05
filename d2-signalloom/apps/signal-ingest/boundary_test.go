@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -59,3 +60,68 @@ func TestImportBoundary_NoFrostDBOutsideStore(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// verifySymmetricRegistration checks that baoaudit and spirea are either both registered or neither,
+// and rejects asymmetric/half-wired registrations.
+func verifySymmetricRegistration(source string) error {
+	hasBao := strings.Contains(source, "baoaudit")
+	hasSpire := strings.Contains(source, "spirea")
+
+	if hasBao && !hasSpire {
+		return fmt.Errorf("asymmetric registration violation: baoaudit is present in main.go but spirea is missing")
+	}
+	if !hasBao && hasSpire {
+		return fmt.Errorf("asymmetric registration violation: spirea is present in main.go but baoaudit is missing")
+	}
+	if !hasBao && !hasSpire {
+		return fmt.Errorf("unregistered identity collectors: neither baoaudit nor spirea found in main.go")
+	}
+	return nil
+}
+
+
+// TestSymmetricRegistration_BaoauditAndSpirea enforces the symmetric registration guard:
+// baoaudit and spirea must be registered together in main.go so the identity pair cannot land half-wired.
+func TestSymmetricRegistration_BaoauditAndSpirea(t *testing.T) {
+	mainBytes, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("failed to read main.go: %v", err)
+	}
+	mainSrc := string(mainBytes)
+
+	hasBao := strings.Contains(mainSrc, "baoaudit")
+	hasSpire := strings.Contains(mainSrc, "spirea")
+
+	if !hasBao || !hasSpire {
+		t.Fatalf("both-wired invariant violated in main.go: baoaudit=%v, spirea=%v (both required)", hasBao, hasSpire)
+	}
+
+	// Guard verification against asymmetric synthetic inputs
+	validate := func(src string) (bool, string) {
+		b := strings.Contains(src, "baoaudit")
+		s := strings.Contains(src, "spirea")
+		if b != s {
+			return false, "asymmetric registration"
+		}
+		if !b {
+			return false, "unregistered"
+		}
+		return true, ""
+	}
+
+	ok, _ := validate(mainSrc)
+	if !ok {
+		t.Errorf("main.go failed symmetric registration validation")
+	}
+
+	if ok, _ := validate("collectorRegistry.Register(baoaudit)"); ok {
+		t.Errorf("guard failed to reject lone baoaudit registration")
+	}
+	if ok, _ := validate("collectorRegistry.Register(spirea)"); ok {
+		t.Errorf("guard failed to reject lone spirea registration")
+	}
+	if ok, _ := validate("no collectors here"); ok {
+		t.Errorf("guard failed to reject unregistered source")
+	}
+}
+

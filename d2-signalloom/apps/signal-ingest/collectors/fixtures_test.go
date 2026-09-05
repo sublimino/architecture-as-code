@@ -101,3 +101,40 @@ func TestBehaviouralFixtures_NonEmpty(t *testing.T) {
 		t.Fatal("behavioural fixtures should not be empty")
 	}
 }
+
+func TestBaoAuditFixtures_NonEmpty(t *testing.T) {
+	obs := BaoAuditFixtures(time.Now().UTC())
+	if len(obs) == 0 {
+		t.Fatal("baoaudit fixtures should not be empty")
+	}
+	for _, o := range obs {
+		if o.Layer != model.LayerIdentityAuth {
+			t.Errorf("wrong layer: want %s, got %s", model.LayerIdentityAuth, o.Layer)
+		}
+		if o.PrincipalID == "" {
+			t.Errorf("fixture %s missing PrincipalID", o.ID)
+		}
+		if o.Labels["sa_principal"] == "" || o.Labels["spiffe_id"] == "" {
+			t.Errorf("fixture %s missing SA->SPIFFE join labels: %+v", o.ID, o.Labels)
+		}
+	}
+}
+
+func TestSPIREIssuanceFixtures_NonEmpty(t *testing.T) {
+	obs := SPIREIssuanceFixtures(time.Now().UTC())
+	if len(obs) == 0 {
+		t.Fatal("spirea fixtures should not be empty")
+	}
+	for _, o := range obs {
+		if o.Layer != model.LayerIdentityAuth {
+			t.Errorf("wrong layer: want %s, got %s", model.LayerIdentityAuth, o.Layer)
+		}
+		if o.PrincipalID == "" {
+			t.Errorf("fixture %s missing PrincipalID", o.ID)
+		}
+		if o.Labels["sa_principal"] == "" || o.Labels["spiffe_id"] == "" {
+			t.Errorf("fixture %s missing SA->SPIFFE join labels: %+v", o.ID, o.Labels)
+		}
+	}
+}
+

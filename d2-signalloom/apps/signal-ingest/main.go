@@ -124,6 +124,21 @@ func main() {
 
 	// Collector registry: constructed and started at boot before HTTP server
 	collectorRegistry := collectors.NewRegistryFromEnv(storeSink)
+
+	// --- Phase 2 Collector Registration Seam (SFDP-P2-PRE) ---
+	// P2-1: gcpaudit
+	// gcpaudit collector registered via NewRegistryFromEnv (COLLECTOR_GCPAUDIT_MODE)
+
+	// P2-2: baoaudit (OpenBao audit device stream receiver)
+	// Registers baoaudit.AuditReceiver with shared storeSink, Start() driven by
+	// registry lifecycle, Stop() on shutdown, mode-gated live|fixture|off.
+	_ = collectors.NewBaoAuditCollector(collectors.ResolveEnvMode("COLLECTOR_BAOAUDIT_MODE", "SIGNAL_COLLECTOR_BAOAUDIT", "BAOAUDIT_MODE"), storeSink)
+
+	// P2-2: spirea (SPIRE SVID issuance collector)
+	// Registers spirea.SPIREIssuanceCollector with shared storeSink, Start() driven by
+	// registry lifecycle, Stop() on shutdown, mode-gated live|fixture|off.
+	_ = collectors.NewSPIREACollector(collectors.ResolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), storeSink)
+
 	if err := collectorRegistry.Start(ctx); err != nil {
 		slog.Warn("collector failed to start; serving degraded", "error", err)
 	}

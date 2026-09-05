@@ -2,8 +2,15 @@
 package collectors
 
 import (
+	"encoding/json"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/baoaudit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/gcpaudit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/netebpf"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
@@ -602,3 +609,269 @@ func WorkspaceSaaSFixtures(baseTime time.Time) []model.Observation {
 		},
 	}
 }
+
+// --- Collector Falsification Twins (SFDP-P3-5) ---
+
+// GCPAuditAcceptTwinLogEntry returns a valid GCP Cloud Audit LogEntry for accept twin testing.
+func GCPAuditAcceptTwinLogEntry(baseTime time.Time) *gcpaudit.GCPLogEntry {
+	return &gcpaudit.GCPLogEntry{
+		InsertID:  "gcp-accept-twin-001",
+		LogName:   "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+		Timestamp: baseTime,
+		Severity:  "NOTICE",
+		Resource: gcpaudit.GCPMonitoredResource{
+			Type: "project",
+			Labels: map[string]string{
+				"project_id": "osramp-demo",
+			},
+		},
+		ProtoPayload: &gcpaudit.GCPAuditLogPayload{
+			Type:         "type.googleapis.com/google.cloud.audit.AuditLog",
+			ServiceName:  "iam.googleapis.com",
+			MethodName:   "google.iam.admin.v1.CreateRole",
+			ResourceName: "projects/osramp-demo/roles/custom.twinRunner",
+			AuthenticationInfo: gcpaudit.GCPAuthInfo{
+				PrincipalEmail: "twin-admin@osramp-demo.iam.gserviceaccount.com",
+			},
+			RequestMetadata: gcpaudit.GCPRequestMetadata{
+				CallerIP: "198.51.100.55",
+			},
+		},
+	}
+}
+
+// GCPAuditAcceptTwinPayload returns raw JSON bytes for the accept twin LogEntry.
+func GCPAuditAcceptTwinPayload(baseTime time.Time) []byte {
+	b, _ := json.Marshal(GCPAuditAcceptTwinLogEntry(baseTime))
+	return b
+}
+
+// GCPAuditRejectTwinPayload returns deliberately malformed JSON bytes that must be rejected.
+func GCPAuditRejectTwinPayload() []byte {
+	return []byte(`{"insertId": "gcp-corrupt-001", "protoPayload": "MALFORMED_NON_OBJECT"`)
+}
+
+// GCPAuditUnderReportTwinLogEntry returns an under-reporting LogEntry missing protoPayload & principal.
+func GCPAuditUnderReportTwinLogEntry(baseTime time.Time) *gcpaudit.GCPLogEntry {
+	return &gcpaudit.GCPLogEntry{
+		InsertID:  "gcp-underreport-001",
+		Timestamp: baseTime,
+		Severity:  "INFO",
+	}
+}
+
+// BaoAuditAcceptTwinEvent returns a valid OpenBao audit event for accept twin testing.
+func BaoAuditAcceptTwinEvent(baseTime time.Time) *baoaudit.OpenBaoAuditEvent {
+	return &baoaudit.OpenBaoAuditEvent{
+		Type: "response",
+		Time: baseTime.Format(time.RFC3339Nano),
+		Request: &baoaudit.AuditRequest{
+			ID:                  "req-bao-accept-twin-001",
+			Operation:           "read",
+			Path:                "secret/data/cardvault/twin-keys",
+			ClientTokenAccessor: "acc-twin-999",
+		},
+		Auth: &baoaudit.AuditAuth{
+			DisplayName: "token-cardvault-sa",
+			Policies:    []string{"cardvault-read"},
+			TokenType:   "service",
+			Metadata: map[string]string{
+				"spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"role":      "cardvault",
+			},
+		},
+	}
+}
+
+// BaoAuditAcceptTwinPayload returns JSON bytes for the accept twin OpenBao audit event.
+func BaoAuditAcceptTwinPayload(baseTime time.Time) []byte {
+	b, _ := json.Marshal(BaoAuditAcceptTwinEvent(baseTime))
+	return b
+}
+
+// BaoAuditRejectTwinPayload returns deliberately malformed JSON bytes.
+func BaoAuditRejectTwinPayload() []byte {
+	return []byte(`{"type":"response","request":{MALFORMED_JSON_UNCLOSED_OBJECT`)
+}
+
+// BaoAuditUnderReportTwinPayload returns an empty JSON object missing request and response.
+func BaoAuditUnderReportTwinPayload() []byte {
+	return []byte(`{}`)
+}
+
+// SPIREIssuanceAcceptTwinEvent returns a valid SPIRE SVID issuance event for accept twin testing.
+func SPIREIssuanceAcceptTwinEvent(baseTime time.Time) *spirea.SVIDIssuanceEvent {
+	return &spirea.SVIDIssuanceEvent{
+		Timestamp:      baseTime,
+		SPIFFEID:       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+		TrustDomain:    "cluster.local",
+		SVIDType:       spirea.SVIDTypeJWT,
+		IssuedAt:       baseTime,
+		ExpiresAt:      baseTime.Add(5 * time.Minute),
+		TTLSeconds:     300,
+		PodNamespace:   "fe-signalloom-agents",
+		ServiceAccount: "agent-cardvault-sa",
+	}
+}
+
+// SPIREIssuanceRejectTwinEvent returns an invalid SVID issuance event with an empty SPIFFE ID.
+func SPIREIssuanceRejectTwinEvent(baseTime time.Time) *spirea.SVIDIssuanceEvent {
+	return &spirea.SVIDIssuanceEvent{
+		Timestamp:   baseTime,
+		SPIFFEID:    "", // Missing SPIFFE ID must not yield an observation
+		TrustDomain: "cluster.local",
+	}
+}
+
+// NetEBPFAcceptTwinEvent returns a valid eBPF socket flow event for accept twin testing.
+func NetEBPFAcceptTwinEvent(baseTime time.Time) *netebpf.InboundFlowEvent {
+	return &netebpf.InboundFlowEvent{
+		TimestampNs:    uint64(baseTime.UnixNano()),
+		Time:           baseTime,
+		CgroupID:       54321,
+		SockCookie:     998877,
+		SeqNum:         1,
+		SrcIP:          "10.0.3.42",
+		DstIP:          "104.18.2.161",
+		SrcPort:        45678,
+		DstPort:        443,
+		Family:         2,
+		BytesSent:      2048,
+		PodName:        "agent-cardvault-0",
+		PodNamespace:   "fe-signalloom-agents",
+		ServiceAccount: "agent-cardvault-sa",
+		SPIFFEID:       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+		Provider:       "OpenAI",
+		Classification: "approved_model_egress",
+		Domain:         "api.openai.com",
+		NodeName:       "node-worker-1",
+	}
+}
+
+// NetEBPFRejectTwinEvent returns a nil flow event that must cause an error.
+func NetEBPFRejectTwinEvent() *netebpf.InboundFlowEvent {
+	return nil
+}
+
+// NetEBPFUnderReportTwinEvent returns a flow event with a sequence gap to test gap flagging.
+func NetEBPFUnderReportTwinEvent(baseTime time.Time) *netebpf.InboundFlowEvent {
+	ev := NetEBPFAcceptTwinEvent(baseTime)
+	ev.SeqNum = 9999 // Jump in sequence
+	return ev
+}
+
+// K8sAuditAcceptTwinEventList returns a valid K8s APIServer audit EventList for accept twin testing.
+func K8sAuditAcceptTwinEventList(baseTime time.Time) *audit.K8sEventList {
+	return &audit.K8sEventList{
+		Kind:       "EventList",
+		APIVersion: "audit.k8s.io/v1",
+		Items: []audit.K8sEvent{
+			{
+				AuditID:    "k8s-twin-audit-001",
+				Stage:      "ResponseComplete",
+				RequestURI: "/api/v1/namespaces/default/secrets/vault-token",
+				Verb:       "get",
+				User: audit.K8sUserInfo{
+					Username: "system:serviceaccount:default:sa-ml-pipeline",
+					UID:      "sa-uid-456",
+					Groups:   []string{"system:serviceaccounts", "system:serviceaccounts:default"},
+				},
+				SourceIPs: []string{"10.0.1.10"},
+				UserAgent: "kubectl/v1.28.0",
+				ObjectRef: &audit.K8sObjRef{
+					Resource:   "secrets",
+					Namespace:  "default",
+					Name:       "vault-token",
+					APIVersion: "v1",
+				},
+				ResponseStatus:  &audit.K8sRespStat{Code: 200},
+				StageTimestamp:  baseTime,
+				RequestReceived: baseTime,
+			},
+		},
+	}
+}
+
+// K8sAuditAcceptTwinPayload returns JSON bytes for K8s APIServer audit EventList.
+func K8sAuditAcceptTwinPayload(baseTime time.Time) []byte {
+	b, _ := json.Marshal(K8sAuditAcceptTwinEventList(baseTime))
+	return b
+}
+
+// K8sAuditRejectTwinPayload returns non-JSON bytes that must be rejected.
+func K8sAuditRejectTwinPayload() []byte {
+	return []byte("MALFORMED_NON_JSON_K8S_AUDIT_PAYLOAD")
+}
+
+// KAgentAcceptTwinSpan returns a valid Kagent telemetry span for accept twin testing.
+func KAgentAcceptTwinSpan(baseTime time.Time) kagent.TelemetrySpan {
+	return kagent.TelemetrySpan{
+		SpanID:         "kagent-twin-span-001",
+		TraceID:        "kagent-twin-trace-001",
+		RuntimeVersion: "0.9.9",
+		Name:           "Tool execution",
+		Timestamp:      baseTime,
+		Attributes: map[string]string{
+			"kagent.namespace":        "fe-signalloom-agents",
+			"kagent.agent_name":       "kagent-k8s-reader",
+			"service_account":         "kagent-k8s-reader",
+			"tool.name":               "k8s_get_resources",
+			"a2a.context_id":          "ctx-twin-001",
+			"a2a.task_id":             "task-twin-001",
+			"a2a.user_id":             "admin@kagent.dev",
+			"kagent.runtime_version": "0.9.9",
+		},
+	}
+}
+
+// KAgentRejectTwinSpan returns a malformed Kagent telemetry span missing required attributes.
+func KAgentRejectTwinSpan() kagent.TelemetrySpan {
+	return kagent.TelemetrySpan{
+		SpanID: "",
+		Name:   "",
+	}
+}
+
+// WorkspaceSaaSAcceptTwinObservation returns a valid Workspace SaaS observation.
+func WorkspaceSaaSAcceptTwinObservation(baseTime time.Time) model.Observation {
+	return model.Observation{
+		ID:             "ws-twin-accept-001",
+		Timestamp:      baseTime,
+		Layer:          model.LayerApplicationSaaS,
+		Fidelity:       model.FidelitySuggestive,
+		Source:         "google-workspace.drive-audit",
+		Confidence:     0.75,
+		ActorHint:      "workspace-analyst-sa@corp.internal",
+		RawEvidenceRef: "workspace://drive/activities/twin-export-001",
+		Labels: map[string]string{
+			"provider":     "google_workspace",
+			"event_type":   "workspace_volume_spike",
+			"event_name":   "drive_bulk_download",
+			"volume_bytes": "524288000",
+			"file_count":   "350",
+			"client_ip":    "198.51.100.42",
+		},
+		Description: "Google Workspace Drive audit: 500MB downloaded by workspace-analyst-sa@corp.internal",
+	}
+}
+
+// WorkspaceSaaSRejectTwinObservation returns an invalid observation failing model validation.
+func WorkspaceSaaSRejectTwinObservation() model.Observation {
+	return model.Observation{
+		ID:    "",
+		Layer: "invalid-layer",
+	}
+}
+
+// FixtureAcceptTwinObservations returns a valid full seed dataset.
+func FixtureAcceptTwinObservations(baseTime time.Time) []model.Observation {
+	return SeedAll(baseTime)
+}
+
+// FixtureRejectTwinObservations returns an invalid empty observation slice that fails layer coverage.
+func FixtureRejectTwinObservations() []model.Observation {
+	return []model.Observation{
+		{ID: ""},
+	}
+}
+

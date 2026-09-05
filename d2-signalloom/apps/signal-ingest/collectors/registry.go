@@ -124,7 +124,9 @@ func NewRegistryFromEnv(sink IngestionSink) *Registry {
 	return reg
 }
 
-func resolveEnvMode(keys ...string) Mode {
+// ResolveEnvMode checks the provided environment variable keys and parses the first non-empty value into a Mode.
+// Defaults to ModeOff if none of the keys are set.
+func ResolveEnvMode(keys ...string) Mode {
 	for _, k := range keys {
 		if val := os.Getenv(k); val != "" {
 			return ParseMode(val)
@@ -132,3 +134,8 @@ func resolveEnvMode(keys ...string) Mode {
 	}
 	return ModeOff
 }
+
+func resolveEnvMode(keys ...string) Mode {
+	return ResolveEnvMode(keys...)
+}
+

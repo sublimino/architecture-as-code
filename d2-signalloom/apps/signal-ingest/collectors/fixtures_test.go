@@ -275,3 +275,44 @@ func TestCollectorFalsificationTwinFixtures_ValidityAndIntegrity(t *testing.T) {
 	}
 }
 
+func TestAdversarialFixtures_CoverageAndValidation(t *testing.T) {
+	baseTime := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+
+	ha := AdversarialHiddenAliasFixtures(baseTime)
+	if len(ha) == 0 || len(ha)%2 != 0 {
+		t.Fatalf("AdversarialHiddenAliasFixtures returned %d observations, want non-empty even count", len(ha))
+	}
+	for _, o := range ha {
+		if err := o.Validate(); err != nil {
+			t.Errorf("hidden-alias observation %s failed validation: %v", o.ID, err)
+		}
+	}
+
+	sh := AdversarialSplitHumanFixtures(baseTime)
+	if len(sh) == 0 || len(sh)%2 != 0 {
+		t.Fatalf("AdversarialSplitHumanFixtures returned %d observations, want non-empty even count", len(sh))
+	}
+	for _, o := range sh {
+		if err := o.Validate(); err != nil {
+			t.Errorf("split-human observation %s failed validation: %v", o.ID, err)
+		}
+	}
+
+	sa := AdversarialShadowAgentFixtures(baseTime)
+	if len(sa) == 0 {
+		t.Fatalf("AdversarialShadowAgentFixtures returned 0 observations, want non-empty count")
+	}
+	for _, o := range sa {
+		if err := o.Validate(); err != nil {
+			t.Errorf("shadow-agent observation %s failed validation: %v", o.ID, err)
+		}
+	}
+
+	all := AdversarialAllFixtures(baseTime)
+	expectedTotal := len(ha) + len(sh) + len(sa)
+	if len(all) != expectedTotal {
+		t.Errorf("AdversarialAllFixtures returned %d, want %d", len(all), expectedTotal)
+	}
+}
+
+

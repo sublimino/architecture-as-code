@@ -238,3 +238,35 @@ func TestAuditWebhookReceiver_MalformedPayload(t *testing.T) {
 		t.Errorf("expected 400 Bad Request, got %d", wBad.Result().StatusCode)
 	}
 }
+
+func TestAuditWebhookReceiver_CloseDrainsWorkers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sink := &mockSink{}
+	receiver := NewWebhookReceiver(ctx, 100, 2, sink)
+
+	// Send 10 events directly to buffer
+	for i := 0; i < 10; i++ {
+		receiver.buffer <- &model.Observation{
+			ID:        fmt.Sprintf("queued-%d", i),
+			Timestamp: time.Now().UTC(),
+			Layer:     model.LayerCloudControlPlane,
+			Fidelity:  model.FidelityDefinitive,
+			Source:    "k8s-apiserver-audit",
+		}
+	}
+
+	// Call Close, which must drain all 10 events
+	receiver.Close()
+
+	if metrics := receiver.Metrics(); metrics["processed"].(uint64) != 10 {
+		t.Errorf("expected 10 processed events after Close, got %v", metrics["processed"])
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.observations) != 10 {
+		t.Fatalf("expected 10 observations in sink after Close, got %d", len(sink.observations))
+	}
+}

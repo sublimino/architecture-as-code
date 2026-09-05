@@ -96,6 +96,11 @@ func schemaDef() *schemapb.Schema {
 			{Name: "actor_hint", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
 			{Name: "raw_evidence_ref", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
 			{Name: "description", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			{Name: "principal_id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			{Name: "actor_id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			{Name: "session_id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			{Name: "impersonated_user", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			{Name: "delegation_depth", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_INT64}},
 			{
 				Name: "labels",
 				StorageLayout: &schemapb.StorageLayout{
@@ -127,10 +132,13 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 	// Build Arrow schema: static columns + dynamic label columns.
 	fields := []arrow.Field{
 		{Name: "actor_hint", Type: arrow.BinaryTypes.String},
+		{Name: "actor_id", Type: arrow.BinaryTypes.String},
 		{Name: "confidence", Type: arrow.PrimitiveTypes.Float64},
+		{Name: "delegation_depth", Type: arrow.PrimitiveTypes.Int64},
 		{Name: "description", Type: arrow.BinaryTypes.String},
 		{Name: "fidelity", Type: arrow.BinaryTypes.String},
 		{Name: "id", Type: arrow.BinaryTypes.String},
+		{Name: "impersonated_user", Type: arrow.BinaryTypes.String},
 	}
 	// Dynamic label columns are inserted alphabetically among other columns.
 	for _, k := range dynNames {
@@ -138,7 +146,9 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 	}
 	fields = append(fields,
 		arrow.Field{Name: "layer", Type: arrow.BinaryTypes.String},
+		arrow.Field{Name: "principal_id", Type: arrow.BinaryTypes.String},
 		arrow.Field{Name: "raw_evidence_ref", Type: arrow.BinaryTypes.String},
+		arrow.Field{Name: "session_id", Type: arrow.BinaryTypes.String},
 		arrow.Field{Name: "source", Type: arrow.BinaryTypes.String},
 		arrow.Field{Name: "timestamp", Type: arrow.PrimitiveTypes.Int64},
 	)
@@ -151,13 +161,19 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 		idx := 0
 		builder.Field(idx).(*array.StringBuilder).Append(o.ActorHint)
 		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(o.ActorID)
+		idx++
 		builder.Field(idx).(*array.Float64Builder).Append(o.Confidence)
+		idx++
+		builder.Field(idx).(*array.Int64Builder).Append(int64(o.DelegationDepth))
 		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(o.Description)
 		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(string(o.Fidelity))
 		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(o.ID)
+		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(o.ImpersonatedUser)
 		idx++
 		// Dynamic label columns
 		for _, k := range dynNames {
@@ -171,7 +187,11 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 		}
 		builder.Field(idx).(*array.StringBuilder).Append(string(o.Layer))
 		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(o.PrincipalID)
+		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(o.RawEvidenceRef)
+		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(o.SessionID)
 		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(o.Source)
 		idx++
@@ -301,6 +321,21 @@ func recordToObservations(r arrow.Record) []model.Observation {
 		}
 		if idx, ok := colIdx["description"]; ok {
 			o.Description = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx["principal_id"]; ok {
+			o.PrincipalID = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx["actor_id"]; ok {
+			o.ActorID = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx["session_id"]; ok {
+			o.SessionID = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx["impersonated_user"]; ok {
+			o.ImpersonatedUser = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx["delegation_depth"]; ok {
+			o.DelegationDepth = int(int64At(r.Column(idx), i))
 		}
 
 		// Extract dynamic label columns (prefixed with "labels.").

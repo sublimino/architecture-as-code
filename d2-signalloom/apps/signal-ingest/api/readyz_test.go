@@ -292,3 +292,55 @@ func TestReadyz_AgreesWithRealBackendState(t *testing.T) {
 		})
 	}
 }
+
+func TestReadyz_ReportsNotReadyWhenCollectorSourceUnhealthy(t *testing.T) {
+	wantErr := errors.New("spire agent socket disconnected")
+	h := &Handlers{CollectorHealth: func(context.Context) error { return wantErr }}
+
+	w := getReadyz(t, h)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz with unhealthy collector: got %d, want 503", w.Code)
+	}
+
+	body := decodeBody(t, w)
+	if body["status"] != "not_ready" {
+		t.Errorf(`status = %q, want "not_ready"`, body["status"])
+	}
+	if body["reason"] != "collector_source_unhealthy" {
+		t.Errorf(`reason = %q, want "collector_source_unhealthy"`, body["reason"])
+	}
+	if body["error"] != wantErr.Error() {
+		t.Errorf("error = %q, want %q", body["error"], wantErr.Error())
+	}
+}
+
+func TestReadyz_OffModeReady(t *testing.T) {
+	// A bare boot with audit and collectors unconfigured/off must return 200 ready.
+	h := &Handlers{}
+
+	w := getReadyz(t, h)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("readyz with no config (off mode): got %d, want 200", w.Code)
+	}
+	body := decodeBody(t, w)
+	if body["status"] != "ready" {
+		t.Errorf(`status = %q, want "ready"`, body["status"])
+	}
+}
+
+func TestReadyz_AuditWebhookRouteMounted(t *testing.T) {
+	h := &Handlers{}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	// Route must be registered (returns 503 since AuditReceiver is nil, not 404)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/audit/webhook", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("POST /api/v1/audit/webhook unconfigured: got %d, want 503 (404 would mean route not mounted)", w.Code)
+	}
+}

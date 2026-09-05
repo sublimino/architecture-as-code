@@ -108,6 +108,13 @@ type Observation struct {
 	RawEvidenceRef string            `json:"raw_evidence_ref"`
 	Labels         map[string]string `json:"labels,omitempty"`
 	Description    string            `json:"description"`
+
+	// Additive resolution fields (SFDP-P1-2)
+	PrincipalID      string `json:"principal_id,omitempty"`
+	ActorID          string `json:"actor_id,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
+	ImpersonatedUser string `json:"impersonated_user,omitempty"`
+	DelegationDepth  int    `json:"delegation_depth,omitempty"`
 }
 
 // Validate checks that all required fields are present and values are in range.

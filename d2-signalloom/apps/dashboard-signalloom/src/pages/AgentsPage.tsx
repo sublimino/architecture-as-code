@@ -651,7 +651,7 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
       onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
     >
-      <td style={{ padding: '11px 16px', maxWidth: 200 }}>
+      <td style={{ padding: '11px 16px', minWidth: 180, maxWidth: 320 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
           <span style={{ fontWeight: 500, fontSize: 13 }}>{agent.name || 'Unnamed agent'}</span>
           {hasViolations && (
@@ -878,20 +878,20 @@ function GovernedTab({
           <EmptyState kicker="No agents match your filter" body="Try clearing the search or changing the state filter." />
         )
       ) : (
-        <div className="card" role="region" aria-label="Governed agents table" tabIndex={0} style={{ padding: 0, overflow: 'auto', width: '100%' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <div className="card" role="region" aria-label="Governed agents table" tabIndex={0} style={{ padding: 0, overflowX: 'auto', width: '100%' }}>
+          <table style={{ width: '100%', minWidth: 1100, borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                <th style={TH_STYLE}>Name & ID</th>
-                <th style={TH_STYLE}>Type</th>
-                <th style={TH_STYLE}>Owner</th>
-                <th style={TH_STYLE}>State & Kernel</th>
-                <th style={TH_STYLE}>Credentials</th>
-                <th style={TH_STYLE}>EU AI Act</th>
-                <th style={TH_STYLE}>Compliance</th>
-                <th style={TH_STYLE}>Posture</th>
-                <th style={TH_STYLE}>Last Activity</th>
-                <th style={{ ...TH_STYLE, textAlign: 'right' }}>Actions</th>
+                <th style={{ ...TH_STYLE, minWidth: 180 }}>Name & ID</th>
+                <th style={{ ...TH_STYLE, minWidth: 100 }}>Type</th>
+                <th style={{ ...TH_STYLE, minWidth: 110 }}>Owner</th>
+                <th style={{ ...TH_STYLE, minWidth: 140 }}>State & Kernel</th>
+                <th style={{ ...TH_STYLE, minWidth: 130 }}>Credentials</th>
+                <th style={{ ...TH_STYLE, minWidth: 100 }}>EU AI Act</th>
+                <th style={{ ...TH_STYLE, minWidth: 110 }}>Compliance</th>
+                <th style={{ ...TH_STYLE, minWidth: 110 }}>Posture</th>
+                <th style={{ ...TH_STYLE, minWidth: 110 }}>Last Activity</th>
+                <th style={{ ...TH_STYLE, minWidth: 90, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             {agents.map((a) => {

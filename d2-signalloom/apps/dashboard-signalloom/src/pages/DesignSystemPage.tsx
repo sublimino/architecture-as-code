@@ -564,7 +564,7 @@ const NOT_SHOWN: { name: string; reason: string }[] = [
   { name: 'ApiKeyRotateModal', reason: 'Full-screen overlay; confirming rotates a real credential.' },
   { name: 'KeyboardShortcutsOverlay', reason: 'Full-screen overlay bound to a global key handler; open it anywhere with "?".' },
   { name: 'HelpModal', reason: 'Full-screen overlay; fetches help content from api/client.' },
-  { name: 'DemoToggle / ThemeToggle', reason: 'Position-fixed app-shell controls rendered once by App.tsx. A second copy would overlap the real one.' },
+  { name: 'DemoToggle / ThemeToggle / WidthToggle', reason: 'Position-fixed app-shell controls rendered once by App.tsx. A second copy would overlap the real one.' },
   { name: 'CredentialEvidencePanel', reason: 'Fetches evidence bundles from api/credentialEvidence for a specific credential.' },
   { name: 'RbacImporterPanel', reason: 'Uploads and parses a live RBAC dump through api/afmApi.' },
   { name: 'SuperCredInstructorPanel', reason: 'Drives a live demo runner against a cluster via api/demoRunner.' },

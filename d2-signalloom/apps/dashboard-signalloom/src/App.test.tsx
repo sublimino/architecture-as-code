@@ -36,6 +36,7 @@ vi.mock('./components/Sidebar', async (importOriginal) => ({
 }))
 vi.mock('./components/DemoToggle', () => ({ default: () => null }))
 vi.mock('./components/ThemeToggle', () => ({ default: () => null }))
+vi.mock('./components/WidthToggle', () => ({ default: () => null }))
 vi.mock('./components/KeyboardShortcutsOverlay', () => ({ default: () => null }))
 
 // React.lazy caches: a chunk resolves once and every later mount of that route

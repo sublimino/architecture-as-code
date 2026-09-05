@@ -7,6 +7,7 @@ import PixelLoader from './components/PixelLoader'
 import ProtectedRoute from './auth/ProtectedRoute'
 import DemoToggle from './components/DemoToggle'
 import ThemeToggle from './components/ThemeToggle'
+import WidthToggle from './components/WidthToggle'
 import KeyboardShortcutsOverlay from './components/KeyboardShortcutsOverlay'
 import SetupBanner from './components/onboarding/SetupBanner'
 import { CurrencyProvider } from './money/CurrencyContext'
@@ -307,6 +308,7 @@ export default function App() {
       <CurrencyProvider>
       <DemoToggle />
       <ThemeToggle />
+      <WidthToggle />
 
       {CONSENT_ENABLED && ConsentModal && isAuthenticated && consentRequired === true && (
         <Suspense fallback={null}>
@@ -364,7 +366,7 @@ export default function App() {
               totalCount={totalProviderCount}
             />
           )}
-          <div key={location.pathname} className="fade-in" style={{ padding: '28px 32px', maxWidth: 1172, margin: '0 auto', minHeight: '100%' }}>
+          <div key={location.pathname} className="fade-in" style={{ padding: '28px 32px', maxWidth: 'var(--content-max-width, 1600px)', width: '100%', margin: '0 auto', minHeight: '100%' }}>
             {/* 60vh, not the full height: the container this sits in is at
                 most one viewport tall and already spends 56px of it on
                 padding, so a taller box would toggle a scrollbar for the

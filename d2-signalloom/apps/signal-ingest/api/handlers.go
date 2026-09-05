@@ -44,6 +44,9 @@ type Handlers struct {
 
 	// CollectorHealth, when non-nil, polls source readiness for live collectors.
 	CollectorHealth func(context.Context) error
+
+	// IdentityStore provides access to the persisted identity and delegation graph (SFDP-P3-2).
+	IdentityStore any
 }
 
 // readyCheckTimeout bounds the /readyz connectivity check. It must stay under

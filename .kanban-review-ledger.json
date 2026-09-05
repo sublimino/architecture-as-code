@@ -299,5 +299,26 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "Foundation hardening tests verified green"
+  },
+  "d2b72": {
+    "task_id": "d2b72",
+    "reviewed_at": "2026-09-05T15:35:26Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Baoaudit and spirea registered and verified green"
+  },
+  "36157": {
+    "task_id": "36157",
+    "reviewed_at": "2026-09-05T15:35:26Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "K8s audit receiver and impersonation pipeline verified green"
+  },
+  "739a2": {
+    "task_id": "739a2",
+    "reviewed_at": "2026-09-05T15:35:27Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "KAgent tool-log resolver verified green"
   }
 }

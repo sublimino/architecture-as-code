@@ -124,7 +124,8 @@ func main() {
 
 	// Collector registry: constructed and started at boot before HTTP server.
 	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, and fixtures collectors to storeSink.
-	collectorRegistry := collectors.NewRegistryFromEnv(storeSink)
+	// Reuses the auditReceiver for k8saudit mounting.
+	collectorRegistry := collectors.NewRegistryFromEnvWithReceiver(storeSink, auditReceiver)
 
 	// --- Phase 2 Collector Registration Seam (SFDP-P2-PRE) ---
 	// P2-1: gcpaudit
@@ -140,6 +141,8 @@ func main() {
 	// registry lifecycle, Stop() on shutdown, mode-gated live|fixture|off.
 	_ = collectors.NewSPIREACollector(collectors.ResolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), storeSink)
 
+	// P2-3: k8saudit (K8s audit receiver webhook mount)
+	// Mounted via auditReceiver and registered in registry with live/fixture/off modes.
 	if err := collectorRegistry.Start(ctx); err != nil {
 		slog.Warn("collector failed to start; serving degraded", "error", err)
 	}

@@ -266,11 +266,17 @@ func NewK8sAuditCollector(mode Mode, sink IngestionSink) *K8sAuditCollector {
 	return &K8sAuditCollector{mode: mode, sink: sink}
 }
 
+// NewK8sAuditCollectorWithReceiver creates a K8sAuditCollector using an existing WebhookReceiver instance.
+func NewK8sAuditCollectorWithReceiver(mode Mode, sink IngestionSink, rcv *audit.WebhookReceiver) *K8sAuditCollector {
+	return &K8sAuditCollector{mode: mode, sink: sink, rcv: rcv}
+}
+
 func (c *K8sAuditCollector) Name() string { return "k8saudit" }
 func (c *K8sAuditCollector) Mode() Mode   { return c.mode }
 
 func (c *K8sAuditCollector) SetHealthFunc(fn func(ctx context.Context) error) { c.healthFn = fn }
 func (c *K8sAuditCollector) SetStartFunc(fn func(ctx context.Context) error)  { c.startFn = fn }
+func (c *K8sAuditCollector) SetReceiver(rcv *audit.WebhookReceiver)           { c.rcv = rcv }
 func (c *K8sAuditCollector) RawReceiver() *audit.WebhookReceiver              { return c.rcv }
 
 func (c *K8sAuditCollector) Start(ctx context.Context) error {
@@ -293,6 +299,8 @@ func (c *K8sAuditCollector) Start(ctx context.Context) error {
 	case ModeLive:
 		if c.rcv == nil {
 			c.rcv = audit.NewWebhookReceiver(ctx, 1000, 2, c.sink)
+		} else {
+			c.rcv.Start()
 		}
 		return nil
 	}

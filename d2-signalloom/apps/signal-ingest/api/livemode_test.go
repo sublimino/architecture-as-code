@@ -88,12 +88,12 @@ func TestLiveMode_EventFlowToStore(t *testing.T) {
 		t.Fatalf("marshal failed: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/audit/webhook", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, apiaudit.WebhookPath, bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("POST /api/v1/audit/webhook failed: got %d (body %s)", w.Code, w.Body.String())
+		t.Fatalf("POST %s failed: got %d (body %s)", apiaudit.WebhookPath, w.Code, w.Body.String())
 	}
 
 	// Poll until observation lands in store
@@ -115,11 +115,12 @@ func TestLiveMode_EventFlowToStore(t *testing.T) {
 	if obs.ID != "audit-live-flow-001" {
 		t.Errorf("expected ID audit-live-flow-001, got %s", obs.ID)
 	}
-	if obs.Layer != model.LayerCloudControlPlane {
-		t.Errorf("expected LayerCloudControlPlane, got %s", obs.Layer)
+	if obs.Layer != model.LayerIdentityAuth {
+		t.Errorf("expected LayerIdentityAuth, got %s", obs.Layer)
 	}
-	if obs.ActorHint != "system:serviceaccount:kagent:autonomous-agent-1" {
-		t.Errorf("expected actor hint system:serviceaccount:kagent:autonomous-agent-1, got %s", obs.ActorHint)
+	expectedSPIFFE := "spiffe://cluster.local/ns/kagent/sa/autonomous-agent-1"
+	if obs.ActorHint != expectedSPIFFE {
+		t.Errorf("expected actor hint %s, got %s", expectedSPIFFE, obs.ActorHint)
 	}
 
 	// Verify receiver telemetry counters
@@ -129,6 +130,93 @@ func TestLiveMode_EventFlowToStore(t *testing.T) {
 	}
 	if metrics["processed"].(uint64) != 1 {
 		t.Errorf("expected processed=1 in telemetry, got %v", metrics["processed"])
+	}
+}
+
+func TestLiveMode_GKEEventFlowToStore(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	memStore := store.NewMemoryStore()
+	engine, err := correlation.NewEngine(memStore)
+	if err != nil {
+		t.Fatalf("correlation engine creation failed: %v", err)
+	}
+
+	storeSink := collectors.NewStoreSink(memStore)
+	receiver := apiaudit.NewWebhookReceiver(ctx, 100, 2, storeSink)
+	defer receiver.Close()
+
+	handlers := &Handlers{
+		Store:         memStore,
+		Engine:        engine,
+		AuditReceiver: receiver,
+	}
+
+	mux := http.NewServeMux()
+	handlers.RegisterRoutes(mux)
+
+	gkeEntry := apiaudit.GKELogEntry{
+		InsertID:  "gke-live-flow-002",
+		Timestamp: time.Now().UTC(),
+		ProtoPayload: &apiaudit.GKEAuditLogPayload{
+			ServiceName:  "k8s.io",
+			MethodName:   "io.k8s.core.v1.namespaces.secrets.get",
+			ResourceName: "namespaces/default/secrets/vault-token",
+			AuthenticationInfo: apiaudit.GKEAuthInfo{
+				PrincipalEmail:   "alice@company.internal",
+				ImpersonatedUser: "system:serviceaccount:kagent:autonomous-agent-1",
+			},
+			Status: &apiaudit.GKEStatus{
+				Code: 200,
+			},
+		},
+	}
+
+	body, err := json.Marshal(gkeEntry)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, apiaudit.GKEWebhookPath, bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST %s failed: got %d (body %s)", apiaudit.GKEWebhookPath, w.Code, w.Body.String())
+	}
+
+	// Poll until observation lands in store
+	var stored []model.Observation
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stored, err = memStore.QueryRange(ctx, store.Query{})
+		if err == nil && len(stored) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if len(stored) != 1 {
+		t.Fatalf("expected 1 observation in store after GKE live flow, got %d", len(stored))
+	}
+
+	obs := stored[0]
+	if obs.ID != "gke-live-flow-002" {
+		t.Errorf("expected ID gke-live-flow-002, got %s", obs.ID)
+	}
+	if obs.Layer != model.LayerIdentityAuth {
+		t.Errorf("expected LayerIdentityAuth, got %s", obs.Layer)
+	}
+	expectedActing := "spiffe://cluster.local/ns/kagent/sa/autonomous-agent-1"
+	if obs.ActorHint != expectedActing {
+		t.Errorf("expected ActorHint %s, got %s", expectedActing, obs.ActorHint)
+	}
+	if obs.DelegationEdge == nil {
+		t.Fatalf("expected non-nil DelegationEdge")
+	}
+	if obs.DelegationDepth != 1 {
+		t.Errorf("expected DelegationDepth 1, got %d", obs.DelegationDepth)
 	}
 }
 
@@ -178,7 +266,7 @@ func TestHandlers_AuditWebhookRouteEndToEnd(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/audit/webhook", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, apiaudit.WebhookPath, bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 

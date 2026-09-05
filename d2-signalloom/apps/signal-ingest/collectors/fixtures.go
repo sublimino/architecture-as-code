@@ -875,3 +875,537 @@ func FixtureRejectTwinObservations() []model.Observation {
 	}
 }
 
+// AdversarialHiddenAliasFixtures generates observations where a single actor operates under multiple aliases
+// joined by a genuine deterministic identity edge (e.g. SPIFFE ID, GCP SA, or K8s SA).
+func AdversarialHiddenAliasFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		// Pair 1: agent-cardvault-0 vs vault-client-payments sharing SPIFFE SVID in spire-agent and openbao-audit
+		{
+			ID:             "adv-ha-001a",
+			Timestamp:      baseTime,
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityStrong,
+			Source:         "spire-agent",
+			Confidence:     0.9,
+			ActorHint:      "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			RawEvidenceRef: "spire://issuance/adv-ha-001a",
+			Labels: map[string]string{
+				"event_type":   "spire_svid_issuance",
+				"spiffe_id":    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"sa_principal": "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+				"caller_alias": "agent-cardvault-0",
+			},
+			Description: "Adversarial HA-01a: SPIRE SVID issuance for agent-cardvault-sa",
+		},
+		{
+			ID:             "adv-ha-001b",
+			Timestamp:      baseTime.Add(2 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "openbao-audit",
+			Confidence:     0.95,
+			ActorHint:      "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			RawEvidenceRef: "openbao://audit/adv-ha-001b",
+			Labels: map[string]string{
+				"spiffe_id":    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"sa_principal": "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+				"caller_alias": "vault-client-payments",
+			},
+			Description: "Adversarial HA-01b: OpenBao secret read under alias vault-client-payments with identical SPIFFE ID",
+		},
+		// Pair 2: pipeline-worker-east vs deployer-bot sharing GCP Service Account email in gcp-cloud-audit
+		{
+			ID:             "adv-ha-002a",
+			Timestamp:      baseTime.Add(5 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     0.95,
+			ActorHint:      "pipeline-runner@corp.iam.gserviceaccount.com",
+			PrincipalID:    "pipeline-runner@corp.iam.gserviceaccount.com",
+			RawEvidenceRef: "gcp://audit/adv-ha-002a",
+			Labels: map[string]string{
+				"principal_email": "pipeline-runner@corp.iam.gserviceaccount.com",
+				"project_id":      "corp-production",
+				"caller_alias":    "pipeline-worker-east",
+			},
+			Description: "Adversarial HA-02a: GCP audit log for pipeline-runner under alias pipeline-worker-east",
+		},
+		{
+			ID:             "adv-ha-002b",
+			Timestamp:      baseTime.Add(8 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     0.95,
+			ActorHint:      "pipeline-runner@corp.iam.gserviceaccount.com",
+			PrincipalID:    "pipeline-runner@corp.iam.gserviceaccount.com",
+			RawEvidenceRef: "gcp://audit/adv-ha-002b",
+			Labels: map[string]string{
+				"principal_email": "pipeline-runner@corp.iam.gserviceaccount.com",
+				"project_id":      "corp-production",
+				"caller_alias":    "deployer-bot",
+			},
+			Description: "Adversarial HA-02b: GCP audit log for pipeline-runner under alias deployer-bot",
+		},
+		// Pair 3: kagent-exec vs kagent-worker sharing K8s Service Account in k8s-apiserver-audit
+		{
+			ID:             "adv-ha-003a",
+			Timestamp:      baseTime.Add(10 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "k8s-apiserver-audit",
+			Confidence:     0.9,
+			ActorHint:      "system:serviceaccount:fe-signalloom-agents:kagent-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:kagent-sa",
+			RawEvidenceRef: "k8s://audit/adv-ha-003a",
+			Labels: map[string]string{
+				"sa_principal": "system:serviceaccount:fe-signalloom-agents:kagent-sa",
+				"workload":     "kagent-exec",
+			},
+			Description: "Adversarial HA-03a: K8s APIServer audit for kagent-sa via kagent-exec",
+		},
+		{
+			ID:             "adv-ha-003b",
+			Timestamp:      baseTime.Add(12 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "k8s-apiserver-audit",
+			Confidence:     0.9,
+			ActorHint:      "system:serviceaccount:fe-signalloom-agents:kagent-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:kagent-sa",
+			RawEvidenceRef: "k8s://audit/adv-ha-003b",
+			Labels: map[string]string{
+				"sa_principal": "system:serviceaccount:fe-signalloom-agents:kagent-sa",
+				"workload":     "kagent-worker",
+			},
+			Description: "Adversarial HA-03b: K8s APIServer audit for kagent-sa via kagent-worker",
+		},
+		// Pair 4: Multi-region checkout workload joined by SPIFFE ID across spire-agent and openbao-audit
+		{
+			ID:             "adv-ha-004a",
+			Timestamp:      baseTime.Add(15 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityStrong,
+			Source:         "spire-agent",
+			Confidence:     0.9,
+			ActorHint:      "spiffe://cluster.local/ns/payments/sa/checkout-sa",
+			PrincipalID:    "system:serviceaccount:payments:checkout-sa",
+			RawEvidenceRef: "spire://issuance/adv-ha-004a",
+			Labels: map[string]string{
+				"event_type":   "spire_svid_issuance",
+				"spiffe_id":    "spiffe://cluster.local/ns/payments/sa/checkout-sa",
+				"sa_principal": "system:serviceaccount:payments:checkout-sa",
+				"region":       "us-east-1",
+			},
+			Description: "Adversarial HA-04a: SPIRE SVID issuance in us-east-1 for checkout-sa",
+		},
+		{
+			ID:             "adv-ha-004b",
+			Timestamp:      baseTime.Add(17 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "openbao-audit",
+			Confidence:     0.95,
+			ActorHint:      "spiffe://cluster.local/ns/payments/sa/checkout-sa",
+			PrincipalID:    "system:serviceaccount:payments:checkout-sa",
+			RawEvidenceRef: "openbao://audit/adv-ha-004b",
+			Labels: map[string]string{
+				"spiffe_id":    "spiffe://cluster.local/ns/payments/sa/checkout-sa",
+				"sa_principal": "system:serviceaccount:payments:checkout-sa",
+				"region":       "us-west-2",
+			},
+			Description: "Adversarial HA-04b: OpenBao secret read in us-west-2 with same checkout-sa SPIFFE ID",
+		},
+		// Pair 5: Multi-tool coordinator with aliases agent-step-1 and agent-step-2 joined by GCP service account
+		{
+			ID:             "adv-ha-005a",
+			Timestamp:      baseTime.Add(20 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     0.95,
+			ActorHint:      "agent-coordinator@corp-prod.iam.gserviceaccount.com",
+			PrincipalID:    "agent-coordinator@corp-prod.iam.gserviceaccount.com",
+			RawEvidenceRef: "gcp://audit/adv-ha-005a",
+			Labels: map[string]string{
+				"principal_email": "agent-coordinator@corp-prod.iam.gserviceaccount.com",
+				"project_id":      "corp-prod",
+				"step":            "agent-step-1",
+			},
+			Description: "Adversarial HA-05a: GCP audit for agent-coordinator step 1",
+		},
+		{
+			ID:             "adv-ha-005b",
+			Timestamp:      baseTime.Add(22 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     0.95,
+			ActorHint:      "agent-coordinator@corp-prod.iam.gserviceaccount.com",
+			PrincipalID:    "agent-coordinator@corp-prod.iam.gserviceaccount.com",
+			RawEvidenceRef: "gcp://audit/adv-ha-005b",
+			Labels: map[string]string{
+				"principal_email": "agent-coordinator@corp-prod.iam.gserviceaccount.com",
+				"project_id":      "corp-prod",
+				"step":            "agent-step-2",
+			},
+			Description: "Adversarial HA-05b: GCP audit for agent-coordinator step 2",
+		},
+		// Pair 6: Cross-layer actor in k8s-apiserver-audit and openbao-audit linked by SPIFFE ID
+		{
+			ID:             "adv-ha-006a",
+			Timestamp:      baseTime.Add(25 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "k8s-apiserver-audit",
+			Confidence:     0.95,
+			ActorHint:      "spiffe://cluster.local/ns/prod-infra/sa/vault-agent",
+			PrincipalID:    "spiffe://cluster.local/ns/prod-infra/sa/vault-agent",
+			RawEvidenceRef: "k8s://audit/adv-ha-006a",
+			Labels: map[string]string{
+				"spiffe_id": "spiffe://cluster.local/ns/prod-infra/sa/vault-agent",
+			},
+			Description: "Adversarial HA-06a: K8s audit for vault-agent via SPIFFE",
+		},
+		{
+			ID:             "adv-ha-006b",
+			Timestamp:      baseTime.Add(28 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "openbao-audit",
+			Confidence:     0.95,
+			ActorHint:      "spiffe://cluster.local/ns/prod-infra/sa/vault-agent",
+			PrincipalID:    "system:serviceaccount:prod-infra:vault-agent",
+			RawEvidenceRef: "openbao://audit/adv-ha-006b",
+			Labels: map[string]string{
+				"spiffe_id":    "spiffe://cluster.local/ns/prod-infra/sa/vault-agent",
+				"sa_principal": "system:serviceaccount:prod-infra:vault-agent",
+			},
+			Description: "Adversarial HA-06b: OpenBao audit for vault-agent via SPIFFE",
+		},
+	}
+}
+
+// AdversarialSplitHumanFixtures generates observations where distinct principals share only a NAT/egress IP
+// or host IP, with NO deterministic identity edge between them. Collapsing them is a false merge.
+func AdversarialSplitHumanFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		// Pair 1: Two Google Workspace users sharing NAT IP 198.51.100.42
+		{
+			ID:             "adv-sh-001a",
+			Timestamp:      baseTime,
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "google-workspace.drive-audit",
+			Confidence:     0.7,
+			ActorHint:      "alice@example.com",
+			RawEvidenceRef: "workspace://drive/adv-sh-001a",
+			Labels: map[string]string{
+				"client_ip":  "198.51.100.42",
+				"src_ip":     "198.51.100.42",
+				"user_email": "alice@example.com",
+			},
+			Description: "Adversarial SH-01a: Google Workspace download by alice from NAT gateway 198.51.100.42",
+		},
+		{
+			ID:             "adv-sh-001b",
+			Timestamp:      baseTime.Add(30 * time.Second),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "google-workspace.drive-audit",
+			Confidence:     0.7,
+			ActorHint:      "bob@example.com",
+			RawEvidenceRef: "workspace://drive/adv-sh-001b",
+			Labels: map[string]string{
+				"client_ip":  "198.51.100.42",
+				"src_ip":     "198.51.100.42",
+				"user_email": "bob@example.com",
+			},
+			Description: "Adversarial SH-01b: Google Workspace download by bob from NAT gateway 198.51.100.42",
+		},
+		// Pair 2: Two distinct users accessing K8s APIServer from office NAT IP 203.0.113.50
+		{
+			ID:             "adv-sh-002a",
+			Timestamp:      baseTime.Add(2 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityStrong,
+			Source:         "k8s-apiserver-audit",
+			Confidence:     0.8,
+			ActorHint:      "system:user:carol",
+			PrincipalID:    "system:user:carol",
+			RawEvidenceRef: "k8s://audit/adv-sh-002a",
+			Labels: map[string]string{
+				"src_ip":    "203.0.113.50",
+				"client_ip": "203.0.113.50",
+			},
+			Description: "Adversarial SH-02a: K8s APIServer request by user carol from office NAT 203.0.113.50",
+		},
+		{
+			ID:             "adv-sh-002b",
+			Timestamp:      baseTime.Add(2*time.Minute + 15*time.Second),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityStrong,
+			Source:         "k8s-apiserver-audit",
+			Confidence:     0.8,
+			ActorHint:      "system:user:dave",
+			PrincipalID:    "system:user:dave",
+			RawEvidenceRef: "k8s://audit/adv-sh-002b",
+			Labels: map[string]string{
+				"src_ip":    "203.0.113.50",
+				"client_ip": "203.0.113.50",
+			},
+			Description: "Adversarial SH-02b: K8s APIServer request by user dave from office NAT 203.0.113.50",
+		},
+		// Pair 3: Two distinct workloads on the same node egressing from node IP 10.244.0.15
+		{
+			ID:             "adv-sh-003a",
+			Timestamp:      baseTime.Add(5 * time.Minute),
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "sentinel.ebpf.socket_trace",
+			Confidence:     0.4,
+			ActorHint:      "sa-analytics",
+			RawEvidenceRef: "ebpf://flow/adv-sh-003a",
+			Labels: map[string]string{
+				"src_ip":    "10.244.0.15",
+				"egress_ip": "10.244.0.15",
+				"workload":  "sa-analytics",
+			},
+			Description: "Adversarial SH-03a: Socket trace for sa-analytics from node 10.244.0.15",
+		},
+		{
+			ID:             "adv-sh-003b",
+			Timestamp:      baseTime.Add(5*time.Minute + 10*time.Second),
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "sentinel.ebpf.socket_trace",
+			Confidence:     0.4,
+			ActorHint:      "sa-reporting",
+			RawEvidenceRef: "ebpf://flow/adv-sh-003b",
+			Labels: map[string]string{
+				"src_ip":    "10.244.0.15",
+				"egress_ip": "10.244.0.15",
+				"workload":  "sa-reporting",
+			},
+			Description: "Adversarial SH-03b: Socket trace for sa-reporting from node 10.244.0.15",
+		},
+		// Pair 4: Two users on corporate VPN NAT IP 192.0.2.100 in SaaS audit
+		{
+			ID:             "adv-sh-004a",
+			Timestamp:      baseTime.Add(10 * time.Minute),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "slack-audit",
+			Confidence:     0.6,
+			ActorHint:      "eve@partner.org",
+			RawEvidenceRef: "slack://audit/adv-sh-004a",
+			Labels: map[string]string{
+				"src_ip":    "192.0.2.100",
+				"client_ip": "192.0.2.100",
+			},
+			Description: "Adversarial SH-04a: Slack audit for eve from VPN 192.0.2.100",
+		},
+		{
+			ID:             "adv-sh-004b",
+			Timestamp:      baseTime.Add(10*time.Minute + 20*time.Second),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "slack-audit",
+			Confidence:     0.6,
+			ActorHint:      "frank@partner.org",
+			RawEvidenceRef: "slack://audit/adv-sh-004b",
+			Labels: map[string]string{
+				"src_ip":    "192.0.2.100",
+				"client_ip": "192.0.2.100",
+			},
+			Description: "Adversarial SH-04b: Slack audit for frank from VPN 192.0.2.100",
+		},
+		// Pair 5: Two GCP IAM accounts accessing cloud console from ISP NAT IP 198.51.100.88
+		{
+			ID:             "adv-sh-005a",
+			Timestamp:      baseTime.Add(15 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     0.95,
+			ActorHint:      "admin-1@corp.com",
+			PrincipalID:    "admin-1@corp.com",
+			RawEvidenceRef: "gcp://audit/adv-sh-005a",
+			Labels: map[string]string{
+				"principal_email": "admin-1@corp.com",
+				"project_id":      "corp-prod",
+				"src_ip":          "198.51.100.88",
+			},
+			Description: "Adversarial SH-05a: GCP audit for admin-1 from NAT IP 198.51.100.88",
+		},
+		{
+			ID:             "adv-sh-005b",
+			Timestamp:      baseTime.Add(15*time.Minute + 45*time.Second),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     0.95,
+			ActorHint:      "admin-2@corp.com",
+			PrincipalID:    "admin-2@corp.com",
+			RawEvidenceRef: "gcp://audit/adv-sh-005b",
+			Labels: map[string]string{
+				"principal_email": "admin-2@corp.com",
+				"project_id":      "corp-prod",
+				"src_ip":          "198.51.100.88",
+			},
+			Description: "Adversarial SH-05b: GCP audit for admin-2 from NAT IP 198.51.100.88",
+		},
+		// Pair 6: Distinct actors in network egress sharing egress NAT IP 203.0.113.99
+		{
+			ID:             "adv-sh-006a",
+			Timestamp:      baseTime.Add(20 * time.Minute),
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "sentinel.ebpf.socket_trace",
+			Confidence:     0.35,
+			ActorHint:      "operator-alpha",
+			RawEvidenceRef: "ebpf://flow/adv-sh-006a",
+			Labels: map[string]string{
+				"src_ip":   "203.0.113.99",
+				"workload": "operator-alpha",
+			},
+			Description: "Adversarial SH-06a: Socket trace for operator-alpha from 203.0.113.99",
+		},
+		{
+			ID:             "adv-sh-006b",
+			Timestamp:      baseTime.Add(20*time.Minute + 15*time.Second),
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "sentinel.ebpf.socket_trace",
+			Confidence:     0.35,
+			ActorHint:      "operator-beta",
+			RawEvidenceRef: "ebpf://flow/adv-sh-006b",
+			Labels: map[string]string{
+				"src_ip":   "203.0.113.99",
+				"workload": "operator-beta",
+			},
+			Description: "Adversarial SH-06b: Socket trace for operator-beta from 203.0.113.99",
+		},
+	}
+}
+
+// AdversarialShadowAgentFixtures generates observations where an unauthenticated agent/action
+// presents no valid SPIFFE SVID or authenticated identity. It must resolve as provisional/unresolved,
+// and never merge into any authenticated real actor.
+func AdversarialShadowAgentFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		// Case 1: Unauthenticated socket flow to model provider API with missing SPIFFE SVID
+		{
+			ID:             "adv-sa-001",
+			Timestamp:      baseTime,
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "sentinel.ebpf.socket_trace",
+			Confidence:     0.35,
+			ActorHint:      "",
+			RawEvidenceRef: "ebpf://flow/adv-sa-001",
+			Labels: map[string]string{
+				"destination":     "api.openai.com:443",
+				"missing_svid":    "true",
+				"unauthenticated": "true",
+			},
+			Description: "Adversarial SA-01: Unauthenticated eBPF socket trace to api.openai.com without SVID",
+		},
+		// Case 2: Anonymous K8s APIServer probe without ServiceAccount credentials
+		{
+			ID:             "adv-sa-002",
+			Timestamp:      baseTime.Add(3 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "k8s-apiserver-audit",
+			Confidence:     0.3,
+			ActorHint:      "system:anonymous",
+			PrincipalID:    "system:anonymous",
+			RawEvidenceRef: "k8s://audit/adv-sa-002",
+			Labels: map[string]string{
+				"anonymous":    "true",
+				"svid_present": "false",
+			},
+			Description: "Adversarial SA-02: Anonymous K8s APIServer audit event without SVID",
+		},
+		// Case 3: Workspace bulk download without authentication envelope
+		{
+			ID:             "adv-sa-003",
+			Timestamp:      baseTime.Add(6 * time.Minute),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "google-workspace.drive-audit",
+			Confidence:     0.4,
+			ActorHint:      "",
+			RawEvidenceRef: "workspace://drive/adv-sa-003",
+			Labels: map[string]string{
+				"client_ip":  "198.51.100.200",
+				"auth_type":  "none",
+				"event_name": "bulk_download",
+			},
+			Description: "Adversarial SA-03: Workspace bulk export without authentication envelope",
+		},
+		// Case 4: OpenBao unauthenticated token lookup attempt without SPIFFE attestation
+		{
+			ID:             "adv-sa-004",
+			Timestamp:      baseTime.Add(9 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "openbao-audit",
+			Confidence:     0.3,
+			ActorHint:      "",
+			RawEvidenceRef: "openbao://audit/adv-sa-004",
+			Labels: map[string]string{
+				"auth_status": "unauthenticated",
+				"path":        "auth/token/lookup-self",
+			},
+			Description: "Adversarial SA-04: OpenBao unauthenticated lookup probe without SVID",
+		},
+		// Case 5: Behavioral trace from unknown container executing model commands without SVID
+		{
+			ID:             "adv-sa-005",
+			Timestamp:      baseTime.Add(12 * time.Minute),
+			Layer:          model.LayerBehavioural,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "agent-monitor",
+			Confidence:     0.25,
+			ActorHint:      "",
+			RawEvidenceRef: "agent://trace/adv-sa-005",
+			Labels: map[string]string{
+				"process": "shadow-inference.py",
+				"svid":    "none",
+			},
+			Description: "Adversarial SA-05: Behavioral trace from unknown container running shadow-inference.py",
+		},
+		// Case 6: KAgent tool span with blank SVID and unregistered caller
+		{
+			ID:             "adv-sa-006",
+			Timestamp:      baseTime.Add(15 * time.Minute),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "kagent",
+			Confidence:     0.35,
+			ActorHint:      "",
+			RawEvidenceRef: "kagent://span/adv-sa-006",
+			Labels: map[string]string{
+				"tool_name": "k8s_exec",
+				"spiffe_id": "",
+			},
+			Description: "Adversarial SA-06: KAgent tool execution span with missing SVID",
+		},
+	}
+}
+
+// AdversarialAllFixtures returns all adversarial fixtures across the three attack classes.
+func AdversarialAllFixtures(baseTime time.Time) []model.Observation {
+	var all []model.Observation
+	all = append(all, AdversarialHiddenAliasFixtures(baseTime)...)
+	all = append(all, AdversarialSplitHumanFixtures(baseTime)...)
+	all = append(all, AdversarialShadowAgentFixtures(baseTime)...)
+	return all
+}
+
+

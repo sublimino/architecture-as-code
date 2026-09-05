@@ -1,0 +1,275 @@
+{
+  "schema_version": "v1",
+  "generated_at": "2026-09-05T22:40:00Z",
+  "total_injected": 18,
+  "total_caught": 18,
+  "total_missed": 0,
+  "resolution_ceiling": "18/18 caught",
+  "resolution_rate": 1,
+  "false_merges": 0,
+  "breakdown_by_class": {
+    "hidden-alias": {
+      "injected": 6,
+      "caught": 6,
+      "missed": 0,
+      "false_merges": 0,
+      "catch_rate": 1
+    },
+    "shadow-agent": {
+      "injected": 6,
+      "caught": 6,
+      "missed": 0,
+      "false_merges": 0,
+      "catch_rate": 1
+    },
+    "split-human": {
+      "injected": 6,
+      "caught": 6,
+      "missed": 0,
+      "false_merges": 0,
+      "catch_rate": 1
+    }
+  },
+  "ledger": [
+    {
+      "case_id": "ADV-HA-01",
+      "class": "hidden-alias",
+      "name": "Cross-Service SPIFFE SVID Aliasing",
+      "observation_count": 2,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-cluster.local|spiffe|spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly joined 2 observations into actor actor-cluster.local|spiffe|spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa"
+    },
+    {
+      "case_id": "ADV-HA-02",
+      "class": "hidden-alias",
+      "name": "GCP Cloud Audit Multi-Worker Aliasing",
+      "observation_count": 2,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-gcp:corp-production|principal-id|pipeline-runner@corp.iam.gserviceaccount.com"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly joined 2 observations into actor actor-gcp:corp-production|principal-id|pipeline-runner@corp.iam.gserviceaccount.com"
+    },
+    {
+      "case_id": "ADV-HA-03",
+      "class": "hidden-alias",
+      "name": "K8s APIServer Multi-Container Agent Aliasing",
+      "observation_count": 2,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-kubernetes|kubernetes-service-account|system:serviceaccount:fe-signalloom-agents:kagent-sa"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly joined 2 observations into actor actor-kubernetes|kubernetes-service-account|system:serviceaccount:fe-signalloom-agents:kagent-sa"
+    },
+    {
+      "case_id": "ADV-HA-04",
+      "class": "hidden-alias",
+      "name": "Multi-Region Workload SVID Aliasing",
+      "observation_count": 2,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-cluster.local|spiffe|spiffe://cluster.local/ns/payments/sa/checkout-sa"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly joined 2 observations into actor actor-cluster.local|spiffe|spiffe://cluster.local/ns/payments/sa/checkout-sa"
+    },
+    {
+      "case_id": "ADV-HA-05",
+      "class": "hidden-alias",
+      "name": "Multi-Step Coordinator Session Aliasing",
+      "observation_count": 2,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-gcp:corp-prod|principal-id|agent-coordinator@corp-prod.iam.gserviceaccount.com"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly joined 2 observations into actor actor-gcp:corp-prod|principal-id|agent-coordinator@corp-prod.iam.gserviceaccount.com"
+    },
+    {
+      "case_id": "ADV-HA-06",
+      "class": "hidden-alias",
+      "name": "Cross-Layer K8s & OpenBao SPIFFE Join",
+      "observation_count": 2,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-cluster.local|spiffe|spiffe://cluster.local/ns/prod-infra/sa/vault-agent"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly joined 2 observations into actor actor-cluster.local|spiffe|spiffe://cluster.local/ns/prod-infra/sa/vault-agent"
+    },
+    {
+      "case_id": "ADV-SA-01",
+      "class": "shadow-agent",
+      "name": "Unauthenticated eBPF Egress Unresolved",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sa-001"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly surfaced unauthenticated action as provisional actor actor-signal-ingest|observation|adv-sa-001"
+    },
+    {
+      "case_id": "ADV-SA-02",
+      "class": "shadow-agent",
+      "name": "Anonymous K8s Probe Unresolved",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-kubernetes|principal-id|system:anonymous"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly surfaced unauthenticated action as provisional actor actor-kubernetes|principal-id|system:anonymous"
+    },
+    {
+      "case_id": "ADV-SA-03",
+      "class": "shadow-agent",
+      "name": "Unauthenticated Workspace Export Unresolved",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sa-003"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly surfaced unauthenticated action as provisional actor actor-signal-ingest|observation|adv-sa-003"
+    },
+    {
+      "case_id": "ADV-SA-04",
+      "class": "shadow-agent",
+      "name": "Unauthenticated OpenBao Probe Unresolved",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sa-004"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly surfaced unauthenticated action as provisional actor actor-signal-ingest|observation|adv-sa-004"
+    },
+    {
+      "case_id": "ADV-SA-05",
+      "class": "shadow-agent",
+      "name": "Unknown Container Behavioral Trace Unresolved",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sa-005"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly surfaced unauthenticated action as provisional actor actor-signal-ingest|observation|adv-sa-005"
+    },
+    {
+      "case_id": "ADV-SA-06",
+      "class": "shadow-agent",
+      "name": "Unregistered KAgent Span Unresolved",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sa-006"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly surfaced unauthenticated action as provisional actor actor-signal-ingest|observation|adv-sa-006"
+    },
+    {
+      "case_id": "ADV-SH-01",
+      "class": "split-human",
+      "name": "Workspace Audit Shared NAT Non-Collapse",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sh-001a",
+        "actor-signal-ingest|observation|adv-sh-001b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly preserved 2 distinct actors under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SH-02",
+      "class": "split-human",
+      "name": "K8s APIServer Office NAT Non-Collapse",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-kubernetes|principal-id|system:user:carol",
+        "actor-kubernetes|principal-id|system:user:dave"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly preserved 2 distinct actors under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SH-03",
+      "class": "split-human",
+      "name": "Node Egress IP Workload Non-Collapse",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sh-003a",
+        "actor-signal-ingest|observation|adv-sh-003b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly preserved 2 distinct actors under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SH-04",
+      "class": "split-human",
+      "name": "Corporate VPN SaaS Non-Collapse",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sh-004a",
+        "actor-signal-ingest|observation|adv-sh-004b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly preserved 2 distinct actors under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SH-05",
+      "class": "split-human",
+      "name": "ISP NAT Cloud Console Non-Collapse",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-gcp:corp-prod|principal-id|admin-1@corp.com",
+        "actor-gcp:corp-prod|principal-id|admin-2@corp.com"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly preserved 2 distinct actors under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SH-06",
+      "class": "split-human",
+      "name": "Telemetry Egress IP Non-Collapse",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sh-006a",
+        "actor-signal-ingest|observation|adv-sh-006b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "details": "correctly preserved 2 distinct actors under shared NAT IP"
+    }
+  ]
+}

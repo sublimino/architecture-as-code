@@ -39,7 +39,8 @@ CLUSTER_NAME ?= osramp
 # what made ../$(KEYS_DIR) at the bootstrap-local line look safe, and it aborted
 # both CI lanes. The fallback is for a genuinely git-less tree only.
 GIT_COMMON_DIR := $(shell git rev-parse --git-common-dir 2>/dev/null)
-KEYS_DIR ?= $(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..)/.keys,.keys)
+DEFAULT_KEYS_DIR := $(if $(wildcard .keys/witness.pem),.keys,$(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..)/.keys,.keys))
+KEYS_DIR ?= $(DEFAULT_KEYS_DIR)
 export KEYS_DIR
 SIGNALLOOM_PLATFORM_ROOT ?= /home/andy/src/cp/platform
 OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
@@ -433,7 +434,7 @@ test: ## Run the end-to-end bats suite against the running cluster.
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion
 
 test-signal-ingest: ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
-	cd d2-signalloom/apps/signal-ingest && go test ./... -v -count=1
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
 
 test-signal-ingest-frostdb: ## Run Go signal-ingest tests INCLUDING FrostDB store (requires cgo).
 	cd d2-signalloom/apps/signal-ingest && go test -tags frostdb ./... -v -count=1
@@ -1041,6 +1042,10 @@ audit-anchor-tamper-demo: signing-keys ## Prove real audit or FrostDB tamper det
 .PHONY: test-sfdp-p3-3-root-wiring
 test-sfdp-p3-3-root-wiring: ## Verify local SFDP-P3-3 root script gates without cluster access.
 	bats test/sfdp-p3-3-root-wiring.bats
+
+.PHONY: test-sfdp-p4-4-tamper-regression
+test-sfdp-p4-4-tamper-regression: signing-keys ## Verify SFDP-P4-4 witness verify and tamper regression suite.
+	bats test/sfdp-p4-4-tamper-regression.bats
 
 .PHONY: audit-anchor-test
 audit-anchor-test: ## Run the audit-anchor unit tests (no cluster required).

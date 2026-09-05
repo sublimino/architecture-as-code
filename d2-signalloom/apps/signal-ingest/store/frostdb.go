@@ -16,6 +16,7 @@ import (
 	"github.com/polarsignals/frostdb"
 	"github.com/polarsignals/frostdb/query"
 	"github.com/polarsignals/frostdb/query/logicalplan"
+	"github.com/thanos-io/objstore"
 	"github.com/thanos-io/objstore/providers/filesystem"
 
 	schemapb "github.com/polarsignals/frostdb/gen/proto/go/frostdb/schema/v1alpha1"
@@ -35,25 +36,70 @@ type FrostDBStore struct {
 	pool          memory.Allocator
 	droppedBefore time.Time
 	mu            sync.RWMutex
+	attestor      *SegmentAttestor
+}
+
+type frostDBStoreConfig struct {
+	manualFlush bool
+	attestation *SegmentAttestorConfig
+}
+
+// FrostDBStoreOption configures persistence behavior without changing queries.
+type FrostDBStoreOption func(*frostDBStoreConfig)
+
+// WithManualFlush disables automatic size rotation and exposes Flush as the
+// deterministic immutable-segment boundary used by integration tests.
+func WithManualFlush() FrostDBStoreOption {
+	return func(cfg *frostDBStoreConfig) { cfg.manualFlush = true }
+}
+
+// WithSegmentAttestation signs each successfully persisted immutable segment.
+func WithSegmentAttestation(cfg SegmentAttestorConfig) FrostDBStoreOption {
+	return func(storeCfg *frostDBStoreConfig) { storeCfg.attestation = &cfg }
 }
 
 // NewFrostDBStore creates a new in-memory FrostDB-backed store.
 func NewFrostDBStore() (*FrostDBStore, error) {
-	return newFrostDBStore()
+	return newFrostDBStore(nil)
 }
 
 // NewFrostDBStoreWithBucket creates a FrostDB store backed by a filesystem
 // directory so Parquet files are persisted to disk.
-func NewFrostDBStoreWithBucket(dir string) (*FrostDBStore, error) {
+func NewFrostDBStoreWithBucket(dir string, options ...FrostDBStoreOption) (*FrostDBStore, error) {
+	cfg := frostDBStoreConfig{}
+	for _, option := range options {
+		option(&cfg)
+	}
 	bucket, err := filesystem.NewBucket(dir)
 	if err != nil {
 		return nil, fmt.Errorf("frostdb: filesystem bucket: %w", err)
 	}
-	sink := frostdb.NewDefaultObjstoreBucket(bucket)
-	return newFrostDBStore(frostdb.WithReadWriteStorage(sink))
+	var attestor *SegmentAttestor
+	var storageBucket objstore.Bucket = bucket
+	if cfg.attestation != nil {
+		// Inventory the same bucket we wrap, including programmatic callers
+		// that do not use the environment factory. Never trust a second root.
+		cfg.attestation.SegmentRoot = dir
+		attestor, err = NewSegmentAttestor(*cfg.attestation)
+		if err != nil {
+			_ = bucket.Close()
+			return nil, fmt.Errorf("frostdb: segment attestor: %w", err)
+		}
+		storageBucket = newAttestingBucket(bucket, attestor)
+	}
+	sink := frostdb.NewDefaultObjstoreBucket(storageBucket)
+	frostOptions := []frostdb.Option{frostdb.WithReadWriteStorage(sink)}
+	if cfg.manualFlush {
+		frostOptions = append(frostOptions, frostdb.WithManualBlockRotation())
+	}
+	store, err := newFrostDBStore(attestor, frostOptions...)
+	if err != nil && attestor != nil {
+		_ = attestor.Close()
+	}
+	return store, err
 }
 
-func newFrostDBStore(opts ...frostdb.Option) (*FrostDBStore, error) {
+func newFrostDBStore(attestor *SegmentAttestor, opts ...frostdb.Option) (*FrostDBStore, error) {
 	cs, err := frostdb.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("frostdb: new column store: %w", err)
@@ -80,11 +126,12 @@ func newFrostDBStore(opts ...frostdb.Option) (*FrostDBStore, error) {
 	engine := query.NewEngine(pool, db.TableProvider())
 
 	return &FrostDBStore{
-		cs:     cs,
-		db:     db,
-		table:  tbl,
-		engine: engine,
-		pool:   pool,
+		cs:       cs,
+		db:       db,
+		table:    tbl,
+		engine:   engine,
+		pool:     pool,
+		attestor: attestor,
 	}, nil
 }
 
@@ -424,7 +471,45 @@ func (f *FrostDBStore) DropPartition(_ context.Context, before time.Time) error 
 
 // Close shuts down the FrostDB store.
 func (f *FrostDBStore) Close() error {
-	return f.cs.Close()
+	f.mu.Lock()
+	storeErr := f.cs.Close()
+	f.mu.Unlock()
+	if f.attestor != nil {
+		if err := f.attestor.Close(); storeErr == nil {
+			storeErr = err
+		}
+	}
+	return storeErr
+}
+
+// Flush rotates the active block and waits until its real Parquet object has
+// been uploaded. It never waits for the independent attestation worker.
+func (f *FrostDBStore) Flush(ctx context.Context) error {
+	var wait sync.WaitGroup
+	wait.Add(1)
+	f.mu.Lock()
+	if err := f.table.RotateBlock(ctx, f.table.ActiveBlock(), frostdb.WithRotateBlockWaitGroup(&wait)); err != nil {
+		f.mu.Unlock()
+		return fmt.Errorf("frostdb: rotate block: %w", err)
+	}
+	f.mu.Unlock()
+	done := make(chan struct{})
+	go func() { wait.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// WaitForAttestations is a test and shutdown observation seam. Ingestion does
+// not call it and therefore never blocks on signing or publication.
+func (f *FrostDBStore) WaitForAttestations(ctx context.Context) error {
+	if f.attestor == nil {
+		return nil
+	}
+	return f.attestor.Wait(ctx)
 }
 
 const (

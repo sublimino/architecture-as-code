@@ -4,6 +4,20 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+SOURCE="${ATTESTED_TEST_SOURCE:-audit}"
+
+case "${SOURCE}" in
+  segments)
+    exec ./scripts/segment-attestation-proof.sh
+    ;;
+  audit)
+    ;;
+  *)
+    echo "ATTESTED_TEST_SOURCE must be audit or segments, got: ${SOURCE}" >&2
+    exit 1
+    ;;
+esac
+
 # shellcheck source=scripts/lib/wait.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 

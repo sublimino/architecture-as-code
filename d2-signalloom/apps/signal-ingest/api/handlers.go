@@ -67,6 +67,8 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/observations", h.handleQueryObservations)
 	mux.HandleFunc("GET /api/v1/actors", h.handleListActors)
 	mux.HandleFunc("GET /api/v1/actors/{id}", h.handleGetActor)
+	mux.HandleFunc("GET /api/v1/actors/{id}/authorization", h.handleGetActorAuthorization)
+	mux.HandleFunc("GET /api/v1/authorization", h.handleQueryAuthorization)
 	mux.HandleFunc("POST /api/v1/actors/{id}/promote", h.handlePromoteActor)
 	mux.HandleFunc("GET /api/v1/coverage", handleCoverage)
 	mux.HandleFunc("POST /api/v1/correlate", h.handleCorrelate)

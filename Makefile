@@ -444,6 +444,7 @@ test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 		--root d2-signalloom/apps/dashboard-signalloom \
 		src/pages/WeavePage.test.tsx \
 		src/pages/SignalFusionPage.test.tsx \
+		src/components/WhoAuthorizedPanel.test.tsx \
 		src/api/weaveApi.test.ts \
 		--reporter=verbose
 
@@ -680,11 +681,11 @@ test-signalfusion-images: ## Verify the Signal Fusion image identity guard again
 .PHONY: demo-signalloom-workspace-up test-workspace-acceptance
 demo-signalloom-workspace-up: ## Deploy the Google Workspace agentic identity connector (mock/live Reports API polling).
 	@echo "Starting workspace-connector for Signal Loom Demo 4..."
-	@(cd d2-signalloom/apps/workspace-connector && go test ./...)
+	@(cd d2-signalloom/apps/workspace-connector && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)
 
 test-workspace-acceptance: ## Run the complete Workspace Agentic Identity Streaming acceptance test suite.
 	bats test/workspace-identity-streaming.bats
-	(cd d2-signalloom/apps/workspace-connector && go test ./...)
+	(cd d2-signalloom/apps/workspace-connector && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)
 
 .PHONY: factory-schemas-validate factory-appraisal-test
 factory-schemas-validate: ## Validate AI-Governed Software Factory JSON schemas.

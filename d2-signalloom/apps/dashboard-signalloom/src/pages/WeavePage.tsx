@@ -21,6 +21,7 @@ import { Section, StatCard } from '../components/DashKit'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import EvidenceDrawer, { LAYER_LABELS, LAYER_COLORS } from '../components/EvidenceDrawer'
 import { IdentityAuditPanel } from '../components/IdentityAuditPanel'
+import { WhoAuthorizedPanel } from '../components/WhoAuthorizedPanel'
 import {
   fetchSignalFusionSteps,
   startSignalFusionRun,
@@ -253,6 +254,16 @@ export default function WeavePage() {
 
       {/* Live Cryptographic Identity & OpenBao Audit Panel */}
       <IdentityAuditPanel />
+
+      {/* Who Authorized This Action? Panel */}
+      <WhoAuthorizedPanel
+        actorId={selectedActor?.id || (actors.length > 0 ? actors[0].id : undefined)}
+        availableActors={actors.map((a) => ({ id: a.id, name: a.display_name || a.id }))}
+        onSelectActor={(id) => {
+          const found = actors.find((a) => a.id === id)
+          if (found) setSelectedActor(found)
+        }}
+      />
 
       {/* Stat Cards */}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 24 }}>

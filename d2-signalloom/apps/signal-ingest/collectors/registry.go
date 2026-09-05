@@ -132,6 +132,7 @@ func NewRegistryFromEnvWithReceiver(sink IngestionSink, rcv *audit.WebhookReceiv
 		reg.Register(NewK8sAuditCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink))
 	}
 	reg.Register(NewKAgentCollector(resolveEnvMode("COLLECTOR_KAGENT_MODE", "SIGNAL_COLLECTOR_KAGENT", "KAGENT_MODE"), sink))
+	reg.Register(NewWorkspaceSaaSCollector(resolveEnvMode("COLLECTOR_WORKSPACESAAS_MODE", "SIGNAL_COLLECTOR_WORKSPACESAAS", "WORKSPACESAAS_MODE"), sink))
 	reg.Register(NewFixtureCollector(resolveEnvMode("COLLECTOR_FIXTURES_MODE", "SIGNAL_COLLECTOR_FIXTURES", "FIXTURES_MODE"), sink))
 
 	return reg

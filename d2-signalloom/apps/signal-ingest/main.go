@@ -123,7 +123,8 @@ func main() {
 	auditReceiver := apiaudit.NewWebhookReceiver(ctx, 0, 0, storeSink)
 
 	// Collector registry: constructed and started at boot before HTTP server.
-	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, and fixtures collectors to storeSink.
+	// Collector registry: constructed and started at boot before HTTP server.
+	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, workspacesaas, and fixtures collectors to storeSink.
 	// Reuses the auditReceiver for k8saudit mounting.
 	collectorRegistry := collectors.NewRegistryFromEnvWithReceiver(storeSink, auditReceiver)
 
@@ -146,6 +147,9 @@ func main() {
 
 	// P2-5: kagent (KAgent tool-log resolver collector)
 	// Registered via NewRegistryFromEnvWithReceiver (COLLECTOR_KAGENT_MODE) with live/fixture/off modes.
+
+	// P2-6: workspacesaas (Workspace/M365 thin adapter collector)
+	// Registered via NewRegistryFromEnvWithReceiver (COLLECTOR_WORKSPACESAAS_MODE) with live/fixture/off modes.
 	if err := collectorRegistry.Start(ctx); err != nil {
 		slog.Warn("collector failed to start; serving degraded", "error", err)
 	}

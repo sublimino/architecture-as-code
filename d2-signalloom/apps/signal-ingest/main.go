@@ -18,6 +18,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
@@ -154,6 +155,22 @@ func main() {
 		slog.Warn("collector failed to start; serving degraded", "error", err)
 	}
 
+	// Identity graph repository & resolver store (SFDP-P3-2):
+	// Reuses the audit connection pool (*sql.DB) when DATABASE_URL is set, avoiding a second pool.
+	var identityStore identity.ResolverStore
+	if pw, ok := auditWriter.(*audit.PostgresWriter); ok && pw != nil {
+		encryptor, _ := identity.NewEncryptorFromKeyString(os.Getenv("IDENTITY_ENCRYPTION_KEY"))
+		identityRepo := identity.NewPostgresRepository(pw.DB(), encryptor)
+		identityStore = identity.NewGraphResolverStore(identityRepo)
+		migCtx, cancelMig := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := identity.ApplyMigrations(migCtx, pw.DB()); err != nil {
+			slog.Warn("identity migrations deferred or failed", "error", err)
+		}
+		cancelMig()
+	} else {
+		identityStore = identity.NewGraphResolverStore(identity.NewMemoryRepository())
+	}
+
 	handlers := &api.Handlers{
 		Store:           signalStore,
 		Engine:          engine,
@@ -161,6 +178,7 @@ func main() {
 		AuditReady:      auditReady,
 		AuditReceiver:   auditReceiver,
 		CollectorHealth: collectorRegistry.Health,
+		IdentityStore:   identityStore,
 	}
 
 	mux := http.NewServeMux()

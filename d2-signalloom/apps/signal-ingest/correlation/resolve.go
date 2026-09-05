@@ -31,7 +31,7 @@ func principalHint(o model.Observation) string {
 	return ""
 }
 
-// deriveResolutionKey returns a collector-contract typed key where available
+// deriveResolutionKey returns the SPIFFE-first canonical typed key where available
 // and otherwise an observation-scoped key. Direct callers hold the producer
 // authentication precondition documented on Resolve.
 func deriveResolutionKey(o model.Observation) string {

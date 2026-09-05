@@ -101,3 +101,22 @@ func TestBehaviouralFixtures_NonEmpty(t *testing.T) {
 		t.Fatal("behavioural fixtures should not be empty")
 	}
 }
+
+func TestKAgentFixtures_NonEmpty(t *testing.T) {
+	obs := KAgentFixtures(time.Now().UTC())
+	if len(obs) == 0 {
+		t.Fatal("kagent fixtures should not be empty")
+	}
+	for _, o := range obs {
+		if o.Layer != model.LayerIdentityAuth {
+			t.Errorf("wrong layer: want %s, got %s", model.LayerIdentityAuth, o.Layer)
+		}
+		if o.Labels["framework"] != "kagent" {
+			t.Errorf("expected framework label 'kagent', got %s", o.Labels["framework"])
+		}
+		if o.Labels["tool_name"] == "" {
+			t.Errorf("expected non-empty tool_name in fixture")
+		}
+	}
+}
+

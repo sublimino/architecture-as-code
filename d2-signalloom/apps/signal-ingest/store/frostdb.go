@@ -66,6 +66,10 @@ func newFrostDBStore(opts ...frostdb.Option) (*FrostDBStore, error) {
 	}
 
 	schema := schemaDef()
+	if err := validateFilterColumns(schema); err != nil {
+		cs.Close()
+		return nil, err
+	}
 	tbl, err := db.Table(tableName, frostdb.NewTableConfig(schema))
 	if err != nil {
 		cs.Close()
@@ -208,46 +212,51 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 	return nil
 }
 
-// QueryRange reads observations from FrostDB using the query engine.
+// QueryRange reads observations from FrostDB using the query engine with pushed-down filters.
 func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observation, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
+	// Fold the retention floor into q.After so engine-level filtering prunes dropped partitions.
 	if !f.droppedBefore.IsZero() {
 		if q.After.IsZero() || q.After.Before(f.droppedBefore) {
 			q.After = f.droppedBefore
 		}
 	}
 
+	builder := f.engine.ScanTable(tableName).
+		Project(logicalplan.All())
+	if filter := buildFilter(q); filter != nil {
+		builder = builder.Filter(filter)
+	}
+
 	var results []model.Observation
-
-	// Build filter expression for the query engine.
-	// We push time and layer filters to the engine; actor filter is applied
-	// in Go after retrieval since it requires string equality on a non-indexed
-	// column.
-
-	err := f.engine.ScanTable(tableName).
-		Execute(ctx, func(ctx context.Context, r arrow.Record) error {
-			obs := recordToObservations(r)
-			for _, o := range obs {
-				if !matchesQuery(o, q) {
-					continue
-				}
-				results = append(results, o)
-				if q.Limit > 0 && len(results) >= q.Limit {
-					break
-				}
-			}
+	err := builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
+		if q.Limit > 0 && len(results) >= q.Limit {
 			return nil
-		})
+		}
+		obs := recordToObservations(r)
+		for _, o := range obs {
+			results = append(results, o)
+			if q.Limit > 0 && len(results) >= q.Limit {
+				break
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("frostdb: query: %w", err)
+	}
+
+	if q.Limit > 0 && len(results) > q.Limit {
+		results = results[:q.Limit]
 	}
 
 	return results, nil
 }
 
-// matchesQuery applies query filters to an observation.
+// matchesQuery applies query filters to an observation. Retained as a correctness
+// oracle for testing equivalence between pushed-down FrostDB execution and in-memory evaluation.
 func matchesQuery(o model.Observation, q Query) bool {
 	if !q.After.IsZero() && o.Timestamp.Before(q.After) {
 		return false
@@ -416,6 +425,75 @@ func (f *FrostDBStore) DropPartition(_ context.Context, before time.Time) error 
 // Close shuts down the FrostDB store.
 func (f *FrostDBStore) Close() error {
 	return f.cs.Close()
+}
+
+const (
+	colTimestamp = "timestamp"
+	colLayer     = "layer"
+	colActorHint = "actor_hint"
+)
+
+// validateFilterColumns ensures that the column names targeted by query pushdown
+// exist in the FrostDB schema definition.
+func validateFilterColumns(schema *schemapb.Schema) error {
+	required := map[string]bool{
+		colTimestamp: false,
+		colLayer:     false,
+		colActorHint: false,
+	}
+	for _, col := range schema.Columns {
+		if _, ok := required[col.Name]; ok {
+			required[col.Name] = true
+		}
+	}
+	for name, found := range required {
+		if !found {
+			return fmt.Errorf("frostdb: required filter column %q not found in schema", name)
+		}
+	}
+	return nil
+}
+
+// buildFilter translates a Query into a FrostDB logicalplan.Expr using exact Arrow schema column names.
+// It maps:
+//   - q.After  -> timestamp >= q.After.UnixNano() (int64)
+//   - q.Before -> timestamp < q.Before.UnixNano() (int64)
+//   - q.Layers -> layer == layer[0] OR layer == layer[1] ...
+//   - q.ActorID -> actor_hint == q.ActorID
+// Multiple predicates are combined with logicalplan.And.
+// An empty query returns nil so the engine performs an unfiltered scan.
+func buildFilter(q Query) logicalplan.Expr {
+	var exprs []logicalplan.Expr
+
+	if !q.After.IsZero() {
+		exprs = append(exprs, colRef(colTimestamp).GtEq(logicalplan.Literal(q.After.UnixNano())))
+	}
+	if !q.Before.IsZero() {
+		exprs = append(exprs, colRef(colTimestamp).Lt(logicalplan.Literal(q.Before.UnixNano())))
+	}
+
+	if len(q.Layers) == 1 {
+		exprs = append(exprs, colRef(colLayer).Eq(logicalplan.Literal(string(q.Layers[0]))))
+	} else if len(q.Layers) > 1 {
+		layerExprs := make([]logicalplan.Expr, len(q.Layers))
+		for i, l := range q.Layers {
+			layerExprs[i] = colRef(colLayer).Eq(logicalplan.Literal(string(l)))
+		}
+		exprs = append(exprs, logicalplan.Or(layerExprs...))
+	}
+
+	if q.ActorID != "" {
+		exprs = append(exprs, colRef(colActorHint).Eq(logicalplan.Literal(q.ActorID)))
+	}
+
+	switch len(exprs) {
+	case 0:
+		return nil
+	case 1:
+		return exprs[0]
+	default:
+		return logicalplan.And(exprs...)
+	}
 }
 
 // colRef is a helper for building logicalplan column references.

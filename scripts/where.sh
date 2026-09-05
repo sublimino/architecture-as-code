@@ -105,27 +105,28 @@ else
 fi
 
 echo
-bold "LOCAL — public tunnel (ngrok)"
+bold "LOCAL — public tunnel / Tailscale"
 
 tunnel="${REPO_ROOT}/scripts/public-tunnel.sh"
 if [ ! -x "$tunnel" ]; then
   row "tunnel script" "ABSENT" "scripts/public-tunnel.sh missing"
 else
-  # public-tunnel.sh status exits non-zero on BROKEN, which is exactly the state
-  # worth surfacing rather than swallowing: ngrok accepting traffic with no
-  # backend serves every visitor a 502, and looks "running" to a process check.
   status_out="$("$tunnel" status 2>&1)"
   status_rc=$?
   url="$("$tunnel" url 2>/dev/null)"
 
   if echo "$status_out" | grep -qi 'BROKEN'; then
-    row "ngrok tunnel" "BROKEN" "accepting traffic with no backend — every visitor gets 502"
-    row "" "" "repair with: make public"
+    row "tailscale tunnel" "BROKEN" "tunnel active but backend is down"
+    row "" "" "repair with: make serve or make funnel"
   elif [ "$status_rc" -eq 0 ] && [ -n "$url" ]; then
-    row "ngrok tunnel" "PRESENT" "$url"
+    mode="tailscale"
+    if echo "$status_out" | grep -qi 'mode:[[:space:]]*funnel'; then
+      mode="tailscale (funnel)"
+    fi
+    row "$mode" "PRESENT" "$url"
     row "" "" "$(probe_url "$url")"
   else
-    row "ngrok tunnel" "ABSENT" "not running; start with 'make public'"
+    row "tailscale tunnel" "ABSENT" "not running; start with 'make serve' or 'make funnel'"
   fi
 fi
 
@@ -204,7 +205,7 @@ echo
 bold "What to hand someone"
 echo
 if [ -n "${url:-}" ] && ! echo "${status_out:-}" | grep -qi 'BROKEN'; then
-  echo "  ${url}   (local Kind via ngrok — ephemeral, dies with this laptop)"
+  echo "  ${url}   (local Kind via Tailscale — dies with this laptop)"
 else
   echo "  Nothing is publicly routable right now."
 fi

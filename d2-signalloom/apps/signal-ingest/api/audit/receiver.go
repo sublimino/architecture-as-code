@@ -84,6 +84,7 @@ type WebhookReceiver struct {
 	wg             sync.WaitGroup
 	ctx            context.Context
 	cancel         context.CancelFunc
+	closeOnce      sync.Once
 }
 
 // NewWebhookReceiver creates a new audit webhook receiver with bounded buffer and worker pool.
@@ -117,12 +118,26 @@ func (r *WebhookReceiver) startWorkers() {
 			for {
 				select {
 				case <-r.ctx.Done():
-					return
+					// Drain any remaining items in buffer before exiting
+					for {
+						select {
+						case obs, ok := <-r.buffer:
+							if !ok {
+								return
+							}
+							if r.sink != nil && obs != nil {
+								_ = r.sink.IngestObservation(context.Background(), obs)
+							}
+							atomic.AddUint64(&r.processedCount, 1)
+						default:
+							return
+						}
+					}
 				case obs, ok := <-r.buffer:
 					if !ok {
 						return
 					}
-					if r.sink != nil {
+					if r.sink != nil && obs != nil {
 						_ = r.sink.IngestObservation(r.ctx, obs)
 					}
 					atomic.AddUint64(&r.processedCount, 1)
@@ -134,9 +149,11 @@ func (r *WebhookReceiver) startWorkers() {
 
 // Close gracefully terminates receiver workers.
 func (r *WebhookReceiver) Close() {
-	r.cancel()
-	close(r.buffer)
-	r.wg.Wait()
+	r.closeOnce.Do(func() {
+		r.cancel()
+		close(r.buffer)
+		r.wg.Wait()
+	})
 }
 
 // HandleAuditWebhook handles incoming HTTP POST requests from Kubernetes APIServer.

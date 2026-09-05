@@ -36,14 +36,11 @@ func TestCorrelation_CrossLayerIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(actors) != 1 {
-		t.Fatalf("want 1 actor, got %d", len(actors))
+	if len(actors) != 2 {
+		t.Fatalf("plain actor_hint must not merge: want 2 actors, got %d", len(actors))
 	}
 
 	actor := actors[0]
-	if len(actor.EvidenceChain) != 2 {
-		t.Errorf("want 2 evidence links, got %d", len(actor.EvidenceChain))
-	}
 	// V2 corroboration rule: cross-layer suggestive without strong/definitive
 	// is capped below actionable (0.49). The actor is correlated but provisional.
 	if actor.Confidence >= 0.5 {
@@ -72,8 +69,8 @@ func TestCorrelation_TimingCorrelation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(actors) == 0 {
-		t.Fatal("timing correlation should produce at least 1 actor")
+	if len(actors) != 2 {
+		t.Fatalf("timing evidence must not merge: want 2 actors, got %d", len(actors))
 	}
 }
 
@@ -122,9 +119,9 @@ func TestCorrelation_ScheduledJobNotCorrelatedWithIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The cron observation is excluded, so there's only one observation left = no pair = no actor.
-	if len(actors) != 0 {
-		t.Errorf("scheduled job + identity: want 0 actors (cron excluded leaves 1 obs), got %d", len(actors))
+	// The cron observation is excluded; the remaining observation stays independently visible.
+	if len(actors) != 1 {
+		t.Errorf("scheduled job + identity: want 1 independent actor, got %d", len(actors))
 	}
 }
 
@@ -146,8 +143,8 @@ func TestCorrelation_CredentialChain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(actors) != 1 {
-		t.Fatalf("credential chain: want 1 actor, got %d", len(actors))
+	if len(actors) != 2 {
+		t.Fatalf("plain credential hint must not merge: want 2 actors, got %d", len(actors))
 	}
 
 	// V2 corroboration rule: credential chain with only suggestive signals

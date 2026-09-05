@@ -1,22 +1,23 @@
-// Package correlation provides CEL-based signal correlation and identity resolution for actors.
+// Package correlation provides deterministic actor identity resolution.
 package correlation
 
 import (
 	"errors"
 	"fmt"
-	"time"
+	"sort"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
 var (
-	// ErrUnresolvableObservation is returned when an observation cannot be resolved due to missing identity or source.
-	ErrUnresolvableObservation = errors.New("unresolvable observation: no identifier or source")
-	// ErrContradictoryPrincipals is returned when two observations have differing non-empty principal hints and cannot be merged.
-	ErrContradictoryPrincipals = errors.New("contradictory principal hints: cannot merge distinct identities")
+	ErrUnresolvableObservation           = errors.New("unresolvable observation: no identifier or source")
+	ErrContradictoryPrincipals           = errors.New("contradictory principal hints: cannot merge distinct identities")
+	ErrInsufficientDeterministicEvidence = errors.New("insufficient deterministic identity evidence")
+	ErrDeterministicMergeDeclined        = errors.New("deterministic merge declined by epoch constraints")
 )
 
-// principalHint extracts the preferred principal identifier from an observation.
+// principalHint remains for P1 callers, but is descriptive only. It never
+// authorizes an identity merge.
 func principalHint(o model.Observation) string {
 	if o.ActorHint != "" {
 		return o.ActorHint
@@ -30,144 +31,111 @@ func principalHint(o model.Observation) string {
 	return ""
 }
 
-// deriveResolutionKey derives the pure, deterministic correlation key for a single observation.
+// deriveResolutionKey returns the SPIFFE-first canonical typed key where available
+// and otherwise an observation-scoped key. Direct callers hold the producer
+// authentication precondition documented on Resolve.
 func deriveResolutionKey(o model.Observation) string {
-	if h := principalHint(o); h != "" {
-		return h
-	}
-	if o.Source != "" {
-		return fmt.Sprintf("src-%s", o.Source)
+	ids := contractIdentifiers(o)
+	if len(ids) > 0 {
+		return ids[0].String()
 	}
 	if o.ID != "" {
-		return fmt.Sprintf("obs-%s", o.ID)
+		return observationIdentifier(o.ID).String()
+	}
+	if o.Source != "" {
+		return observationIdentifier("source:" + o.Source).String()
 	}
 	return ""
 }
 
-// Resolve resolves a single observation into a canonical provisional actor.
-// The derived Actor.ID is pure and deterministic over resolution inputs.
-// If the observation has no resolvable identifier or source, Resolve returns ErrUnresolvableObservation.
+// Resolve preserves the P1 signature. Direct callers are responsible for
+// supplying observations from a producer-authenticated channel; use Engine's
+// verifier-aware constructors when that precondition is not externally held.
 func Resolve(obs model.Observation) (*model.ProvisionalActor, error) {
 	key := deriveResolutionKey(obs)
 	if key == "" {
 		return nil, ErrUnresolvableObservation
 	}
-
-	now := time.Now().UTC()
-	if !obs.Timestamp.IsZero() {
-		now = obs.Timestamp.UTC()
+	id := "actor-" + key
+	at := obs.Timestamp.UTC()
+	actor := &model.ProvisionalActor{ID: id, CanonicalID: id, Status: model.ActorProvisional, CorrelationKeys: []string{key}, CreatedAt: at, UpdatedAt: at, Aliases: []string{}, EvidenceChain: []model.EvidenceLink{{ObservationID: obs.ID, Layer: obs.Layer, Fidelity: obs.Fidelity, Contribution: "resolved observation", Timestamp: obs.Timestamp}}}
+	if hint := principalHint(obs); hint != "" {
+		actor.Aliases = []string{hint}
+		actor.PrincipalID = hint
 	}
-
-	actorID := fmt.Sprintf("actor-%s", key)
-	actor := &model.ProvisionalActor{
-		ID:              actorID,
-		Status:          model.ActorProvisional,
-		CorrelationKeys: []string{key},
-		EvidenceChain: []model.EvidenceLink{
-			{
-				ObservationID: obs.ID,
-				Layer:         obs.Layer,
-				Fidelity:      obs.Fidelity,
-				Contribution:  "resolved observation",
-				Timestamp:     obs.Timestamp,
-			},
-		},
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		CanonicalID: actorID,
-		PrincipalID: principalHint(obs),
-		Aliases:     []string{key},
+	if ids := contractIdentifiers(obs); len(ids) > 0 {
+		actor.PrincipalID = ids[0].Value
 	}
-
 	confidence := model.DeriveConfidence(actor.EvidenceChain)
 	actor.Confidence = confidence.Score
-	if actor.Confidence >= 0.5 {
+	if actor.Confidence >= .5 {
 		actor.Status = model.ActorActionable
 	}
-
 	return actor, nil
 }
 
-// resolvePairKey determines the resolution key for a pair of correlated observations.
-// Invariant: zero false merges. If both observations have non-empty principal hints
-// that differ (hintA != "" && hintB != "" && hintA != hintB), resolvePairKey returns ErrContradictoryPrincipals.
 func resolvePairKey(a, b model.Observation) (string, error) {
-	hintA := principalHint(a)
-	hintB := principalHint(b)
-
-	// Contradictory principal hints: hard refusal to prevent false merges.
-	if hintA != "" && hintB != "" && hintA != hintB {
+	if hintsConflict(a, b) {
 		return "", ErrContradictoryPrincipals
 	}
-
-	// 1. Shared non-empty principal hint
-	if hintA != "" && hintA == hintB {
-		return hintA, nil
+	common, ok := commonIdentifier(contractIdentifiers(a), contractIdentifiers(b))
+	if !ok {
+		return "", ErrInsufficientDeterministicEvidence
 	}
-
-	// 2. Shared source for anonymous or single-hinted signals
-	if a.Source != "" && a.Source == b.Source {
-		return fmt.Sprintf("src-%s", a.Source), nil
-	}
-
-	// 3. Fallback to sorted pair of IDs
-	if a.ID != "" || b.ID != "" {
-		if a.ID < b.ID {
-			return fmt.Sprintf("pair-%s-%s", a.ID, b.ID), nil
-		}
-		return fmt.Sprintf("pair-%s-%s", b.ID, a.ID), nil
-	}
-
-	return "", ErrUnresolvableObservation
+	return common.String(), nil
 }
 
-// ResolvePair resolves and merges a pair of observations into a provisional actor.
-// If the observations have contradictory principal hints, it returns ErrContradictoryPrincipals.
+// ResolvePair preserves the P1 signature for trusted direct callers and accepts
+// only non-conflicting collector-contract identity evidence. Engine callers use
+// ProducerVerifier; rule matches are evidence, never merge authority.
 func ResolvePair(a, b model.Observation, rule Rule) (*model.ProvisionalActor, error) {
 	key, err := resolvePairKey(a, b)
 	if err != nil {
 		return nil, err
 	}
-
-	now := time.Now().UTC()
-	actorID := fmt.Sprintf("actor-%s", key)
-	actor := &model.ProvisionalActor{
-		ID:              actorID,
-		Status:          model.ActorProvisional,
-		CorrelationKeys: []string{key},
-		CreatedAt:       now,
-		UpdatedAt:       now,
-		CanonicalID:     actorID,
-		Aliases:         []string{key},
+	id := "actor-" + key
+	created := a.Timestamp
+	if created.IsZero() || (!b.Timestamp.IsZero() && b.Timestamp.Before(created)) {
+		created = b.Timestamp
 	}
-	if h := principalHint(a); h != "" {
-		actor.PrincipalID = h
-	} else if h := principalHint(b); h != "" {
-		actor.PrincipalID = h
+	updated := maxTime(a.Timestamp, b.Timestamp)
+	ruleName := ""
+	contribution := "matching trusted typed identity"
+	if rule.CEL != "" {
+		program, compileErr := compileRule(rule.CEL)
+		if compileErr != nil {
+			return nil, fmt.Errorf("compile rule %q: %w", rule.Name, compileErr)
+		}
+		out, _, evalErr := program.Eval(map[string]any{"a": obsToMap(a), "b": obsToMap(b)})
+		if evalErr != nil {
+			return nil, fmt.Errorf("evaluate rule %q: %w", rule.Name, evalErr)
+		}
+		if out.Value() == true {
+			ruleName = rule.Name
+			contribution = fmt.Sprintf("authenticated identity also matched rule %q", rule.Name)
+		}
 	}
-
-	actor.EvidenceChain = append(actor.EvidenceChain,
-		model.EvidenceLink{
-			ObservationID: a.ID,
-			Layer:         a.Layer,
-			Fidelity:      a.Fidelity,
-			Contribution:  fmt.Sprintf("matched rule %q", rule.Name),
-			Timestamp:     a.Timestamp,
-		},
-		model.EvidenceLink{
-			ObservationID: b.ID,
-			Layer:         b.Layer,
-			Fidelity:      b.Fidelity,
-			Contribution:  fmt.Sprintf("matched rule %q", rule.Name),
-			Timestamp:     b.Timestamp,
-		},
-	)
-
+	actor := &model.ProvisionalActor{ID: id, CanonicalID: id, Status: model.ActorProvisional, CorrelationKeys: []string{key}, CreatedAt: created, UpdatedAt: updated, EvidenceChain: []model.EvidenceLink{{ObservationID: a.ID, Layer: a.Layer, Fidelity: a.Fidelity, Contribution: contribution, Timestamp: a.Timestamp}, {ObservationID: b.ID, Layer: b.Layer, Fidelity: b.Fidelity, Contribution: contribution, Timestamp: b.Timestamp}}}
+	aliases := map[string]struct{}{}
+	for _, o := range []model.Observation{a, b} {
+		if o.ActorHint != "" {
+			aliases[o.ActorHint] = struct{}{}
+		}
+	}
+	for alias := range aliases {
+		actor.Aliases = append(actor.Aliases, alias)
+	}
+	sort.Strings(actor.Aliases)
+	if ids := contractIdentifiers(a); len(ids) > 0 {
+		actor.PrincipalID = ids[0].Value
+	}
+	edge := makeEdge(model.EdgeDeterministicSameEntity, model.FidelityDefinitive, a, b, a.Source+","+b.Source, key, ruleName, "matching trusted typed identity", true, true)
+	edge.ID = edgeID(model.EdgeDeterministicSameEntity, a.ID, b.ID, "verified_identity")
+	actor.AcceptedEdges = []model.CorrelationEdge{edge}
 	confidence := model.DeriveConfidence(actor.EvidenceChain)
 	actor.Confidence = confidence.Score
-	if actor.Confidence >= 0.5 {
+	if actor.Confidence >= .5 {
 		actor.Status = model.ActorActionable
 	}
-
 	return actor, nil
 }

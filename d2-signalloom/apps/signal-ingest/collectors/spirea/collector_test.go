@@ -63,7 +63,138 @@ func TestTracker_RecordAndLookup(t *testing.T) {
 	if lease.AgentRole != "cardvault" {
 		t.Fatalf("unexpected role extraction: %s", lease.AgentRole)
 	}
+
+	if lease.SAPrincipal != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Fatalf("unexpected SAPrincipal: %s", lease.SAPrincipal)
+	}
 }
+
+func TestTracker_LookupBySAPrincipal(t *testing.T) {
+	tracker := NewIdentityTracker()
+	now := time.Now().UTC()
+
+	event := &SVIDIssuanceEvent{
+		Timestamp:      now,
+		SPIFFEID:       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+		TrustDomain:    "cluster.local",
+		SVIDType:       SVIDTypeJWT,
+		IssuedAt:       now,
+		ExpiresAt:      now.Add(5 * time.Minute),
+		PodNamespace:   "fe-signalloom-agents",
+		ServiceAccount: "agent-cardvault-sa",
+	}
+
+	tracker.RecordIssuance(event)
+
+	lease, found := tracker.LookupBySAPrincipal("system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa")
+	if !found || lease == nil {
+		t.Fatalf("expected to find lease by SA principal")
+	}
+
+	if lease.SPIFFEID != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
+		t.Errorf("SPIFFE ID = %s, want spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa", lease.SPIFFEID)
+	}
+
+	// Negative lookup
+	_, foundMissing := tracker.LookupBySAPrincipal("system:serviceaccount:default:unknown-sa")
+	if foundMissing {
+		t.Errorf("expected negative lookup to return false")
+	}
+}
+
+func TestIdentityJoin_SASPIFFEDiscriminator(t *testing.T) {
+	tests := []struct {
+		name        string
+		saPrincipal string
+		spiffeID    string
+		wantMatch   bool
+		wantNS      string
+		wantSA      string
+	}{
+		{
+			name:        "exact match standard cluster.local",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   true,
+			wantNS:      "fe-signalloom-agents",
+			wantSA:      "agent-cardvault-sa",
+		},
+		{
+			name:        "exact match custom domain",
+			saPrincipal: "system:serviceaccount:prod-workloads:payment-processor",
+			spiffeID:    "spiffe://prod.corp.internal/ns/prod-workloads/sa/payment-processor",
+			wantMatch:   true,
+			wantNS:      "prod-workloads",
+			wantSA:      "payment-processor",
+		},
+		{
+			name:        "mismatched namespace negative",
+			saPrincipal: "system:serviceaccount:default:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "mismatched serviceaccount negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:other-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed spiffe missing sa negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed spiffe missing ns negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed spiffe wrong scheme negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "https://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed sa principal missing prefix negative",
+			saPrincipal: "fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed sa principal extra colon negative",
+			saPrincipal: "system:serviceaccount:a:b:c",
+			spiffeID:    "spiffe://cluster.local/ns/a/sa/b",
+			wantMatch:   false,
+		},
+		{
+			name:        "empty strings negative",
+			saPrincipal: "",
+			spiffeID:    "",
+			wantMatch:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			match, ns, sa := MatchSAPrincipalAndSPIFFEID(tt.saPrincipal, tt.spiffeID)
+			if match != tt.wantMatch {
+				t.Errorf("MatchSAPrincipalAndSPIFFEID(%q, %q) = %v, want %v", tt.saPrincipal, tt.spiffeID, match, tt.wantMatch)
+			}
+			if tt.wantMatch {
+				if ns != tt.wantNS {
+					t.Errorf("extracted namespace = %q, want %q", ns, tt.wantNS)
+				}
+				if sa != tt.wantSA {
+					t.Errorf("extracted serviceaccount = %q, want %q", sa, tt.wantSA)
+				}
+			}
+		})
+	}
+}
+
 
 func TestTracker_BindAccessor(t *testing.T) {
 	tracker := NewIdentityTracker()
@@ -154,6 +285,15 @@ func TestCollector_IngestIssuanceEvent(t *testing.T) {
 	}
 	if obs.ActorHint != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
 		t.Fatalf("unexpected actor hint: %s", obs.ActorHint)
+	}
+	if obs.PrincipalID != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Fatalf("unexpected principal ID: %s", obs.PrincipalID)
+	}
+	if obs.Labels["sa_principal"] != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Fatalf("unexpected sa_principal label: %s", obs.Labels["sa_principal"])
+	}
+	if obs.Labels["namespace"] != "fe-signalloom-agents" || obs.Labels["service_account"] != "agent-cardvault-sa" {
+		t.Fatalf("unexpected ns/sa labels: %s/%s", obs.Labels["namespace"], obs.Labels["service_account"])
 	}
 }
 

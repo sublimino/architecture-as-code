@@ -23,6 +23,8 @@ func SeedAll(baseTime time.Time) []model.Observation {
 	obs = append(obs, CloudControlPlaneFixtures(baseTime)...)
 	obs = append(obs, ScheduledJobFixtures(baseTime)...)
 	obs = append(obs, GCPAuditFixtures(baseTime)...)
+	obs = append(obs, BaoAuditFixtures(baseTime)...)
+	obs = append(obs, SPIREIssuanceFixtures(baseTime)...)
 	return obs
 }
 
@@ -161,15 +163,19 @@ func IdentityAuthFixtures(baseTime time.Time) []model.Observation {
 			Source:         "openbao-audit",
 			Confidence:     0.95,
 			ActorHint:      "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
 			RawEvidenceRef: "openbao://audit/secret/data/cardvault/master-keys",
 			Labels: map[string]string{
-				"operation":      "read",
-				"path":           "secret/data/cardvault/master-keys",
-				"spiffe_id":      "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
-				"role":           "cardvault",
-				"accessor":       "hmac-98a72b1c4e5d6f0a",
-				"lease_id":       "secret/data/cardvault/master-keys/lease-88",
-				"lease_duration": "3600",
+				"operation":       "read",
+				"path":            "secret/data/cardvault/master-keys",
+				"spiffe_id":       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"sa_principal":    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+				"namespace":       "fe-signalloom-agents",
+				"service_account": "agent-cardvault-sa",
+				"role":            "cardvault",
+				"accessor":        "hmac-98a72b1c4e5d6f0a",
+				"lease_id":        "secret/data/cardvault/master-keys/lease-88",
+				"lease_duration":  "3600",
 			},
 			Description: "OpenBao audit record: agent-cardvault-sa read secret/data/cardvault/master-keys under definitive SPIFFE SVID role",
 		},
@@ -181,14 +187,16 @@ func IdentityAuthFixtures(baseTime time.Time) []model.Observation {
 			Source:         "spire-agent",
 			Confidence:     0.85,
 			ActorHint:      "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
 			RawEvidenceRef: "spire://svid/issuance/agent-cardvault-sa",
 			Labels: map[string]string{
-				"event_type":   "spire_svid_issuance",
-				"spiffe_id":    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
-				"trust_domain": "cluster.local",
-				"svid_type":    "JWT",
-				"ttl_seconds":  "300",
-				"namespace":    "fe-signalloom-agents",
+				"event_type":      "spire_svid_issuance",
+				"spiffe_id":       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"sa_principal":    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+				"trust_domain":    "cluster.local",
+				"svid_type":       "JWT",
+				"ttl_seconds":     "300",
+				"namespace":       "fe-signalloom-agents",
 				"service_account": "agent-cardvault-sa",
 			},
 			Description: "SPIRE issued JWT SVID for spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa (TTL=300s)",
@@ -349,7 +357,6 @@ func CloudControlPlaneFixtures(baseTime time.Time) []model.Observation {
 		},
 	}
 }
-
 // GCPAuditFixtures generates deterministic GCP Cloud Audit observations from canned LogEntries.
 func GCPAuditFixtures(baseTime time.Time) []model.Observation {
 	return []model.Observation{
@@ -375,6 +382,65 @@ func GCPAuditFixtures(baseTime time.Time) []model.Observation {
 				"log_name":        "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
 			},
 			Description: "GCP Audit: security-admin@controlplane.io called google.iam.admin.v1.CreateRole on projects/osramp-demo/roles/custom.agentRunner",
+		},
+	}
+}
+
+// BaoAuditFixtures generates OpenBao identity audit observations.
+func BaoAuditFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		{
+			ID:             "id-bao-fixture-001",
+			Timestamp:      baseTime.Add(6 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "openbao-audit",
+			Confidence:     0.95,
+			ActorHint:      "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			RawEvidenceRef: "openbao://audit/secret/data/cardvault/master-keys",
+			Labels: map[string]string{
+				"event_type":      "response",
+				"operation":       "read",
+				"path":            "secret/data/cardvault/master-keys",
+				"spiffe_id":       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"sa_principal":    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+				"namespace":       "fe-signalloom-agents",
+				"service_account": "agent-cardvault-sa",
+				"role":            "cardvault",
+				"accessor":        "hmac-98a72b1c4e5d6f0a",
+				"lease_id":        "secret/data/cardvault/master-keys/lease-88",
+				"lease_duration":  "3600",
+			},
+			Description: "OpenBao audit record: agent-cardvault-sa read secret/data/cardvault/master-keys under definitive SPIFFE SVID role",
+		},
+	}
+}
+
+// SPIREIssuanceFixtures generates SPIRE SVID issuance observations.
+func SPIREIssuanceFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		{
+			ID:             "id-spire-fixture-001",
+			Timestamp:      baseTime.Add(1 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityStrong,
+			Source:         "spire-agent",
+			Confidence:     0.85,
+			ActorHint:      "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			PrincipalID:    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			RawEvidenceRef: "spire://svid/issuance/agent-cardvault-sa",
+			Labels: map[string]string{
+				"event_type":      "spire_svid_issuance",
+				"spiffe_id":       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"sa_principal":    "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+				"trust_domain":    "cluster.local",
+				"svid_type":       "JWT",
+				"ttl_seconds":     "300",
+				"namespace":       "fe-signalloom-agents",
+				"service_account": "agent-cardvault-sa",
+			},
+			Description: "SPIRE issued JWT SVID for spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa (TTL=300s)",
 		},
 	}
 }

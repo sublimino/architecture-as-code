@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api"
+	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
@@ -111,11 +113,28 @@ func main() {
 		slog.Info("no DATABASE_URL set, audit writes disabled")
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Collector sink adapter backed by signal store
+	storeSink := collectors.NewStoreSink(signalStore)
+
+	// Audit webhook receiver
+	auditReceiver := apiaudit.NewWebhookReceiver(ctx, 0, 0, storeSink)
+
+	// Collector registry: constructed and started at boot before HTTP server
+	collectorRegistry := collectors.NewRegistryFromEnv(storeSink)
+	if err := collectorRegistry.Start(ctx); err != nil {
+		slog.Warn("collector failed to start; serving degraded", "error", err)
+	}
+
 	handlers := &api.Handlers{
-		Store:      signalStore,
-		Engine:     engine,
-		Audit:      auditWriter,
-		AuditReady: auditReady,
+		Store:           signalStore,
+		Engine:          engine,
+		Audit:           auditWriter,
+		AuditReady:      auditReady,
+		AuditReceiver:   auditReceiver,
+		CollectorHealth: collectorRegistry.Health,
 	}
 
 	mux := http.NewServeMux()
@@ -128,9 +147,6 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		slog.Info("signal-ingest starting", "port", port)
@@ -150,6 +166,9 @@ func main() {
 		slog.Error("shutdown error", "error", err)
 		os.Exit(1)
 	}
+
+	auditReceiver.Close()
+	collectorRegistry.Stop()
 
 	if err := signalStore.Close(); err != nil {
 		slog.Error("store close error", "error", err)

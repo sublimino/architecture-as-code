@@ -152,7 +152,14 @@ func (p *PostgresWriter) WriteAuditEvent(ctx context.Context, event Event) error
 	return err
 }
 
+// DB returns the underlying sql.DB connection pool handle, allowing sibling repositories
+// to share the connection pool without opening a second pool.
+func (p *PostgresWriter) DB() *sql.DB {
+	return p.db
+}
+
 // Close releases the connection pool.
 func (p *PostgresWriter) Close() error {
 	return p.db.Close()
 }
+

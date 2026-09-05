@@ -77,14 +77,21 @@ func (r *Registry) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop terminates all started collectors.
+// Stop terminates all started collectors with per-collector panic isolation.
 func (r *Registry) Stop() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for _, c := range r.started {
 		if s, ok := c.(Stopper); ok {
-			s.Stop()
+			func(col Collector, stopper Stopper) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						slog.Error("collector panic during stop", "name", col.Name(), "panic", rec)
+					}
+				}()
+				stopper.Stop()
+			}(c, s)
 		}
 	}
 	r.started = nil

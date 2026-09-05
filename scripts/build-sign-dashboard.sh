@@ -3,6 +3,18 @@
 # push it to the local registry, sign the resolved digest, and load it into Kind.
 set -euo pipefail
 
+if [ -z "${DOCKER_CONFIG:-}" ]; then
+  if ! touch "${HOME}/.docker/.probe" 2>/dev/null; then
+    export DOCKER_CONFIG="/tmp/.docker"
+    mkdir -p "${DOCKER_CONFIG}"
+  else
+    rm -f "${HOME}/.docker/.probe"
+  fi
+fi
+if [ -z "${KUBECONFIG:-}" ] && [ -f /tmp/osramp.kubeconfig ]; then
+  export KUBECONFIG="/tmp/osramp.kubeconfig"
+fi
+
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/wait.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
@@ -156,16 +168,21 @@ echo "loading the runnable image from the OCI evidence archive"
 skopeo copy --insecure-policy \
   --override-os linux \
   --override-arch amd64 \
+  --tmpdir "${TMP_DIR}" \
   "oci-archive:${OCI_TAR}" \
   "docker-daemon:${IMAGE_REF}"
 
 echo "pushing ${IMAGE_REF} to ${LOCAL_REF}"
-skopeo copy --insecure-policy \
+if ! skopeo copy --insecure-policy \
   --dest-tls-verify=false \
   --override-os linux \
   --override-arch amd64 \
+  --tmpdir "${TMP_DIR}" \
   "oci-archive:${OCI_TAR}" \
-  "docker://${LOCAL_REF}"
+  "docker://${LOCAL_REF}" 2>/dev/null; then
+  docker tag "${IMAGE_REF}" "${LOCAL_REF}"
+  docker push "${LOCAL_REF}"
+fi
 
 DIGEST="$(crane digest --insecure "${LOCAL_REF}")"
 printf '%s\n' "${DIGEST}" > "${DIGEST_FILE}"

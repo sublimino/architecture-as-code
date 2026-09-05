@@ -12,6 +12,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/netebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/workspacesaas"
 )
 
 // GCPAuditCollector adapts the gcpaudit package to the Collector interface.
@@ -432,6 +433,72 @@ func (c *KAgentCollector) Health(ctx context.Context) error {
 }
 
 func (c *KAgentCollector) Stop() {
+	if c.col != nil {
+		c.col.Stop()
+	}
+}
+
+// WorkspaceSaaSCollector adapts the workspacesaas package to the Collector interface.
+type WorkspaceSaaSCollector struct {
+	mode     Mode
+	sink     IngestionSink
+	col      *workspacesaas.Collector
+	healthFn func(ctx context.Context) error
+	startFn  func(ctx context.Context) error
+}
+
+// NewWorkspaceSaaSCollector creates a WorkspaceSaaSCollector.
+func NewWorkspaceSaaSCollector(mode Mode, sink IngestionSink) *WorkspaceSaaSCollector {
+	return &WorkspaceSaaSCollector{mode: mode, sink: sink}
+}
+
+func (c *WorkspaceSaaSCollector) Name() string { return "workspacesaas" }
+func (c *WorkspaceSaaSCollector) Mode() Mode   { return c.mode }
+
+func (c *WorkspaceSaaSCollector) SetHealthFunc(fn func(ctx context.Context) error) { c.healthFn = fn }
+func (c *WorkspaceSaaSCollector) SetStartFunc(fn func(ctx context.Context) error)  { c.startFn = fn }
+func (c *WorkspaceSaaSCollector) RawCollector() *workspacesaas.Collector           { return c.col }
+
+func (c *WorkspaceSaaSCollector) Start(ctx context.Context) error {
+	if c.startFn != nil {
+		return c.startFn(ctx)
+	}
+	switch c.mode {
+	case ModeOff:
+		return nil
+	case ModeFixture:
+		if c.sink != nil {
+			for _, obs := range WorkspaceSaaSFixtures(time.Now().UTC()) {
+				o := obs
+				if err := c.sink.IngestObservation(ctx, &o); err != nil {
+					return fmt.Errorf("workspacesaas fixture ingestion failed: %w", err)
+				}
+			}
+		}
+		return nil
+	case ModeLive:
+		if c.col == nil {
+			c.col = workspacesaas.NewCollector(workspacesaas.ModeLive, c.sink)
+		}
+		return c.col.Start(ctx)
+	}
+	return nil
+}
+
+func (c *WorkspaceSaaSCollector) Health(ctx context.Context) error {
+	if c.healthFn != nil {
+		return c.healthFn(ctx)
+	}
+	if c.mode == ModeLive {
+		if c.col == nil {
+			c.col = workspacesaas.NewCollector(workspacesaas.ModeLive, c.sink)
+		}
+		return c.col.Health(ctx)
+	}
+	return nil
+}
+
+func (c *WorkspaceSaaSCollector) Stop() {
 	if c.col != nil {
 		c.col.Stop()
 	}

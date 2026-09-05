@@ -373,6 +373,171 @@ func TestFrostDBStore_DropPartition_DocumentedLimitation(t *testing.T) {
 	}
 }
 
+// TestFrostDBStore_AdditiveColumnsRoundTrip verifies that all new resolution columns persist and round-trip faithfully.
+func TestFrostDBStore_AdditiveColumnsRoundTrip(t *testing.T) {
+	s, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer s.Close()
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	obs := []model.Observation{
+		{
+			ID:               "add-col-1",
+			Timestamp:        now,
+			Layer:            model.LayerIdentityAuth,
+			Fidelity:         model.FidelityDefinitive,
+			Source:           "openbao-audit",
+			Confidence:       1.0,
+			ActorHint:        "spiffe://cluster.local/ns/agent/sa/runner",
+			RawEvidenceRef:   "ref-col-1",
+			Description:      "round-trip additive columns",
+			Labels:           map[string]string{"env": "prod"},
+			PrincipalID:      "principal-runner",
+			ActorID:          "actor-runner",
+			SessionID:        "sess-12345",
+			ImpersonatedUser: "admin@corp.internal",
+			DelegationDepth:  3,
+		},
+	}
+
+	if err := s.Append(context.Background(), obs); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	results, err := s.QueryRange(context.Background(), Query{ActorID: "spiffe://cluster.local/ns/agent/sa/runner"})
+	if err != nil {
+		t.Fatalf("QueryRange failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 observation, got %d", len(results))
+	}
+
+	got := results[0]
+	if got.PrincipalID != obs[0].PrincipalID {
+		t.Errorf("PrincipalID = %q, want %q", got.PrincipalID, obs[0].PrincipalID)
+	}
+	if got.ActorID != obs[0].ActorID {
+		t.Errorf("ActorID = %q, want %q", got.ActorID, obs[0].ActorID)
+	}
+	if got.SessionID != obs[0].SessionID {
+		t.Errorf("SessionID = %q, want %q", got.SessionID, obs[0].SessionID)
+	}
+	if got.ImpersonatedUser != obs[0].ImpersonatedUser {
+		t.Errorf("ImpersonatedUser = %q, want %q", got.ImpersonatedUser, obs[0].ImpersonatedUser)
+	}
+	if got.DelegationDepth != obs[0].DelegationDepth {
+		t.Errorf("DelegationDepth = %d, want %d", got.DelegationDepth, obs[0].DelegationDepth)
+	}
+}
+
+// TestFrostDBStore_EquivalenceWithMemory_AdditiveColumns tests memory vs frostdb equivalence with additive fields.
+func TestFrostDBStore_EquivalenceWithMemory_AdditiveColumns(t *testing.T) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	mem := NewMemoryStore()
+	defer mem.Close()
+
+	base := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	obs := []model.Observation{
+		{
+			ID:               "eq-add-1",
+			Timestamp:        base,
+			Layer:            model.LayerIdentityAuth,
+			Fidelity:         model.FidelityDefinitive,
+			Source:           "bao-audit",
+			ActorHint:        "actor-1",
+			PrincipalID:      "princ-1",
+			ActorID:          "act-1",
+			SessionID:        "sess-1",
+			ImpersonatedUser: "user-1",
+			DelegationDepth:  1,
+		},
+		{
+			ID:               "eq-add-2",
+			Timestamp:        base.Add(time.Minute),
+			Layer:            model.LayerNetworkEgress,
+			Fidelity:         model.FidelityStrong,
+			Source:           "sentinel",
+			ActorHint:        "actor-2",
+			PrincipalID:      "princ-2",
+			ActorID:          "act-2",
+			SessionID:        "sess-2",
+			DelegationDepth:  0,
+		},
+	}
+
+	ctx := context.Background()
+	if err := frost.Append(ctx, obs); err != nil {
+		t.Fatalf("frost.Append: %v", err)
+	}
+	if err := mem.Append(ctx, obs); err != nil {
+		t.Fatalf("mem.Append: %v", err)
+	}
+
+	frostRes, err := frost.QueryRange(ctx, Query{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memRes, err := mem.QueryRange(ctx, Query{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(frostRes) != len(memRes) {
+		t.Fatalf("count mismatch: frost=%d, mem=%d", len(frostRes), len(memRes))
+	}
+
+	for i := range frostRes {
+		f := frostRes[i]
+		m := memRes[i]
+		if f.PrincipalID != m.PrincipalID || f.ActorID != m.ActorID || f.SessionID != m.SessionID ||
+			f.ImpersonatedUser != m.ImpersonatedUser || f.DelegationDepth != m.DelegationDepth {
+			t.Errorf("field mismatch at [%d]: frost=%+v, mem=%+v", i, f, m)
+		}
+	}
+}
+
+// TestStore_NegativeSpace_QueryFiltering asserts query filtering is identical between stores and not widened.
+func TestStore_NegativeSpace_QueryFiltering(t *testing.T) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	mem := NewMemoryStore()
+	defer mem.Close()
+
+	base := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	obs := []model.Observation{
+		{ID: "neg-1", Timestamp: base, Layer: model.LayerNetworkEgress, ActorHint: "actor-a", Source: "src-1"},
+		{ID: "neg-2", Timestamp: base.Add(time.Minute), Layer: model.LayerIdentityAuth, ActorHint: "actor-b", Source: "src-2"},
+	}
+
+	ctx := context.Background()
+	if err := frost.Append(ctx, obs); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.Append(ctx, obs); err != nil {
+		t.Fatal(err)
+	}
+
+	// Non-matching ActorID query should return 0 results from both stores
+	qNonMatch := Query{ActorID: "actor-nonexistent"}
+	frostRes, _ := frost.QueryRange(ctx, qNonMatch)
+	memRes, _ := mem.QueryRange(ctx, qNonMatch)
+
+	if len(frostRes) != 0 || len(memRes) != 0 {
+		t.Errorf("negative query mismatch: frost=%d, mem=%d (both want 0)", len(frostRes), len(memRes))
+	}
+}
+
 // ids extracts observation IDs for test diagnostics.
 func ids(obs []model.Observation) []string {
 	out := make([]string, len(obs))
@@ -381,3 +546,4 @@ func ids(obs []model.Observation) []string {
 	}
 	return out
 }
+

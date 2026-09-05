@@ -32,6 +32,12 @@ type ProvisionalActor struct {
 	Aliases     []string          `json:"aliases,omitempty"`
 	Attributes  map[string]string `json:"attributes,omitempty"`
 	ResolvedAt  *time.Time        `json:"resolved_at,omitempty"`
+
+	// Additive deterministic-correlation fields (SFDP-P3-1).
+	AcceptedEdges []CorrelationEdge `json:"accepted_edges,omitempty"`
+	DeclinedEdges []CorrelationEdge `json:"declined_edges,omitempty"`
+	Delegations   []CorrelationEdge `json:"delegations,omitempty"`
+	Lineage       []ActorLineage    `json:"lineage,omitempty"`
 }
 
 // EvidenceLink records one observation's contribution to an actor hypothesis.

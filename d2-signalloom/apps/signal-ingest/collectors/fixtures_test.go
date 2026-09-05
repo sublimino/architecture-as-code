@@ -181,3 +181,97 @@ func TestSPIREIssuanceFixtures_NonEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectorFalsificationTwinFixtures_ValidityAndIntegrity(t *testing.T) {
+	baseTime := time.Now().UTC()
+
+	// GCPAudit Twins
+	gcpAccept := GCPAuditAcceptTwinLogEntry(baseTime)
+	if gcpAccept == nil || gcpAccept.InsertID == "" || gcpAccept.ProtoPayload == nil {
+		t.Errorf("invalid GCPAuditAcceptTwinLogEntry")
+	}
+	if len(GCPAuditAcceptTwinPayload(baseTime)) == 0 {
+		t.Errorf("empty GCPAuditAcceptTwinPayload")
+	}
+	if len(GCPAuditRejectTwinPayload()) == 0 {
+		t.Errorf("empty GCPAuditRejectTwinPayload")
+	}
+
+	// BaoAudit Twins
+	baoAccept := BaoAuditAcceptTwinEvent(baseTime)
+	if baoAccept == nil || baoAccept.Request == nil || baoAccept.Auth == nil {
+		t.Errorf("invalid BaoAuditAcceptTwinEvent")
+	}
+	if len(BaoAuditAcceptTwinPayload(baseTime)) == 0 {
+		t.Errorf("empty BaoAuditAcceptTwinPayload")
+	}
+	if len(BaoAuditRejectTwinPayload()) == 0 {
+		t.Errorf("empty BaoAuditRejectTwinPayload")
+	}
+
+	// SPIREA Twins
+	spireAccept := SPIREIssuanceAcceptTwinEvent(baseTime)
+	if spireAccept == nil || spireAccept.SPIFFEID == "" {
+		t.Errorf("invalid SPIREIssuanceAcceptTwinEvent")
+	}
+	spireReject := SPIREIssuanceRejectTwinEvent(baseTime)
+	if spireReject == nil || spireReject.SPIFFEID != "" {
+		t.Errorf("SPIREIssuanceRejectTwinEvent must have empty SPIFFEID")
+	}
+
+	// NetEBPF Twins
+	netAccept := NetEBPFAcceptTwinEvent(baseTime)
+	if netAccept == nil || netAccept.DstIP == "" || netAccept.BytesSent == 0 {
+		t.Errorf("invalid NetEBPFAcceptTwinEvent")
+	}
+	if NetEBPFRejectTwinEvent() != nil {
+		t.Errorf("NetEBPFRejectTwinEvent must be nil")
+	}
+	netUnder := NetEBPFUnderReportTwinEvent(baseTime)
+	if netUnder == nil || netUnder.SeqNum <= 1 {
+		t.Errorf("NetEBPFUnderReportTwinEvent must contain sequence jump")
+	}
+
+	// K8sAudit Twins
+	k8sAccept := K8sAuditAcceptTwinEventList(baseTime)
+	if k8sAccept == nil || len(k8sAccept.Items) == 0 {
+		t.Errorf("invalid K8sAuditAcceptTwinEventList")
+	}
+	if len(K8sAuditAcceptTwinPayload(baseTime)) == 0 {
+		t.Errorf("empty K8sAuditAcceptTwinPayload")
+	}
+	if len(K8sAuditRejectTwinPayload()) == 0 {
+		t.Errorf("empty K8sAuditRejectTwinPayload")
+	}
+
+	// KAgent Twins
+	kagentAccept := KAgentAcceptTwinSpan(baseTime)
+	if kagentAccept.SpanID == "" || len(kagentAccept.Attributes) == 0 {
+		t.Errorf("invalid KAgentAcceptTwinSpan")
+	}
+	kagentReject := KAgentRejectTwinSpan()
+	if kagentReject.SpanID != "" {
+		t.Errorf("KAgentRejectTwinSpan must have empty SpanID")
+	}
+
+	// WorkspaceSaaS Twins
+	wsAccept := WorkspaceSaaSAcceptTwinObservation(baseTime)
+	if err := wsAccept.Validate(); err != nil {
+		t.Errorf("WorkspaceSaaSAcceptTwinObservation failed validation: %v", err)
+	}
+	wsReject := WorkspaceSaaSRejectTwinObservation()
+	if err := wsReject.Validate(); err == nil {
+		t.Errorf("WorkspaceSaaSRejectTwinObservation must fail validation")
+	}
+
+	// Fixture Twins
+	fixAccept := FixtureAcceptTwinObservations(baseTime)
+	if len(fixAccept) == 0 {
+		t.Errorf("empty FixtureAcceptTwinObservations")
+	}
+	fixReject := FixtureRejectTwinObservations()
+	if len(fixReject) == 0 || fixReject[0].ID != "" {
+		t.Errorf("invalid FixtureRejectTwinObservations")
+	}
+}
+

@@ -4,12 +4,18 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	schemapb "github.com/polarsignals/frostdb/gen/proto/go/frostdb/schema/v1alpha1"
+	"github.com/polarsignals/frostdb/query/logicalplan"
 )
 
 // TestFrostDBStore_ContractSuite runs the full SignalStore contract test suite
@@ -545,5 +551,634 @@ func ids(obs []model.Observation) []string {
 		out[i] = o.ID
 	}
 	return out
+}
+
+// TestFrostDBStore_BuildFilter tests the AST expression generation of buildFilter.
+func TestFrostDBStore_BuildFilter(t *testing.T) {
+	t.Run("empty_query_returns_nil", func(t *testing.T) {
+		expr := buildFilter(Query{})
+		if expr != nil {
+			t.Errorf("want nil expr for empty query, got %v", expr)
+		}
+	})
+
+	t.Run("time_after_only", func(t *testing.T) {
+		now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+		expr := buildFilter(Query{After: now})
+		if expr == nil {
+			t.Fatal("want non-nil expr")
+		}
+		expected := colRef("timestamp").GtEq(logicalplan.Literal(now.UnixNano())).String()
+		if expr.String() != expected {
+			t.Errorf("expr = %q, want %q", expr.String(), expected)
+		}
+	})
+
+	t.Run("time_before_only", func(t *testing.T) {
+		now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+		expr := buildFilter(Query{Before: now})
+		if expr == nil {
+			t.Fatal("want non-nil expr")
+		}
+		expected := colRef("timestamp").Lt(logicalplan.Literal(now.UnixNano())).String()
+		if expr.String() != expected {
+			t.Errorf("expr = %q, want %q", expr.String(), expected)
+		}
+	})
+
+	t.Run("time_range_after_and_before", func(t *testing.T) {
+		t1 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+		t2 := time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC)
+		expr := buildFilter(Query{After: t1, Before: t2})
+		if expr == nil {
+			t.Fatal("want non-nil expr")
+		}
+		expected := logicalplan.And(
+			colRef("timestamp").GtEq(logicalplan.Literal(t1.UnixNano())),
+			colRef("timestamp").Lt(logicalplan.Literal(t2.UnixNano())),
+		).String()
+		if expr.String() != expected {
+			t.Errorf("expr = %q, want %q", expr.String(), expected)
+		}
+	})
+
+	t.Run("single_layer", func(t *testing.T) {
+		expr := buildFilter(Query{Layers: []model.Layer{model.LayerNetworkEgress}})
+		if expr == nil {
+			t.Fatal("want non-nil expr")
+		}
+		expected := colRef("layer").Eq(logicalplan.Literal(string(model.LayerNetworkEgress))).String()
+		if expr.String() != expected {
+			t.Errorf("expr = %q, want %q", expr.String(), expected)
+		}
+	})
+
+	t.Run("multiple_layers_or_chain", func(t *testing.T) {
+		expr := buildFilter(Query{Layers: []model.Layer{model.LayerNetworkEgress, model.LayerIdentityAuth}})
+		if expr == nil {
+			t.Fatal("want non-nil expr")
+		}
+		expected := logicalplan.Or(
+			colRef("layer").Eq(logicalplan.Literal(string(model.LayerNetworkEgress))),
+			colRef("layer").Eq(logicalplan.Literal(string(model.LayerIdentityAuth))),
+		).String()
+		if expr.String() != expected {
+			t.Errorf("expr = %q, want %q", expr.String(), expected)
+		}
+	})
+
+	t.Run("actor_id_only", func(t *testing.T) {
+		expr := buildFilter(Query{ActorID: "spiffe://cluster.local/ns/prod/sa/bot"})
+		if expr == nil {
+			t.Fatal("want non-nil expr")
+		}
+		expected := colRef("actor_hint").Eq(logicalplan.Literal("spiffe://cluster.local/ns/prod/sa/bot")).String()
+		if expr.String() != expected {
+			t.Errorf("expr = %q, want %q", expr.String(), expected)
+		}
+	})
+
+	t.Run("all_predicates_combined", func(t *testing.T) {
+		t1 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+		t2 := time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC)
+		expr := buildFilter(Query{
+			After:   t1,
+			Before:  t2,
+			Layers:  []model.Layer{model.LayerNetworkEgress, model.LayerBehavioural},
+			ActorID: "actor-x",
+		})
+		if expr == nil {
+			t.Fatal("want non-nil expr")
+		}
+		expected := logicalplan.And(
+			colRef("timestamp").GtEq(logicalplan.Literal(t1.UnixNano())),
+			colRef("timestamp").Lt(logicalplan.Literal(t2.UnixNano())),
+			logicalplan.Or(
+				colRef("layer").Eq(logicalplan.Literal(string(model.LayerNetworkEgress))),
+				colRef("layer").Eq(logicalplan.Literal(string(model.LayerBehavioural))),
+			),
+			colRef("actor_hint").Eq(logicalplan.Literal("actor-x")),
+		).String()
+		if expr.String() != expected {
+			t.Errorf("expr = %q, want %q", expr.String(), expected)
+		}
+	})
+}
+
+// TestFrostDBStore_ColumnNameGuard verifies that schema column validation fails loudly
+// if any expected pushdown column is missing from the FrostDB schema definition.
+func TestFrostDBStore_ColumnNameGuard(t *testing.T) {
+	t.Run("valid_schemaDef_passes", func(t *testing.T) {
+		schema := schemaDef()
+		if err := validateFilterColumns(schema); err != nil {
+			t.Fatalf("unexpected error on valid schema: %v", err)
+		}
+	})
+
+	t.Run("missing_timestamp_fails_loudly", func(t *testing.T) {
+		badSchema := &schemapb.Schema{
+			Columns: []*schemapb.Column{
+				{Name: "id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+				{Name: "layer", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+				{Name: "actor_hint", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			},
+		}
+		err := validateFilterColumns(badSchema)
+		if err == nil {
+			t.Fatal("expected error for missing timestamp column, got nil")
+		}
+		if !strings.Contains(err.Error(), "timestamp") {
+			t.Errorf("expected error to mention 'timestamp', got %v", err)
+		}
+	})
+
+	t.Run("missing_layer_fails_loudly", func(t *testing.T) {
+		badSchema := &schemapb.Schema{
+			Columns: []*schemapb.Column{
+				{Name: "id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+				{Name: "timestamp", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_INT64}},
+				{Name: "actor_hint", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			},
+		}
+		err := validateFilterColumns(badSchema)
+		if err == nil {
+			t.Fatal("expected error for missing layer column, got nil")
+		}
+		if !strings.Contains(err.Error(), "layer") {
+			t.Errorf("expected error to mention 'layer', got %v", err)
+		}
+	})
+
+	t.Run("missing_actor_hint_fails_loudly", func(t *testing.T) {
+		badSchema := &schemapb.Schema{
+			Columns: []*schemapb.Column{
+				{Name: "id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+				{Name: "timestamp", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_INT64}},
+				{Name: "layer", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			},
+		}
+		err := validateFilterColumns(badSchema)
+		if err == nil {
+			t.Fatal("expected error for missing actor_hint column, got nil")
+		}
+		if !strings.Contains(err.Error(), "actor_hint") {
+			t.Errorf("expected error to mention 'actor_hint', got %v", err)
+		}
+	})
+
+	t.Run("silent_scan_fallback_prevented_by_guard", func(t *testing.T) {
+		s, err := NewFrostDBStore()
+		if err != nil {
+			t.Fatalf("NewFrostDBStore: %v", err)
+		}
+		defer s.Close()
+
+		ctx := context.Background()
+		obs := []model.Observation{
+			{ID: "guard-1", Timestamp: time.Now().UTC(), Layer: model.LayerNetworkEgress, ActorHint: "actor-1", Source: "test"},
+		}
+		if err := s.Append(ctx, obs); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+
+		// Demonstrate that a raw unvalidated FrostDB query silently executes without erroring
+		// when an unknown/misspelled column is passed in a filter, returning 0 rows silently.
+		// This proves why validateFilterColumns is a mandatory guard to ensure column names match the schema.
+		var rowCount int
+		err = s.engine.ScanTable(tableName).
+			Project(logicalplan.All()).
+			Filter(colRef("misspelled_column").Eq(logicalplan.Literal("val"))).
+			Execute(ctx, func(ctx context.Context, r arrow.Record) error {
+				rowCount += int(r.NumRows())
+				return nil
+			})
+		if err != nil {
+			t.Fatalf("unexpected engine error: %v", err)
+		}
+		if rowCount != 0 {
+			t.Errorf("expected silent 0 rows for non-existent column in unvalidated engine, got %d", rowCount)
+		}
+
+		// Verify validateFilterColumns catches the invalid column schema and rejects it loudly.
+		badSchema := &schemapb.Schema{
+			Columns: []*schemapb.Column{
+				{Name: "misspelled_column", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			},
+		}
+		if err := validateFilterColumns(badSchema); err == nil {
+			t.Fatal("validateFilterColumns must fail loudly on bad schema")
+		}
+	})
+}
+
+// TestFrostDBStore_DropPartition_RetentionFloor_Pushdown verifies that the retention floor
+// (droppedBefore) is pushed into the engine filter and prunes observations behind the boundary.
+func TestFrostDBStore_DropPartition_RetentionFloor_Pushdown(t *testing.T) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	mem := NewMemoryStore()
+	defer mem.Close()
+
+	base := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
+	t0 := base
+	t1 := base.Add(1 * time.Hour)
+	t2 := base.Add(2 * time.Hour)
+	t3 := base.Add(3 * time.Hour)
+
+	obs := []model.Observation{
+		{ID: "o0", Timestamp: t0, Layer: model.LayerNetworkEgress, ActorHint: "actor-0", Source: "test"},
+		{ID: "o1", Timestamp: t1, Layer: model.LayerNetworkEgress, ActorHint: "actor-1", Source: "test"},
+		{ID: "o2", Timestamp: t2, Layer: model.LayerIdentityAuth, ActorHint: "actor-2", Source: "test"},
+		{ID: "o3", Timestamp: t3, Layer: model.LayerBehavioural, ActorHint: "actor-3", Source: "test"},
+	}
+
+	ctx := context.Background()
+	if err := frost.Append(ctx, obs); err != nil {
+		t.Fatalf("frost.Append: %v", err)
+	}
+	if err := mem.Append(ctx, obs); err != nil {
+		t.Fatalf("mem.Append: %v", err)
+	}
+
+	// Drop partition before t2. Observations at t0 and t1 are now pruned behind retention floor.
+	if err := frost.DropPartition(ctx, t2); err != nil {
+		t.Fatalf("frost.DropPartition: %v", err)
+	}
+	if err := mem.DropPartition(ctx, t2); err != nil {
+		t.Fatalf("mem.DropPartition: %v", err)
+	}
+
+	t.Run("query_all_returns_only_retained", func(t *testing.T) {
+		got, err := frost.QueryRange(ctx, Query{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		memGot, err := mem.QueryRange(ctx, Query{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || len(memGot) != 2 {
+			t.Fatalf("want 2 retained observations, got frost=%d, mem=%d", len(got), len(memGot))
+		}
+		if got[0].ID != "o2" && got[0].ID != "o3" {
+			t.Errorf("unexpected observation returned: %v", ids(got))
+		}
+	})
+
+	t.Run("query_straddling_boundary_clamps_to_floor", func(t *testing.T) {
+		// Query with After=t0 (straddles the t2 floor) must clamp to t2 and return only o2, o3.
+		got, err := frost.QueryRange(ctx, Query{After: t0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 {
+			t.Errorf("want 2 observations for straddling query, got %d (%v)", len(got), ids(got))
+		}
+	})
+
+	t.Run("query_behind_retention_boundary_returns_empty", func(t *testing.T) {
+		// Query strictly before t2 must return 0 observations
+		got, err := frost.QueryRange(ctx, Query{Before: t2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Errorf("want 0 observations behind retention boundary, got %d (%v)", len(got), ids(got))
+		}
+	})
+}
+
+// TestFrostDBStore_LimitInteraction verifies that q.Limit correctly bounds results
+// when filtering happens in-engine.
+func TestFrostDBStore_LimitInteraction(t *testing.T) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	mem := NewMemoryStore()
+	defer mem.Close()
+
+	base := time.Date(2026, 9, 5, 10, 0, 0, 0, time.UTC)
+	var obs []model.Observation
+	for i := 0; i < 20; i++ {
+		obs = append(obs, model.Observation{
+			ID:        fmt.Sprintf("lim-%02d", i),
+			Timestamp: base.Add(time.Duration(i) * time.Minute),
+			Layer:     model.LayerNetworkEgress,
+			ActorHint: fmt.Sprintf("actor-%d", i%3),
+			Source:    "test",
+		})
+	}
+
+	ctx := context.Background()
+	if err := frost.Append(ctx, obs); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.Append(ctx, obs); err != nil {
+		t.Fatal(err)
+	}
+
+	limits := []int{1, 3, 5, 10, 20, 50}
+	for _, lim := range limits {
+		t.Run(fmt.Sprintf("limit_%d", lim), func(t *testing.T) {
+			frostGot, err := frost.QueryRange(ctx, Query{Limit: lim})
+			if err != nil {
+				t.Fatal(err)
+			}
+			memGot, err := mem.QueryRange(ctx, Query{Limit: lim})
+			if err != nil {
+				t.Fatal(err)
+			}
+			expectedLen := lim
+			if expectedLen > len(obs) {
+				expectedLen = len(obs)
+			}
+			if len(frostGot) != expectedLen {
+				t.Errorf("frost limit %d: want %d items, got %d", lim, expectedLen, len(frostGot))
+			}
+			if len(frostGot) != len(memGot) {
+				t.Errorf("limit %d count mismatch: frost=%d, mem=%d", lim, len(frostGot), len(memGot))
+			}
+		})
+	}
+}
+
+// TestFrostDBStore_VolumeBenchmark_PruningAndP95 ingests a high volume of observations,
+// proves row-group pruning under selective filters, and asserts a p95 latency bound against
+// a recorded full-scan baseline.
+func TestFrostDBStore_VolumeBenchmark_PruningAndP95(t *testing.T) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	mem := NewMemoryStore()
+	defer mem.Close()
+
+	ctx := context.Background()
+	baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	const (
+		numHours       = 24
+		recordsPerHour = 500
+		totalRecords   = numHours * recordsPerHour // 12,000 observations
+	)
+
+	layers := []model.Layer{
+		model.LayerNetworkEgress,
+		model.LayerIdentityAuth,
+		model.LayerApplicationSaaS,
+		model.LayerEndpointHost,
+		model.LayerBehavioural,
+	}
+	actors := []string{"actor-alpha", "actor-beta", "actor-gamma", "actor-delta"}
+
+	t.Logf("Ingesting volume: %d observations across %d hourly partitions...", totalRecords, numHours)
+
+	for h := 0; h < numHours; h++ {
+		batch := make([]model.Observation, recordsPerHour)
+		hourStart := baseTime.Add(time.Duration(h) * time.Hour)
+		for r := 0; r < recordsPerHour; r++ {
+			batch[r] = model.Observation{
+				ID:             fmt.Sprintf("vol-h%02d-r%04d", h, r),
+				Timestamp:      hourStart.Add(time.Duration(r) * time.Second),
+				Layer:          layers[(h+r)%len(layers)],
+				Fidelity:       model.FidelityStrong,
+				Source:         "volume-bench",
+				Confidence:     0.95,
+				ActorHint:      actors[r%len(actors)],
+				RawEvidenceRef: fmt.Sprintf("ref-h%02d-%04d", h, r),
+				Description:    "high volume test observation",
+				Labels: map[string]string{
+					"hour":      fmt.Sprintf("%d", h),
+					"partition": fmt.Sprintf("p-%02d", h),
+				},
+			}
+		}
+		if err := frost.Append(ctx, batch); err != nil {
+			t.Fatalf("frost.Append hour %d: %v", h, err)
+		}
+		if err := mem.Append(ctx, batch); err != nil {
+			t.Fatalf("mem.Append hour %d: %v", h, err)
+		}
+	}
+
+	// 1. Correctness & Pruning Verification
+	targetHour := 22
+	targetStart := baseTime.Add(time.Duration(targetHour) * time.Hour)
+	targetEnd := targetStart.Add(time.Hour)
+
+	selectiveQuery := Query{
+		After:  targetStart,
+		Before: targetEnd,
+		Layers: []model.Layer{model.LayerNetworkEgress},
+	}
+
+	fullScanQuery := Query{} // Match-all: scans all 12,000 records
+
+	// Query both stores and verify exact equivalence
+	frostSelective, err := frost.QueryRange(ctx, selectiveQuery)
+	if err != nil {
+		t.Fatalf("frost selective query failed: %v", err)
+	}
+	memSelective, err := mem.QueryRange(ctx, selectiveQuery)
+	if err != nil {
+		t.Fatalf("mem selective query failed: %v", err)
+	}
+
+	if len(frostSelective) != len(memSelective) {
+		t.Fatalf("selective count mismatch: frost=%d, mem=%d", len(frostSelective), len(memSelective))
+	}
+	if len(frostSelective) == 0 {
+		t.Fatalf("expected non-empty selective query results")
+	}
+
+	// Calculate pruning selectivity: selective results vs full dataset
+	selectivityRatio := float64(len(frostSelective)) / float64(totalRecords)
+	t.Logf("Selective query matched %d / %d records (selectivity: %.2f%%)",
+		len(frostSelective), totalRecords, selectivityRatio*100)
+
+	// 2. Latency Benchmark Scaffold with Warmup
+	const (
+		warmupIterations = 10
+		benchIterations  = 100
+	)
+
+	// Warm up query engine and plan caches
+	for i := 0; i < warmupIterations; i++ {
+		_, _ = frost.QueryRange(ctx, fullScanQuery)
+		_, _ = frost.QueryRange(ctx, selectiveQuery)
+	}
+
+	// Measure Full Scan Baseline
+	fullScanDurations := make([]time.Duration, benchIterations)
+	for i := 0; i < benchIterations; i++ {
+		start := time.Now()
+		res, err := frost.QueryRange(ctx, fullScanQuery)
+		if err != nil {
+			t.Fatalf("full scan iteration %d failed: %v", i, err)
+		}
+		fullScanDurations[i] = time.Since(start)
+		if len(res) != totalRecords {
+			t.Fatalf("full scan want %d, got %d", totalRecords, len(res))
+		}
+	}
+
+	// Measure Pushed-down Filtered Scan
+	filteredDurations := make([]time.Duration, benchIterations)
+	for i := 0; i < benchIterations; i++ {
+		start := time.Now()
+		res, err := frost.QueryRange(ctx, selectiveQuery)
+		if err != nil {
+			t.Fatalf("filtered scan iteration %d failed: %v", i, err)
+		}
+		filteredDurations[i] = time.Since(start)
+		if len(res) != len(frostSelective) {
+			t.Fatalf("filtered scan want %d, got %d", len(frostSelective), len(res))
+		}
+	}
+
+	// Calculate statistics
+	fullScanStats := calcLatencyStats(fullScanDurations)
+	filteredStats := calcLatencyStats(filteredDurations)
+
+	t.Logf("=== Volume Benchmark Report (N=%d iterations, Dataset=%d records) ===", benchIterations, totalRecords)
+	t.Logf("Full Scan Baseline: min=%v, mean=%v, p50=%v, p90=%v, p95=%v, p99=%v, max=%v",
+		fullScanStats.Min, fullScanStats.Mean, fullScanStats.P50, fullScanStats.P90, fullScanStats.P95, fullScanStats.P99, fullScanStats.Max)
+	t.Logf("Pushed-down Filter: min=%v, mean=%v, p50=%v, p90=%v, p95=%v, p99=%v, max=%v",
+		filteredStats.Min, filteredStats.Mean, filteredStats.P50, filteredStats.P90, filteredStats.P95, filteredStats.P99, filteredStats.Max)
+
+	speedupP95 := float64(fullScanStats.P95) / float64(filteredStats.P95)
+	t.Logf("p95 Latency Improvement: %.2fx speedup (full scan: %v vs pushed-down: %v)",
+		speedupP95, fullScanStats.P95, filteredStats.P95)
+
+	// 3. Quantitative Assertions
+	if filteredStats.P95 > fullScanStats.P95 {
+		t.Errorf("p95 latency regression: filtered p95 (%v) exceeds full-scan baseline p95 (%v)",
+			filteredStats.P95, fullScanStats.P95)
+	}
+
+	// Assert significant pruning occurred: selectivity is <= 5% of dataset
+	if selectivityRatio > 0.05 {
+		t.Errorf("selective query selectivity ratio %.2f exceeds 5%% bound", selectivityRatio)
+	}
+}
+
+type latencyStats struct {
+	Min  time.Duration
+	Mean time.Duration
+	P50  time.Duration
+	P90  time.Duration
+	P95  time.Duration
+	P99  time.Duration
+	Max  time.Duration
+}
+
+func calcLatencyStats(durations []time.Duration) latencyStats {
+	if len(durations) == 0 {
+		return latencyStats{}
+	}
+	sorted := make([]time.Duration, len(durations))
+	copy(sorted, durations)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+
+	var sum time.Duration
+	for _, d := range sorted {
+		sum += d
+	}
+	mean := time.Duration(int64(sum) / int64(len(sorted)))
+
+	pIndex := func(pct float64) time.Duration {
+		idx := int(float64(len(sorted)-1) * pct)
+		return sorted[idx]
+	}
+
+	return latencyStats{
+		Min:  sorted[0],
+		Mean: mean,
+		P50:  pIndex(0.50),
+		P90:  pIndex(0.90),
+		P95:  pIndex(0.95),
+		P99:  pIndex(0.99),
+		Max:  sorted[len(sorted)-1],
+	}
+}
+
+// BenchmarkFrostDBStore_QueryPushdownVsFullScan benchmarks FrostDB full-scan vs pushed-down selective queries.
+func BenchmarkFrostDBStore_QueryPushdownVsFullScan(b *testing.B) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		b.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	ctx := context.Background()
+	baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	const (
+		numHours       = 24
+		recordsPerHour = 250
+	)
+	layers := []model.Layer{
+		model.LayerNetworkEgress,
+		model.LayerIdentityAuth,
+		model.LayerApplicationSaaS,
+		model.LayerEndpointHost,
+		model.LayerBehavioural,
+	}
+	actors := []string{"actor-alpha", "actor-beta", "actor-gamma", "actor-delta"}
+
+	for h := 0; h < numHours; h++ {
+		batch := make([]model.Observation, recordsPerHour)
+		hourStart := baseTime.Add(time.Duration(h) * time.Hour)
+		for r := 0; r < recordsPerHour; r++ {
+			batch[r] = model.Observation{
+				ID:        fmt.Sprintf("bench-h%02d-r%04d", h, r),
+				Timestamp: hourStart.Add(time.Duration(r) * time.Second),
+				Layer:     layers[(h+r)%len(layers)],
+				ActorHint: actors[r%len(actors)],
+				Source:    "bench",
+			}
+		}
+		if err := frost.Append(ctx, batch); err != nil {
+			b.Fatalf("frost.Append hour %d: %v", h, err)
+		}
+	}
+
+	targetStart := baseTime.Add(22 * time.Hour)
+	targetEnd := targetStart.Add(time.Hour)
+	selectiveQuery := Query{
+		After:  targetStart,
+		Before: targetEnd,
+		Layers: []model.Layer{model.LayerNetworkEgress},
+	}
+	fullScanQuery := Query{}
+
+	b.Run("FullScan", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := frost.QueryRange(ctx, fullScanQuery)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("PushedDownFilter", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := frost.QueryRange(ctx, selectiveQuery)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 

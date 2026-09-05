@@ -153,8 +153,8 @@ func TestSymmetricNetworkEgressCELRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Correlate forward failed: %v", err)
 	}
-	if len(actors1) != 1 {
-		t.Fatalf("Expected 1 forward correlated actor, got %d", len(actors1))
+	if len(actors1) != 2 {
+		t.Fatalf("Expected 2 forward actors for weak-only match, got %d", len(actors1))
 	}
 
 	// Test reverse store — symmetric rule guarantee
@@ -168,7 +168,7 @@ func TestSymmetricNetworkEgressCELRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Correlate reverse failed: %v", err)
 	}
-	if len(actors2) != 1 {
-		t.Fatalf("Expected 1 reverse correlated actor, got %d", len(actors2))
+	if len(actors2) != 2 {
+		t.Fatalf("Expected 2 reverse actors for weak-only match, got %d", len(actors2))
 	}
 }

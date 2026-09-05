@@ -31,7 +31,7 @@ func TestResolve_SingleObservation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		wantID := "actor-spiffe://cluster.local/ns/prod/sa/payment-agent"
+		wantID := "actor-signal-ingest|observation|obs-1"
 		if actor.ID != wantID {
 			t.Errorf("actor.ID = %q, want %q", actor.ID, wantID)
 		}
@@ -39,7 +39,7 @@ func TestResolve_SingleObservation(t *testing.T) {
 			t.Errorf("actor.CanonicalID = %q, want %q", actor.CanonicalID, wantID)
 		}
 		if actor.PrincipalID != obs.ActorHint {
-			t.Errorf("actor.PrincipalID = %q, want %q", actor.PrincipalID, obs.ActorHint)
+			t.Errorf("display principal = %q, want %q", actor.PrincipalID, obs.ActorHint)
 		}
 		if len(actor.EvidenceChain) != 1 || actor.EvidenceChain[0].ObservationID != "obs-1" {
 			t.Errorf("unexpected evidence chain: %+v", actor.EvidenceChain)
@@ -55,15 +55,17 @@ func TestResolve_SingleObservation(t *testing.T) {
 			Timestamp:   now,
 			Layer:       model.LayerCloudControlPlane,
 			Fidelity:    model.FidelityDefinitive,
-			Source:      "gcp-audit",
+			Source:      "gcp-cloud-audit",
 			PrincipalID: "agent-runner@project.iam.gserviceaccount.com",
+			ActorHint:   "agent-runner@project.iam.gserviceaccount.com",
+			Labels:      map[string]string{"principal_email": "agent-runner@project.iam.gserviceaccount.com", "project_id": "project"},
 			Confidence:  1.0,
 		}
 		actor, err := Resolve(obs)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		wantID := "actor-agent-runner@project.iam.gserviceaccount.com"
+		wantID := "actor-gcp:project|principal-id|agent-runner@project.iam.gserviceaccount.com"
 		if actor.ID != wantID {
 			t.Errorf("actor.ID = %q, want %q", actor.ID, wantID)
 		}
@@ -82,7 +84,7 @@ func TestResolve_SingleObservation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		wantID := "actor-src-sentinel-ebpf"
+		wantID := "actor-signal-ingest|observation|obs-3"
 		if actor.ID != wantID {
 			t.Errorf("actor.ID = %q, want %q", actor.ID, wantID)
 		}
@@ -100,7 +102,7 @@ func TestResolve_SingleObservation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		wantID := "actor-obs-obs-4"
+		wantID := "actor-signal-ingest|observation|obs-4"
 		if actor.ID != wantID {
 			t.Errorf("actor.ID = %q, want %q", actor.ID, wantID)
 		}
@@ -148,31 +150,31 @@ func TestResolve_DiscriminatorTableSuite(t *testing.T) {
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
-		name           string
-		obsA           model.Observation
-		obsB           model.Observation
-		rule           Rule
-		groundTruthA   string
-		groundTruthB   string
-		expectMerge    bool
-		wantActorID    string
-		expectErr      error
+		name         string
+		obsA         model.Observation
+		obsB         model.Observation
+		rule         Rule
+		groundTruthA string
+		groundTruthB string
+		expectMerge  bool
+		wantActorID  string
+		expectErr    error
 	}{
 		{
 			name: "same_principal_concordant_spiffe",
 			obsA: model.Observation{
 				ID: "alice-id", Timestamp: now, Layer: model.LayerIdentityAuth, Fidelity: model.FidelityStrong,
-				Source: "bao-audit", ActorHint: "spiffe://test/alice",
+				Source: "spire-agent", ActorHint: "spiffe://test/alice", Labels: map[string]string{"event_type": "spire_svid_issuance", "spiffe_id": "spiffe://test/alice"},
 			},
 			obsB: model.Observation{
 				ID: "alice-net", Timestamp: now.Add(time.Second), Layer: model.LayerNetworkEgress, Fidelity: model.FidelitySuggestive,
-				Source: "sentinel", ActorHint: "spiffe://test/alice",
+				Source: "k8s-apiserver-audit", ActorHint: "spiffe://test/alice", PrincipalID: "spiffe://test/alice", Labels: map[string]string{"spiffe_id": "spiffe://test/alice"},
 			},
 			rule:         Rule{Name: "cross_layer_identity"},
 			groundTruthA: "alice",
 			groundTruthB: "alice",
 			expectMerge:  true,
-			wantActorID:  "actor-spiffe://test/alice",
+			wantActorID:  "actor-test|spiffe|spiffe://test/alice",
 		},
 		{
 			name: "distinct_principals_shared_source_timing_overlap_refused",
@@ -219,8 +221,8 @@ func TestResolve_DiscriminatorTableSuite(t *testing.T) {
 			rule:         Rule{Name: "timing_correlation"},
 			groundTruthA: "anon-gateway",
 			groundTruthB: "anon-gateway",
-			expectMerge:  true,
-			wantActorID:  "actor-src-gateway-proxy",
+			expectMerge:  false,
+			expectErr:    ErrInsufficientDeterministicEvidence,
 		},
 		{
 			name: "single_hint_with_anonymous_observation_shared_source",
@@ -235,8 +237,8 @@ func TestResolve_DiscriminatorTableSuite(t *testing.T) {
 			rule:         Rule{Name: "timing_correlation"},
 			groundTruthA: "service-x",
 			groundTruthB: "service-x",
-			expectMerge:  true,
-			wantActorID:  "actor-src-gateway-proxy",
+			expectMerge:  false,
+			expectErr:    ErrInsufficientDeterministicEvidence,
 		},
 	}
 
@@ -285,8 +287,7 @@ func TestResolve_DiscriminatorTableSuite(t *testing.T) {
 	}
 }
 
-// TestCorrelation_EquivalenceWithLegacyEngine verifies that Resolve yields the same actor grouping
-// as legacy correlation on concordant labelled fixtures.
+// TestCorrelation_UnsafeLegacyMatchesRemainSeparate verifies old weak joins no longer merge identities.
 func TestCorrelation_EquivalenceWithLegacyEngine(t *testing.T) {
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 
@@ -302,8 +303,7 @@ func TestCorrelation_EquivalenceWithLegacyEngine(t *testing.T) {
 				{ID: "net-1", Timestamp: now, Layer: model.LayerNetworkEgress, Fidelity: model.FidelitySuggestive, Source: "src-a", ActorHint: "sa-shadow-bot"},
 				{ID: "id-1", Timestamp: now.Add(time.Minute), Layer: model.LayerIdentityAuth, Fidelity: model.FidelitySuggestive, Source: "src-b", ActorHint: "sa-shadow-bot"},
 			},
-			wantActors:  1,
-			wantActorID: "actor-sa-shadow-bot",
+			wantActors: 2,
 		},
 		{
 			name: "timing_correlation_unhinted",
@@ -311,8 +311,7 @@ func TestCorrelation_EquivalenceWithLegacyEngine(t *testing.T) {
 				{ID: "net-t", Timestamp: now, Layer: model.LayerNetworkEgress, Fidelity: model.FidelitySuggestive, Source: "workload-x"},
 				{ID: "beh-t", Timestamp: now.Add(2 * time.Minute), Layer: model.LayerBehavioural, Fidelity: model.FidelitySuggestive, Source: "workload-x", ActorHint: "workload-x"},
 			},
-			wantActors:  1,
-			wantActorID: "actor-src-workload-x",
+			wantActors: 2,
 		},
 		{
 			name: "credential_chain",
@@ -320,8 +319,7 @@ func TestCorrelation_EquivalenceWithLegacyEngine(t *testing.T) {
 				{ID: "id-c", Timestamp: now, Layer: model.LayerIdentityAuth, Fidelity: model.FidelitySuggestive, Source: "auth-server", ActorHint: "sa-cred-bot"},
 				{ID: "beh-c", Timestamp: now.Add(30 * time.Second), Layer: model.LayerBehavioural, Fidelity: model.FidelitySuggestive, Source: "api-server", ActorHint: "sa-cred-bot"},
 			},
-			wantActors:  1,
-			wantActorID: "actor-sa-cred-bot",
+			wantActors: 2,
 		},
 		{
 			name: "gcp_iam_agent_escalation",
@@ -329,8 +327,7 @@ func TestCorrelation_EquivalenceWithLegacyEngine(t *testing.T) {
 				{ID: "gcp-1", Timestamp: now, Layer: model.LayerCloudControlPlane, Fidelity: model.FidelityStrong, Source: "gcp-iam", ActorHint: "agent-iam-0"},
 				{ID: "saas-1", Timestamp: now.Add(time.Minute), Layer: model.LayerApplicationSaaS, Fidelity: model.FidelitySuggestive, Source: "slack", ActorHint: "agent-iam-0"},
 			},
-			wantActors:  1,
-			wantActorID: "actor-agent-iam-0",
+			wantActors: 2,
 		},
 	}
 
@@ -348,7 +345,7 @@ func TestCorrelation_EquivalenceWithLegacyEngine(t *testing.T) {
 			if len(actors) != tc.wantActors {
 				t.Fatalf("actor count = %d, want %d", len(actors), tc.wantActors)
 			}
-			if tc.wantActors > 0 && actors[0].ID != tc.wantActorID {
+			if tc.wantActorID != "" && actors[0].ID != tc.wantActorID {
 				t.Errorf("actor ID = %q, want %q", actors[0].ID, tc.wantActorID)
 			}
 		})
@@ -359,11 +356,11 @@ func TestCorrelation_EquivalenceWithLegacyEngine(t *testing.T) {
 func TestCorrelation_PromotePathIntact(t *testing.T) {
 	now := time.Now().UTC()
 	obs := []model.Observation{
-		{ID: "net-p", Timestamp: now, Layer: model.LayerNetworkEgress, Fidelity: model.FidelityStrong, Source: "src-a", ActorHint: "agent-prom"},
-		{ID: "id-p", Timestamp: now.Add(time.Minute), Layer: model.LayerIdentityAuth, Fidelity: model.FidelityDefinitive, Source: "src-b", ActorHint: "agent-prom"},
+		authenticatedGCP("net-p", "agent-prom@p", "p", now),
+		authenticatedGCP("id-p", "agent-prom@p", "p", now.Add(time.Minute)),
 	}
 	s := seedStore(t, obs)
-	e, err := NewEngine(s)
+	e, err := NewEngineWithVerifier(s, TrustedCollectorAdapter{})
 	if err != nil {
 		t.Fatal(err)
 	}

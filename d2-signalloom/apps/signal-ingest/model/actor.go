@@ -11,6 +11,9 @@ const (
 	ActorPromoted    ActorStatus = "promoted"
 )
 
+// Actor is an alias for ProvisionalActor representing a resolved or provisional actor entity.
+type Actor = ProvisionalActor
+
 // ProvisionalActor is a correlated entity assembled from cross-layer signals.
 type ProvisionalActor struct {
 	ID              string         `json:"id"`
@@ -22,6 +25,13 @@ type ProvisionalActor struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 	PromotedAt      *time.Time     `json:"promoted_at,omitempty"`
 	AgentRegistryID *string        `json:"agent_registry_id,omitempty"`
+
+	// Additive resolution fields (SFDP-P1-2)
+	CanonicalID string            `json:"canonical_id,omitempty"`
+	PrincipalID string            `json:"principal_id,omitempty"`
+	Aliases     []string          `json:"aliases,omitempty"`
+	Attributes  map[string]string `json:"attributes,omitempty"`
+	ResolvedAt  *time.Time        `json:"resolved_at,omitempty"`
 }
 
 // EvidenceLink records one observation's contribution to an actor hypothesis.

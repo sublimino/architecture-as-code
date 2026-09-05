@@ -37,11 +37,12 @@ func TestRegistry_Lifecycle(t *testing.T) {
 		NewSPIREACollector(ModeFixture, sink),
 		NewNetEBPFCollector(ModeFixture, sink),
 		NewK8sAuditCollector(ModeFixture, sink),
+		NewKAgentCollector(ModeFixture, sink),
 		NewFixtureCollector(ModeOff, sink),
 	)
 
-	if len(reg.Collectors()) != 6 {
-		t.Fatalf("expected 6 collectors, got %d", len(reg.Collectors()))
+	if len(reg.Collectors()) != 7 {
+		t.Fatalf("expected 7 collectors, got %d", len(reg.Collectors()))
 	}
 
 	if err := reg.Start(ctx); err != nil {
@@ -70,6 +71,7 @@ func TestRegistry_StartStopRace(t *testing.T) {
 		NewSPIREACollector(ModeLive, sink),
 		NewNetEBPFCollector(ModeLive, sink),
 		NewK8sAuditCollector(ModeLive, sink),
+		NewKAgentCollector(ModeLive, sink),
 		NewFixtureCollector(ModeOff, sink),
 	)
 
@@ -109,6 +111,7 @@ func TestRegistry_OffModeReady(t *testing.T) {
 		"COLLECTOR_SPIREA_MODE", "SPIREA_MODE",
 		"COLLECTOR_NETEBPF_MODE", "NETEBPF_MODE",
 		"COLLECTOR_K8SAUDIT_MODE", "K8SAUDIT_MODE",
+		"COLLECTOR_KAGENT_MODE", "KAGENT_MODE", "SIGNAL_COLLECTOR_KAGENT",
 		"COLLECTOR_FIXTURES_MODE", "FIXTURES_MODE",
 	}
 	for _, v := range envVars {

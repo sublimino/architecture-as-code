@@ -11,6 +11,7 @@ import (
 
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
@@ -470,3 +471,74 @@ func TestLiveMode_IdentityCollectors_BaoAndSpire(t *testing.T) {
 	}
 }
 
+func TestLiveMode_KAgentTraceFlowToStore(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	memStore := store.NewMemoryStore()
+	storeSink := collectors.NewStoreSink(memStore)
+
+	kagentCol := collectors.NewKAgentCollector(collectors.ModeLive, storeSink)
+
+	registry := collectors.NewRegistry(kagentCol)
+	if err := registry.Start(ctx); err != nil {
+		t.Fatalf("registry Start failed: %v", err)
+	}
+	defer registry.Stop()
+
+	span := kagent.TelemetrySpan{
+		SpanID:         "live-kagent-flow-001",
+		TraceID:        "live-kagent-trace-001",
+		Name:           kagent.SpanNameToolExecution,
+		Timestamp:      time.Now().UTC(),
+		RuntimeVersion: kagent.RuntimeVersion0_9_9,
+		Attributes: map[string]string{
+			kagent.AttrAgentNamespace: "fe-signalloom-agents",
+			kagent.AttrAgentName:      "kagent-k8s-reader",
+			kagent.AttrToolName:       "k8s_get_resources",
+			kagent.AttrContextID:      "ctx-live-k8s-001",
+			kagent.AttrTaskID:         "task-live-k8s-001",
+			kagent.AttrUserID:         "admin@kagent.dev",
+		},
+	}
+
+	rawCol := kagentCol.RawCollector()
+	if rawCol == nil {
+		t.Fatalf("expected non-nil raw collector in live mode")
+	}
+
+	res, err := rawCol.IngestSpan(ctx, span)
+	if err != nil {
+		t.Fatalf("IngestSpan failed: %v", err)
+	}
+
+	if res.Observation == nil {
+		t.Fatalf("expected observation to be returned")
+	}
+
+	stored, err := memStore.QueryRange(ctx, store.Query{Layers: []model.Layer{model.LayerIdentityAuth}})
+	if err != nil {
+		t.Fatalf("QueryRange failed: %v", err)
+	}
+
+	if len(stored) != 1 {
+		t.Fatalf("expected 1 observation in store, got %d", len(stored))
+	}
+
+	obs := stored[0]
+	if obs.ID != "kagent-obs-live-kagent-flow-001" {
+		t.Errorf("unexpected ID: %s", obs.ID)
+	}
+	if obs.ActorHint != "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-k8s-reader" {
+		t.Errorf("unexpected ActorHint: %s", obs.ActorHint)
+	}
+	if obs.Labels["tool_name"] != "k8s_get_resources" {
+		t.Errorf("unexpected tool_name: %s", obs.Labels["tool_name"])
+	}
+	if obs.Labels["invoked_action"] != "tool:k8s_get_resources" {
+		t.Errorf("unexpected invoked_action: %s", obs.Labels["invoked_action"])
+	}
+	if obs.Labels["delegation_tag"] != "inferred" {
+		t.Errorf("unexpected delegation_tag: %s", obs.Labels["delegation_tag"])
+	}
+}

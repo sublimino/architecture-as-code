@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 )
 
 // Registry manages the lifecycle, startup ordering, and health checks of registered collectors.
@@ -112,13 +114,23 @@ func (r *Registry) Health(ctx context.Context) error {
 // NewRegistryFromEnv creates a registry with all six standard collector packages registered,
 // configured from environment variables, defaulting to ModeOff when variables are unset.
 func NewRegistryFromEnv(sink IngestionSink) *Registry {
+	return NewRegistryFromEnvWithReceiver(sink, nil)
+}
+
+// NewRegistryFromEnvWithReceiver creates a registry with all six standard collector packages registered,
+// reusing an existing audit.WebhookReceiver for the k8saudit collector.
+func NewRegistryFromEnvWithReceiver(sink IngestionSink, rcv *audit.WebhookReceiver) *Registry {
 	reg := NewRegistry()
 
 	reg.Register(NewGCPAuditCollector(resolveEnvMode("COLLECTOR_GCPAUDIT_MODE", "SIGNAL_COLLECTOR_GCPAUDIT", "GCPAUDIT_MODE"), sink))
 	reg.Register(NewBaoAuditCollector(resolveEnvMode("COLLECTOR_BAOAUDIT_MODE", "SIGNAL_COLLECTOR_BAOAUDIT", "BAOAUDIT_MODE"), sink))
 	reg.Register(NewSPIREACollector(resolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), sink))
 	reg.Register(NewNetEBPFCollector(resolveEnvMode("COLLECTOR_NETEBPF_MODE", "SIGNAL_COLLECTOR_NETEBPF", "NETEBPF_MODE"), sink))
-	reg.Register(NewK8sAuditCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink))
+	if rcv != nil {
+		reg.Register(NewK8sAuditCollectorWithReceiver(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink, rcv))
+	} else {
+		reg.Register(NewK8sAuditCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink))
+	}
 	reg.Register(NewFixtureCollector(resolveEnvMode("COLLECTOR_FIXTURES_MODE", "SIGNAL_COLLECTOR_FIXTURES", "FIXTURES_MODE"), sink))
 
 	return reg

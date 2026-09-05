@@ -240,7 +240,7 @@ func TestModeMatrix_AllCollectorsMatrix(t *testing.T) {
 			makeLive: func(sink IngestionSink) Collector {
 				return NewGCPAuditCollector(ModeLive, sink)
 			},
-			expectedObs: len(CloudControlPlaneFixtures(time.Now().UTC())),
+			expectedObs: len(GCPAuditFixtures(time.Now().UTC())),
 		},
 		{
 			name: "baoaudit",
@@ -253,7 +253,7 @@ func TestModeMatrix_AllCollectorsMatrix(t *testing.T) {
 			makeLive: func(sink IngestionSink) Collector {
 				return NewBaoAuditCollector(ModeLive, sink)
 			},
-			expectedObs: len(IdentityAuthFixtures(time.Now().UTC())),
+			expectedObs: len(BaoAuditFixtures(time.Now().UTC())),
 		},
 		{
 			name: "spirea",
@@ -266,7 +266,7 @@ func TestModeMatrix_AllCollectorsMatrix(t *testing.T) {
 			makeLive: func(sink IngestionSink) Collector {
 				return NewSPIREACollector(ModeLive, sink)
 			},
-			expectedObs: len(IdentityAuthFixtures(time.Now().UTC())),
+			expectedObs: len(SPIREIssuanceFixtures(time.Now().UTC())),
 		},
 		{
 			name: "netebpf",

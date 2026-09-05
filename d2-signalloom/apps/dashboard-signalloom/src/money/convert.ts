@@ -130,19 +130,22 @@ function incrementDecimalString(s: string): string {
  * rather than showing the source number in the target currency's clothing.
  */
 export function convert(
-  m: Money,
+  m: Money | number | null | undefined,
   target: CurrencyCode,
   table?: RateTable,
 ): Converted | null {
   // A non-finite source amount is not money — it is a computation error upstream.
   // Returning null forces the caller to render "Unavailable" rather than producing
   // a Converted with NaN that passes the null check and enters arithmetic.
-  if (!Number.isFinite(m.amount)) return null
+  if (m === null || m === undefined) return null
+  const moneyObj: Money = typeof m === 'number' ? { amount: m, currency: 'GBP' } : m
+  if (!moneyObj || typeof moneyObj !== 'object' || !Number.isFinite(moneyObj.amount)) return null
+  if (!moneyObj.currency || !target) return null
 
-  const lookup = rateFor(m.currency, target, table)
+  const lookup = rateFor(moneyObj.currency, target, table)
   if (lookup === null) return null
 
-  const raw = m.amount * lookup.rate
+  const raw = moneyObj.amount * lookup.rate
   // The multiplication can overflow to ±Infinity for extreme values (e.g. a very
   // large amount times a very large rate). An infinite converted amount is not a
   // figure anyone can use — return null so the caller renders "Unavailable".
@@ -154,7 +157,7 @@ export function convert(
     // in here would round twice and lose the defensible value.
     amount: roundHalfAwayFromZero(raw, minorUnits(target)),
     currency: target,
-    source: m,
+    source: moneyObj,
     rate: lookup.rate,
     as_of: lookup.as_of,
   }

@@ -25,6 +25,7 @@ export interface ComplianceCheck {
   check: string
   passed: boolean
   policyVersion: string
+  currency?: CurrencyCode
   ale: Money
   var95: Money
   tvar: Money
@@ -42,6 +43,9 @@ export interface FrameworkSummary {
   passedControls: number
   failedControls: number
   totalExposure: Money
+  /** Denominated twin returned by backend API (/compliance/policy/frameworks) */
+  exposure?: Money
+  totalExposureGbp?: number
 }
 
 export interface ComplianceScanRequest {
@@ -67,6 +71,9 @@ export interface PostureSummary {
   totalVar95: Money
   totalTvar: Money
   totalCarried: Money
+  /** Denominated twin returned by backend API (/compliance/policy/summary) */
+  carried?: Money
+  totalCarriedGbp?: number
   scanTimestamp: string
   frameworks: FrameworkSummary[]
 }

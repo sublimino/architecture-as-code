@@ -91,9 +91,11 @@ export function sumMoney(items: readonly Money[], fallback: CurrencyCode): Money
  * downstream guard catching it — the Money type is structurally valid but
  * semantically garbage.
  */
-export function scaleMoney(m: Money, factor: number): Money | null {
-  if (!Number.isFinite(m.amount) || !Number.isFinite(factor)) return null
-  const result = m.amount * factor
+export function scaleMoney(m: Money | number | null | undefined, factor: number): Money | null {
+  if (m === null || m === undefined) return null
+  const moneyObj: Money = typeof m === 'number' ? { amount: m, currency: 'GBP' } : m
+  if (typeof moneyObj !== 'object' || !Number.isFinite(moneyObj.amount) || !Number.isFinite(factor)) return null
+  const result = moneyObj.amount * factor
   if (!Number.isFinite(result)) return null
-  return { amount: result, currency: m.currency }
+  return { amount: result, currency: moneyObj.currency }
 }

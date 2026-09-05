@@ -130,7 +130,7 @@ export default function RiskExposurePage() {
           </div>
           <div className="card" style={{ flex: 1, minWidth: 180, padding: '16px 18px' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Carried Risk</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: summary.totalCarried.amount > 0 ? colors.amber : colors.tealLoom, lineHeight: 1 }}>{fmtMoney(summary.totalCarried)}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: (summary.totalCarried?.amount ?? summary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom, lineHeight: 1 }}>{fmtMoney(summary.totalCarried ?? summary.carried)}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
               residual from failing controls
               <span className="tag" style={{ background: tint('var(--cyan)', 0.12), color: 'var(--cyan)', marginLeft: 8 }}>
@@ -189,7 +189,7 @@ export default function RiskExposurePage() {
                 <td style={td}>{(() => { const s = scaleMoney(summary.totalAle, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0); return s ? fmtMoney(s) : MONEY_UNAVAILABLE })()}</td>
                 <td style={td}>{(() => { const s = scaleMoney(summary.totalVar95, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0); return s ? fmtMoney(s) : MONEY_UNAVAILABLE })()}</td>
                 <td style={td}>{(() => { const s = scaleMoney(summary.totalTvar, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0); return s ? fmtMoney(s) : MONEY_UNAVAILABLE })()}</td>
-                <td style={td}>{fmtMoney(fw.totalExposure)}</td>
+                <td style={td}>{fmtMoney(fw.totalExposure ?? fw.exposure)}</td>
               </tr>
             ))}
           </Table>
@@ -218,7 +218,7 @@ export default function RiskExposurePage() {
               <StatCard label="ALE" value={fmtMoney(summary.totalAle)} sub={`at ${selectedVersion}`} accent={colors.amber} />
               <StatCard label="VaR95" value={fmtMoney(summary.totalVar95)} sub={`at ${selectedVersion}`} accent={colors.red} />
               <StatCard label="TVaR" value={fmtMoney(summary.totalTvar)} sub={`at ${selectedVersion}`} accent={colors.red} />
-              <StatCard label="Carried" value={fmtMoney(summary.totalCarried)} sub={`at ${selectedVersion}`} accent={summary.totalCarried.amount > 0 ? colors.amber : colors.tealLoom} />
+              <StatCard label="Carried" value={fmtMoney(summary.totalCarried ?? summary.carried)} sub={`at ${selectedVersion}`} accent={(summary.totalCarried?.amount ?? summary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom} />
             </div>
           )}
         </div>

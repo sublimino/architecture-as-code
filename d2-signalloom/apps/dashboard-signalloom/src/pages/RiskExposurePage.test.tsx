@@ -108,4 +108,39 @@ describe('RiskExposurePage', () => {
     renderPage()
     expect(await screen.findByText('What If')).toBeInTheDocument()
   })
+
+  it('renders correctly when API returns raw wire format with carried and exposure fields', async () => {
+    const { api } = await import('../api/client')
+    vi.mocked(api.compliancePolicy.scan).mockResolvedValueOnce({
+      checks: [],
+      summary: {
+        totalChecks: 10,
+        passed: 10,
+        failed: 0,
+        currency: 'GBP',
+        totalAle: 20000 as any,
+        totalVar95: 50000 as any,
+        totalTvar: 80000 as any,
+        carried: { amount: 0, currency: 'GBP' },
+        totalCarriedGbp: 0,
+        scanTimestamp: '2026-07-27T12:00:00Z',
+        frameworks: [
+          {
+            id: 'wire-fw',
+            name: 'Wire Framework',
+            versions: ['v1.0'],
+            totalControls: 10,
+            passedControls: 10,
+            failedControls: 0,
+            exposure: { amount: 0, currency: 'GBP' },
+            totalExposureGbp: 0,
+          } as any,
+        ],
+      } as any,
+    })
+
+    renderPage()
+    expect(await screen.findByText('Wire Framework')).toBeInTheDocument()
+    expect(await screen.findByText('Carried Risk')).toBeInTheDocument()
+  })
 })

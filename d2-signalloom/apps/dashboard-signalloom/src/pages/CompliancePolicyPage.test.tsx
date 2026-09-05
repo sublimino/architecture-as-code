@@ -164,4 +164,38 @@ describe('CompliancePolicyPage', () => {
     renderPage()
     expect(await screen.findByText('Total Exposure')).toBeInTheDocument()
   })
+
+  it('renders correctly when API returns raw wire format with carried and exposure fields', async () => {
+    const { api } = await import('../api/client')
+    vi.mocked(api.compliancePolicy.frameworks).mockResolvedValueOnce([
+      {
+        id: 'wire-fw',
+        name: 'Wire Framework',
+        versions: ['v1.0'],
+        totalControls: 5,
+        passedControls: 5,
+        failedControls: 0,
+        exposure: { amount: 12300, currency: 'GBP' },
+        totalExposureGbp: 12300,
+      } as any,
+    ])
+    vi.mocked(api.compliancePolicy.summary).mockResolvedValueOnce({
+      totalChecks: 5,
+      passed: 5,
+      failed: 0,
+      currency: 'GBP',
+      totalAle: 50000 as any,
+      totalVar95: 100000 as any,
+      totalTvar: 150000 as any,
+      carried: { amount: 0, currency: 'GBP' },
+      totalCarriedGbp: 0,
+      scanTimestamp: '2026-07-27T12:00:00Z',
+      frameworks: [],
+    } as any)
+
+    renderPage()
+    const fwMatches = await screen.findAllByText('Wire Framework')
+    expect(fwMatches.length).toBeGreaterThanOrEqual(1)
+    expect(await screen.findByText('Total Exposure')).toBeInTheDocument()
+  })
 })

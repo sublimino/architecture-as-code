@@ -44,6 +44,8 @@ import type {
   FrameworkSummary,
   PostureSummary,
 } from '../types/compliance'
+import type { Money } from '../money/money'
+import type { CurrencyCode } from '../money/currency'
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 
@@ -270,6 +272,93 @@ export async function req<T>(
   return applyDemoProjection(method, path, await joinInflight<T>(url, entry, signal))
 }
 
+export function normalizeFrameworkSummary(
+  fw: FrameworkSummary,
+  defaultCurrency: CurrencyCode = 'GBP',
+): FrameworkSummary {
+  const exp: Money =
+    fw.totalExposure && typeof fw.totalExposure === 'object' && 'amount' in fw.totalExposure
+      ? fw.totalExposure
+      : fw.exposure && typeof fw.exposure === 'object' && 'amount' in fw.exposure
+        ? fw.exposure
+        : typeof fw.totalExposureGbp === 'number'
+          ? { amount: fw.totalExposureGbp, currency: defaultCurrency }
+          : { amount: 0, currency: defaultCurrency }
+
+  return {
+    ...fw,
+    totalExposure: exp,
+    exposure: exp,
+    totalExposureGbp: fw.totalExposureGbp ?? exp.amount,
+  }
+}
+
+export function normalizePostureSummary(sum: PostureSummary): PostureSummary {
+  if (!sum) return sum
+  const docCurrency: CurrencyCode = sum.currency ?? 'GBP'
+
+  const carried: Money =
+    sum.totalCarried && typeof sum.totalCarried === 'object' && 'amount' in sum.totalCarried
+      ? sum.totalCarried
+      : sum.carried && typeof sum.carried === 'object' && 'amount' in sum.carried
+        ? sum.carried
+        : typeof sum.totalCarriedGbp === 'number'
+          ? { amount: sum.totalCarriedGbp, currency: docCurrency }
+          : { amount: 0, currency: docCurrency }
+
+  const toMoneyField = (val: Money | number | undefined): Money => {
+    if (val && typeof val === 'object' && 'amount' in val) return val
+    if (typeof val === 'number') return { amount: val, currency: docCurrency }
+    return { amount: 0, currency: docCurrency }
+  }
+
+  const frameworks = Array.isArray(sum.frameworks)
+    ? sum.frameworks.map((fw) => normalizeFrameworkSummary(fw, docCurrency))
+    : []
+
+  return {
+    ...sum,
+    currency: docCurrency,
+    totalCarried: carried,
+    carried,
+    totalCarriedGbp: sum.totalCarriedGbp ?? carried.amount,
+    totalAle: toMoneyField(sum.totalAle),
+    totalVar95: toMoneyField(sum.totalVar95),
+    totalTvar: toMoneyField(sum.totalTvar),
+    frameworks,
+  }
+}
+
+export function normalizeComplianceChecks(
+  checks: ComplianceCheck[],
+  defaultCurrency: CurrencyCode = 'GBP',
+): ComplianceCheck[] {
+  if (!Array.isArray(checks)) return []
+  return checks.map((c) => {
+    const curr = (c.currency as CurrencyCode) ?? defaultCurrency
+    const toMoneyField = (val: Money | number | undefined): Money => {
+      if (val && typeof val === 'object' && 'amount' in val) return val
+      if (typeof val === 'number') return { amount: val, currency: curr }
+      return { amount: 0, currency: curr }
+    }
+    const carried =
+      c.carried && typeof c.carried === 'object' && 'amount' in c.carried
+        ? c.carried
+        : typeof (c as unknown as { carriedGbp?: number }).carriedGbp === 'number'
+          ? { amount: (c as unknown as { carriedGbp: number }).carriedGbp, currency: curr }
+          : { amount: 0, currency: curr }
+
+    return {
+      ...c,
+      currency: curr,
+      ale: toMoneyField(c.ale),
+      var95: toMoneyField(c.var95),
+      tvar: toMoneyField(c.tvar),
+      carried,
+    }
+  })
+}
+
 export const api = {
   trustTopology: (token: string) =>
     req<TrustTopologyResponse>('/trust-topology', token),
@@ -450,17 +539,17 @@ export const api = {
   },
 
   compliancePolicy: {
-    frameworks: (token: string) =>
-      req<FrameworkSummary[]>('/compliance/policy/frameworks', token),
+    frameworks: (token: string, signal?: AbortSignal) =>
+      req<FrameworkSummary[]>('/compliance/policy/frameworks', token, { signal }),
 
-    summary: (token: string) =>
-      req<PostureSummary>('/compliance/policy/summary', token),
+    summary: (token: string, signal?: AbortSignal) =>
+      req<PostureSummary>('/compliance/policy/summary', token, { signal }),
 
-    scan: (token: string, body: ComplianceScanRequest) =>
+    scan: (token: string, body: ComplianceScanRequest, signal?: AbortSignal) =>
       req<{ checks: ComplianceCheck[]; summary: PostureSummary }>(
         '/compliance/policy/scan',
         token,
-        { method: 'POST', data: body },
+        { method: 'POST', data: body, signal },
       ),
   },
 

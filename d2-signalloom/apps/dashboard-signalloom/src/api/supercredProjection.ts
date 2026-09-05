@@ -257,8 +257,9 @@ function toCheck(control: SuperCredControl, state: SuperCredDemoState): Complian
  * rather than corrupting the total, and the SuperCred rows still appear as
  * their own denominated checks.
  */
-function addInSourceCurrency(base: Money | undefined, delta: number): Money {
-  if (base === undefined) return money(delta, SUPERCRED_CURRENCY)
+function addInSourceCurrency(base: Money | number | undefined, delta: number): Money {
+  if (base === undefined || base === null) return money(delta, SUPERCRED_CURRENCY)
+  if (typeof base === 'number') return money(base + delta, SUPERCRED_CURRENCY)
   if (base.currency !== SUPERCRED_CURRENCY) return base
   return money(base.amount + delta, base.currency)
 }
@@ -274,15 +275,18 @@ function projectFrameworkSummary(fw: FrameworkSummary, state: SuperCredDemoState
   if (mine.length === 0) return fw
 
   const passed = mine.filter((c) => controlStatus(c, state.phase) === 'pass').length
+  const delta = mine.reduce((s, c) => s + controlCarriedGbp(c, state.phase), 0)
+  const exposure = addInSourceCurrency(
+    fw.totalExposure ?? fw.exposure,
+    delta,
+  )
   return {
     ...fw,
     totalControls: fw.totalControls + mine.length,
     passedControls: fw.passedControls + passed,
     failedControls: fw.failedControls + (mine.length - passed),
-    totalExposure: addInSourceCurrency(
-      fw.totalExposure,
-      mine.reduce((s, c) => s + controlCarriedGbp(c, state.phase), 0),
-    ),
+    totalExposure: exposure,
+    exposure,
   }
 }
 
@@ -302,6 +306,8 @@ export function projectPolicySummary(base: PostureSummary, state: SuperCredDemoS
     ? base.frameworks.map((fw) => projectFrameworkSummary(fw, state))
     : base.frameworks
 
+  const carried = addInSourceCurrency(base.totalCarried ?? base.carried, carriedGbp(state.phase))
+
   return {
     ...base,
     totalChecks: Number(base.totalChecks ?? 0) + evaluated.length,
@@ -314,7 +320,8 @@ export function projectPolicySummary(base: PostureSummary, state: SuperCredDemoS
     totalTvar: addInSourceCurrency(base.totalTvar, evaluated.reduce((s, c) => s + c.tvar, 0)),
     // Carried (residual) risk only accrues for failures, and drops to the
     // containment residual once the agent is stunned.
-    totalCarried: addInSourceCurrency(base.totalCarried, carriedGbp(state.phase)),
+    totalCarried: carried,
+    carried,
     frameworks,
   } as PostureSummary
 }

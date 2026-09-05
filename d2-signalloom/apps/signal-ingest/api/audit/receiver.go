@@ -1,4 +1,4 @@
-// Package audit implements the Kubernetes Dynamic Audit Webhook Receiver.
+// Package audit implements the Kubernetes Dynamic Audit Webhook Receiver and GKE Cloud Logging adapter.
 package audit
 
 import (
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,18 @@ const DefaultBufferCapacity = 65536
 
 // MaxAuditPayloadBytes limits request body size (16 MB).
 const MaxAuditPayloadBytes = 16 * 1024 * 1024
+
+// DefaultWebhookPath is the canonical route for APIServer audit webhooks.
+const DefaultWebhookPath = "/api/v1/audit/webhook"
+
+// WebhookPath is the exported stable HTTP path constant for audit webhook route.
+const WebhookPath = "/api/v1/audit/webhook"
+
+// GKEWebhookPath is the exported route for GKE Cloud Logging audit records.
+const GKEWebhookPath = "/api/v1/audit/gke"
+
+// DefaultTrustDomain is the standard SPIFFE trust domain for cluster service accounts.
+const DefaultTrustDomain = "cluster.local"
 
 // K8sEventList mirrors audit.k8s.io/v1 EventList.
 type K8sEventList struct {
@@ -34,6 +47,7 @@ type K8sEvent struct {
 	RequestURI       string       `json:"requestURI"`
 	Verb             string       `json:"verb"`
 	User             K8sUserInfo  `json:"user"`
+	ImpersonatedUser *K8sUserInfo `json:"impersonatedUser,omitempty"`
 	SourceIPs        []string     `json:"sourceIPs"`
 	UserAgent        string       `json:"userAgent"`
 	ObjectRef        *K8sObjRef   `json:"objectRef,omitempty"`
@@ -45,24 +59,24 @@ type K8sEvent struct {
 // K8sUserInfo represents user identity in audit events.
 type K8sUserInfo struct {
 	Username string   `json:"username"`
-	UID      string   `json:"uid"`
-	Groups   []string `json:"groups"`
+	UID      string   `json:"uid,omitempty"`
+	Groups   []string `json:"groups,omitempty"`
 }
 
 // K8sObjRef references target Kubernetes resource.
 type K8sObjRef struct {
 	Resource    string `json:"resource"`
-	Namespace   string `json:"namespace"`
-	Name        string `json:"name"`
-	APIGroup    string `json:"apiGroup"`
-	APIVersion  string `json:"apiVersion"`
+	Namespace   string `json:"namespace,omitempty"`
+	Name        string `json:"name,omitempty"`
+	APIGroup    string `json:"apiGroup,omitempty"`
+	APIVersion  string `json:"apiVersion,omitempty"`
 	Subresource string `json:"subresource,omitempty"`
 }
 
 // K8sRespStat represents HTTP response status code.
 type K8sRespStat struct {
 	Code    int32  `json:"code"`
-	Status  string `json:"status"`
+	Status  string `json:"status,omitempty"`
 	Message string `json:"message,omitempty"`
 	Reason  string `json:"reason,omitempty"`
 }
@@ -70,6 +84,25 @@ type K8sRespStat struct {
 // IngestionSink is the consumer interface that receives drained observations.
 type IngestionSink interface {
 	IngestObservation(ctx context.Context, obs *model.Observation) error
+}
+
+// IsServiceAccount returns true if username matches system:serviceaccount:<ns>:<name>.
+func IsServiceAccount(username string) bool {
+	if !strings.HasPrefix(username, "system:serviceaccount:") {
+		return false
+	}
+	parts := strings.Split(username, ":")
+	return len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" && parts[2] != "" && parts[3] != ""
+}
+
+// MapSAToSPIFFE maps system:serviceaccount:<ns>:<name> to spiffe://cluster.local/ns/<ns>/sa/<name>.
+// Human or non-service-account usernames are returned unmapped with false.
+func MapSAToSPIFFE(username string) (string, bool) {
+	if !IsServiceAccount(username) {
+		return username, false
+	}
+	parts := strings.Split(username, ":")
+	return fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", DefaultTrustDomain, parts[2], parts[3]), true
 }
 
 // WebhookReceiver receives APIServer audit webhooks with non-blocking fail-open resilience.
@@ -85,6 +118,7 @@ type WebhookReceiver struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	closeOnce      sync.Once
+	startOnce      sync.Once
 }
 
 // NewWebhookReceiver creates a new audit webhook receiver with bounded buffer and worker pool.
@@ -106,45 +140,48 @@ func NewWebhookReceiver(ctx context.Context, capacity int, workers int, sink Ing
 		cancel:   cancel,
 	}
 
-	r.startWorkers()
+	r.Start()
 	return r
 }
 
-func (r *WebhookReceiver) startWorkers() {
-	for i := 0; i < r.workers; i++ {
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			for {
-				select {
-				case <-r.ctx.Done():
-					// Drain any remaining items in buffer before exiting
-					for {
-						select {
-						case obs, ok := <-r.buffer:
-							if !ok {
+// Start initiates worker goroutines to drain the buffer to the sink.
+func (r *WebhookReceiver) Start() {
+	r.startOnce.Do(func() {
+		for i := 0; i < r.workers; i++ {
+			r.wg.Add(1)
+			go func() {
+				defer r.wg.Done()
+				for {
+					select {
+					case <-r.ctx.Done():
+						// Drain any remaining items in buffer before exiting
+						for {
+							select {
+							case obs, ok := <-r.buffer:
+								if !ok {
+									return
+								}
+								if r.sink != nil && obs != nil {
+									_ = r.sink.IngestObservation(context.Background(), obs)
+								}
+								atomic.AddUint64(&r.processedCount, 1)
+							default:
 								return
 							}
-							if r.sink != nil && obs != nil {
-								_ = r.sink.IngestObservation(context.Background(), obs)
-							}
-							atomic.AddUint64(&r.processedCount, 1)
-						default:
+						}
+					case obs, ok := <-r.buffer:
+						if !ok {
 							return
 						}
+						if r.sink != nil && obs != nil {
+							_ = r.sink.IngestObservation(r.ctx, obs)
+						}
+						atomic.AddUint64(&r.processedCount, 1)
 					}
-				case obs, ok := <-r.buffer:
-					if !ok {
-						return
-					}
-					if r.sink != nil && obs != nil {
-						_ = r.sink.IngestObservation(r.ctx, obs)
-					}
-					atomic.AddUint64(&r.processedCount, 1)
 				}
-			}
-		}()
-	}
+			}()
+		}
+	})
 }
 
 // Close gracefully terminates receiver workers.
@@ -154,6 +191,24 @@ func (r *WebhookReceiver) Close() {
 		close(r.buffer)
 		r.wg.Wait()
 	})
+}
+
+// IngestK8sEventList pushes items from a K8sEventList into the bounded buffer fail-open.
+func (r *WebhookReceiver) IngestK8sEventList(eventList *K8sEventList) (accepted uint32, dropped uint32) {
+	for _, event := range eventList.Items {
+		obs := r.ConvertToObservation(&event)
+		// Non-blocking fail-open push
+		select {
+		case r.buffer <- obs:
+			atomic.AddUint64(&r.receivedCount, 1)
+			accepted++
+		default:
+			// Buffer saturated: record drop and fail-open to never block APIServer
+			atomic.AddUint64(&r.droppedCount, 1)
+			dropped++
+		}
+	}
+	return accepted, dropped
 }
 
 // HandleAuditWebhook handles incoming HTTP POST requests from Kubernetes APIServer.
@@ -176,23 +231,7 @@ func (r *WebhookReceiver) HandleAuditWebhook(w http.ResponseWriter, req *http.Re
 		return
 	}
 
-	var accepted uint32
-	var dropped uint32
-
-	for _, event := range eventList.Items {
-		obs := r.convertToObservation(&event)
-		
-		// Non-blocking fail-open push
-		select {
-		case r.buffer <- obs:
-			atomic.AddUint64(&r.receivedCount, 1)
-			accepted++
-		default:
-			// Buffer saturated: record drop and fail-open to never block APIServer
-			atomic.AddUint64(&r.droppedCount, 1)
-			dropped++
-		}
-	}
+	accepted, dropped := r.IngestK8sEventList(&eventList)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -203,8 +242,9 @@ func (r *WebhookReceiver) HandleAuditWebhook(w http.ResponseWriter, req *http.Re
 	})
 }
 
-// convertToObservation maps a K8sEvent to a Signal Loom model.Observation.
-func (r *WebhookReceiver) convertToObservation(e *K8sEvent) *model.Observation {
+// ConvertToObservation maps a K8sEvent to a Signal Loom model.Observation with
+// impersonation precedence, SA->SPIFFE mapping, and typed delegation edge.
+func (r *WebhookReceiver) ConvertToObservation(e *K8sEvent) *model.Observation {
 	ts := e.StageTimestamp
 	if ts.IsZero() {
 		ts = e.RequestReceived
@@ -212,6 +252,24 @@ func (r *WebhookReceiver) convertToObservation(e *K8sEvent) *model.Observation {
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
+
+	delegatorRaw := e.User.Username
+	impersonatedRaw := ""
+	if e.ImpersonatedUser != nil && e.ImpersonatedUser.Username != "" {
+		impersonatedRaw = e.ImpersonatedUser.Username
+	}
+
+	// Acting principal precedence: impersonatedUser ?? user
+	actingRaw := delegatorRaw
+	isImpersonated := false
+	if impersonatedRaw != "" {
+		actingRaw = impersonatedRaw
+		isImpersonated = true
+	}
+
+	// SA->SPIFFE mapping
+	actingPrincipal, isActingSA := MapSAToSPIFFE(actingRaw)
+	delegatorPrincipal, isDelegatorSA := MapSAToSPIFFE(delegatorRaw)
 
 	resource := ""
 	namespace := ""
@@ -229,32 +287,75 @@ func (r *WebhookReceiver) convertToObservation(e *K8sEvent) *model.Observation {
 		statusCode = fmt.Sprintf("%d", e.ResponseStatus.Code)
 	}
 
+	id := e.AuditID
+	if id == "" {
+		id = fmt.Sprintf("k8s-audit-%d-%s", ts.UnixNano(), e.Verb)
+	}
+
 	labels := map[string]string{
-		"audit_id":    e.AuditID,
-		"stage":       e.Stage,
-		"verb":        e.Verb,
-		"user":        e.User.Username,
-		"namespace":   namespace,
-		"resource":    resource,
-		"name":        name,
-		"api_group":   apiGroup,
-		"status_code": statusCode,
-		"request_uri": e.RequestURI,
-		"user_agent":  e.UserAgent,
+		"audit_id":         id,
+		"stage":            e.Stage,
+		"verb":             e.Verb,
+		"user":             delegatorRaw,
+		"acting_principal": actingPrincipal,
+		"delegator":        delegatorPrincipal,
+		"namespace":        namespace,
+		"resource":         resource,
+		"name":             name,
+		"api_group":        apiGroup,
+		"status_code":      statusCode,
+		"request_uri":      e.RequestURI,
+		"user_agent":       e.UserAgent,
+	}
+	if isActingSA {
+		labels["spiffe_id"] = actingPrincipal
+	}
+	if isDelegatorSA {
+		labels["delegator_spiffe_id"] = delegatorPrincipal
+	}
+
+	var delegationEdge *model.EvidenceLink
+	var impersonatedUserField string
+	var delegationDepth int
+
+	// Delegation edge emitted only when impersonatedUser is present and differs from user (no self-edge)
+	if isImpersonated && impersonatedRaw != delegatorRaw && actingPrincipal != delegatorPrincipal {
+		delegationEdge = &model.EvidenceLink{
+			ObservationID: id,
+			Layer:         model.LayerIdentityAuth,
+			Fidelity:      model.FidelityDefinitive,
+			Contribution:  fmt.Sprintf("delegation: %s -> %s (basis: impersonation)", delegatorPrincipal, actingPrincipal),
+			Timestamp:     ts,
+		}
+		impersonatedUserField = actingPrincipal
+		delegationDepth = 1
+
+		labels["impersonated_user"] = actingPrincipal
+		labels["delegation"] = fmt.Sprintf("%s -> %s", delegatorPrincipal, actingPrincipal)
+		labels["delegation_basis"] = "impersonation"
 	}
 
 	return &model.Observation{
-		ID:             e.AuditID,
-		Timestamp:      ts,
-		Layer:          model.LayerCloudControlPlane,
-		Fidelity:       model.FidelityDefinitive,
-		Source:         "k8s-apiserver-audit",
-		Confidence:     1.0,
-		ActorHint:      e.User.Username,
-		RawEvidenceRef: fmt.Sprintf("k8s-audit://%s/%s/%s", namespace, resource, name),
-		Labels:         labels,
-		Description:    fmt.Sprintf("K8s audit: %s %s/%s by %s", e.Verb, namespace, resource, e.User.Username),
+		ID:               id,
+		Timestamp:        ts,
+		Layer:            model.LayerIdentityAuth,
+		Fidelity:         model.FidelityDefinitive,
+		Source:           "k8s-apiserver-audit",
+		Confidence:       1.0,
+		ActorHint:        actingPrincipal,
+		PrincipalID:      actingPrincipal,
+		ImpersonatedUser: impersonatedUserField,
+		DelegationDepth:  delegationDepth,
+		DelegationEdge:   delegationEdge,
+		RawEvidenceRef:   fmt.Sprintf("k8s-audit://%s/%s/%s", namespace, resource, name),
+		Labels:           labels,
+		Description:      fmt.Sprintf("K8s audit: %s %s/%s by %s", e.Verb, namespace, resource, actingPrincipal),
 	}
+}
+
+// convertToObservation internal compatibility alias.
+func (r *WebhookReceiver) convertToObservation(e *K8sEvent) *model.Observation {
+	return r.ConvertToObservation(e)
 }
 
 // Metrics returns runtime telemetry counters.

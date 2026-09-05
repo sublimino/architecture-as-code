@@ -264,5 +264,12 @@
     "reviewer": "cpai-opencode",
     "verdict": "fail",
     "reason": "Required target absent (exit 2); root race gate cannot select CELMesh module (exit 1); qualified errata recorded."
+  },
+  "2ea6b": {
+    "task_id": "2ea6b",
+    "reviewed_at": "2026-09-05T15:52:02Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Phase-2 governor merge completed cleanly integrating P2-1 through P2-7 on base 24e371ab. Reconciled all append seams, 100% Go tests pass uncached, errata recorded."
   }
 }

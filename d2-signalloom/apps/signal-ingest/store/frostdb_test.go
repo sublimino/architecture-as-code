@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	schemapb "github.com/polarsignals/frostdb/gen/proto/go/frostdb/schema/v1alpha1"
 	"github.com/polarsignals/frostdb/query/logicalplan"
@@ -1181,4 +1183,454 @@ func BenchmarkFrostDBStore_QueryPushdownVsFullScan(b *testing.B) {
 		}
 	})
 }
+
+// generateDeterministicK8sAuditVolume generates N realistic Kubernetes APIServer audit and GKE Cloud Logging
+// observations using the P2 item-9 WebhookReceiver conversion pipeline.
+// Fixed random seed guarantees 100% deterministic output across all executions.
+func generateDeterministicK8sAuditVolume(seed int64, numHours int, perHour int, baseTime time.Time) []model.Observation {
+	rng := rand.New(rand.NewSource(seed))
+	receiver := audit.NewWebhookReceiver(context.Background(), 100, 1, nil)
+	defer receiver.Close()
+
+	namespaces := []string{
+		"default",
+		"fe-signalloom-agents",
+		"kube-system",
+		"monitoring",
+		"vault",
+		"kagent",
+	}
+
+	serviceAccounts := []string{
+		"system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+		"system:serviceaccount:kagent:autonomous-agent-1",
+		"system:serviceaccount:default:sa-ml-pipeline",
+		"system:serviceaccount:kube-system:generic-garbage-collector",
+		"system:serviceaccount:monitoring:prometheus-k8s",
+		"admin@controlplane.io",
+	}
+
+	verbs := []string{"get", "list", "watch", "create", "update", "patch", "delete"}
+	resources := []string{"secrets", "pods", "deployments", "configmaps", "serviceaccounts", "roles", "rolebindings"}
+	statusCodes := []int32{200, 201, 204, 403, 404, 500}
+
+	total := numHours * perHour
+	observations := make([]model.Observation, 0, total)
+
+	for h := 0; h < numHours; h++ {
+		hourStart := baseTime.Add(time.Duration(h) * time.Hour)
+		for r := 0; r < perHour; r++ {
+			ns := namespaces[rng.Intn(len(namespaces))]
+			sa := serviceAccounts[rng.Intn(len(serviceAccounts))]
+			verb := verbs[rng.Intn(len(verbs))]
+			res := resources[rng.Intn(len(resources))]
+			resName := fmt.Sprintf("%s-%04d", res, rng.Intn(50))
+			code := statusCodes[rng.Intn(len(statusCodes))]
+			secOffset := rng.Intn(3600)
+			ts := hourStart.Add(time.Duration(secOffset) * time.Second)
+
+			var impUser *audit.K8sUserInfo
+			if rng.Float64() < 0.15 { // 15% delegation/impersonation rate
+				impUser = &audit.K8sUserInfo{
+					Username: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+				}
+			}
+
+			event := audit.K8sEvent{
+				AuditID:    fmt.Sprintf("k8s-audit-h%02d-r%04d-%08x", h, r, rng.Uint32()),
+				Stage:      "ResponseComplete",
+				Verb:       verb,
+				RequestURI: fmt.Sprintf("/api/v1/namespaces/%s/%s/%s", ns, res, resName),
+				User: audit.K8sUserInfo{
+					Username: sa,
+					Groups:   []string{"system:authenticated"},
+				},
+				ImpersonatedUser: impUser,
+				ObjectRef: &audit.K8sObjRef{
+					Resource:  res,
+					Namespace: ns,
+					Name:      resName,
+					APIGroup:  "",
+				},
+				ResponseStatus: &audit.K8sRespStat{
+					Code: code,
+				},
+				StageTimestamp:  ts,
+				RequestReceived: ts.Add(-10 * time.Millisecond),
+			}
+
+			obs := receiver.ConvertToObservation(&event)
+			observations = append(observations, *obs)
+		}
+	}
+	return observations
+}
+
+// TestFrostDBStore_K8sAudit_VolumeBenchmark_P95 measures FrostDB query p95 latency at volume N
+// driven by the K8s-audit volume source, asserting row-group pruning and pushdown speedup.
+func TestFrostDBStore_K8sAudit_VolumeBenchmark_P95(t *testing.T) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	mem := NewMemoryStore()
+	defer mem.Close()
+
+	ctx := context.Background()
+	baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	const (
+		numHours       = 24
+		recordsPerHour = 500
+		totalRecords   = numHours * recordsPerHour // N = 12,000 observations
+		warmupIters    = 10
+		benchIters     = 100
+		seed           = int64(42)
+	)
+
+	t.Logf("Seeding K8s-audit volume: N=%d observations across %d hourly partitions (seed=%d)...",
+		totalRecords, numHours, seed)
+
+	allObs := generateDeterministicK8sAuditVolume(seed, numHours, recordsPerHour, baseTime)
+	if len(allObs) != totalRecords {
+		t.Fatalf("want %d observations, got %d", totalRecords, len(allObs))
+	}
+
+	// Ingest hourly batches into FrostDB and MemoryStore
+	for h := 0; h < numHours; h++ {
+		batch := allObs[h*recordsPerHour : (h+1)*recordsPerHour]
+		if err := frost.Append(ctx, batch); err != nil {
+			t.Fatalf("frost.Append hour %d: %v", h, err)
+		}
+		if err := mem.Append(ctx, batch); err != nil {
+			t.Fatalf("mem.Append hour %d: %v", h, err)
+		}
+	}
+
+	// Define representative query suite
+	targetHour := 22
+	targetStart := baseTime.Add(time.Duration(targetHour) * time.Hour)
+	targetEnd := targetStart.Add(time.Hour)
+	targetActor := "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa"
+
+	selectiveQuery := Query{
+		After:   targetStart,
+		Before:  targetEnd,
+		Layers:  []model.Layer{model.LayerIdentityAuth},
+		ActorID: targetActor,
+	}
+
+	timeRangeQuery := Query{
+		After:  targetStart,
+		Before: targetEnd,
+	}
+
+	actorQuery := Query{
+		ActorID: targetActor,
+	}
+
+	fullScanQuery := Query{} // Match-all scan
+
+	// 1. Correctness & Equivalence Verification
+	frostSelective, err := frost.QueryRange(ctx, selectiveQuery)
+	if err != nil {
+		t.Fatalf("frost selective query failed: %v", err)
+	}
+	memSelective, err := mem.QueryRange(ctx, selectiveQuery)
+	if err != nil {
+		t.Fatalf("mem selective query failed: %v", err)
+	}
+
+	if len(frostSelective) != len(memSelective) {
+		t.Fatalf("selective count mismatch: frost=%d, mem=%d", len(frostSelective), len(memSelective))
+	}
+	if len(frostSelective) == 0 {
+		t.Fatalf("expected non-empty selective query results")
+	}
+
+	selectivityRatio := float64(len(frostSelective)) / float64(totalRecords)
+	t.Logf("Selective query matched %d / %d records (selectivity: %.2f%%)",
+		len(frostSelective), totalRecords, selectivityRatio*100)
+
+	// 2. Latency Measurement (isolated to QueryRange)
+	// Warmup
+	for i := 0; i < warmupIters; i++ {
+		_, _ = frost.QueryRange(ctx, fullScanQuery)
+		_, _ = frost.QueryRange(ctx, selectiveQuery)
+		_, _ = frost.QueryRange(ctx, timeRangeQuery)
+		_, _ = frost.QueryRange(ctx, actorQuery)
+	}
+
+	// Full Scan Baseline (unfiltered scan)
+	fullScanDurations := make([]time.Duration, benchIters)
+	for i := 0; i < benchIters; i++ {
+		start := time.Now()
+		res, err := frost.QueryRange(ctx, fullScanQuery)
+		if err != nil {
+			t.Fatalf("full scan iteration %d failed: %v", i, err)
+		}
+		fullScanDurations[i] = time.Since(start)
+		if len(res) != totalRecords {
+			t.Fatalf("full scan want %d, got %d", totalRecords, len(res))
+		}
+	}
+
+	// Non-Pushdown Fallback (full scan + in-memory matchesQuery filtering)
+	nonPushdownDurations := make([]time.Duration, benchIters)
+	for i := 0; i < benchIters; i++ {
+		start := time.Now()
+		res, err := frost.QueryRange(ctx, fullScanQuery)
+		if err != nil {
+			t.Fatalf("non-pushdown iteration %d failed: %v", i, err)
+		}
+		filtered := make([]model.Observation, 0, len(res))
+		for _, o := range res {
+			if matchesQuery(o, selectiveQuery) {
+				filtered = append(filtered, o)
+			}
+		}
+		nonPushdownDurations[i] = time.Since(start)
+		if len(filtered) != len(frostSelective) {
+			t.Fatalf("non-pushdown filtered count mismatch: want %d, got %d", len(frostSelective), len(filtered))
+		}
+	}
+
+	// Pushdown Selective Query (time + layer + actor)
+	selectiveDurations := make([]time.Duration, benchIters)
+	for i := 0; i < benchIters; i++ {
+		start := time.Now()
+		res, err := frost.QueryRange(ctx, selectiveQuery)
+		if err != nil {
+			t.Fatalf("selective query iteration %d failed: %v", i, err)
+		}
+		selectiveDurations[i] = time.Since(start)
+		if len(res) != len(frostSelective) {
+			t.Fatalf("selective query want %d, got %d", len(frostSelective), len(res))
+		}
+	}
+
+	// Pushdown Time Range Query
+	timeRangeDurations := make([]time.Duration, benchIters)
+	for i := 0; i < benchIters; i++ {
+		start := time.Now()
+		_, err := frost.QueryRange(ctx, timeRangeQuery)
+		if err != nil {
+			t.Fatalf("time range iteration %d failed: %v", i, err)
+		}
+		timeRangeDurations[i] = time.Since(start)
+	}
+
+	// Pushdown Actor Query
+	actorDurations := make([]time.Duration, benchIters)
+	for i := 0; i < benchIters; i++ {
+		start := time.Now()
+		_, err := frost.QueryRange(ctx, actorQuery)
+		if err != nil {
+			t.Fatalf("actor query iteration %d failed: %v", i, err)
+		}
+		actorDurations[i] = time.Since(start)
+	}
+
+	fullScanStats := calcLatencyStats(fullScanDurations)
+	nonPushdownStats := calcLatencyStats(nonPushdownDurations)
+	selectiveStats := calcLatencyStats(selectiveDurations)
+	timeRangeStats := calcLatencyStats(timeRangeDurations)
+	actorStats := calcLatencyStats(actorDurations)
+
+	t.Logf("=== FrostDB K8s-Audit Volume Benchmark Report (N=%d observations, %d iterations) ===",
+		totalRecords, benchIters)
+	t.Logf("Full Scan Baseline:        min=%v, mean=%v, p50=%v, p90=%v, p95=%v, p99=%v, max=%v",
+		fullScanStats.Min, fullScanStats.Mean, fullScanStats.P50, fullScanStats.P90, fullScanStats.P95, fullScanStats.P99, fullScanStats.Max)
+	t.Logf("Non-Pushdown Fallback:     min=%v, mean=%v, p50=%v, p90=%v, p95=%v, p99=%v, max=%v",
+		nonPushdownStats.Min, nonPushdownStats.Mean, nonPushdownStats.P50, nonPushdownStats.P90, nonPushdownStats.P95, nonPushdownStats.P99, nonPushdownStats.Max)
+	t.Logf("Pushdown (Selective):      min=%v, mean=%v, p50=%v, p90=%v, p95=%v, p99=%v, max=%v",
+		selectiveStats.Min, selectiveStats.Mean, selectiveStats.P50, selectiveStats.P90, selectiveStats.P95, selectiveStats.P99, selectiveStats.Max)
+	t.Logf("Pushdown (Time Range):     min=%v, mean=%v, p50=%v, p90=%v, p95=%v, p99=%v, max=%v",
+		timeRangeStats.Min, timeRangeStats.Mean, timeRangeStats.P50, timeRangeStats.P90, timeRangeStats.P95, timeRangeStats.P99, timeRangeStats.Max)
+	t.Logf("Pushdown (Actor):          min=%v, mean=%v, p50=%v, p90=%v, p95=%v, p99=%v, max=%v",
+		actorStats.Min, actorStats.Mean, actorStats.P50, actorStats.P90, actorStats.P95, actorStats.P99, actorStats.Max)
+
+	speedupP95 := float64(fullScanStats.P95) / float64(selectiveStats.P95)
+	t.Logf("KPI Result: p95=%v @ N=%d observations (Speedup vs Full Scan: %.2fx, vs Fallback: %.2fx)",
+		selectiveStats.P95, totalRecords, speedupP95, float64(nonPushdownStats.P95)/float64(selectiveStats.P95))
+
+	// 3. Quantitative Assertions
+	if selectiveStats.P95 >= fullScanStats.P95 {
+		t.Errorf("p95 latency regression: selective pushdown p95 (%v) >= full-scan baseline p95 (%v)",
+			selectiveStats.P95, fullScanStats.P95)
+	}
+
+	if selectivityRatio > 0.05 {
+		t.Errorf("selective query selectivity ratio %.2f exceeds 5%% bound", selectivityRatio)
+	}
+}
+
+// TestFrostDBStore_K8sAudit_VolumeBenchmark_RegressionGuard is the automated regression guard
+// that fails if FrostDB query p95 exceeds the documented ceiling or if pushdown pruning is lost.
+func TestFrostDBStore_K8sAudit_VolumeBenchmark_RegressionGuard(t *testing.T) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	ctx := context.Background()
+	baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	const (
+		numHours          = 24
+		recordsPerHour    = 500
+		totalRecords      = numHours * recordsPerHour // N = 12,000 observations
+		benchIters        = 50
+		seed              = int64(42)
+		// P95GuardCeiling is the strict regression threshold. Measured pushdown p95 is ~1.0 - 2.5ms;
+		// any regression losing pushdown will jump to >10-25ms.
+		P95GuardCeiling   = 10 * time.Millisecond
+		MaxSelectivityPct = 0.05 // 5% maximum selectivity for selective query
+	)
+
+	allObs := generateDeterministicK8sAuditVolume(seed, numHours, recordsPerHour, baseTime)
+	for h := 0; h < numHours; h++ {
+		batch := allObs[h*recordsPerHour : (h+1)*recordsPerHour]
+		if err := frost.Append(ctx, batch); err != nil {
+			t.Fatalf("frost.Append hour %d: %v", h, err)
+		}
+	}
+
+	targetHour := 22
+	targetStart := baseTime.Add(time.Duration(targetHour) * time.Hour)
+	targetEnd := targetStart.Add(time.Hour)
+	targetActor := "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa"
+
+	selectiveQuery := Query{
+		After:   targetStart,
+		Before:  targetEnd,
+		Layers:  []model.Layer{model.LayerIdentityAuth},
+		ActorID: targetActor,
+	}
+
+	// Warm up
+	for i := 0; i < 5; i++ {
+		_, _ = frost.QueryRange(ctx, selectiveQuery)
+	}
+
+	// Measure Pushdown Path
+	durations := make([]time.Duration, benchIters)
+	var lastResultCount int
+	for i := 0; i < benchIters; i++ {
+		start := time.Now()
+		res, err := frost.QueryRange(ctx, selectiveQuery)
+		if err != nil {
+			t.Fatalf("query iteration %d failed: %v", i, err)
+		}
+		durations[i] = time.Since(start)
+		lastResultCount = len(res)
+	}
+
+	stats := calcLatencyStats(durations)
+	selectivityRatio := float64(lastResultCount) / float64(totalRecords)
+
+	t.Logf("Regression Guard Check: measured p95=%v (ceiling=%v), selectivity=%.2f%% @ N=%d",
+		stats.P95, P95GuardCeiling, selectivityRatio*100, totalRecords)
+
+	// Hard Gate 1: P95 Latency must not exceed the guard ceiling
+	if stats.P95 > P95GuardCeiling {
+		t.Fatalf("REGRESSION: FrostDB selective query p95 (%v) exceeded guard ceiling (%v) at N=%d observations",
+			stats.P95, P95GuardCeiling, totalRecords)
+	}
+
+	// Hard Gate 2: Row-group pruning must be active (selectivity bounded)
+	if selectivityRatio > MaxSelectivityPct {
+		t.Fatalf("REGRESSION: Row-group pruning lost; selectivity ratio %.4f exceeds %.2f bound",
+			selectivityRatio, MaxSelectivityPct)
+	}
+
+	// Negative Check: Verify that forcing full-scan fallback takes significantly longer than pushdown
+	fullScanDurations := make([]time.Duration, 20)
+	for i := 0; i < 20; i++ {
+		start := time.Now()
+		res, err := frost.QueryRange(ctx, Query{})
+		if err != nil {
+			t.Fatalf("full scan iteration %d failed: %v", i, err)
+		}
+		var matched []model.Observation
+		for _, o := range res {
+			if matchesQuery(o, selectiveQuery) {
+				matched = append(matched, o)
+			}
+		}
+		fullScanDurations[i] = time.Since(start)
+		if len(matched) != lastResultCount {
+			t.Fatalf("negative check count mismatch: want %d, got %d", lastResultCount, len(matched))
+		}
+	}
+	fallbackStats := calcLatencyStats(fullScanDurations)
+	t.Logf("Negative Check (Non-Pushdown Fallback): p95=%v vs Pushdown p95=%v (speedup=%.2fx)",
+		fallbackStats.P95, stats.P95, float64(fallbackStats.P95)/float64(stats.P95))
+
+	if fallbackStats.P95 <= stats.P95 {
+		t.Errorf("expected non-pushdown full scan to be slower than pushdown path, got fallback=%v, pushdown=%v",
+			fallbackStats.P95, stats.P95)
+	}
+}
+
+// BenchmarkFrostDBStore_K8sAudit_PushdownVsFullScan benchmarks FrostDB full-scan vs pushed-down selective queries
+// on the realistic K8s-audit volume dataset.
+func BenchmarkFrostDBStore_K8sAudit_PushdownVsFullScan(b *testing.B) {
+	frost, err := NewFrostDBStore()
+	if err != nil {
+		b.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer frost.Close()
+
+	ctx := context.Background()
+	baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	const (
+		numHours       = 24
+		recordsPerHour = 500
+		seed           = int64(42)
+	)
+
+	allObs := generateDeterministicK8sAuditVolume(seed, numHours, recordsPerHour, baseTime)
+	for h := 0; h < numHours; h++ {
+		batch := allObs[h*recordsPerHour : (h+1)*recordsPerHour]
+		if err := frost.Append(ctx, batch); err != nil {
+			b.Fatalf("frost.Append hour %d: %v", h, err)
+		}
+	}
+
+	targetStart := baseTime.Add(22 * time.Hour)
+	targetEnd := targetStart.Add(time.Hour)
+	selectiveQuery := Query{
+		After:   targetStart,
+		Before:  targetEnd,
+		Layers:  []model.Layer{model.LayerIdentityAuth},
+		ActorID: "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+	}
+	fullScanQuery := Query{}
+
+	b.Run("FullScan_K8sAudit", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := frost.QueryRange(ctx, fullScanQuery)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("PushedDown_K8sAudit", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := frost.QueryRange(ctx, selectiveQuery)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
 

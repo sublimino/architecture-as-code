@@ -2,9 +2,11 @@ package correlation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/google/cel-go/cel"
@@ -81,13 +83,20 @@ func compileRule(expr string) (cel.Program, error) {
 
 func obsToMap(o model.Observation) map[string]any {
 	return map[string]any{
-		"id":         o.ID,
-		"timestamp":  o.Timestamp.Unix(),
-		"layer":      string(o.Layer),
-		"fidelity":   string(o.Fidelity),
-		"source":     o.Source,
-		"confidence": o.Confidence,
-		"actor_hint": o.ActorHint,
+		"id":                o.ID,
+		"timestamp":         o.Timestamp.Unix(),
+		"layer":             string(o.Layer),
+		"fidelity":          string(o.Fidelity),
+		"source":            o.Source,
+		"confidence":        o.Confidence,
+		"actor_hint":        o.ActorHint,
+		"raw_evidence_ref":  o.RawEvidenceRef,
+		"description":       o.Description,
+		"principal_id":      o.PrincipalID,
+		"actor_id":          o.ActorID,
+		"session_id":        o.SessionID,
+		"impersonated_user": o.ImpersonatedUser,
+		"delegation_depth":  int64(o.DelegationDepth),
 	}
 }
 
@@ -120,7 +129,7 @@ func (e *Engine) Correlate(ctx context.Context) ([]*model.ProvisionalActor, erro
 		}
 	}
 
-	// Pairwise correlation for positive rules.
+	// Pairwise correlation for positive rules routed through Resolve.
 	for i := range len(observations) {
 		if excluded[observations[i].ID] {
 			continue
@@ -143,7 +152,11 @@ func (e *Engine) Correlate(ctx context.Context) ([]*model.ProvisionalActor, erro
 					continue
 				}
 				if out.Value() == true {
-					e.mergeIntoActor(a, b, r.Rule)
+					if _, err := e.ResolvePair(a, b, r.Rule); err != nil {
+						if errors.Is(err, ErrContradictoryPrincipals) {
+							slog.Debug("refusing false merge between contradictory principals", "a", a.ID, "b", b.ID, "rule", r.Rule.Name)
+						}
+					}
 				}
 			}
 		}
@@ -153,31 +166,46 @@ func (e *Engine) Correlate(ctx context.Context) ([]*model.ProvisionalActor, erro
 	for _, actor := range e.actors {
 		result = append(result, actor)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 	return result, nil
 }
 
-func (e *Engine) mergeIntoActor(a, b model.Observation, rule Rule) {
-	// Determine the correlation key.
-	key := correlationKey(a, b)
+// ResolvePair correlates and merges a pair of observations into the engine's actor state.
+// It enforces the zero-false-merge invariant: contradictory non-empty principal hints are rejected.
+func (e *Engine) ResolvePair(a, b model.Observation, rule Rule) (*model.ProvisionalActor, error) {
+	key, err := resolvePairKey(a, b)
+	if err != nil {
+		return nil, err
+	}
 
 	actor, exists := e.actors[key]
 	now := time.Now().UTC()
 
 	if !exists {
+		actorID := fmt.Sprintf("actor-%s", key)
 		actor = &model.ProvisionalActor{
-			ID:              fmt.Sprintf("actor-%s", key),
+			ID:              actorID,
 			Status:          model.ActorProvisional,
 			CorrelationKeys: []string{key},
 			CreatedAt:       now,
 			UpdatedAt:       now,
+			CanonicalID:     actorID,
+			Aliases:         []string{key},
+		}
+		if h := principalHint(a); h != "" {
+			actor.PrincipalID = h
+		} else if h := principalHint(b); h != "" {
+			actor.PrincipalID = h
 		}
 		e.actors[key] = actor
 	}
 
 	// Add evidence links if not already present.
 	addEvidence := func(o model.Observation) {
-		for _, e := range actor.EvidenceChain {
-			if e.ObservationID == o.ID {
+		for _, ev := range actor.EvidenceChain {
+			if ev.ObservationID == o.ID {
 				return
 			}
 		}
@@ -200,30 +228,51 @@ func (e *Engine) mergeIntoActor(a, b model.Observation, rule Rule) {
 	if actor.Confidence >= 0.5 {
 		actor.Status = model.ActorActionable
 	}
+
+	return actor, nil
 }
 
-func correlationKey(a, b model.Observation) string {
-	// Prefer actor_hint as the key if both share one.
-	if a.ActorHint != "" && a.ActorHint == b.ActorHint {
-		return a.ActorHint
+// Resolve resolves a single observation and records it in the engine's actor map.
+func (e *Engine) Resolve(obs model.Observation) (*model.ProvisionalActor, error) {
+	resolved, err := Resolve(obs)
+	if err != nil {
+		return nil, err
 	}
-	// Fall back to source-based key.
-	if a.Source == b.Source {
-		return fmt.Sprintf("src-%s", a.Source)
+	key := resolved.CorrelationKeys[0]
+	if existing, exists := e.actors[key]; exists {
+		for _, ev := range resolved.EvidenceChain {
+			found := false
+			for _, exEv := range existing.EvidenceChain {
+				if exEv.ObservationID == ev.ObservationID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				existing.EvidenceChain = append(existing.EvidenceChain, ev)
+			}
+		}
+		result := model.DeriveConfidence(existing.EvidenceChain)
+		existing.Confidence = result.Score
+		existing.UpdatedAt = time.Now().UTC()
+		if existing.Confidence >= 0.5 {
+			existing.Status = model.ActorActionable
+		}
+		return existing, nil
 	}
-	// Last resort: sorted pair of IDs.
-	if a.ID < b.ID {
-		return fmt.Sprintf("pair-%s-%s", a.ID, b.ID)
-	}
-	return fmt.Sprintf("pair-%s-%s", b.ID, a.ID)
+	e.actors[key] = resolved
+	return resolved, nil
 }
 
-// GetActors returns all discovered actors.
+// GetActors returns all discovered actors sorted deterministically by ID.
 func (e *Engine) GetActors() []*model.ProvisionalActor {
 	result := make([]*model.ProvisionalActor, 0, len(e.actors))
 	for _, a := range e.actors {
 		result = append(result, a)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 	return result
 }
 

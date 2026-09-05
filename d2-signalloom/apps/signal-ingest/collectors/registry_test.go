@@ -178,3 +178,31 @@ func TestRegistry_StartupFailureReflectedInHealth(t *testing.T) {
 		t.Fatal("expected Health to report start error, got nil")
 	}
 }
+
+func TestRegistry_BaoauditAndSpirea_ConcurrentStartStop(t *testing.T) {
+	sink := &testMockSink{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	baoCol := NewBaoAuditCollector(ModeLive, sink)
+	spireCol := NewSPIREACollector(ModeLive, sink)
+
+	reg := NewRegistry(baoCol, spireCol)
+
+	if err := reg.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	if err := reg.Health(ctx); err != nil {
+		t.Fatalf("Health failed: %v", err)
+	}
+
+	// Verify Stop() is idempotent and executes cleanly without double-close panic
+	reg.Stop()
+	reg.Stop()
+
+	// Double check individual Stop() idempotency
+	baoCol.Stop()
+	spireCol.Stop()
+}
+

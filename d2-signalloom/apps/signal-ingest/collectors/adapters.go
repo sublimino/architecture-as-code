@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
@@ -102,7 +103,7 @@ func (c *BaoAuditCollector) Start(ctx context.Context) error {
 		return nil
 	case ModeFixture:
 		if c.sink != nil {
-			for _, obs := range IdentityAuthFixtures(time.Now().UTC()) {
+			for _, obs := range BaoAuditFixtures(time.Now().UTC()) {
 				o := obs
 				if err := c.sink.IngestObservation(ctx, &o); err != nil {
 					return fmt.Errorf("bao fixture ingestion failed: %w", err)
@@ -113,6 +114,16 @@ func (c *BaoAuditCollector) Start(ctx context.Context) error {
 	case ModeLive:
 		if c.rcv == nil {
 			c.rcv = baoaudit.NewAuditReceiver(1000, c.sink)
+		}
+		if sockPath := resolveEnvPath("BAOAUDIT_SOCKET_PATH", "OPENBAO_AUDIT_SOCKET"); sockPath != "" {
+			if err := c.rcv.ListenUnixgram(sockPath); err != nil {
+				return fmt.Errorf("baoaudit listen unixgram failed on %s: %w", sockPath, err)
+			}
+		}
+		if filePath := resolveEnvPath("BAOAUDIT_FILE_PATH", "OPENBAO_AUDIT_FILE"); filePath != "" {
+			if err := c.rcv.TapTmpfsFile(filePath); err != nil {
+				return fmt.Errorf("baoaudit tap tmpfs file failed on %s: %w", filePath, err)
+			}
 		}
 		c.rcv.Start()
 		return nil
@@ -163,7 +174,7 @@ func (c *SPIREACollector) Start(ctx context.Context) error {
 		return nil
 	case ModeFixture:
 		if c.sink != nil {
-			for _, obs := range IdentityAuthFixtures(time.Now().UTC()) {
+			for _, obs := range SPIREIssuanceFixtures(time.Now().UTC()) {
 				o := obs
 				if err := c.sink.IngestObservation(ctx, &o); err != nil {
 					return fmt.Errorf("spire fixture ingestion failed: %w", err)
@@ -357,3 +368,13 @@ func (c *FixtureCollector) Health(ctx context.Context) error {
 	}
 	return nil
 }
+
+func resolveEnvPath(keys ...string) string {
+	for _, k := range keys {
+		if val := os.Getenv(k); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+

@@ -38,6 +38,7 @@ type ActiveIdentityLease struct {
 	SPIFFEID       string
 	Namespace      string
 	ServiceAccount string
+	SAPrincipal    string
 	AgentRole      string
 	AccessorHash   string
 	IssuedAt       time.Time
@@ -45,3 +46,4 @@ type ActiveIdentityLease struct {
 	LastActivity   time.Time
 	ActiveLeases   []string
 }
+

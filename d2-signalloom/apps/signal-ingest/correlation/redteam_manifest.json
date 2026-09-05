@@ -1,0 +1,203 @@
+{
+  "schema_version": "v1",
+  "total_n": 18,
+  "counts_by_class": {
+    "hidden-alias": 6,
+    "shadow-agent": 6,
+    "split-human": 6
+  },
+  "cases": [
+    {
+      "id": "ADV-HA-01",
+      "class": "hidden-alias",
+      "name": "Cross-Service SPIFFE SVID Aliasing",
+      "description": "Workload split across spire-agent and openbao-audit under aliases agent-cardvault-0 and vault-client-payments sharing verified SPIFFE ID",
+      "observation_ids": [
+        "adv-ha-001a",
+        "adv-ha-001b"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-HA-02",
+      "class": "hidden-alias",
+      "name": "GCP Cloud Audit Multi-Worker Aliasing",
+      "description": "Pipeline operations split across pipeline-worker-east and deployer-bot sharing verified GCP ServiceAccount email",
+      "observation_ids": [
+        "adv-ha-002a",
+        "adv-ha-002b"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-HA-03",
+      "class": "hidden-alias",
+      "name": "K8s APIServer Multi-Container Agent Aliasing",
+      "description": "Agent tasks split across kagent-exec and kagent-worker sharing verified K8s ServiceAccount principal",
+      "observation_ids": [
+        "adv-ha-003a",
+        "adv-ha-003b"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-HA-04",
+      "class": "hidden-alias",
+      "name": "Multi-Region Workload SVID Aliasing",
+      "description": "Workload reporting from us-east-1 and us-west-2 joined by verified checkout-sa SPIFFE ID",
+      "observation_ids": [
+        "adv-ha-004a",
+        "adv-ha-004b"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-HA-05",
+      "class": "hidden-alias",
+      "name": "Multi-Step Coordinator Session Aliasing",
+      "description": "Agent coordinator steps split across agent-step-1 and agent-step-2 joined by verified GCP service account",
+      "observation_ids": [
+        "adv-ha-005a",
+        "adv-ha-005b"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-HA-06",
+      "class": "hidden-alias",
+      "name": "Cross-Layer K8s & OpenBao SPIFFE Join",
+      "description": "Audits from K8s APIServer and OpenBao joined deterministically by vault-agent SPIFFE ID",
+      "observation_ids": [
+        "adv-ha-006a",
+        "adv-ha-006b"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-SA-01",
+      "class": "shadow-agent",
+      "name": "Unauthenticated eBPF Egress Unresolved",
+      "description": "Outbound eBPF socket trace to model provider API without SPIFFE SVID must surface as provisional",
+      "observation_ids": [
+        "adv-sa-001"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-SA-02",
+      "class": "shadow-agent",
+      "name": "Anonymous K8s Probe Unresolved",
+      "description": "Anonymous K8s APIServer request without SVID or ServiceAccount token must surface as provisional",
+      "observation_ids": [
+        "adv-sa-002"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-SA-03",
+      "class": "shadow-agent",
+      "name": "Unauthenticated Workspace Export Unresolved",
+      "description": "Google Workspace bulk download without authentication envelope must surface as provisional",
+      "observation_ids": [
+        "adv-sa-003"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-SA-04",
+      "class": "shadow-agent",
+      "name": "Unauthenticated OpenBao Probe Unresolved",
+      "description": "OpenBao token lookup attempt without SPIFFE attestation must surface as provisional",
+      "observation_ids": [
+        "adv-sa-004"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-SA-05",
+      "class": "shadow-agent",
+      "name": "Unknown Container Behavioral Trace Unresolved",
+      "description": "Behavioral trace from unknown container running shadow-inference.py without SVID must surface as provisional",
+      "observation_ids": [
+        "adv-sa-005"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-SA-06",
+      "class": "shadow-agent",
+      "name": "Unregistered KAgent Span Unresolved",
+      "description": "KAgent tool span with blank SVID and unregistered caller must surface as provisional",
+      "observation_ids": [
+        "adv-sa-006"
+      ],
+      "expected_actors": 1
+    },
+    {
+      "id": "ADV-SH-01",
+      "class": "split-human",
+      "name": "Workspace Audit Shared NAT Non-Collapse",
+      "description": "Two distinct Workspace users (alice and bob) sharing NAT IP 198.51.100.42 must remain two distinct actors",
+      "observation_ids": [
+        "adv-sh-001a",
+        "adv-sh-001b"
+      ],
+      "expected_actors": 2
+    },
+    {
+      "id": "ADV-SH-02",
+      "class": "split-human",
+      "name": "K8s APIServer Office NAT Non-Collapse",
+      "description": "Two distinct engineers (carol and dave) accessing K8s API from office NAT IP 203.0.113.50 must remain two distinct actors",
+      "observation_ids": [
+        "adv-sh-002a",
+        "adv-sh-002b"
+      ],
+      "expected_actors": 2
+    },
+    {
+      "id": "ADV-SH-03",
+      "class": "split-human",
+      "name": "Node Egress IP Workload Non-Collapse",
+      "description": "Two distinct service workloads (sa-analytics and sa-reporting) sharing node egress IP 10.244.0.15 must remain separate",
+      "observation_ids": [
+        "adv-sh-003a",
+        "adv-sh-003b"
+      ],
+      "expected_actors": 2
+    },
+    {
+      "id": "ADV-SH-04",
+      "class": "split-human",
+      "name": "Corporate VPN SaaS Non-Collapse",
+      "description": "Two distinct SaaS users (eve and frank) on VPN NAT IP 192.0.2.100 must remain two distinct actors",
+      "observation_ids": [
+        "adv-sh-004a",
+        "adv-sh-004b"
+      ],
+      "expected_actors": 2
+    },
+    {
+      "id": "ADV-SH-05",
+      "class": "split-human",
+      "name": "ISP NAT Cloud Console Non-Collapse",
+      "description": "Two distinct GCP IAM accounts (admin-1 and admin-2) sharing ISP NAT IP 198.51.100.88 must remain two distinct actors",
+      "observation_ids": [
+        "adv-sh-005a",
+        "adv-sh-005b"
+      ],
+      "expected_actors": 2
+    },
+    {
+      "id": "ADV-SH-06",
+      "class": "split-human",
+      "name": "Telemetry Egress IP Non-Collapse",
+      "description": "Two distinct workloads (operator-alpha and operator-beta) sharing egress IP 203.0.113.99 must remain two distinct actors",
+      "observation_ids": [
+        "adv-sh-006a",
+        "adv-sh-006b"
+      ],
+      "expected_actors": 2
+    }
+  ]
+}

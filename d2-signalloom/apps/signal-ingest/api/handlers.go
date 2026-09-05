@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
@@ -37,6 +38,12 @@ type Handlers struct {
 	// the loudest signal available short of crashing, and it stops traffic
 	// reaching a replica that cannot record what it does.
 	AuditReady func(context.Context) error
+
+	// AuditReceiver handles APIServer audit webhooks at /api/v1/audit/webhook.
+	AuditReceiver *apiaudit.WebhookReceiver
+
+	// CollectorHealth, when non-nil, polls source readiness for live collectors.
+	CollectorHealth func(context.Context) error
 }
 
 // readyCheckTimeout bounds the /readyz connectivity check. It must stay under
@@ -64,6 +71,15 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/store/stats", h.handleStoreStats)
 	mux.HandleFunc("GET /api/v1/stream", h.handleStream)
 	mux.HandleFunc("GET /api/v1/observations/stream", h.handleStream)
+	mux.HandleFunc("POST /api/v1/audit/webhook", h.handleAuditWebhook)
+}
+
+func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
+	if h.AuditReceiver == nil {
+		writeError(w, http.StatusServiceUnavailable, "audit webhook receiver not configured")
+		return
+	}
+	h.AuditReceiver.HandleAuditWebhook(w, r)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -86,33 +102,34 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleReadyz answers readiness: the process is up AND can do its job,
-// including recording an audit trail. Readiness failure means "send me no
-// traffic", which is the correct response to an audit backend this replica
-// cannot reach -- for a compliance product, serving requests it cannot record
-// is worse than serving none.
-//
-// The check is live on every probe rather than a boot-time verdict cached in
-// a bool. A cached verdict would be wrong in both directions: it would keep
-// reporting ready after the database went away, and it would keep reporting
-// not-ready long after the database came back, leaving a recovered pod out of
-// the endpoints until someone noticed and restarted it.
+// including recording an audit trail and connecting to live collector sources.
+// Readiness failure means "send me no traffic".
 func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	if h.AuditReady == nil {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), readyCheckTimeout)
 	defer cancel()
 
-	if err := h.AuditReady(ctx); err != nil {
-		slog.Warn("readiness: audit backend unreachable", "error", err)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"status": "not_ready",
-			"reason": "audit_backend_unreachable",
-			"error":  err.Error(),
-		})
-		return
+	if h.AuditReady != nil {
+		if err := h.AuditReady(ctx); err != nil {
+			slog.Warn("readiness: audit backend unreachable", "error", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"status": "not_ready",
+				"reason": "audit_backend_unreachable",
+				"error":  err.Error(),
+			})
+			return
+		}
+	}
+
+	if h.CollectorHealth != nil {
+		if err := h.CollectorHealth(ctx); err != nil {
+			slog.Warn("readiness: collector source unhealthy", "error", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"status": "not_ready",
+				"reason": "collector_source_unhealthy",
+				"error":  err.Error(),
+			})
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})

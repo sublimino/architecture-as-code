@@ -37,31 +37,18 @@ func (c *GCPAuditCollector) Start(ctx context.Context) error {
 	if c.startFn != nil {
 		return c.startFn(ctx)
 	}
-	switch c.mode {
-	case ModeOff:
-		return nil
-	case ModeFixture:
-		if c.sink != nil {
-			for _, obs := range CloudControlPlaneFixtures(time.Now().UTC()) {
-				o := obs
-				if err := c.sink.IngestObservation(ctx, &o); err != nil {
-					return fmt.Errorf("gcp fixture ingestion failed: %w", err)
-				}
-			}
-		}
-		return nil
-	case ModeLive:
-		if c.col == nil {
-			c.col = gcpaudit.NewCollector(ctx, c.sink, 0)
-		}
-		return nil
+	if c.col == nil {
+		c.col = gcpaudit.New(ctx, c.sink, 0, gcpaudit.WithMode(string(c.mode)))
 	}
-	return nil
+	return c.col.Start(ctx)
 }
 
 func (c *GCPAuditCollector) Health(ctx context.Context) error {
 	if c.healthFn != nil {
 		return c.healthFn(ctx)
+	}
+	if c.col != nil {
+		return c.col.Health(ctx)
 	}
 	return nil
 }

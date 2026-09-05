@@ -101,3 +101,15 @@ func TestBehaviouralFixtures_NonEmpty(t *testing.T) {
 		t.Fatal("behavioural fixtures should not be empty")
 	}
 }
+
+func TestGCPAuditFixtures_NonEmpty(t *testing.T) {
+	obs := GCPAuditFixtures(time.Now().UTC())
+	if len(obs) == 0 {
+		t.Fatal("gcp audit fixtures should not be empty")
+	}
+	for _, o := range obs {
+		if o.Layer != model.LayerCloudControlPlane {
+			t.Errorf("wrong layer: want %s, got %s", model.LayerCloudControlPlane, o.Layer)
+		}
+	}
+}

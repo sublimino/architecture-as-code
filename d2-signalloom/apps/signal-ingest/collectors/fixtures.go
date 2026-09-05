@@ -22,6 +22,7 @@ func SeedAll(baseTime time.Time) []model.Observation {
 	obs = append(obs, BehaviouralFixtures(baseTime)...)
 	obs = append(obs, CloudControlPlaneFixtures(baseTime)...)
 	obs = append(obs, ScheduledJobFixtures(baseTime)...)
+	obs = append(obs, GCPAuditFixtures(baseTime)...)
 	return obs
 }
 
@@ -345,6 +346,35 @@ func CloudControlPlaneFixtures(baseTime time.Time) []model.Observation {
 				"status_code":  "0",
 			},
 			Description: "GCP Audit: deployer-sa called google.iam.v1.SetIamPolicy on osramp-demo",
+		},
+	}
+}
+
+// GCPAuditFixtures generates deterministic GCP Cloud Audit observations from canned LogEntries.
+func GCPAuditFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		{
+			ID:             "gcp-audit-fixture-001",
+			Timestamp:      baseTime.Add(12 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     1.0,
+			ActorHint:      "security-admin@controlplane.io",
+			RawEvidenceRef: "gcp-audit://osramp-demo/projects/osramp-demo/roles/custom.agentRunner",
+			Labels: map[string]string{
+				"insert_id":       "gcp-audit-fixture-001",
+				"service_name":    "iam.googleapis.com",
+				"method_name":     "google.iam.admin.v1.CreateRole",
+				"resource_name":   "projects/osramp-demo/roles/custom.agentRunner",
+				"principal_email": "security-admin@controlplane.io",
+				"caller_ip":       "198.51.100.42",
+				"project_id":      "osramp-demo",
+				"status_code":     "0",
+				"severity":        "NOTICE",
+				"log_name":        "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+			},
+			Description: "GCP Audit: security-admin@controlplane.io called google.iam.admin.v1.CreateRole on projects/osramp-demo/roles/custom.agentRunner",
 		},
 	}
 }

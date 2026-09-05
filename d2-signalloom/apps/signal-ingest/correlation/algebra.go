@@ -123,8 +123,18 @@ func contractIdentifiers(o model.Observation) []model.TypedIdentifier {
 			ids = addIdentifier(ids, typedPrincipal(p, issuer))
 		}
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
+	sort.Slice(ids, func(i, j int) bool { return identifierLess(ids[i], ids[j]) })
 	return ids
+}
+
+// identifierLess is the canonical total order: authenticated SPIFFE identity
+// precedes generic principal aliases, then issuer/scheme/value breaks ties.
+// A local service-account name must never erase a SPIFFE trust-domain boundary.
+func identifierLess(a, b model.TypedIdentifier) bool {
+	if (a.Scheme == "spiffe") != (b.Scheme == "spiffe") {
+		return a.Scheme == "spiffe"
+	}
+	return a.String() < b.String()
 }
 
 func identifiersIntersect(a, b []model.TypedIdentifier) bool {
@@ -352,7 +362,7 @@ func representative(component []int, observations []model.Observation, verified 
 			ids = addIdentifier(ids, observationIdentifier(observations[i].ID))
 		}
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
+	sort.Slice(ids, func(i, j int) bool { return identifierLess(ids[i], ids[j]) })
 	return ids[0]
 }
 

@@ -37,11 +37,12 @@ func TestRegistry_Lifecycle(t *testing.T) {
 		NewSPIREACollector(ModeFixture, sink),
 		NewNetEBPFCollector(ModeFixture, sink),
 		NewK8sAuditCollector(ModeFixture, sink),
+		NewWorkspaceSaaSCollector(ModeFixture, sink),
 		NewFixtureCollector(ModeOff, sink),
 	)
 
-	if len(reg.Collectors()) != 6 {
-		t.Fatalf("expected 6 collectors, got %d", len(reg.Collectors()))
+	if len(reg.Collectors()) != 7 {
+		t.Fatalf("expected 7 collectors, got %d", len(reg.Collectors()))
 	}
 
 	if err := reg.Start(ctx); err != nil {
@@ -70,6 +71,7 @@ func TestRegistry_StartStopRace(t *testing.T) {
 		NewSPIREACollector(ModeLive, sink),
 		NewNetEBPFCollector(ModeLive, sink),
 		NewK8sAuditCollector(ModeLive, sink),
+		NewWorkspaceSaaSCollector(ModeOff, sink),
 		NewFixtureCollector(ModeOff, sink),
 	)
 
@@ -109,6 +111,7 @@ func TestRegistry_OffModeReady(t *testing.T) {
 		"COLLECTOR_SPIREA_MODE", "SPIREA_MODE",
 		"COLLECTOR_NETEBPF_MODE", "NETEBPF_MODE",
 		"COLLECTOR_K8SAUDIT_MODE", "K8SAUDIT_MODE",
+		"COLLECTOR_WORKSPACESAAS_MODE", "WORKSPACESAAS_MODE", "SIGNAL_COLLECTOR_WORKSPACESAAS",
 		"COLLECTOR_FIXTURES_MODE", "FIXTURES_MODE",
 	}
 	for _, v := range envVars {
@@ -178,3 +181,48 @@ func TestRegistry_StartupFailureReflectedInHealth(t *testing.T) {
 		t.Fatal("expected Health to report start error, got nil")
 	}
 }
+
+func TestRegistry_WorkspaceSaaS_ModeGating(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ModeOff is quiet", func(t *testing.T) {
+		sink := &testMockSink{}
+		reg := NewRegistry(NewWorkspaceSaaSCollector(ModeOff, sink))
+		if err := reg.Start(ctx); err != nil {
+			t.Fatalf("ModeOff Start failed: %v", err)
+		}
+		if err := reg.Health(ctx); err != nil {
+			t.Fatalf("ModeOff Health expected nil, got %v", err)
+		}
+		if sink.count != 0 {
+			t.Errorf("expected 0 events in ModeOff, got %d", sink.count)
+		}
+	})
+
+	t.Run("ModeFixture ingests workspace fixtures", func(t *testing.T) {
+		sink := &testMockSink{}
+		reg := NewRegistry(NewWorkspaceSaaSCollector(ModeFixture, sink))
+		if err := reg.Start(ctx); err != nil {
+			t.Fatalf("ModeFixture Start failed: %v", err)
+		}
+		if err := reg.Health(ctx); err != nil {
+			t.Fatalf("ModeFixture Health expected nil, got %v", err)
+		}
+		if sink.count == 0 {
+			t.Fatal("expected fixture observations to be ingested in ModeFixture")
+		}
+	})
+
+	t.Run("ModeLive reports explicit deferred error", func(t *testing.T) {
+		sink := &testMockSink{}
+		reg := NewRegistry(NewWorkspaceSaaSCollector(ModeLive, sink))
+		err := reg.Start(ctx)
+		if err == nil {
+			t.Fatal("ModeLive Start expected error, got nil (must not silently pass)")
+		}
+		if !strings.Contains(err.Error(), "deferred") {
+			t.Fatalf("ModeLive Start expected deferred error, got: %v", err)
+		}
+	})
+}
+

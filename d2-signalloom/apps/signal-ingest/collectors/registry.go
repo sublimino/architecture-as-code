@@ -119,6 +119,7 @@ func NewRegistryFromEnv(sink IngestionSink) *Registry {
 	reg.Register(NewSPIREACollector(resolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), sink))
 	reg.Register(NewNetEBPFCollector(resolveEnvMode("COLLECTOR_NETEBPF_MODE", "SIGNAL_COLLECTOR_NETEBPF", "NETEBPF_MODE"), sink))
 	reg.Register(NewK8sAuditCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink))
+	reg.Register(NewWorkspaceSaaSCollector(resolveEnvMode("COLLECTOR_WORKSPACESAAS_MODE", "SIGNAL_COLLECTOR_WORKSPACESAAS", "WORKSPACESAAS_MODE"), sink))
 	reg.Register(NewFixtureCollector(resolveEnvMode("COLLECTOR_FIXTURES_MODE", "SIGNAL_COLLECTOR_FIXTURES", "FIXTURES_MODE"), sink))
 
 	return reg

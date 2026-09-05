@@ -101,3 +101,19 @@ func TestBehaviouralFixtures_NonEmpty(t *testing.T) {
 		t.Fatal("behavioural fixtures should not be empty")
 	}
 }
+
+func TestWorkspaceSaaSFixtures_Validation(t *testing.T) {
+	obs := WorkspaceSaaSFixtures(time.Now().UTC())
+	if len(obs) < 6 {
+		t.Fatalf("expected at least 6 workspace fixtures (3 pairs), got %d", len(obs))
+	}
+	for _, o := range obs {
+		if err := o.Validate(); err != nil {
+			t.Errorf("fixture %s failed validation: %v", o.ID, err)
+		}
+		if o.ActorHint == "" {
+			t.Errorf("fixture %s must have non-empty actor_hint for workspace correlation", o.ID)
+		}
+	}
+}
+

@@ -123,6 +123,7 @@ func main() {
 	auditReceiver := apiaudit.NewWebhookReceiver(ctx, 0, 0, storeSink)
 
 	// Collector registry: constructed and started at boot before HTTP server
+	// (registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, fixtures via NewRegistryFromEnv)
 	collectorRegistry := collectors.NewRegistryFromEnv(storeSink)
 	if err := collectorRegistry.Start(ctx); err != nil {
 		slog.Warn("collector failed to start; serving degraded", "error", err)

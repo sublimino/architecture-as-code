@@ -22,6 +22,7 @@ func SeedAll(baseTime time.Time) []model.Observation {
 	obs = append(obs, BehaviouralFixtures(baseTime)...)
 	obs = append(obs, CloudControlPlaneFixtures(baseTime)...)
 	obs = append(obs, ScheduledJobFixtures(baseTime)...)
+	obs = append(obs, KAgentFixtures(baseTime)...)
 	return obs
 }
 
@@ -348,3 +349,41 @@ func CloudControlPlaneFixtures(baseTime time.Time) []model.Observation {
 		},
 	}
 }
+
+// KAgentFixtures generates deterministic observations calibrated from live KAgent telemetry (strong).
+func KAgentFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		{
+			ID:               "kagent-obs-p0-calibrated-span-001",
+			Timestamp:        baseTime.Add(25 * time.Minute),
+			Layer:            model.LayerIdentityAuth,
+			Fidelity:         model.FidelityStrong,
+			Source:           "kagent.telemetry",
+			Confidence:       0.85,
+			ActorHint:        "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-k8s-reader",
+			ActorID:          "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-k8s-reader",
+			PrincipalID:      "admin@kagent.dev",
+			SessionID:        "01a0722f-a1c4-7963-890c-37184946daca",
+			ImpersonatedUser: "admin@kagent.dev",
+			DelegationDepth:  1,
+			RawEvidenceRef:   "otel://kagent/fe-signalloom-agents/kagent-k8s-reader/span/p0-calibrated-span-001",
+			Labels: map[string]string{
+				"framework":       "kagent",
+				"runtime_version": "0.9.9",
+				"agent_namespace": "fe-signalloom-agents",
+				"agent_name":      "kagent-k8s-reader",
+				"service_account": "kagent-k8s-reader",
+				"spiffe_id":       "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-k8s-reader",
+				"tool_name":       "k8s_get_resources",
+				"invoked_action":  "tool:k8s_get_resources",
+				"context_id":      "01a0722f-a1c4-7963-890c-37184946daca",
+				"task_id":         "01a0722f-a1c4-7874-a9c0-d55a1638c1e5",
+				"caller_id":       "admin@kagent.dev",
+				"delegation_tag":  "inferred",
+				"trace_id":        "p0-calibrated-trace-001",
+			},
+			Description: "Kagent agent kagent-k8s-reader invoked action tool:k8s_get_resources in namespace fe-signalloom-agents (context: 01a0722f-a1c4-7963-890c-37184946daca)",
+		},
+	}
+}
+

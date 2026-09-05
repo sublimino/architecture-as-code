@@ -8,6 +8,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/baoaudit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/gcpaudit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/netebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
 )
@@ -357,3 +358,67 @@ func (c *FixtureCollector) Health(ctx context.Context) error {
 	}
 	return nil
 }
+
+// KAgentCollector adapts the kagent package to the Collector interface.
+type KAgentCollector struct {
+	mode     Mode
+	sink     IngestionSink
+	col      *kagent.Collector
+	healthFn func(ctx context.Context) error
+	startFn  func(ctx context.Context) error
+}
+
+// NewKAgentCollector creates a KAgentCollector.
+func NewKAgentCollector(mode Mode, sink IngestionSink) *KAgentCollector {
+	return &KAgentCollector{mode: mode, sink: sink}
+}
+
+func (c *KAgentCollector) Name() string { return "kagent" }
+func (c *KAgentCollector) Mode() Mode   { return c.mode }
+
+func (c *KAgentCollector) SetHealthFunc(fn func(ctx context.Context) error) { c.healthFn = fn }
+func (c *KAgentCollector) SetStartFunc(fn func(ctx context.Context) error)  { c.startFn = fn }
+func (c *KAgentCollector) RawCollector() *kagent.Collector                  { return c.col }
+
+func (c *KAgentCollector) Start(ctx context.Context) error {
+	if c.startFn != nil {
+		return c.startFn(ctx)
+	}
+	switch c.mode {
+	case ModeOff:
+		return nil
+	case ModeFixture:
+		if c.sink != nil {
+			for _, obs := range KAgentFixtures(time.Now().UTC()) {
+				o := obs
+				if err := c.sink.IngestObservation(ctx, &o); err != nil {
+					return fmt.Errorf("kagent fixture ingestion failed: %w", err)
+				}
+			}
+		}
+		return nil
+	case ModeLive:
+		if c.col == nil {
+			c.col = kagent.NewCollector(c.sink, kagent.ResolverConfig{})
+		}
+		return c.col.Start(ctx)
+	}
+	return nil
+}
+
+func (c *KAgentCollector) Health(ctx context.Context) error {
+	if c.healthFn != nil {
+		return c.healthFn(ctx)
+	}
+	if c.col != nil {
+		return c.col.Health(ctx)
+	}
+	return nil
+}
+
+func (c *KAgentCollector) Stop() {
+	if c.col != nil {
+		c.col.Stop()
+	}
+}
+

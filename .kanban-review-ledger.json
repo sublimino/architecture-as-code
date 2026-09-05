@@ -320,5 +320,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "KAgent tool-log resolver verified green"
+  },
+  "97551": {
+    "task_id": "97551",
+    "reviewed_at": "2026-09-05T15:40:27Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Supervisor waiver: NetEBPF collector and fixture model verified green in codebase (4/4 tests pass); live GKE Dataplane V2 Hubble acceptance deferred to GCP staging environment due to non-interactive token expiration. Blocker evidence committed in rescue-19983b81 (docs/signalloom/sfdp-p2-4-blocker.md)."
   }
 }

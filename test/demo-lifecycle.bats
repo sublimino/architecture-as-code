@@ -238,8 +238,9 @@ SCRIPT
   grep -Fq -- '-parentID spiffe://signalloom.demo/agent/kind -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom' "$log"
 	 grep -Fq 'delete job openbao-spire-bootstrap --ignore-not-found --wait=true' "$log"
 	 grep -Fq 'wait job/openbao-spire-bootstrap --for=condition=complete' "$log"
-	 grep -Fq 'bundle show -format spiffe' "$log"
-	 grep -Fq 'exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token bao write auth/jwt/config jwt_validation_pubkeys=' "$log"
+	 grep -Fq 'exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token bao write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$log"
+	 run grep -F 'jwt_validation_pubkeys=' "$log"
+	 [ "$status" -ne 0 ]
 }
 
 @test "Signal Loom startup recreates both proof Jobs after identity registration" {
@@ -249,45 +250,64 @@ SCRIPT
   grep -Fq 'delete job bao-spire-positive-proof bao-spire-negative-proof --ignore-not-found --wait=true' "$log"
 }
 
-@test "Bao lifecycle configures every active SPIRE JWT key" {
+@test "Bao lifecycle configures dynamic JWKS discovery once across SPIRE key rotation" {
   run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty KUBECTL_JWT_KEYS=two \
     "$root/scripts/demo-lifecycle.sh" bao-up
   [ "$status" -eq 0 ]
-  [ "$(grep -Fo -- '-----BEGIN PUBLIC KEY-----' "$log" | wc -l)" -eq 2 ]
+  [ "$(grep -Fc 'bao write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$log")" -eq 1 ]
+  run grep -F 'bundle show -format spiffe' "$log"
+  [ "$status" -ne 0 ]
+  run grep -F 'jwt_validation_pubkeys=' "$log"
+  [ "$status" -ne 0 ]
 }
 
 # ── The recovery gap these three tests close (2026-08-23) ──────────────────
 #
-# spire-server's data_dir has NO volume, so a pod restart gives a NEW CA and
-# loses every registration entry. spire-agent's data_dir is a hostPath, so it
-# SURVIVES and keeps a bundle for the CA that no longer exists. The two
-# disagree, the agent crash-loops on "certificate signed by unknown authority",
-# and bao_up could not fix it — it deletes the Secret and the pod but never
-# clears the node directory, so the agent reloads the stale bundle every time.
+# A trust mismatch can survive ordinary pod replacement because the agent's
+# data_dir is a hostPath. The server PVC and agent disk KeyManager prevent
+# future state loss, but neither repairs an expired SVID or stale trust bundle.
 #
-# Recovery needs `rm -rf /var/lib/spire-agent/data/*` ON THE NODE, which is
-# `docker exec` on kind and `gcloud ssh` on GCP. bao_up therefore REFUSES and
-# prints the sequence rather than half-doing it: a recovery command that
-# silently half-works is worse than one that refuses.
+# Recovery therefore refuses, quiesces before node intervention, and preserves
+# the old directory under quarantine instead of deleting causal evidence.
 
-@test "SPIREREC bao-up refuses when the agent cannot trust the rebuilt server" {
+@test "SPIREREC bao-up refuses when the agent cannot trust the current server" {
   run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty \
     KUBECTL_AGENT_STATE=stale-bundle DEMO_AGENT_ATTEST_TIMEOUT=1 \
     "$root/scripts/demo-lifecycle.sh" bao-up
   [ "$status" -ne 0 ]
-  [[ "$output" == *'stale trust bundle'* ]]
+  [[ "$output" == *'trust mismatch'* ]]
 }
 
-# The refusal is only useful if it says what to run. An operator hitting this at
-# 2am should not have to derive the node path from first principles.
-@test "SPIREREC the refusal names the node directory that must be cleared" {
+# The refusal is only useful if it makes the safe ordering explicit.
+@test "SPIREREC refusal pauses ownership, quiesces agents, quarantines securely, then restores ownership" {
   run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty \
     KUBECTL_AGENT_STATE=stale-bundle DEMO_AGENT_ATTEST_TIMEOUT=1 \
     "$root/scripts/demo-lifecycle.sh" bao-up
   [ "$status" -ne 0 ]
   [[ "$output" == *'/var/lib/spire-agent/data'* ]]
-  [[ "$output" == *'docker exec'* ]]
-  [[ "$output" == *'gcloud'* ]]
+  [[ "$output" == *'delete daemonset spire-agent'* ]]
+  [[ "$output" == *'resourceset signalloom-infra'* ]]
+  [[ "$output" == *'reconcile=disabled'* ]]
+  [[ "$output" == *'--cascade=foreground --wait=true'* ]]
+  [[ "$output" == *'wait --for=delete pod'* ]]
+  [[ "$output" == *'sudo mv --'* ]]
+  [[ "$output" == *'sudo chmod 0700'* ]]
+  [[ "$output" == *'fluxcd.controlplane.io/reconcile-'* ]]
+  [[ "$output" == *'approval-gated'* ]]
+  [[ "$output" == *'quarantine'* ]]
+  [[ "$output" != *'rm -rf'* ]]
+
+  owner_pause_line="$(grep -n -m1 'reconcile=disabled' <<<"$output" | cut -d: -f1)"
+  child_pause_line="$(grep -n -m1 'flux suspend kustomization' <<<"$output" | cut -d: -f1)"
+  delete_line="$(grep -n -m1 'delete daemonset spire-agent' <<<"$output" | cut -d: -f1)"
+  quarantine_line="$(grep -n -m1 'sudo mv --' <<<"$output" | cut -d: -f1)"
+  child_resume_line="$(grep -n -m1 'flux resume kustomization' <<<"$output" | cut -d: -f1)"
+  owner_resume_line="$(grep -n -m1 'fluxcd.controlplane.io/reconcile-' <<<"$output" | cut -d: -f1)"
+  [ "$owner_pause_line" -lt "$child_pause_line" ]
+  [ "$child_pause_line" -lt "$delete_line" ]
+  [ "$delete_line" -lt "$quarantine_line" ]
+  [ "$quarantine_line" -lt "$child_resume_line" ]
+  [ "$child_resume_line" -lt "$owner_resume_line" ]
 }
 
 # An agent that says nothing is not an agent that attested. Without this, a

@@ -100,14 +100,14 @@ spire_jwt_svid_keys() {
 #   x509svid: could not verify leaf certificate:
 #   x509: certificate signed by unknown authority
 #
-# bao_up could not fix this. It deletes the join-token Secret and the agent pod,
-# which is right, but never clears the node directory — so the replacement pod
-# reloaded the same stale bundle and crashed identically, forever. Diagnosed on
+# bao_up could not fix this. Deleting the join-token Secret and agent pod is
+# insufficient: the replacement pod reloads the same stale node state while
+# repeated attempts consume tokens and erase useful chronology. Diagnosed on
 # kind-osramp 2026-08-23 after a deliberate spire-server restart; recovered by
 # hand, twice. Worst observed state: CrashLoopBackOff, 1528 restarts over
-# 6d19h, each one burning a single-use join token.
+# 6d19h; server logs separately showed attempts using consumed join tokens.
 #
-# ── The design decision HAS now been taken: the server got the PVC ─────────
+# ── Server and agent persistence cover different failure modes ──────────────
 #
 # This block used to end "the right permanent fix is a design decision, NOT
 # taken here: either give spire-server a PVC so its CA survives, or make a
@@ -124,12 +124,14 @@ spire_jwt_svid_keys() {
 # keys_path or the sqlite connection_string out from under the volume fails the
 # suite instead of silently un-persisting the CA.
 #
-# The server is therefore the durable side too, matching the agent: a restart
-# keeps its CA, its JWT signing keys and its registration entries, and the
-# agent's cached bundle stays valid. Verified on kind-osramp 2026-08-30 — trust
-# bundle sha256 and both localauthority IDs byte-identical across a pod delete,
-# 3/3 registration entries retained, agent Running at 0 restarts throughout, and
-# the fe-signalloom SPIFFE→OpenBao positive proof green afterwards.
+# The server PVC preserves its CA, JWT signing keys and registrations across an
+# ordinary server pod replacement. Separately, the agent disk KeyManager writes
+# keys.json beneath the agent's persistent data mount so the private key paired
+# with its cached SVID can survive an ordinary agent pod restart.
+#
+# Neither mechanism repairs state that is already inconsistent. Durable agent
+# keys do not renew an expired SVID, make a consumed join token reusable, or
+# teach an agent to trust a server whose authority changed.
 #
 # ── Why the refusal below STAYS ────────────────────────────────────────────
 #
@@ -143,11 +145,10 @@ spire_jwt_svid_keys() {
 #     thoroughly as the container layer did;
 #   * any future edit that moves data_dir out from under the mount.
 #
-# Clearing the agent directory still needs node access, which is `docker exec`
-# on kind and `gcloud compute ssh` on GCP — there is no portable in-cluster way
-# to do it that does not involve running a privileged pod, which is a poor trade
-# in this repo. A recovery command that silently half-works is worse than one
-# that refuses and says what to run. See also d2-agent-trust/AGENTS.md.
+# Quarantining the agent directory still needs node access. There is no portable
+# in-cluster way to do that without a privileged pod, which is a poor trade in
+# this repo. Recovery therefore refuses and preserves the old directory for
+# diagnosis instead of deleting evidence. See also d2-agent-trust/AGENTS.md.
 #
 # ── MIGRATING AN EXISTING CLUSTER ONTO THE PVC ─────────────────────────────
 #
@@ -193,13 +194,13 @@ spire_jwt_svid_keys() {
 # Simpler, and correct when the entries are reproducible from code — which on
 # this lane they are. Apply the Deployment, then run the full recovery:
 #
-#   1. kubectl -n <ns> delete secret spire-agent-join-token --ignore-not-found
-#   2. clear ${SPIRE_AGENT_DATA_HOSTPATH} ON THE NODE (see the recovery text in
-#      assert_spire_agent_trusts_server below for the exact commands)
+#   1. quiesce reconciliation and the agent DaemonSet.
+#   2. move ${SPIRE_AGENT_DATA_HOSTPATH} aside on the node under a timestamped
+#      quarantine name. Do not delete it: the old bundle and SVID are evidence.
 #   3. mint a fresh join token and recreate the Secret —
 #      bootstrap_spire_agent_join_token() in scripts/demo-lifecycle.sh. Join
-#      tokens are SINGLE-USE and every crash-loop restart burns one, so always
-#      mint a new one rather than reusing.
+#      tokens are SINGLE-USE; mint a new one rather than reusing a token from a
+#      prior attestation attempt.
 #   4. re-register the workload entries —
 #      register_spire_proof_identity() in scripts/demo-lifecycle.sh
 #   5. re-run the OpenBao bootstrap, then sync_openbao_jwt_validation() in this
@@ -207,11 +208,10 @@ spire_jwt_svid_keys() {
 #      stale and every SPIFFE login fails until it is re-synced.
 #   6. restart the agent and assert with assert_spire_agent_trusts_server().
 #
-# `make demo-bao-up` (bao_up in scripts/demo-lifecycle.sh) performs steps 1 and
-# 3-6 in that order. It CANNOT perform step 2 — that is the whole reason this
-# file refuses rather than repairing — so running it without having cleared the
-# node directory leaves the agent crash-looping on the same stale bundle, which
-# is the state that produced 1528 restarts.
+# `make demo-bao-up` performs token creation and the remaining bootstrap steps.
+# It cannot safely quiesce and quarantine node state, so that remains an explicit
+# operator decision. Running it first leaves stale state in place and loses
+# useful chronology through repeated retries.
 #
 # ── Route B has a PREREQUISITE that is easy to miss ────────────────────────
 #
@@ -276,12 +276,12 @@ assert_spire_agent_trusts_server() {
 
   if grep -Fq 'certificate signed by unknown authority' <<<"$logs"; then
     cat >&2 <<EOF
-SPIRE agent is holding a stale trust bundle and cannot attest to this server.
+SPIRE agent's cached trust bundle cannot validate this server.
 
-Cause: spire-server was rebuilt with a NEW CA. The agent's data directory is a
-hostPath, so it survived and still trusts the OLD CA. This is not recoverable by
-re-running bao-up: it deletes the Secret and the pod but never clears the node
-directory, so every replacement pod reloads the same stale bundle.
+This error proves a trust mismatch, not how it arose. Possible causes include a
+replaced server PVC, node-local agent state from an older cluster, or an invalid
+bootstrap sequence. Re-running bao-up cannot diagnose those alternatives and a
+replacement pod reloads the same hostPath state.
 
 CHECK THIS FIRST. spire-server is supposed to be durable — it mounts the PVC
 spire-server-data at its data_dir precisely so a restart cannot change the CA.
@@ -290,26 +290,51 @@ Seeing this message means that protection is absent or was bypassed:
   kubectl -n $namespace get pvc spire-server-data
   kubectl -n $namespace get deploy spire-server -o yaml | grep -A3 'name: data'
 
-No PVC, or a "data" volume that is not persistentVolumeClaim-backed, means this
-cluster predates the fix (or lost it) and is exhibiting the original defect. A
-Bound PVC alongside a fresh CA means the VOLUME was replaced rather than the
-pod: the storage class is local-path with a Delete reclaim policy and node-local
-storage, so deleting the PVC or losing the node destroys the CA just as
-thoroughly. Either way the agent recovery below is the same.
+No PVC, or a "data" volume that is not persistentVolumeClaim-backed, exposes the
+original server state-loss defect. A Bound PVC proves only current storage, not
+that its authority matches cached agent state. Compare trust fingerprints and
+resource chronology before choosing recovery; preserve the old agent directory
+so that evidence remains available.
 
-Recovery, in this order — the third step is the one bao-up cannot do for you:
+Recovery is approval-gated because it interrupts the Workload API and changes
+node state. After approval, preserve evidence rather than deleting it:
 
-  1. kubectl -n $namespace delete secret spire-agent-join-token --ignore-not-found
-  2. kubectl -n $namespace delete pod -l app.kubernetes.io/name=spire-agent --wait=true
-  3. clear ${SPIRE_AGENT_DATA_HOSTPATH} ON THE NODE:
-       kind: docker exec <node> sh -c 'rm -rf ${SPIRE_AGENT_DATA_HOSTPATH}/*'
-             (node name: kubectl get nodes -o name)
-       GCP:  gcloud compute ssh <instance> --zone <zone> --command \\
-               "sudo rm -rf ${SPIRE_AGENT_DATA_HOSTPATH}/*"
-  4. re-run: make demo-bao-up
+  1. Pause the owning ResourceSet before its five-minute reconcile can undo the
+     child suspension:
+       kubectl -n flux-system annotate resourceset signalloom-infra \
+         fluxcd.controlplane.io/reconcile=disabled --overwrite
+       kubectl -n flux-system get resourceset signalloom-infra \
+         -o jsonpath='{.metadata.annotations.fluxcd\\.controlplane\\.io/reconcile}'
+     Continue only when that prints disabled.
+  2. Suspend the child: flux suspend kustomization infra-configs -n $namespace
+  3. Quiesce the workload and wait for foreground deletion:
+       kubectl -n $namespace delete daemonset spire-agent \
+         --cascade=foreground --wait=true
+       kubectl -n $namespace wait --for=delete pod \
+         -l app.kubernetes.io/name=spire-agent --timeout=120s
+       kubectl -n $namespace get pod \
+         -l app.kubernetes.io/name=spire-agent -o name
+     Continue only when the final command prints nothing.
+  4. On each affected node, use an approved privileged session to quarantine
+     ${SPIRE_AGENT_DATA_HOSTPATH}; never run this from an unprivileged pod:
+       quarantine=${SPIRE_AGENT_DATA_HOSTPATH}.quarantine.\$(date -u +%Y%m%dT%H%M%SZ)
+       sudo mv -- ${SPIRE_AGENT_DATA_HOSTPATH} "\$quarantine"
+       sudo chmod 0700 "\$quarantine" && sudo test -d "\$quarantine"
+     Do not rm it; retain it until the cause is independently verified.
+  5. Delete the consumed join-token Secret only after quarantine.
+  6. Resume and reconcile the child while its owner remains paused, then run
+     make demo-bao-up to mint one fresh token and re-establish agent state:
+       flux resume kustomization infra-configs -n $namespace
+       flux reconcile kustomization infra-configs -n $namespace --with-source
+  7. After agent attestation is verified, restore ResourceSet ownership:
+       kubectl -n flux-system annotate resourceset signalloom-infra \
+         fluxcd.controlplane.io/reconcile-
+       kubectl -n flux-system get resourceset signalloom-infra \
+         -o jsonpath='{.metadata.annotations.fluxcd\\.controlplane\\.io/reconcile}'
+     The final command must print nothing; verify infra-configs remains Ready.
 
-Join tokens are single-use, so every crash-loop restart burns one. Do not reuse
-a token from a previous attempt; step 4 generates a fresh one.
+Persistence prevents future key loss after successful recovery. It does not
+make an expired SVID valid or a stale trust bundle current.
 EOF
   else
     cat >&2 <<EOF

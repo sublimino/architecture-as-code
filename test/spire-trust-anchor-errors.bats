@@ -64,48 +64,40 @@ KUBECTL
 
 # ── sync_openbao_jwt_validation error paths ──────────────────────────────────
 
-@test "sync_openbao_jwt_validation fails with clear message when SPIRE is unreachable" {
-  printf '#!/usr/bin/env bash\necho "connection refused" >&2; exit 1\n' >"$stub/kubectl"
-  chmod +x "$stub/kubectl"
-
-  run env PATH="$stub:$PATH" bash -c "
-    source '$root/scripts/lib/spire-trust-anchor.sh'
-    sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
-  "
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"cannot read SPIRE JWT-SVID keys"* ]]
-}
-
-@test "sync_openbao_jwt_validation refuses to write empty key set" {
-  # kubectl succeeds, returns a valid bundle, but with zero jwt-svid keys
-  printf '#!/usr/bin/env bash\n' >"$stub/kubectl"
-  cat >>"$stub/kubectl" <<'KUBECTL'
-cat <<'JSON'
-{"keys":[{"kty":"RSA","use":"x509-svid","n":"abc","e":"AQAB"}]}
-JSON
-KUBECTL
-  chmod +x "$stub/kubectl"
-
-  run env PATH="$stub:$PATH" bash -c "
-    source '$root/scripts/lib/spire-trust-anchor.sh'
-    sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
-  "
-  [ "$status" -ne 0 ]
-  # The error should come from spire_jwt_svid_keys (no P-256 JWT-SVID keys),
-  # then sync propagates it as "cannot read SPIRE JWT-SVID keys"
-  [[ "$output" == *"cannot read SPIRE"* ]] || [[ "$output" == *"no P-256 JWT-SVID"* ]]
-}
-
-@test "sync_openbao_jwt_validation fails when PEM conversion fails" {
-  # kubectl returns a valid SPIRE bundle, but openssl is broken
-  cat >"$stub/kubectl" <<'KUBECTL'
+@test "sync_openbao_jwt_validation writes the namespace-local SPIRE JWKS URL" {
+	cat >"$stub/kubectl" <<'KUBECTL'
 #!/usr/bin/env bash
-if [[ "$*" == *"spire-server"* ]]; then
-  cat <<'JSON'
-{"keys":[{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0","use":"jwt-svid","kid":"test-kid-1"}]}
-JSON
-  exit 0
-fi
+printf '%s\n' "$*" >>"$KUBECTL_LOG"
+KUBECTL
+	chmod +x "$stub/kubectl"
+
+	run env PATH="$stub:$PATH" KUBECTL_LOG="$BATS_TEST_TMPDIR/kubectl.log" bash -c "
+		source '$root/scripts/lib/spire-trust-anchor.sh'
+		sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+	"
+	[ "$status" -eq 0 ]
+	grep -Fq 'bao write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$BATS_TEST_TMPDIR/kubectl.log"
+}
+
+@test "sync_openbao_jwt_validation does not read SPIRE static key material" {
+	cat >"$stub/kubectl" <<'KUBECTL'
+#!/usr/bin/env bash
+[[ "$*" == *spire-server* ]] && { echo "unexpected SPIRE read" >&2; exit 70; }
+exit 0
+KUBECTL
+	chmod +x "$stub/kubectl"
+
+  run env PATH="$stub:$PATH" bash -c "
+    source '$root/scripts/lib/spire-trust-anchor.sh'
+    sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+  "
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"live jwks_url="* ]]
+}
+
+@test "sync_openbao_jwt_validation does not depend on local PEM conversion" {
+	cat >"$stub/kubectl" <<'KUBECTL'
+#!/usr/bin/env bash
 exit 0
 KUBECTL
   chmod +x "$stub/kubectl"
@@ -118,49 +110,15 @@ KUBECTL
     source '$root/scripts/lib/spire-trust-anchor.sh'
     sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
   "
-  [ "$status" -ne 0 ]
-
-  # WHICH guard fires here is not what this test is for, and asserting the
-  # wrong one made it permanently red.
-  #
-  # It used to require "PEM conversion failed" or "openssl". Neither appears,
-  # because a broken openssl breaks key NORMALISATION first: spire_jwt_svid_keys
-  # round-trips each JWK through `openssl pkey` (see the helper near the top of
-  # spire-trust-anchor.sh), so with openssl dead it yields zero keys and sync
-  # aborts at the earlier empty-set guard:
-  #
-  #   "SPIRE returned successfully but produced no keys — refusing to write an
-  #    empty jwt_validation_pubkeys to OpenBao"
-  #
-  # That is the SAFER of the two paths and the one we would choose: it refuses
-  # the write rather than reaching the per-key conversion error. The test was
-  # asserting a message from a code path that a broken openssl can never reach.
-  #
-  # So assert the property that actually matters — it fails loudly and says why,
-  # naming any of the three real diagnostics — rather than pinning one message.
-  # Bare `[ "$status" -ne 0 ]` alone would be too weak: a crash, a missing
-  # function or a syntax error also exit non-zero, and this test exists to prove
-  # the guard fired, not merely that something went wrong.
-  [[ "$output" == *"refusing to write an empty"* ]] \
-    || [[ "$output" == *"PEM conversion failed"* ]] \
-    || [[ "$output" == *"cannot read SPIRE"* ]] || {
-      echo "expected a named sync_openbao_jwt_validation diagnostic, got:"
-      echo "$output"
-      return 1
-    }
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"configured OpenBao"* ]]
 }
 
 @test "sync_openbao_jwt_validation fails when OpenBao write fails" {
-  # kubectl stub: first call returns a valid SPIRE bundle, subsequent calls fail
-  # (simulating openbao unreachable for the write)
+  # The sole write fails, simulating OpenBao being unreachable.
   cat >"$stub/kubectl" <<'KUBECTL'
 #!/usr/bin/env bash
-if [[ "$*" == *"spire-server"* ]]; then
-  cat <<'JSON'
-{"keys":[{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0","use":"jwt-svid","kid":"test-kid-1"}]}
-JSON
-  exit 0
-elif [[ "$*" == *"openbao"* ]]; then
+if [[ "$*" == *"openbao"* ]]; then
   echo "Error writing data to auth/jwt/config: connection refused" >&2
   exit 2
 fi
@@ -168,21 +126,12 @@ exit 0
 KUBECTL
   chmod +x "$stub/kubectl"
 
-  # openssl stub for PEM conversion
-  cat >"$stub/openssl" <<'OPENSSL'
-#!/usr/bin/env bash
-echo "-----BEGIN PUBLIC KEY-----"
-echo "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE"
-echo "-----END PUBLIC KEY-----"
-OPENSSL
-  chmod +x "$stub/openssl"
-
   run env PATH="$stub:$PATH" bash -c "
     source '$root/scripts/lib/spire-trust-anchor.sh'
     sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
   "
   [ "$status" -ne 0 ]
-  [[ "$output" == *"OpenBao refused the key write"* ]]
+	[[ "$output" == *"OpenBao refused jwks_url write"* ]]
 }
 
 # ── CronJob manifest validation ─────────────────────────────────────────────
@@ -214,9 +163,15 @@ OPENSSL
   echo "$script" | bash -n
 }
 
-@test "CronJob is registered in kustomization.yaml" {
-  local kustomization="$root/d2-signalloom/infra/inf-bao/controllers/base/kustomization.yaml"
-  grep -q 'spire-openbao-sync-cronjob.yaml' "$kustomization"
+@test "retired periodic sync CronJob is absent from the rendered controller slice" {
+	local kustomization="$root/d2-signalloom/infra/inf-bao/controllers/base/kustomization.yaml"
+	local rendered="$BATS_TEST_TMPDIR/controllers.yaml"
+	kubectl kustomize "${kustomization%/*}" >"$rendered"
+	run yq eval-all -N -r \
+		'[select(.kind == "CronJob" and .metadata.name == "spire-openbao-sync")] | length' \
+		"$rendered"
+	[ "$status" -eq 0 ]
+	[ "$output" = "0" ]
 }
 
 # ── No new vacuous mapfile patterns ──────────────────────────────────────────

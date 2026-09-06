@@ -141,7 +141,7 @@ preflight_cluster() {
   wait_rollout spire-server -n "$NAMESPACE_BAO" 30 \
     || fail "SPIRE server not running — run make demo-signalloom-up first"
   wait_pods_ready "app.kubernetes.io/name=spire-agent" -n "$NAMESPACE_BAO" 60 \
-    || fail "SPIRE agent not ready"
+    || fail "SPIRE agent not ready — cause unverified. Inspect: kubectl -n inf-bao logs daemonset/spire-agent --previous. If enrollment needs refreshing, use make demo-bao-up; stale trust state requires separate diagnosis."
   ok "cluster healthy, OpenBao + SPIRE running"
 }
 

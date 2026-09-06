@@ -91,7 +91,7 @@ _wait_retry() {
   local soft; soft="$(_wait_calc "${dl_int} * ${WAIT_SOFT_RATIO:-0.6}")"; soft="${soft%%.*}"
   local cmd="$*"
 
-  local attempt=0 rc cur_sleep soft_warned=
+  local attempt=0 rc cur_sleep remaining attempt_timeout_now soft_warned=
   # Progress heartbeat: first at WAIT_HEARTBEAT_START seconds, then spaced out by
   # WAIT_HEARTBEAT_FACTOR each time (exponential) so a long wait shows it is alive
   # without spamming — e.g. ~5s, 10s, 20s, 40s, 80s. Respects WAIT_QUIET; set
@@ -102,8 +102,18 @@ _wait_retry() {
 
   _wait_log "⏳ ${desc} (deadline ${dl_int}s, soft ${soft}s, backoff ${backoff}, jitter ${jitter})"
   while :; do
+    if [ "${attempt}" -gt 0 ] && [ "${SECONDS}" -ge "${end}" ]; then
+      _wait_log "❌ ${desc} — deadline ${dl_int}s exceeded after ${attempt} attempt(s)"
+      _wait_stat "${desc}" "${start}" "${dl_int}" timeout
+      return 1
+    fi
+    remaining=$((end - SECONDS))
+    attempt_timeout_now="${attempt_timeout}"
+    if [ "${remaining}" -gt 0 ] && [ "$(_wait_calc "(${attempt_timeout} > ${remaining}) ? 1 : 0")" -eq 1 ]; then
+      attempt_timeout_now="${remaining}"
+    fi
     if [ -n "${have_timeout}" ]; then
-      if timeout "${attempt_timeout}" bash -c "${cmd}"; then
+      if timeout "${attempt_timeout_now}" bash -c "${cmd}"; then
         rc=0
       else
         rc=$?
@@ -141,6 +151,8 @@ _wait_retry() {
     cur_sleep="$(_wait_calc "${sleep_s} * (${backoff} ^ ${attempt})")"
     # jitter: +/- fraction, clamped >= 0
     cur_sleep="$(_wait_calc "j = ${cur_sleep} * (1 + ${jitter} * ((${RANDOM} / 32767.0) * 2 - 1)); (j < 0) ? 0 : j")"
+    remaining=$((end - SECONDS))
+    cur_sleep="$(_wait_calc "(${cur_sleep} > ${remaining}) ? ${remaining} : ${cur_sleep}")"
     sleep "${cur_sleep}"
     attempt=$((attempt + 1))
   done

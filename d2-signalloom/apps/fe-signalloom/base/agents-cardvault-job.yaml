@@ -24,6 +24,8 @@ spec:
       labels:
         app.kubernetes.io/name: cardvault-agent
         signalloom.ai/supercred: "true"
+        # Do not inherit the generic agents' additive peer/namespace grants.
+        signalloom.ai/framework: custom
         bao.controlplane.io/consumer: cardvault-agent
     spec:
       serviceAccountName: cardvault-agent
@@ -59,3 +61,37 @@ spec:
           hostPath:
             path: /run/spire/sockets
             type: DirectoryOrCreate
+---
+# Step 2 owns this narrow allowance alongside its runtime Job.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-supercred-cardvault-egress
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cardvault-agent
+      signalloom.ai/supercred: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cardvault
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openbao
+      ports:
+        - protocol: TCP
+          port: 8200

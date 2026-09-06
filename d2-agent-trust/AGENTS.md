@@ -102,53 +102,30 @@ matches — so a probe overlapping a test run breaks the demo intermittently wit
 pod that borrows a workload's identity labels, check every selector that label
 feeds: Services, `get pods -l`, PDBs, ServiceMonitors.
 
-### A spire-server restart permanently breaks the agent, and `bao-up` cannot fix it
+### Persistence prevents loss; it does not repair inconsistent identity state
 
-The two halves of SPIRE have **opposite persistence models**:
+The server data directory is PVC-backed. The agent data directory is hostPath-
+backed, and SPIRE 1.11.1's agent disk KeyManager stores `keys.json` beneath that
+same mount. These mounts provide durable storage for each side's own state.
 
-| | data dir | backing | survives a pod restart? |
-|---|---|---|---|
-| spire-server | `/run/spire/data` | **nothing** — no volume, no PVC | **no** — new CA, new JWT keys, zero entries |
-| spire-agent | `/run/spire/data` | **hostPath** `/var/lib/spire-agent/data` | **yes** — keeps a bundle for the CA that just died |
+That durability does not repair a pre-existing mismatch. It cannot renew an
+expired SVID, restore a consumed join token, or make an agent trust a server
+whose CA changed because its PVC was replaced or lost. `unknown authority`
+still requires comparing the cached and current trust anchors.
 
-So any spire-server restart — eviction, node pressure, image bump, or any edit
-to its pod template — leaves the agent crash-looping on
-
-```
-x509svid: could not verify leaf certificate:
-x509: certificate signed by unknown authority
-```
-
-`make demo-bao-up` **cannot recover this**. It deletes the join-token Secret and
-the agent pod, which is right, but nothing clears the node directory, so every
-replacement pod reloads the same stale bundle and crashes identically. Join
-tokens are single-use, so each crash-loop restart burns one and the symptom
-mutates into token errors that point away from the cause.
-
-`assert_spire_agent_trusts_server` in `scripts/lib/spire-trust-anchor.sh` now
-detects this during `bao-up` and **refuses**, printing the sequence below,
-rather than pressing on to register entries and sync OpenBao's keys against an
-identity plane that is down. It refuses rather than repairing because step 3
-needs node access, which differs per lane; a recovery command that silently
-half-works is worse than one that refuses.
-
-```bash
-kubectl -n inf-bao delete secret spire-agent-join-token --ignore-not-found
-kubectl -n inf-bao delete pod -l app.kubernetes.io/name=spire-agent --wait=true
-# THE STEP bao-up CANNOT DO FOR YOU — clear the bundle on the NODE:
-docker exec "$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')" \
-  sh -c 'rm -rf /var/lib/spire-agent/data/*'                  # kind
-gcloud compute ssh <instance> --zone <zone> \
-  --command 'sudo rm -rf /var/lib/spire-agent/data/*'         # GCP
-make demo-bao-up                                              # fresh token, re-register, re-sync
-```
-
-**Open design decision, deliberately not taken.** Either give spire-server a PVC
-so its CA survives and the agent's cache stays valid, or make a server restart
-explicitly wipe the agent's hostPath. The first keeps entries across restarts
-and makes the lane stateful; the second keeps the lane disposable and makes
-every restart a full re-registration. Both change the lane's failure semantics,
-so it is a decision rather than a fix.
+`assert_spire_agent_trusts_server` refuses instead of attempting node recovery.
+Recovery is approval-gated. First disable reconciliation on the owning
+`flux-system/signalloom-infra` ResourceSet; suspending `inf-bao/infra-configs`
+alone is reverted by that owner within five minutes. Then suspend the child,
+delete the agent DaemonSet with foreground propagation, and verify no agent pods
+remain before touching node state. Quarantine `/var/lib/spire-agent/data` through
+an approved privileged node session and restrict the preserved directory to mode
+0700; never delete it first because the old SVID and bundle are causal evidence.
+Resume and reconcile the child while its owner remains paused, run
+`make demo-bao-up`, verify agent attestation, then remove the ResourceSet's
+reconciliation-disable annotation. The exact fail-closed commands and checks are
+printed by `assert_spire_agent_trusts_server`. Retain quarantine until agent
+readiness and downstream SPIFFE flows are independently verified.
 
 ### Probe output goes to the termination log, not stdout
 

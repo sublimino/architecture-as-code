@@ -9,22 +9,21 @@
 # restart (eviction, node pressure, image bump, any pod-template edit) issued a
 # NEW CA, NEW JWT signing keys, and an EMPTY registration table.
 #
-# That would be survivable on its own. What made it unrecoverable is the other
-# half of the pair: spire-agent's data_dir IS persistent — a hostPath at
-# /var/lib/spire-agent/data — so the agent kept the bundle for the CA that no
-# longer existed and crash-looped on
+# The agent's hostPath retained a bundle for the authority that no longer
+# existed, while its memory KeyManager did not retain the corresponding private
+# key. It therefore attempted node attestation and rejected the new server on
 #
 #   x509svid: could not verify leaf certificate:
 #   x509: certificate signed by unknown authority
 #
-# forever. Observed on kind-osramp: CrashLoopBackOff, 1528 restarts over 6d19h.
-# Join tokens are single-use, so each of those restarts burned one. Recovery
-# needed node access to clear the agent's hostPath, which is `docker exec` on
-# kind and `gcloud compute ssh` on GCP — scripts/lib/spire-trust-anchor.sh
-# deliberately REFUSES to attempt it and prints the manual steps instead.
+# Observed on kind-osramp as CrashLoopBackOff. Repeated retries also encountered
+# consumed join tokens. Recovery needs node access, so
+# scripts/lib/spire-trust-anchor.sh refuses to mutate state and directs the
+# operator to quiesce the agent and quarantine its hostPath first.
 #
-# The fix is to make the server the durable side, matching the agent: a PVC at
-# data_dir, so the CA the agent already trusts is still the CA after a restart.
+# Two guards prevent future loss: the server CA lives on its PVC, and the agent
+# disk KeyManager writes beneath its existing hostPath. Neither guard renews an
+# expired SVID or repairs an already-stale trust bundle.
 #
 # ── Why these assertions are shaped the way they are ───────────────────────
 #
@@ -50,8 +49,11 @@ setup() {
 	overlay="$root/d2-signalloom/infra/inf-bao/controllers/local"
 	config="$root/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml"
 	rendered="$BATS_TEST_TMPDIR/rendered.yaml"
+	agent_rendered="$BATS_TEST_TMPDIR/agent-rendered.yaml"
 	kubectl kustomize "$overlay" >"$rendered"
+	kubectl kustomize "$root/d2-signalloom/infra/inf-bao/configs/local" >"$agent_rendered"
 	[ -s "$rendered" ]
+	[ -s "$agent_rendered" ]
 }
 
 # Run a yq expression over a multi-document stream and return ONLY the matches.
@@ -83,6 +85,35 @@ server_conf() {
 
 server_data_dir() {
 	server_conf | sed -n 's/.*data_dir[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+agent_conf() {
+	yq_match 'select(.kind == "ConfigMap" and .metadata.name == "spire-agent-config") | .data["agent.conf"]' "$config"
+}
+
+agent_data_dir() {
+	agent_conf | sed -n 's/.*data_dir[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+agent_key_directory() {
+	agent_conf | sed -n 's/.*directory[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+agent_data_mount() {
+	yq_match '
+		select(.kind == "DaemonSet" and .metadata.name == "spire-agent")
+		| .spec.template.spec.containers[]
+		| select(.name == "spire-agent")
+		| .volumeMounts[]
+		| select(.name == "data")
+		| .mountPath' "$agent_rendered"
+}
+
+path_is_within() { # parent child
+	local parent child
+	parent="$(realpath -m -- "$1")"
+	child="$(realpath -m -- "$2")"
+	[[ "$child" == "$parent" || "$child" == "$parent"/* ]]
 }
 
 # The volume name backing whichever mount covers the server's data_dir.
@@ -225,12 +256,49 @@ server_data_volume() {
 	# someone later takes that route they must delete this test and say so —
 	# silently landing both halves as ephemeral reintroduces the outage with no
 	# durable side at all.
-	agent="$root/d2-signalloom/infra/inf-bao/configs/base/spire-agent.yaml"
 	run yq_match '
 		select(.kind == "DaemonSet" and .metadata.name == "spire-agent")
 		| .spec.template.spec.volumes[]
 		| select(.name == "data")
-		| .hostPath.path // ""' "$agent"
+		| .hostPath.path // ""' "$agent_rendered"
 	[ "$status" -eq 0 ]
 	[ "$output" = "/var/lib/spire-agent/data" ]
+}
+
+@test "the spire-agent KeyManager uses directory rather than server keys_path" {
+	run agent_conf
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+	[[ "$output" == *'KeyManager "disk"'* ]]
+	[[ "$output" != *'KeyManager "memory"'* ]]
+	[[ "$output" == *'directory = '* ]]
+	[[ "$output" != *'keys_path = '* ]]
+}
+
+@test "the spire-agent KeyManager directory is absolute and normalized" {
+	run agent_key_directory
+	[ "$status" -eq 0 ]
+	directory="$output"
+	[ -n "$directory" ]
+	[[ "$directory" == /* ]]
+	[ "$directory" = "$(realpath -m -- "$directory")" ]
+}
+
+@test "the spire-agent data volume is mounted into its container" {
+	run agent_data_mount
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+}
+
+@test "the spire-agent KeyManager directory is covered by its data mount" {
+	run agent_key_directory
+	[ "$status" -eq 0 ]
+	directory="$output"
+	[ -n "$directory" ]
+
+	run agent_data_mount
+	[ "$status" -eq 0 ]
+	mount="$output"
+	[ -n "$mount" ]
+	path_is_within "$mount" "$directory"
 }

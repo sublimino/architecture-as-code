@@ -50,12 +50,13 @@ CURRENT_SUITE="$SUITE"
 MANIFEST="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml"
 CONFIG="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml"
 AGENT="${REPO_ROOT}/d2-signalloom/infra/inf-bao/configs/base/spire-agent.yaml"
+AGENT_OVERLAY="${REPO_ROOT}/d2-signalloom/infra/inf-bao/configs/local/kustomization.yaml"
 SYNC="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml"
 FLEET="${REPO_ROOT}/d2-osramp-fleet/tenants/local/signalloom.yaml"
 GENERIC="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
 SWARM="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-agent-swarm-entries.yaml"
 
-ALL_FILES=("$MANIFEST" "$CONFIG" "$AGENT" "$SYNC" "$FLEET" "$GENERIC" "$SWARM")
+ALL_FILES=("$MANIFEST" "$CONFIG" "$AGENT" "$AGENT_OVERLAY" "$SYNC" "$FLEET" "$GENERIC" "$SWARM")
 
 BACKUP_DIR="$(mktemp -d)"
 CHECKS=0
@@ -185,7 +186,7 @@ command -v yq >/dev/null || { echo "yq is required" >&2; exit 1; }
 
 backup "${ALL_FILES[@]}"
 
-note "9 mutations (group 1) against $(basename "$SUITE") -- one per test, and the suite has $(bats -c "$SUITE") tests"
+note "15 mutations (group 1) against $(basename "$SUITE"); the suite has $(bats -c "$SUITE") tests"
 
 # The mechanism-presence check gets a mutation too. It is the assertion the
 # other six depend on: if data_dir cannot be extracted, every derived comparison
@@ -256,6 +257,55 @@ check "spire-agent data_dir made ephemeral instead" \
             path: /var/lib/spire-agent/data
             type: DirectoryOrCreate' \
 '          emptyDir: {}'
+
+check "local overlay redirects the rendered agent hostPath" \
+	"keeps its persistent data_dir" \
+	mutate "$AGENT_OVERLAY" \
+'resources:
+  - ../base' \
+'resources:
+  - ../base
+patches:
+  - target:
+      kind: DaemonSet
+      name: spire-agent
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes/1/hostPath/path
+        value: /tmp/not-durable-spire-agent-data'
+
+check "spire-agent KeyManager reverted to ephemeral memory" \
+	"uses directory rather than" \
+	mutate "$CONFIG" \
+'KeyManager "disk" { plugin_data { directory = "/run/spire/data" } } NodeAttestor' \
+'KeyManager "memory" { } NodeAttestor'
+
+check "spire-agent given the server-only keys_path property" \
+	"uses directory rather than" \
+	mutate "$CONFIG" \
+'KeyManager "disk" { plugin_data { directory = "/run/spire/data" } } NodeAttestor' \
+'KeyManager "disk" { plugin_data { keys_path = "/run/spire/data/keys.json" } } NodeAttestor'
+
+check "spire-agent KeyManager directory escapes through parent segments" \
+	"absolute and normalized" \
+	mutate "$CONFIG" \
+'KeyManager "disk" { plugin_data { directory = "/run/spire/data" } } NodeAttestor' \
+'KeyManager "disk" { plugin_data { directory = "/run/spire/data/../../tmp" } } NodeAttestor'
+
+check "spire-agent data volumeMount removed" \
+	"data volume is mounted" \
+	mutate "$AGENT" \
+'            - name: data
+              mountPath: /run/spire/data' \
+''
+
+check "spire-agent data volume mounted at the wrong path" \
+	"covered by its data mount" \
+	mutate "$AGENT" \
+'            - name: data
+              mountPath: /run/spire/data' \
+'            - name: data
+              mountPath: /run/spire/elsewhere'
 
 # ── Group 2: the RBAC placement guard ──────────────────────────────────────
 #

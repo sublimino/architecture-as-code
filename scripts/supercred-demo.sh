@@ -113,7 +113,7 @@ preflight_cluster() {
   wait_rollout spire-server -n "$NAMESPACE_BAO" 30 \
     || fail "SPIRE server not running — run make demo-signalloom-up first"
   wait_pods_ready "app.kubernetes.io/name=spire-agent" -n "$NAMESPACE_BAO" 60 \
-    || fail "SPIRE agent not ready — the agent needs a valid join token. Check: kubectl -n inf-bao logs daemonset/spire-agent"
+    || fail "SPIRE agent not ready — cause unverified. Inspect: kubectl -n inf-bao logs daemonset/spire-agent --previous. If enrollment needs refreshing, use make demo-bao-up; stale trust state requires separate diagnosis."
   ok "cluster healthy, OpenBao + SPIRE + agent running"
 }
 
@@ -634,6 +634,13 @@ demo_5() {
     kubectl delete pod agent-cardvault -n "$ns" --ignore-not-found --wait=true 2>/dev/null || true
     kubectl delete sa cardvault-agent -n "$ns" --ignore-not-found 2>/dev/null || true
   done
+  # Unlike the best-effort workload sweep above, this policy controls whether
+  # the credential-chain Job can reach CardVault. A failed delete must stop the
+  # teardown: reporting success while stale egress authority remains would be
+  # a security-relevant false claim. It is always created in NAMESPACE_AGENTS,
+  # independently of where Flux may place the long-lived agent pod.
+  kubectl delete networkpolicy allow-supercred-cardvault-egress \
+    -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true
   # -n "$NAMESPACE_INFRA" is load-bearing and must MIRROR the apply in demo_1.
   # Neither kustomization sets a `namespace:`, so the namespace comes entirely
   # from the command line. demo_1 applies with `-n "$NAMESPACE_INFRA"`, which
@@ -690,6 +697,9 @@ demo_5() {
   kubectl -n "$NAMESPACE_INFRA" get deployment policy-engine 2>/dev/null && fail "policy-engine still exists after teardown"
   resolve_agent_pod_namespace \
     && fail "agent pod still exists in $AGENT_POD_NAMESPACE after teardown"
+  kubectl get networkpolicy allow-supercred-cardvault-egress \
+    -n "$NAMESPACE_AGENTS" >/dev/null 2>&1 \
+    && fail "NetworkPolicy allow-supercred-cardvault-egress still exists after teardown"
 
   # Verify the credential material too — this is a credential demo, and a
   # teardown that only checks Deployments is not verifying the thing that

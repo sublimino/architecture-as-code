@@ -436,8 +436,8 @@ test: ## Run the end-to-end bats suite against the running cluster.
 test-signal-ingest: ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
 
-test-signal-ingest-frostdb: ## Run Go signal-ingest tests INCLUDING FrostDB store (requires cgo).
-	cd d2-signalloom/apps/signal-ingest && go test -tags frostdb ./... -v -count=1
+test-signal-ingest-frostdb: ## Run Go signal-ingest tests INCLUDING FrostDB store.
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./... -v -count=1
 
 test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 	cd d2-signalloom/apps/dashboard-signalloom && bun install --frozen-lockfile

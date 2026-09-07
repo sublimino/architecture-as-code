@@ -1,28 +1,28 @@
-# AGENTS.md — d2-osramp-fleet (Flux fleet definitions)
+# AGENTS.md — d2-osramp-fleet (Flux Fleet Definitions)
 
-Platform team's fleet configuration. Defines clusters, tenants, and
-ResourceSets for the Flux Operator. Reconciled as cluster admin.
+This slice provides the fleet configuration for the platform team.
+It defines clusters, tenants, and ResourceSets for the Flux Operator.
+Flux reconciles these manifests with cluster-admin privileges.
 
 ## Stack
 
-| Component | Tech | Path |
-|-----------|------|------|
+| Component | Technology | Path |
+|---|---|---|
 | Cluster definitions | Flux Operator CRDs | `clusters/` |
-| Tenant definitions | ResourceSets + RBAC | `tenants/` |
-| Local overlay | Kind-specific config | `local/` |
-| Terraform (optional) | AWS/GCP fleet | `terraform/` |
-| Makefile | Fleet-specific targets | `Makefile` |
+| Tenant definitions | ResourceSets and RBAC | `tenants/` |
+| Local overlay | Kind cluster configuration | `local/` |
+| Terraform | Cloud fleet automation | `terraform/` |
+| Makefile | Fleet build targets | `Makefile` |
 
 ## Key Concepts
 
-- **ResourceSets** define which D2 slices deploy to which clusters/namespaces
-- Tenant files at `tenants/local/signalloom.yaml` are the **sole** source for
-  Signal Loom's Flux reconciliation — `d2-signalloom/` carries no duplicate
-- The fleet Makefile validates rendering without a cluster
+- **ResourceSets** specify which D2 slices deploy to target clusters and namespaces.
+- The file `tenants/local/signalloom.yaml` is the single source for Signal Loom Flux reconciliation.
+- The fleet Makefile checks manifest rendering without connecting to a cluster.
 
-## Pitfalls
+## Common Pitfalls
 
-- This directory has **admin** cluster access — changes here can break all slices
-- ResourceSet `readyExpr` gates need careful validation (`status.observedGeneration >= 0` is not a readiness proof)
-- The `signalloom.yaml` tenant file must remain byte-identical to any copy in `d2-signalloom/fleet/` — topology BATS enforces this
-- Terraform state is not committed; `terraform/` is for reference/bootstrap only
+- Manifests in this directory apply with cluster-admin access.
+- Review ResourceSet `readyExpr` expressions carefully. The expression `status.observedGeneration >= 0` does not prove readiness.
+- Keep `signalloom.yaml` aligned across fleet directories. Topology tests enforce matching contents.
+- Terraform state files are not committed to git.

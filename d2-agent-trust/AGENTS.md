@@ -1,144 +1,110 @@
 # AGENTS.md — d2-agent-trust
 
-This additive slice demonstrates a **contract-first** SPIFFE Agent Trust
-Hierarchy. It does not deploy another SPIRE server, OpenBao, trust domain, or
-reusable credential. Its runtime seam consumes the existing
-`d2-signalloom/infra/inf-bao` SPIRE Workload API and OpenBao JWT auth backend.
+This slice demonstrates a contract-first SPIFFE Agent Trust Hierarchy.
+It reuses existing infrastructure from `d2-signalloom/infra/inf-bao`.
+It consumes the SPIRE Workload API and the OpenBao JWT authentication backend.
 
 ## Commands
 
 ```bash
-make -C d2-agent-trust test       # deterministic contracts and A2A verifier
-make demo-agent-trust-up          # requires existing inf-bao readiness
-make demo-agent-trust-test-config # contracts, fleet and fake lifecycle tests
-make demo-agent-trust-test        # readiness plus enforced NetworkPolicy proof
-make demo-agent-trust-network-test # runtime-proves allow/deny dataplane policy
-make demo-agent-trust-down        # removes only six Agent Trust namespaces
-make -C d2-agent-trust render     # optional kubectl rendering check
+make -C d2-agent-trust test       # Run contracts and A2A verifier tests
+make demo-agent-trust-up          # Deploy slice (requires inf-bao ready)
+make demo-agent-trust-test-config # Run contract and lifecycle tests
+make demo-agent-trust-test        # Run readiness and NetworkPolicy proofs
+make demo-agent-trust-network-test # Test allow and deny dataplane policies
+make demo-agent-trust-down        # Remove the six Agent Trust namespaces
+make -C d2-agent-trust render     # Test manifest rendering
 ```
 
-## Truthfulness matrix
+## Truthfulness Matrix
 
 | Area | State | Evidence |
 |---|---|---|
-| A2A JWT signature, replay and receiver policy | authentic unit implementation | `a2a/service.py` tests |
-| SPIRE Workload API issuance | authentic runtime adapter | needs mounted existing socket |
-| Kubernetes boundary manifests | authentic GitOps runtime after `demo-agent-trust-up` | signed OCI artifact + Flux readiness |
-| OpenBao role configuration | authentic local-demo lifecycle | exact five-minute roles applied and removed by `agent-trust-local.sh` |
-| SPIFFE/OpenBao A2A request | authentic runtime | helper fetches planner JWT-SVID; triage validates through OpenBao |
-| Lambda, Cloud Run, Azure enrollment | modeled | `contracts/external-enrollment.v1.json` |
+| A2A JWT signature, replay, and receiver policy | Authentic unit implementation | Tests in `a2a/service.py` |
+| SPIRE Workload API token issuance | Authentic runtime adapter | Tested using mounted SPIRE socket |
+| Kubernetes boundary manifests | Authentic GitOps runtime | Signed OCI artifact and Flux readiness |
+| OpenBao role configuration | Authentic local lifecycle | Five-minute temporary roles via `agent-trust-local.sh` |
+| SPIFFE and OpenBao A2A request flow | Authentic runtime | Planner gets JWT-SVID; triage checks via OpenBao |
+| Cloud provider enrollment (Lambda, Cloud Run) | Modeled contract | `contracts/external-enrollment.v1.json` |
 
-Never call NetworkPolicy identity or authorization: it only constrains L3/L4
-reachability. The receiver owns A2A authorization.
+Note: NetworkPolicy controls L3 and L4 network reachability only.
+The receiving application service enforces application-level authorization.
 
-## Lifecycle and rollback
+## Lifecycle and Rollback
 
-`demo-agent-trust-up` first proves `signalloom-infra`, `inf-bao/infra-configs`,
-OpenBao and SPIRE readiness, then activates its otherwise-empty ResourceSet.
-The ResourceSet has a dedicated `agent-trust-flux` service account. Its six
-namespaced RoleBindings permit only ConfigMaps, Secrets, ServiceAccounts,
-Services, Deployments and NetworkPolicies in the owned namespaces. Its narrow
-ClusterRole is only for Namespace operations; Kubernetes cannot
-`resourceName`-limit `create`, which is documented in the manifest.
+The command `demo-agent-trust-up` confirms readiness of `signalloom-infra`,
+`inf-bao`, OpenBao, and SPIRE. It then activates its ResourceSet.
 
-`demo-agent-trust-down` restores `inputs: []`, waits for Flux, deletes only the
-six `agent-trust-*` namespaces, and verifies their absence. It never deletes or
-changes `inf-bao`, OpenBao, SPIRE, or the Signal Loom ResourceSets.
+The ResourceSet uses a dedicated `agent-trust-flux` service account.
+RoleBindings permit only ConfigMaps, Secrets, ServiceAccounts, Services,
+Deployments, and NetworkPolicies in owned namespaces.
 
-The ResourceSet owns an additive `inf-bao` policy that admits only Acme
-Payments planner and triage pods to OpenBao TCP/8200. It is pruned with Agent
-Trust and does not alter existing same-namespace rules.
+The command `demo-agent-trust-down` sets `inputs: []`, waits for Flux,
+and removes the six `agent-trust-*` namespaces. It does not modify `inf-bao`,
+OpenBao, SPIRE, or Signal Loom ResourceSets.
 
-Network evidence is runtime-proven only by the positive and negative dataplane
-probes. A present CNI daemonset and NetworkPolicy API are preconditions, not
-proof: no implementation is trusted by name alone. The current Kind
-`kindnetd:v20260528-9350166c` cluster passed planner→triage, the denied triage
-paths, both permitted OpenBao paths, denied risk→OpenBao, and denied arbitrary
-egress. Generic compatibility remains runtime-tested; absent prerequisites fail
-`UNVERIFIED` and never skip. No CNI is installed or replaced by this slice.
+Dataplane probes test network enforcement at runtime. A present CNI plugin
+does not prove policy enforcement. The Kind test cluster verifies:
+- Planner connects to triage.
+- Denied triage paths fail.
+- Permitted OpenBao paths succeed.
+- Denied paths to OpenBao fail.
+- Arbitrary egress traffic is blocked.
 
-## Pitfalls
+## Common Pitfalls
 
-Every entry here was a live defect in this slice, found 2026-08-12. They share
-one shape, the one root `AGENTS.md` names: *a wait that can never succeed and a
-gate that always passes are the same bug wearing different hats.* In a slice
-whose entire purpose is proving denial, that shape is the thing to hunt.
+Every entry here records a defect found on 2026-08-12.
+In this slice, you must verify that policy denials operate correctly.
 
-### `nc` cannot tell a firewall from a typo
+### `nc` Cannot Distinguish Firewalls from Typos
 
-busybox:1.36 returns **exit 1** for a blackholed IP *and* for an unresolvable
-host (`nc: bad address`), a missing binary, and a container that isn't running.
-Only stderr distinguishes them. `expect_tcp` inspected the exit code alone, so
-every `deny` assertion passed on any breakage — delete the `allow-dns` policy
-for `agent-trust-acme-risk` and the run still printed "enforced NetworkPolicy
-evidence passed" while proving nothing. It now captures stderr and reports
-breakage as `UNVERIFIED`. Never assert a denial from a status code alone.
+The busybox `nc` tool returns exit code 1 for blocked IPs, bad hostnames, and stopped containers.
+Only standard error output shows the difference.
+Do not evaluate policy denial with the exit status code alone.
+Always check standard error and report failures as `UNVERIFIED`.
 
-### A new pod is briefly unconfined
+### New Pods Are Unconfined During Initialization
 
-The CNI programs a pod's NetworkPolicy rules a moment *after* the container
-starts. The `planner-egress-denied` probe fired at t=0, reached `1.1.1.1:443`,
-and reported a security hole that does not exist — on every run. An identically
-labelled pod given 20s settles to correctly denied. The probe now waits on a
-**positive control** (the permitted OpenBao path succeeding proves this pod's
-rules are programmed) before asserting the denial, and times out `UNVERIFIED`.
-A bare retry-until-denied would be worse than the original bug: it makes a real
-hole indistinguishable from "CNI not ready yet".
+The CNI plugin applies NetworkPolicy rules after container startup.
+A probe at container start can access external endpoints before the CNI finishes configuration.
+Always wait for a positive control before you test denial.
+Proving that permitted paths work confirms that the CNI configured the rules.
 
-### NetworkPolicies select on labels, not on identity
+### NetworkPolicies Match Labels, Not Workload Identity
 
-The probe CronJobs carry the planner's ServiceAccount and SPIFFE ID but
-originally not `app.kubernetes.io/name`, which every policy selects on — so
-`openbao-planner` and `planner-triage-a2a` could never reach their targets and
-had been failing continuously. Same binary, same args, same namespace: exit 0
-from the labelled Deployment, exit 1 from the probe pod.
+Network policies select pods by labels, not by ServiceAccount or SPIFFE ID.
+Probe jobs must include the workload label `app.kubernetes.io/name`.
+To prevent test conflicts, add `app.kubernetes.io/component: probe` to test pods.
+Exclude this component label when searching for active application pods.
 
-The fix has a sting. Adding that label makes probes match
-`kubectl get pods -l app.kubernetes.io/name=agent-trust-planner`, and
-`verify_nonrenewable_planner_token` errors unless *exactly one* ready pod
-matches — so a probe overlapping a test run breaks the demo intermittently with
-"expected one ready planner pod". Probes therefore also carry
-`app.kubernetes.io/component: probe`, and the lookup excludes it. If you add a
-pod that borrows a workload's identity labels, check every selector that label
-feeds: Services, `get pods -l`, PDBs, ServiceMonitors.
+### Persistence Does Not Repair Broken Identity State
 
-### Persistence prevents loss; it does not repair inconsistent identity state
+Persistent volumes store SPIRE state across restarts.
+Persistence cannot renew an expired SVID or fix a changed Certificate Authority.
+If trust anchors change, compare cached anchors with current server certificates.
 
-The server data directory is PVC-backed. The agent data directory is hostPath-
-backed, and SPIRE 1.11.1's agent disk KeyManager stores `keys.json` beneath that
-same mount. These mounts provide durable storage for each side's own state.
+Do not attempt automated node recovery.
+Follow this manual recovery sequence:
+1. Stop reconciliation on the `flux-system/signalloom-infra` ResourceSet.
+2. Suspend the child configuration `inf-bao/infra-configs`.
+3. Delete the SPIRE agent DaemonSet.
+4. Quarantine `/var/lib/spire-agent/data` on the host node.
+5. Set permissions on the quarantined directory to mode `0700`.
+6. Resume the child configuration and run `make demo-bao-up`.
+7. Verify agent attestation before you unpause the parent ResourceSet.
 
-That durability does not repair a pre-existing mismatch. It cannot renew an
-expired SVID, restore a consumed join token, or make an agent trust a server
-whose CA changed because its PVC was replaced or lost. `unknown authority`
-still requires comparing the cached and current trust anchors.
+### Read Probe Output from Termination Logs
 
-`assert_spire_agent_trusts_server` refuses instead of attempting node recovery.
-Recovery is approval-gated. First disable reconciliation on the owning
-`flux-system/signalloom-infra` ResourceSet; suspending `inf-bao/infra-configs`
-alone is reverted by that owner within five minutes. Then suspend the child,
-delete the agent DaemonSet with foreground propagation, and verify no agent pods
-remain before touching node state. Quarantine `/var/lib/spire-agent/data` through
-an approved privileged node session and restrict the preserved directory to mode
-0700; never delete it first because the old SVID and bundle are causal evidence.
-Resume and reconcile the child while its owner remains paused, run
-`make demo-bao-up`, verify agent attestation, then remove the ResourceSet's
-reconciliation-disable annotation. The exact fail-closed commands and checks are
-printed by `assert_spire_agent_trusts_server`. Retain quarantine until agent
-readiness and downstream SPIFFE flows are independently verified.
-
-### Probe output goes to the termination log, not stdout
-
-`terminationMessagePolicy: File` means `kubectl logs` on a failed probe is
-empty. Read the outcome with:
+Probe pods use `terminationMessagePolicy: File`.
+Standard container logs remain empty after execution.
+Run this command to inspect probe output:
 
 ```bash
 kubectl -n agent-trust-acme-payments get pod <probe-pod> \
   -o jsonpath='{.status.containerStatuses[0].state.terminated.message}'
 ```
 
-## Production gaps
+## Production Gaps
 
-Cloud workload attestors, cloud key custody, trust-bundle delivery and
-de-enrollment must be wired to each cloud account. The local SPIRE bootstrap
-is intentionally unsuitable for production.
+Production environments require external attestors, key management, and trust bundle distribution.
+The local SPIRE bootstrap is suitable only for development and demonstration.

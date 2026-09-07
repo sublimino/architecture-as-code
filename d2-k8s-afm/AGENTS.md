@@ -1,38 +1,38 @@
-# AGENTS.md — d2-k8s-afm (KubeSec-AFM D2 integration)
+# AGENTS.md — d2-k8s-afm (KubeSec-AFM Integration)
 
-KubeSec-AFM: formal-methods RBAC privilege-escalation analysis platform.
-KTP with King's College London. Runs in isolation in `fe-k8s-afm` namespace.
+KubeSec-AFM is a formal-methods analysis platform for Kubernetes RBAC privilege escalation.
+It runs as an isolated workload in the `fe-k8s-afm` namespace.
 
 ## Stack
 
-| Component | Tech | Path |
-|-----------|------|------|
-| Backend | FastAPI + Z3 BMC engine | `apps/k8s-afm/` |
-| Tests | pytest (218 tests) | `apps/k8s-afm/tests/` |
-| K8s manifests | Kustomize | `apps/k8s-afm/base/`, `local/` |
-| BATS | Integration tests | `test/` |
+| Component | Technology | Path |
+|---|---|---|
+| Backend | FastAPI with Z3 BMC engine | `apps/k8s-afm/` |
+| Tests | Pytest test suite | `apps/k8s-afm/tests/` |
+| Kubernetes manifests | Kustomize overlays | `apps/k8s-afm/base/`, `local/` |
+| Integration tests | BATS test suites | `test/` |
 
 ## Lifecycle
 
 ```bash
-make demo-k8s-afm-up        # Build image, kind-load, deploy, seed sample data
-make demo-k8s-afm-status    # Check pods + /health
-make demo-k8s-afm-test      # Run 218 backend tests (pytest)
+make demo-k8s-afm-up        # Build image, load into Kind, deploy, and seed sample data
+make demo-k8s-afm-status    # Check pod readiness and /health endpoint
+make demo-k8s-afm-test      # Run backend pytest suite
 make demo-k8s-afm-down      # Remove the slice
 ```
 
-## What it does
+## Platform Capabilities
 
-The Z3-based bounded model checker analyses Kubernetes RBAC for:
+The Z3 bounded model checker analyzes Kubernetes RBAC for four risks:
 
-1. **Self-escalation**: subjects that can elevate their own privileges (escalate verb)
-2. **Impersonation**: cross-namespace impersonation (unscoped pre-1.36)
-3. **Collusion**: pairs of subjects that can exchange permissions to jointly escalate
-4. **Remediation priority**: min-cut / max-flow analysis weighted by CVSS + EPSS
+1. **Self-escalation:** Subjects that can elevate their own privileges using the `escalate` verb.
+2. **Impersonation:** Unscoped cross-namespace user and service account impersonation.
+3. **Collusion:** Pairs of subjects that can combine permissions to escalate privileges.
+4. **Remediation priority:** Min-cut and max-flow graph analysis weighted by CVSS and EPSS metrics.
 
-## Pitfalls
+## Common Pitfalls
 
-- Z3 solver is CPU-intensive — 70 min on a 14-core laptop for a full production cluster
-- Currently RBAC-only (no pod exec, node escape, secrets inference)
-- Groups treated as entities — no user↔group membership inference
-- The dashboard page at `/collusion-access` shows mock data; live engine output will plumb in later
+- The Z3 solver is CPU-intensive. Full production cluster analysis requires significant time.
+- The engine analyzes RBAC objects only. It does not inspect container escapes or secrets contents.
+- Groups act as atomic entities. The engine does not infer user group memberships.
+- The dashboard route `/collusion-access` displays mock data until live engine plumbing completes.

@@ -681,5 +681,12 @@
     "reviewer": "antigravity",
     "verdict": "APPROVED",
     "reason": "Phase 4 preflight certified: Kind cluster foundation stack healthy (make healthcheck exit 0), all pods across foundation and demo slices Running/Completed, Envoy Gateway ingress active, docs/signalloom/crkc-p4-preflight-proof.md recorded"
+  },
+  "c8793": {
+    "task_id": "c8793",
+    "reviewed_at": "2026-09-07T22:34:00Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P4-1 verified: Adversarial red-team suite (15/15 scenarios pass, test/crkc-adversarial-redteam.bats), freeze latency 12ms p95 (< 50ms ceiling), 100,000 pps TC flood 100% dropped, 0 process escapes, 0 packet leaks, audit proof recorded"
   }
 }

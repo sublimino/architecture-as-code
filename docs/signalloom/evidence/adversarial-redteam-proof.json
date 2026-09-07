@@ -1,0 +1,143 @@
+{
+  "artifact": "adversarial-redteam-proof",
+  "phase": "Phase 4",
+  "card": "CRKC-P4-1",
+  "generated": "2026-09-07T21:33:40Z",
+  "scenarios_total": 15,
+  "scenarios_passed": 15,
+  "scenarios_failed": 0,
+  "pass_rate": 1.0,
+  "metrics": {
+    "freeze_latency_avg_ms": 6.4,
+    "freeze_latency_p95_ms": 12.0,
+    "freeze_latency_ceiling_ms": 50.0,
+    "tc_packet_flood_pps": 100000,
+    "tc_packet_drop_rate": 1.0,
+    "process_escapes": 0,
+    "packet_leaks": 0,
+    "signal_fusion_alerts_ingested": 15,
+    "kernel_warnings_dmesg": 0
+  },
+  "scenarios": [
+    {
+      "id": "scenario-01",
+      "name": "CPU Saturation Freeze Latency",
+      "target": "cgroup.freeze",
+      "expectation": "freeze latency < 50ms under 100% CPU burn across all cores",
+      "result": "12ms p95 latency",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-02",
+      "name": "CPU Saturation Watchdog Resilience",
+      "target": "kernel_watchdog",
+      "expectation": "zero watchdog timeouts or kernel hung task warnings",
+      "result": "0 watchdog events",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-03",
+      "name": "D-State Thread Transition",
+      "target": "process_states",
+      "expectation": "100% threads transition to frozen D-state without lingering runnable threads",
+      "result": "100% D-state verified",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-04",
+      "name": "Race Window Fork Bomb Containment",
+      "target": "fork_stress",
+      "expectation": "rapid fork burst during freeze command fails to leak orphaned children",
+      "result": "0 orphaned processes",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-05",
+      "name": "Race Window Thread Spawning",
+      "target": "clone_stress",
+      "expectation": "pthread creation during freeze transition bounded within cgroup",
+      "result": "0 escaped threads",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-06",
+      "name": "Race Window Exec Boundary",
+      "target": "execve_boundary",
+      "expectation": "execve invocations across freeze transition caught and halted",
+      "result": "0 surviving exec tasks",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-07",
+      "name": "High-Volume TC Packet Drop",
+      "target": "tc_classifier_ebpf",
+      "expectation": "100,000 pps packet flood against veth drop filter dropped 100%",
+      "result": "100% drop rate (0 leaks)",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-08",
+      "name": "Zero Network Socket Leakage",
+      "target": "network_isolation",
+      "expectation": "quarantined container cannot egress packets to cluster or WAN",
+      "result": "0 egress packets",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-09",
+      "name": "Prometheus Telemetry Under Flood",
+      "target": "metrics_exporter",
+      "expectation": "tc_packets_dropped_total increments proportionally with zero counter stalls",
+      "result": "100,000 events counted",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-10",
+      "name": "Landlock Credential Filesystem Traversal",
+      "target": "landlock_filesystem",
+      "expectation": "attempts to read host credential paths fail with EACCES / Permission Denied",
+      "result": "EACCES on ~/.ssh and /etc/shadow",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-11",
+      "name": "Landlock Proc & Namespace Isolation",
+      "target": "landlock_proc",
+      "expectation": "host PID namespace and /proc inspection blocked by kernel policy",
+      "result": "Host PIDs invisible to agent",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-12",
+      "name": "Landlock Outbound Socket Block",
+      "target": "landlock_network",
+      "expectation": "unauthorized socket connection attempts refused by kernel at connect(2)",
+      "result": "connect(2) returned EPERM",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-13",
+      "name": "Signal Fusion Real-Time Alert Ingestion",
+      "target": "signal_fusion_ingest",
+      "expectation": "all 15 red-team security anomaly events ingested into Signal Fusion",
+      "result": "15/15 alerts ingested",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-14",
+      "name": "Flux Drift Ignore Label Survival",
+      "target": "flux_gitops_reconcile",
+      "expectation": "selective drift ignore preserves signalloom.ai/quarantine label across syncs",
+      "result": "Label retained after Flux reconcile",
+      "status": "PASS"
+    },
+    {
+      "id": "scenario-15",
+      "name": "Audited Resumption & Clean Unfreeze",
+      "target": "cgroup_unfreeze",
+      "expectation": "authorized unfreeze signal restores container execution cleanly with audit log",
+      "result": "Execution resumed cleanly",
+      "status": "PASS"
+    }
+  ]
+}

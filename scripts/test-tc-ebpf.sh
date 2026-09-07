@@ -58,7 +58,7 @@ fi
 
 BIN="$(mktemp -d)/stun-tcctl"
 log "building stun-tcctl"
-( cd "$APP_DIR" && CGO_ENABLED=0 GOFLAGS=-mod=mod go build -o "$BIN" ./cmd/stun-tcctl ) || {
+( cd "$APP_DIR" && CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-mod=mod go build -o "$BIN" ./cmd/stun-tcctl ) || {
 	log "FATAL: go build failed"
 	exit 1
 }

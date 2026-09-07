@@ -2,8 +2,8 @@
   "card": "CRKC-P1-4",
   "artifact": "tetragon-stream-proof",
   "generated_by": "scripts/test-tetragon-stream.sh",
-  "generated_at": "2026-09-07T20:04:10Z",
-  "commit": "f0a842ffcbe502c1ec15860d38e3a39110798edc",
+  "generated_at": "2026-09-07T20:14:27Z",
+  "commit": "d30beea80556379714aa51cba38dae35dfe9da2e",
   "harness": {
     "mode": "offline",
     "producer": "test/mocks/tetragon_grpc_mock (ebpf.MockTetragonServer)",

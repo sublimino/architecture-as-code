@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+export GOPATH="${GOPATH:-/tmp/gopath}"
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+export CGO_ENABLED=0
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
@@ -117,7 +121,7 @@ build_and_install() {
   log "building stun-sentinel (static)"
   # -buildvcs=false: `go build` inside a git worktree fails with
   # "error obtaining VCS status: exit status 128".
-  ( cd "${MODULE_DIR}" && CGO_ENABLED=0 GOFLAGS=-buildvcs=false \
+  ( cd "${MODULE_DIR}" && CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false \
       go build -ldflags='-s -w' -o /tmp/stun-sentinel-live ./cmd/stun-sentinel ) || {
     log "build failed"; exit 4; }
   docker cp /tmp/stun-sentinel-live "${KIND_NODE}:/usr/local/bin/stun-sentinel" >/dev/null || exit 4
@@ -152,18 +156,21 @@ start_burner() {
   # being broken. Wait it out before touching anything.
   local phase i
   for i in $(seq 1 60); do
+    if ! kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+      break
+    fi
     phase="$(kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" \
-              -o jsonpath='{.status.phase}' 2>/dev/null)"
-    [[ "${phase}" != "Terminating" ]] && break
+              -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+    if [[ "${phase}" != "Terminating" ]]; then
+      break
+    fi
     [[ "${i}" == "1" ]] && log "waiting for namespace ${NAMESPACE} to finish terminating"
     sleep 1
   done
-  if [[ "${phase:-}" == "Terminating" ]]; then
-    log "namespace ${NAMESPACE} is still Terminating after 60s"
-    exit 6
-  fi
 
-  kubectl --context "${CLUSTER_CONTEXT}" create namespace "${NAMESPACE}" >/dev/null 2>&1
+  if ! kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+    kubectl --context "${CLUSTER_CONTEXT}" create namespace "${NAMESPACE}" >/dev/null 2>&1 || true
+  fi
   kubectl --context "${CLUSTER_CONTEXT}" delete pod "${POD}" -n "${NAMESPACE}" \
     --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1
 

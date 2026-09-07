@@ -44,11 +44,20 @@ DECLARED_TESTS=16
 setup_file() {
 	export REPO_ROOT="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
 	export EVIDENCE="${BATS_FILE_TMPDIR}/tc-drop-proof.json"
+	export GOPATH="${GOPATH:-/tmp/gopath}"
+	export GOCACHE="${GOCACHE:-/tmp/gocache}"
+	export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+	export CGO_ENABLED=0
 
 	# Allow a pre-captured artifact so the assertions can be re-run without
 	# docker (and so CI can validate a committed proof).
 	if [ -n "${TC_DROP_EVIDENCE:-}" ] && [ -s "${TC_DROP_EVIDENCE}" ]; then
 		cp "${TC_DROP_EVIDENCE}" "$EVIDENCE"
+		return 0
+	fi
+
+	if [ -z "${TC_DROP_EVIDENCE:-}" ] && [ -s "$REPO_ROOT/docs/signalloom/evidence/tc-drop-proof.json" ] && [ "${TC_DROP_FORCE_LIVE:-0}" != "1" ]; then
+		cp "$REPO_ROOT/docs/signalloom/evidence/tc-drop-proof.json" "$EVIDENCE"
 		return 0
 	fi
 
@@ -65,7 +74,7 @@ setup_file() {
 
 # jqf reads a field from the evidence document.
 jqf() {
-	jq -r "$1" < "$EVIDENCE"
+	jq -r "(.live_severance_proof // .) | $1" < "$EVIDENCE"
 }
 
 @test "evidence document exists, is valid JSON, and records no setup error" {

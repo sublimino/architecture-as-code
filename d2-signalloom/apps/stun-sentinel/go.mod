@@ -1,11 +1,11 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel
 
-go 1.25.0
+go 1.24
 
 require (
 	github.com/cilium/ebpf v0.16.0
 	github.com/vishvananda/netlink v1.3.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.31.0
 )
 
 require (

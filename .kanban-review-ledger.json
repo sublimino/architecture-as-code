@@ -1,17 +1,17 @@
 {
-  "0f47a": {
-    "task_id": "0f47a",
-    "reviewed_at": "2026-09-05T23:05:05Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "SFDP-P4-GOV: Phase-4 governor merge verified: all 4 mission acceptance commands passed live, constituent commits merged to integration branch, and errata updated.\nNext step: Card ready for final principal review."
-  },
   "21309": {
     "task_id": "21309",
     "reviewed_at": "2026-09-01T23:56:59Z",
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "FUSION-P1-GOV: Phase 1 certified 100% PASS across FrostDB, multi-layer collectors, and CEL correlation (commit 49e66553)"
+  },
+  "24612": {
+    "task_id": "24612",
+    "reviewed_at": "2026-09-05T21:25:20Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
   },
   "40398": {
     "task_id": "40398",
@@ -26,6 +26,13 @@
     "reviewer": "antigravity",
     "verdict": "APPROVED",
     "reason": "[P2-2] Tool Server Wiring: kagent-tool-server remote MCP tools wired to reader"
+  },
+  "0f47a": {
+    "task_id": "0f47a",
+    "reviewed_at": "2026-09-05T23:05:05Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFDP-P4-GOV: Phase-4 governor merge verified: all 4 mission acceptance commands passed live, constituent commits merged to integration branch, and errata updated.\nNext step: Card ready for final principal review."
   },
   "624ed": {
     "task_id": "624ed",
@@ -339,13 +346,6 @@
     "verdict": "APPROVED",
     "reason": "Phase-3 Governor merge verified: all 5 implementation cards reconciled into 6acf7507, TestIdentitySpineEndToEndIntegration green, false-merge==0 intact"
   },
-  "24612": {
-    "task_id": "24612",
-    "reviewed_at": "2026-09-05T21:25:20Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
-  },
   "85b25": {
     "task_id": "85b25",
     "reviewed_at": "2026-09-05T21:36:45Z",
@@ -373,5 +373,40 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SFDP-P4-4 verified: 22-case false-merge regression corpus, false-merge==0 hard gate, tamper regression BATS, e2e authorization chain integration test, 100% green across 4 acceptance targets"
+  },
+  "b5526": {
+    "task_id": "b5526",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-4 verified: Enriched Inventory API endpoint preserving namespace, SA, node, pod_uid, framework, phase, with server-side filters & pagination (commit bc2d6406)"
+  },
+  "6b8ae": {
+    "task_id": "6b8ae",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-5 verified: Action capabilities API endpoint /api/capabilities with tenant/role scoping, workload scoping, and zero SQL writes (commit c26aab49)"
+  },
+  "50fa8": {
+    "task_id": "50fa8",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-6 verified: Operational inventory table 7-column headers and 4 StatCards in AgentsPage.tsx, truthful language dictionary assertions (commit d98d5706)"
+  },
+  "4d950": {
+    "task_id": "4d950",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-7 verified: Quick Evidence Side Drawer UI, AgentEvidenceDrawer.tsx, truthful labels, kernel containment, 22/22 BATS, 38/38 Vitest, 51/51 Pytest green (commit dab53ffc)"
+  },
+  "fabc5": {
+    "task_id": "fabc5",
+    "reviewed_at": "2026-09-07T08:56:13.123Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-GOV verified: Phase 1 Governor Certification, all 8 tasks integrated into integration/sfagents-v0.1.0 at dab53ffc, checkpoint/sfagents-p1-certified, 22/22 BATS, 51/51 Pytest, 38/38 Vitest green"
   }
 }

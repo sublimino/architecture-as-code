@@ -11,6 +11,8 @@ import (
 
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
@@ -87,12 +89,12 @@ func TestLiveMode_EventFlowToStore(t *testing.T) {
 		t.Fatalf("marshal failed: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/audit/webhook", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, apiaudit.WebhookPath, bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("POST /api/v1/audit/webhook failed: got %d (body %s)", w.Code, w.Body.String())
+		t.Fatalf("POST %s failed: got %d (body %s)", apiaudit.WebhookPath, w.Code, w.Body.String())
 	}
 
 	// Poll until observation lands in store
@@ -114,11 +116,12 @@ func TestLiveMode_EventFlowToStore(t *testing.T) {
 	if obs.ID != "audit-live-flow-001" {
 		t.Errorf("expected ID audit-live-flow-001, got %s", obs.ID)
 	}
-	if obs.Layer != model.LayerCloudControlPlane {
-		t.Errorf("expected LayerCloudControlPlane, got %s", obs.Layer)
+	if obs.Layer != model.LayerIdentityAuth {
+		t.Errorf("expected LayerIdentityAuth, got %s", obs.Layer)
 	}
-	if obs.ActorHint != "system:serviceaccount:kagent:autonomous-agent-1" {
-		t.Errorf("expected actor hint system:serviceaccount:kagent:autonomous-agent-1, got %s", obs.ActorHint)
+	expectedSPIFFE := "spiffe://cluster.local/ns/kagent/sa/autonomous-agent-1"
+	if obs.ActorHint != expectedSPIFFE {
+		t.Errorf("expected actor hint %s, got %s", expectedSPIFFE, obs.ActorHint)
 	}
 
 	// Verify receiver telemetry counters
@@ -128,6 +131,93 @@ func TestLiveMode_EventFlowToStore(t *testing.T) {
 	}
 	if metrics["processed"].(uint64) != 1 {
 		t.Errorf("expected processed=1 in telemetry, got %v", metrics["processed"])
+	}
+}
+
+func TestLiveMode_GKEEventFlowToStore(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	memStore := store.NewMemoryStore()
+	engine, err := correlation.NewEngine(memStore)
+	if err != nil {
+		t.Fatalf("correlation engine creation failed: %v", err)
+	}
+
+	storeSink := collectors.NewStoreSink(memStore)
+	receiver := apiaudit.NewWebhookReceiver(ctx, 100, 2, storeSink)
+	defer receiver.Close()
+
+	handlers := &Handlers{
+		Store:         memStore,
+		Engine:        engine,
+		AuditReceiver: receiver,
+	}
+
+	mux := http.NewServeMux()
+	handlers.RegisterRoutes(mux)
+
+	gkeEntry := apiaudit.GKELogEntry{
+		InsertID:  "gke-live-flow-002",
+		Timestamp: time.Now().UTC(),
+		ProtoPayload: &apiaudit.GKEAuditLogPayload{
+			ServiceName:  "k8s.io",
+			MethodName:   "io.k8s.core.v1.namespaces.secrets.get",
+			ResourceName: "namespaces/default/secrets/vault-token",
+			AuthenticationInfo: apiaudit.GKEAuthInfo{
+				PrincipalEmail:   "alice@company.internal",
+				ImpersonatedUser: "system:serviceaccount:kagent:autonomous-agent-1",
+			},
+			Status: &apiaudit.GKEStatus{
+				Code: 200,
+			},
+		},
+	}
+
+	body, err := json.Marshal(gkeEntry)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, apiaudit.GKEWebhookPath, bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST %s failed: got %d (body %s)", apiaudit.GKEWebhookPath, w.Code, w.Body.String())
+	}
+
+	// Poll until observation lands in store
+	var stored []model.Observation
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stored, err = memStore.QueryRange(ctx, store.Query{})
+		if err == nil && len(stored) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if len(stored) != 1 {
+		t.Fatalf("expected 1 observation in store after GKE live flow, got %d", len(stored))
+	}
+
+	obs := stored[0]
+	if obs.ID != "gke-live-flow-002" {
+		t.Errorf("expected ID gke-live-flow-002, got %s", obs.ID)
+	}
+	if obs.Layer != model.LayerIdentityAuth {
+		t.Errorf("expected LayerIdentityAuth, got %s", obs.Layer)
+	}
+	expectedActing := "spiffe://cluster.local/ns/kagent/sa/autonomous-agent-1"
+	if obs.ActorHint != expectedActing {
+		t.Errorf("expected ActorHint %s, got %s", expectedActing, obs.ActorHint)
+	}
+	if obs.DelegationEdge == nil {
+		t.Fatalf("expected non-nil DelegationEdge")
+	}
+	if obs.DelegationDepth != 1 {
+		t.Errorf("expected DelegationDepth 1, got %d", obs.DelegationDepth)
 	}
 }
 
@@ -177,7 +267,7 @@ func TestHandlers_AuditWebhookRouteEndToEnd(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/audit/webhook", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, apiaudit.WebhookPath, bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -205,5 +295,250 @@ func TestHandlers_AuditWebhookRouteEndToEnd(t *testing.T) {
 	}
 	if results[0].ID != "audit-webhook-e2e-99" {
 		t.Errorf("observation ID = %s, want audit-webhook-e2e-99", results[0].ID)
+	}
+}
+
+func TestLiveMode_IdentityCollectors_BaoAndSpire(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	memStore := store.NewMemoryStore()
+	storeSink := collectors.NewStoreSink(memStore)
+
+	baoCol := collectors.NewBaoAuditCollector(collectors.ModeLive, storeSink)
+	spireCol := collectors.NewSPIREACollector(collectors.ModeLive, storeSink)
+
+	registry := collectors.NewRegistry(baoCol, spireCol)
+	if err := registry.Start(ctx); err != nil {
+		t.Fatalf("registry.Start failed: %v", err)
+	}
+	defer registry.Stop()
+
+	if err := registry.Health(ctx); err != nil {
+		t.Fatalf("expected healthy status, got %v", err)
+	}
+
+	baoReceiver := baoCol.RawReceiver()
+	if baoReceiver == nil {
+		t.Fatalf("expected baoaudit receiver to be initialized in live mode")
+	}
+
+	spireCollector := spireCol.RawCollector()
+	if spireCollector == nil {
+		t.Fatalf("expected spirea collector to be initialized in live mode")
+	}
+
+	// 1. Ingest real-shaped OpenBao audit event
+	baoJSON := []byte(`{
+		"type": "response",
+		"time": "2026-09-02T10:00:00Z",
+		"auth": {
+			"display_name": "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			"client_token": "hmac-token-live-1",
+			"accessor": "acc-live-1",
+			"metadata": {
+				"spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"role": "cardvault"
+			}
+		},
+		"request": {
+			"operation": "read",
+			"path": "secret/data/cardvault/master-keys"
+		}
+	}`)
+
+	if err := baoReceiver.IngestRawBytes(baoJSON); err != nil {
+		t.Fatalf("bao IngestRawBytes failed: %v", err)
+	}
+
+	// 2. Ingest real-shaped SPIRE issuance event
+	now := time.Now().UTC()
+	spireEvent := &spirea.SVIDIssuanceEvent{
+		Timestamp:      now,
+		SPIFFEID:       "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+		TrustDomain:    "cluster.local",
+		SVIDType:       spirea.SVIDTypeJWT,
+		IssuedAt:       now,
+		ExpiresAt:      now.Add(5 * time.Minute),
+		TTLSeconds:     300,
+		PodNamespace:   "fe-signalloom-agents",
+		ServiceAccount: "agent-cardvault-sa",
+	}
+
+	if err := spireCollector.IngestIssuanceEvent(ctx, spireEvent); err != nil {
+		t.Fatalf("spire IngestIssuanceEvent failed: %v", err)
+	}
+
+	// Poll until both observations land in the store
+	var stored []model.Observation
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var queryErr error
+		stored, queryErr = memStore.QueryRange(ctx, store.Query{})
+		if queryErr == nil && len(stored) >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if len(stored) != 2 {
+		t.Fatalf("expected 2 observations in store (1 OpenBao, 1 SPIRE), got %d", len(stored))
+	}
+
+	var baoObs, spireObs *model.Observation
+	for i := range stored {
+		if stored[i].Source == "openbao-audit" {
+			baoObs = &stored[i]
+		} else if stored[i].Source == "spire-agent" {
+			spireObs = &stored[i]
+		}
+	}
+
+	if baoObs == nil {
+		t.Fatalf("missing openbao-audit observation in store")
+	}
+	if spireObs == nil {
+		t.Fatalf("missing spire-agent observation in store")
+	}
+
+	// Validate OpenBao observation fields & SA->SPIFFE correspondence
+	if baoObs.Layer != model.LayerIdentityAuth {
+		t.Errorf("bao layer = %s, want LayerIdentityAuth", baoObs.Layer)
+	}
+	if baoObs.Fidelity != model.FidelityDefinitive {
+		t.Errorf("bao fidelity = %s, want FidelityDefinitive", baoObs.Fidelity)
+	}
+	if baoObs.ActorHint != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
+		t.Errorf("bao actor hint = %s, want SPIFFE ID", baoObs.ActorHint)
+	}
+	if baoObs.PrincipalID != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Errorf("bao principal ID = %s, want SA principal", baoObs.PrincipalID)
+	}
+	if baoObs.Labels["sa_principal"] != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Errorf("bao sa_principal label = %s", baoObs.Labels["sa_principal"])
+	}
+	if baoObs.Labels["spiffe_id"] != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
+		t.Errorf("bao spiffe_id label = %s", baoObs.Labels["spiffe_id"])
+	}
+
+	// Validate SPIRE observation fields & SA->SPIFFE correspondence
+	if spireObs.Layer != model.LayerIdentityAuth {
+		t.Errorf("spire layer = %s, want LayerIdentityAuth", spireObs.Layer)
+	}
+	if spireObs.Fidelity != model.FidelityStrong {
+		t.Errorf("spire fidelity = %s, want FidelityStrong", spireObs.Fidelity)
+	}
+	if spireObs.ActorHint != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
+		t.Errorf("spire actor hint = %s, want SPIFFE ID", spireObs.ActorHint)
+	}
+	if spireObs.PrincipalID != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Errorf("spire principal ID = %s, want SA principal", spireObs.PrincipalID)
+	}
+	if spireObs.Labels["sa_principal"] != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Errorf("spire sa_principal label = %s", spireObs.Labels["sa_principal"])
+	}
+	if spireObs.Labels["spiffe_id"] != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
+		t.Errorf("spire spiffe_id label = %s", spireObs.Labels["spiffe_id"])
+	}
+
+	// Assert SA->SPIFFE Join binds both observations into a unified resolvable actor
+	actorBao, errBao := correlation.Resolve(*baoObs)
+	if errBao != nil {
+		t.Fatalf("Resolve(baoObs) failed: %v", errBao)
+	}
+	actorSpire, errSpire := correlation.Resolve(*spireObs)
+	if errSpire != nil {
+		t.Fatalf("Resolve(spireObs) failed: %v", errSpire)
+	}
+
+	if actorBao.ID != actorSpire.ID {
+		t.Errorf("actor IDs do not match: bao=%s, spire=%s", actorBao.ID, actorSpire.ID)
+	}
+	if actorBao.PrincipalID != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" &&
+		actorBao.PrincipalID != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Errorf("unexpected actor principal ID: %s", actorBao.PrincipalID)
+	}
+
+	// Verify operational stats incremented
+	baoRec, baoIng, baoDrp, baoErrs := baoReceiver.Stats()
+	if baoRec != 1 || baoIng != 1 || baoDrp != 0 || baoErrs != 0 {
+		t.Errorf("unexpected bao stats: rec=%d, ing=%d, drp=%d, errs=%d", baoRec, baoIng, baoDrp, baoErrs)
+	}
+
+	spireRec, spireIng, spireAnom := spireCollector.Stats()
+	if spireRec != 1 || spireIng != 1 || spireAnom != 0 {
+		t.Errorf("unexpected spire stats: rec=%d, ing=%d, anom=%d", spireRec, spireIng, spireAnom)
+	}
+}
+
+func TestLiveMode_KAgentTraceFlowToStore(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	memStore := store.NewMemoryStore()
+	storeSink := collectors.NewStoreSink(memStore)
+
+	kagentCol := collectors.NewKAgentCollector(collectors.ModeLive, storeSink)
+
+	registry := collectors.NewRegistry(kagentCol)
+	if err := registry.Start(ctx); err != nil {
+		t.Fatalf("registry Start failed: %v", err)
+	}
+	defer registry.Stop()
+
+	span := kagent.TelemetrySpan{
+		SpanID:         "live-kagent-flow-001",
+		TraceID:        "live-kagent-trace-001",
+		Name:           kagent.SpanNameToolExecution,
+		Timestamp:      time.Now().UTC(),
+		RuntimeVersion: kagent.RuntimeVersion0_9_9,
+		Attributes: map[string]string{
+			kagent.AttrAgentNamespace: "fe-signalloom-agents",
+			kagent.AttrAgentName:      "kagent-k8s-reader",
+			kagent.AttrToolName:       "k8s_get_resources",
+			kagent.AttrContextID:      "ctx-live-k8s-001",
+			kagent.AttrTaskID:         "task-live-k8s-001",
+			kagent.AttrUserID:         "admin@kagent.dev",
+		},
+	}
+
+	rawCol := kagentCol.RawCollector()
+	if rawCol == nil {
+		t.Fatalf("expected non-nil raw collector in live mode")
+	}
+
+	res, err := rawCol.IngestSpan(ctx, span)
+	if err != nil {
+		t.Fatalf("IngestSpan failed: %v", err)
+	}
+
+	if res.Observation == nil {
+		t.Fatalf("expected observation to be returned")
+	}
+
+	stored, err := memStore.QueryRange(ctx, store.Query{Layers: []model.Layer{model.LayerIdentityAuth}})
+	if err != nil {
+		t.Fatalf("QueryRange failed: %v", err)
+	}
+
+	if len(stored) != 1 {
+		t.Fatalf("expected 1 observation in store, got %d", len(stored))
+	}
+
+	obs := stored[0]
+	if obs.ID != "kagent-obs-live-kagent-flow-001" {
+		t.Errorf("unexpected ID: %s", obs.ID)
+	}
+	if obs.ActorHint != "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-k8s-reader" {
+		t.Errorf("unexpected ActorHint: %s", obs.ActorHint)
+	}
+	if obs.Labels["tool_name"] != "k8s_get_resources" {
+		t.Errorf("unexpected tool_name: %s", obs.Labels["tool_name"])
+	}
+	if obs.Labels["invoked_action"] != "tool:k8s_get_resources" {
+		t.Errorf("unexpected invoked_action: %s", obs.Labels["invoked_action"])
+	}
+	if obs.Labels["delegation_tag"] != "inferred" {
+		t.Errorf("unexpected delegation_tag: %s", obs.Labels["delegation_tag"])
 	}
 }

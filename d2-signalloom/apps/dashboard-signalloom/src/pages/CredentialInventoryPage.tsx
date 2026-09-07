@@ -36,6 +36,7 @@
  *    table cannot disappear along with the rows.
  */
 import { useState, useEffect, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
@@ -341,18 +342,29 @@ function shortTime(iso: string): string {
 
 export default function CredentialInventoryPage() {
   const { getAccessTokenSilently } = useAuth0()
+  const [searchParams] = useSearchParams()
+  const initialActor = searchParams.get('actor') || searchParams.get('agent') || searchParams.get('search') || ''
+
   const [state, setState] = useState<LoadedState | null>(null)
   // Two tables, the same three controls each. Kept as six pieces of page state
   // rather than one object because DataTable is handed an already-narrowed
   // array per table and the two narrowings share nothing but their shape.
-  const [identitySearch, setIdentitySearch] = useState('')
+  const [identitySearch, setIdentitySearch] = useState(initialActor)
   const [identityState, setIdentityState] = useState<'all' | IdentityState>('all')
   const [identitySource, setIdentitySource] = useState<'all' | Provenance>('all')
-  const [credentialSearch, setCredentialSearch] = useState('')
+  const [credentialSearch, setCredentialSearch] = useState(initialActor)
   const [statusFilter, setStatusFilter] = useState<'all' | CredentialStatus>('all')
   const [credentialSource, setCredentialSource] = useState<'all' | Provenance>('all')
   const [proofOpen, setProofOpen] = useState(false)
   const [unregisteredProofOpen, setUnregisteredProofOpen] = useState(false)
+
+  useEffect(() => {
+    const actor = searchParams.get('actor') || searchParams.get('agent') || searchParams.get('search')
+    if (actor !== null) {
+      setIdentitySearch(actor)
+      setCredentialSearch(actor)
+    }
+  }, [searchParams])
 
   // Frozen at mount. Every TTL, expiry and rotation figure derives from this one
   // instant, so a re-render cannot make two rows disagree about "now".

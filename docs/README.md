@@ -1,29 +1,27 @@
 # Documentation index
 
-This page is the entry point to every document in this repository. Read it
-first. It answers three questions in order: what this repository is, how you
-run it, and how you debug it.
+This page is the entry point for all repository documentation. Read this document first.
+It describes the platform, explains how to run the services, and shows how to debug failures.
 
-Two files sit above this one and stay at the repository root:
+Two files sit at the repository root:
 
 | File | Audience | Read it for |
 | :--- | :--- | :--- |
-| [`../README.md`](../README.md) | a human, new to OSRAMP | what OSRAMP is and what the demo proves |
-| [`../AGENTS.md`](../AGENTS.md) | an agent, or an engineer who wants commands | the slice map, the lifecycle targets, and the shared pitfalls |
+| [`../README.md`](../README.md) | Human, new to OSRAMP | Platform overview and verification goals |
+| [`../AGENTS.md`](../AGENTS.md) | Agent or engineer needing commands | Slice architecture, lifecycle targets, and shared pitfalls |
 
 ## Glossary
 
-Use these terms. Do not use a synonym for any of them. Rule 1.11 of STE-Code
-forbids two names for one item, and this repository has paid for that twice.
+Use these defined terms. Do not use synonyms. Rule 1.11 of STE-Code forbids multiple names for one item.
 
 | Term | Meaning |
 | :--- | :--- |
-| **slice** | One D2 delivery boundary, such as `d2-signalloom/`. A slice owns its namespaces, images, tests and lifecycle. |
-| **foundation** | The shared substrate that every slice needs: the kind cluster, the Zot registry, the signing keys and Flux. `make up` creates it. |
-| **lane** | One GCP environment: `demo-1`, `demo-2`, `ci-1` or `ci-2`. Each lane has one VM, one tailnet node and one hand-off file. |
-| **estate** | The software stack that runs on one lane's VM. `make gcp-tf-demo-up` builds it. The lane is the infrastructure; the estate is what runs on it. |
-| **hand-off file** | `deploy/gcp/<lane>.handoff.json`. Terraform writes it. Every later command reads the lane's identity from it. |
-| **surface** | One of the two paths that reach a lane: the on-VM surface, or the tailnet surface. A lane can pass on one and fail on the other. |
+| **slice** | One D2 delivery boundary, such as `d2-signalloom/`. A slice owns its namespaces, images, tests, and lifecycle. |
+| **foundation** | The shared platform substrate: Kind cluster, Zot registry, signing keys, and Flux. `make up` creates it. |
+| **lane** | One GCP environment: `demo-1`, `demo-2`, `ci-1`, or `ci-2`. Each lane contains one VM, one tailnet node, and one hand-off file. |
+| **estate** | The software stack deployed to a lane VM. `make gcp-tf-demo-up` builds it. The lane is the infrastructure; the estate is the workload. |
+| **hand-off file** | `deploy/gcp/<lane>.handoff.json`. Terraform writes this file. Later commands read the lane identity from it. |
+| **surface** | One of two communication paths: VM-local surface or Tailscale tailnet surface. A lane can pass on one and fail on the other. |
 
 ## How the documentation fits together
 
@@ -66,76 +64,74 @@ flowchart TB
   class START entry;
 ```
 
-## 1 · Learn what this is
+## 1 · Learn What This Is
 
 | Document | What it covers |
 | :--- | :--- |
-| [`../README.md`](../README.md) | OSRAMP, the four-level maturity model, team ownership, the ingestion flow, and the demo commands |
-| [`../AGENTS.md`](../AGENTS.md) | The shared foundation, the eight slices, the lifecycle targets, and the pitfalls that recur |
-| [`system-map/`](system-map/) | An interactive isometric map of the platform's services and the paths between them |
-| [`../terraform/CONTRACT.md`](../terraform/CONTRACT.md) | What the Terraform roots guarantee to each other |
+| [`../README.md`](../README.md) | OSRAMP, the four-level maturity model, team ownership, ingestion flow, and demo commands |
+| [`../AGENTS.md`](../AGENTS.md) | Shared foundation, eight slices, lifecycle targets, and recurring pitfalls |
+| [`system-map/`](system-map/) | Interactive isometric map of platform services and communication paths |
+| [`../terraform/CONTRACT.md`](../terraform/CONTRACT.md) | Invariants and contracts between Terraform roots |
 
-## 2 · Run it
+## 2 · Run the Platform
 
-Start locally. The local path needs Docker and nothing else.
-
-| Document | What it covers |
-| :--- | :--- |
-| [`../README.md#getting-started`](../README.md#getting-started) | The local quickstart: `./scripts/setup.sh`, then a `demo-*-up` target |
-| [`../TESTING.md`](../TESTING.md) | Every test suite, and how to run each one |
-| [`../HUMAN_VALIDATION.md`](../HUMAN_VALIDATION.md) | The record a person writes after a live browser review |
-| [`deploying-a-backend-service.md`](deploying-a-backend-service.md) | Read this before you add a backend service. Four layers each break the page alone. |
-
-Then run it on GCP. The GCP path costs money and needs credentials.
+Start locally. The local workflow requires Docker.
 
 | Document | What it covers |
 | :--- | :--- |
-| [`gcp-demo/RUNBOOK.md`](gcp-demo/RUNBOOK.md) | The operator runbook: an empty project to a dashboard in a browser |
-| [`gcp-demo/OPERATIONS.md`](gcp-demo/OPERATIONS.md) | The four lanes, the health tooling, and the traps that misreport their own cause |
-| [`../deploy/gcp/README.md`](../deploy/gcp/README.md) | The real project inputs, the two service accounts, and the hand-off contract |
-| [`../terraform/README.md`](../terraform/README.md) | Why the estate splits into three Terraform roots |
-| [`../terraform/RUNBOOK.md`](../terraform/RUNBOOK.md) | The Terraform-only walkthrough for `demo-1` |
-| [`../scripts/ci/README.md`](../scripts/ci/README.md) | The older CI lane on `signalloom-ci`, which is a different system |
+| [`../README.md#getting-started`](../README.md#getting-started) | Local quickstart: run `./scripts/setup.sh`, then run a `demo-*-up` target |
+| [`../TESTING.md`](../TESTING.md) | Test suites and execution instructions |
+| [`../HUMAN_VALIDATION.md`](../HUMAN_VALIDATION.md) | Human verification logs from browser reviews |
+| [`deploying-a-backend-service.md`](deploying-a-backend-service.md) | Deployment checklist: four separate layers that can each break page routing |
 
-## 3 · Debug it
+Deploy to GCP after local testing. The GCP workflow incurs costs and requires cloud credentials.
 
 | Document | What it covers |
 | :--- | :--- |
-| [`cluster-debugging.md`](cluster-debugging.md) | Field notes for the local stack. Section 8 lists probes that report a confident answer they did not earn. |
-| [`resilient-waits.md`](resilient-waits.md) | `scripts/lib/wait.sh`, and why a bare `sleep` is never correct |
-| [`gcp-demo/OPERATIONS.md#traps`](gcp-demo/OPERATIONS.md#traps) | Commands that fail while they report success, and the reverse |
-| [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | Five blockers from August 2026, each with the measurement that found it |
-| [`local-lifecycle-errata.md`](local-lifecycle-errata.md) | Corrections to the local lifecycle documentation |
+| [`gcp-demo/RUNBOOK.md`](gcp-demo/RUNBOOK.md) | Operator runbook from empty cloud project to dashboard in browser |
+| [`gcp-demo/OPERATIONS.md`](gcp-demo/OPERATIONS.md) | Four deployment lanes, health tools, and diagnostic traps |
+| [`../deploy/gcp/README.md`](../deploy/gcp/README.md) | Project inputs, service account roles, and hand-off contracts |
+| [`../terraform/README.md`](../terraform/README.md) | Architecture rationale for three separate Terraform roots |
+| [`../terraform/RUNBOOK.md`](../terraform/RUNBOOK.md) | Step-by-step Terraform execution for `demo-1` |
+| [`../scripts/ci/README.md`](../scripts/ci/README.md) | Legacy GCP CI runner pipeline on `signalloom-ci` |
 
-## Reference and history
+## 3 · Debug the System
 
-These documents record decisions and investigations. They are not instructions.
-
-| Area | Where |
+| Document | What it covers |
 | :--- | :--- |
-| Signal Loom design notes, audits and proposals | [`signalloom/`](signalloom/) — 49 files, mostly design records |
-| Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — read the index first; most of the series is historical |
+| [`cluster-debugging.md`](cluster-debugging.md) | Field debugging notes for local stack. Section 8 details misleading probes. |
+| [`resilient-waits.md`](resilient-waits.md) | Wait helpers in `scripts/lib/wait.sh` and pitfalls of bare `sleep` commands |
+| [`gcp-demo/OPERATIONS.md#traps`](gcp-demo/OPERATIONS.md#traps) | Commands that return incorrect status codes |
+| [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | Post-mortem reports and diagnostic measurements for five August 2026 incidents |
+| [`local-lifecycle-errata.md`](local-lifecycle-errata.md) | Errata and fixes for local lifecycle scripts |
+
+## Reference and History
+
+These documents record engineering decisions and investigations. They do not contain procedures.
+
+| Area | Location |
+| :--- | :--- |
+| Signal Loom design notes, audits, and proposals | [`signalloom/`](signalloom/) — 49 design and architecture records |
+| Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |
-| Platform appraisal, mid-2026 | [`appraisal/`](appraisal/) |
-| Agent trust proposal and audit | [`agent-trust-project-proposal.md`](agent-trust-project-proposal.md), [`agent-trust-completion-audit.md`](agent-trust-completion-audit.md) |
+| Platform appraisal (mid-2026) | [`appraisal/`](appraisal/) |
+| Agent trust proposal and completion audit | [`agent-trust-project-proposal.md`](agent-trust-project-proposal.md), [`agent-trust-completion-audit.md`](agent-trust-completion-audit.md) |
 | Frequently asked questions | [`FAQ.md`](FAQ.md) |
 
-NOTE: `MEMORY/WORK/` holds per-session records. Those files are an archive of
-how the work happened, not a description of the tree today.
+Note: `MEMORY/WORK/` contains historical session records.
+These files document previous work sessions and do not describe current repository state.
 
-## Writing convention
+## Writing Conventions
 
-New documentation in this repository follows STE-Code, which adapts ASD-STE100
-for software documentation. The rules that matter most here:
+Documentation in this repository follows STE-Code, an adaptation of ASD-STE100 for software documentation.
+Apply these primary rules to all documentation updates:
 
-1. Use one term for one item. Do not introduce a synonym.
-2. Keep a procedural sentence to 20 words or fewer.
-3. Write instructions in the imperative form.
-4. Put the condition before the command.
-5. Use `WARNING` for a risk of data loss or a security fault. Use `CAUTION` for
-   a risk of incorrect results.
-6. Give the reason with the risk. A signal word alone tells the reader nothing.
-
-This repository writes en_GB, which departs from STE-Code Rule 1.14. Rule 1.14
-permits a project directive to select the spelling, and this is that directive.
+1. Use one term for each item. Do not use synonyms.
+2. Keep instruction sentences to 20 words or fewer.
+3. Write instructions in the imperative mood.
+4. Put conditions before instructions.
+5. Use `WARNING` for risks of data loss or security exposure.
+   Use `CAUTION` for risks of incorrect operation.
+6. State the specific cause with every warning or caution.
+7. Use British English (en_GB) spelling per project directive.

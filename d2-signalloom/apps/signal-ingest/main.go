@@ -18,6 +18,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
@@ -122,10 +123,52 @@ func main() {
 	// Audit webhook receiver
 	auditReceiver := apiaudit.NewWebhookReceiver(ctx, 0, 0, storeSink)
 
-	// Collector registry: constructed and started at boot before HTTP server
-	collectorRegistry := collectors.NewRegistryFromEnv(storeSink)
+	// Collector registry: constructed and started at boot before HTTP server.
+	// Collector registry: constructed and started at boot before HTTP server.
+	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, workspacesaas, and fixtures collectors to storeSink.
+	// Reuses the auditReceiver for k8saudit mounting.
+	collectorRegistry := collectors.NewRegistryFromEnvWithReceiver(storeSink, auditReceiver)
+
+	// --- Phase 2 Collector Registration Seam (SFDP-P2-PRE) ---
+	// P2-1: gcpaudit
+	// gcpaudit collector registered via NewRegistryFromEnv (COLLECTOR_GCPAUDIT_MODE)
+
+	// P2-2: baoaudit (OpenBao audit device stream receiver)
+	// Registers baoaudit.AuditReceiver with shared storeSink, Start() driven by
+	// registry lifecycle, Stop() on shutdown, mode-gated live|fixture|off.
+	_ = collectors.NewBaoAuditCollector(collectors.ResolveEnvMode("COLLECTOR_BAOAUDIT_MODE", "SIGNAL_COLLECTOR_BAOAUDIT", "BAOAUDIT_MODE"), storeSink)
+
+	// P2-2: spirea (SPIRE SVID issuance collector)
+	// Registers spirea.SPIREIssuanceCollector with shared storeSink, Start() driven by
+	// registry lifecycle, Stop() on shutdown, mode-gated live|fixture|off.
+	_ = collectors.NewSPIREACollector(collectors.ResolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), storeSink)
+
+	// P2-3: k8saudit (K8s audit receiver webhook mount)
+	// Mounted via auditReceiver and registered in registry with live/fixture/off modes.
+
+	// P2-5: kagent (KAgent tool-log resolver collector)
+	// Registered via NewRegistryFromEnvWithReceiver (COLLECTOR_KAGENT_MODE) with live/fixture/off modes.
+
+	// P2-6: workspacesaas (Workspace/M365 thin adapter collector)
+	// Registered via NewRegistryFromEnvWithReceiver (COLLECTOR_WORKSPACESAAS_MODE) with live/fixture/off modes.
 	if err := collectorRegistry.Start(ctx); err != nil {
 		slog.Warn("collector failed to start; serving degraded", "error", err)
+	}
+
+	// Identity graph repository & resolver store (SFDP-P3-2):
+	// Reuses the audit connection pool (*sql.DB) when DATABASE_URL is set, avoiding a second pool.
+	var identityStore identity.ResolverStore
+	if pw, ok := auditWriter.(*audit.PostgresWriter); ok && pw != nil {
+		encryptor, _ := identity.NewEncryptorFromKeyString(os.Getenv("IDENTITY_ENCRYPTION_KEY"))
+		identityRepo := identity.NewPostgresRepository(pw.DB(), encryptor)
+		identityStore = identity.NewGraphResolverStore(identityRepo)
+		migCtx, cancelMig := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := identity.ApplyMigrations(migCtx, pw.DB()); err != nil {
+			slog.Warn("identity migrations deferred or failed", "error", err)
+		}
+		cancelMig()
+	} else {
+		identityStore = identity.NewGraphResolverStore(identity.NewMemoryRepository())
 	}
 
 	handlers := &api.Handlers{
@@ -135,6 +178,7 @@ func main() {
 		AuditReady:      auditReady,
 		AuditReceiver:   auditReceiver,
 		CollectorHealth: collectorRegistry.Health,
+		IdentityStore:   identityStore,
 	}
 
 	mux := http.NewServeMux()

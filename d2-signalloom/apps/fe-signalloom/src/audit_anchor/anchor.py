@@ -60,6 +60,10 @@ class AnchorError(Exception):
     pass
 
 
+class IntegrityError(AnchorError):
+    """Cryptographic or persisted evidence proves divergence."""
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DSSE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -168,7 +172,7 @@ def sign_envelope(statement: dict, private_key) -> dict:
     }
 
 
-def verify_envelope(envelope: dict, public_key) -> dict:
+def verify_envelope(envelope: dict, public_key, expected_key_id: str | None = None) -> dict:
     """Check the signature and return the Statement. Raises if it does not verify.
 
     Raises rather than returning a bool: every caller needs the payload, and a
@@ -177,15 +181,18 @@ def verify_envelope(envelope: dict, public_key) -> dict:
     """
     from cryptography.exceptions import InvalidSignature
 
+    expected_key_id = expected_key_id or key_id(public_key)
     payload = base64.b64decode(envelope["payload"])
     to_verify = pae(envelope["payloadType"], payload)
     for signature in envelope.get("signatures", []):
+        if signature.get("keyid") != expected_key_id:
+            continue
         try:
             public_key.verify(base64.b64decode(signature["sig"]), to_verify)
             return json.loads(payload)
         except InvalidSignature:
             continue
-    raise AnchorError(
+    raise IntegrityError(
         "no signature on this envelope verifies against the supplied public key -- "
         "the anchor was signed by a different key, or it has been altered"
     )
@@ -204,7 +211,7 @@ def checkpoint_from_envelope(envelope: dict, public_key) -> Checkpoint:
     checkpoint = Checkpoint.from_predicate(statement["predicate"])
     subject_digest = statement["subject"][0]["digest"]["sha256"]
     if checkpoint.digest() != subject_digest:
-        raise AnchorError(
+        raise IntegrityError(
             f"checkpoint {checkpoint.index} re-derives to {checkpoint.digest()[:16]}... "
             f"but its signed subject says {subject_digest[:16]}...; the predicate and "
             "the subject disagree"
@@ -238,13 +245,25 @@ class FileAnchorStore:
         path.write_text(json.dumps(envelope, indent=2, sort_keys=True) + "\n")
         return str(path)
 
-    def fetch_all(self) -> list:
+    def fetch_all(self, subject_prefix: str | None = None) -> list:
         if not self.directory.exists():
             return []
-        return [
+        envelopes = [
             json.loads(path.read_text())
             for path in sorted(self.directory.glob("*.dsse.json"))
         ]
+        if subject_prefix is None:
+            return envelopes
+        selected = []
+        for envelope in envelopes:
+            try:
+                statement = json.loads(base64.b64decode(envelope["payload"]))
+                name = statement["subject"][0]["name"]
+            except (KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
+                raise AnchorError(f"malformed anchor envelope while selecting subjects: {exc}")
+            if name.startswith(subject_prefix):
+                selected.append(envelope)
+        return selected
 
 
 class ArchivistaAnchorStore:
@@ -279,22 +298,42 @@ class ArchivistaAnchorStore:
 
     def health(self) -> bool:
         try:
-            with urllib.request.urlopen(
-                f"{self.base_url}/v1/health", timeout=self.timeout
-            ) as response:
-                return response.status == 200
-        except urllib.error.URLError:
+            raw = self._post(
+                "/query",
+                json.dumps(
+                    {
+                        "query": "query { dsses(first: 1) { edges { node { gitoidSha256 } } } }"
+                    }
+                ).encode("utf-8"),
+                "application/json",
+            )
+            payload = json.loads(raw)
+            return "errors" not in payload and isinstance(
+                payload["data"]["dsses"]["edges"], list
+            )
+        except (AnchorError, KeyError, TypeError, json.JSONDecodeError):
             return False
 
     def publish(self, checkpoint: Checkpoint, envelope: dict) -> str:
-        raw = self._post(
-            "/upload", json.dumps(envelope).encode("utf-8"), "application/json"
-        )
+        body = json.dumps(envelope).encode("utf-8")
+        raw = self._post("/upload", body, "application/json")
         try:
-            return json.loads(raw).get("gitoid", raw.strip())
+            receipt = json.loads(raw).get("gitoid", raw.strip())
         except json.JSONDecodeError:
             # Archivista returns the bare gitoid as text/plain on some versions.
-            return raw.strip()
+            receipt = raw.strip()
+        receipt = receipt.removeprefix("sha256:")
+        try:
+            valid_receipt = len(receipt) == 64 and bytes.fromhex(receipt).hex() == receipt
+        except ValueError:
+            valid_receipt = False
+        framed = f"blob {len(body)}\0".encode("ascii") + body
+        expected = hashlib.sha256(framed).hexdigest()
+        if not valid_receipt:
+            raise AnchorError("Archivista response does not contain a valid gitoid")
+        if receipt != expected:
+            raise AnchorError("Archivista receipt gitoid does not match uploaded envelope")
+        return receipt
 
     def _gitoids(self, subject_prefix: str) -> list:
         query = {
@@ -322,7 +361,7 @@ class ArchivistaAnchorStore:
         return envelopes
 
 
-def store_from_env():
+def store_from_env(require_archivista: bool = False):
     """Pick a transport. Archivista when it answers, files otherwise.
 
     Fails over rather than failing hard, but the CLI always prints which one it
@@ -330,14 +369,39 @@ def store_from_env():
     transparency log are not the same evidence, and the operator must not have
     to guess which they have.
     """
+    strict = require_archivista or os.environ.get("AUDIT_ANCHOR_REQUIRE_LOG") == "1"
     url = os.environ.get("ARCHIVISTA_URL")
+    if strict and not url:
+        raise AnchorError("strict Archivista mode requires ARCHIVISTA_URL")
     if url:
         store = ArchivistaAnchorStore(url)
         if store.health():
             return store, f"archivista:{url}"
+        if strict:
+            raise AnchorError(
+                f"strict Archivista mode configured but Archivista at {url} is unavailable"
+            )
         return (
             FileAnchorStore(os.environ.get("AUDIT_ANCHOR_DIR", "vex/out/audit-anchors")),
             f"file (ARCHIVISTA_URL={url} did not answer)",
         )
     directory = os.environ.get("AUDIT_ANCHOR_DIR", "vex/out/audit-anchors")
     return FileAnchorStore(directory), f"file:{directory}"
+
+
+def require_rekor_if_configured(timeout: int = 10) -> None:
+    """Reject configured Rekor until publication and inclusion verification exist.
+
+    Connectivity is not anchoring. This slice uses Archivista plus protected
+    local high-water state; it must never claim Rekor extended its trust boundary.
+    """
+    url = os.environ.get("REKOR_URL")
+    if not url:
+        return
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/api/v1/log", timeout=timeout) as response:
+            if response.status != 200:
+                raise AnchorError(f"Rekor at {url} returned HTTP {response.status}")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise AnchorError(f"Rekor at {url} unavailable: {exc}") from exc
+    raise AnchorError("Rekor anchoring is not implemented; no checkpoint was published to Rekor")

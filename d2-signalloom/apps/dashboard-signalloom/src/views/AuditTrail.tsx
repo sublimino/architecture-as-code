@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
@@ -71,6 +72,7 @@ const EVENT_TYPES = [
   // indistinguishable from them never having happened. Migration 032.
   'demo.supercred.phase_run', 'demo.supercred.reset_requested',
   'demo.signalfusion.phase_run', 'demo.signalfusion.reset_requested',
+  'demo.distancelatency.phase_run', 'demo.distancelatency.reset_requested',
   // Legacy vocabulary from migration 007. No call site emits these, but rows
   // using them may exist in long-lived environments, so they stay filterable.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
@@ -111,6 +113,8 @@ const EVENT_COLORS: Record<string, string> = {
   'demo.supercred.reset_requested': 'var(--amber)',
   'demo.signalfusion.phase_run': 'var(--violet)',
   'demo.signalfusion.reset_requested': 'var(--amber)',
+  'demo.distancelatency.phase_run': 'var(--violet)',
+  'demo.distancelatency.reset_requested': 'var(--amber)',
   enrollment: 'var(--teal)',
   state_transition: 'var(--violet)',
   violation_detected: 'var(--error)',
@@ -283,6 +287,12 @@ const TOOLBAR_WRAP: CSSProperties = {
 
 export default function AuditTrail() {
   const { getAccessTokenSilently } = useAuth0()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const initialAgent = searchParams.get('agent') || searchParams.get('actor') || searchParams.get('agentId') || ''
+  const initialFrom = searchParams.get('from') || searchParams.get('fromDate') || ''
+  const initialTo = searchParams.get('to') || searchParams.get('toDate') || ''
+  const initialType = searchParams.get('type') || searchParams.get('eventType') || ''
 
   const [events, setEvents] = useState<AuditEventResponse[]>([])
   const [total, setTotal] = useState(0)
@@ -291,10 +301,10 @@ export default function AuditTrail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
-  const [agentId, setAgentId] = useState('')
-  const [eventType, setEventType] = useState('')
+  const [fromDate, setFromDate] = useState(initialFrom)
+  const [toDate, setToDate] = useState(initialTo)
+  const [agentId, setAgentId] = useState(initialAgent)
+  const [eventType, setEventType] = useState(initialType)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
@@ -305,7 +315,8 @@ export default function AuditTrail() {
   const [eventClass, setEventClass] = useState<EventClass>('all')
 
   // Track active filters so polling uses same params
-  const filtersRef = useRef({ fromDate, toDate, agentId, eventType })
+  const initialFilters: AuditQuery = { fromDate: initialFrom, toDate: initialTo, agentId: initialAgent, eventType: initialType }
+  const filtersRef = useRef<AuditQuery>(initialFilters)
 
   /**
    * The same four values as `filtersRef`, mirrored into state.
@@ -318,7 +329,7 @@ export default function AuditTrail() {
    * to be believed, a filter that looks applied and is not is the worst
    * available failure. Every write to the ref writes here too.
    */
-  const [applied, setApplied] = useState<AuditQuery>(NO_FILTERS)
+  const [applied, setApplied] = useState<AuditQuery>(initialFilters)
 
   /**
    * @param silent Background refresh: no spinner, and a failure leaves the last
@@ -362,10 +373,16 @@ export default function AuditTrail() {
   }, [getAccessTokenSilently])
 
   useEffect(() => {
-    filtersRef.current = NO_FILTERS
-    setApplied(NO_FILTERS)
+    const q: AuditQuery = {
+      fromDate: initialFrom,
+      toDate: initialTo,
+      agentId: initialAgent,
+      eventType: initialType,
+    }
+    filtersRef.current = q
+    setApplied(q)
     fetchPage(1, true)
-  }, [fetchPage])
+  }, [fetchPage, initialFrom, initialTo, initialAgent, initialType])
 
   useEffect(() => {
     // Only while the operator is on the first page. "Load More" appends pages
@@ -384,8 +401,21 @@ export default function AuditTrail() {
     setApplied(next)
   }
 
+  const syncUrl = useCallback((q: AuditQuery) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (q.fromDate) next.set('from', q.fromDate); else next.delete('from')
+      if (q.toDate) next.set('to', q.toDate); else next.delete('to')
+      if (q.agentId) next.set('agent', q.agentId); else { next.delete('agent'); next.delete('actor'); next.delete('agentId'); }
+      if (q.eventType) next.set('type', q.eventType); else { next.delete('type'); next.delete('eventType'); }
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
   function applyFilters() {
-    commit({ fromDate, toDate, agentId, eventType })
+    const next = { fromDate, toDate, agentId, eventType }
+    commit(next)
+    syncUrl(next)
     setEvents([])
     fetchPage(1, true)
   }
@@ -405,14 +435,17 @@ export default function AuditTrail() {
     setSearch('')
     setEventClass('all')
     commit(NO_FILTERS)
+    syncUrl(NO_FILTERS)
     setEvents([])
     fetchPage(1, true)
   }
 
   function toggleTypeFilter(type: string) {
-    const next = eventType === type ? '' : type
-    setEventType(next)
-    commit({ ...filtersRef.current, eventType: next })
+    const nextType = eventType === type ? '' : type
+    setEventType(nextType)
+    const next = { ...filtersRef.current, eventType: nextType }
+    commit(next)
+    syncUrl(next)
     setEvents([])
     fetchPage(1, true)
   }

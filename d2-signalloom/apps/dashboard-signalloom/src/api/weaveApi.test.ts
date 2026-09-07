@@ -92,6 +92,24 @@ describe('weaveApi live-mode endpoints', () => {
     )
   })
 
+  it('getActorAuthorization calls req with /signals/actors/:id/authorization', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getActorAuthorization('tok', 'actor-001')
+    expect(mockReq).toHaveBeenCalledWith('/signals/actors/actor-001/authorization', 'tok')
+  })
+
+  it('getActorAuthorization appends action query param if provided', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getActorAuthorization('tok', 'actor-001', 'query secret')
+    expect(mockReq).toHaveBeenCalledWith('/signals/actors/actor-001/authorization?action=query%20secret', 'tok')
+  })
+
+  it('getAuthorizationChains calls req with /signals/authorization', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getAuthorizationChains('tok')
+    expect(mockReq).toHaveBeenCalledWith('/signals/authorization', 'tok')
+  })
+
   it('passes the token as second argument to req', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getActors('my-secret-token')
@@ -149,6 +167,22 @@ describe('weave routes in fakeData resolveFake', () => {
     expect(typeof (result as { seeded: number }).seeded).toBe('number')
   })
 
+  it('resolves GET /signals/actors/:id/authorization', () => {
+    const result = resolveFake('GET', '/signals/actors/actor-shadow-llm-001/authorization')
+    expect(result).toBeDefined()
+    const chain = result as { complete: boolean; attestationGitoid: string }
+    expect(chain.complete).toBe(true)
+    expect(chain.attestationGitoid).toBeTruthy()
+  })
+
+  it('resolves GET /signals/authorization', () => {
+    const result = resolveFake('GET', '/signals/authorization')
+    expect(result).toBeDefined()
+    const queryResp = result as { chains: unknown[]; kpi_fraction: number }
+    expect(queryResp.chains.length).toBeGreaterThan(0)
+    expect(queryResp.kpi_fraction).toBe(1.0)
+  })
+
   it('returns undefined for unknown signal routes', () => {
     const result = resolveFake('GET', '/signals/nonexistent')
     expect(result).toBeUndefined()
@@ -160,6 +194,7 @@ describe('weave routes in fakeData resolveFake', () => {
     expect(hasFakeRoute('GET', '/signals/coverage')).toBe(true)
     expect(hasFakeRoute('POST', '/signals/correlate')).toBe(true)
     expect(hasFakeRoute('POST', '/signals/collectors/seed')).toBe(true)
+    expect(hasFakeRoute('GET', '/signals/authorization')).toBe(true)
   })
 
   it('strips /api prefix before matching', () => {

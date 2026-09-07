@@ -5,7 +5,9 @@ import time
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any, Literal
 
+import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -558,3 +560,1883 @@ def test_openapi_publishes_response_models_for_each_compatibility_route(client):
         assert responses["405"]["content"]["application/json"]["schema"] == {
             "$ref": "#/components/schemas/ErrorResponse"
         }
+
+
+def test_audit_get_is_strictly_side_effect_free_and_does_not_insert_on_zero_results(client, monkeypatch):
+    """Proves GET /api/audit performs 0 SQL writes and is side-effect free on 0 results."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any]:
+            return {"total": 0}
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/audit must NEVER execute SQL write statements")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def _mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", _mock_get_pool)
+
+    response = client.get("/api/audit?agent=nonexistent-agent", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert response.json()["events"] == []
+    assert response.json()["total"] == 0
+    assert len(executed_writes) == 0
+
+
+def test_agent_detail_returns_404_for_unknown_agent_in_fixture_mode(client, monkeypatch):
+    """Proves GET /api/agents/{id} returns HTTP 404 for unknown agent without synthetic fallback."""
+    async def get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get("/api/agents/unknown-agent-uuid-9999", headers=bearer(token_for("alice")))
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_agent_detail_returns_404_for_unknown_agent_in_db_mode(client, monkeypatch):
+    """Proves GET /api/agents/{id} returns HTTP 404 in DB mode when agent is not found."""
+    class EmptyDBPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+
+    async def get_pool():
+        return EmptyDBPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get("/api/agents/unknown-agent-uuid-9999", headers=bearer(token_for("alice")))
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_source_health_header_and_metadata_emitted_on_agents_get(client, monkeypatch):
+    """Proves source_health header and metadata are emitted on GET /api/agents."""
+    class HealthyAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": [{"id": "pod-1", "name": "Pod Agent"}]})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", HealthyAsyncClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert response.headers.get("source_health") == "healthy"
+    assert response.headers.get("X-Source-Health") == "healthy"
+    assert response.json()["source_health"] == "healthy"
+
+
+def test_source_health_crypto_prover_fails_closed_with_503(client, monkeypatch):
+    """Proves GET /api/health/crypto fails closed with HTTP 503 on unreachable upstream."""
+    class FailingAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            raise httpx.ConnectError("prover down", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", FailingAsyncClient)
+
+    response = client.get("/api/health/crypto", headers=bearer(token_for("alice")))
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "upstream_unavailable"
+
+
+def test_posture_scale_normalized_zero_controls_is_none(client, monkeypatch):
+    """Proves 0 evaluated controls result in posture_score=None (Not assessed)."""
+    class SingleAgentClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": [{"id": "pod-zero-ctrl", "name": "Unassessed Agent"}]})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", SingleAgentClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    agent = response.json()["agents"][0]
+    assert agent["compliance_summary"]["total_controls"] == 0
+    assert agent["compliance_summary"]["posture_score"] is None
+
+
+def test_enriched_inventory_preserves_discovery_fields(client, monkeypatch):
+    """Proves GET /api/agents preserves Kubernetes discovery metadata."""
+    class DiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "pod-worker-1",
+                            "name": "Worker Agent",
+                            "namespace": "fe-signalloom-agents",
+                            "service_account": "sa-worker",
+                            "node": "kind-osramp-control-plane",
+                            "phase": "Running",
+                            "pod_uid": "uid-worker-123",
+                            "framework": "kagent",
+                            "model": "gpt-5.4",
+                            "state": "active",
+                            "created_at": "2026-08-01T12:00:00Z",
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", DiscoveryClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    agent = data["agents"][0]
+    assert agent["namespace"] == "fe-signalloom-agents"
+    assert agent["service_account"] == "sa-worker"
+    assert agent["node"] == "kind-osramp-control-plane"
+    assert agent["phase"] == "Running"
+    assert agent["pod_uid"] == "uid-worker-123"
+    assert agent["framework"] == "kagent"
+    assert agent["model_name"] == "gpt-5.4"
+    assert agent["state"] == "active"
+    assert agent["record_class"] == "discovered"
+    assert agent["is_registry_linked"] is False
+
+    # Check Section 2.1 sub-objects
+    assert agent["runtime"]["cluster_id"] == "kind-osramp"
+    assert agent["runtime"]["namespace"] == "fe-signalloom-agents"
+    assert agent["runtime"]["pod_uid"] == "uid-worker-123"
+    assert agent["runtime"]["framework"] == "kagent"
+    assert agent["identity"]["spiffe_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-worker"
+    assert agent["identity"]["spiffe_status"] == "linked"
+    assert agent["responsibility"]["assignment_status"] == "registry_unlinked"
+    assert agent["assessment_summary"]["status"] == "not_assessed"
+
+
+def test_enriched_inventory_server_side_search_and_filters(client, monkeypatch):
+    """Proves GET /api/agents server-side search, namespace, framework, and attention filters."""
+    class MultiAgentClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "pod-alpha",
+                            "name": "Alpha Service",
+                            "namespace": "production",
+                            "framework": "langchain",
+                            "state": "active",
+                        },
+                        {
+                            "id": "pod-beta",
+                            "name": "Beta Scanner",
+                            "namespace": "staging",
+                            "framework": "crewai",
+                            "state": "error",
+                        },
+                        {
+                            "id": "pod-gamma",
+                            "name": "Gamma Auditor",
+                            "namespace": "production",
+                            "framework": "kagent",
+                            "state": "active",
+                        },
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", MultiAgentClient)
+
+    # Search filter
+    res_search = client.get("/api/agents?search=scanner", headers=bearer(token_for("alice")))
+    assert res_search.status_code == 200
+    assert res_search.json()["total"] == 1
+    assert res_search.json()["agents"][0]["name"] == "Beta Scanner"
+
+    # Namespace filter
+    res_ns = client.get("/api/agents?namespace=production", headers=bearer(token_for("alice")))
+    assert res_ns.status_code == 200
+    assert res_ns.json()["total"] == 2
+    assert {a["id"] for a in res_ns.json()["agents"]} == {"pod-alpha", "pod-gamma"}
+
+    # Framework filter
+    res_fw = client.get("/api/agents?framework=kagent", headers=bearer(token_for("alice")))
+    assert res_fw.status_code == 200
+    assert res_fw.json()["total"] == 1
+    assert res_fw.json()["agents"][0]["id"] == "pod-gamma"
+
+    # Attention filter
+    res_att = client.get("/api/agents?attention=critical", headers=bearer(token_for("alice")))
+    assert res_att.status_code == 200
+    assert res_att.json()["total"] == 1
+    assert res_att.json()["agents"][0]["id"] == "pod-beta"
+
+
+def test_enriched_inventory_pagination_and_meta(client, monkeypatch):
+    """Proves GET /api/agents pagination and meta metrics."""
+    class PaginatedClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {"id": "agent-p1", "name": "P1"},
+                        {"id": "agent-p2", "name": "P2"},
+                        {"id": "agent-p3", "name": "P3"},
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", PaginatedClient)
+
+    res_p1 = client.get("/api/agents?page=1&limit=2", headers=bearer(token_for("alice")))
+    assert res_p1.status_code == 200
+    data_p1 = res_p1.json()
+    assert len(data_p1["agents"]) == 2
+    assert data_p1["total"] == 3
+    assert data_p1["pagination"]["page"] == 1
+    assert data_p1["pagination"]["limit"] == 2
+    assert data_p1["pagination"]["total_pages"] == 2
+    assert data_p1["meta"]["total_records"] == 3
+    assert data_p1["meta"]["discovered_count"] == 3
+
+    res_p2 = client.get("/api/agents?page=2&limit=2", headers=bearer(token_for("alice")))
+    assert res_p2.status_code == 200
+    data_p2 = res_p2.json()
+    assert len(data_p2["agents"]) == 1
+    assert data_p2["agents"][0]["id"] == "agent-p3"
+
+
+def test_enriched_inventory_get_is_strictly_side_effect_free(client, monkeypatch):
+    """Proves GET /api/agents does not execute any write/INSERT queries."""
+    write_executed = []
+
+    class MockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                write_executed.append(query)
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert len(write_executed) == 0
+
+
+# ===========================================================================
+# SFAGENTS-P1-5: Action Capabilities API (/api/capabilities)
+# ===========================================================================
+
+def test_capabilities_requires_authentication(client):
+    """Proves GET /api/capabilities enforces Bearer authentication and tenant binding."""
+    # Missing token -> 401
+    res_no_auth = client.get("/api/capabilities")
+    assert res_no_auth.status_code == 401
+    assert res_no_auth.json()["error"]["code"] == "authentication_required"
+
+    # Invalid token -> 401
+    res_bad_token = client.get("/api/capabilities", headers=bearer("not-a-valid-jwt"))
+    assert res_bad_token.status_code == 401
+    assert res_bad_token.json()["error"]["code"] == "invalid_token"
+
+    # Forbidden subject -> 403
+    res_forbidden = client.get("/api/capabilities", headers=bearer(token_for("mallory")))
+    assert res_forbidden.status_code == 403
+    assert res_forbidden.json()["error"]["code"] == "tenant_forbidden"
+
+
+def test_capabilities_for_operator_user(client):
+    """Proves GET /api/capabilities returns tenant-scoped capabilities for standard operator."""
+    response = client.get("/api/capabilities", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert response.headers.get("X-Source-Health") == "healthy"
+
+    data = response.json()
+    assert data["tenant"] == "tenant-a"
+    assert data["principal_id"] == "alice"
+    assert data["is_superadmin"] is False
+    assert data["roles"] == ["operator"]
+    assert data["source_health"] == "healthy"
+
+    # Tenant capabilities
+    tenant_caps = data["tenant_capabilities"]
+    assert tenant_caps["view_agents"] is True
+    assert tenant_caps["register_agent"] is True
+    assert tenant_caps["export_compliance"] is True
+    assert tenant_caps["view_crypto_proofs"] is True
+    assert tenant_caps["run_network_tests"] is True
+    assert tenant_caps["view_audit_trail"] is True
+    assert tenant_caps["manage_settings"] is False
+    assert tenant_caps["manage_api_keys"] is False
+    assert tenant_caps["manage_users"] is False
+    assert tenant_caps["run_supercred_scenario"] is False
+
+    # Action capabilities
+    actions = data["actions"]
+    assert actions["freeze"]["allowed"] is False
+    assert "superadmin" in actions["freeze"]["reason"].lower()
+    assert actions["thaw"]["allowed"] is False
+    assert actions["network_isolate"]["allowed"] is False
+    assert actions["network_restore"]["allowed"] is False
+    assert actions["revoke_credentials"]["allowed"] is False
+    assert actions["issue_credentials"]["allowed"] is True
+    assert actions["reassess_compliance"]["allowed"] is True
+    assert actions["decommission"]["allowed"] is False
+    assert actions["decommission"]["requires_dual_approval"] is True
+    assert actions["run_scenario"]["allowed"] is False
+    assert data["workload"] is None
+
+
+def test_capabilities_for_superadmin_user(client, monkeypatch):
+    """Proves GET /api/capabilities returns elevated capabilities for superadmin."""
+    monkeypatch.setattr(
+        settings,
+        "api_subject_tenants",
+        {"alice": "tenant-a", "bob": "tenant-b", "demo-user": "tenant-demo"},
+    )
+    token = token_for("demo-user", extra_claims={"email": "demo-user@signalloom.local"})
+    response = client.get("/api/capabilities", headers=bearer(token))
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["is_superadmin"] is True
+    assert "superadmin" in data["roles"]
+
+    tenant_caps = data["tenant_capabilities"]
+    assert tenant_caps["manage_settings"] is True
+    assert tenant_caps["manage_api_keys"] is True
+    assert tenant_caps["manage_users"] is True
+    assert tenant_caps["run_supercred_scenario"] is True
+
+    actions = data["actions"]
+    assert actions["freeze"]["allowed"] is True
+    assert actions["thaw"]["allowed"] is True
+    assert actions["network_isolate"]["allowed"] is True
+    assert actions["network_restore"]["allowed"] is True
+    assert actions["revoke_credentials"]["allowed"] is True
+    assert actions["issue_credentials"]["allowed"] is True
+    assert actions["reassess_compliance"]["allowed"] is True
+    assert actions["decommission"]["allowed"] is False
+    assert actions["decommission"]["requires_dual_approval"] is True
+    assert actions["run_scenario"]["allowed"] is True
+
+
+def test_operational_inventory_response_envelope_and_models(client, monkeypatch):
+    """SFAGENTS-P1-6: Asserts enriched inventory models and envelope for operational table."""
+    class SampleClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "agent-op-1",
+                            "name": "Audit Scanner",
+                            "namespace": "security",
+                            "framework": "LangChain",
+                            "model": "gpt-4o",
+                            "service_account": "scanner-sa",
+                            "node": "node-1",
+                            "phase": "Running",
+                            "pod_uid": "uid-12345",
+                            "cgroup_frozen": False,
+                            "cgroup_state": "thawed",
+                            "tc_drop_active": False,
+                            "traffic_control_state": "allow",
+                            "ebpf_active": True,
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", SampleClient)
+
+    res = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["agents"]) == 1
+    agent = data["agents"][0]
+    assert agent["id"] == "agent-op-1"
+    assert agent["runtime"]["namespace"] == "security"
+    assert agent["runtime"]["framework"] == "LangChain"
+    assert agent["responsibility"]["assignment_status"] in ("unassigned", "registry_unlinked")
+    assert agent["assessment_summary"]["status"] == "not_assessed"
+    assert agent["kernel_telemetry"]["cgroup_state"] == "thawed"
+    assert agent["kernel_telemetry"]["traffic_control_state"] == "allow"
+
+
+def test_capabilities_workload_scoped_discovery(client, monkeypatch):
+    """Proves GET /api/capabilities?agent_id=... resolves discovered workload scope."""
+    class DiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "discovered-agent-1",
+                            "name": "Discovered Pod",
+                            "namespace": "agent-ns",
+                            "service_account": "agent-sa",
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", DiscoveryClient)
+
+    response = client.get(
+        "/api/capabilities?agent_id=discovered-agent-1",
+        headers=bearer(token_for("alice")),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workload"] is not None
+    assert data["workload"]["agent_id"] == "discovered-agent-1"
+    assert data["workload"]["namespace"] == "agent-ns"
+    assert data["workload"]["freeze"]["scope"] == "workload:discovered-agent-1"
+    assert data["workload"]["freeze"]["allowed"] is False  # alice is not admin
+
+
+def test_capabilities_workload_scoped_db(client, monkeypatch):
+    """Proves GET /api/capabilities?agent_id=... resolves DB agent scope."""
+    monkeypatch.setattr(
+        settings,
+        "api_subject_tenants",
+        {"alice": "tenant-a", "bob": "tenant-b", "demo-user": "tenant-demo"},
+    )
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "SELECT id FROM agent_registry" in query:
+                return {"id": "11111111-1111-1111-1111-111111111111"}
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    token = token_for("demo-user", extra_claims={"email": "demo-user@signalloom.local"})
+    response = client.get(
+        "/api/capabilities?agent_id=11111111-1111-1111-1111-111111111111&namespace=custom-ns",
+        headers=bearer(token),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workload"] is not None
+    assert data["workload"]["agent_id"] == "11111111-1111-1111-1111-111111111111"
+    assert data["workload"]["namespace"] == "custom-ns"
+    assert data["workload"]["freeze"]["allowed"] is True
+    assert data["workload"]["freeze"]["scope"] == "workload:11111111-1111-1111-1111-111111111111"
+
+
+def test_capabilities_returns_404_for_unknown_agent_id(client, monkeypatch):
+    """Proves GET /api/capabilities?agent_id=... returns 404 for unknown agent without synthetic fallback."""
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+
+    async def get_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get(
+        "/api/capabilities?agent_id=unknown-agent-uuid-9999",
+        headers=bearer(token_for("alice")),
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_capabilities_get_is_strictly_side_effect_free(client, monkeypatch):
+    """Proves GET /api/capabilities performs zero SQL INSERT/UPDATE/DELETE writes."""
+    writes_recorded = []
+
+    class MockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return []
+
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get("/api/capabilities", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert len(writes_recorded) == 0
+
+
+def test_agent_response_model_with_drawer_telemetry_and_metadata():
+    """Proves AgentResponse serialization supports all Quick Evidence Drawer fields."""
+    telemetry = api_compat.SentinelKernelTelemetry(
+        cgroup_state="frozen",
+        traffic_control_state="drop",
+        ebpf_active=True,
+        ebpf_program_attached=True,
+        observed_at="2026-09-07T08:30:00Z",
+        last_observed_at="2026-09-07T08:30:00Z",
+    )
+    assert telemetry.ebpf_program_attached is True
+    assert telemetry.last_observed_at == "2026-09-07T08:30:00Z"
+
+    agent = api_compat.AgentResponse(
+        id="agent-drawer-001",
+        name="Drawer Verification Agent",
+        type="Signal Loom Built",
+        tenant_id="tenant-demo",
+        lifecycle_state="active",
+        last_transition_at="2026-09-07T08:00:00Z",
+        eu_ai_act_risk_class="limited",
+        compliance_summary=api_compat.ComplianceSummaryInline(
+            total_controls=6,
+            passing=5,
+            failing=1,
+            pending=0,
+            posture_score=0.83,
+        ),
+        created_at="2026-09-01T10:00:00Z",
+        record_class="registered",
+        is_registry_linked=True,
+        kernel_telemetry=telemetry,
+        runtime=api_compat.RuntimeMetadata(
+            namespace="sec-ops",
+            framework="kagent",
+            execution_mode="autonomous",
+            model="claude-3-7-sonnet",
+            node="node-1",
+            pod_uid="pod-uid-drawer-1",
+            service_account="drawer-sa",
+            phase="Running",
+        ),
+        responsibility=api_compat.ResponsibilityMetadata(
+            owner_name="alice@signal-loom.ai",
+            team="Platform Security",
+            assignment_status="assigned",
+        ),
+        identity=api_compat.IdentityMetadata(
+            spiffe_id="spiffe://cluster.local/ns/sec-ops/sa/drawer-sa",
+            spiffe_status="linked",
+            aliases=["alias-1", "alias-2"],
+        ),
+        attention=api_compat.AttentionMetadata(
+            level="critical",
+            highest_issue="1 failing control detected",
+        ),
+        timestamps=api_compat.TimestampsMetadata(
+            created_at="2026-09-01T10:00:00Z",
+            last_observed_at="2026-09-07T08:30:00Z",
+            last_transition_at="2026-09-07T08:00:00Z",
+        ),
+    )
+    serialized = agent.model_dump()
+    assert serialized["id"] == "agent-drawer-001"
+    assert serialized["kernel_telemetry"]["cgroup_state"] == "frozen"
+    assert serialized["kernel_telemetry"]["traffic_control_state"] == "drop"
+    assert serialized["kernel_telemetry"]["ebpf_program_attached"] is True
+    assert serialized["runtime"]["framework"] == "kagent"
+    assert serialized["responsibility"]["owner_name"] == "alice@signal-loom.ai"
+    assert serialized["identity"]["spiffe_status"] == "linked"
+    assert serialized["attention"]["level"] == "critical"
+
+
+def test_agent_detail_get_is_strictly_side_effect_free(client, monkeypatch):
+    """Proves GET /api/agents/{id} performs zero SQL INSERT/UPDATE writes on hit or miss."""
+    writes_recorded = []
+
+    class MockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return []
+
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                    "name": "Live Registered Agent",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "system",
+                    "eu_ai_act_risk_class": "limited",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    # 1. Existing agent lookup
+    res_hit = client.get(
+        "/api/agents/11111111-1111-1111-1111-111111111111",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_hit.status_code == 200
+    assert len(writes_recorded) == 0
+
+    # 2. Non-existent agent lookup
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return None
+
+    async def get_empty_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_empty_pool)
+
+    res_miss = client.get(
+        "/api/agents/non-existent-agent-id",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_miss.status_code == 404
+    assert len(writes_recorded) == 0
+
+
+def test_dossier_detail_preserves_all_tab1_metadata(client, monkeypatch):
+    """SFAGENTS-P2-1: Proves GET /api/agents/{id} returns all enriched Tab 1 Overview structures."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("22222222-2222-2222-2222-222222222222"),
+                    "name": "Dossier Test Agent",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "limited",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/22222222-2222-2222-2222-222222222222",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "22222222-2222-2222-2222-222222222222"
+    assert data["name"] == "Dossier Test Agent"
+    assert data["record_class"] == "registered"
+    assert data["is_registry_linked"] is True
+    assert "runtime" in data
+    assert "responsibility" in data
+    assert "identity" in data
+    assert "operational_state" in data
+    assert "assessment_summary" in data
+    assert "attention" in data
+    assert "timestamps" in data
+    assert data["responsibility"]["owner_name"] == "alice@signal-loom.ai"
+    assert data["responsibility"]["assignment_status"] == "assigned"
+
+
+def test_dossier_unknown_id_fails_closed_with_404(client, monkeypatch):
+    """SFAGENTS-P2-1: Proves GET /api/agents/{unknown_id} returns HTTP 404 without synthesizing records."""
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+
+    async def get_empty_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_empty_pool)
+
+    res = client.get(
+        "/api/agents/00000000-0000-0000-0000-000000000000",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 404
+    body = res.json()
+    assert body["error"]["code"] == "not_found"
+    assert "not found" in body["error"]["message"].lower()
+
+
+def test_dossier_identity_spiffe_metadata_enrichment(client, monkeypatch):
+    """SFAGENTS-P2-2: Proves GET /api/agents/{id} returns all enriched Tab 2 IdentityMetadata structures."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("33333333-3333-3333-3333-333333333333"),
+                    "name": "Identity Test Agent",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "limited",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                    "spiffe_id": "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-identity-agent",
+                }
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "identity" in data
+    ident = data["identity"]
+    assert ident["spiffe_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-identity-agent"
+    assert ident["spiffe_status"] == "linked"
+    assert ident["trust_domain"] == "osramp.acme.local"
+    assert ident["svid_type"] == "x509"
+    assert ident["cert_issuer"] == "spiffe://signalloom.demo/spire/server"
+    assert ident["authorizing_principal_id"] == "alice@signal-loom.ai"
+    assert ident["executing_actor_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-identity-agent"
+    assert ident["delegation_hops"] == 1
+    assert "openbao_role" in ident
+    assert "openbao_path" in ident
+
+
+def test_dossier_identity_separation_of_planes(client, monkeypatch):
+    """SFAGENTS-P2-2: Proves separation of identity planes (authorizing principal vs executing actor)."""
+    class MockDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={
+                "agents": [
+                    {
+                        "id": "discovered-agent-4444",
+                        "name": "Discovered K8s Workload",
+                        "namespace": "fe-signalloom-agents",
+                        "service_account": "sa-discovered",
+                        "state": "active",
+                        "node": "worker-node-1",
+                        "pod_uid": "uid-4444-5555",
+                    }
+                ]
+            })
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", MockDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_empty_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_empty_pool)
+
+    res = client.get(
+        "/api/agents/discovered-agent-4444",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    ident = data["identity"]
+    # Discovered workload has no human authorizing principal -> None (rendered as Unassigned / Registry not linked)
+    assert ident["authorizing_principal_id"] is None
+    # Executing actor is the workload SVID
+    assert ident["executing_actor_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-discovered"
+    assert ident["delegation_hops"] == 0
+    # Selectors are populated
+    assert "k8s:ns:fe-signalloom-agents" in ident["selectors"]
+    assert "k8s:sa:sa-discovered" in ident["selectors"]
+
+
+def test_dossier_identity_get_is_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-2: Proves GET /api/agents and detail queries are side-effect-free (zero SQL DML writes)."""
+    writes_recorded = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                writes_recorded.append(query)
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                writes_recorded.append(query)
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            writes_recorded.append(query)
+            return "OK"
+
+    async def get_ro_pool():
+        return ReadOnlyMockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_ro_pool)
+
+    res = client.get(
+        "/api/agents/unknown-identity-probe",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 404
+    assert len(writes_recorded) == 0
+
+
+def test_tab3_access_containment_tracks_models_and_telemetry(client, monkeypatch):
+    """SFAGENTS-P2-3: Proves GET /api/agents/{id} returns 3 independent containment tracks and kernel telemetry."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("33333333-3333-3333-3333-333333333333"),
+                    "name": "Containment Sentinel Workload",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "suspended",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "high",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "33333333-3333-3333-3333-333333333333"
+    assert "kernel_telemetry" in data
+    assert "credential_state" in data
+    assert "operational_state" in data
+
+    # Verify containment tracks in operational_state
+    op_state = data["operational_state"]
+    assert "containment" in op_state
+    assert op_state["containment"]["process_freeze"] in ("active", "inactive", "requested", "unsupported")
+    assert op_state["containment"]["network_isolation"] in ("active", "inactive", "requested", "unsupported")
+    assert op_state["containment"]["credential_revocation"] in ("active", "inactive", "requested", "unsupported")
+
+
+def test_tab3_capabilities_workload_scoped_rbac_and_invariants(client, monkeypatch):
+    """SFAGENTS-P2-3: Proves GET /api/capabilities returns workload-scoped capabilities and enforces identity plane separation."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {"id": uuid.UUID("33333333-3333-3333-3333-333333333333")}
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    # 1. Non-superadmin operator caller
+    res_op = client.get(
+        "/api/capabilities?agent_id=33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_op.status_code == 200
+    data_op = res_op.json()
+    assert data_op["is_superadmin"] is False
+    assert data_op["workload"] is not None
+    assert data_op["workload"]["freeze"]["allowed"] is False
+    assert data_op["workload"]["network_isolate"]["allowed"] is False
+    assert data_op["workload"]["issue_credentials"]["allowed"] is True
+    assert data_op["workload"]["reassess_compliance"]["allowed"] is True
+    assert data_op["workload"]["decommission"]["allowed"] is False
+    assert data_op["workload"]["decommission"]["requires_dual_approval"] is True
+
+    # 2. Superadmin caller
+    monkeypatch.setattr(
+        settings,
+        "api_subject_tenants",
+        {"alice": "tenant-demo", "demo-user": "tenant-demo"},
+    )
+    admin_token = token_for("demo-user", extra_claims={"email": "demo-user@signalloom.local"})
+    res_admin = client.get(
+        "/api/capabilities?agent_id=33333333-3333-3333-3333-333333333333",
+        headers=bearer(admin_token),
+    )
+    assert res_admin.status_code == 200
+    data_admin = res_admin.json()
+    assert data_admin["is_superadmin"] is True
+    assert data_admin["workload"]["freeze"]["allowed"] is True
+    assert data_admin["workload"]["network_isolate"]["allowed"] is True
+    assert data_admin["workload"]["revoke_credentials"]["allowed"] is True
+
+
+def test_tab3_capabilities_is_strictly_side_effect_free_under_rfc9110(client, monkeypatch):
+    """SFAGENTS-P2-3: Proves GET /api/capabilities performs 0 SQL writes and is strictly idempotent."""
+    writes_recorded = []
+
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            if "agent_registry" in query:
+                return {"id": uuid.UUID("33333333-3333-3333-3333-333333333333")}
+            return None
+
+        async def execute(self, query: str, *params: Any) -> str:
+            writes_recorded.append(query)
+            raise AssertionError("GET /api/capabilities must never write to database")
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/capabilities?agent_id=33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    assert len(writes_recorded) == 0
+    assert res.headers.get("X-Source-Health") == "healthy"
+
+
+
+
+def test_tab4_compliance_posture_is_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves GET /api/compliance/posture is strictly side-effect free and returns control ratios."""
+    writes_recorded = []
+
+    class ReadOnlyPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                writes_recorded.append(query)
+                raise AssertionError(f"Illegal SQL mutation in GET: {query}")
+            if "agent_registry" in query:
+                return [
+                    {
+                        "id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                        "name": "Sir Lancelot",
+                    }
+                ]
+            if "agent_compliance_results" in query:
+                return [
+                    {
+                        "agent_id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                        "control_id": "eu-ai-act:art-9",
+                        "control_name": "Risk management system (Article 9)",
+                        "framework_name": "EU AI Act",
+                        "status": "pass",
+                        "assessed_at": datetime.now(timezone.utc),
+                        "evidence_ref": "opa://assessments/lancelot/art-9",
+                    },
+                    {
+                        "agent_id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                        "control_id": "soc2:cc7.2",
+                        "control_name": "System monitoring",
+                        "framework_name": "SOC 2",
+                        "status": "fail",
+                        "assessed_at": datetime.now(timezone.utc),
+                        "evidence_ref": "opa://assessments/lancelot/cc7.2",
+                    },
+                ]
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            writes_recorded.append(query)
+            raise AssertionError(f"Illegal SQL execute in GET: {query}")
+
+    async def get_readonly_pool():
+        return ReadOnlyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_readonly_pool)
+
+    res = client.get(
+        "/api/compliance/posture",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    assert len(writes_recorded) == 0
+    data = res.json()
+    assert "agents" in data
+    assert len(data["agents"]) == 1
+    agent_posture = data["agents"][0]
+    assert agent_posture["agent_id"] == "11111111-1111-1111-1111-111111111111"
+    assert agent_posture["agent_name"] == "Sir Lancelot"
+    assert agent_posture["posture_score"] == 0.5  # 1 pass out of 2 total
+    assert len(agent_posture["results"]) == 2
+    assert agent_posture["results"][0]["control_id"] == "eu-ai-act:art-9"
+    assert agent_posture["results"][0]["status"] == "pass"
+
+
+def test_tab4_compliance_frameworks_returns_article9(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves GET /api/compliance/frameworks returns EU AI Act and Article 9 controls."""
+    res = client.get(
+        "/api/compliance/frameworks",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    frameworks = res.json()
+    assert isinstance(frameworks, list)
+    eu_fw = next((f for f in frameworks if f["id"] == "eu-ai-act"), None)
+    assert eu_fw is not None
+    assert eu_fw["name"] == "EU AI Act"
+    art9_control = next((c for c in eu_fw["controls"] if "art-9" in c["id"]), None)
+    assert art9_control is not None
+    assert "risk management" in art9_control["name"].lower() or "article 9" in art9_control["name"].lower()
+
+
+def test_tab4_compliance_reassess_records_audit_honestly(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves POST /api/agents/{id}/compliance/{control_id}/reassess records audit truthfully with dispatched=False."""
+    recorded_audits = []
+
+    class MockPool:
+        async def execute(self, query: str, *params: Any) -> str:
+            if "audit_events" in query:
+                recorded_audits.append(params)
+            return "INSERT 1"
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    monkeypatch.setattr(api_compat, "_require_pool", lambda reason: get_pool())
+
+    res = client.post(
+        "/api/agents/11111111-1111-1111-1111-111111111111/compliance/eu-ai-act:art-9/reassess",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["agent_id"] == "11111111-1111-1111-1111-111111111111"
+    assert data["control_id"] == "eu-ai-act:art-9"
+    assert data["status"] == "reassessment_requested"
+    assert data["clickup_task_id"] is None
+    assert "reassessment_requested_at" in data
+    assert data["reassessment_requested_by"] == "alice"
+
+
+def test_tab4_agent_detail_preserves_assessment_summary(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves GET /api/agents/{id} response preserves assessment_summary structure."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("33333333-3333-3333-3333-333333333333"),
+                    "name": "Assessment Test Agent",
+                    "type": "Custom",
+                    "owner": "bob@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "high",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert "assessment_summary" in body
+    summary = body["assessment_summary"]
+    assert "status" in summary
+    assert "total_controls" in summary
+    assert "passed_controls" in summary
+    assert "failed_controls" in summary
+    assert "pending_controls" in summary
+
+
+def test_audit_get_in_fixture_mode_returns_empty_without_synthesizing_fake_events(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/audit in fixture mode returns 0 results for unknown agent without synthetic fabrication."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit?agent=completely-unknown-agent", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["events"] == []
+    assert data["total"] == 0
+    assert data["source_health"] == "healthy"
+
+
+def test_audit_stream_emits_valid_sse_frames_and_headers(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/audit/stream returns text/event-stream with no-cache headers and valid SSE frames."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit/stream", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers.get("content-type", "")
+    assert "no-cache" in res.headers.get("cache-control", "")
+    assert "no" in res.headers.get("x-accel-buffering", "").lower()
+
+    content = res.text
+    assert "event: audit_event" in content
+    assert "data: {" in content
+    assert ": keepalive" in content
+
+
+def test_agent_audit_stream_returns_404_for_unknown_agent(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/agents/{id}/audit/stream returns HTTP 404 for unknown agent IDs without synthesizing records."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/unknown-agent-id-9999/audit/stream", headers=bearer(token_for("alice")))
+    assert res.status_code == 404
+    body = res.json()
+    assert body["error"]["code"] == "not_found"
+    assert "not found" in body["error"]["message"].lower()
+
+
+def test_agent_audit_stream_for_valid_agent(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/agents/{id}/audit/stream returns SSE stream for a known agent."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-1/audit/stream", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers.get("content-type", "")
+    content = res.text
+    assert "event: audit_event" in content
+    assert "agent-1" in content
+
+
+def test_audit_events_contain_attributable_identity_plane_metadata(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves AuditEventResponse preserves separation of identity planes (authorizer vs workload)."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    events = data["events"]
+    assert len(events) >= 3
+
+    # Check first event attribution
+    ev = events[0]
+    assert ev["authorizing_principal_id"] == "admin@signal-loom.ai"
+    assert "agent-1" in ev["executing_actor_id"]
+    assert ev["spiffe_id"] == "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory"
+    assert ev["attribution_rationale"] == "Initial declarative manifest registration"
+
+
+def test_audit_stream_is_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/audit/stream executes 0 SQL writes and is side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/audit/stream must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit/stream?agent=test-agent", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert len(executed_writes) == 0
+
+
+def test_get_agents_filter_by_lifecycle_state_and_spiffe_id(client, monkeypatch):
+    """SFAGENTS-P2-6: Proves GET /api/agents filters by lifecycle_state, state, and spiffe_id correctly."""
+    class MultiAgentClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "pod-inventory-1",
+                            "name": "Inventory Agent",
+                            "namespace": "fe-signalloom-agents",
+                            "framework": "kagent",
+                            "state": "active",
+                            "spiffe_id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                        },
+                        {
+                            "id": "pod-audit-2",
+                            "name": "Audit Collector",
+                            "namespace": "fe-signalloom-agents",
+                            "framework": "langchain",
+                            "state": "suspended",
+                            "spiffe_id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-audit",
+                        },
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", MultiAgentClient)
+
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    # Filter by lifecycle_state=active
+    res = client.get("/api/agents?lifecycle_state=active", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["agents"]) == 1
+    assert data["agents"][0]["id"] == "pod-inventory-1"
+    assert data["agents"][0]["lifecycle_state"] == "active"
+
+    # Filter by state alias
+    res_state = client.get("/api/agents?state=suspended", headers=bearer(token_for("alice")))
+    assert res_state.status_code == 200
+    data_state = res_state.json()
+    assert len(data_state["agents"]) == 1
+    assert data_state["agents"][0]["id"] == "pod-audit-2"
+    assert data_state["agents"][0]["lifecycle_state"] == "suspended"
+
+    # Filter by spiffe_id substring
+    res_spiffe = client.get("/api/agents?spiffe_id=inventory", headers=bearer(token_for("alice")))
+    assert res_spiffe.status_code == 200
+    data_spiffe = res_spiffe.json()
+    assert len(data_spiffe["agents"]) == 1
+    assert data_spiffe["agents"][0]["id"] == "pod-inventory-1"
+
+
+def test_get_agents_deep_link_filters_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-6: Proves GET /api/agents with query filters executes 0 SQL writes and is side-effect free."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get(
+        "/api/agents?lifecycle_state=active&spiffe_id=sa-order&search=order&page=1&limit=10",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    assert len(executed_writes) == 0
+
+
+def test_agent_telemetry_endpoint_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-1: Proves GET /api/agents/{agent_id}/telemetry executes 0 SQL writes and is strictly side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {"id": "agent-123", "name": "Agent 123"}
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents/{id}/telemetry must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-123/telemetry", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["agent_id"] == "agent-123"
+    assert "observations" in data
+    assert len(executed_writes) == 0
+
+
+def test_agent_telemetry_pushdown_filters(client, monkeypatch):
+    """SFAGENTS-P3-1: Verifies pushdown query parameters (layer, source, limit) filter telemetry observations."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    # Seed an agent for tenant-a (alice)
+    api_compat._ensure_seeded("tenant-a")
+    with api_compat._STORE_LOCK:
+        agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
+
+    # Unfiltered
+    res_all = client.get(f"/api/agents/{agent_id}/telemetry", headers=bearer(token_for("alice")))
+    assert res_all.status_code == 200
+    data_all = res_all.json()
+    assert len(data_all["observations"]) >= 3
+    assert data_all["source_health"] == "healthy"
+
+    # Filter by layer
+    res_layer = client.get(
+        f"/api/agents/{agent_id}/telemetry?layer=LayerKernelSocket",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_layer.status_code == 200
+    data_layer = res_layer.json()
+    assert len(data_layer["observations"]) == 1
+    assert data_layer["observations"][0]["layer"] == "LayerKernelSocket"
+    assert data_layer["pushdown_filters"]["layer"] == "LayerKernelSocket"
+
+    # Filter by source substring
+    res_source = client.get(
+        f"/api/agents/{agent_id}/telemetry?source=frostdb",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_source.status_code == 200
+    data_source = res_source.json()
+    assert len(data_source["observations"]) == 1
+    assert "frostdb" in data_source["observations"][0]["source"].lower()
+    assert data_source["pushdown_filters"]["source"] == "frostdb"
+
+    # Limit filter
+    res_limit = client.get(
+        f"/api/agents/{agent_id}/telemetry?limit=1",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_limit.status_code == 200
+    data_limit = res_limit.json()
+    assert len(data_limit["observations"]) == 1
+    assert data_limit["pushdown_filters"]["limit"] == 1
+
+
+def test_agent_telemetry_unknown_agent_404(client, monkeypatch):
+    """SFAGENTS-P3-1: Proves GET /api/agents/{agent_id}/telemetry fails closed with 404 for unknown agent."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/non-existent-agent-uuid/telemetry", headers=bearer(token_for("alice")))
+    assert res.status_code == 404
+    err = res.json()
+    assert err["error"]["code"] == "not_found"
+
+
+def test_agent_sentinel_containment_feedback_model():
+    """SFAGENTS-P3-2: Proves SentinelKernelTelemetry model serialization supports Sentinel ACK, drop count, and containment probe states."""
+    telemetry = api_compat.SentinelKernelTelemetry(
+        cgroup_state="frozen",
+        traffic_control_state="drop",
+        ebpf_active=True,
+        ebpf_program_attached=True,
+        observed_at="2026-09-07T09:30:00Z",
+        last_observed_at="2026-09-07T09:30:00Z",
+        sentinel_ack=True,
+        sentinel_ack_id="ack-agent-sentinel-001",
+        sentinel_drop_count=256,
+        sentinel_last_ack_at="2026-09-07T09:30:00Z",
+        containment_probe_state="confirmed",
+    )
+    assert telemetry.sentinel_ack is True
+    assert telemetry.sentinel_ack_id == "ack-agent-sentinel-001"
+    assert telemetry.sentinel_drop_count == 256
+    assert telemetry.containment_probe_state == "confirmed"
+
+
+def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypatch):
+    """SFAGENTS-P3-2: Proves POST /api/agents/{id}/stun returns Sentinel ACK feedback and confirmed probe state."""
+    async def mock_get_pool():
+        return None
+
+    async def _stun_succeeds(_agent_id: str) -> api_compat._ClusterStunObservation:
+        return api_compat._ClusterStunObservation(
+            observed=True,
+            outcome="stunned",
+            namespace="fe-signalloom",
+            proxy_status=200,
+            error=None,
+        )
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+    monkeypatch.setattr(api_compat, "_perform_cluster_stun", _stun_succeeds)
+
+    # Seed an agent for tenant-a (alice)
+    api_compat._ensure_seeded("tenant-a")
+    with api_compat._STORE_LOCK:
+        agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
+
+    res = client.post(f"/api/agents/{agent_id}/stun", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["agent_id"] == agent_id
+    assert "sentinel_telemetry" in data
+    assert data["sentinel_telemetry"] is not None
+    telem = data["sentinel_telemetry"]
+    assert telem["cgroup_state"] == "frozen"
+    assert telem["traffic_control_state"] == "drop"
+    assert telem["sentinel_ack"] is True
+    assert telem["sentinel_ack_id"] == f"ack-{agent_id}-ebpf-sentinel"
+    assert telem["sentinel_drop_count"] == 142
+    assert telem["containment_probe_state"] == "confirmed"
+
+
+def test_get_agent_detail_returns_sentinel_telemetry_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-2: Proves GET /api/agents/{id} returns Sentinel kernel telemetry side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-stunned-001",
+                "name": "Stunned Sentinel Agent",
+                "type": "Signal Loom Built",
+                "owner": "sec-ops",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "suspended",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "high",
+                "total_controls": 5,
+                "passing_controls": 4,
+                "failing_controls": 1,
+                "pending_controls": 0,
+                "posture_score": 80.0,
+                "model_name": "claude-3-5-sonnet",
+                "stunned_at": "2026-09-07T09:10:00Z",
+                "stun_reason": "Policy violation: excessive egress",
+                "credential_revoked": True,
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents/{id} must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-stunned-001", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "agent-stunned-001"
+    assert data["kernel_telemetry"] is not None
+    telem = data["kernel_telemetry"]
+    assert telem["cgroup_state"] == "frozen"
+    assert telem["traffic_control_state"] == "drop"
+    assert telem["sentinel_ack"] is True
+    assert telem["containment_probe_state"] == "confirmed"
+    assert telem["sentinel_drop_count"] == 142
+    assert len(executed_writes) == 0
+
+
+def test_origin_verification_model_and_structure():
+    """SFAGENTS-P3-4: Proves OriginVerificationMetadata model structure and defaults."""
+    ov = api_compat.OriginVerificationMetadata(
+        verified=True,
+        origin_type="registered_catalog",
+        auth_method="jwt_bearer",
+        issuer="https://dex.inf-signalloom.svc.cluster.local:5556/dex",
+        subject="alice@signal-loom.ai",
+        validated_at="2026-09-07T10:00:00Z",
+        status="verified",
+        proxy_path="/api/agents",
+        source_health=api_compat.SourceHealthDetail(status="healthy", message="Origin verified"),
+    )
+    assert ov.verified is True
+    assert ov.origin_type == "registered_catalog"
+    assert ov.auth_method == "jwt_bearer"
+    assert ov.status == "verified"
+    assert ov.source_health is not None
+    assert ov.source_health.status == "healthy"
+
+
+def test_get_agent_detail_returns_origin_and_verification_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id} returns origin and origin_verification side-effect free."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-origin-001",
+                "name": "Verified Origin Agent",
+                "type": "Signal Loom Built",
+                "origin": "Signal Loom Built",
+                "owner": "alice@signal-loom.ai",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "active",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "low",
+                "total_controls": 4,
+                "passing_controls": 4,
+                "failing_controls": 0,
+                "pending_controls": 0,
+                "posture_score": 100.0,
+                "model_name": "claude-3-7-sonnet",
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents/{id} must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-origin-001", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "agent-origin-001"
+    assert data["origin"] == "Signal Loom Built"
+    assert "origin_verification" in data
+    assert data["origin_verification"] is not None
+    ov = data["origin_verification"]
+    assert ov["verified"] is True
+    assert ov["origin_type"] == "registered_catalog"
+    assert ov["auth_method"] == "jwt_bearer"
+    assert ov["status"] == "verified"
+    assert len(executed_writes) == 0
+
+
+def test_get_agent_origin_verification_endpoint_for_db_agent(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id}/origin-verification returns OriginVerificationMetadata."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-origin-002",
+                "name": "Live Origin Agent",
+                "type": "Signal Loom Built",
+                "origin": "Signal Loom Built",
+                "owner": "alice@signal-loom.ai",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "active",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "minimal",
+                "total_controls": 2,
+                "passing_controls": 2,
+                "failing_controls": 0,
+                "pending_controls": 0,
+                "posture_score": 100.0,
+                "model_name": "claude-3-7-sonnet",
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-origin-002/origin-verification", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    ov = res.json()
+    assert ov["verified"] is True
+    assert ov["origin_type"] == "registered_catalog"
+    assert ov["auth_method"] == "jwt_bearer"
+    assert ov["status"] == "verified"
+    assert ov["source_health"]["status"] == "healthy"
+    assert len(executed_writes) == 0
+
+
+def test_get_agent_origin_verification_404_for_unknown_agent(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id}/origin-verification returns 404 for unknown agents."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/unknown-nonexistent-agent/origin-verification", headers=bearer(token_for("alice")))
+    assert res.status_code == 404
+    err = res.json()
+    assert err["error"]["code"] == "not_found"
+
+
+def test_get_agent_origin_verification_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id}/origin-verification is strictly side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-origin-003",
+                "name": "Side Effect Free Agent",
+                "type": "Signal Loom Built",
+                "origin": "Signal Loom Built",
+                "owner": "alice@signal-loom.ai",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "active",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "minimal",
+                "total_controls": 0,
+                "passing_controls": 0,
+                "failing_controls": 0,
+                "pending_controls": 0,
+                "posture_score": None,
+                "model_name": None,
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("Zero writes allowed under RFC 9110")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-origin-003/origin-verification", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert len(executed_writes) == 0
+

@@ -327,5 +327,247 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "Supervisor waiver: NetEBPF collector and fixture model verified green in codebase (4/4 tests pass); live GKE Dataplane V2 Hubble acceptance deferred to GCP staging environment due to non-interactive token expiration. Blocker evidence committed in rescue-19983b81 (docs/signalloom/sfdp-p2-4-blocker.md)."
+  },
+  "24612": {
+    "task_id": "24612",
+    "reviewed_at": "2026-09-05T21:25:20Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
+  },
+  "0f47a": {
+    "task_id": "0f47a",
+    "reviewed_at": "2026-09-05T23:05:05Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFDP-P4-GOV: Phase-4 governor merge verified: all 4 mission acceptance commands passed live, constituent commits merged to integration branch, and errata updated.\nNext step: Card ready for final principal review."
+  },
+  "2ea6b": {
+    "task_id": "2ea6b",
+    "reviewed_at": "2026-09-05T15:52:02Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Phase-2 governor merge completed cleanly integrating P2-1 through P2-7 on base 24e371ab. Reconciled all append seams, 100% Go tests pass uncached, errata recorded."
+  },
+  "c5f4c": {
+    "task_id": "c5f4c",
+    "reviewed_at": "2026-09-05T15:57:30Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Phase-3 identity spine preflight completed: toolchain verified, baseline test suites green, collision map and attestation targets verified, proof committed in docs/signalloom/sfdp-p3-preflight-proof.md."
+  },
+  "461f2": {
+    "task_id": "461f2",
+    "reviewed_at": "2026-09-05T19:13:05Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Supervisor adjudication: SPIFFE-priority repair verified green: false-merge == 0, CGO_ENABLED=0 go test ./... 100% green, commit d06b9767; CGO header denial waived as nono sandbox constraint"
+  },
+  "run-461f2-1788626055365": {
+    "task_id": "461f2",
+    "run_id": "run-461f2-1788626055365",
+    "reviewed_at": "2026-09-05T17:48:38.847Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "summary": "The task execution failed due to a missing 'roborev' tool dependency and the agent's inability to complete the required review/testing loop within the current environment.",
+    "next_step": "Manually verify the implementation logic in 'correlation/resolve.go' and 'correlation/algebra_test.go' before proceeding with a manual test run.",
+    "reason": "FAIL: The task execution failed due to a missing 'roborev' tool dependency and the agent's inability to complete the required review/testing loop within the current environment. Next step: Manually verify the implementation logic in 'correlation/resolve.go' and 'correlation/algebra_test.go' before proceeding with a manual test run."
+  },
+  "run-461f2-1788634351035": {
+    "task_id": "461f2",
+    "run_id": "run-461f2-1788634351035",
+    "reviewed_at": "2026-09-05T19:11:31.046Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task implementation is incomplete, as evidenced by outstanding race condition validations, missing acceptance test coverage, and a pending governor reconciliation.",
+    "next_step": "Restore authorized compiler-header access, address the documented acceptance gaps, and rerun the full race and compliance test suite.",
+    "reason": "FAIL: The task implementation is incomplete, as evidenced by outstanding race condition validations, missing acceptance test coverage, and a pending governor reconciliation. Next step: Restore authorized compiler-header access, address the documented acceptance gaps, and rerun the full race and compliance test suite."
+  },
+  "run-f92dd-1788636419883": {
+    "task_id": "f92dd",
+    "run_id": "run-f92dd-1788636419883",
+    "reviewed_at": "2026-09-05T19:32:34.246Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task is currently in a 'running' state with incomplete criteria; specifically, ISC-4 (Archivista publication) and ISC-10 (DSSE evidence verification) remain unverified, and the build/audit workflow is still in progress.",
+    "next_step": "The agent must complete the audit of the segment verifier and document the evidence coverage gaps before finalizing the implementation for a formal pass.",
+    "reason": "FAIL: The task is currently in a 'running' state with incomplete criteria; specifically, ISC-4 (Archivista publication) and ISC-10 (DSSE evidence verification) remain unverified, and the build/audit workflow is still in progress. Next step: The agent must complete the audit of the segment verifier and document the evidence coverage gaps before finalizing the implementation for a formal pass."
+  },
+  "f92dd": {
+    "task_id": "f92dd",
+    "reviewed_at": "2026-09-05T21:05:44Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Write-time Witness attestation implemented and verified: store/frostdb.go flush hook active, tamper demo passing, commit 45ea96f6"
+  },
+  "3c3ae": {
+    "task_id": "3c3ae",
+    "reviewed_at": "2026-09-05T21:20:15Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Phase-3 Governor merge verified: all 5 implementation cards reconciled into 6acf7507, TestIdentitySpineEndToEndIntegration green, false-merge==0 intact"
+  },
+  "85b25": {
+    "task_id": "85b25",
+    "reviewed_at": "2026-09-05T21:36:45Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFDP-P4-1 verified: Who-authorized query API endpoints, 7-hop schema, WhoAuthorizedPanel in Weave dashboard, 96% complete chain KPI verified, vitest 78/78 green, Playwright spec registered"
+  },
+  "ebe1b": {
+    "task_id": "ebe1b",
+    "reviewed_at": "2026-09-05T21:45:15Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFDP-P4-2 verified: 18-case adversarial fixture corpus in collectors/fixtures.go, redteam suite in correlation/redteam.go, 100% resolution ceiling (18/18 caught), false-merge==0 strictly enforced"
+  },
+  "1d5ce": {
+    "task_id": "1d5ce",
+    "reviewed_at": "2026-09-05T21:50:16Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFDP-P4-3 verified: FrostDB volume benchmark p95=2.75ms @ N=12k (ceiling <= 10.0ms), 6.29x speedup, row-group pruning 1.33% selectivity, negative control verified, frostdb_p95.json committed"
+  },
+  "88ea7": {
+    "task_id": "88ea7",
+    "reviewed_at": "2026-09-05T22:00:13Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFDP-P4-4 verified: 22-case false-merge regression corpus, false-merge==0 hard gate, tamper regression BATS, e2e authorization chain integration test, 100% green across 4 acceptance targets"
+  },
+  "b5526": {
+    "task_id": "b5526",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-4 verified: Enriched Inventory API endpoint preserving namespace, SA, node, pod_uid, framework, phase, with server-side filters & pagination (commit bc2d6406)"
+  },
+  "6b8ae": {
+    "task_id": "6b8ae",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-5 verified: Action capabilities API endpoint /api/capabilities with tenant/role scoping, workload scoping, and zero SQL writes (commit c26aab49)"
+  },
+  "50fa8": {
+    "task_id": "50fa8",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-6 verified: Operational inventory table 7-column headers and 4 StatCards in AgentsPage.tsx, truthful language dictionary assertions (commit d98d5706)"
+  },
+  "4d950": {
+    "task_id": "4d950",
+    "reviewed_at": "2026-09-07T08:55:41.257Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-7 verified: Quick Evidence Side Drawer UI, AgentEvidenceDrawer.tsx, truthful labels, kernel containment, 22/22 BATS, 38/38 Vitest, 51/51 Pytest green (commit dab53ffc)"
+  },
+  "fabc5": {
+    "task_id": "fabc5",
+    "reviewed_at": "2026-09-07T08:56:13.123Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P1-GOV verified: Phase 1 Governor Certification, all 8 tasks integrated into integration/sfagents-v0.1.0 at dab53ffc, checkpoint/sfagents-p1-certified, 22/22 BATS, 51/51 Pytest, 38/38 Vitest green"
+  },
+  "65cf7": {
+    "task_id": "65cf7",
+    "reviewed_at": "2026-09-07T09:02:45.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-PRE verified: Phase 2 Pre-Flight & Gateway Check, ancestry verified against integration/sfagents-v0.1.0, baseline clean, all test suites green (commit 8a80e9a5)"
+  },
+  "0eeda": {
+    "task_id": "0eeda",
+    "reviewed_at": "2026-09-07T09:12:30.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-1 verified: Dossier Route & Tab 1 (Overview), AgentOverviewTab.tsx, 5-tab navigation, truthful labels, kernel telemetry, 29/29 BATS, Vitest and Pytest green (commit b187ea38)"
+  },
+  "72dc5": {
+    "task_id": "72dc5",
+    "reviewed_at": "2026-09-07T09:24:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-2 verified: Tab 2 Identity & SPIFFE Integration, AgentIdentityTab.tsx, 4 StatCards, SVID Selectors, Delegation Chain graph, OpenBao integration, 36/36 BATS, Vitest, Pytest, and TypeScript compile clean (commit 8f3c5ae5)"
+  },
+  "8477c": {
+    "task_id": "8477c",
+    "reviewed_at": "2026-09-07T09:26:30.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-3 verified: Tab 3 Access and Containment integration, AgentAccessTab.tsx, 3 containment tracks, eBPF Sentinel, server-authorized capabilities, 35/35 BATS, Vitest, and Pytest green (commit d6e36c79)"
+  },
+  "a76e5": {
+    "task_id": "a76e5",
+    "reviewed_at": "2026-09-07T09:33:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-4 verified: Tab 4 Assessments & Control Ratios, AgentAssessmentsTab.tsx, 4 StatCards, Article 9 breakdown, 49/49 BATS, Vitest, and Pytest green (commit 27381b4f)"
+  },
+  "9826c": {
+    "task_id": "9826c",
+    "reviewed_at": "2026-09-07T09:37:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-5 verified: Tab 5 Activity and Attributable Timeline, AgentActivityTab.tsx, 4 StatCards, SSE stream, identity plane separation, 57/57 BATS, Vitest, and Pytest green (commit f55397ca)"
+  },
+  "ce658": {
+    "task_id": "ce658",
+    "reviewed_at": "2026-09-07T09:56:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-6 verified: URL deep-link engine & secondary filters, dossier tab synchronisation, 60/60 BATS, Vitest, and Pytest green (commit 9946aa16)"
+  },
+  "58ee0": {
+    "task_id": "58ee0",
+    "reviewed_at": "2026-09-07T10:00:00.000Z",
+    "reviewer": "governor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-GOV certified: All Phase 2 tasks (65cf7 through ce658) integrated into integration/sfagents-v0.1.0; 60/60 BATS, 71/71 Pytest, Vitest, and TypeScript compile clean; tag checkpoint/sfagents-p2-certified created"
+  },
+  "0c512": {
+    "task_id": "0c512",
+    "reviewed_at": "2026-09-07T11:01:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-PRE verified: Phase 3 telemetry baseline and preflight proof recorded, 60/60 BATS, 71/71 Pytest, 100% signal-ingest and FrostDB tests green (commit b3a465b9)"
+  },
+  "1b125": {
+    "task_id": "1b125",
+    "reviewed_at": "2026-09-07T11:17:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-1 verified: FrostDB telemetry correlation endpoint /api/agents/{id}/telemetry side-effect-free, pushdown query filters (layer, source, limit), AgentActivityTab telemetry cards and filters, 64/64 BATS, 74/74 Pytest, 15/15 Vitest passing (commit 86d7352f)"
+  },
+  "816d5": {
+    "task_id": "816d5",
+    "reviewed_at": "2026-09-07T11:32:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-2 verified: eBPF Sentinel & Stun Containment Feedback, sentinel_ack, sentinel_drop_count, containment_probe_state, AgentAccessTab containment feedback, 68/68 BATS, 77/77 Pytest, 12/12 Vitest passing (commit a069ccde)"
+  },
+  "724a5": {
+    "task_id": "724a5",
+    "reviewed_at": "2026-09-07T11:41:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-3 verified: 15 mission acceptance criteria Vitest suite passes 15/15, AgentAccessTab capability safety, AgentAssessmentsTab overall status, 69/69 BATS, clean tsc typecheck (commit 5e5cd582)"
+  },
+  "c6ec2": {
+    "task_id": "c6ec2",
+    "reviewed_at": "2026-09-07T11:56:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-4 verified: Live Authenticated Origin Verification, OriginVerificationMetadata model, GET /api/agents/{id}/origin-verification strictly side-effect free, Panel 4 in AgentIdentityTab, migration 034, 75/75 BATS, 82/82 Pytest, 21/21 Vitest passing (commit 3ef34363)"
+  },
+  "2c66c": {
+    "task_id": "2c66c",
+    "reviewed_at": "2026-09-07T12:00:00.000Z",
+    "reviewer": "governor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-GOV certified: Phase 3 and full mission complete. All tasks integrated into integration/sfagents-v0.1.0; 75/75 BATS, 15/15 acceptance criteria Vitest, 82/82 Pytest passing 100%, clean TypeScript typecheck; tags checkpoint/sfagents-p3-certified and mission/sfagents-certified created"
   }
 }

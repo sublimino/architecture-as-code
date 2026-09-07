@@ -5,6 +5,8 @@ package correlation
 
 import (
 	"testing"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
 )
 
 func TestIdentityRules_Compile(t *testing.T) {
@@ -142,3 +144,91 @@ func TestRule_VaultSecretExfiltrationSpike_Symmetric(t *testing.T) {
 		t.Fatalf("expected no match beyond 300s window")
 	}
 }
+
+func TestSA_SPIFFE_JoinDiscriminator_Table(t *testing.T) {
+	tests := []struct {
+		name        string
+		saPrincipal string
+		spiffeID    string
+		wantMatch   bool
+		wantNS      string
+		wantSA      string
+	}{
+		{
+			name:        "exact match standard cluster.local",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   true,
+			wantNS:      "fe-signalloom-agents",
+			wantSA:      "agent-cardvault-sa",
+		},
+		{
+			name:        "exact match alternate domain",
+			saPrincipal: "system:serviceaccount:prod-infra:vault-agent",
+			spiffeID:    "spiffe://controlplane.identity/ns/prod-infra/sa/vault-agent",
+			wantMatch:   true,
+			wantNS:      "prod-infra",
+			wantSA:      "vault-agent",
+		},
+		{
+			name:        "namespace mismatch negative",
+			saPrincipal: "system:serviceaccount:default:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "serviceaccount mismatch negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:other-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed spiffe missing sa prefix negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed spiffe missing ns prefix negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "spiffe://cluster.local/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed spiffe http scheme negative",
+			saPrincipal: "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			spiffeID:    "http://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "malformed sa principal non-sa prefix negative",
+			saPrincipal: "system:user:alice",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+		{
+			name:        "empty principal negative",
+			saPrincipal: "",
+			spiffeID:    "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+			wantMatch:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			match, ns, sa := spirea.MatchSAPrincipalAndSPIFFEID(tt.saPrincipal, tt.spiffeID)
+			if match != tt.wantMatch {
+				t.Errorf("MatchSAPrincipalAndSPIFFEID(%q, %q) match = %v, want %v", tt.saPrincipal, tt.spiffeID, match, tt.wantMatch)
+			}
+			if tt.wantMatch {
+				if ns != tt.wantNS {
+					t.Errorf("namespace = %q, want %q", ns, tt.wantNS)
+				}
+				if sa != tt.wantSA {
+					t.Errorf("serviceAccount = %q, want %q", sa, tt.wantSA)
+				}
+			}
+		})
+	}
+}
+

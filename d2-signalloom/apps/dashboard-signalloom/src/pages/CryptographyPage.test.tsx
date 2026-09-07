@@ -40,9 +40,9 @@ import CryptographyPage from './CryptographyPage'
 
 const cryptoSpy = vi.mocked(api.health.crypto)
 
-function renderPage() {
+function renderPage(initialEntries = ['/cryptography']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <CryptographyPage />
     </MemoryRouter>,
   )
@@ -512,3 +512,12 @@ describe('CryptographyPage', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent(/hybrid/i)
   })
 })
+
+describe('CryptographyPage — URL deep-link parameter ingestion', () => {
+  it('filters SPIFFE workload identities when ?actor= is provided in URL', () => {
+    renderPage(['/cryptography?actor=triage'])
+    const svidsSection = sectionFor('SPIFFE / SPIRE Bootstrap')
+    expect(svidsSection.getByTestId('spire-svids-search')).toHaveValue('triage')
+  })
+})
+

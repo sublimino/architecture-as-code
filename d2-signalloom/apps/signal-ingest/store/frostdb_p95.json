@@ -1,0 +1,111 @@
+{
+  "benchmark": "FrostDB Query Pushdown Volume Benchmark",
+  "task": "SFDP-P4-3",
+  "timestamp": "2026-09-05T22:48:15+01:00",
+  "environment": {
+    "go_version": "go1.24.1",
+    "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
+    "os": "linux/amd64",
+    "locale": "LC_ALL=C LANG=C",
+    "seed": 42
+  },
+  "dataset": {
+    "volume_source": "k8s-apiserver-audit",
+    "source_adapter": "api/audit/WebhookReceiver (P2 item-9 feed)",
+    "total_observations_N": 12000,
+    "partitions": 24,
+    "observations_per_partition": 500,
+    "time_span_hours": 24,
+    "layers": [
+      "identity_auth"
+    ],
+    "fidelity": "definitive"
+  },
+  "results": {
+    "kpi_metric": "FrostDB query p95 latency at volume N",
+    "kpi_target": "Documented p95 @ N",
+    "stated_volume_N": 12000,
+    "measured_p95_latency_ms": 2.75,
+    "p95_formatted": "p95=2.75ms @ N=12000 observations",
+    "regression_guard_ceiling_ms": 10.0,
+    "selectivity_matched_rows": 160,
+    "selectivity_ratio_percent": 1.33,
+    "pruning_verified": true
+  },
+  "query_breakdown": {
+    "pushdown_selective_query": {
+      "filters": {
+        "time_range": "1 hour window (h=22)",
+        "layer": "identity_auth",
+        "actor": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa"
+      },
+      "iterations": 100,
+      "min_ms": 1.31,
+      "mean_ms": 1.66,
+      "p50_ms": 1.48,
+      "p90_ms": 2.21,
+      "p95_ms": 2.75,
+      "p99_ms": 3.33,
+      "max_ms": 3.46,
+      "speedup_vs_full_scan": 6.29,
+      "speedup_vs_fallback": 6.55
+    },
+    "pushdown_time_range_query": {
+      "filters": {
+        "time_range": "1 hour window (h=22)"
+      },
+      "iterations": 100,
+      "min_ms": 0.57,
+      "mean_ms": 0.74,
+      "p50_ms": 0.65,
+      "p90_ms": 0.88,
+      "p95_ms": 1.08,
+      "p99_ms": 2.14,
+      "max_ms": 2.56,
+      "speedup_vs_full_scan": 16.0
+    },
+    "pushdown_actor_query": {
+      "filters": {
+        "actor": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa"
+      },
+      "iterations": 100,
+      "min_ms": 8.63,
+      "mean_ms": 9.61,
+      "p50_ms": 9.48,
+      "p90_ms": 10.21,
+      "p95_ms": 11.01,
+      "p99_ms": 11.89,
+      "max_ms": 12.69
+    },
+    "full_scan_baseline": {
+      "filters": "none (unfiltered scan)",
+      "iterations": 100,
+      "min_ms": 11.94,
+      "mean_ms": 14.8,
+      "p50_ms": 14.55,
+      "p90_ms": 16.64,
+      "p95_ms": 17.28,
+      "p99_ms": 18.36,
+      "max_ms": 18.51
+    },
+    "non_pushdown_fallback": {
+      "filters": "unfiltered scan + in-memory matchesQuery",
+      "iterations": 100,
+      "min_ms": 12.41,
+      "mean_ms": 15.38,
+      "p50_ms": 15.43,
+      "p90_ms": 17.76,
+      "p95_ms": 18.0,
+      "p99_ms": 19.21,
+      "max_ms": 19.24
+    }
+  },
+  "regression_guard": {
+    "test_name": "TestFrostDBStore_K8sAudit_VolumeBenchmark_RegressionGuard",
+    "build_tag": "frostdb",
+    "p95_threshold_ms": 10.0,
+    "max_selectivity_percent": 5.0,
+    "negative_control_tested": true,
+    "status": "PASS"
+  }
+}

@@ -677,6 +677,18 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         self.assertEqual("running", body["scanStatus"])
         self.assertTrue(all(t["result"] == "running" for t in body["tests"]))
 
+    def test_completed_job_with_malformed_tap_never_fabricates_a_pass(self):
+        job = {"status": {"succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}}
+        malformed = f"{server.NETASSERT_TAP_MARKER}\nnot TAP and not evidence\n"
+        self.install(job=job, pod_logs={"netassert-run-abcde": malformed})
+
+        status, body = self.request("GET", "/network-tests")
+
+        self.assertEqual(200, status)
+        self.assertEqual("complete", body["scanStatus"])
+        self.assertTrue(all(test["result"] == "error" for test in body["tests"]))
+        self.assertFalse(any(test["result"] == "pass" for test in body["tests"]))
+
     def test_get_reports_an_explicit_error_state_when_the_api_is_unreachable(self):
         patches = [
             mock.patch.object(server, "_read_service_account_token", mock.Mock(side_effect=OSError("no token"))),

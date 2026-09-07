@@ -667,5 +667,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "CRKC-P3-3 verified: Fail-closed node capability admission guard webhook, agent pod cgroup-v2 and Landlock verification, 403 rejection on unconfined node, 200 on compliant node, Prometheus metrics, Go unit tests and 4/4 BATS tests green (commit 9cf3883c)"
+  },
+  "580b2": {
+    "task_id": "580b2",
+    "reviewed_at": "2026-09-07T22:30:00Z",
+    "reviewer": "governor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P3-GOV certified: Phase 3 reconciled into integration/crkc-v0.1.0; 6/6 policy-compiler bats, 36/36 worktree-confinement bats, 4/4 admission-node-guard bats, 9/9 crkc-phase3-confinement-redteam bats green; 100% Go policy and admission guard tests green; 0 policy escapes, 0 unauthorized socket connections; Rule SP-1, SP-2, SP-4 verified"
   }
 }

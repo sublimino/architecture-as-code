@@ -218,6 +218,19 @@ export default defineConfig({
       },
     },
     {
+      // Dedicated live authorization boundary for Network Tests. It logs in
+      // through Dex itself so the validated server principal, not a browser
+      // preference or synthetic storage value, decides whether POST /scan runs.
+      name: "network-security-superadmin",
+      testMatch: /network-security-superadmin\.spec\.ts/,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
+    {
       // Specs that authenticate themselves, per test, via helpers.ts `login()`.
       // The absence of storageState and of a `setup` dependency is deliberate
       // and must stay: smoke.spec.ts's first case asserts that an

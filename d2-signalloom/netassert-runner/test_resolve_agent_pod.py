@@ -11,7 +11,12 @@ from pathlib import Path
 SCRIPT = Path(__file__).with_name("resolve-agent-pod.sh")
 AGENT_URL = "/api/v1/namespaces/fe-signalloom-agents/pods?labelSelector=signalloom.ai%2Fagent%3Dtrue"
 GATEWAY_URL = "/api/v1/namespaces/ingress/pods?labelSelector=gateway.envoyproxy.io%2Fowning-gateway-name%3Dcluster"
-CARDVAULT_URL = "/api/v1/namespaces/fe-signalloom-agents/pods?labelSelector=app.kubernetes.io%2Fname%3Dcardvault-agent%2Csignalloom.ai%2Fsupercred%3Dtrue"
+CARDVAULT_URL = (
+    "/api/v1/namespaces/fe-signalloom-agents/pods?labelSelector="
+    "app.kubernetes.io%2Fname%3Dcardvault-agent%2C"
+    "signalloom.ai%2Fsupercred%3Dtrue%2C"
+    "bao.controlplane.io%2Fconsumer%3Dcardvault-agent"
+)
 DESTINATION_URL = "/apis/apps/v1/namespaces/fe-signalloom/deployments/api"
 
 SUITE = """- name: generic-agent
@@ -26,16 +31,18 @@ SUITE = """- name: generic-agent
     k8sResource: {kind: deployment, name: api, namespace: fe-signalloom}
 - name: cardvault
   src:
-    k8sResource: {kind: pod, name: supercred-cardvault-agent-pod, namespace: fe-signalloom-agents}
+    k8sResource: {kind: pod, name: netassert-cardvault-probe-pod, namespace: fe-signalloom-agents}
   dst:
     k8sResource: {kind: deployment, name: api, namespace: fe-signalloom}
 """
 
 
-def ready_pod(name, *, deleting=False, phase="Running", ready=True):
+def ready_pod(name, *, deleting=False, phase="Running", ready=True, owner_kind=None):
     metadata = {"name": name, "creationTimestamp": "2026-01-01T00:00:00Z"}
     if deleting:
         metadata["deletionTimestamp"] = "now"
+    if owner_kind:
+        metadata["ownerReferences"] = [{"kind": owner_kind, "name": "owner"}]
     return {
         "metadata": metadata,
         "status": {
@@ -77,7 +84,7 @@ class ResolverTest(unittest.TestCase):
         responses = {
             AGENT_URL: ({"items": [ready_pod("agent-ready")]}, 200),
             GATEWAY_URL: ({"items": [ready_pod("envoy-cluster-abcd")]}, 200),
-            CARDVAULT_URL: ({"items": [ready_pod("supercred-agent-run-abcd")]}, 200),
+            CARDVAULT_URL: ({"items": [ready_pod("netassert-cardvault-probe-abcd")]}, 200),
             DESTINATION_URL: ({"status": {"availableReplicas": 1}}, 200),
         }
         responses.update(overrides or {})
@@ -112,11 +119,11 @@ class ResolverTest(unittest.TestCase):
         self.assertIn("name: envoy-cluster-abcd", output)
         self.assertNotIn("envoy-gateway-pod", output)
 
-    def test_resolves_short_lived_supercred_job_placeholder(self):
+    def test_resolves_sustained_cardvault_probe_placeholder(self):
         result, output = self.run_resolver()
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertIn("name: supercred-agent-run-abcd", output)
-        self.assertNotIn("supercred-cardvault-agent-pod", output)
+        self.assertIn("name: netassert-cardvault-probe-abcd", output)
+        self.assertNotIn("netassert-cardvault-probe-pod", output)
 
     def test_ignores_nonrunning_unready_and_terminating_candidates(self):
         candidates = [
@@ -134,7 +141,21 @@ class ResolverTest(unittest.TestCase):
             with self.subTest(url=url):
                 result, _ = self.run_resolver({url: ({"items": []}, 200)})
                 self.assertNotEqual(0, result.returncode)
-                self.assertIn("no Running, Ready", result.stderr)
+                self.assertIn("expected exactly one Running, Ready", result.stderr)
+
+    def test_sustained_probe_does_not_select_transient_job_pod(self):
+        transient = ready_pod("supercred-agent-run-abcd", owner_kind="Job")
+        result, _ = self.run_resolver({CARDVAULT_URL: ({"items": [transient]}, 200)})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("found 0", result.stderr)
+
+    def test_each_ambiguous_placeholder_candidate_fails_closed(self):
+        for url in (AGENT_URL, GATEWAY_URL, CARDVAULT_URL):
+            with self.subTest(url=url):
+                candidates = [ready_pod("candidate-one"), ready_pod("candidate-two")]
+                result, _ = self.run_resolver({url: ({"items": candidates}, 200)})
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("found 2", result.stderr)
 
     def test_fails_when_destination_has_no_available_replica(self):
         result, _ = self.run_resolver({DESTINATION_URL: ({"status": {"availableReplicas": 0}}, 200)})

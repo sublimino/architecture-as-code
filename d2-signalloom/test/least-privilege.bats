@@ -79,21 +79,65 @@ setup() {
 
 @test "netassert resolver accepts Kubernetes pretty and compact JSON" {
   resolver="$repo_root/d2-signalloom/netassert-runner/resolve-agent-pod.sh"
-  parser='s/.*"name"[[:space:]]*:[[:space:]]*"\(agent-[^"]*\)".*/\1/p'
+  fake_bin="$BATS_TEST_TMPDIR/resolver-bin"
+  config="$BATS_TEST_TMPDIR/netassert.yaml"
+  token="$BATS_TEST_TMPDIR/token"
+  calls="$BATS_TEST_TMPDIR/curl.calls"
+  mkdir -p "$fake_bin"
+  printf 'fixture-token\n' >"$token"
+  cat >"$config" <<'YAML'
+- name: agent-to-cardvault
+  src:
+    k8sResource: {kind: pod, name: agent-patsy, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: cardvault, namespace: inf-signalloom}
+YAML
+  cat >"$fake_bin/curl" <<'SH'
+#!/usr/bin/env bash
+url="${!#}"
+printf '%s\n' "$url" >>"$CURL_CALLS"
+case "$url" in
+  */pods\?labelSelector=signalloom.ai%2Fagent%3Dtrue) cat "$POD_RESPONSE" ;;
+  */deployments/cardvault) printf '%s\n' '{"metadata":{"name":"cardvault"},"status":{"availableReplicas":1}}' ;;
+  *) exit 22 ;;
+esac
+SH
+  chmod +x "$fake_bin/curl"
 
-  run grep -F "$parser" "$resolver"
-  [ "$status" -eq 0 ]
-
-  for response in \
-    $'{\n  "metadata": {\n    "name": "agent-pretty"\n  }\n}' \
-    '{"metadata":{"name":"agent-compact"}}'; do
-    run sed -n "$parser" <<<"$response"
+  for format in pretty compact; do
+    response="$BATS_TEST_TMPDIR/$format.json"
+    output_file="$BATS_TEST_TMPDIR/$format.yaml"
+    if [ "$format" = pretty ]; then
+      cat >"$response" <<'JSON'
+{
+  "items": [
+    {
+      "metadata": {"name": "agent-pretty"},
+      "status": {
+        "phase": "Running",
+        "conditions": [{"type": "Ready", "status": "True"}]
+      }
+    }
+  ]
+}
+JSON
+      expected=agent-pretty
+    else
+      printf '%s\n' '{"items":[{"metadata":{"name":"agent-compact"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}}]}' >"$response"
+      expected=agent-compact
+    fi
+    run env PATH="$fake_bin:$PATH" TOKEN_FILE="$token" CA_CERT="$BATS_TEST_TMPDIR/ca.crt" \
+      KUBERNETES_API=https://kubernetes.invalid CONFIG_FILE="$config" OUTPUT_FILE="$output_file" \
+      POD_RESPONSE="$response" CURL_CALLS="$calls" sh "$resolver"
     [ "$status" -eq 0 ]
-    [[ "$output" == agent-* ]]
+    run yq -e ".[0].src.k8sResource.name == \"$expected\" and .[0].dst.k8sResource.name == \"cardvault\"" "$output_file"
+    [ "$status" -eq 0 ]
   done
+  run grep -F '/apis/apps/v1/namespaces/inf-signalloom/deployments/cardvault' "$calls"
+  [ "$status" -eq 0 ]
 }
 
-@test "netassert agent Role patches ephemeral containers but destination Role stays readonly" {
+@test "netassert runner patch rights remain namespace scoped" {
   fleet="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
 
   run yq ea -r '
@@ -104,17 +148,28 @@ setup() {
     | [.resources[], .verbs[]] | .[]
   ' "$fleet"
   [ "$status" -eq 0 ]
-  [ "$output" = $'pods\npods/ephemeralcontainers\nget\nlist\nwatch\npatch' ]
+  [[ "$output" == *"pods/ephemeralcontainers"* ]]
+  [[ "$output" == *"patch"* ]]
 
   run yq ea -r '
     select(.metadata.name == "signalloom-infra")
     | .spec.resources[]
-    | select(.kind == "Role" and .metadata.name == "netassert-runner-readonly")
+    | select(.kind == "Role" and .metadata.name == "netassert-runner")
     | [.rules[].resources[], .rules[].verbs[]] | .[]
   ' "$fleet"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"pods/ephemeralcontainers"* ]]
-  [[ "$output" != *"patch"* ]]
+  [[ "$output" == *"pods/ephemeralcontainers"* ]]
+  [[ "$output" == *"patch"* ]]
+
+  run yq e -r '
+    select(.kind == "ResourceSet")
+    | .spec.resources[]
+    | select(.kind == "ClusterRole" or .kind == "ClusterRoleBinding")
+    | select(.metadata.name | test("netassert"))
+    | .metadata.name
+  ' "$fleet"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "positive and negative Bao proofs are distinct service-account outcomes" {

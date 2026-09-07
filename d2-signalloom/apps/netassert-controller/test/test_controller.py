@@ -3,6 +3,7 @@ import json
 import threading
 import unittest
 from types import SimpleNamespace
+from urllib import error
 from unittest import mock
 
 import server
@@ -143,6 +144,33 @@ class ScanTest(ControllerServerTestCase):
         status, body = self.request("POST", "/scan")
         self.assertEqual(502, status)
         self.assertIn("no token", body["error"])
+
+    def test_scan_reports_bad_gateway_when_job_lookup_fails(self):
+        state = self.install(job=None)
+        lookup = mock.patch.object(
+            server, "_get_kubernetes_job", mock.Mock(side_effect=error.URLError("api down"))
+        )
+        lookup.start()
+        self.addCleanup(lookup.stop)
+        status, body = self.request("POST", "/scan")
+        self.assertEqual(502, status)
+        self.assertIn("failed to inspect scan", body["error"])
+        self.assertEqual([], state.created)
+
+    def test_fixed_job_preserves_tap_and_netassert_exit_status(self):
+        container = server._netassert_job_manifest()["spec"]["template"]["spec"]["containers"][0]
+        shell = container["command"][2]
+        self.assertIn(server.NETASSERT_TAP_MARKER, shell)
+        self.assertIn("cat /work/results.tap", shell)
+        self.assertIn("exit ${status}", shell)
+        self.assertNotIn("|| true", shell)
+
+    def test_fixed_job_pins_ephemeral_runner_images_by_digest(self):
+        shell = server._netassert_job_manifest()["spec"]["template"]["spec"]["containers"][0]["command"][2]
+        self.assertIn(f"-c '{server.NETASSERT_SCANNER_IMAGE}'", shell)
+        self.assertIn(f"-i '{server.NETASSERT_SNIFFER_IMAGE}'", shell)
+        self.assertRegex(server.NETASSERT_SCANNER_IMAGE, r"@sha256:[0-9a-f]{64}$")
+        self.assertRegex(server.NETASSERT_SNIFFER_IMAGE, r"@sha256:[0-9a-f]{64}$")
 
 
 if __name__ == "__main__":

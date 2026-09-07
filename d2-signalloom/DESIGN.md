@@ -1,7 +1,7 @@
 # DESIGN.md: Signal Loom Dashboard
 
-Visual design guide for `d2-signalloom/apps/dashboard-signalloom/`. Every new
-page or component must match this surface to maintain visual consistency.
+This guide defines visual rules for `d2-signalloom/apps/dashboard-signalloom/`.
+Apply these styles to every new page and component to maintain UI consistency.
 
 ## Colour System
 
@@ -10,45 +10,46 @@ page or component must match this surface to maintain visual consistency.
 | Variable | Hex | Use |
 |----------|-----|-----|
 | `--bg` | `#020617` | Page background |
-| `--surface` | `#0F172A` | Cards, sidebar, modals |
-| `--surface2` | `#1E293B` | Table headers, hover states, elevated surfaces |
-| `--border` | `#1E293B` | Card borders, dividers |
-| `--border-subtle` | `#334155` | Input borders, secondary dividers |
-| `--cyan` | `#06B6D4` | Primary accent: links, active nav, code highlights |
-| `--violet` | `#8B5CF6` | Secondary accent: identity, policies |
-| `--teal` | `#10B981` | Success: active, healthy, pass, good |
-| `--amber` | `#D97706` | Warning: suspended, degraded, expiring |
-| `--error` | `#DC2626` | Error: revoked, failed, critical |
+| `--surface` | `#0F172A` | Cards, sidebar, and modals |
+| `--surface2` | `#1E293B` | Table headers, hover states, and elevated surfaces |
+| `--border` | `#1E293B` | Card borders and dividers |
+| `--border-subtle` | `#334155` | Input borders and secondary dividers |
+| `--cyan` | `#06B6D4` | Primary accent: links, active navigation, and code highlights |
+| `--violet` | `#8B5CF6` | Secondary accent: identity and policy elements |
+| `--teal` | `#10B981` | Success states: active, healthy, and passed |
+| `--amber` | `#D97706` | Warning states: suspended, degraded, and expiring |
+| `--error` | `#DC2626` | Error states: revoked, failed, and critical |
 | `--text` | `#F8FAFC` | Primary text |
-| `--muted` | `#94A3B8` | Secondary text, labels, hints |
-| `--slate-gray` | `#475569` | Tertiary: not classified, acknowledged |
+| `--muted` | `#94A3B8` | Secondary text, labels, and helper hints |
+| `--slate-gray` | `#475569` | Tertiary states: unclassified and acknowledged |
 
 ### TypeScript Tokens (`styles/tokens.ts`)
 
 ```typescript
 import { colors } from '../styles/tokens'
-// colors.cyanLoom, colors.tealLoom, colors.irisViolet, colors.amber, colors.red, etc.
-// statusColors maps lifecycle/compliance states to the token palette.
+// colors.cyanLoom, colors.tealLoom, colors.irisViolet, colors.amber, colors.red
+// statusColors maps lifecycle and compliance states to palette tokens.
 ```
 
-Use CSS variables in inline styles (`var(--cyan)`). Use TS tokens when computing
-derived values (e.g. `hex(colors.tealLoom, 0.12)` for translucent pill backgrounds).
+Use CSS variables in inline styles (`var(--cyan)`).
+Use TypeScript tokens for calculated color values (for example, `hex(colors.tealLoom, 0.12)`).
 
 ## CSS Classes
 
-Three global utility classes (defined in `global.css`):
+The application defines three global utility classes in `global.css`:
 
-| Class | What it does |
-|-------|-------------|
-| `.card` | Surface container. `--surface` bg, `--border` border, 8px radius, 20px padding. |
-| `.btn` | Button base. Inline-flex, 4px radius. Variants: `.btn-primary` (cyan), `.btn-secondary` (surface2), `.btn-danger` (error). |
-| `.tag` | Status pill. 99px radius, 11px uppercase bold, 2px/8px padding. |
+| Class | Function |
+|-------|----------|
+| `.card` | Surface container with `--surface` background, `--border` border, 8px radius, and 20px padding. |
+| `.btn` | Base button with inline-flex display and 4px radius. Variants: `.btn-primary`, `.btn-secondary`, `.btn-danger`. |
+| `.tag` | Status indicator pill with 99px radius, 11px uppercase bold text, and 2px/8px padding. |
 
-All other styles are **inline** using CSS variables. No CSS modules. No Tailwind.
+Apply all other styles through inline CSS variables.
+Do not use CSS modules or Tailwind CSS.
 
 ## Page Anatomy
 
-Every dashboard page follows this structure:
+Construct dashboard pages with this layout structure:
 
 ```
 <h1>  Page Title  (fontSize: 22, fontWeight: 700)
@@ -76,7 +77,7 @@ Every dashboard page follows this structure:
 </Section>
 ```
 
-### Table header/cell styles
+### Table Styles
 ```typescript
 // th: padding 9px 14px, color var(--muted), fontWeight 600, fontSize 11, uppercase
 // td: padding 9px 14px, fontSize 13, color var(--text), whiteSpace nowrap
@@ -86,12 +87,12 @@ Every dashboard page follows this structure:
 
 | Component | Location | Use |
 |-----------|----------|-----|
-| `DashKit.tsx` | `components/` | StatCard, Section, Table, Pill, td/hex helpers |
-| `StatusBadge` | `components/StatusBadge.tsx` | Lifecycle/risk/privilege/compliance/NHI status pills |
-| `EmptyState` | `components/EmptyState.tsx` | Icon + title + body for empty data |
-| `ErrorState` | `components/ErrorState.tsx` | Error message + retry button |
-| `DonutChart` | `components/DonutChart.tsx` | Recharts PieChart wrapper |
-| `DemoToggle` | `components/DemoToggle.tsx` | Bottom-right corner widget (demo/live switch) |
+| `DashKit.tsx` | `components/` | StatCard, Section, Table, Pill, and formatting helpers |
+| `StatusBadge` | `components/StatusBadge.tsx` | Status pills for lifecycle, risk, privilege, compliance, and NHI |
+| `EmptyState` | `components/EmptyState.tsx` | Displays icon, title, and description for empty data sets |
+| `ErrorState` | `components/ErrorState.tsx` | Displays error messages and a retry action button |
+| `DonutChart` | `components/DonutChart.tsx` | Recharts wrapper for pie and donut charts |
+| `DemoToggle` | `components/DemoToggle.tsx` | Toggles between demo mode and live API data |
 
 ### StatusBadge Variants
 
@@ -101,20 +102,21 @@ Every dashboard page follows this structure:
 <StatusBadge status="fail" variant="compliance" />     // red
 ```
 
-Variants: `lifecycle`, `risk`, `privilege`, `violation`, `compliance`, `nhi`.
+Available variants include `lifecycle`, `risk`, `privilege`, `violation`, `compliance`, and `nhi`.
 
-### Pill (DashKit)
+### Pill Component (`DashKit`)
 
-For inline status indicators outside the StatusBadge system:
+Use the `Pill` component for inline indicators outside the `StatusBadge` system:
+
 ```tsx
-<Pill label="active" />    // teal bg at 12% opacity
-<Pill label="degraded" />  // amber
-<Pill label="critical" />  // red
+<Pill label="active" />    // teal background with 12% opacity
+<Pill label="degraded" />  // amber background
+<Pill label="critical" />  // red background
 ```
 
 ## Charts
 
-Use **recharts** (already a dependency). Common pattern:
+Build charts with the `recharts` library:
 
 ```tsx
 import { PieChart, Pie, Cell } from 'recharts'
@@ -126,7 +128,7 @@ import { PieChart, Pie, Cell } from 'recharts'
 </PieChart>
 ```
 
-Centre overlay text via absolute-positioned div inside a relative container.
+Center overlay text inside a relative parent element using an absolute position container.
 
 ## Typography
 
@@ -138,11 +140,11 @@ Centre overlay text via absolute-positioned div inside a relative container.
 | Table header | 11px | 600 | `--muted`, uppercase, 0.05em tracking |
 | Table cell | 13px | 400 | `--text` |
 | Stat label | 11px | 400 | `--muted`, uppercase, 0.06em tracking |
-| Stat value | 26px | 700 | accent colour |
+| Stat value | 26px | 700 | Accent colour |
 | Stat sub | 12px | 400 | `--muted` |
-| Code inline | 12px | monospace | `--cyan` (paths/ids) or `--violet` (policies) |
+| Inline code | 12px | monospace | `--cyan` (identifiers) or `--violet` (policies) |
 
-Font stack: `Arial, Helvetica, sans-serif` (inherited from body).
+Font stack: `Arial, Helvetica, sans-serif`.
 
 ## Sidebar Navigation
 
@@ -159,31 +161,37 @@ const NAV = [
 ]
 ```
 
-Active state: `color: var(--cyan)`, `background: rgba(6,182,212,0.10)`, `fontWeight: 600`.
-Inactive: `color: var(--muted)`, `fontWeight: 400`.
+Navigation styles:
+- Active link: `color: var(--cyan)`, `background: rgba(6,182,212,0.10)`, `fontWeight: 600`.
+- Inactive link: `color: var(--muted)`, `fontWeight: 400`.
 
-The Compliance nav item shows a red badge count when `failingControls > 0`.
+The Compliance item displays a red counter badge when `failingControls > 0`.
 
-## Adding a new page
+## Add a New Page
 
-1. Create `src/pages/MyPage.tsx`. Default-export a component.
-2. Lazy-import in `App.tsx`: `const MyPage = lazy(() => import('./pages/MyPage'))`
-3. Add route in `App.tsx`: `<Route path="/my-page" element={<ProtectedRoute><MyPage /></ProtectedRoute>} />`
-4. Add nav entry in `Sidebar.tsx` NAV array (before Settings).
-5. Use `DashKit` components (StatCard, Section, Table, Pill) for layout consistency.
-6. Write a vitest test at `src/pages/MyPage.test.tsx`.
-7. Add the route to `smoke.spec.ts` PAGES array.
-8. Rebuild: `make signalloom-dashboard-image`, then rollout restart, then restart port-forward.
+Follow these steps to add a dashboard page:
 
-## Dependencies
+1. Create `src/pages/MyPage.tsx` and export a default component.
+2. Add a lazy import in `App.tsx`: `const MyPage = lazy(() => import('./pages/MyPage'))`.
+3. Add a route in `App.tsx`: `<Route path="/my-page" element={<ProtectedRoute><MyPage /></ProtectedRoute>} />`.
+4. Add the route object to the `NAV` array in `Sidebar.tsx` before Settings.
+5. Use `DashKit` components (`StatCard`, `Section`, `Table`, `Pill`) for layout structure.
+6. Write unit tests in `src/pages/MyPage.test.tsx`.
+7. Add the new path to the `PAGES` array in `smoke.spec.ts`.
+8. Rebuild the container: run `make signalloom-dashboard-image`.
+9. Restart the deployment and renew port-forward tunnels.
 
-No new npm dependencies for mock/demo pages. Use what's already available:
-- `recharts` for charts
-- `react-router-dom` for routing
-- `axios` for API calls (via `api/client.ts`)
-- `oidc-client-ts` and `react-oidc-context` for auth
+## External Dependencies
 
-## Background Images
+Do not install new npm dependencies for mock pages.
+Use existing libraries:
+- `recharts` for visual graphs
+- `react-router-dom` for navigation
+- `axios` via `api/client.ts` for network requests
+- `oidc-client-ts` and `react-oidc-context` for authentication
 
-Static assets go in `public/`. File permissions must be `644` (nginx uid 101).
-Reference as `url(/filename.png)` in inline styles.
+## Static Image Assets
+
+Store static images in `public/`.
+Set file permissions to mode `644` for the nginx user (uid 101).
+Reference images in inline styles as `url(/filename.png)`.

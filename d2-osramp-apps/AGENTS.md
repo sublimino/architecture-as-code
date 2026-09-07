@@ -1,43 +1,44 @@
-# AGENTS.md — d2-osramp-apps (OSRAMP application slice)
+# AGENTS.md — d2-osramp-apps (OSRAMP Application Slice)
 
-Application tenant of the Acme Co. OSRAMP demo. Namespace-scoped app delivery
-managed by dev teams; reconciled by Flux as namespace admin.
+This slice provides the application tenant for the Acme Co. OSRAMP demonstration.
+It manages namespace-scoped application delivery. Flux reconciles these resources
+using namespace-admin privileges.
 
 ## Stack
 
-| Component | Tech | Path |
-|-----------|------|------|
-| Archiver | Go | `apps/archiver/` |
-| Listener | Go | `apps/listener/` |
-| Processor | Go (witness attestation signer) | `apps/processor/` |
-| HelmReleases | Flux HelmRelease CRDs | `components/` |
-| Update policies | ImageUpdateAutomation | `update-policies/` |
-| Tests | BATS | `test/` |
+| Component | Technology | Path |
+|---|---|---|
+| Archiver | Go service | `apps/archiver/` |
+| Listener | Go service | `apps/listener/` |
+| Processor | Go service (Witness attestation signer) | `apps/processor/` |
+| HelmReleases | Flux HelmRelease manifests | `components/` |
+| Update policies | Flux ImageUpdateAutomation | `update-policies/` |
+| Tests | BATS test suites | `test/` |
 
 ## Lifecycle
 
 ```bash
-make demo-osramp-up          # Deploy OSRAMP frontend + backend
-make demo-osramp-test         # Static manifests + acceptance BATS
-make demo-osramp-down         # Remove OSRAMP; keep foundation
+make demo-osramp-up          # Deploy OSRAMP frontend and backend
+make demo-osramp-test         # Run manifest checks and BATS acceptance tests
+make demo-osramp-down         # Remove OSRAMP while keeping foundation
 ```
 
 ## Testing
 
 ```bash
-make demo-osramp-test-config  # Validate manifests without a running slice
-make demo-osramp-test         # Full acceptance (needs running cluster)
-bats test/osramp.bats         # Direct BATS run
+make demo-osramp-test-config  # Check manifests without a running cluster
+make demo-osramp-test         # Run full acceptance tests against running cluster
+bats test/osramp.bats         # Run BATS tests directly
 ```
 
-## Scope
+## Resource Scope
 
-This slice defines only namespace-scoped resources (HelmRepositories,
-HelmReleases, application configs). It cannot contain cluster-wide
-definitions (CRDs, ClusterRoles, Namespaces) — those live in `d2-infra/`.
+This slice contains namespace-scoped resources only (HelmRepositories, HelmReleases,
+and ConfigMaps). It does not contain cluster-scoped definitions (CRDs, ClusterRoles,
+or Namespaces). Cluster-scoped resources belong in `d2-infra/`.
 
-## Pitfalls
+## Common Pitfalls
 
-- `LICENSE` is Apache 2.0 (differs from other slices which may not have one)
-- Processor signs attestations with the ed25519 key from `make workload-key`
-- Image update policies trigger on registry pushes — beware in local dev
+- License is Apache 2.0.
+- The processor service signs attestations with the key created by `make workload-key`.
+- Image update policies trigger on registry push events. Be aware during local development.

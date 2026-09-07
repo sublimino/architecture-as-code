@@ -42,9 +42,9 @@ setup() {
 }
 
 @test "Netassert runtime placeholders publish resolver label contracts" {
-  run grep -F 'agent-patsy => namespace=fe-signalloom-agents label=signalloom.ai/agent=true' "$canonical"
+  run grep -F 'agent-patsy => namespace=fe-signalloom-agents label=signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent' "$canonical"
   [ "$status" -eq 0 ]
-  run grep -F 'netassert-cardvault-probe-pod => namespace=fe-signalloom-agents label=app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent serviceAccount=cardvault-agent lifecycle=parent-provisioned-sustained' "$canonical"
+  run grep -F 'netassert-cardvault-probe-pod => namespace=fe-signalloom-agents label=app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent,netassert.signalloom.ai/fixture=cardvault-agent serviceAccount=cardvault-agent lifecycle=fleet-provisioned-sustained' "$canonical"
   [ "$status" -eq 0 ]
   run grep -F 'envoy-gateway-pod => namespace=ingress label=gateway.envoyproxy.io/owning-gateway-name=cluster' "$canonical"
   [ "$status" -eq 0 ]
@@ -122,6 +122,13 @@ setup() {
   run bash -c '"$1" --catalogue-json >"$2"' _ "$checker" "$catalogue"
   [ "$status" -eq 0 ]
   run yq -p=json -e '.schemaVersion == "signalloom.netassert.catalogue/v1" and .suiteId == "signalloom-network-policy" and (.assertions | length) == 26 and (.runtimePrerequisites | length) == 3' "$catalogue"
+  [ "$status" -eq 0 ]
+}
+
+@test "Committed catalogue exactly matches canonical generator bytes" {
+  generated="$BATS_TEST_TMPDIR/catalogue.json"
+  "$checker" --catalogue-json >"$generated"
+  run cmp "$generated" "$slice_root/apps/fake-integration-proxy/network-test-catalogue.json"
   [ "$status" -eq 0 ]
 }
 

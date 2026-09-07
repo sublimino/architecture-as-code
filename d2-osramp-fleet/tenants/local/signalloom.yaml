@@ -1493,3 +1493,92 @@ spec:
         - kind: ServiceAccount
           name: netassert-scan-manager
           namespace: inf-signalloom
+---
+# Sustained deterministic sources for controller-triggered Netassert scans.
+# Literal namespaces avoid the apps Kustomization's targetNamespace rewrite.
+# The dependency ensures apps owns cardvault-agent before its fixture starts.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: signalloom-netassert-fixtures
+  namespace: flux-system
+spec:
+  dependsOn:
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: apps
+      namespace: fe-signalloom
+      ready: true
+      readyExpr: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')
+  resources:
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: netassert-generic-agent-fixture
+        namespace: fe-signalloom-agents
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            netassert.signalloom.ai/fixture: generic-agent
+        template:
+          metadata:
+            labels:
+              signalloom.ai/agent: "true"
+              signalloom.ai/framework: custom
+              netassert.signalloom.ai/fixture: generic-agent
+          spec:
+            automountServiceAccountToken: false
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65532
+              seccompProfile: {type: RuntimeDefault}
+            containers:
+              - name: fixture
+                image: netassert-runner:local
+                imagePullPolicy: Never
+                command: ["/bin/sh", "-c", "exec sleep 2147483647"]
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities: {drop: ["ALL"]}
+                resources:
+                  requests: {cpu: 5m, memory: 8Mi}
+                  limits: {memory: 32Mi}
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: netassert-cardvault-agent-fixture
+        namespace: fe-signalloom-agents
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            netassert.signalloom.ai/fixture: cardvault-agent
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/name: cardvault-agent
+              signalloom.ai/supercred: "true"
+              signalloom.ai/framework: custom
+              bao.controlplane.io/consumer: cardvault-agent
+              netassert.signalloom.ai/fixture: cardvault-agent
+          spec:
+            serviceAccountName: cardvault-agent
+            automountServiceAccountToken: false
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65532
+              seccompProfile: {type: RuntimeDefault}
+            containers:
+              - name: fixture
+                image: netassert-runner:local
+                imagePullPolicy: Never
+                command: ["/bin/sh", "-c", "exec sleep 2147483647"]
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities: {drop: ["ALL"]}
+                resources:
+                  requests: {cpu: 5m, memory: 8Mi}
+                  limits: {memory: 32Mi}

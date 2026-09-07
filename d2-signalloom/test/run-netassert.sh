@@ -3,6 +3,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config="${NETASSERT_CONFIG:-${here}/netassert-signalloom.yaml}"
+NETASSERT_TAP_MARKER="----NETASSERT-TAP-RESULTS----"
 # shellcheck source=scripts/lib/wait.sh
 source "${here}/../../scripts/lib/wait.sh"
 
@@ -70,7 +71,7 @@ command -v yq >/dev/null 2>&1 || fail "yq is unavailable"
 kubectl cluster-info >/dev/null 2>&1 || fail "Kubernetes cluster is unreachable"
 
 preflight_suite_resources() {
-  local side kind name namespace resolved resources
+  local side kind name namespace selector fixture resolved resources
   if ! resources="$(yq e -r '.[]
     | (["source", .src.k8sResource.kind, .src.k8sResource.name, .src.k8sResource.namespace],
        ["destination", .dst.k8sResource.kind, .dst.k8sResource.name, .dst.k8sResource.namespace])
@@ -81,16 +82,28 @@ preflight_suite_resources() {
   while IFS=$'\t' read -r side kind name namespace; do
     [[ -n "$kind" && -n "$name" && -n "$namespace" ]] \
       || fail "suite contains an incomplete ${side} Kubernetes resource"
-    if [[ "$side" == "source" && "$kind" == "pod" && "$name" == "agent-patsy" ]]; then
-      resolved="$(kubectl get pods -n "$namespace" -l 'signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent' -o json 2>/dev/null || true)"
-      [[ "$(printf '%s' "$resolved" | yq -p=json -r '[.items[] | select(.metadata.deletionTimestamp == null and .status.phase == "Running" and (.status.conditions // [] | any_c(.type == "Ready" and .status == "True")))] | length' 2>/dev/null)" == 1 ]] \
-        || fail "configured source fixture is not uniquely Running and Ready: generic-agent in $namespace"
-      continue
+    selector=""
+    fixture=""
+    if [[ "$side" == "source" && "$kind" == "pod" ]]; then
+      case "$name" in
+        agent-patsy)
+          selector='signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent'
+          fixture='generic-agent'
+          ;;
+        netassert-cardvault-probe-pod)
+          selector='app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent,netassert.signalloom.ai/fixture=cardvault-agent'
+          fixture='cardvault-agent'
+          ;;
+        envoy-gateway-pod)
+          selector='gateway.envoyproxy.io/owning-gateway-name=cluster'
+          fixture='envoy-gateway'
+          ;;
+      esac
     fi
-    if [[ "$side" == "source" && "$kind" == "pod" && "$name" == "netassert-cardvault-probe-pod" ]]; then
-      resolved="$(kubectl get pods -n "$namespace" -l 'app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent,netassert.signalloom.ai/fixture=cardvault-agent' -o json 2>/dev/null || true)"
+    if [[ -n "$selector" ]]; then
+      resolved="$(kubectl get pods -n "$namespace" -l "$selector" -o json 2>/dev/null || true)"
       [[ "$(printf '%s' "$resolved" | yq -p=json -r '[.items[] | select(.metadata.deletionTimestamp == null and .status.phase == "Running" and (.status.conditions // [] | any_c(.type == "Ready" and .status == "True")))] | length' 2>/dev/null)" == 1 ]] \
-        || fail "configured source fixture is not uniquely Running and Ready: cardvault-agent in $namespace"
+        || fail "configured source fixture is not uniquely Running and Ready: $fixture in $namespace"
       continue
     fi
     kubectl get "${kind}/${name}" -n "$namespace" >/dev/null 2>&1 \
@@ -140,7 +153,7 @@ wait_k8s_ready job netassert-run -n fe-signalloom --for condition=complete 120 >
 logs="$(kubectl logs -n fe-signalloom job/netassert-run -c netassert 2>&1)" \
   || fail "cannot read netassert-run Job logs"
 printf '%s\n' "$logs"
-[[ "$logs" == *"===NETASSERT_TAP==="* ]] \
+[[ "$logs" == *"${NETASSERT_TAP_MARKER}"* ]] \
   || fail "netassert-run logs contain no TAP marker"
-printf '%s\n' "${logs#*===NETASSERT_TAP===}" >"$tap_file"
+printf '%s\n' "${logs#*"${NETASSERT_TAP_MARKER}"}" >"$tap_file"
 validate_tap_file "$tap_file"

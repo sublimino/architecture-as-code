@@ -40,8 +40,8 @@ setup() {
 
   run grep -c 'automountServiceAccountToken: false' "$canonical"
   [ "$status" -eq 0 ]
-  # Two existing bootstrap identities plus two tokenless network fixtures.
-  [ "$output" -eq 4 ]
+  # Two bootstrap identities, two fixture pods, and fixture-owned Cardvault SA.
+  [ "$output" -eq 5 ]
 }
 
 @test "default-deny policies retain only the declared Signalloom paths" {

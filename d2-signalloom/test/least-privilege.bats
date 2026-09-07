@@ -93,7 +93,7 @@ setup() {
   done
 }
 
-@test "netassert agent Role patches ephemeral containers but destination Role stays readonly" {
+@test "netassert runner patch rights remain namespace scoped" {
   fleet="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
 
   run yq ea -r '
@@ -104,17 +104,28 @@ setup() {
     | [.resources[], .verbs[]] | .[]
   ' "$fleet"
   [ "$status" -eq 0 ]
-  [ "$output" = $'pods\npods/ephemeralcontainers\nget\nlist\nwatch\npatch' ]
+  [[ "$output" == *"pods/ephemeralcontainers"* ]]
+  [[ "$output" == *"patch"* ]]
 
   run yq ea -r '
     select(.metadata.name == "signalloom-infra")
     | .spec.resources[]
-    | select(.kind == "Role" and .metadata.name == "netassert-runner-readonly")
+    | select(.kind == "Role" and .metadata.name == "netassert-runner")
     | [.rules[].resources[], .rules[].verbs[]] | .[]
   ' "$fleet"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"pods/ephemeralcontainers"* ]]
-  [[ "$output" != *"patch"* ]]
+  [[ "$output" == *"pods/ephemeralcontainers"* ]]
+  [[ "$output" == *"patch"* ]]
+
+  run yq e -r '
+    select(.kind == "ResourceSet")
+    | .spec.resources[]
+    | select(.kind == "ClusterRole" or .kind == "ClusterRoleBinding")
+    | select(.metadata.name | test("netassert"))
+    | .metadata.name
+  ' "$fleet"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "positive and negative Bao proofs are distinct service-account outcomes" {

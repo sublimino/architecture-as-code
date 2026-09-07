@@ -1118,6 +1118,11 @@ run_stage \
      d2-signalloom/test/api-route-liveness.bats"
 
 run_stage \
+  "Live NetworkPolicy enforcement (netassert)" \
+  "stage7a-netassert.tap" \
+  "cd ${WORK_DIR} && make -C d2-signalloom test-netassert"
+
+run_stage \
   "Adversarial API surface probes" \
   "stage7b-adversarial.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/api-adversarial.bats"

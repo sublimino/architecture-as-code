@@ -915,10 +915,9 @@ spec:
     #   fe-signalloom-agents hosts only a SRC (agent-patsy, the denied-path
     #   tests) — patch on pods/ephemeralcontainers is required.
     #
-    #   inf-signalloom hosts only DESTINATIONS across the whole suite (dex,
-    #   postgresql, redis, minio) — read-only, no ephemeralcontainers patch.
-    #   (fe-signalloom itself hosts both SRC and DST pods; that grant lives in
-    #   signalloom-apps below, alongside the ServiceAccount's own tenant.)
+    #   inf-bao and inf-signalloom can host suite sources as coverage expands,
+    #   so each input receives the same namespaced ephemeral-container patch.
+    #   fe-signalloom carries its grant in signalloom-apps below.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
       metadata:
@@ -926,8 +925,11 @@ spec:
         namespace: fe-signalloom-agents
       rules:
         - apiGroups: [""]
-          resources: ["pods", "pods/ephemeralcontainers"]
-          verbs: ["get", "list", "watch", "patch"]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["pods/ephemeralcontainers"]
+          verbs: ["patch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:
@@ -944,7 +946,7 @@ spec:
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
       metadata:
-        name: netassert-runner-readonly
+        name: netassert-runner
         namespace: << inputs.tenant >>
       rules:
         - apiGroups: ["", "apps"]
@@ -953,15 +955,21 @@ spec:
         - apiGroups: ["", "apps"]
           resources: ["replicasets", "pods"]
           verbs: ["list"]
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["watch"]
+        - apiGroups: [""]
+          resources: ["pods/ephemeralcontainers"]
+          verbs: ["patch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:
-        name: netassert-runner-readonly
+        name: netassert-runner
         namespace: << inputs.tenant >>
       roleRef:
         apiGroup: rbac.authorization.k8s.io
         kind: Role
-        name: netassert-runner-readonly
+        name: netassert-runner
       subjects:
         - kind: ServiceAccount
           name: netassert-runner
@@ -1369,8 +1377,11 @@ spec:
           resources: ["replicasets", "pods"]
           verbs: ["list"]
         - apiGroups: [""]
-          resources: ["pods", "pods/ephemeralcontainers"]
-          verbs: ["watch", "patch"]
+          resources: ["pods"]
+          verbs: ["watch"]
+        - apiGroups: [""]
+          resources: ["pods/ephemeralcontainers"]
+          verbs: ["patch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:

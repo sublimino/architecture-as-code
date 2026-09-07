@@ -1024,6 +1024,13 @@ run_stage \
      d2-signalloom/test/supercred-demo-api.bats \
      d2-signalloom/test/api-route-liveness.bats"
 
+# Stage 7a executes Netassert itself; shell probes cannot prove its
+# ephemeral-container path actually ran.
+run_stage \
+  "Live NetworkPolicy enforcement (netassert)" \
+  "stage7a-netassert.tap" \
+  "cd ${WORK_DIR} && make -C d2-signalloom test-netassert"
+
 # Stage 7b: Adversarial API surface probes (BATS TAP)
 #
 # 15 hostile probes against the live Gateway: unauthenticated mutations, forged

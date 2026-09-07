@@ -2,9 +2,8 @@
 # that Job on demand (POST /network-tests/scan) referencing this SA by name —
 # see d2-osramp-fleet/tenants/local/signalloom.yaml for the RBAC granted to it
 # (get/list/watch on pods + deployments/statefulsets/daemonsets/replicasets,
-# and patch on pods/ephemeralcontainers only where the NetSerts suite actually
-# needs to inject a scanner: fe-signalloom and fe-signalloom-agents, never
-# inf-signalloom, which is destination-only in every test).
+# and patch on pods/ephemeralcontainers in each suite namespace: inf-bao,
+# inf-signalloom, fe-signalloom, and fe-signalloom-agents).
 apiVersion: v1
 kind: ServiceAccount
 metadata:

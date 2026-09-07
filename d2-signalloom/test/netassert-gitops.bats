@@ -47,6 +47,40 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "fleet owns hardened sustained Netassert fixtures in agents namespace" {
+  run yq ea -e '
+    select(.kind == "ResourceSet" and .metadata.name == "signalloom-netassert-fixtures")
+    | ((.spec.dependsOn[0].name == "apps") and
+      (([.spec.resources[] | select(.kind == "Deployment")] | length) == 2) and
+      ([.spec.resources[] | select(.kind == "Deployment") | .metadata.namespace] | all_c(. == "fe-signalloom-agents")) and
+      ([.spec.resources[] | select(.kind == "Deployment") | .spec.template.spec.containers[0].image] | all_c(. == "netassert-runner:local")) and
+      ([.spec.resources[] | select(.kind == "Deployment") | .spec.template.spec.automountServiceAccountToken] | all_c(. == false)) and
+      ([.spec.resources[] | select(.kind == "Deployment") | .spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation] | all_c(. == false)))
+  ' "$fleet"
+  [ "$status" -eq 0 ]
+}
+
+@test "fixture labels model policy identities without kagent ownership" {
+  run yq ea -e '
+    select(.kind == "ResourceSet" and .metadata.name == "signalloom-netassert-fixtures")
+    | ([.spec.resources[] | select(.metadata.name == "netassert-generic-agent-fixture")
+        | .spec.template.metadata.labels] | .[0]) as $generic
+    | ([.spec.resources[] | select(.metadata.name == "netassert-cardvault-agent-fixture")
+        | .spec.template] | .[0]) as $cardvault
+    | (($generic."signalloom.ai/agent" == "true") and
+      ($generic."signalloom.ai/framework" == "custom") and
+      ($generic."netassert.signalloom.ai/fixture" == "generic-agent") and
+      ($generic."app.kubernetes.io/managed-by" == null) and
+      ($generic.app == null) and
+      ($cardvault.spec.serviceAccountName == "cardvault-agent") and
+      ($cardvault.metadata.labels."app.kubernetes.io/name" == "cardvault-agent") and
+      ($cardvault.metadata.labels."signalloom.ai/supercred" == "true") and
+      ($cardvault.metadata.labels."bao.controlplane.io/consumer" == "cardvault-agent") and
+      ($cardvault.metadata.labels."netassert.signalloom.ai/fixture" == "cardvault-agent"))
+  ' "$fleet"
+  [ "$status" -eq 0 ]
+}
+
 @test "ephemeral-container patch is namespaced to six required namespaces" {
   run bash -c "yq e -r '
     select(.kind == \"ResourceSet\")
@@ -122,8 +156,8 @@ YAML
   cat >"$fake_bin/kubectl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$KUBECTL_CALLS"
-if [[ "$*" == *"get pods"*"signalloom.ai/agent=true"* ]]; then
-  printf 'pod/agent-arthur\n'
+if [[ "$*" == *"get pods"*"netassert.signalloom.ai/fixture=generic-agent"* ]]; then
+  printf '{"items":[{"metadata":{"name":"agent-fixture"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}}]}\n'
 fi
 exit 0
 SH
@@ -132,7 +166,7 @@ SH
   run env KUBECTL_CALLS="$calls" NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
     "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
   [ "$status" -eq 0 ]
-  run grep -F 'get pods -n fe-signalloom-agents -l signalloom.ai/agent=true -o name' "$calls"
+  run grep -F 'get pods -n fe-signalloom-agents -l signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent -o json' "$calls"
   [ "$status" -eq 0 ]
   run grep -F 'get deployment/cardvault -n inf-signalloom' "$calls"
   [ "$status" -eq 0 ]
@@ -178,7 +212,7 @@ SH
   run env KUBECTL_CALLS="$calls" NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
     "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
   [ "$status" -ne 0 ]
-  [[ "$output" == *"parent-provisioned sustained source is absent: pod/netassert-cardvault-probe-pod in fe-signalloom-agents"* ]]
+  [[ "$output" == *"configured source fixture is not uniquely Running and Ready: cardvault-agent in fe-signalloom-agents"* ]]
   run grep -E '(^| )(apply|create|replace|patch)( |$)' "$calls"
   [ "$status" -ne 0 ]
 }

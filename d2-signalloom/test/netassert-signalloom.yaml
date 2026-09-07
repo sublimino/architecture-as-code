@@ -213,8 +213,8 @@
 #
 # Resolver contract (the runtime image must replace these exact pod names and
 # must exit non-zero before Netassert when no Ready pod matches):
-# agent-patsy => namespace=fe-signalloom-agents label=signalloom.ai/agent=true
-# netassert-cardvault-probe-pod => namespace=fe-signalloom-agents label=app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent serviceAccount=cardvault-agent lifecycle=parent-provisioned-sustained
+# agent-patsy => namespace=fe-signalloom-agents label=signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent
+# netassert-cardvault-probe-pod => namespace=fe-signalloom-agents label=app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent,netassert.signalloom.ai/fixture=cardvault-agent serviceAccount=cardvault-agent lifecycle=fleet-provisioned-sustained
 # envoy-gateway-pod => namespace=ingress label=gateway.envoyproxy.io/owning-gateway-name=cluster
 #
 # SPIRE agent uses hostNetwork; Kubernetes NetworkPolicy cannot prove its node-network enforcement.

@@ -424,16 +424,16 @@
     {
       "placeholder": "agent-patsy",
       "namespace": "fe-signalloom-agents",
-      "selector": "signalloom.ai/agent=true",
+      "selector": "signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent",
       "readyRequired": true,
       "failureMode": "fail-closed"
     },
     {
       "placeholder": "netassert-cardvault-probe-pod",
       "namespace": "fe-signalloom-agents",
-      "selector": "app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent",
+      "selector": "app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent,netassert.signalloom.ai/fixture=cardvault-agent",
       "serviceAccount": "cardvault-agent",
-      "lifecycle": "parent-provisioned-sustained",
+      "lifecycle": "fleet-provisioned-sustained",
       "readyRequired": true,
       "failureMode": "fail-closed"
     },

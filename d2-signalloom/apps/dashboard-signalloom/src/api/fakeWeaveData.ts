@@ -10,8 +10,7 @@ import type {
   ProvisionalActor,
   CoverageStatement,
   StoreStats,
-  SignalLayer,
-  FidelityTier,
+  AuthorizationChain,
 } from './weaveApi'
 
 // ─── Observations ────────────────────────────────────────────────────────────

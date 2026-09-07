@@ -12,6 +12,7 @@ import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
+import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
@@ -505,10 +506,10 @@ const LIFECYCLE_TOOLTIP: Record<string, string> = {
   revoked: 'Permanently revoked — terminal state; credentials refused.',
 }
 
-function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
+function AgentTableRow({ agent, shown, onSelect, onEdit }: {
   agent: AgentResponse
   shown: boolean
-  onNavigate: (id: string) => void
+  onSelect: (agent: AgentResponse) => void
   onEdit: (agent: AgentResponse) => void
 }) {
   const hasViolations = agent.compliance_summary.failing > 0
@@ -550,7 +551,17 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
       style={{ opacity: shown ? 1 : 0, visibility: shown ? 'visible' : 'collapse' }}
     >
       <tr
-        onClick={() => onNavigate(agent.id)}
+        data-testid={`agent-row-${agent.id}`}
+        tabIndex={0}
+        role="button"
+        aria-label={`View evidence for ${agentName}`}
+        onClick={() => onSelect(agent)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSelect(agent)
+          }
+        }}
         style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
         onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
         onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -781,6 +792,8 @@ function GovernedTab({
   loaded,
   error,
   lifecycleFilter,
+  sourceHealth,
+  sourceHealthDetail,
   onFilterChange,
   onRetry,
   onReload,
@@ -790,6 +803,8 @@ function GovernedTab({
   loaded: boolean
   error: string | null
   lifecycleFilter: string
+  sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
+  sourceHealthDetail?: SourceHealthMap | null
   onFilterChange: (state: string) => void
   onRetry: () => void
   onReload: () => void
@@ -798,6 +813,7 @@ function GovernedTab({
   const [search, setSearch] = useState('')
   const [showRegister, setShowRegister] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
+  const [selectedAgent, setSelectedAgent] = useState<AgentResponse | null>(null)
 
   const filtered = useMemo(() => {
     let list = agents
@@ -841,6 +857,19 @@ function GovernedTab({
     <div style={{ width: '100%' }}>
       {showRegister && <RegisterModal onClose={() => setShowRegister(false)} onCreated={onReload} />}
       {editingAgent && <EditAgentModal agent={editingAgent} onClose={() => setEditingAgent(null)} onSaved={onReload} />}
+      {selectedAgent && (
+        <AgentEvidenceDrawer
+          agent={selectedAgent}
+          sourceHealth={sourceHealth}
+          sourceHealthDetail={sourceHealthDetail}
+          onClose={() => setSelectedAgent(null)}
+          onOpenFullRecord={(id) => navigate(`/agents/${id}`)}
+          onEdit={(agent) => {
+            setSelectedAgent(null)
+            setEditingAgent(agent)
+          }}
+        />
+      )}
 
       {/* Filter bar */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -915,7 +944,7 @@ function GovernedTab({
                   key={a.id}
                   agent={a}
                   shown={shown}
-                  onNavigate={(id) => navigate(`/agents/${id}`)}
+                  onSelect={setSelectedAgent}
                   onEdit={setEditingAgent}
                 />
               )
@@ -1190,6 +1219,8 @@ export default function AgentsPage() {
         loaded={agentsLoaded}
         error={agentsError}
         lifecycleFilter={lifecycleFilter}
+        sourceHealth={sourceHealth}
+        sourceHealthDetail={sourceHealthDetail}
         onFilterChange={setLifecycleFilter}
         onRetry={loadAgents}
         onReload={loadAgents}

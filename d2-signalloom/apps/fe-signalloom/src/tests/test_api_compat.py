@@ -1191,3 +1191,155 @@ def test_capabilities_get_is_strictly_side_effect_free(client, monkeypatch):
     response = client.get("/api/capabilities", headers=bearer(token_for("alice")))
     assert response.status_code == 200
     assert len(writes_recorded) == 0
+
+
+def test_agent_response_model_with_drawer_telemetry_and_metadata():
+    """Proves AgentResponse serialization supports all Quick Evidence Drawer fields."""
+    telemetry = api_compat.SentinelKernelTelemetry(
+        cgroup_state="frozen",
+        traffic_control_state="drop",
+        ebpf_active=True,
+        ebpf_program_attached=True,
+        observed_at="2026-09-07T08:30:00Z",
+        last_observed_at="2026-09-07T08:30:00Z",
+    )
+    assert telemetry.ebpf_program_attached is True
+    assert telemetry.last_observed_at == "2026-09-07T08:30:00Z"
+
+    agent = api_compat.AgentResponse(
+        id="agent-drawer-001",
+        name="Drawer Verification Agent",
+        type="Signal Loom Built",
+        tenant_id="tenant-demo",
+        lifecycle_state="active",
+        last_transition_at="2026-09-07T08:00:00Z",
+        eu_ai_act_risk_class="limited",
+        compliance_summary=api_compat.ComplianceSummaryInline(
+            total_controls=6,
+            passing=5,
+            failing=1,
+            pending=0,
+            posture_score=0.83,
+        ),
+        created_at="2026-09-01T10:00:00Z",
+        record_class="registered",
+        is_registry_linked=True,
+        kernel_telemetry=telemetry,
+        runtime=api_compat.RuntimeMetadata(
+            namespace="sec-ops",
+            framework="kagent",
+            execution_mode="autonomous",
+            model="claude-3-7-sonnet",
+            node="node-1",
+            pod_uid="pod-uid-drawer-1",
+            service_account="drawer-sa",
+            phase="Running",
+        ),
+        responsibility=api_compat.ResponsibilityMetadata(
+            owner_name="alice@signal-loom.ai",
+            team="Platform Security",
+            assignment_status="assigned",
+        ),
+        identity=api_compat.IdentityMetadata(
+            spiffe_id="spiffe://cluster.local/ns/sec-ops/sa/drawer-sa",
+            spiffe_status="linked",
+            aliases=["alias-1", "alias-2"],
+        ),
+        attention=api_compat.AttentionMetadata(
+            level="critical",
+            highest_issue="1 failing control detected",
+        ),
+        timestamps=api_compat.TimestampsMetadata(
+            created_at="2026-09-01T10:00:00Z",
+            last_observed_at="2026-09-07T08:30:00Z",
+            last_transition_at="2026-09-07T08:00:00Z",
+        ),
+    )
+    serialized = agent.model_dump()
+    assert serialized["id"] == "agent-drawer-001"
+    assert serialized["kernel_telemetry"]["cgroup_state"] == "frozen"
+    assert serialized["kernel_telemetry"]["traffic_control_state"] == "drop"
+    assert serialized["kernel_telemetry"]["ebpf_program_attached"] is True
+    assert serialized["runtime"]["framework"] == "kagent"
+    assert serialized["responsibility"]["owner_name"] == "alice@signal-loom.ai"
+    assert serialized["identity"]["spiffe_status"] == "linked"
+    assert serialized["attention"]["level"] == "critical"
+
+
+def test_agent_detail_get_is_strictly_side_effect_free(client, monkeypatch):
+    """Proves GET /api/agents/{id} performs zero SQL INSERT/UPDATE writes on hit or miss."""
+    writes_recorded = []
+
+    class MockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return []
+
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                    "name": "Live Registered Agent",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "system",
+                    "eu_ai_act_risk_class": "limited",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    # 1. Existing agent lookup
+    res_hit = client.get(
+        "/api/agents/11111111-1111-1111-1111-111111111111",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_hit.status_code == 200
+    assert len(writes_recorded) == 0
+
+    # 2. Non-existent agent lookup
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return None
+
+    async def get_empty_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_empty_pool)
+
+    res_miss = client.get(
+        "/api/agents/non-existent-agent-id",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_miss.status_code == 404
+    assert len(writes_recorded) == 0
+

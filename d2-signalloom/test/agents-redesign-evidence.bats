@@ -106,3 +106,24 @@ setup() {
   run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_operational_inventory_response_envelope_and_models'"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p1-7: AgentEvidenceDrawer component vitest suite passes 100% with truthful labels and telemetry" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentEvidenceDrawer.test.tsx"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-7: Quick Evidence Side Drawer integration tests pass in AgentsPage" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentsPage.test.tsx -t 'Quick Evidence Side Drawer'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-7: backend AgentResponse models with drawer telemetry and metadata pass contract" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_response_model_with_drawer_telemetry_and_metadata'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-7: GET /api/agents/{id} detail endpoint is strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_detail_get_is_strictly_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+

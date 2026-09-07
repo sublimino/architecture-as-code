@@ -49,8 +49,10 @@ export interface AgentCredentialState {
 export interface SentinelKernelTelemetry {
   cgroup_state: 'frozen' | 'thawed' | 'none' | 'unknown'
   traffic_control_state: 'drop' | 'allow' | 'unknown'
-  ebpf_active: boolean
+  ebpf_active?: boolean
+  ebpf_program_attached?: boolean
   observed_at?: string | null
+  last_observed_at?: string | null
 }
 
 export interface RuntimeMetadata {

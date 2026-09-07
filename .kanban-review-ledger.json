@@ -660,5 +660,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "CRKC-P3-1 verified: Declarative CEL-to-Landlock policy compiler, Rule SP-4 non-Turing complete CEL checks, cross-tier semantic equivalence (95/95 probes), CLI (compile/validate/verify), Go unit tests and 6/6 BATS tests green (commit b02171ab)"
+  },
+  "30e7d": {
+    "task_id": "30e7d",
+    "reviewed_at": "2026-09-07T21:26:01Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P3-3 verified: Fail-closed node capability admission guard webhook, agent pod cgroup-v2 and Landlock verification, 403 rejection on unconfined node, 200 on compliant node, Prometheus metrics, Go unit tests and 4/4 BATS tests green (commit 9cf3883c)"
   }
 }

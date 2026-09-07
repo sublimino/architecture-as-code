@@ -93,7 +93,7 @@ export interface OperationalStateMetadata {
 }
 
 export interface AssessmentSummaryMetadata {
-  status: 'assessed' | 'not_assessed'
+  status: 'assessed' | 'not_assessed' | 'evaluating'
   total_controls: number
   passed_controls: number
   failed_controls: number

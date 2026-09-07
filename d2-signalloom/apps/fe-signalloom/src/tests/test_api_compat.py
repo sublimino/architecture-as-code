@@ -1427,3 +1427,160 @@ def test_dossier_unknown_id_fails_closed_with_404(client, monkeypatch):
     assert "not found" in body["error"]["message"].lower()
 
 
+def test_tab4_compliance_posture_is_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves GET /api/compliance/posture is strictly side-effect free and returns control ratios."""
+    writes_recorded = []
+
+    class ReadOnlyPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                writes_recorded.append(query)
+                raise AssertionError(f"Illegal SQL mutation in GET: {query}")
+            if "agent_registry" in query:
+                return [
+                    {
+                        "id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                        "name": "Sir Lancelot",
+                    }
+                ]
+            if "agent_compliance_results" in query:
+                return [
+                    {
+                        "agent_id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                        "control_id": "eu-ai-act:art-9",
+                        "control_name": "Risk management system (Article 9)",
+                        "framework_name": "EU AI Act",
+                        "status": "pass",
+                        "assessed_at": datetime.now(timezone.utc),
+                        "evidence_ref": "opa://assessments/lancelot/art-9",
+                    },
+                    {
+                        "agent_id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                        "control_id": "soc2:cc7.2",
+                        "control_name": "System monitoring",
+                        "framework_name": "SOC 2",
+                        "status": "fail",
+                        "assessed_at": datetime.now(timezone.utc),
+                        "evidence_ref": "opa://assessments/lancelot/cc7.2",
+                    },
+                ]
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            writes_recorded.append(query)
+            raise AssertionError(f"Illegal SQL execute in GET: {query}")
+
+    async def get_readonly_pool():
+        return ReadOnlyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_readonly_pool)
+
+    res = client.get(
+        "/api/compliance/posture",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    assert len(writes_recorded) == 0
+    data = res.json()
+    assert "agents" in data
+    assert len(data["agents"]) == 1
+    agent_posture = data["agents"][0]
+    assert agent_posture["agent_id"] == "11111111-1111-1111-1111-111111111111"
+    assert agent_posture["agent_name"] == "Sir Lancelot"
+    assert agent_posture["posture_score"] == 0.5  # 1 pass out of 2 total
+    assert len(agent_posture["results"]) == 2
+    assert agent_posture["results"][0]["control_id"] == "eu-ai-act:art-9"
+    assert agent_posture["results"][0]["status"] == "pass"
+
+
+def test_tab4_compliance_frameworks_returns_article9(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves GET /api/compliance/frameworks returns EU AI Act and Article 9 controls."""
+    res = client.get(
+        "/api/compliance/frameworks",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    frameworks = res.json()
+    assert isinstance(frameworks, list)
+    eu_fw = next((f for f in frameworks if f["id"] == "eu-ai-act"), None)
+    assert eu_fw is not None
+    assert eu_fw["name"] == "EU AI Act"
+    art9_control = next((c for c in eu_fw["controls"] if "art-9" in c["id"]), None)
+    assert art9_control is not None
+    assert "risk management" in art9_control["name"].lower() or "article 9" in art9_control["name"].lower()
+
+
+def test_tab4_compliance_reassess_records_audit_honestly(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves POST /api/agents/{id}/compliance/{control_id}/reassess records audit truthfully with dispatched=False."""
+    recorded_audits = []
+
+    class MockPool:
+        async def execute(self, query: str, *params: Any) -> str:
+            if "audit_events" in query:
+                recorded_audits.append(params)
+            return "INSERT 1"
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    monkeypatch.setattr(api_compat, "_require_pool", lambda reason: get_pool())
+
+    res = client.post(
+        "/api/agents/11111111-1111-1111-1111-111111111111/compliance/eu-ai-act:art-9/reassess",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["agent_id"] == "11111111-1111-1111-1111-111111111111"
+    assert data["control_id"] == "eu-ai-act:art-9"
+    assert data["status"] == "reassessment_requested"
+    assert data["clickup_task_id"] is None
+    assert "reassessment_requested_at" in data
+    assert data["reassessment_requested_by"] == "alice"
+
+
+def test_tab4_agent_detail_preserves_assessment_summary(client, monkeypatch):
+    """SFAGENTS-P2-4: Proves GET /api/agents/{id} response preserves assessment_summary structure."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("33333333-3333-3333-3333-333333333333"),
+                    "name": "Assessment Test Agent",
+                    "type": "Custom",
+                    "owner": "bob@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "high",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert "assessment_summary" in body
+    summary = body["assessment_summary"]
+    assert "status" in summary
+    assert "total_controls" in summary
+    assert "passed_controls" in summary
+    assert "failed_controls" in summary
+    assert "pending_controls" in summary
+
+
+

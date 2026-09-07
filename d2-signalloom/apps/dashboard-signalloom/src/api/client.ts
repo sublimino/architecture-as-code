@@ -309,8 +309,8 @@ export const api = {
 
     // Step 2 of register-then-issue: mint an identity credential for an existing
     // record. The token is returned once; callers must show-once and never store it.
-    issueCredential: (token: string, id: string) =>
-      req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST' }),
+    issueCredential: (token: string, id: string, body?: { token_note?: string }) =>
+      req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST', data: body }),
 
     // Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
     revokeCredential: (token: string, id: string) =>

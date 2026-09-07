@@ -9,7 +9,7 @@
 # The original full-demo config is on the main branch.
 #
 # The JSON patches below index into spec.resources of each ResourceSet:
-# index 5 is infra's OCIRepository. Agent Trust's OCIRepository is index 30.
+# index 5 is infra's and apps' OCIRepository. Agent Trust's is index 30.
 # Signal Loom infra's OCIRepository is index 23 after its runner RBAC grants.
 # after six namespaces, its ServiceAccount, two ClusterRoles, one
 # ClusterRoleBinding, and six namespaced RoleBindings. Keep indexes in sync.
@@ -25,6 +25,28 @@ resources:
   # - ../base/olly.yaml
   - signalloom.yaml
 patches:
+  - target:
+      group: fluxcd.controlplane.io
+      version: v1
+      kind: ResourceSet
+      name: apps
+    patch: |
+      - op: replace
+        path: /spec/resources/5/spec/verify
+        value:
+          provider: cosign
+          secretRef:
+            name: cosign-pub
+      - op: add
+        path: /spec/resources/-
+        value:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cosign-pub
+            namespace: << inputs.tenant >>
+            annotations:
+              fluxcd.controlplane.io/copyFrom: "flux-system/cosign-pub"
   - target:
       group: fluxcd.controlplane.io
       version: v1

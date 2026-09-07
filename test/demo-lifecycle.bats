@@ -116,6 +116,80 @@ SCRIPT
   [ "$output" = "1" ]
 }
 
+@test "local OSRAMP render verifies OCI artifacts with cosign-pub" {
+  command -v kubectl >/dev/null || skip "kubectl is required"
+  command -v yq >/dev/null || skip "yq is required"
+  local rendered="$BATS_TEST_TMPDIR/local-tenants.yaml"
+
+  kubectl kustomize --load-restrictor LoadRestrictionsNone \
+    "$root/d2-osramp-fleet/tenants/local" >"$rendered"
+
+  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
+    .spec.resources[] | select(.kind == "OCIRepository" and .metadata.name == "apps") |
+    select(.spec.verify.provider == "cosign") |
+    select(.spec.verify.secretRef.name == "cosign-pub") |
+    select(.spec.verify.matchOIDCIdentity == null)] | length' "$rendered"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+}
+
+@test "local OSRAMP render copies its cosign verification key" {
+  command -v kubectl >/dev/null || skip "kubectl is required"
+  command -v yq >/dev/null || skip "yq is required"
+  local rendered="$BATS_TEST_TMPDIR/local-tenants.yaml"
+
+  kubectl kustomize --load-restrictor LoadRestrictionsNone \
+    "$root/d2-osramp-fleet/tenants/local" >"$rendered"
+
+  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
+    .spec.resources[] | select(.kind == "Secret" and .metadata.name == "cosign-pub") |
+    select(.metadata.annotations."fluxcd.controlplane.io/copyFrom" == "flux-system/cosign-pub")] | length' "$rendered"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+}
+
+@test "local render preserves existing ResourceSet cosign verification" {
+  command -v kubectl >/dev/null || skip "kubectl is required"
+  command -v yq >/dev/null || skip "yq is required"
+  local rendered="$BATS_TEST_TMPDIR/local-tenants.yaml" name
+
+  kubectl kustomize --load-restrictor LoadRestrictionsNone \
+    "$root/d2-osramp-fleet/tenants/local" >"$rendered"
+
+  for name in infra agent-trust agent-swarm signalloom-infra signalloom-apps; do
+    run yq eval-all -e "[select(.kind == \"ResourceSet\" and .metadata.name == \"$name\") |
+      .spec.resources[] | select(.kind == \"OCIRepository\") |
+      select(.spec.verify.provider == \"cosign\") |
+      select(.spec.verify.secretRef.name == \"cosign-pub\")] | length > 0" "$rendered"
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+  done
+}
+
+@test "nonlocal OSRAMP render retains GitHub keyless identity verification" {
+  command -v kubectl >/dev/null || skip "kubectl is required"
+  command -v yq >/dev/null || skip "yq is required"
+  local rendered="$BATS_TEST_TMPDIR/ghcr-tenants.yaml" lane
+
+  kubectl kustomize --load-restrictor LoadRestrictionsNone \
+    "$root/d2-osramp-fleet/tenants/ghcr" >"$rendered"
+
+  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
+    .spec.resources[] | select(.kind == "OCIRepository" and .metadata.name == "apps") |
+    select(.spec.verify.provider == "cosign") |
+    select(.spec.verify.secretRef == null) |
+    select(.spec.verify.matchOIDCIdentity[0].issuer == "^https://token\\.actions\\.githubusercontent\\.com$")] | length' "$rendered"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+
+  for lane in staging prod-eu prod-us; do
+    run yq -e '.spec.path == "./tenants/ghcr"' \
+      "$root/d2-osramp-fleet/clusters/$lane/tenants.yaml"
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+  done
+}
+
 @test "OSRAMP activation enables only frontend and backend inputs" {
   local assignment
   assignment="$(grep '^DEFAULT_INPUTS=' "$root/scripts/osramp-up.sh")"

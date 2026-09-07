@@ -16,6 +16,7 @@ import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import CredentialActionsMenu from '../components/CredentialActionsMenu'
 import AgentOverviewTab from '../components/AgentOverviewTab'
+import AgentActivityTab from '../components/AgentActivityTab'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1039,50 +1040,14 @@ export default function AgentDetailPage() {
     }
   }, [getAccessTokenSilently, load])
 
-  // Merge audit events + violations into a single sorted timeline
+  // Merge audit events + violations into a single sorted timeline (pure & side-effect free)
   const timelineItems: TimelineItem[] = useMemo(() => {
-    let rawAudit = auditEvents
-    if (rawAudit.length === 0 && agent) {
-      const now = new Date()
-      const tsDiscovered = agent.created_at || new Date(now.getTime() - 7200000).toISOString()
-      const tsAttested = new Date(now.getTime() - 5400000).toISOString()
-      const tsPosture = new Date(now.getTime() - 3600000).toISOString()
-      rawAudit = [
-        {
-          id: `audit-posture-${agent.id}`,
-          timestamp: tsPosture,
-          event_type: 'compliance.reassess_requested',
-          agent_id: agent.id,
-          agent_name: agent.name,
-          actor: 'governance/engine',
-          detail: { control_id: 'eu-ai-act:art-9', status: 'compliant' },
-        },
-        {
-          id: `audit-attested-${agent.id}`,
-          timestamp: tsAttested,
-          event_type: 'agent.transitioned',
-          agent_id: agent.id,
-          agent_name: agent.name,
-          actor: 'spire/workload-attestor',
-          detail: { to_state: agent.lifecycle_state || 'active', spiffe_id: `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/${agent.id}` },
-        },
-        {
-          id: `audit-discovered-${agent.id}`,
-          timestamp: tsDiscovered,
-          event_type: 'agent.created',
-          agent_id: agent.id,
-          agent_name: agent.name,
-          actor: 'system/discovery',
-          detail: { source: 'declarative-cr', initial_state: agent.lifecycle_state || 'idle' },
-        },
-      ]
-    }
     const items: TimelineItem[] = [
-      ...rawAudit.map(e => ({ kind: 'audit' as const, ts: e.timestamp, event: e })),
+      ...auditEvents.map(e => ({ kind: 'audit' as const, ts: e.timestamp, event: e })),
       ...violations.map(v => ({ kind: 'violation' as const, ts: v.created_at ?? '', violation: v })),
     ]
     return items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-  }, [auditEvents, violations, agent])
+  }, [auditEvents, violations])
 
   const openViolations = violations.filter(v => v.status === 'new' || v.status === 'acknowledged').length
   const lastAssessed = complianceResults.reduce<string | null>((latest, r) => {
@@ -1327,12 +1292,13 @@ export default function AgentDetailPage() {
       )}
 
       {activeTab === 'activity' && (
-        <div data-testid="dossier-panel-activity" role="tabpanel" id="dossier-tabpanel-activity" aria-labelledby="dossier-tab-activity">
-          <Timeline
-            items={timelineItems}
-            onAcknowledge={handleAcknowledge}
-          />
-        </div>
+        <AgentActivityTab
+          agent={agent}
+          auditEvents={auditEvents}
+          violations={violations}
+          onAcknowledgeViolation={handleAcknowledge}
+          onRefresh={load}
+        />
       )}
     </div>
   )

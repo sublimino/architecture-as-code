@@ -58,15 +58,16 @@ assert_same_destination() {
 }
 
 assert_case envoy-gateway-to-dashboard-allowed pod envoy-gateway-pod ingress deployment dashboard-signalloom fe-signalloom 8080 0
-assert_case generic-agent-to-spire-server-allowed pod agent-patsy fe-signalloom-agents deployment spire-server inf-bao 8081 0
+assert_case generic-agent-to-spire-server-denied pod agent-patsy fe-signalloom-agents deployment spire-server inf-bao 8081 1
+assert_case openbao-to-spire-server-allowed deployment openbao inf-bao deployment spire-server inf-bao 8081 0
 assert_case dashboard-to-spire-server-denied deployment dashboard-signalloom fe-signalloom deployment spire-server inf-bao 8081 1
 assert_case api-to-openbao-allowed deployment fe-signalloom fe-signalloom deployment openbao inf-bao 8200 0
 assert_case dashboard-to-openbao-denied deployment dashboard-signalloom fe-signalloom deployment openbao inf-bao 8200 1
 assert_case dashboard-to-supercred-runner-allowed deployment dashboard-signalloom fe-signalloom deployment supercred-demo-runner fe-signalloom 8000 0
 assert_case api-to-supercred-runner-denied deployment fe-signalloom fe-signalloom deployment supercred-demo-runner fe-signalloom 8000 1
 assert_case supercred-runner-to-api-allowed deployment supercred-demo-runner fe-signalloom deployment fe-signalloom fe-signalloom 8000 0
-assert_case supercred-cardvault-agent-to-openbao-allowed pod supercred-cardvault-agent-pod fe-signalloom-agents deployment openbao inf-bao 8200 0
-assert_case supercred-cardvault-agent-to-cardvault-allowed pod supercred-cardvault-agent-pod fe-signalloom-agents deployment cardvault inf-signalloom 8080 0
+assert_case supercred-cardvault-agent-to-openbao-allowed pod netassert-cardvault-probe-pod fe-signalloom-agents deployment openbao inf-bao 8200 0
+assert_case supercred-cardvault-agent-to-cardvault-allowed pod netassert-cardvault-probe-pod fe-signalloom-agents deployment cardvault inf-signalloom 8080 0
 assert_case generic-agent-to-cardvault-denied pod agent-patsy fe-signalloom-agents deployment cardvault inf-signalloom 8080 1
 assert_case policy-engine-self-allowed deployment policy-engine inf-signalloom deployment policy-engine inf-signalloom 8081 0
 assert_case supercred-runner-to-policy-engine-denied deployment supercred-demo-runner fe-signalloom deployment policy-engine inf-signalloom 8081 1
@@ -78,7 +79,8 @@ assert_same_destination agents-to-dashboard-denied envoy-gateway-to-dashboard-al
 assert_same_destination agents-to-postgresql-denied api-to-postgresql-allowed
 assert_same_destination dashboard-to-postgresql-denied api-to-postgresql-allowed
 assert_same_destination dashboard-to-redis-denied api-to-redis-allowed
-assert_same_destination dashboard-to-spire-server-denied generic-agent-to-spire-server-allowed
+assert_same_destination generic-agent-to-spire-server-denied openbao-to-spire-server-allowed
+assert_same_destination dashboard-to-spire-server-denied openbao-to-spire-server-allowed
 assert_same_destination dashboard-to-openbao-denied api-to-openbao-allowed
 assert_same_destination api-to-supercred-runner-denied dashboard-to-supercred-runner-allowed
 assert_same_destination generic-agent-to-cardvault-denied supercred-cardvault-agent-to-cardvault-allowed
@@ -88,4 +90,53 @@ yq -e '[.[].name] | length == (unique | length)' "$canonical" >/dev/null || {
   printf 'netassert assertion names must be unique.\n' >&2
   exit 1
 }
-printf 'netassert config drift validation passed.\n'
+
+case "${1:-}" in
+  "")
+    printf 'netassert config drift validation passed.\n'
+    ;;
+  --catalogue-json)
+    yq -o=json -I=2 '{
+      "schemaVersion": "signalloom.netassert.catalogue/v1",
+      "suiteId": "signalloom-network-policy",
+      "source": "d2-signalloom/test/netassert-signalloom.yaml",
+      "assertions": [.[] | {
+        "id": .name,
+        "protocol": .protocol,
+        "port": .targetPort,
+        "expectedExitCode": .exitCode,
+        "source": .src.k8sResource,
+        "destination": .dst.k8sResource
+      }],
+      "runtimePrerequisites": [
+        {
+          "placeholder": "agent-patsy",
+          "namespace": "fe-signalloom-agents",
+          "selector": "signalloom.ai/agent=true",
+          "readyRequired": true,
+          "failureMode": "fail-closed"
+        },
+        {
+          "placeholder": "netassert-cardvault-probe-pod",
+          "namespace": "fe-signalloom-agents",
+          "selector": "app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent",
+          "serviceAccount": "cardvault-agent",
+          "lifecycle": "parent-provisioned-sustained",
+          "readyRequired": true,
+          "failureMode": "fail-closed"
+        },
+        {
+          "placeholder": "envoy-gateway-pod",
+          "namespace": "ingress",
+          "selector": "gateway.envoyproxy.io/owning-gateway-name=cluster",
+          "readyRequired": true,
+          "failureMode": "fail-closed"
+        }
+      ]
+    }' "$canonical"
+    ;;
+  *)
+    printf 'usage: %s [--catalogue-json]\n' "$0" >&2
+    exit 2
+    ;;
+esac

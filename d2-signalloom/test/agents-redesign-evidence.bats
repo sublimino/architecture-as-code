@@ -71,3 +71,24 @@ setup() {
   run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_get_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p1-6: operational inventory table renders 7-column headers and 4 StatCards in Vitest" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentsPage.test.tsx -t '7-Column Operational Inventory Table|4 StatCards'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-6: truthful language dictionary asserts 'Not assessed', 'Unassigned', 'Registry not linked'" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentsPage.test.tsx -t 'Truthful Language Dictionary'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-6: kernel containment telemetry displays FROZEN/DROP and requested unconfirmed states" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentsPage.test.tsx -t 'Kernel Containment Telemetry'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-6: backend operational inventory response envelope models pass contract" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_operational_inventory_response_envelope_and_models'"
+  [ "$status" -eq 0 ]
+}
+

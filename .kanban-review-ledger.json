@@ -471,5 +471,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SFAGENTS-P3-PRE verified: Phase 3 telemetry baseline and preflight proof recorded, 60/60 BATS, 71/71 Pytest, 100% signal-ingest and FrostDB tests green (commit b3a465b9)"
+  },
+  "1b125": {
+    "task_id": "1b125",
+    "reviewed_at": "2026-09-07T11:17:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-1 verified: FrostDB telemetry correlation endpoint /api/agents/{id}/telemetry side-effect-free, pushdown query filters (layer, source, limit), AgentActivityTab telemetry cards and filters, 64/64 BATS, 74/74 Pytest, 15/15 Vitest passing (commit 86d7352f)"
   }
 }

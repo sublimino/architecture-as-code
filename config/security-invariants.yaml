@@ -1,0 +1,249 @@
+# Signal Loom unified security invariants.
+#
+# This is the single source of truth for agent containment. It compiles to two
+# enforcement tiers that must not drift apart:
+#
+#   Tier 1 (cluster) — Kubernetes ValidatingAdmissionPolicy CEL expressions
+#   Tier 0 (host)    — nono Landlock sandbox profile
+#
+# Regenerate both with:  scripts/compile-policies.sh
+# Check for drift with:  policy-compiler verify --config=config/security-invariants.yaml
+#
+# The compiler refuses to emit unless both tiers agree on every filesystem probe
+# point, so widening one tier without the other fails the build rather than the
+# incident review. Architecture: docs/signalloom/cel-landlock-policy-compiler.md
+#
+# ACCESS LATTICE
+#   none      denied outright
+#   read      read-only        (VAP: hostPath must be mounted readOnly: true)
+#   write     write-only       (landlock tier only — Kubernetes has no write-only mount)
+#   readwrite full access
+#
+# Rules are directory-recursive and resolve by longest prefix, so a deny nested
+# under an allow is a genuine hole and vice versa.
+
+apiVersion: signalloom.io/v1alpha1
+kind: SecurityInvariants
+
+metadata:
+  name: signalloom-agent-runtime
+  version: 1.0.0
+  description: >-
+    Containment invariants for Signal Loom coding agents, covering the workspace
+    they may write, the host surfaces they may never reach, the toolchain they
+    need to build, and the egress and process boundaries that keep an agent's
+    work local.
+
+defaults:
+  maxPathDepth: 12
+  maxExprDepth: 32
+  maxExprNodes: 4096
+  maxComprehensionDepth: 3
+  landlockAbi: 5
+  failurePolicy: Fail
+
+invariants:
+  # ---------------------------------------------------------------------------
+  # Workspace
+  # ---------------------------------------------------------------------------
+  - id: SL-FS-001
+    title: Agent workspaces are confined to the canonical worktree root
+    description: >-
+      Coding agents get read-write access to the worktree tree and nothing else
+      under the user's home. The canonical worktree home is out of the repo by
+      design, so confinement can be expressed as one subtree rather than as a
+      moving set of in-repo directories.
+    severity: critical
+    targets: [vap, landlock]
+    filesystem:
+      - path: /home/andy/src/.worktrees
+        access: readwrite
+        note: Canonical worktree home. CRKC-P3-2 subdivides this per task.
+
+  - id: SL-FS-002
+    title: Build and test scratch space is writable
+    description: >-
+      Go, bun and bats all need a scratch directory. Granting /tmp explicitly
+      keeps the grant visible in the profile instead of arriving as an implicit
+      default that nobody reviews.
+    severity: medium
+    targets: [vap, landlock]
+    filesystem:
+      - path: /tmp
+        access: readwrite
+
+  # ---------------------------------------------------------------------------
+  # Toolchain — the failure mode the card names explicitly: an over-restrictive
+  # sandbox that breaks the agent's own compiler.
+  # ---------------------------------------------------------------------------
+  - id: SL-FS-010
+    title: Compiler include and library paths remain readable
+    description: >-
+      An over-tight filesystem sandbox that breaks cc, go and the dynamic loader
+      is the most common way containment gets switched off in anger. These paths
+      are read-only, never writable, and are declared here so a future narrowing
+      has to delete a named rule rather than silently lose a grant.
+    severity: high
+    targets: [vap, landlock]
+    filesystem:
+      - path: /usr/include
+        access: read
+        note: C and C++ headers. Named in the card's failure-mode list.
+      - path: /usr/lib
+        access: read
+      - path: /lib
+        access: read
+        note: Dynamic loader and core shared objects.
+      - path: /usr/share
+        access: read
+      - path: /etc/ssl/certs
+        access: read
+        note: TLS trust store for module proxy fetches.
+
+  - id: SL-FS-011
+    title: Go toolchain and module cache are reachable
+    severity: high
+    targets: [vap, landlock]
+    filesystem:
+      - path: /usr/local/go
+        access: read
+      - path: /usr/local/src/gocode
+        access: readwrite
+        note: GOPATH and module cache. Writable because the cache is populated on demand.
+
+  # ---------------------------------------------------------------------------
+  # Host surfaces that must never be reachable
+  # ---------------------------------------------------------------------------
+  - id: SL-FS-020
+    title: Host credential and identity material is unreachable
+    description: >-
+      These are the paths whose exposure turns a contained agent into a host
+      compromise. They are denied at both tiers, and at the cluster tier the deny
+      also covers a pod trying to hostPath-mount them onto a node.
+    severity: critical
+    targets: [vap, landlock]
+    filesystem:
+      - path: /etc/shadow
+        access: none
+      - path: /etc/sudoers
+        access: none
+      - path: /root
+        access: none
+      - path: /home/andy/.ssh
+        access: none
+      - path: /home/andy/.gnupg
+        access: none
+      - path: /home/andy/.aws
+        access: none
+      - path: /home/andy/.config/gcloud
+        access: none
+
+  - id: SL-FS-021
+    title: Container runtime and kernel control surfaces are unreachable
+    description: >-
+      A hostPath mount of the container socket or of the cgroup tree is a
+      complete container escape, and is the single highest-value target in a
+      cluster that runs agent workloads.
+    severity: critical
+    targets: [vap, landlock]
+    filesystem:
+      - path: /var/run/docker.sock
+        access: none
+      - path: /run/containerd
+        access: none
+      - path: /sys/fs/cgroup
+        access: none
+      - path: /proc/sys
+        access: none
+      - path: /dev/kmsg
+        access: none
+
+  - id: SL-FS-022
+    title: The PAI infrastructure tree is unreachable from an agent workspace
+    description: >-
+      ~/.claude carries identity, business context and security findings and is
+      private forever. An agent working in a repo worktree has no business
+      reading it, and the denial is declared rather than assumed.
+    severity: critical
+    targets: [vap, landlock]
+    filesystem:
+      - path: /home/andy/.claude
+        access: none
+
+  # ---------------------------------------------------------------------------
+  # Phase pattern SP-1 — local commits yes, remote pushes no
+  # ---------------------------------------------------------------------------
+  - id: SL-PROC-001
+    title: SP-1 — git commits are permitted, git push is denied
+    description: >-
+      Shared pattern SP-1 requires that a coding agent can commit inside its own
+      worktree without interactive GPG signing, while direct push to a remote is
+      blocked at the host Landlock and network levels. Expressed as an allow on
+      the binary with a denied subcommand, so the agent keeps a working git and
+      loses exactly one verb.
+    severity: critical
+    targets: [vap, landlock]
+    process:
+      - binary: /usr/bin/git
+        action: allow
+        deniedArgs: [push]
+        note: SP-1. Commit is permitted; push to a remote is not.
+    filesystem:
+      - path: /home/andy/.gitconfig
+        access: read
+        note: Needed so --no-gpg-sign and user identity resolve.
+
+  - id: SL-PROC-002
+    title: Privilege-escalation and remote-shell binaries are denied
+    severity: critical
+    targets: [vap, landlock]
+    process:
+      - binary: /usr/bin/sudo
+        action: deny
+      - binary: /usr/bin/ssh
+        action: deny
+      - binary: /usr/bin/scp
+        action: deny
+      - binary: /usr/bin/nc
+        action: deny
+
+  # ---------------------------------------------------------------------------
+  # Egress
+  # ---------------------------------------------------------------------------
+  - id: SL-NET-001
+    title: Egress is closed by default with a named allowlist
+    description: >-
+      The host tier blocks egress and opens exactly the hosts a build needs. The
+      cluster tier cannot see egress destinations, so its contribution is to
+      refuse host networking — which would bypass every namespaced egress control
+      these rules depend on. That asymmetry is why network equivalence is checked
+      as coverage rather than as verdict equality.
+    severity: high
+    targets: [vap, landlock]
+    network:
+      - domain: proxy.golang.org
+        action: allow
+        direction: connect
+        note: Go module proxy.
+      - domain: sum.golang.org
+        action: allow
+        direction: connect
+      - port: 443
+        action: allow
+        direction: connect
+
+  - id: SL-NET-002
+    title: Git forge hosts are denied so an agent cannot push
+    description: >-
+      The network half of SP-1. Denying the forge hosts means that even a git
+      invocation that slips past the subcommand rule has nowhere to send objects.
+    severity: critical
+    targets: [vap, landlock]
+    network:
+      - domain: github.com
+        action: deny
+        note: SP-1 — no direct push to a remote origin.
+      - domain: gitlab.com
+        action: deny
+      - domain: codeload.github.com
+        action: deny

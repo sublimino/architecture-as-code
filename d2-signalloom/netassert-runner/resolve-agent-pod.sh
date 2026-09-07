@@ -47,8 +47,8 @@ while IFS="$(printf '\t')" read -r placeholder namespace selector reject_job_own
     echo "resolve-agent-pod: resolved ${placeholder} to ${pod}" >&2
   fi
 done <<'RESOLVERS'
-agent-patsy	fe-signalloom-agents	signalloom.ai%2Fagent%3Dtrue	false
-netassert-cardvault-probe-pod	fe-signalloom-agents	app.kubernetes.io%2Fname%3Dcardvault-agent%2Csignalloom.ai%2Fsupercred%3Dtrue%2Cbao.controlplane.io%2Fconsumer%3Dcardvault-agent	true
+agent-patsy	fe-signalloom-agents	signalloom.ai%2Fagent%3Dtrue%2Csignalloom.ai%2Fframework%3Dcustom%2Cnetassert.signalloom.ai%2Ffixture%3Dgeneric-agent	false
+netassert-cardvault-probe-pod	fe-signalloom-agents	app.kubernetes.io%2Fname%3Dcardvault-agent%2Csignalloom.ai%2Fsupercred%3Dtrue%2Cbao.controlplane.io%2Fconsumer%3Dcardvault-agent%2Cnetassert.signalloom.ai%2Ffixture%3Dcardvault-agent	true
 envoy-gateway-pod	ingress	gateway.envoyproxy.io%2Fowning-gateway-name%3Dcluster	false
 RESOLVERS
 

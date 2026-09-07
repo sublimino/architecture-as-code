@@ -9,13 +9,18 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("resolve-agent-pod.sh")
-AGENT_URL = "/api/v1/namespaces/fe-signalloom-agents/pods?labelSelector=signalloom.ai%2Fagent%3Dtrue"
+AGENT_URL = (
+    "/api/v1/namespaces/fe-signalloom-agents/pods?labelSelector="
+    "signalloom.ai%2Fagent%3Dtrue%2Csignalloom.ai%2Fframework%3Dcustom%2C"
+    "netassert.signalloom.ai%2Ffixture%3Dgeneric-agent"
+)
 GATEWAY_URL = "/api/v1/namespaces/ingress/pods?labelSelector=gateway.envoyproxy.io%2Fowning-gateway-name%3Dcluster"
 CARDVAULT_URL = (
     "/api/v1/namespaces/fe-signalloom-agents/pods?labelSelector="
     "app.kubernetes.io%2Fname%3Dcardvault-agent%2C"
     "signalloom.ai%2Fsupercred%3Dtrue%2C"
-    "bao.controlplane.io%2Fconsumer%3Dcardvault-agent"
+    "bao.controlplane.io%2Fconsumer%3Dcardvault-agent%2C"
+    "netassert.signalloom.ai%2Ffixture%3Dcardvault-agent"
 )
 DESTINATION_URL = "/apis/apps/v1/namespaces/fe-signalloom/deployments/api"
 
@@ -156,6 +161,15 @@ class ResolverTest(unittest.TestCase):
                 result, _ = self.run_resolver({url: ({"items": candidates}, 200)})
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("found 2", result.stderr)
+
+    def test_generic_fixture_selector_does_not_use_kagent_labels(self):
+        self.assertNotIn("app.kubernetes.io", AGENT_URL)
+        self.assertNotIn("managed-by", AGENT_URL)
+
+    def test_cardvault_fixture_selector_keeps_exact_policy_identity(self):
+        self.assertIn("app.kubernetes.io%2Fname%3Dcardvault-agent", CARDVAULT_URL)
+        self.assertIn("signalloom.ai%2Fsupercred%3Dtrue", CARDVAULT_URL)
+        self.assertIn("bao.controlplane.io%2Fconsumer%3Dcardvault-agent", CARDVAULT_URL)
 
     def test_fails_when_destination_has_no_available_replica(self):
         result, _ = self.run_resolver({DESTINATION_URL: ({"status": {"availableReplicas": 0}}, 200)})

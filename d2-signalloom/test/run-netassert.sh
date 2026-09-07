@@ -82,14 +82,15 @@ preflight_suite_resources() {
     [[ -n "$kind" && -n "$name" && -n "$namespace" ]] \
       || fail "suite contains an incomplete ${side} Kubernetes resource"
     if [[ "$side" == "source" && "$kind" == "pod" && "$name" == "agent-patsy" ]]; then
-      resolved="$(kubectl get pods -n "$namespace" -l signalloom.ai/agent=true -o name 2>/dev/null || true)"
-      [[ -n "$resolved" ]] \
-        || fail "configured source resource is absent: labeled agent pod in $namespace"
+      resolved="$(kubectl get pods -n "$namespace" -l 'signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent' -o json 2>/dev/null || true)"
+      [[ "$(printf '%s' "$resolved" | yq -p=json -r '[.items[] | select(.metadata.deletionTimestamp == null and .status.phase == "Running" and (.status.conditions // [] | any_c(.type == "Ready" and .status == "True")))] | length' 2>/dev/null)" == 1 ]] \
+        || fail "configured source fixture is not uniquely Running and Ready: generic-agent in $namespace"
       continue
     fi
     if [[ "$side" == "source" && "$kind" == "pod" && "$name" == "netassert-cardvault-probe-pod" ]]; then
-      kubectl get "pod/${name}" -n "$namespace" >/dev/null 2>&1 \
-        || fail "parent-provisioned sustained source is absent: pod/${name} in ${namespace}"
+      resolved="$(kubectl get pods -n "$namespace" -l 'app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent,netassert.signalloom.ai/fixture=cardvault-agent' -o json 2>/dev/null || true)"
+      [[ "$(printf '%s' "$resolved" | yq -p=json -r '[.items[] | select(.metadata.deletionTimestamp == null and .status.phase == "Running" and (.status.conditions // [] | any_c(.type == "Ready" and .status == "True")))] | length' 2>/dev/null)" == 1 ]] \
+        || fail "configured source fixture is not uniquely Running and Ready: cardvault-agent in $namespace"
       continue
     fi
     kubectl get "${kind}/${name}" -n "$namespace" >/dev/null 2>&1 \

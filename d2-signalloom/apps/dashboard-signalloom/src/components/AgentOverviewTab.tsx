@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from './StatusBadge'
@@ -502,6 +503,71 @@ export default function AgentOverviewTab({
             </div>
             {actionTime && <div style={{ fontSize: 10, color: 'var(--muted)' }}>{fmtDate(actionTime)}</div>}
           </div>
+        </div>
+      </div>
+
+      {/* ─── Dossier Section Quick-Links ────────────────────────────────────── */}
+      <div className="card" data-testid="overview-dossier-links" style={{ padding: '16px 20px' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', marginBottom: 12 }}>
+          Dossier Sections & Scoped Surfaces
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Link
+            to={`/agents/${agent.id}?tab=identity`}
+            data-testid="overview-link-identity"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none', color: 'var(--text)' }}
+          >
+            Identity & SPIFFE →
+          </Link>
+          <Link
+            to={`/agents/${agent.id}?tab=access`}
+            data-testid="overview-link-access"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none', color: 'var(--text)' }}
+          >
+            Access & Containment →
+          </Link>
+          <Link
+            to={`/agents/${agent.id}?tab=assessments`}
+            data-testid="overview-link-assessments"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none', color: 'var(--text)' }}
+          >
+            Assessments & Controls →
+          </Link>
+          <Link
+            to={`/agents/${agent.id}?tab=activity`}
+            data-testid="overview-link-activity"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none', color: 'var(--text)' }}
+          >
+            Activity Timeline →
+          </Link>
+          <Link
+            to={`/audit?agent=${encodeURIComponent(agent.id)}`}
+            data-testid="overview-deeplink-audit"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none', color: 'var(--cyan)' }}
+          >
+            Audit Trail ↗
+          </Link>
+          <Link
+            to={`/credential-inventory?actor=${encodeURIComponent(agent.id)}`}
+            data-testid="overview-deeplink-credentials"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none', color: 'var(--violet)' }}
+          >
+            Credential Inventory ↗
+          </Link>
+          <Link
+            to={`/agent-trust-topology?actor=${encodeURIComponent(agent.id)}`}
+            data-testid="overview-deeplink-topology"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none', color: 'var(--teal)' }}
+          >
+            Trust Topology ↗
+          </Link>
         </div>
       </div>
     </div>

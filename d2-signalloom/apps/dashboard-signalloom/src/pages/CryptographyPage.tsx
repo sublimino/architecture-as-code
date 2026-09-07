@@ -12,7 +12,7 @@
  * online and offline.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import DataTable, { type Column } from '../components/DataTable'
 import DonutChart from '../components/DonutChart'
 import HelpHint from '../components/HelpHint'
@@ -321,8 +321,9 @@ function useFilter<T>(
   rows: readonly T[],
   chipOf: (row: T) => string,
   matches: (row: T, query: string) => boolean,
+  initialSearch = '',
 ) {
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [chip, setChip] = useState<string>(ALL)
 
   const filtered = useMemo(() => {
@@ -516,6 +517,9 @@ const PROXY_COLUMNS: Column<Proxy>[] = [
 
 export default function CryptographyPage() {
   const { getAccessTokenSilently } = useAuth0()
+  const [searchParams] = useSearchParams()
+  const actorParam = searchParams.get('actor') || searchParams.get('agent') || searchParams.get('search') || ''
+
   const [proofs, setProofs] = useState<CryptoProof[] | null>(null)
   const [proofError, setProofError] = useState(false)
   const [highlightedAlgo, setHighlightedAlgo] = useState<string | null>(null)
@@ -568,10 +572,17 @@ export default function CryptographyPage() {
   // does not disturb the inventory the reader is comparing them against.
   const cas = useFilter(ROOT_OF_TRUST, caChip, caMatches)
   const engines = useFilter(BAO.engines, engineChip, engineMatches)
-  const svids = useFilter(SPIRE.svids, svidChip, svidMatches)
+  const svids = useFilter(SPIRE.svids, svidChip, svidMatches, actorParam)
   const ciphers = useFilter(CIPHERS, cipherChip, cipherMatches)
   const algos = useFilter(ALGORITHM_INVENTORY, algoChip, algoMatches)
   const proxies = useFilter(PROXIES, proxyChip, proxyMatches)
+
+  useEffect(() => {
+    const actor = searchParams.get('actor') || searchParams.get('agent') || searchParams.get('search')
+    if (actor !== null) {
+      svids.setSearch(actor)
+    }
+  }, [searchParams])
 
   return (
     <div style={{ paddingBottom: 40 }}>

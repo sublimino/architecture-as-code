@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import AgentTrustTopologyPage, { trustEdges, trustNodes } from './AgentTrustTopologyPage'
+
+function renderPage(ui = <AgentTrustTopologyPage />, initialEntries = ['/agent-trust-topology']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      {ui}
+    </MemoryRouter>,
+  )
+}
 
 const isDemoMode = vi.fn(() => true)
 const getAccessTokenSilently = vi.fn(async () => 'live-token')
@@ -38,7 +47,7 @@ describe('AgentTrustTopologyPage', () => {
     isDemoMode.mockReturnValue(false)
     trustTopology.mockResolvedValue(snapshot(OK))
 
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     await waitFor(() => expect(trustTopology).toHaveBeenCalledWith('live-token'))
     // The NODE must render, not merely the StatCard label of the same name --
@@ -70,7 +79,7 @@ describe('AgentTrustTopologyPage', () => {
       'modeled', 'modeled',
     ))
 
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     const banner = await screen.findByTestId('topology-degraded-banner')
     // An alert, not a status: this is a correctness warning about everything
@@ -90,7 +99,7 @@ describe('AgentTrustTopologyPage', () => {
       spire: { status: 'partial', observed_at: '2026-08-11T16:00:00Z', reason: 'registration API timed out' },
     }))
 
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     const banner = await screen.findByTestId('topology-degraded-banner')
     expect(banner).toHaveTextContent(/partial evidence/i)
@@ -105,7 +114,7 @@ describe('AgentTrustTopologyPage', () => {
     isDemoMode.mockReturnValue(false)
     trustTopology.mockResolvedValue(snapshot(OK))
 
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     await waitFor(() => expect(trustTopology).toHaveBeenCalled())
     expect(screen.queryByTestId('topology-degraded-banner')).not.toBeInTheDocument()
@@ -113,7 +122,7 @@ describe('AgentTrustTopologyPage', () => {
 
   it('never represents hardcoded topology as runtime-observed', () => {
     expect([...trustNodes, ...trustEdges].every(item => item.evidence !== 'observed')).toBe(true)
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     expect(screen.getByText(/Demonstration data/i)).toBeInTheDocument()
     expect(screen.getAllByText('Runtime-observed').length).toBeGreaterThan(0)
   })
@@ -133,7 +142,7 @@ describe('AgentTrustTopologyPage', () => {
   })
 
   it('offers an evidence plane and visible provenance for every selectable edge', async () => {
-    const user = userEvent.setup(); render(<AgentTrustTopologyPage />)
+    const user = userEvent.setup(); renderPage()
     await user.click(screen.getByRole('button', { name: /^Evidence plane$/i }))
     expect(screen.getByRole('button', { name: /^Evidence plane$/i })).toHaveAttribute('aria-pressed', 'true')
     trustEdges.forEach(edge => expect(screen.getAllByRole('button', { name: new RegExp(edge.source) }).length).toBeGreaterThan(0))
@@ -141,7 +150,7 @@ describe('AgentTrustTopologyPage', () => {
   })
 
   it('does not reintroduce unrelated tenant nodes or edges after filtering', async () => {
-    const user = userEvent.setup(); render(<AgentTrustTopologyPage />)
+    const user = userEvent.setup(); renderPage()
     await user.selectOptions(screen.getByLabelText('Tenant'), 'acme')
     expect(screen.getByText('Acme tenant')).toBeInTheDocument()
     expect(screen.queryByText('Northstar tenant')).not.toBeInTheDocument()
@@ -149,14 +158,14 @@ describe('AgentTrustTopologyPage', () => {
   })
 
   it('retains cloud providers and their ancestors for external filtering', async () => {
-    const user = userEvent.setup(); render(<AgentTrustTopologyPage />)
+    const user = userEvent.setup(); renderPage()
     await user.selectOptions(screen.getByLabelText('Location'), 'external')
     expect(screen.getByText('AWS Lambda')).toBeInTheDocument(); expect(screen.getByText('Google Cloud Run')).toBeInTheDocument(); expect(screen.getByText('Azure Container Apps')).toBeInTheDocument()
     expect(screen.getByText('Acme Payments')).toBeInTheDocument(); expect(screen.getByText('Signal Loom platform')).toBeInTheDocument()
   })
 
   it('distinguishes network blocks from application authorization rejections', async () => {
-    const user = userEvent.setup(); render(<AgentTrustTopologyPage />)
+    const user = userEvent.setup(); renderPage()
     await user.click(screen.getByRole('button', { name: /^Authorization plane$/i })); await user.click(screen.getByRole('button', { name: /cross-project application denial/i }))
     expect(screen.getByText('Application authorization rejection')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Network plane$/i })); await user.click(screen.getByRole('button', { name: /cross-tenant network denial/i }))
@@ -173,7 +182,7 @@ describe('AgentTrustTopologyPage', () => {
 
   it('defines all three evidence words behind one keyboard-reachable "?"', async () => {
     const user = userEvent.setup()
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     const hint = screen.getByTestId('topology-evidence-help')
     hint.focus()
@@ -196,7 +205,7 @@ describe('AgentTrustTopologyPage', () => {
       'modeled', 'modeled',
     ))
     const user = userEvent.setup()
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     const banner = await screen.findByTestId('topology-degraded-banner')
     // The banner states the fault. Only the hint states the consequence — that
@@ -209,7 +218,7 @@ describe('AgentTrustTopologyPage', () => {
   })
 
   it('selects node details through a native keyboard button', async () => {
-    const user = userEvent.setup(); render(<AgentTrustTopologyPage />)
+    const user = userEvent.setup(); renderPage()
     const button = screen.getByRole('button', { name: /planner · in-cluster/i })
     button.focus(); await user.keyboard('{Enter}')
     expect(screen.getByRole('heading', { name: 'planner' })).toBeInTheDocument()
@@ -217,7 +226,7 @@ describe('AgentTrustTopologyPage', () => {
   })
 
   it('keeps stale and unknown semantics out of the green observed treatment', () => {
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     // Was pinned to var(--amber). The legend now greys the evidence states that
     // have no instances on this page and marks them "· none" — Runtime-observed
     // and Stale are both empty by design, and rendering "Runtime-observed" in
@@ -244,7 +253,7 @@ describe('the topology wait uses the shared pattern', () => {
   function renderLoading() {
     isDemoMode.mockReturnValue(false)
     trustTopology.mockReturnValue(new Promise(() => {}))
-    return render(<AgentTrustTopologyPage />)
+    return renderPage()
   }
 
   it('renders the pixel loader while loading, with a specific label', async () => {
@@ -262,3 +271,17 @@ describe('the topology wait uses the shared pattern', () => {
     expect(loader.querySelectorAll('[aria-live]')).toHaveLength(0)
   })
 })
+
+describe('AgentTrustTopologyPage — URL deep-link parameter ingestion', () => {
+  beforeEach(() => {
+    isDemoMode.mockReturnValue(true)
+  })
+
+  it('selects the matching agent node when ?actor= is provided in URL', async () => {
+    renderPage(<AgentTrustTopologyPage />, ['/agent-trust-topology?actor=planner'])
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'planner' })).toBeInTheDocument()
+    })
+  })
+})
+

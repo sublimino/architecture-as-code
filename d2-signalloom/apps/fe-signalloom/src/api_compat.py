@@ -2944,6 +2944,9 @@ async def agents(
     owner: str | None = None,
     attention: str | None = None,
     record_class: str | None = None,
+    lifecycle_state: str | None = None,
+    state: str | None = None,
+    spiffe_id: str | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1)] = 50,
 ) -> AgentListResponse:
@@ -3083,6 +3086,18 @@ async def agents(
     if record_class:
         rc = record_class.strip().lower()
         filtered = [a for a in filtered if a.record_class.lower() == rc]
+    effective_state = lifecycle_state or state
+    if effective_state:
+        st = effective_state.strip().lower()
+        if st != "all":
+            filtered = [a for a in filtered if a.lifecycle_state and a.lifecycle_state.lower() == st]
+    if spiffe_id:
+        sid = spiffe_id.strip().lower()
+        filtered = [
+            a for a in filtered
+            if (a.identity and a.identity.spiffe_id and sid in a.identity.spiffe_id.lower())
+            or (a.id and sid in a.id.lower())
+        ]
 
     # Pagination
     total_filtered = len(filtered)

@@ -51,9 +51,9 @@ function mockAgentFetch(opts: { agents?: AgentFixture[]; fail?: boolean } = {}) 
   return fetchMock
 }
 
-function renderPage() {
+function renderPage(initialEntries = ['/credential-inventory']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <CredentialInventoryPage />
     </MemoryRouter>,
   )
@@ -885,3 +885,14 @@ describe('CredentialInventoryPage — how do we know?', () => {
     setDemoMode(false)
   })
 })
+
+describe('CredentialInventoryPage — URL deep-link parameter ingestion', () => {
+  it('filters workload identities and credentials when ?actor= is provided in URL', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage(['/credential-inventory?actor=cardvault'])
+    await waitFor(() => expect(screen.getByTestId('identity-search')).toBeInTheDocument())
+    expect(screen.getByTestId('identity-search')).toHaveValue('cardvault')
+    expect(screen.getByTestId('credential-search')).toHaveValue('cardvault')
+  })
+})
+

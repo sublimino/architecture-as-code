@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import AgentAssessmentsTab from './AgentAssessmentsTab'
 import type { AgentResponse, AgentComplianceResultResponse } from '../types/api'
+
+function renderComponent(ui: React.ReactElement, initialEntries = ['/agents/agent-1234-5678?tab=assessments']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      {ui}
+    </MemoryRouter>,
+  )
+}
 
 function makeTestAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -112,7 +121,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
 
   it('renders all 4 StatCards with correct metrics and ratios', () => {
     const agent = makeTestAgent()
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={MOCK_RESULTS}
@@ -157,7 +166,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
       },
     })
 
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={[]}
@@ -175,7 +184,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
 
   it('renders truthful "Source unavailable" banner when primary collector is offline', () => {
     const agent = makeTestAgent()
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={MOCK_RESULTS}
@@ -190,7 +199,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
 
   it('renders EU AI Act Article 9 (Risk Management System) breakdown section', () => {
     const agent = makeTestAgent()
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={MOCK_RESULTS}
@@ -208,7 +217,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
 
   it('renders Framework Controls grouped by framework with pass rate pills', () => {
     const agent = makeTestAgent()
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={MOCK_RESULTS}
@@ -233,7 +242,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
 
   it('filters controls by status (failing, passing)', async () => {
     const agent = makeTestAgent()
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={MOCK_RESULTS}
@@ -259,7 +268,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
 
   it('triggers reassessment request on button click and updates button state', async () => {
     const agent = makeTestAgent()
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={MOCK_RESULTS}
@@ -279,7 +288,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
 
   it('triggers compliance scan when scan button is clicked', async () => {
     const agent = makeTestAgent()
-    render(
+    renderComponent(
       <AgentAssessmentsTab
         agent={agent}
         complianceResults={MOCK_RESULTS}
@@ -291,5 +300,20 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
     const scanBtn = screen.getByTestId('assessments-scan-button')
     await userEvent.click(scanBtn)
     expect(mockScanCompliance).toHaveBeenCalledTimes(1)
+  })
+
+  it('filters by framework and status from URL search params', () => {
+    const agent = makeTestAgent()
+    renderComponent(
+      <AgentAssessmentsTab
+        agent={agent}
+        complianceResults={MOCK_RESULTS}
+        onReassess={mockReassess}
+      />,
+      ['/agents/agent-1234-5678?tab=assessments&framework=SOC%202&status=fail']
+    )
+
+    expect(screen.getByTestId('control-row-soc2:cc7.2')).toBeInTheDocument()
+    expect(screen.queryByTestId('control-row-eu-ai-act:art-9')).not.toBeInTheDocument()
   })
 })

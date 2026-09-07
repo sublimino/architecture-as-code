@@ -5,7 +5,7 @@
 - **Reconciler / Governor:** Antigravity Autonomous Governor
 - **Date:** 2026-09-07T22:30:00Z
 - **Integration Branch:** `integration/crkc-v0.1.0`
-- **Base Ref / Head SHA:** `0acc3d894d9ebcb5642718c0717b3c5a6beb7a1d`
+- **Base Ref / Head SHA:** `5a8e089b0270a6c764e5904ae4597b41e8f2a5db`
 
 ---
 

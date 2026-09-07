@@ -274,6 +274,9 @@ POLICY
   for entry in "${FLEET_AGENTS[@]}"; do
     parse_agent_entry "$entry"
     kubectl -n "$NAMESPACE_AGENTS" label pod "$AGENT_NAME" \
+      --field-manager=flux-client-side-apply \
+      signalloom.io/stunned=false \
+      signalloom.io/containment-mode=none \
       signalloom.ai/state=active --overwrite 2>/dev/null || true
   done
 
@@ -298,6 +301,7 @@ scan_fleet() {
     if [[ "$sc" == "" ]] || [[ "$sc" == "{}" ]]; then
       log "  $AGENT_NAME: MISSING pod-level securityContext -> non-compliant"
       kubectl -n "$NAMESPACE_AGENTS" label pod "$AGENT_NAME" \
+        --field-manager=flux-client-side-apply \
         signalloom.ai/state=non-compliant --overwrite
       non_compliant=$((non_compliant + 1))
     else
@@ -331,8 +335,13 @@ stun_agent() {
 
   # Label as stunned
   kubectl -n "$NAMESPACE_AGENTS" label pod "$agent_id" \
+    --field-manager=flux-client-side-apply \
+    signalloom.io/stunned=true \
+    signalloom.io/containment-mode=frozen \
     signalloom.ai/state=stunned --overwrite
   kubectl -n "$NAMESPACE_AGENTS" annotate pod "$agent_id" \
+    --field-manager=flux-client-side-apply \
+    signalloom.io/stun-reason=credential-revocation \
     "signalloom.ai/stunned-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "signalloom.ai/stun-reason=credential-revocation" --overwrite
 
@@ -389,8 +398,13 @@ recover_agent() {
 
   # Label as active
   kubectl -n "$NAMESPACE_AGENTS" label pod "$agent_id" \
+    --field-manager=flux-client-side-apply \
+    signalloom.io/stunned=false \
+    signalloom.io/containment-mode=none \
     signalloom.ai/state=active --overwrite
   kubectl -n "$NAMESPACE_AGENTS" annotate pod "$agent_id" \
+    --field-manager=flux-client-side-apply \
+    signalloom.io/stun-reason="" \
     signalloom.ai/stunned-at- \
     signalloom.ai/stun-reason- 2>/dev/null || true
 

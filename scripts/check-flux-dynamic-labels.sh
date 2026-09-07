@@ -39,6 +39,9 @@ DYNAMIC_FIELDS=(
   "signalloom.ai/state"
   "signalloom.ai/stunned-at"
   "signalloom.ai/stun-reason"
+  "signalloom.io/stunned"
+  "signalloom.io/containment-mode"
+  "signalloom.io/stun-reason"
 )
 
 # Where Flux-rendered manifests live.

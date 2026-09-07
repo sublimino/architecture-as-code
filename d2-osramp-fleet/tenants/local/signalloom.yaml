@@ -1223,6 +1223,25 @@ spec:
         # Proof Jobs are intentionally revised as the SPIRE assertion evolves;
         # Kubernetes makes Job pod templates immutable, so Flux must recreate it.
         force: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
         postBuild:
           substituteFrom:
             - kind: ConfigMap

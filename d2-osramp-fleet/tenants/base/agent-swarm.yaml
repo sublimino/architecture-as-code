@@ -181,6 +181,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: .
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # ── Per-agent Kustomizations ──────────────────────────────────────
     # Each agent has its own Kustomization so it can be individually
@@ -205,6 +224,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./prompt-commit-summarizer
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 2. triage-ci-worker (Tier 2 — KnativeService)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -225,6 +263,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./triage-ci-worker
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 3. zulip-chat-agent (Tier 3 — Deployment)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -245,6 +302,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./zulip-chat-agent
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 4. cpai-engineer (Tier 4A — StatefulSet + PVC)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -265,6 +341,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./cpai-engineer
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 5. hosted-daytona-coder (Tier 4B — Deployment + RBAC)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -285,6 +380,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./hosted-daytona-coder
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 6. swarm-governor (Tier 5 — Deployment + Service)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -305,6 +419,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./swarm-governor
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 7. prod-deploy-gate (Tier 5 — Deployment + Service)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -325,6 +458,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./prod-deploy-gate
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 8. agent-cardvault (Tier 6 — Deployment overlay)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -345,6 +497,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./agent-cardvault
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 9. nono-containment-probe (Tier 7 — Job + PVC)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -365,6 +536,25 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./nono-containment-probe
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
 
     # 10. signalloom-stun-sentinel (Tier 8 — DaemonSet)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -385,3 +575,22 @@ spec:
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./signalloom-stun-sentinel
         prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason

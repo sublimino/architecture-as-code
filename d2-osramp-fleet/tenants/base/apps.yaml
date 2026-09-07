@@ -139,12 +139,23 @@ spec:
         # direction. Mid-demo it flips the agent back to idle in front of the
         # audience while the presenter explains it has been contained.
         #
-        # `~1` is JSON Pointer (RFC 6901) escaping for the `/` in the label key.
+        # `~1` is JSON Pointer (RFC 6901) escaping for the `/` in the label/annotation key.
         ignore:
           - target:
               kind: Pod
-              labelSelector: signalloom.ai/agent=true
             paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
               - /metadata/labels/signalloom.ai~1state
               - /metadata/annotations/signalloom.ai~1stunned-at
               - /metadata/annotations/signalloom.ai~1stun-reason

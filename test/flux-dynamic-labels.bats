@@ -27,7 +27,7 @@ teardown() { rm -rf "$FIXTURE"; }
 
 run_fixture() { CHECK_ROOT="$FIXTURE" run "$CHECK"; }
 
-# All three fields declared on a pod.
+# All fields declared on a pod.
 declare_all() {
   cat > "${FIXTURE}/d2-signalloom/apps/thing/pod.yaml" <<'YAML'
 apiVersion: v1
@@ -35,13 +35,16 @@ kind: Pod
 metadata:
   labels:
     signalloom.ai/state: idle
+    signalloom.io/stunned: "false"
+    signalloom.io/containment-mode: none
   annotations:
     signalloom.ai/stunned-at: ""
     signalloom.ai/stun-reason: ""
+    signalloom.io/stun-reason: ""
 YAML
 }
 
-# Kustomization ignoring all three JSON Pointer paths.
+# Kustomization ignoring all JSON Pointer paths.
 ignore_all() {
   cat > "${FIXTURE}/d2-osramp-fleet/apps.yaml" <<'YAML'
 spec:
@@ -51,6 +54,9 @@ spec:
         - /metadata/labels/signalloom.ai~1state
         - /metadata/annotations/signalloom.ai~1stunned-at
         - /metadata/annotations/signalloom.ai~1stun-reason
+        - /metadata/labels/signalloom.io~1stunned
+        - /metadata/labels/signalloom.io~1containment-mode
+        - /metadata/annotations/signalloom.io~1stun-reason
 YAML
 }
 
@@ -137,14 +143,20 @@ spec:
         - /metadata/labels/signalloom.ai~1state
         - /metadata/annotations/signalloom.ai~1stunned-at
         - /metadata/annotations/signalloom.ai~1stun-reason
+        - /metadata/labels/signalloom.io~1stunned
+        - /metadata/labels/signalloom.io~1containment-mode
+        - /metadata/annotations/signalloom.io~1stun-reason
   resources:
     - kind: Pod
       metadata:
         labels:
                     signalloom.ai/state: idle
+                    signalloom.io/stunned: "false"
+                    signalloom.io/containment-mode: none
         annotations:
                     signalloom.ai/stunned-at: ""
                     signalloom.ai/stun-reason: ""
+                    signalloom.io/stun-reason: ""
 YAML
   rm -f "${FIXTURE}/d2-osramp-fleet/apps.yaml"
   run_fixture

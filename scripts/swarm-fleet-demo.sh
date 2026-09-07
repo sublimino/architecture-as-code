@@ -269,7 +269,8 @@ verify_stun_action() {
 
   local pod_name="${target#pod/}"
   log "  Stunning $pod_name..."
-  kubectl label pod -n "$NAMESPACE" "$pod_name" signalloom.ai/state=stunned --overwrite
+  kubectl label pod -n "$NAMESPACE" "$pod_name" signalloom.ai/state=stunned signalloom.io/stunned=true signalloom.io/containment-mode=frozen --field-manager=flux-client-side-apply --overwrite
+  kubectl annotate pod -n "$NAMESPACE" "$pod_name" signalloom.ai/stun-reason="demo-containment" signalloom.io/stun-reason="demo-containment" --field-manager=flux-client-side-apply --overwrite
 
   sleep 2
 
@@ -284,7 +285,7 @@ verify_stun_action() {
 
   # Unstun
   log "  Unstuning $pod_name..."
-  kubectl label pod -n "$NAMESPACE" "$pod_name" signalloom.ai/state=active --overwrite
+  kubectl label pod -n "$NAMESPACE" "$pod_name" signalloom.ai/state=active signalloom.io/stunned=false signalloom.io/containment-mode=none --field-manager=flux-client-side-apply --overwrite
 }
 
 run_verification() {

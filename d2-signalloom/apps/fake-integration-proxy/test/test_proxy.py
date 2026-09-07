@@ -676,8 +676,35 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         self.assertEqual("pass", parsed.results["dashboard-to-api-allowed"])
         self.assertEqual("fail", parsed.results["dashboard-to-postgresql-denied"])
 
+    def test_tap_parser_accepts_wrapped_yaml_diagnostics_in_twenty_six_results(self):
+        rows = []
+        failures = {20, 21}
+        for number, definition in enumerate(server.NETWORK_TEST_DEFINITIONS, start=1):
+            outcome = "not ok" if number in failures else "ok"
+            rows.append(f"{outcome} {number} - {definition['name']}")
+            if number in failures:
+                rows.extend(("  ---", f"  message: connection denied for result {number}", "  ..."))
+        parsed = server._parse_tap_results(
+            f"{server.NETASSERT_TAP_MARKER}\nTAP version 13\n1..26\n"
+            + "\n".join(rows)
+            + "\n"
+        )
+        self.assertTrue(parsed.valid, parsed.error)
+        ordered_names = [definition["name"] for definition in server.NETWORK_TEST_DEFINITIONS]
+        self.assertEqual("fail", parsed.results[ordered_names[19]])
+        self.assertEqual("fail", parsed.results[ordered_names[20]])
+
     def test_tap_parser_rejects_plan_only_document(self):
         parsed = server._parse_tap_results(f"{server.NETASSERT_TAP_MARKER}\nTAP version 13\n1..2\n")
+        self.assertFalse(parsed.valid)
+        self.assertEqual({}, parsed.results)
+
+    def test_tap_parser_rejects_unattached_yaml_diagnostics(self):
+        parsed = server._parse_tap_results(
+            f"{server.NETASSERT_TAP_MARKER}\nTAP version 13\n1..1\n"
+            "  ---\n  message: unattached\n  ...\n"
+            "ok 1 - dashboard-to-api-allowed\n"
+        )
         self.assertFalse(parsed.valid)
         self.assertEqual({}, parsed.results)
 

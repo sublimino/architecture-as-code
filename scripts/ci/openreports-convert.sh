@@ -230,6 +230,7 @@ const stageMap = [
   // runs and is heard by nothing.
   { file: 'stage6e-spire-trust-drift.tap', parser: parseTap, source: 'bats-spire-openbao-trust-drift', category: 'security' },
   { file: 'stage7-runtime.tap',    parser: parseTap,       source: 'bats-runtime-negatives',     category: 'security' },
+  { file: 'stage7a-netassert.tap', parser: parseTap,       source: 'netassert-network-policy',   category: 'security' },
   { file: 'stage7b-adversarial.tap', parser: parseTap,    source: 'bats-adversarial-api',       category: 'security' },
   { file: 'stage7c-user-surface-gate.tap', parser: parseTap, source: 'bats-user-surface-gate', category: 'meta' },
   { file: 'stage8-browser.xml',    parser: parseJunitXml,  source: 'playwright-browser-journey', category: 'e2e' },

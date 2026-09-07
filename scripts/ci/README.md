@@ -369,6 +369,7 @@ should `return 0` explicitly.
 | `stage5-harness.tap` | TAP | BATS harness contract results |
 | `stage6-flux.tap` | TAP | Flux convergence results |
 | `stage7-runtime.tap` | TAP | BATS runtime negative results |
+| `stage7a-netassert.tap` | TAP | Netassert live NetworkPolicy enforcement results |
 | `stage8-browser.xml` | JUnit XML | Playwright browser journey results |
 
 ## Resuming an isolated VM2 investigation

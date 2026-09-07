@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import AgentAccessTab from './AgentAccessTab'
 import type { AgentResponse, CapabilitiesResponse } from '../types/api'
+
+function renderTab(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
 
 function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -194,7 +199,7 @@ function createMockCapabilities(isSuperadmin = false): CapabilitiesResponse {
 describe('AgentAccessTab — 3 Independent Containment Tracks & StatCards', () => {
   it('renders all 4 overview StatCards with initial normal state', () => {
     const agent = createMockAgent()
-    render(<AgentAccessTab agent={agent} />)
+    renderTab(<AgentAccessTab agent={agent} />)
 
     expect(screen.getByTestId('access-track-cgroup')).toBeInTheDocument()
     expect(screen.getByTestId('access-track-tc')).toBeInTheDocument()
@@ -224,7 +229,7 @@ describe('AgentAccessTab — 3 Independent Containment Tracks & StatCards', () =
         revoked_by: 'platform/sentinel-governor',
       },
     })
-    render(<AgentAccessTab agent={agent} />)
+    renderTab(<AgentAccessTab agent={agent} />)
 
     expect(screen.getByTestId('access-cgroup-badge')).toHaveTextContent('cgroup: FROZEN')
     expect(screen.getByTestId('access-tc-badge')).toHaveTextContent('TC: DROP')
@@ -249,7 +254,7 @@ describe('AgentAccessTab — 3 Independent Containment Tracks & StatCards', () =
         },
       },
     })
-    render(<AgentAccessTab agent={agent} />)
+    renderTab(<AgentAccessTab agent={agent} />)
 
     expect(screen.getByTestId('access-cgroup-badge')).toHaveTextContent('Requested (Outcome unconfirmed)')
     expect(screen.getByTestId('access-tc-badge')).toHaveTextContent('Requested (Outcome unconfirmed)')
@@ -260,7 +265,7 @@ describe('AgentAccessTab — 3 Independent Containment Tracks & StatCards', () =
 describe('AgentAccessTab — Containment Tracks Matrix Table', () => {
   it('renders the 3 independent tracks table with enforcement layers and telemetry signals', () => {
     const agent = createMockAgent()
-    render(<AgentAccessTab agent={agent} />)
+    renderTab(<AgentAccessTab agent={agent} />)
 
     const matrix = screen.getByTestId('access-panel-tracks-matrix')
     expect(matrix).toBeInTheDocument()
@@ -277,7 +282,7 @@ describe('AgentAccessTab — Server-Authorized Action Capabilities & RBAC', () =
   it('renders capabilities for tenant operator with restricted privileged containment actions', () => {
     const agent = createMockAgent()
     const caps = createMockCapabilities(false) // Non-superadmin operator
-    render(<AgentAccessTab agent={agent} capabilities={caps} />)
+    renderTab(<AgentAccessTab agent={agent} capabilities={caps} />)
 
     expect(screen.getByTestId('access-panel-capabilities')).toBeInTheDocument()
     expect(screen.getByTestId('access-identity-planes-callout')).toBeInTheDocument()
@@ -306,7 +311,7 @@ describe('AgentAccessTab — Server-Authorized Action Capabilities & RBAC', () =
   it('renders capabilities for superadmin with permitted containment actions', () => {
     const agent = createMockAgent()
     const caps = createMockCapabilities(true) // Superadmin
-    render(<AgentAccessTab agent={agent} capabilities={caps} />)
+    renderTab(<AgentAccessTab agent={agent} capabilities={caps} />)
 
     const freezeCard = screen.getByTestId('access-capability-freeze')
     expect(freezeCard).toHaveTextContent('Process Freeze')
@@ -338,7 +343,7 @@ describe('AgentAccessTab — Truthful Language Dictionary', () => {
         pending_controls: 0,
       },
     })
-    render(<AgentAccessTab agent={agent} />)
+    renderTab(<AgentAccessTab agent={agent} />)
 
     expect(screen.getByTestId('access-posture-truthful')).toHaveTextContent('Not assessed')
   })
@@ -353,7 +358,7 @@ describe('AgentAccessTab — Truthful Language Dictionary', () => {
         assignment_status: 'unassigned',
       },
     })
-    render(<AgentAccessTab agent={agent} />)
+    renderTab(<AgentAccessTab agent={agent} />)
 
     expect(screen.getByTestId('access-owner-truthful')).toHaveTextContent('Unassigned')
   })
@@ -370,15 +375,34 @@ describe('AgentAccessTab — Truthful Language Dictionary', () => {
         assignment_status: 'registry_unlinked',
       },
     })
-    render(<AgentAccessTab agent={agent} />)
+    renderTab(<AgentAccessTab agent={agent} />)
 
     expect(screen.getByTestId('access-owner-truthful')).toHaveTextContent('Registry not linked')
   })
 
   it('renders truthful "Source unavailable" when collector source health is unavailable', () => {
     const agent = createMockAgent()
-    render(<AgentAccessTab agent={agent} sourceHealth="unavailable" />)
+    renderTab(<AgentAccessTab agent={agent} sourceHealth="unavailable" />)
 
     expect(screen.getByTestId('access-source-health-truthful')).toHaveTextContent('Source unavailable')
+  })
+})
+
+describe('AgentAccessTab — Deep-Link Actions Integration', () => {
+  it('renders scoped deep-link buttons pointing to Fleet, RBAC, Network Tests, and SuperCred', () => {
+    const agent = createMockAgent()
+    renderTab(<AgentAccessTab agent={agent} />)
+
+    const fleetLink = screen.getByTestId('access-deeplink-fleet')
+    expect(fleetLink).toHaveAttribute('href', `/fleet?actor=${encodeURIComponent(agent.id)}`)
+
+    const rbacLink = screen.getByTestId('access-deeplink-rbac')
+    expect(rbacLink).toHaveAttribute('href', `/rbac-analysis?actor=${encodeURIComponent(agent.id)}`)
+
+    const networkLink = screen.getByTestId('access-deeplink-network-tests')
+    expect(networkLink).toHaveAttribute('href', `/network-tests?actor=${encodeURIComponent(agent.id)}`)
+
+    const supercredLink = screen.getByTestId('access-deeplink-supercred')
+    expect(supercredLink).toHaveAttribute('href', `/supercred?actor=${encodeURIComponent(agent.id)}`)
   })
 })

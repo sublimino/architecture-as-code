@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type {
   AgentResponse,
   AgentComplianceResultResponse,
@@ -91,11 +92,55 @@ export default function AgentAssessmentsTab({
   sourceHealth,
   sourceHealthDetail,
 }: AgentAssessmentsTabProps) {
-  const [selectedFramework, setSelectedFramework] = useState<string>('all')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialFramework = searchParams.get('framework') || 'all'
+  const initialStatus = searchParams.get('status') || 'all'
+  const initialSearch = searchParams.get('search') || ''
+
+  const [selectedFramework, setSelectedFramework] = useState<string>(initialFramework)
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatus)
+  const [searchQuery, setSearchQuery] = useState<string>(initialSearch)
   const [requestingId, setRequestingId] = useState<string | null>(null)
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    const fw = searchParams.get('framework') || 'all'
+    const st = searchParams.get('status') || 'all'
+    const q = searchParams.get('search') || ''
+    setSelectedFramework(fw)
+    setStatusFilter(st)
+    setSearchQuery(q)
+  }, [searchParams])
+
+  const handleFrameworkChange = useCallback((fw: string) => {
+    setSelectedFramework(fw)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (fw && fw !== 'all') next.set('framework', fw)
+      else next.delete('framework')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleStatusChange = useCallback((st: string) => {
+    setStatusFilter(st)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (st && st !== 'all') next.set('status', st)
+      else next.delete('status')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleSearchChange = useCallback((q: string) => {
+    setSearchQuery(q)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (q.trim()) next.set('search', q.trim())
+      else next.delete('search')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   // 1. Truthful Assessment & Posture Calculations
   const rawResults = complianceResults
@@ -613,9 +658,10 @@ export default function AgentAssessmentsTab({
             {/* Search Input */}
             <input
               type="text"
+              data-testid="assessments-search-input"
               placeholder="Filter controls or evidence…"
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => handleSearchChange(e.target.value)}
               style={{
                 fontSize: 12,
                 padding: '5px 10px',
@@ -630,8 +676,9 @@ export default function AgentAssessmentsTab({
             {/* Framework Select */}
             {frameworkGroups.length > 1 && (
               <select
+                data-testid="assessments-framework-select"
                 value={selectedFramework}
-                onChange={e => setSelectedFramework(e.target.value)}
+                onChange={e => handleFrameworkChange(e.target.value)}
                 style={{
                   fontSize: 12,
                   padding: '5px 10px',
@@ -656,7 +703,8 @@ export default function AgentAssessmentsTab({
                 <button
                   key={st}
                   type="button"
-                  onClick={() => setStatusFilter(st)}
+                  data-testid={`assessments-status-filter-${st}`}
+                  onClick={() => handleStatusChange(st)}
                   style={{
                     fontSize: 11,
                     padding: '4px 10px',

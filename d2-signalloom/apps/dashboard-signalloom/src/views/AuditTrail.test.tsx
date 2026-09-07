@@ -3,9 +3,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import AuditTrail from './AuditTrail'
 import { api } from '../api/client'
+
+function renderPage(ui = <AuditTrail />, initialEntries = ['/audit']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      {ui}
+    </MemoryRouter>,
+  )
+}
 
 const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
 vi.mock('../auth/oidc', () => ({
@@ -94,7 +103,7 @@ beforeEach(() => {
 describe('AuditTrail — explains itself', () => {
   it('says rows are written by the server and cannot be altered', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
 
     await user.hover(screen.getByTestId('audit-page-help'))
 
@@ -104,7 +113,7 @@ describe('AuditTrail — explains itself', () => {
   })
 
   it('leaves the heading name alone, so the hint is not announced as part of it', async () => {
-    render(<AuditTrail />)
+    renderPage()
 
     // A HelpHint nested inside the `h1` joins its accessible name. Guarded here
     // because the fix is invisible in the rendered page and trivially undone.
@@ -115,7 +124,7 @@ describe('AuditTrail — explains itself', () => {
 
   it('explains what the Actor column holds, including demo-actor', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
     await user.hover(screen.getByTestId('audit-help-actor'))
@@ -129,7 +138,7 @@ describe('AuditTrail — explains itself', () => {
 describe('AuditTrail — CSV export', () => {
   it('exports CSV using the current filters', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
@@ -149,7 +158,7 @@ describe('AuditTrail — CSV export', () => {
   it('shows an error message if the export fails', async () => {
     vi.mocked(api.auditExportCsv).mockRejectedValue(new Error('boom'))
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
     await user.click(screen.getByRole('button', { name: 'Export CSV' }))
@@ -163,7 +172,7 @@ describe('AuditTrail — CSV export', () => {
 describe('AuditTrail — clickable type chips', () => {
   it('filters the table to the clicked event type', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
     vi.mocked(api.audit).mockClear()
@@ -180,7 +189,7 @@ describe('AuditTrail — clickable type chips', () => {
 
   it('toggles the filter off when the same chip is clicked again', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
@@ -205,7 +214,7 @@ describe('AuditTrail — clickable type chips', () => {
 
   it('renders the tags as real buttons, so a keyboard can reach the filter', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     // Was a <span role="button"> with an onClick and no tabIndex: announced as
@@ -243,7 +252,7 @@ describe('AuditTrail — clickable type chips', () => {
 describe('AuditTrail — the untouched page is the page it always was', () => {
   it('renders every loaded row, in the order the server sent them', async () => {
     vi.mocked(api.audit).mockResolvedValue({ events: THREE, total: THREE.length, page: 1, limit: 50 } as never)
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     // Not a count: the ORDER. DataTable sorts nothing until a header is
@@ -254,7 +263,7 @@ describe('AuditTrail — the untouched page is the page it always was', () => {
   })
 
   it('offers no Clear until there is something to clear', async () => {
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     expect(screen.queryByTestId('audit-clear')).not.toBeInTheDocument()
@@ -269,7 +278,7 @@ describe('AuditTrail — the client-side tier hides rows and asks nothing', () =
 
   it('narrows on search without going back to the server', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     const callsBefore = vi.mocked(api.audit).mock.calls.length
@@ -285,7 +294,7 @@ describe('AuditTrail — the client-side tier hides rows and asks nothing', () =
 
   it('searches the detail payload, which is a column the table renders', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     await user.type(screen.getByTestId('audit-search'), 'superseded')
@@ -294,7 +303,7 @@ describe('AuditTrail — the client-side tier hides rows and asks nothing', () =
 
   it('narrows on the class chips, which are derived from the tag colours', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     // violation_detected is var(--error) -> enforcement; token_issued is
@@ -309,7 +318,7 @@ describe('AuditTrail — the client-side tier hides rows and asks nothing', () =
 
   it('counts the whole loaded set on every chip, not the result', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     await user.click(screen.getByTestId('audit-class-enforcement'))
@@ -334,7 +343,7 @@ describe('AuditTrail — the empty result a filter caused', () => {
 
   it('says the rows are still here, and leaves two ways back', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     await user.type(screen.getByTestId('audit-search'), 'nothing-matches-this')
@@ -356,7 +365,7 @@ describe('AuditTrail — the empty result a filter caused', () => {
 
   it('keeps the server-empty wording for a server that returned nothing', async () => {
     vi.mocked(api.audit).mockResolvedValue({ events: [], total: 0, page: 1, limit: 50 } as never)
-    render(<AuditTrail />)
+    renderPage()
 
     expect(await screen.findByText('No events found')).toBeInTheDocument()
     expect(screen.queryByTestId('audit-filtered-empty')).not.toBeInTheDocument()
@@ -366,7 +375,7 @@ describe('AuditTrail — the empty result a filter caused', () => {
 
   it('clears both tiers from inside the panel and re-queries the server', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     await user.type(screen.getByTestId('audit-agent'), 'agent-9')
@@ -390,7 +399,7 @@ describe('AuditTrail — the empty result a filter caused', () => {
 describe('AuditTrail — the strip is reachable in every state', () => {
   it('keeps the filters on screen while the first page is loading', async () => {
     vi.mocked(api.audit).mockReturnValue(new Promise(() => {}) as never)
-    render(<AuditTrail />)
+    renderPage()
 
     // The card this replaced was outside the loading branch, and an operator
     // watching a slow fetch is very often already retyping the filter.
@@ -401,7 +410,7 @@ describe('AuditTrail — the strip is reachable in every state', () => {
 
   it('keeps the filters on screen when the fetch fails', async () => {
     vi.mocked(api.audit).mockRejectedValue(new Error('boom'))
-    render(<AuditTrail />)
+    renderPage()
 
     expect(await screen.findByTestId('audit-load-state')).toBeInTheDocument()
     expect(screen.getByTestId('audit-search')).toBeInTheDocument()
@@ -412,7 +421,7 @@ describe('AuditTrail — the strip is reachable in every state', () => {
 describe('AuditTrail — a typed filter that has not been sent says so', () => {
   it('marks the four server controls pending until Apply, then stops', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     await user.type(screen.getByTestId('audit-agent'), 'agent-1')
@@ -429,7 +438,7 @@ describe('AuditTrail — a typed filter that has not been sent says so', () => {
 
   it('does not mark a row-tag click pending, because that one applies itself', async () => {
     const user = userEvent.setup()
-    render(<AuditTrail />)
+    renderPage()
     await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
 
     await user.click(screen.getByRole('button', { name: 'token_issued' }))
@@ -443,3 +452,23 @@ describe('AuditTrail — a typed filter that has not been sent says so', () => {
     expect(screen.queryByTestId('audit-filter-pending')).not.toBeInTheDocument()
   })
 })
+
+describe('AuditTrail — URL deep-link parameter ingestion', () => {
+  it('initializes and applies agent filter from URL search params', async () => {
+    renderPage(<AuditTrail />, ['/audit?agent=agent-1'])
+    await waitFor(() => {
+      expect(api.audit).toHaveBeenCalledWith('test-token', expect.objectContaining({ agent: 'agent-1' }))
+    })
+    expect(screen.getByTestId('audit-agent')).toHaveValue('agent-1')
+  })
+
+  it('initializes and applies type and actor from URL search params', async () => {
+    renderPage(<AuditTrail />, ['/audit?actor=agent-2&type=violation_detected'])
+    await waitFor(() => {
+      expect(api.audit).toHaveBeenCalledWith('test-token', expect.objectContaining({ agent: 'agent-2', type: 'violation_detected' }))
+    })
+    expect(screen.getByTestId('audit-agent')).toHaveValue('agent-2')
+    expect(screen.getByTestId('audit-type')).toHaveValue('violation_detected')
+  })
+})
+

@@ -1954,4 +1954,102 @@ def test_audit_stream_is_strictly_side_effect_free(client, monkeypatch):
     assert len(executed_writes) == 0
 
 
+def test_get_agents_filter_by_lifecycle_state_and_spiffe_id(client, monkeypatch):
+    """SFAGENTS-P2-6: Proves GET /api/agents filters by lifecycle_state, state, and spiffe_id correctly."""
+    class MultiAgentClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "pod-inventory-1",
+                            "name": "Inventory Agent",
+                            "namespace": "fe-signalloom-agents",
+                            "framework": "kagent",
+                            "state": "active",
+                            "spiffe_id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                        },
+                        {
+                            "id": "pod-audit-2",
+                            "name": "Audit Collector",
+                            "namespace": "fe-signalloom-agents",
+                            "framework": "langchain",
+                            "state": "suspended",
+                            "spiffe_id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-audit",
+                        },
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", MultiAgentClient)
+
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    # Filter by lifecycle_state=active
+    res = client.get("/api/agents?lifecycle_state=active", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["agents"]) == 1
+    assert data["agents"][0]["id"] == "pod-inventory-1"
+    assert data["agents"][0]["lifecycle_state"] == "active"
+
+    # Filter by state alias
+    res_state = client.get("/api/agents?state=suspended", headers=bearer(token_for("alice")))
+    assert res_state.status_code == 200
+    data_state = res_state.json()
+    assert len(data_state["agents"]) == 1
+    assert data_state["agents"][0]["id"] == "pod-audit-2"
+    assert data_state["agents"][0]["lifecycle_state"] == "suspended"
+
+    # Filter by spiffe_id substring
+    res_spiffe = client.get("/api/agents?spiffe_id=inventory", headers=bearer(token_for("alice")))
+    assert res_spiffe.status_code == 200
+    data_spiffe = res_spiffe.json()
+    assert len(data_spiffe["agents"]) == 1
+    assert data_spiffe["agents"][0]["id"] == "pod-inventory-1"
+
+
+def test_get_agents_deep_link_filters_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-6: Proves GET /api/agents with query filters executes 0 SQL writes and is side-effect free."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get(
+        "/api/agents?lifecycle_state=active&spiffe_id=sa-order&search=order&page=1&limit=10",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    assert len(executed_writes) == 0
+
+
+
+
 

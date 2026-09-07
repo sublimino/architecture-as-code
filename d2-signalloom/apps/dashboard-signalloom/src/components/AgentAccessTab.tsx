@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import type {
   AgentResponse,
   CapabilitiesResponse,
@@ -253,6 +254,42 @@ export default function AgentAccessTab({
       aria-labelledby="dossier-tab-access"
       style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
     >
+      {/* ─── Scoped Deep-Link Navigation ────────────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+        <Link
+          to={`/fleet?actor=${encodeURIComponent(agent.id)}`}
+          data-testid="access-deeplink-fleet"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '5px 12px', textDecoration: 'none', color: 'var(--text)' }}
+        >
+          Fleet Topology ↗
+        </Link>
+        <Link
+          to={`/rbac-analysis?actor=${encodeURIComponent(agent.id)}`}
+          data-testid="access-deeplink-rbac"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '5px 12px', textDecoration: 'none', color: 'var(--text)' }}
+        >
+          RBAC Analysis ↗
+        </Link>
+        <Link
+          to={`/network-tests?actor=${encodeURIComponent(agent.id)}`}
+          data-testid="access-deeplink-network-tests"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '5px 12px', textDecoration: 'none', color: 'var(--text)' }}
+        >
+          Network Tests ↗
+        </Link>
+        <Link
+          to={`/supercred?actor=${encodeURIComponent(agent.id)}`}
+          data-testid="access-deeplink-supercred"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '5px 12px', textDecoration: 'none', color: 'var(--text)' }}
+        >
+          SuperCred Lab ↗
+        </Link>
+      </div>
+
       {/* ─── 4 Hero StatCards / Containment Tracks Overview ────────────────────── */}
       <div style={{
         display: 'grid',

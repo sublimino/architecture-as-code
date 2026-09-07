@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# CRKC-P1-4 — Tetragon Helm values, enforcement disabled.
+#
+# Install:
+#   helm repo add cilium https://helm.cilium.io
+#   helm -n kube-system upgrade --install tetragon cilium/tetragon \
+#     --version 1.1.0 \
+#     -f d2-signalloom/deploy/tetragon-helm-values.yaml
+#
+# The chart version is pinned to 1.1.0 to match the protobuf API pinned in
+# d2-signalloom/apps/signal-ingest/go.mod (github.com/cilium/tetragon/api v1.1.0).
+# A chart/API version skew changes the wire format of GetEventsResponse and is
+# the documented failure mode this pin exists to prevent.
+
+tetragon:
+  # ---- The decoupling, expressed as configuration -------------------------
+  # enableProcessCred and enableProcessNs enrich events; they do not enforce.
+  enableProcessCred: true
+  enableProcessNs: true
+
+  # Pod label enrichment. The collector derives PodUID and ServiceAccount from
+  # these labels because Tetragon v1.1.0's Pod message carries neither field
+  # natively. Without this, events normalise as unattributed.
+  enableK8sAPI: true
+
+  # gRPC export. This socket path is the contract with signal-ingest; it is
+  # asserted in the tetragon-telemetry-contract ConfigMap and dialled by
+  # collectors/ebpf.StreamClient.
+  grpc:
+    enabled: true
+    address: "unix:///var/run/cilium/tetragon/tetragon.sock"
+
+  # JSON export to a log file — the secondary ingestion path, used when gRPC is
+  # unavailable and by the NDJSON decoder in collectors/ebpf.
+  exportFilename: tetragon.log
+  exportDirectory: /var/run/cilium/tetragon
+
+  # Ring buffer sizing. Tuned up from the 65535 default because a 1000-event
+  # execve burst plus baseline node noise overruns the default and Tetragon
+  # reports the loss as a drop rather than backpressuring.
+  btf: ""
+  processCacheSize: 65536
+
+  # ---- Enforcement OFF ----------------------------------------------------
+  # enableCgIdmap and the LSM/enforcer sensors are what make Override and
+  # Sigkill actionable. They stay off. Containment is Tier 0's job.
+  enablePolicyFilter: true
+  enablePolicyFilterCgroupMap: false
+
+# The tetragon-operator installs the TracingPolicy CRDs. It is required — the
+# policies in tetragon-agent-telemetry.yaml cannot be applied without them.
+tetragonOperator:
+  enabled: true
+
+# Do NOT deploy the enforcement-capable RuntimeHooks integration. It exists to
+# let Tetragon act on container lifecycle, which is precisely the coupling
+# CRKC-P1-4 removes.
+rthooks:
+  enabled: false
+
+# Resource ceiling. An unbounded Tetragon agent on a single-node kind cluster
+# competes with stun-sentinel for the same CPU during a containment event.
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

@@ -432,6 +432,7 @@ test: ## Run the end-to-end bats suite against the running cluster.
 # Fusion, and weaveApi test files.
 
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion
+.PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
 
 test-signal-ingest: ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
@@ -448,6 +449,19 @@ test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 		src/components/WhoAuthorizedPanel.test.tsx \
 		src/api/weaveApi.test.ts \
 		--reporter=verbose
+
+test-tetragon: ## Run the Tetragon telemetry collector Go unit suites (offline, no cluster).
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./collectors/ebpf/... -v -count=1
+	# test/mocks is a STANDALONE module (see its go.mod). `go test ./...` from the
+	# repo root cannot reach it, so it is named explicitly. Dropping this line
+	# would silently stop testing the mock server while this target stayed green.
+	cd test/mocks && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
+
+test-tetragon-stream: ## Run the offline Tetragon end-to-end stream harness and write the evidence artifact.
+	./scripts/test-tetragon-stream.sh 1000
+
+test-tetragon-bats: ## Run the Tetragon enforcement-decoupling + telemetry BATS suite (no cluster required).
+	bats test/tetragon-telemetry-stream.bats
 
 test-signalfusion-bats: ## Run Signal Fusion structural BATS tests (no cluster required).
 	bats test/signalfusion-demo.bats

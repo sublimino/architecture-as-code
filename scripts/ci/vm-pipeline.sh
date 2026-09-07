@@ -673,7 +673,8 @@ run_stage \
      test/swarm-credentials.bats test/swarm-demo-script.bats \
      test/swarm-fleet-acceptance.bats test/swarm-flux-deploy.bats \
      test/swarm-infra.bats test/triage-ci-worker.bats \
-     test/workspace-identity-streaming.bats"
+     test/workspace-identity-streaming.bats \
+     test/worktree-landlock-confinement.bats"
 
 # Stage 1h: bats registry coverage (BATS TAP)
 #

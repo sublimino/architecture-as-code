@@ -69,7 +69,8 @@ END {
   }
   if (plans == 1) {
     for (number in seen) {
-      if (number < 1 || number > plan) invalid("result number outside plan: " number)
+      numeric_number = number + 0
+      if (numeric_number < 1 || numeric_number > plan) invalid("result number outside plan: " number)
     }
     for (number = 1; number <= plan; number++) {
       if (!seen[number]) invalid("missing result number " number)

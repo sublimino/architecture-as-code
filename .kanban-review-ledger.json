@@ -635,9 +635,9 @@
   },
   "0f0a1": {
     "task_id": "0f0a1",
-    "reviewed_at": "2026-09-07T20:45:00Z",
+    "reviewed_at": "2026-09-07T21:46:45Z",
     "reviewer": "governor",
     "verdict": "APPROVED",
-    "reason": "CRKC-P2-GOV certified: Phase 2 reconciled into integration/crkc-v0.1.0; 149 vitest files (2956 tests) passed; Go FAIR engine and riskctl tests pass 100%; deterministic Monte Carlo \u00a3664k ALE / \u00a31.77M VaR95 verified; SP-3 demo mode route parity verified"
+    "reason": "CRKC-P2-GOV certified: Phase 2 reconciled into integration/crkc-v0.1.0; 14/14 fair-api-parity bats, 9/9 portforward bats, 149/149 vitest files (2956 tests), 100% Go FAIR engine tests green; deterministic OpenFAIR zero divergence verified; SP-3 demo mode route parity verified; durable port-forward resilience verified"
   }
 }

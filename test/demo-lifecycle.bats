@@ -91,6 +91,45 @@ SCRIPT
   [[ "$output" != *"demo-lifecycle.sh bao-up"* ]]
 }
 
+@test "OSRAMP lifecycle includes its disabled ResourceSet prerequisite" {
+  command -v yq >/dev/null || skip "yq is required"
+
+  run yq -e '.resources[] | select(. == "../base/apps.yaml")' \
+    "$root/d2-osramp-fleet/tenants/local/kustomization.yaml"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "../base/apps.yaml" ]
+}
+
+@test "local tenant render contains an inactive OSRAMP ResourceSet" {
+  command -v kubectl >/dev/null || skip "kubectl is required"
+  command -v yq >/dev/null || skip "yq is required"
+  local rendered="$BATS_TEST_TMPDIR/local-tenants.yaml"
+
+  kubectl kustomize --load-restrictor LoadRestrictionsNone \
+    "$root/d2-osramp-fleet/tenants/local" >"$rendered"
+
+  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
+    select(.metadata.annotations."fluxcd.controlplane.io/reconcile" == "disabled") |
+    select((.spec.inputs | length) == 0)] | length' "$rendered"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+}
+
+@test "OSRAMP activation enables only frontend and backend inputs" {
+  local assignment
+  assignment="$(grep '^DEFAULT_INPUTS=' "$root/scripts/osramp-up.sh")"
+  eval "$assignment"
+
+  run jq -r 'map(.tenant) | sort | join(",")' <<<"$DEFAULT_INPUTS"
+  [ "$status" -eq 0 ]
+  [ "$output" = "backend,frontend" ]
+
+  enable_line="$(grep -n 'fluxcd.controlplane.io/reconcile-' "$root/scripts/osramp-up.sh" | cut -d: -f1)"
+  patch_line="$(grep -n 'kubectl patch resourceset' "$root/scripts/osramp-up.sh" | cut -d: -f1)"
+  [ "$enable_line" -lt "$patch_line" ]
+}
+
 @test "demo help states that no demos run and lists opt-in commands" {
   run make -n demo-help
 

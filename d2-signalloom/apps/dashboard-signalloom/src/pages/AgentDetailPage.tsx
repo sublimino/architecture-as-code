@@ -7,7 +7,6 @@ import type {
   AuditEventResponse,
   ViolationResponse,
   AgentComplianceResultResponse,
-  SourceHealthMap,
 } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
@@ -16,6 +15,7 @@ import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import CredentialActionsMenu from '../components/CredentialActionsMenu'
 import AgentOverviewTab from '../components/AgentOverviewTab'
+import AgentAccessTab from '../components/AgentAccessTab'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1279,37 +1279,7 @@ export default function AgentDetailPage() {
       )}
 
       {activeTab === 'access' && (
-        <div data-testid="dossier-panel-access" role="tabpanel" id="dossier-tabpanel-access" aria-labelledby="dossier-tab-access">
-          <div className="card" style={{ padding: 20 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Access Control & Containment</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, fontSize: 13 }}>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>Observed cgroup State</span>
-                <div style={{ marginTop: 4, fontWeight: 600 }}>
-                  {agent.kernel_telemetry?.cgroup_state === 'frozen' ? 'FROZEN' : 'THAWED'}
-                </div>
-              </div>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>Traffic Control (TC)</span>
-                <div style={{ marginTop: 4, fontWeight: 600 }}>
-                  {agent.kernel_telemetry?.traffic_control_state === 'drop' ? 'DROP' : 'PASS'}
-                </div>
-              </div>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>Credential Revocation</span>
-                <div style={{ marginTop: 4, fontWeight: 600 }}>
-                  {agent.credential_state?.status === 'revoked' ? 'Revoked' : 'Active'}
-                </div>
-              </div>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>eBPF Sentinel Active</span>
-                <div style={{ marginTop: 4, fontWeight: 600 }}>
-                  {agent.kernel_telemetry?.ebpf_active ? 'Yes' : 'No'}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AgentAccessTab agent={agent} />
       )}
 
       {activeTab === 'assessments' && (

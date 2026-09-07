@@ -515,3 +515,28 @@ describe('AgentDetailPage — Activity Timeline Tab', () => {
     expect(screen.getByText(/Activity Timeline/i)).toBeInTheDocument()
   })
 })
+
+describe('AgentDetailPage — Access & Containment Tab (Tab 3)', () => {
+  it('renders Tab 3 Access & Containment when navigated via deep link ?tab=access', async () => {
+    const agent = makeAgent({
+      id: 'agent-access-123',
+      name: 'Access Test Workload',
+      kernel_telemetry: {
+        cgroup_state: 'frozen',
+        traffic_control_state: 'drop',
+        ebpf_active: true,
+        ebpf_program_attached: true,
+        observed_at: '2026-09-07T09:30:00Z',
+      },
+    })
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(agent)
+
+    renderPage('/agents/agent-access-123?tab=access')
+
+    expect(await screen.findByTestId('dossier-panel-access')).toBeInTheDocument()
+    expect(screen.getByTestId('access-cgroup-badge')).toHaveTextContent('cgroup: FROZEN')
+    expect(screen.getByTestId('access-tc-badge')).toHaveTextContent('TC: DROP')
+    expect(screen.getByTestId('access-panel-tracks-matrix')).toBeInTheDocument()
+    expect(screen.getByTestId('access-panel-capabilities')).toBeInTheDocument()
+  })
+})

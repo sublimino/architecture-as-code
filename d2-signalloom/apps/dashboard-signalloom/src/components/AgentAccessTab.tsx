@@ -149,13 +149,10 @@ export default function AgentAccessTab({
 
   // ─── 7. Workload Action Capabilities ──────────────────────────────────────
   const workloadCaps: WorkloadActionCapabilities = useMemo(() => {
-    if (capabilities?.workload) {
-      return capabilities.workload
-    }
     const isSuperadmin = capabilities?.is_superadmin ?? false
     const targetScope = `workload:${agent.id}`
 
-    return {
+    const defaults: WorkloadActionCapabilities = {
       agent_id: agent.id,
       workload: agent.name,
       namespace: agent.runtime?.namespace || agent.namespace || 'default',
@@ -232,6 +229,14 @@ export default function AgentAccessTab({
         scope: targetScope,
       },
     }
+
+    if (capabilities?.workload) {
+      return {
+        ...defaults,
+        ...capabilities.workload,
+      }
+    }
+    return defaults
   }, [capabilities, agent])
 
   const actionList = [

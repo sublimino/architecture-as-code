@@ -359,3 +359,9 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "sfagents-p3-3: 15 mission acceptance criteria Vitest suite passes 100%" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/test/agentsAcceptanceCriteria.test.tsx"
+  [ "$status" -eq 0 ]
+}
+
+

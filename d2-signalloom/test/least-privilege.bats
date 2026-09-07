@@ -40,7 +40,8 @@ setup() {
 
   run grep -c 'automountServiceAccountToken: false' "$canonical"
   [ "$status" -eq 0 ]
-  [ "$output" -eq 2 ]
+  # Two existing bootstrap identities plus two tokenless network fixtures.
+  [ "$output" -eq 4 ]
 }
 
 @test "default-deny policies retain only the declared Signalloom paths" {
@@ -97,7 +98,7 @@ YAML
 url="${!#}"
 printf '%s\n' "$url" >>"$CURL_CALLS"
 case "$url" in
-  */pods\?labelSelector=signalloom.ai%2Fagent%3Dtrue) cat "$POD_RESPONSE" ;;
+  */pods\?labelSelector=signalloom.ai%2Fagent%3Dtrue%2Csignalloom.ai%2Fframework%3Dcustom%2Cnetassert.signalloom.ai%2Ffixture%3Dgeneric-agent) cat "$POD_RESPONSE" ;;
   */deployments/cardvault) printf '%s\n' '{"metadata":{"name":"cardvault"},"status":{"availableReplicas":1}}' ;;
   *) exit 22 ;;
 esac

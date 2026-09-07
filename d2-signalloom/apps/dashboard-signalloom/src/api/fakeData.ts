@@ -36,6 +36,7 @@ import type {
 import type { StunAgentResponse } from '../types/api'
 import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
 import { WEAVE_ROUTES } from './fakeWeaveData'
+import { FAIR_ROUTES } from './fakeFairData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
 import { simulatedAgentIdentity } from './supercredTypes'
@@ -818,10 +819,21 @@ const ROUTES: Match[] = [
   ...COMPLIANCE_POLICY_ROUTES,
   // signal weave routes (observations, actors, coverage, correlation, seed)
   ...WEAVE_ROUTES,
+  // live OpenFAIR risk routes (agent risk, fleet rollup) — Rule SP-3 requires the
+  // risk surface to render from fixtures with the toggle ON, and req() throws 501
+  // for a path with no demo route, so omitting these would make the risk widget
+  // the one panel that breaks an offline presentation.
+  ...FAIR_ROUTES,
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  33 base + 2 user-preferences + 2 network-tests + 3 compliance-policy + 7 weave = 46 */
+ *
+ *  The previous revision of this comment carried a running sum that had drifted from
+ *  the code it described (it totalled 46 while ROUTES.length was 50, which the test
+ *  had been quietly updated to). A tally maintained by hand beside a value computed
+ *  by the compiler is a second source of truth that only ever loses, so it is gone:
+ *  ROUTES.length is the count, and demoMode.test.ts asserts the literal so that
+ *  adding a route stays a deliberate, visible change. */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 function cleanPath(path: string): string {

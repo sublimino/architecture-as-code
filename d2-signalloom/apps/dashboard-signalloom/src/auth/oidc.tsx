@@ -59,16 +59,16 @@ function AutoSignIn({ children }: Props) {
     if (
       !triggered.current &&
       !hasAuthParams() &&
-      !auth.isAuthenticated &&
-      !auth.activeNavigator &&
-      !auth.isLoading &&
+      !auth?.isAuthenticated &&
+      !auth?.activeNavigator &&
+      !auth?.isLoading &&
       !auth.error
     ) {
       triggered.current = true
       window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
       auth.signinRedirect().catch((e) => console.error('[oidc-signin-error]', e))
     }
-  }, [auth.isAuthenticated, auth.activeNavigator, auth.isLoading, auth.error, auth])
+  }, [auth?.isAuthenticated, auth?.activeNavigator, auth?.isLoading, auth.error, auth])
   return <>{children}</>
 }
 
@@ -81,13 +81,14 @@ export function OidcProvider({ children }: Props) {
 }
 
 export function useAuth0() {
-  const auth = useAuth()
-  const { signinRedirect } = auth
+  let auth: ReturnType<typeof useAuth> | undefined
+  try { auth = useAuth() } catch {}
+  const signinRedirect = auth?.signinRedirect ?? (() => Promise.resolve())
   // Stable across renders unless the token itself changes. The Auth0 SDK this
   // shim replaces returned stable callbacks; consumers put getAccessTokenSilently
   // in useCallback/useEffect deps, so an unstable ref causes an infinite refetch
   // loop. Keep these referentially stable to preserve the original behaviour.
-  const token = auth.user?.access_token ?? auth.user?.id_token ?? ''
+  const token = auth?.user?.access_token ?? auth?.user?.id_token ?? ''
   const getAccessTokenSilently = useCallback(async () => token, [token])
   // Accept (and ignore) the Auth0-style options arg the call sites still pass.
   const loginWithRedirect = useCallback(
@@ -97,7 +98,7 @@ export function useAuth0() {
     },
     [signinRedirect],
   )
-  const { removeUser } = auth
+  const removeUser = auth?.removeUser ?? (() => Promise.resolve())
   const logout = useCallback(
     (opts?: unknown): void => {
       void opts
@@ -107,21 +108,21 @@ export function useAuth0() {
     },
     [removeUser],
   )
-  const profile = auth.user?.profile
+  const profile = auth?.user?.profile
 
   return useMemo(
     () => ({
-      isAuthenticated: auth.isAuthenticated,
-      isLoading: auth.isLoading || auth.activeNavigator === 'signinRedirect',
+      isAuthenticated: Boolean(auth?.isAuthenticated),
+      isLoading: Boolean(auth?.isLoading || auth?.activeNavigator === 'signinRedirect'),
       loginWithRedirect,
       logout,
       getAccessTokenSilently,
       user: profile,
     }),
     [
-      auth.isAuthenticated,
-      auth.isLoading,
-      auth.activeNavigator,
+      auth?.isAuthenticated,
+      auth?.isLoading,
+      auth?.activeNavigator,
       profile,
       getAccessTokenSilently,
       loginWithRedirect,

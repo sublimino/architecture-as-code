@@ -2,6 +2,38 @@ import { useState, useEffect, useCallback } from 'react'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
 import StatusBadge from './StatusBadge'
 import CredentialStateNotice from './CredentialStateNotice'
+import RiskWidget from './RiskWidget'
+import { useAgentRisk } from '../hooks/useAgentRisk'
+
+/**
+ * The drawer's quantitative-risk panel.
+ *
+ * Its own component, and not inlined, for one reason that is not style: the
+ * drawer renders `agent` as nullable and returns early when there is no
+ * selection, so a `useAgentRisk` call in the drawer body would sit above an
+ * early return and change the hook order between renders. A child component
+ * mounts and unmounts instead, which is the legal way to make a hook
+ * conditional — and its unmount is what aborts the in-flight risk query when
+ * the operator closes the drawer.
+ */
+function AgentRiskSection({ agentId }: { agentId: string }) {
+  const { data, loading, error, source, refresh } = useAgentRisk(agentId)
+  return (
+    <RiskWidget
+      testId="drawer-section-risk"
+      title="Quantitative Risk (OpenFAIR)"
+      lef={data?.lef ?? null}
+      lossMagnitude={data?.lossMagnitude.mode ?? null}
+      pml={data?.pml ?? null}
+      ale={data?.ale ?? null}
+      tvar={data?.tvar ?? null}
+      source={source}
+      loading={loading}
+      error={error}
+      onRetry={refresh}
+    />
+  )
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -362,6 +394,12 @@ export default function AgentEvidenceDrawer({
               </div>
             </div>
           </div>
+
+          {/* 1b. Quantitative Risk (OpenFAIR) — live riskctl figures, or demo fixtures.
+              Placed directly under the qualitative assessment on purpose: a posture
+              score answers "how bad is the control coverage" and these four answer
+              "what does that cost", and the pair is the whole argument. */}
+          <AgentRiskSection agentId={agent.id} />
 
           {/* 2. Runtime Snapshot */}
           <div className="card" data-testid="drawer-section-runtime" style={{ padding: 14 }}>

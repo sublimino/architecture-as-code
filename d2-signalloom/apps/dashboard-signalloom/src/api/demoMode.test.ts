@@ -40,12 +40,13 @@ describe('demo mode', () => {
   // +1 store/stats route added for Signal Store admin page = 47.
   // +2 network-tests routes (GET /network-tests, POST /network-tests/scan) = 49.
   // +1 capabilities route (GET /capabilities) = 50.
+  // +2 live OpenFAIR risk routes (GET /v1/risk/fleet, GET /v1/risk/agents/:id) = 52.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
   // This count is deliberately exact rather than a lower bound — it is the
   // guard that notices a route silently disappearing in a merge, which is
   // precisely what nearly happened to the stun route here.
-  it('covers the full 50-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(50)
+  it('covers the full 52-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(52)
   })
 
   // Merge note: this assertion came from feat/supercred-inventory-live, where the

@@ -64,7 +64,9 @@ def client_for(monkeypatch: pytest.MonkeyPatch, async_client_cls):
     monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
     monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
     monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
-    monkeypatch.setattr(settings, "api_subject_tenants", {"alice": "tenant-a"})
+    monkeypatch.setattr(settings, "api_subject_tenants", {"alice": "tenant-a", "demo-user": "tenant-a"})
+    monkeypatch.setattr(settings, "api_superadmin_emails", set())
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {"demo-user"})
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: TestJWKClient())
     monkeypatch.setattr(api_compat.httpx, "AsyncClient", async_client_cls)
 
@@ -184,7 +186,7 @@ def test_network_tests_scan_forwards_the_202_and_job_name(monkeypatch):
             return FakeJsonResponse({"job": "netassert-run", "status": "started"}, status_code=202)
 
     with client_for(monkeypatch, FakeAsyncClient) as client:
-        response = client.post("/api/network-tests/scan", headers=bearer(token_for()))
+        response = client.post("/api/network-tests/scan", headers=bearer(token_for("demo-user")))
 
     assert requested_urls == [api_compat.NETWORK_TESTS_SCAN_URL]
     assert response.status_code == 202
@@ -206,7 +208,7 @@ def test_network_tests_scan_forwards_a_409_when_a_scan_is_already_running(monkey
             return FakeJsonResponse({"error": "a network test scan is already running"}, status_code=409)
 
     with client_for(monkeypatch, FakeAsyncClient) as client:
-        response = client.post("/api/network-tests/scan", headers=bearer(token_for()))
+        response = client.post("/api/network-tests/scan", headers=bearer(token_for("demo-user")))
 
     assert response.status_code == 409
     assert "already running" in response.json()["error"]
@@ -234,9 +236,32 @@ def test_network_tests_scan_ignores_client_input_entirely(monkeypatch):
     with client_for(monkeypatch, FakeAsyncClient) as client:
         response = client.post(
             "/api/network-tests/scan",
-            headers=bearer(token_for()),
+            headers=bearer(token_for("demo-user")),
             json={"target": "10.0.0.1", "namespace": "kube-system"},
         )
 
     assert response.status_code == 202
     assert calls == [(api_compat.NETWORK_TESTS_SCAN_URL,)]
+
+
+def test_network_tests_scan_denies_an_ordinary_authenticated_principal(monkeypatch):
+    class MustNotReachProxy:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("authorization must fail before contacting the scan proxy")
+
+    with client_for(monkeypatch, MustNotReachProxy) as client:
+        response = client.post("/api/network-tests/scan", headers=bearer(token_for("alice")))
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "superadmin_required"
+
+
+def test_network_tests_scan_denies_an_unauthenticated_caller(monkeypatch):
+    class MustNotReachProxy:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("authentication must fail before contacting the scan proxy")
+
+    with client_for(monkeypatch, MustNotReachProxy) as client:
+        response = client.post("/api/network-tests/scan")
+
+    assert response.status_code == 401

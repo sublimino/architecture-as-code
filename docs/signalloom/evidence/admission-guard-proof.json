@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-09-21:25:53T21:25:53Z",
+  "component": "node-capability-guard",
+  "task": "CRKC-P3-3",
+  "verdict": "pass",
+  "probes": {
+    "unconfined_rejected": {
+      "allowed": false,
+      "code": 403,
+      "message": "admission webhook \"node-capability-guard.signalloom.ai\" denied the request: agent pod rejected: scheduling requires node with active kernel containment (cgroup-v2=true, landlock=true)"
+    },
+    "compliant_admitted": {
+      "allowed": true,
+      "code": 200
+    },
+    "metrics": {
+      "node_capability_rejections_total": 1,
+      "node_capability_admissions_total": 1
+    }
+  }
+}

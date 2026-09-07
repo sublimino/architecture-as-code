@@ -155,6 +155,8 @@ setup() {
 
 
 @test "uptime check: NATS" {
+  # NATS is a backend dependency; frontend contains only application workers.
+  DETIK_CLIENT_NAMESPACE="backend"
   DEBUG_DETIK="true"
   DETIK_CASE_INSENSITIVE_PROPERTIES="true"
 
@@ -164,7 +166,7 @@ setup() {
   run verify "'status' is 'running' for pods named 'nats'"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
 
-  run verify "there is 1 service named 'nats'"
+  run verify "there is 1 service named '^nats$'"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
@@ -720,4 +722,3 @@ setup() {
 	echo "=== SBOM Integration Test Complete - SUCCESS VERIFIED ===" >&3
 	echo "✅ COMPLETE SUCCESS: SBOM generation, publishing, and archival integration fully validated!" >&3
 }
-

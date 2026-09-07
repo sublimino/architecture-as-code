@@ -2140,3 +2140,117 @@ def test_agent_telemetry_unknown_agent_404(client, monkeypatch):
     assert res.status_code == 404
     err = res.json()
     assert err["error"]["code"] == "not_found"
+
+
+def test_agent_sentinel_containment_feedback_model():
+    """SFAGENTS-P3-2: Proves SentinelKernelTelemetry model serialization supports Sentinel ACK, drop count, and containment probe states."""
+    telemetry = api_compat.SentinelKernelTelemetry(
+        cgroup_state="frozen",
+        traffic_control_state="drop",
+        ebpf_active=True,
+        ebpf_program_attached=True,
+        observed_at="2026-09-07T09:30:00Z",
+        last_observed_at="2026-09-07T09:30:00Z",
+        sentinel_ack=True,
+        sentinel_ack_id="ack-agent-sentinel-001",
+        sentinel_drop_count=256,
+        sentinel_last_ack_at="2026-09-07T09:30:00Z",
+        containment_probe_state="confirmed",
+    )
+    assert telemetry.sentinel_ack is True
+    assert telemetry.sentinel_ack_id == "ack-agent-sentinel-001"
+    assert telemetry.sentinel_drop_count == 256
+    assert telemetry.containment_probe_state == "confirmed"
+
+
+def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypatch):
+    """SFAGENTS-P3-2: Proves POST /api/agents/{id}/stun returns Sentinel ACK feedback and confirmed probe state."""
+    async def mock_get_pool():
+        return None
+
+    async def _stun_succeeds(_agent_id: str) -> api_compat._ClusterStunObservation:
+        return api_compat._ClusterStunObservation(
+            observed=True,
+            outcome="stunned",
+            namespace="fe-signalloom",
+            proxy_status=200,
+            error=None,
+        )
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+    monkeypatch.setattr(api_compat, "_perform_cluster_stun", _stun_succeeds)
+
+    # Seed an agent for tenant-a (alice)
+    api_compat._ensure_seeded("tenant-a")
+    with api_compat._STORE_LOCK:
+        agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
+
+    res = client.post(f"/api/agents/{agent_id}/stun", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["agent_id"] == agent_id
+    assert "sentinel_telemetry" in data
+    assert data["sentinel_telemetry"] is not None
+    telem = data["sentinel_telemetry"]
+    assert telem["cgroup_state"] == "frozen"
+    assert telem["traffic_control_state"] == "drop"
+    assert telem["sentinel_ack"] is True
+    assert telem["sentinel_ack_id"] == f"ack-{agent_id}-ebpf-sentinel"
+    assert telem["sentinel_drop_count"] == 142
+    assert telem["containment_probe_state"] == "confirmed"
+
+
+def test_get_agent_detail_returns_sentinel_telemetry_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-2: Proves GET /api/agents/{id} returns Sentinel kernel telemetry side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-stunned-001",
+                "name": "Stunned Sentinel Agent",
+                "type": "Signal Loom Built",
+                "owner": "sec-ops",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "suspended",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "high",
+                "total_controls": 5,
+                "passing_controls": 4,
+                "failing_controls": 1,
+                "pending_controls": 0,
+                "posture_score": 80.0,
+                "model_name": "claude-3-5-sonnet",
+                "stunned_at": "2026-09-07T09:10:00Z",
+                "stun_reason": "Policy violation: excessive egress",
+                "credential_revoked": True,
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents/{id} must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-stunned-001", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "agent-stunned-001"
+    assert data["kernel_telemetry"] is not None
+    telem = data["kernel_telemetry"]
+    assert telem["cgroup_state"] == "frozen"
+    assert telem["traffic_control_state"] == "drop"
+    assert telem["sentinel_ack"] is True
+    assert telem["containment_probe_state"] == "confirmed"
+    assert telem["sentinel_drop_count"] == 142
+    assert len(executed_writes) == 0

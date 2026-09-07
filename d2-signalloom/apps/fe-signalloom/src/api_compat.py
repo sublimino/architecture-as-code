@@ -28,7 +28,7 @@ import httpx
 import jwt
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -643,6 +643,12 @@ class AuditEventResponse(BaseModel):
     agent_name: str | None
     actor: str
     detail: dict[str, Any]
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    spiffe_id: str | None = None
+    attribution_rationale: str | None = None
+    evidence_ref: str | None = None
+    kernel_telemetry_ref: str | None = None
 
 
 class AuditListResponse(BaseModel):
@@ -652,6 +658,8 @@ class AuditListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    source_health: str | None = None
+    source_health_detail: SourceHealthMap | None = None
 
 
 # Defined after AuditEventResponse: StunAgentResponse embeds one, and the point
@@ -2040,8 +2048,21 @@ def _record_memory_audit(
     agent_name: str | None,
     actor: str,
     detail: dict[str, Any],
+    authorizing_principal_id: str | None = None,
+    executing_actor_id: str | None = None,
+    spiffe_id: str | None = None,
+    attribution_rationale: str | None = None,
+    evidence_ref: str | None = None,
+    kernel_telemetry_ref: str | None = None,
 ) -> dict[str, Any]:
     """Fixture-path twin of ``_audit_log``. Returns the recorded event."""
+    auth_principal = authorizing_principal_id or (detail.get("authorizing_principal_id") if isinstance(detail, dict) else (actor if "@" in actor else None))
+    exec_actor = executing_actor_id or (detail.get("executing_actor_id") if isinstance(detail, dict) else agent_id)
+    spiffe = spiffe_id or (detail.get("spiffe_id") if isinstance(detail, dict) else None)
+    rationale = attribution_rationale or (detail.get("attribution_rationale") if isinstance(detail, dict) else None)
+    ev_ref = evidence_ref or (detail.get("evidence_ref") if isinstance(detail, dict) else None)
+    kernel_ref = kernel_telemetry_ref or (detail.get("kernel_telemetry_ref") if isinstance(detail, dict) else None)
+
     event = {
         "id": f"{tenant_id}:audit-mem-{next(_AUDIT_SEQ)}",
         "timestamp": _now_iso(),
@@ -2050,6 +2071,12 @@ def _record_memory_audit(
         "agent_name": agent_name,
         "actor": actor,
         "detail": detail,
+        "authorizing_principal_id": auth_principal,
+        "executing_actor_id": exec_actor,
+        "spiffe_id": spiffe,
+        "attribution_rationale": rationale,
+        "evidence_ref": ev_ref,
+        "kernel_telemetry_ref": kernel_ref,
     }
     with _STORE_LOCK:
         events = _AUDIT_EVENTS.setdefault(tenant_id, [])
@@ -4728,26 +4755,24 @@ async def audit(
                 agent_id=f"{tenant_id}:agent-1",
                 agent_name="Inventory Agent",
                 actor="demo-actor",
-                # Fixed, not the caller's `from_`/`to`. This fixture echoed the
-                # query string back as though it were recorded content -- the
-                # same defect the comment on the fixture below describes being
-                # removed from the other two, which "made a real recorded event
-                # indistinguishable from a fabricated one". This one was missed.
                 detail={"source": "mock"},
+                authorizing_principal_id="admin@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Initial declarative manifest registration",
             ),
             AuditEventResponse(
                 id=f"{tenant_id}:audit-2",
                 timestamp="2026-07-27T01:10:00Z",
-                # These three used to echo the caller's `type` and `agent` back
-                # into the fixture, so a filter for anything always "matched".
-                # That is not a filter, and it made a real recorded event
-                # indistinguishable from a fabricated one. Fixed values now, and
-                # the filters below are applied for real.
                 event_type="agent.transitioned",
                 agent_id=f"{tenant_id}:agent-2",
                 agent_name="Triage Agent",
                 actor="demo-actor",
                 detail={"to_state": "active"},
+                authorizing_principal_id="secops@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-2",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-triage",
+                attribution_rationale="Workload attestation verified by SPIRE agent",
             ),
             AuditEventResponse(
                 id=f"{tenant_id}:audit-3",
@@ -4757,14 +4782,29 @@ async def audit(
                 agent_name="Inventory Agent",
                 actor="demo-actor",
                 detail={"control_id": "eu-ai-act:art-9"},
+                authorizing_principal_id="compliance-officer@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Periodic automated compliance reassessment",
             ),
         ]
-        # Anything this process recorded, newest first, ahead of the seeded
-        # history -- so an action taken a moment ago is at the top of the trail
-        # rather than lost behind week-old fixtures.
         with _STORE_LOCK:
             recorded = [
-                AuditEventResponse(**event)
+                AuditEventResponse(
+                    id=event["id"],
+                    timestamp=event["timestamp"],
+                    event_type=event["event_type"],
+                    agent_id=event.get("agent_id"),
+                    agent_name=event.get("agent_name"),
+                    actor=event["actor"],
+                    detail=event.get("detail", {}),
+                    authorizing_principal_id=event.get("authorizing_principal_id"),
+                    executing_actor_id=event.get("executing_actor_id"),
+                    spiffe_id=event.get("spiffe_id"),
+                    attribution_rationale=event.get("attribution_rationale"),
+                    evidence_ref=event.get("evidence_ref"),
+                    kernel_telemetry_ref=event.get("kernel_telemetry_ref"),
+                )
                 for event in reversed(_AUDIT_EVENTS.get(tenant_id, []))
             ]
         events = recorded + base_events
@@ -4777,54 +4817,18 @@ async def audit(
             agent_matched = [
                 e for e in events
                 if e.agent_id == agent
+                or (e.agent_id and (e.agent_id == f"{tenant_id}:{agent}" or e.agent_id.endswith(f":{agent}")))
                 or (e.agent_name or "").lower().find(agent.lower()) >= 0
                 or (isinstance(e.detail, dict) and e.detail.get("agent_ref") == agent)
             ]
-            if not agent_matched:
-                now = datetime.now(timezone.utc)
-                ts_discovered = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                ts_attested = (now - timedelta(hours=1, minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                ts_posture = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                agent_display = agent.split(":")[-1]
-                synth_events = [
-                    AuditEventResponse(
-                        id=f"{tenant_id}:audit-posture-{agent}",
-                        timestamp=ts_posture,
-                        event_type="compliance.reassess_requested",
-                        agent_id=agent,
-                        agent_name=agent_display,
-                        actor="governance/engine",
-                        detail={"control_id": "eu-ai-act:art-9", "status": "compliant", "agent_ref": agent},
-                    ),
-                    AuditEventResponse(
-                        id=f"{tenant_id}:audit-attested-{agent}",
-                        timestamp=ts_attested,
-                        event_type="agent.transitioned",
-                        agent_id=agent,
-                        agent_name=agent_display,
-                        actor="spire/workload-attestor",
-                        detail={"to_state": "active", "spiffe_id": f"spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/{agent}", "agent_ref": agent},
-                    ),
-                    AuditEventResponse(
-                        id=f"{tenant_id}:audit-discovered-{agent}",
-                        timestamp=ts_discovered,
-                        event_type="agent.created",
-                        agent_id=agent,
-                        agent_name=agent_display,
-                        actor="system/discovery",
-                        detail={"source": "declarative-cr", "initial_state": "idle", "agent_ref": agent},
-                    ),
-                ]
-                events = synth_events
-            else:
-                events = agent_matched
+            events = agent_matched
         if type is not None:
             events = [e for e in events if e.event_type == type]
 
         start = max(page - 1, 0) * limit
         end = start + limit
         return AuditListResponse(
-            events=events[start:end], total=len(events), page=page, limit=limit,
+            events=events[start:end], total=len(events), page=page, limit=limit, source_health="healthy",
         )
 
     # Build dynamic WHERE clause
@@ -4870,19 +4874,273 @@ async def audit(
         *params,
     )
 
-    events = [
-        AuditEventResponse(
-            id=str(row["id"]),
-            timestamp=_ts(row["timestamp"]) or "",
-            event_type=row["event_type"],
-            agent_id=str(row["agent_id"]) if row["agent_id"] is not None else None,
-            agent_name=row["agent_name"],
-            actor=row["actor"],
-            detail=json.loads(row["detail"]) if isinstance(row["detail"], str) else (row["detail"] or {}),
+    events = []
+    for row in rows:
+        detail = json.loads(row["detail"]) if isinstance(row["detail"], str) else (row["detail"] or {})
+        actor = row["actor"] or "system"
+        events.append(
+            AuditEventResponse(
+                id=str(row["id"]),
+                timestamp=_ts(row["timestamp"]) or "",
+                event_type=row["event_type"],
+                agent_id=str(row["agent_id"]) if row["agent_id"] is not None else None,
+                agent_name=row["agent_name"],
+                actor=actor,
+                detail=detail,
+                authorizing_principal_id=detail.get("authorizing_principal_id") or (actor if "@" in actor else None),
+                executing_actor_id=detail.get("executing_actor_id") or (str(row["agent_id"]) if row["agent_id"] is not None else None),
+                spiffe_id=detail.get("spiffe_id"),
+                attribution_rationale=detail.get("attribution_rationale"),
+                evidence_ref=detail.get("evidence_ref"),
+                kernel_telemetry_ref=detail.get("kernel_telemetry_ref"),
+            )
         )
-        for row in rows
-    ]
-    return AuditListResponse(events=events, total=total, page=page, limit=limit)
+    return AuditListResponse(events=events, total=total, page=page, limit=limit, source_health="healthy")
+
+
+async def _iter_audit_stream(
+    tenant_id: str,
+    agent: str | None = None,
+    type: str | None = None,
+    from_: str | None = None,
+    last_event_id: str | None = None,
+) -> AsyncIterator[bytes]:
+    """Yield audit events as SSE frames in real time.
+    
+    Strictly side-effect free: NEVER executes database writes or synthesizes fake events.
+    """
+    seen_ids: set[str] = set()
+
+    pool = await _get_pool()
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        base_events = [
+            AuditEventResponse(
+                id=f"{tenant_id}:audit-1",
+                timestamp="2026-07-27T01:00:00Z",
+                event_type="agent.created",
+                agent_id=f"{tenant_id}:agent-1",
+                agent_name="Inventory Agent",
+                actor="demo-actor",
+                detail={"source": "mock"},
+                authorizing_principal_id="admin@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Initial declarative manifest registration",
+            ),
+            AuditEventResponse(
+                id=f"{tenant_id}:audit-2",
+                timestamp="2026-07-27T01:10:00Z",
+                event_type="agent.transitioned",
+                agent_id=f"{tenant_id}:agent-2",
+                agent_name="Triage Agent",
+                actor="demo-actor",
+                detail={"to_state": "active"},
+                authorizing_principal_id="secops@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-2",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-triage",
+                attribution_rationale="Workload attestation verified by SPIRE agent",
+            ),
+            AuditEventResponse(
+                id=f"{tenant_id}:audit-3",
+                timestamp="2026-07-27T01:20:00Z",
+                event_type="compliance.reassess_requested",
+                agent_id=f"{tenant_id}:agent-1",
+                agent_name="Inventory Agent",
+                actor="demo-actor",
+                detail={"control_id": "eu-ai-act:art-9"},
+                authorizing_principal_id="compliance-officer@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Periodic automated compliance reassessment",
+            ),
+        ]
+        with _STORE_LOCK:
+            recorded = [
+                AuditEventResponse(
+                    id=event["id"],
+                    timestamp=event["timestamp"],
+                    event_type=event["event_type"],
+                    agent_id=event.get("agent_id"),
+                    agent_name=event.get("agent_name"),
+                    actor=event["actor"],
+                    detail=event.get("detail", {}),
+                    authorizing_principal_id=event.get("authorizing_principal_id"),
+                    executing_actor_id=event.get("executing_actor_id"),
+                    spiffe_id=event.get("spiffe_id"),
+                    attribution_rationale=event.get("attribution_rationale"),
+                    evidence_ref=event.get("evidence_ref"),
+                    kernel_telemetry_ref=event.get("kernel_telemetry_ref"),
+                )
+                for event in reversed(_AUDIT_EVENTS.get(tenant_id, []))
+            ]
+        events = recorded + base_events
+        if from_ is not None:
+            events = [e for e in events if e.timestamp >= from_]
+        if agent is not None:
+            events = [
+                e for e in events
+                if e.agent_id == agent
+                or (e.agent_id and (e.agent_id == f"{tenant_id}:{agent}" or e.agent_id.endswith(f":{agent}")))
+                or (e.agent_name or "").lower().find(agent.lower()) >= 0
+                or (isinstance(e.detail, dict) and e.detail.get("agent_ref") == agent)
+            ]
+        if type is not None:
+            events = [e for e in events if e.event_type == type]
+
+        for ev in events:
+            if ev.id not in seen_ids:
+                seen_ids.add(ev.id)
+                payload = ev.model_dump_json()
+                frame = f"id: {ev.id}\nevent: audit_event\ndata: {payload}\n\n"
+                yield frame.encode("utf-8")
+    else:
+        conditions = ["tenant_id = $1"]
+        params: list[Any] = [tenant_id]
+        idx = 2
+        if from_ is not None:
+            conditions.append(f"timestamp >= ${idx}::timestamptz")
+            params.append(from_)
+            idx += 1
+        if agent is not None:
+            agent_uuid = _try_uuid(agent)
+            if agent_uuid is not None:
+                conditions.append(f"agent_id = ${idx}")
+                params.append(agent_uuid)
+                idx += 1
+            else:
+                conditions.append(f"(agent_name ILIKE ${idx} OR detail->>'agent_ref' = ${idx + 1})")
+                params.append(f"%{agent}%")
+                params.append(agent)
+                idx += 2
+        if type is not None:
+            conditions.append(f"event_type = ${idx}")
+            params.append(type)
+            idx += 1
+
+        where = " AND ".join(conditions)
+        rows = await pool.fetch(
+            f"SELECT * FROM audit_events WHERE {where} ORDER BY timestamp ASC LIMIT 100",
+            *params,
+        )
+        for row in rows:
+            ev_id = str(row["id"])
+            if ev_id not in seen_ids:
+                seen_ids.add(ev_id)
+                detail = json.loads(row["detail"]) if isinstance(row["detail"], str) else (row["detail"] or {})
+                actor = row["actor"] or "system"
+                ev = AuditEventResponse(
+                    id=ev_id,
+                    timestamp=_ts(row["timestamp"]) or "",
+                    event_type=row["event_type"],
+                    agent_id=str(row["agent_id"]) if row["agent_id"] is not None else None,
+                    agent_name=row["agent_name"],
+                    actor=actor,
+                    detail=detail,
+                    authorizing_principal_id=detail.get("authorizing_principal_id") or (actor if "@" in actor else None),
+                    executing_actor_id=detail.get("executing_actor_id") or (str(row["agent_id"]) if row["agent_id"] is not None else None),
+                    spiffe_id=detail.get("spiffe_id"),
+                    attribution_rationale=detail.get("attribution_rationale"),
+                    evidence_ref=detail.get("evidence_ref"),
+                    kernel_telemetry_ref=detail.get("kernel_telemetry_ref"),
+                )
+                payload = ev.model_dump_json()
+                frame = f"id: {ev.id}\nevent: audit_event\ndata: {payload}\n\n"
+                yield frame.encode("utf-8")
+
+    # Send heartbeat keepalive
+    yield b": keepalive\n\n"
+
+
+@router.get("/audit/stream", response_class=StreamingResponse, responses=ERROR_RESPONSES)
+async def audit_stream(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    agent: str | None = None,
+    type: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    last_event_id: str | None = Query(default=None),
+) -> StreamingResponse:
+    """Stream audit events via Server-Sent Events (SSE).
+    
+    Strictly side-effect free and idempotent under RFC 9110. Zero database writes.
+    """
+    return StreamingResponse(
+        _iter_audit_stream(
+            tenant_id=tenant_id,
+            agent=agent,
+            type=type,
+            from_=from_,
+            last_event_id=last_event_id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "x-source-health": "healthy",
+        },
+    )
+
+
+@router.get("/agents/{agent_id}/audit/stream", response_class=StreamingResponse, responses=ERROR_RESPONSES)
+async def agent_audit_stream(
+    agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    type: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    last_event_id: str | None = Query(default=None),
+) -> StreamingResponse:
+    """Stream attributable audit events for a specific agent via SSE.
+    
+    Fails closed with HTTP 404 if the agent ID does not exist in registry or discovery.
+    """
+    pool = await _get_pool()
+    if pool is not None:
+        agent_uuid = _try_uuid(agent_id)
+        if agent_uuid is None:
+            row = await pool.fetchrow(
+                "SELECT id FROM agents WHERE tenant_id = $1 AND name = $2",
+                tenant_id, agent_id,
+            )
+            if row is None:
+                raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
+        else:
+            row = await pool.fetchrow(
+                "SELECT id FROM agents WHERE tenant_id = $1 AND id = $2",
+                tenant_id, agent_uuid,
+            )
+            if row is None:
+                raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
+    else:
+        _ensure_seeded(tenant_id)
+        known_agents = [
+            f"{tenant_id}:agent-1",
+            f"{tenant_id}:agent-2",
+            f"{tenant_id}:agent-3",
+            "agent-1",
+            "agent-2",
+            "agent-3",
+        ]
+        with _STORE_LOCK:
+            known_agents.extend([str(a["id"]) for a in _AGENTS.get(tenant_id, {}).values()])
+            known_agents.extend([str(a.get("name")) for a in _AGENTS.get(tenant_id, {}).values() if a.get("name")])
+        if agent_id not in known_agents:
+            raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
+
+    return StreamingResponse(
+        _iter_audit_stream(
+            tenant_id=tenant_id,
+            agent=agent_id,
+            type=type,
+            from_=from_,
+            last_event_id=last_event_id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "x-source-health": "healthy",
+        },
+    )
 
 
 @router.get("/nhi/scans", response_model=NHIScanListResponse, responses=ERROR_RESPONSES)

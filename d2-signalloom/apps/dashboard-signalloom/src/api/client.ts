@@ -309,8 +309,8 @@ export const api = {
 
     // Step 2 of register-then-issue: mint an identity credential for an existing
     // record. The token is returned once; callers must show-once and never store it.
-    issueCredential: (token: string, id: string) =>
-      req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST' }),
+    issueCredential: (token: string, id: string, body?: { token_note?: string }) =>
+      req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST', data: body }),
 
     // Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
     revokeCredential: (token: string, id: string) =>
@@ -349,6 +349,14 @@ export const api = {
 
     reassess: (token: string, agentId: string, controlId: string) =>
       req<ReassessmentResponse>(`/agents/${agentId}/compliance/${controlId}/reassess`, token, { method: 'POST' }),
+
+    auditStreamUrl: (id: string, params: { type?: string; from?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.type) q.set('type', params.type)
+      if (params.from) q.set('from', params.from)
+      const qs = q.toString()
+      return `/api/agents/${id}/audit/stream${qs ? `?${qs}` : ''}`
+    },
   },
 
   compliance: {
@@ -384,6 +392,15 @@ export const api = {
     if (params.agent) q.set('agent', params.agent)
     if (params.type) q.set('type', params.type)
     return req<AuditListResponse>(`/audit?${q.toString()}`, token)
+  },
+
+  auditStreamUrl: (params: { agent?: string; type?: string; from?: string } = {}) => {
+    const q = new URLSearchParams()
+    if (params.agent) q.set('agent', params.agent)
+    if (params.type) q.set('type', params.type)
+    if (params.from) q.set('from', params.from)
+    const qs = q.toString()
+    return `/api/audit/stream${qs ? `?${qs}` : ''}`
   },
 
   auditExportCsv: async (

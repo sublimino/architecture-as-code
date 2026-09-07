@@ -441,10 +441,10 @@ describe('AgentDetailPage — Credential Actions', () => {
 })
 
 describe('AgentDetailPage — Activity Timeline Tab', () => {
-  it('requests audit events and renders them on the Activity timeline tab', async () => {
+  it('requests audit events and renders them on the Activity timeline tab with StatCards and attribution', async () => {
     const syntheticAgent = makeAgent({
       id: 'agent-cardvault',
-      name: 'Synthesized agent-cardvault',
+      name: 'CardVault Agent',
       type: 'service',
       lifecycle_state: 'suspended',
     })
@@ -455,8 +455,8 @@ describe('AgentDetailPage — Activity Timeline Tab', () => {
           id: 'audit-event-1',
           timestamp: '2026-08-20T12:00:00Z',
           event_type: 'agent.stunned',
-          agent_id: null,
-          agent_name: null,
+          agent_id: 'agent-cardvault',
+          agent_name: 'CardVault Agent',
           actor: 'demo-operator@signal-loom.ai',
           detail: {
             agent_ref: 'agent-cardvault',
@@ -464,19 +464,26 @@ describe('AgentDetailPage — Activity Timeline Tab', () => {
             from_state: 'active',
             to_state: 'suspended',
           },
+          authorizing_principal_id: 'demo-operator@signal-loom.ai',
+          executing_actor_id: 'agent-cardvault',
+          attribution_rationale: 'Operator manual containment request',
         },
         {
           id: 'audit-event-2',
           timestamp: '2026-08-20T11:00:00Z',
           event_type: 'agent.transitioned',
-          agent_id: null,
-          agent_name: null,
-          actor: 'demo-operator@signal-loom.ai',
+          agent_id: 'agent-cardvault',
+          agent_name: 'CardVault Agent',
+          actor: 'spire/workload-attestor',
           detail: {
             agent_ref: 'agent-cardvault',
             from_state: 'registered',
             to_state: 'active',
           },
+          authorizing_principal_id: null,
+          executing_actor_id: 'agent-cardvault',
+          spiffe_id: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault',
+          attribution_rationale: 'Workload attestation verified by SPIRE agent',
         },
       ],
       total: 2,
@@ -486,19 +493,25 @@ describe('AgentDetailPage — Activity Timeline Tab', () => {
 
     renderPage('/agents/agent-cardvault?tab=activity')
 
-    expect(await screen.findByText('Synthesized agent-cardvault')).toBeInTheDocument()
+    expect(await screen.findByText('CardVault Agent')).toBeInTheDocument()
     expect(api.audit).toHaveBeenCalledWith('test-token', { agent: 'agent-cardvault', limit: 50 })
 
-    expect(screen.getAllByText('agent.stunned')[1]).toBeInTheDocument()
-    expect(screen.getAllByText('agent.transitioned')[1]).toBeInTheDocument()
-    expect(screen.getAllByText(/demo-operator@signal-loom.ai/)[0]).toBeInTheDocument()
-    expect(screen.getAllByText(/agent-cardvault/)[0]).toBeInTheDocument()
+    // Verify Tab 5 StatCards
+    expect(screen.getByTestId('activity-card-total-events')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-total-events')).toHaveTextContent('2')
+    expect(screen.getByTestId('activity-card-stream-status')).toBeInTheDocument()
+
+    // Verify events rendered with attribution
+    expect(screen.getByTestId('activity-event-audit-event-1')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-event-audit-event-2')).toBeInTheDocument()
+    expect(screen.getAllByText('demo-operator@signal-loom.ai').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Workload attestation verified by SPIRE agent')).toBeInTheDocument()
   })
 
-  it('renders baseline activity events on Activity tab when no prior audit events exist', async () => {
+  it('renders truthful empty state on Activity tab when zero audit events exist without synthesizing fake records', async () => {
     const syntheticAgent = makeAgent({
       id: 'agent-cardvault',
-      name: 'Synthesized agent-cardvault',
+      name: 'CardVault Agent',
     })
     ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(syntheticAgent)
     ;(api.audit as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -510,8 +523,9 @@ describe('AgentDetailPage — Activity Timeline Tab', () => {
 
     renderPage('/agents/agent-cardvault?tab=activity')
 
-    expect(await screen.findByText('Synthesized agent-cardvault')).toBeInTheDocument()
-    expect(screen.queryByText(/no events recorded/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Activity Timeline/i)).toBeInTheDocument()
+    expect(await screen.findByText('CardVault Agent')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-empty-state')).toBeInTheDocument()
+    expect(screen.getByText('No activity recorded')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-total-events')).toHaveTextContent('0')
   })
 })

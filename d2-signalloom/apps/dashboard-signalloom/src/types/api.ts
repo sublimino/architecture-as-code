@@ -474,6 +474,12 @@ export interface AuditEventResponse {
   agent_name: string | null
   actor: string
   detail: Record<string, unknown>
+  authorizing_principal_id?: string | null
+  executing_actor_id?: string | null
+  spiffe_id?: string | null
+  attribution_rationale?: string | null
+  evidence_ref?: string | null
+  kernel_telemetry_ref?: string | null
 }
 
 export interface AuditListResponse {
@@ -481,6 +487,8 @@ export interface AuditListResponse {
   total: number
   page: number
   limit: number
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
+  source_health_detail?: SourceHealthMap | null
 }
 
 // ─── Compliance ───────────────────────────────────────────────────────────────

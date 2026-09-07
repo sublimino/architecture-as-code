@@ -1427,3 +1427,114 @@ def test_dossier_unknown_id_fails_closed_with_404(client, monkeypatch):
     assert "not found" in body["error"]["message"].lower()
 
 
+# ─── SFAGENTS-P2-5: Tab 5 (Activity & Attributable Timeline) ─────────────────
+
+def test_audit_get_in_fixture_mode_returns_empty_without_synthesizing_fake_events(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/audit in fixture mode returns 0 results for unknown agent without synthetic fabrication."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit?agent=completely-unknown-agent", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["events"] == []
+    assert data["total"] == 0
+    assert data["source_health"] == "healthy"
+
+
+def test_audit_stream_emits_valid_sse_frames_and_headers(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/audit/stream returns text/event-stream with no-cache headers and valid SSE frames."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit/stream", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers.get("content-type", "")
+    assert "no-cache" in res.headers.get("cache-control", "")
+    assert "no" in res.headers.get("x-accel-buffering", "").lower()
+
+    content = res.text
+    assert "event: audit_event" in content
+    assert "data: {" in content
+    assert ": keepalive" in content
+
+
+def test_agent_audit_stream_returns_404_for_unknown_agent(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/agents/{id}/audit/stream returns HTTP 404 for unknown agent IDs without synthesizing records."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/unknown-agent-id-9999/audit/stream", headers=bearer(token_for("alice")))
+    assert res.status_code == 404
+    body = res.json()
+    assert body["error"]["code"] == "not_found"
+    assert "not found" in body["error"]["message"].lower()
+
+
+def test_agent_audit_stream_for_valid_agent(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/agents/{id}/audit/stream returns SSE stream for a known agent."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-1/audit/stream", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers.get("content-type", "")
+    content = res.text
+    assert "event: audit_event" in content
+    assert "agent-1" in content
+
+
+def test_audit_events_contain_attributable_identity_plane_metadata(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves AuditEventResponse preserves separation of identity planes (authorizer vs workload)."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    events = data["events"]
+    assert len(events) >= 3
+
+    # Check first event attribution
+    ev = events[0]
+    assert ev["authorizing_principal_id"] == "admin@signal-loom.ai"
+    assert "agent-1" in ev["executing_actor_id"]
+    assert ev["spiffe_id"] == "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory"
+    assert ev["attribution_rationale"] == "Initial declarative manifest registration"
+
+
+def test_audit_stream_is_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-5: Proves GET /api/audit/stream executes 0 SQL writes and is side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/audit/stream must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/audit/stream?agent=test-agent", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert len(executed_writes) == 0
+
+
+

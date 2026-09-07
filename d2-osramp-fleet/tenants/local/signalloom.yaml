@@ -1496,7 +1496,8 @@ spec:
 ---
 # Sustained deterministic sources for controller-triggered Netassert scans.
 # Literal namespaces avoid the apps Kustomization's targetNamespace rewrite.
-# The dependency ensures apps owns cardvault-agent before its fixture starts.
+# This ResourceSet owns the agents-namespace cardvault-agent ServiceAccount;
+# apps renders its separate source copy into fe-signalloom via targetNamespace.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -1511,6 +1512,17 @@ spec:
       ready: true
       readyExpr: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')
   resources:
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: cardvault-agent
+        namespace: fe-signalloom-agents
+        labels:
+          app.kubernetes.io/name: cardvault-agent
+          app.kubernetes.io/component: supercred-demo
+          app.kubernetes.io/part-of: signalloom
+          bao.controlplane.io/consumer: cardvault-agent
+      automountServiceAccountToken: false
     - apiVersion: apps/v1
       kind: Deployment
       metadata:

@@ -5,6 +5,7 @@ import { affectsDemo, projectResponse } from './supercredProjection'
 import { ensureSuperCredState, isSuperCredEnabled } from './supercredSource'
 import type {
   AgentCreateRequest,
+  AgentListParams,
   AgentListResponse,
   AgentResponse,
   AuditListResponse,
@@ -275,8 +276,18 @@ export const api = {
     req<TrustTopologyResponse>('/trust-topology', token),
 
   agents: {
-    list: (token: string) =>
-      req<AgentListResponse>('/agents', token),
+    list: (token: string, params?: AgentListParams) => {
+      const searchParams = new URLSearchParams()
+      if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null && value !== '') {
+            searchParams.set(key, String(value))
+          }
+        }
+      }
+      const qs = searchParams.toString()
+      return req<AgentListResponse>(qs ? `/agents?${qs}` : '/agents', token)
+    },
 
     register: (token: string, body: AgentCreateRequest) =>
       req<AgentResponse>('/agents', token, { method: 'POST', data: body }),

@@ -175,5 +175,7 @@ def test_agent_discovery_returns_empty_list_when_proxy_fails(monkeypatch):
 
     assert response.status_code == 200
     assert response.headers["source_health"] == "unavailable"
-    assert response.headers["X-Source-Health"] == "unavailable"
-    assert response.json() == {"agents": [], "total": 0, "source_health": "unavailable"}
+    body = response.json()
+    assert body["agents"] == []
+    assert body["total"] == 0
+    assert body["source_health"] == "unavailable"

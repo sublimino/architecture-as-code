@@ -1,12 +1,15 @@
 // Package correlation provides CEL-based signal correlation for actor identification.
 package correlation
 
+import "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+
 // Rule is a named CEL expression with metadata.
 type Rule struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	CEL         string `json:"cel"`
-	Negative    bool   `json:"negative"` // true = exclusion rule
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	CEL         string         `json:"cel"`
+	Negative    bool           `json:"negative"` // true = exclusion rule
+	EdgeType    model.EdgeType `json:"edge_type"`
 }
 
 // DefaultRules returns the built-in correlation rule set.
@@ -123,6 +126,32 @@ func DefaultRules() []Rule {
 			      a.actor_hint != "" && a.actor_hint == b.actor_hint`,
 		},
 	}
-	return append(rules, IdentityAuditRules()...)
+	rules = append(rules, IdentityAuditRules()...)
+	for i := range rules {
+		rules[i].EdgeType = defaultRuleEdgeType(rules[i].Name)
+	}
+	return rules
 }
 
+// defaultRuleEdgeType is intentionally exhaustive by registered rule name.
+// CEL detections remain weak unless the separate authenticated identity gate
+// emits a deterministic edge.
+func defaultRuleEdgeType(name string) model.EdgeType {
+	switch name {
+	case "timing_correlation", "audit_timing_correlation":
+		return model.EdgeTemporal
+	case "scheduled_job_exclusion":
+		return model.EdgeCannotLink
+	case "cross_layer_identity", "credential_chain", "workspace_volume_spike",
+		"workspace_external_oauth_grant", "workspace_suspicious_login_egress",
+		"audit_rbac_privilege_escalation", "audit_secret_harvesting_after_egress",
+		"gcp_iam_agent_escalation", "unauthorized_token_harvesting",
+		"net_ebpf_unauthorized_model_provider_egress", "net_ebpf_c2_exfiltration_burst",
+		"net_ebpf_cross_layer_audit_correlation", "net_ebpf_saas_shadow_agent",
+		"vault_out_of_role_access", "vault_privilege_escalation",
+		"vault_secret_exfiltration_spike", "spire_svid_lease_replay_anomaly":
+		return model.EdgeProbabilisticSameEntity
+	default:
+		return ""
+	}
+}

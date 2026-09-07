@@ -81,6 +81,30 @@ export interface StoreStats {
 
 // ─── API Responses ───────────────────────────────────────────────────────────
 
+export interface AuthorizationChain {
+  action: string
+  agentIdentity: string
+  actsOnBehalfOf: string
+  principal: string
+  decision: string
+  confidence: number
+  evidenceRefs: string[]
+  attestationGitoid: string
+  complete: boolean
+  actorId?: string
+  canonicalId?: string
+  aliases?: string[]
+  evidenceChain?: EvidenceLink[]
+  timestamp?: string
+}
+
+export interface AuthorizationQueryResponse {
+  chains: AuthorizationChain[]
+  total: number
+  complete_count: number
+  kpi_fraction: number
+}
+
 export interface WeaveObservationsResponse {
   observations: SignalObservation[]
 }
@@ -126,6 +150,17 @@ export const weaveApi = {
 
   getActor: (token: string, id: string) =>
     req<ProvisionalActor>(`/signals/actors/${id}`, token),
+
+  getActorAuthorization: (token: string, id: string, action?: string) =>
+    req<AuthorizationChain>(`/signals/actors/${id}/authorization${action ? `?action=${encodeURIComponent(action)}` : ''}`, token),
+
+  getAuthorizationChains: async (token: string, params?: { actor_id?: string; action?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.actor_id) q.set('actor_id', params.actor_id)
+    if (params?.action) q.set('action', params.action)
+    const qs = q.toString()
+    return req<AuthorizationQueryResponse>(`/signals/authorization${qs ? `?${qs}` : ''}`, token)
+  },
 
   getCoverage: (token: string) =>
     req<CoverageStatement>('/signals/coverage', token),

@@ -55,7 +55,10 @@ const VIOLATION: ColorMap = {
 const COMPLIANCE: ColorMap = {
   pass:                   { bg: tint(VAR.teal, 0.12),      border: tint(VAR.teal, 0.25),  color: VAR.teal },
   fail:                   { bg: tint(VAR.error, 0.12),     border: tint(VAR.error, 0.25), color: VAR.error },
+  compliant:              { bg: tint(VAR.teal, 0.12),      border: tint(VAR.teal, 0.25),  color: VAR.teal },
+  non_compliant:          { bg: tint(VAR.error, 0.12),     border: tint(VAR.error, 0.25), color: VAR.error },
   pending:                { bg: tint(VAR.slateGray, 0.15), border: 'transparent',          color: VAR.muted },
+  not_assessed:           { bg: tint(VAR.slateGray, 0.15), border: 'transparent',          color: VAR.muted },
   reassessment_requested: { bg: tint(VAR.amber, 0.12),     border: tint(VAR.amber, 0.25), color: VAR.amber },
 }
 

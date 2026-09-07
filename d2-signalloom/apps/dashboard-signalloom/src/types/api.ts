@@ -46,10 +46,110 @@ export interface AgentCredentialState {
   revoked_by?: string | null
 }
 
+export interface SentinelKernelTelemetry {
+  cgroup_state: 'frozen' | 'thawed' | 'none' | 'unknown'
+  traffic_control_state: 'drop' | 'allow' | 'unknown'
+  ebpf_active?: boolean
+  ebpf_program_attached?: boolean
+  observed_at?: string | null
+  last_observed_at?: string | null
+  sentinel_ack?: boolean
+  sentinel_ack_id?: string | null
+  sentinel_drop_count?: number
+  sentinel_last_ack_at?: string | null
+  containment_probe_state?: 'confirmed' | 'pending' | 'unconfirmed'
+}
+
+export interface RuntimeMetadata {
+  cluster_id?: string | null
+  namespace?: string | null
+  pod_name?: string | null
+  pod_uid?: string | null
+  service_account?: string | null
+  framework?: string | null
+  model?: string | null
+  execution_mode?: string | null
+  node?: string | null
+  phase?: string | null
+}
+
+export interface ResponsibilityMetadata {
+  owner_id?: string | null
+  owner_name?: string | null
+  team?: string | null
+  assignment_status: 'assigned' | 'unassigned' | 'registry_unlinked'
+}
+
+export interface IdentityMetadata {
+  spiffe_id?: string | null
+  spiffe_status: 'linked' | 'unlinked' | 'conflict'
+  aliases: string[]
+  trust_domain?: string | null
+  svid_type?: 'x509' | 'jwt' | 'none' | null
+  cert_valid_from?: string | null
+  cert_valid_until?: string | null
+  cert_serial?: string | null
+  cert_issuer?: string | null
+  selectors?: string[]
+  authorizing_principal_id?: string | null
+  executing_actor_id?: string | null
+  delegation_hops?: number | null
+  openbao_role?: string | null
+  openbao_path?: string | null
+}
+
+export interface ContainmentMeasures {
+  process_freeze: 'active' | 'inactive' | 'requested' | 'unsupported'
+  network_isolation: 'active' | 'inactive' | 'requested' | 'unsupported'
+  credential_revocation: 'active' | 'inactive' | 'requested' | 'unsupported'
+}
+
+export interface OperationalStateMetadata {
+  runtime_status: string
+  containment: ContainmentMeasures
+}
+
+export interface AssessmentSummaryMetadata {
+  status: 'assessed' | 'not_assessed' | 'evaluating'
+  total_controls: number
+  passed_controls: number
+  failed_controls: number
+  pending_controls: number
+  normalized_score?: number | null
+}
+
+export interface AttentionMetadata {
+  level: 'critical' | 'warning' | 'info' | 'none'
+  highest_issue?: string | null
+}
+
+export interface TimestampsMetadata {
+  created_at?: string | null
+  last_observed_at?: string | null
+  last_transition_at?: string | null
+  last_action_at?: string | null
+}
+
+export interface EnrichedAgentRecord {
+  id: string
+  name: string
+  record_class: 'registered' | 'discovered' | 'resolved' | 'fixture'
+  is_registry_linked: boolean
+  runtime: RuntimeMetadata
+  responsibility: ResponsibilityMetadata
+  identity: IdentityMetadata
+  operational_state: OperationalStateMetadata
+  assessment_summary: AssessmentSummaryMetadata
+  attention: AttentionMetadata
+  timestamps: TimestampsMetadata
+}
+
 export interface AgentResponse {
   id: string
   name: string
   type: string | null
+  origin?: string | null
+  origin_verification?: OriginVerificationMetadata | null
   owner?: string | null
   tenant_id: string
   lifecycle_state: string
@@ -60,11 +160,146 @@ export interface AgentResponse {
   model_name?: string | null
   created_at: string | null
   credential_state?: AgentCredentialState | null
+  kernel_telemetry?: SentinelKernelTelemetry | null
+  protected_namespaces?: string[]
+
+  // Workload / Kubernetes preserved discovery fields
+  namespace?: string | null
+  service_account?: string | null
+  node?: string | null
+  phase?: string | null
+  pod_uid?: string | null
+  framework?: string | null
+  state?: string | null
+  record_class?: 'registered' | 'discovered' | 'resolved' | 'fixture'
+  is_registry_linked?: boolean
+
+  // Section 2.1 Enriched Structures
+  runtime?: RuntimeMetadata | null
+  responsibility?: ResponsibilityMetadata | null
+  identity?: IdentityMetadata | null
+  operational_state?: OperationalStateMetadata | null
+  assessment_summary?: AssessmentSummaryMetadata | null
+  attention?: AttentionMetadata | null
+  timestamps?: TimestampsMetadata | null
+}
+
+export interface AgentListMeta {
+  total_records: number
+  operational_count: number
+  registered_count: number
+  discovered_count: number
+  resolved_count: number
+  fixture_count: number
+}
+
+export interface SourceHealthDetail {
+  status: 'healthy' | 'degraded' | 'error' | 'unavailable'
+  last_good?: string | null
+  message?: string | null
+}
+
+export interface OriginVerificationMetadata {
+  verified: boolean
+  origin_type: 'kubernetes_workload' | 'registered_catalog' | 'external_proxy' | 'custom' | 'unknown'
+  auth_method: 'jwt_bearer' | 'spiffe_svid' | 'mtls' | 'none'
+  issuer?: string | null
+  subject?: string | null
+  validated_at?: string | null
+  status: 'verified' | 'unverified' | 'failed' | 'unsupported'
+  proxy_path?: string | null
+  source_health?: SourceHealthDetail | null
+}
+
+export interface SourceHealthMap {
+  k8s_discovery: SourceHealthDetail
+  postgres_registry: SourceHealthDetail
+  crypto_proofs: SourceHealthDetail
+}
+
+export interface PaginationMetadata {
+  page: number
+  limit: number
+  total_pages: number
 }
 
 export interface AgentListResponse {
   agents: AgentResponse[]
+  data?: AgentResponse[] | null
   total: number
+  meta?: AgentListMeta | null
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
+  source_health_detail?: SourceHealthMap | null
+  pagination?: PaginationMetadata | null
+}
+
+export interface AgentListParams {
+  search?: string
+  namespace?: string
+  framework?: string
+  owner?: string
+  attention?: string
+  record_class?: string
+  lifecycle_state?: string
+  state?: string
+  spiffe_id?: string
+  page?: number
+  limit?: number
+}
+
+export interface ActionCapability {
+  allowed: boolean
+  reason?: string | null
+  requires_confirmation?: boolean
+  requires_reason?: boolean
+  requires_dual_approval?: boolean
+  scope: string
+}
+
+export interface WorkloadActionCapabilities {
+  agent_id?: string | null
+  workload?: string | null
+  namespace?: string | null
+  freeze: ActionCapability
+  thaw: ActionCapability
+  network_isolate: ActionCapability
+  network_restore: ActionCapability
+  revoke_credentials: ActionCapability
+  issue_credentials: ActionCapability
+  reassess_compliance: ActionCapability
+  decommission: ActionCapability
+  run_scenario: ActionCapability
+}
+
+export interface TenantCapabilities {
+  view_agents: boolean
+  register_agent: boolean
+  export_compliance: boolean
+  view_crypto_proofs: boolean
+  run_network_tests: boolean
+  view_audit_trail: boolean
+  manage_settings: boolean
+  manage_api_keys: boolean
+  manage_users: boolean
+  run_supercred_scenario: boolean
+}
+
+export interface CapabilitiesResponse {
+  tenant: string
+  principal_id: string
+  email?: string | null
+  roles: string[]
+  is_superadmin: boolean
+  tenant_capabilities: TenantCapabilities
+  actions: Record<string, ActionCapability>
+  workload?: WorkloadActionCapabilities | null
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
+}
+
+export interface CapabilitiesParams {
+  agent_id?: string
+  workload?: string
+  namespace?: string
 }
 
 // Trust topology, as the API actually returns it.
@@ -273,6 +508,12 @@ export interface AuditEventResponse {
   agent_name: string | null
   actor: string
   detail: Record<string, unknown>
+  authorizing_principal_id?: string | null
+  executing_actor_id?: string | null
+  spiffe_id?: string | null
+  attribution_rationale?: string | null
+  evidence_ref?: string | null
+  kernel_telemetry_ref?: string | null
 }
 
 export interface AuditListResponse {
@@ -280,6 +521,8 @@ export interface AuditListResponse {
   total: number
   page: number
   limit: number
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
+  source_health_detail?: SourceHealthMap | null
 }
 
 // ─── Compliance ───────────────────────────────────────────────────────────────
@@ -358,6 +601,7 @@ export interface CryptoProof {
 export interface CryptoHealthResponse {
   tenant_id: string
   proofs: CryptoProof[]
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
 }
 
 // ─── Network Tests (netassert) ─────────────────────────────────────────────────
@@ -584,4 +828,27 @@ export interface PlatformUsersResponse {
  */
 export interface UserPreferencesResponse {
   display_currency: string
+}
+
+// ─── FrostDB Telemetry Correlation ──────────────────────────────────────────
+
+export interface TelemetryObservationModel {
+  id: string
+  observed_at: string
+  source: string
+  layer: string
+  actor_id: string
+  principal_id?: string | null
+  action: string
+  details?: Record<string, any>
+  confidence?: number
+}
+
+export interface AgentTelemetryResponse {
+  agent_id: string
+  tenant_id: string
+  observations: TelemetryObservationModel[]
+  total_count: number
+  pushdown_filters?: Record<string, any>
+  source_health: 'healthy' | 'degraded' | 'unavailable'
 }

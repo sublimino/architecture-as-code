@@ -238,6 +238,100 @@ func TestAuditReceiver_UnixgramSocket(t *testing.T) {
 	}
 }
 
+func TestAuditReceiver_DropSurfacingUnderSaturation(t *testing.T) {
+	sink := &mockSink{}
+	capacity := 5
+	receiver := NewAuditReceiver(capacity, sink)
+	// Do not start worker immediately so buffer saturates
+
+	for i := 0; i < capacity+3; i++ {
+		payload := []byte(fmt.Sprintf(`{"type":"request","time":"2026-09-02T08:00:00Z","request":{"operation":"read","path":"secret/data/%d"}}`, i))
+		_ = receiver.IngestRawBytes(payload)
+	}
+
+	rec, ing, dropped, errs := receiver.Stats()
+	if rec != uint64(capacity+3) {
+		t.Fatalf("expected received=%d, got %d", capacity+3, rec)
+	}
+	if ing != 0 {
+		t.Fatalf("expected ingested=0 before start, got %d", ing)
+	}
+	if dropped != 3 {
+		t.Fatalf("expected dropped=3 under saturation, got %d", dropped)
+	}
+	if receiver.DropsTotal() != 3 {
+		t.Fatalf("expected DropsTotal=3, got %d", receiver.DropsTotal())
+	}
+	if errs != 0 {
+		t.Fatalf("expected 0 parse errors, got %d", errs)
+	}
+
+	// Drain remaining
+	receiver.Start()
+	time.Sleep(50 * time.Millisecond)
+	receiver.Stop()
+
+	_, ingFinal, _, _ := receiver.Stats()
+	if ingFinal != uint64(capacity) {
+		t.Fatalf("expected ingested=%d, got %d", capacity, ingFinal)
+	}
+}
+
+func TestAuditReceiver_SASPIFFE_JoinConversion(t *testing.T) {
+	sink := &mockSink{}
+	receiver := NewAuditReceiver(100, sink)
+	receiver.Start()
+	defer receiver.Stop()
+
+	rawJSON := []byte(`{
+		"type": "response",
+		"time": "2026-09-02T08:00:00Z",
+		"auth": {
+			"display_name": "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa",
+			"client_token": "hmac-token-xyz",
+			"accessor": "acc-12345",
+			"metadata": {
+				"spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa",
+				"role": "cardvault"
+			}
+		},
+		"request": {
+			"operation": "read",
+			"path": "secret/data/cardvault/master-keys"
+		}
+	}`)
+
+	if err := receiver.IngestRawBytes(rawJSON); err != nil {
+		t.Fatalf("IngestRawBytes failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	if sink.Count() != 1 {
+		t.Fatalf("expected 1 observation, got %d", sink.Count())
+	}
+
+	obs := sink.observations[0]
+	if obs.ActorHint != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
+		t.Errorf("actor hint = %s, want spiffe ID", obs.ActorHint)
+	}
+	if obs.PrincipalID != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Errorf("principal ID = %s, want SA principal", obs.PrincipalID)
+	}
+	if obs.Labels["sa_principal"] != "system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa" {
+		t.Errorf("label sa_principal = %s, want system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa", obs.Labels["sa_principal"])
+	}
+	if obs.Labels["spiffe_id"] != "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa" {
+		t.Errorf("label spiffe_id = %s, want spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa", obs.Labels["spiffe_id"])
+	}
+	if obs.Labels["namespace"] != "fe-signalloom-agents" {
+		t.Errorf("label namespace = %s, want fe-signalloom-agents", obs.Labels["namespace"])
+	}
+	if obs.Labels["service_account"] != "agent-cardvault-sa" {
+		t.Errorf("label service_account = %s, want agent-cardvault-sa", obs.Labels["service_account"])
+	}
+}
+
 func BenchmarkRingBuffer_PushPop(b *testing.B) {
 	rb := NewAuditRingBuffer(16384)
 	defer rb.Close()
@@ -256,3 +350,4 @@ func BenchmarkRingBuffer_PushPop(b *testing.B) {
 		_, _ = rb.Pop()
 	}
 }
+

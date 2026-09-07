@@ -94,6 +94,17 @@ func (sc *SPIREIssuanceCollector) convertToObservation(event *SVIDIssuanceEvent)
 		t = time.Now().UTC()
 	}
 
+	ns := event.PodNamespace
+	sa := event.ServiceAccount
+	if ns == "" || sa == "" {
+		ns, sa = parseSPIFFEID(event.SPIFFEID)
+	}
+
+	saPrincipal := ""
+	if ns != "" && sa != "" {
+		saPrincipal = FormatSAPrincipal(ns, sa)
+	}
+
 	labels := map[string]string{
 		"event_type":   "spire_svid_issuance",
 		"spiffe_id":    event.SPIFFEID,
@@ -105,11 +116,14 @@ func (sc *SPIREIssuanceCollector) convertToObservation(event *SVIDIssuanceEvent)
 	if event.PodName != "" {
 		labels["pod_name"] = event.PodName
 	}
-	if event.PodNamespace != "" {
-		labels["namespace"] = event.PodNamespace
+	if ns != "" {
+		labels["namespace"] = ns
 	}
-	if event.ServiceAccount != "" {
-		labels["service_account"] = event.ServiceAccount
+	if sa != "" {
+		labels["service_account"] = sa
+	}
+	if saPrincipal != "" {
+		labels["sa_principal"] = saPrincipal
 	}
 	if event.NodeName != "" {
 		labels["node_name"] = event.NodeName
@@ -121,6 +135,11 @@ func (sc *SPIREIssuanceCollector) convertToObservation(event *SVIDIssuanceEvent)
 		labels["jwt_id"] = event.JWTID
 	}
 
+	actorHint := event.SPIFFEID
+	if actorHint == "" && saPrincipal != "" {
+		actorHint = saPrincipal
+	}
+
 	return &model.Observation{
 		ID:             fmt.Sprintf("spire-%d-%s", t.UnixNano(), event.SVIDType),
 		Timestamp:      t,
@@ -128,10 +147,11 @@ func (sc *SPIREIssuanceCollector) convertToObservation(event *SVIDIssuanceEvent)
 		Fidelity:       model.FidelityStrong,
 		Source:         "spire-agent",
 		Confidence:     0.85,
-		ActorHint:      event.SPIFFEID,
+		ActorHint:      actorHint,
+		PrincipalID:    saPrincipal,
 		RawEvidenceRef: fmt.Sprintf("spire://svid/%s", event.SPIFFEID),
 		Labels:         labels,
-		Description:    fmt.Sprintf("SPIRE issued %s SVID for %s (TTL=%ds)", event.SVIDType, event.SPIFFEID, event.TTLSeconds),
+		Description:    fmt.Sprintf("SPIRE issued %s SVID for %s (sa=%s, TTL=%ds)", event.SVIDType, event.SPIFFEID, saPrincipal, event.TTLSeconds),
 	}
 }
 

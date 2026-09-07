@@ -55,6 +55,7 @@ vi.mock('../api/client', () => ({
       violations: vi.fn().mockResolvedValue({ violations: [], total: 0 }),
       acknowledge: vi.fn(), reassess: vi.fn(),
       issueCredential: vi.fn(), revokeCredential: vi.fn(),
+      telemetry: vi.fn().mockResolvedValue({ observations: [], total_count: 0, source_health: 'healthy' }),
     },
     compliance: { posture: vi.fn(), frameworks: vi.fn(), summary: vi.fn(), export: vi.fn() },
     compliancePolicy: { frameworks: vi.fn(), summary: vi.fn(), scan: vi.fn() },

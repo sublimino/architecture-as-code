@@ -590,6 +590,18 @@ spec:
         - apiGroups: [""]
           resources: ["serviceaccounts"]
           verbs: ["get", "create", "update", "patch", "delete"]
+        # `kubectl apply` in steps 2 and 4 creates this policy when absent.
+        # Kubernetes authorizes create before an object name exists, so
+        # resourceNames cannot bound this verb; the namespaced Role is the
+        # narrowest enforceable scope. Every name-addressable lifecycle verb
+        # is restricted to the single policy immediately below.
+        - apiGroups: ["networking.k8s.io"]
+          resources: ["networkpolicies"]
+          verbs: ["create"]
+        - apiGroups: ["networking.k8s.io"]
+          resources: ["networkpolicies"]
+          resourceNames: ["allow-supercred-cardvault-egress"]
+          verbs: ["get", "patch", "delete"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:

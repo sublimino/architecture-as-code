@@ -23,6 +23,19 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+TAMPER_SOURCE="${AUDIT_ANCHOR_TAMPER_SOURCE:-audit}"
+case "${TAMPER_SOURCE}" in
+  segments)
+    exec ./scripts/segment-attestation-proof.sh
+    ;;
+  audit|all)
+    ;;
+  *)
+    echo "AUDIT_ANCHOR_TAMPER_SOURCE must be audit, segments, or all, got: ${TAMPER_SOURCE}" >&2
+    exit 1
+    ;;
+esac
+
 TENANT="${TENANT:-tenant-anchor-tamper-demo}"
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-15432}"
@@ -42,6 +55,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/keys.sh"
 # per-checkout by design, so an absolute KEYS_DIR from the Makefile is the
 # NORMAL case rather than the exotic one.
 KEYS_ABS="$(keys_dir_abs "$(pwd)")"
+SIGNING_POLICY="${KEYS_ABS}/segment-signing-policy.json"
 
 export AUDIT_ANCHOR_DIR="${ANCHOR_DIR}"
 
@@ -83,7 +97,26 @@ anchor() {
       --dsn "${DSN}" \
       --private-key "${KEYS_ABS}/witness.pem" \
       --public-key "${KEYS_ABS}/witness-pub.pem" \
+      --expected-key-id "${EXPECTED_KEY_ID}" \
       --tenant-scope "${TENANT}" "$@" )
+}
+
+verify_all() {
+  local proof_dir=$1
+  local strict=()
+  if [ -n "${ARCHIVISTA_URL:-}" ]; then
+    strict+=(--require-archivista)
+  fi
+  ( cd "${SRC}" && AUDIT_ANCHOR_DIR="${ANCHOR_DIR}" "${PYTHON}" -m audit_anchor \
+      --dsn "${DSN}" \
+      --public-key "${KEYS_ABS}/witness-pub.pem" \
+      --expected-key-id "${EXPECTED_KEY_ID}" \
+      --tenant-scope "${TENANT}" \
+      --source both \
+      --segment-journal "${proof_dir}/evidence/segments.jsonl" \
+      --segment-root "${proof_dir}/store" \
+      --protected-high-water "${proof_dir}/protected/highwater.json" \
+      "${strict[@]}" verify --json )
 }
 
 # ── Signing key ───────────────────────────────────────────────────────────────
@@ -106,6 +139,19 @@ echo "signing keys: ${KEYS_ABS}"
 for key in "${KEYS_ABS}/witness.pem" "${KEYS_ABS}/witness-pub.pem"; do
   [ -f "${key}" ] || { echo "signing key not found: ${key}" >&2; exit 1; }
 done
+[ -f "${SIGNING_POLICY}" ] || { echo "protected signing policy not found: ${SIGNING_POLICY}; run 'make signing-keys'" >&2; exit 1; }
+EXPECTED_KEY_ID="$(jq -er '.expected_key_ids | if length == 1 then .[0] else error("expected exactly one signer") end' "${SIGNING_POLICY}")"
+[[ "${EXPECTED_KEY_ID}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected key id in ${SIGNING_POLICY}" >&2; exit 1; }
+
+SEGMENT_PROOF_DIR=""
+if [ "${TAMPER_SOURCE}" = all ]; then
+  SEGMENT_PROOF_DIR="$(mktemp -d)"
+  ANCHOR_DIR="${SEGMENT_PROOF_DIR}/evidence/checkpoints"
+  export AUDIT_ANCHOR_DIR="${ANCHOR_DIR}"
+  SIGNAL_SEGMENT_PROOF_DIR="${SEGMENT_PROOF_DIR}" \
+    AUDIT_ANCHOR_DIR="${ANCHOR_DIR}" \
+    ./scripts/segment-attestation-proof.sh
+fi
 
 # ── 1. Seed ───────────────────────────────────────────────────────────────────
 banner "1. writing audit rows for ${TENANT}"
@@ -150,6 +196,14 @@ anchor show
 
 banner "3c. verifying the two-checkpoint chain -- expect INTACT, exit 0"
 anchor verify && echo "EXIT: 0 (intact)"
+
+if [ "${TAMPER_SOURCE}" = all ]; then
+  banner "6b. verifying audit and segment chains in one --source both invocation"
+  ALL_JSON="$(mktemp)"
+  verify_all "${SEGMENT_PROOF_DIR}" >"${ALL_JSON}"
+  cat "${ALL_JSON}"
+  jq -e '.status == "intact" and .proves_anything == true and .checkpoints_checked >= 2 and .unanchored_row_count == 0' "${ALL_JSON}" >/dev/null
+fi
 
 # ── 4. Tamper: modify ─────────────────────────────────────────────────────────
 # The tampered row is in the FIRST window. The verifier must name checkpoint 0,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type {
@@ -7,6 +7,7 @@ import type {
   AuditEventResponse,
   ViolationResponse,
   AgentComplianceResultResponse,
+  TelemetryObservationModel,
 } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
@@ -14,6 +15,11 @@ import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import CredentialActionsMenu from '../components/CredentialActionsMenu'
+import AgentOverviewTab from '../components/AgentOverviewTab'
+import AgentIdentityTab from '../components/AgentIdentityTab'
+import AgentAccessTab from '../components/AgentAccessTab'
+import AgentAssessmentsTab from '../components/AgentAssessmentsTab'
+import AgentActivityTab from '../components/AgentActivityTab'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -28,6 +34,19 @@ function fmtTs(iso: string | null) {
 function fmtDate(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function fmtRelativeMinutes(iso: string | null) {
+  if (!iso) return null
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins === 1) return '1 minute ago'
+  if (mins < 60) return `${mins} minutes ago`
+  const hours = Math.floor(mins / 60)
+  if (hours === 1) return '1 hour ago'
+  if (hours < 24) return `${hours} hours ago`
+  return fmtDate(iso)
 }
 
 // ─── Timeline ────────────────────────────────────────────────────────────────
@@ -75,22 +94,10 @@ function ViolationBadge({ status }: { status: string }) {
   return <StatusBadge status={status} variant="violation" />
 }
 
-// Filters this agent's own timeline. It carried only migration 007's undotted
-// vocabulary, none of which any call site emits, so the per-agent view could not
-// filter to a single event the platform actually records about that agent — not
-// its creation, its transitions, its credential issue or revoke, nor its stun.
-//
-// The agent-scoped set is checked against the emitted event types by
-// fe-signalloom/src/tests/test_dashboard_audit_vocabulary.py.
 const EVENT_TYPES = [
   'agent.created', 'agent.transitioned', 'agent.stunned',
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged', 'compliance.reassess_requested',
-  // Swarm lifecycle events
-  'swarm.agent.claimed', 'swarm.agent.released',
-  'swarm.credential.fetched', 'swarm.credential.rotated',
-  'swarm.nono.sandbox_entered', 'swarm.nono.violation_blocked',
-  'swarm.sentinel.stun_triggered', 'swarm.sentinel.stun_released',
   // Legacy vocabulary from migration 007, retained for historical rows.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
   'token_issued', 'token_refused',
@@ -230,217 +237,9 @@ function Timeline({ items, onAcknowledge }: {
   )
 }
 
-// ─── Compliance Summary ───────────────────────────────────────────────────────
-
-function ComplianceSummarySection({ posture, openViolations, lastAssessed }: {
-  posture: number | null
-  openViolations: number
-  lastAssessed: string | null
-}) {
-  const scoreColor = posture === null
-    ? colors.muted
-    : posture >= 80 ? colors.tealLoom
-    : posture >= 50 ? colors.amber
-    : colors.red
-
-  return (
-    <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Compliance</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        <div className="card" style={{ textAlign: 'center', padding: '20px 16px' }}>
-          <div style={{ fontSize: 42, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>
-            {posture !== null ? `${posture}%` : '—'}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Posture Score
-          </div>
-          {posture === null && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Pending assessment</div>
-          )}
-        </div>
-        <div className="card" style={{ textAlign: 'center', padding: '20px 16px' }}>
-          <div style={{ fontSize: 42, fontWeight: 800, color: openViolations > 0 ? colors.red : colors.tealLoom, lineHeight: 1 }}>
-            {openViolations}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Open Violations
-          </div>
-        </div>
-        <div className="card" style={{ padding: '20px 16px' }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-            Last Assessed
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {lastAssessed ? fmtDate(lastAssessed) : '—'}
-          </div>
-          {!lastAssessed && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Run an assessment to populate this</div>
-          )}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ─── Framework Controls ───────────────────────────────────────────────────────
-
-interface FrameworkGroup {
-  name: string
-  controls: AgentComplianceResultResponse[]
-}
-
-function FrameworkControlsSection({ results, onReassess }: {
-  results: AgentComplianceResultResponse[]
-  onReassess: (controlId: string) => Promise<void>
-}) {
-  const [requesting, setRequesting] = useState<string | null>(null)
-  const [requested, setRequested] = useState<Set<string>>(new Set())
-
-  const frameworks: FrameworkGroup[] = useMemo(() => {
-    const map: Record<string, AgentComplianceResultResponse[]> = {}
-    for (const r of results) {
-      if (!map[r.framework_name]) map[r.framework_name] = []
-      map[r.framework_name].push(r)
-    }
-    return Object.entries(map).map(([name, controls]) => ({ name, controls }))
-  }, [results])
-
-  async function handleReassess(controlId: string) {
-    setRequesting(controlId)
-    try {
-      await onReassess(controlId)
-      setRequested(prev => new Set(prev).add(controlId))
-    } catch (e) {
-      alert(`Reassessment request failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setRequesting(null)
-    }
-  }
-
-  if (frameworks.length === 0) {
-    return (
-      <section>
-        <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Framework Controls</h2>
-        <EmptyState kicker="No assessment results" body="Compliance controls will appear here after the first assessment run." />
-      </section>
-    )
-  }
-
-  const statusIcon: Record<string, string> = {
-    pass: '✓',
-    fail: '✗',
-    pending: '○',
-    reassessment_requested: '↻',
-  }
-  const statusColor: Record<string, string> = {
-    pass: colors.tealLoom,
-    fail: colors.red,
-    pending: colors.muted,
-    reassessment_requested: colors.amber,
-  }
-
-  return (
-    <section>
-      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Framework Controls</h2>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {frameworks.map((fw) => {
-          const passing = fw.controls.filter(c => c.status === 'pass').length
-          const failing = fw.controls.filter(c => c.status === 'fail').length
-          return (
-            <div key={fw.name} className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              {/* Framework header */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '14px 20px', borderBottom: '1px solid var(--border)',
-                background: 'var(--surface2)',
-              }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{fw.name}</span>
-                <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                  <span style={{ color: colors.tealLoom }}>{passing} passing</span>
-                  {failing > 0 && <span style={{ color: colors.red }}>{failing} failing</span>}
-                  <span style={{ color: 'var(--muted)' }}>{fw.controls.length} controls</span>
-                </div>
-              </div>
-
-              {/* Controls list */}
-              <div>
-                {fw.controls.map((c, i) => {
-                  const isFail = c.status === 'fail'
-                  const alreadyRequested = requested.has(c.control_id) || c.status === 'reassessment_requested'
-                  return (
-                    <div
-                      key={c.control_id}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 14,
-                        padding: '10px 20px',
-                        borderBottom: i < fw.controls.length - 1 ? '1px solid var(--border)' : 'none',
-                        background: isFail ? 'rgba(220,38,38,0.03)' : 'transparent',
-                      }}
-                    >
-                      {/* Status icon */}
-                      <span style={{
-                        fontSize: 15, fontWeight: 700, flexShrink: 0,
-                        color: statusColor[c.status] ?? colors.muted,
-                        width: 18, textAlign: 'center',
-                      }}>
-                        {statusIcon[c.status] ?? '?'}
-                      </span>
-
-                      {/* Control name */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: isFail ? 500 : 400 }}>{c.control_name}</div>
-                        {c.assessed_at && (
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                            Assessed {fmtDate(c.assessed_at)}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Status badge */}
-                      <StatusBadge status={c.status} variant="compliance" />
-
-                      {/* Reassess button for failed controls */}
-                      {isFail && (
-                        <button
-                          className="btn btn-secondary"
-                          style={{ fontSize: 11, padding: '4px 12px', flexShrink: 0 }}
-                          disabled={alreadyRequested || requesting === c.control_id}
-                          onClick={() => handleReassess(c.control_id)}
-                        >
-                          {requesting === c.control_id
-                            ? 'Requesting…'
-                            : alreadyRequested
-                            ? 'Requested'
-                            : 'Request Reassessment'}
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-// ─── Lifecycle transitions (mirrors agent_registry VALID_TRANSITIONS) ─────────
-// Source of truth: api_compat.py VALID_TRANSITIONS + migration 009_agent_lifecycle_states.sql
-// Transitions are operator-mediated: the direct POST /agents/{id}/transition is
-// Entra-only and the api-gateway proxy returns 403 for dashboard (customer) users.
-// So the dashboard submits a *request* via the /support channel for an operator
-// to action — it does NOT call the transition endpoint directly.
-//
-// Must stay in step with VALID_TRANSITIONS in api_compat.py. The API now
-// validates to_state against this graph, so a mismatch means the dashboard
-// offers a transition the API will reject (or hides one the API would accept).
+// ─── Lifecycle transitions ───────────────────────────────────────────────────
 
 const VALID_NEXT_STATES: Record<string, { state: string; label: string }[]> = {
-  // 'registered' is the initial state from POST /api/agents and _synth_agent.
-  // Without this entry, registered agents show no transition options in the UI
-  // and the user is stuck.
   registered: [
     { state: 'enrolled', label: 'Enrolled (enroll)' },
     { state: 'active', label: 'Active (activate)' },
@@ -454,7 +253,6 @@ const VALID_NEXT_STATES: Record<string, { state: string; label: string }[]> = {
     { state: 'active', label: 'Active (reinstate)' },
     { state: 'revoked', label: 'Revoked (decommission)' },
   ],
-  // Terminal states: no outbound transitions.
   revoked: [],
   decommissioned: [],
 }
@@ -593,19 +391,14 @@ function RequestTransitionModal({ agent, onClose }: { agent: AgentResponse; onCl
 }
 
 // ─── Issue Credential Modal ───────────────────────────────────────────────────
-// Step 2 of register-then-issue (EHD-E3-001): mint an identity credential for an
-// existing agent record. Self-serve — the customer calls the endpoint directly
-// (unlike transitions, which are operator-mediated). The returned token is shown
-// exactly once and held only in React state; it is NEVER written to localStorage
-// or any browser storage (no-localStorage token policy). Server-side only its
-// SHA-256 hash is persisted. Re-issuing appends a new token (rotation).
 
 function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClose: () => void }) {
   const { getAccessTokenSilently } = useAuth0()
   const [phase, setPhase] = useState<'confirm' | 'issuing' | 'done'>('confirm')
-  const [token, setToken] = useState<string | null>(null)
+  const [tokenNote, setTokenNote] = useState('')
+  const [issuedToken, setIssuedToken] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
-  const [simulated, setSimulated] = useState(false)
+  const [isSimulated, setIsSimulated] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -613,131 +406,105 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
     setPhase('issuing')
     setError(null)
     try {
-      const accessToken = await getAccessTokenSilently()
-      const res = await api.agents.issueCredential(accessToken, agent.id)
-      setToken(res.identity_token)
+      const token = await getAccessTokenSilently()
+      const res = await api.agents.issueCredential(token, agent.id, {
+        token_note: tokenNote.trim() || undefined,
+      })
+      setIssuedToken(res.identity_token)
       setExpiresAt(res.token_expires_at)
-      setSimulated(Boolean(res.simulated))
+      setIsSimulated(res.simulated ?? false)
       setPhase('done')
-    } catch (err: unknown) {
-      const status = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { status?: number } }).response?.status
-        : undefined
-      if (status === 403) {
-        setError(
-          `A credential can't be issued while this agent is ${agent.lifecycle_state}. ` +
-          `Reinstate it to active first.`
-        )
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to issue credential.')
-      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Credential issuance failed')
       setPhase('confirm')
     }
   }
 
-  async function handleCopy() {
-    if (token && navigator.clipboard) {
-      try {
-        await navigator.clipboard.writeText(token)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      } catch (err) {
-        console.error('Failed to copy token:', err)
-      }
-    }
-  }
-
-  function dismiss() {
-    // Drop the token from memory as the dialog closes — it is never persisted.
-    setToken(null)
-    setSimulated(false)
-    onClose()
+  function handleCopy() {
+    if (!issuedToken) return
+    navigator.clipboard?.writeText(issuedToken)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', zIndex: 2000,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', zIndex: 1000,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
-      onClick={e => e.target === e.currentTarget && phase === 'confirm' && dismiss()}
+      onClick={e => e.target === e.currentTarget && phase !== 'issuing' && onClose()}
     >
-      <div
-        className="card slide-up"
-        style={{ width: 520, maxWidth: '95vw', padding: 28, position: 'relative' }}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="issue-cred-title"
-      >
-        {phase === 'done' && token ? (
-          <>
-            <h2 id="issue-cred-title" style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>
-              Identity credential for {agent.name}
-            </h2>
-            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--warning, #f59e0b)', marginBottom: 20 }}>
-              This is the only time this token will be shown — store it securely now.
-              It cannot be retrieved again after you dismiss this dialog.
+      <div className="card slide-up" style={{ width: 480, maxWidth: '95vw', padding: 24, position: 'relative' }}>
+        {phase === 'done' ? (
+          <div>
+            <h3 style={{ marginBottom: 6 }}>Credential Issued</h3>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              Copy this token now. It will not be shown again.
             </p>
-            {simulated && (
-              <div
-                style={{
-                  marginBottom: 16,
-                  padding: '12px 14px',
-                  borderRadius: 6,
-                  border: '1px solid var(--amber)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
-                  Simulated demo credential
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  This token is fixture data from runtime demo mode. It is not a real SPIFFE SVID and cannot
-                  authenticate any live workload.
-                </div>
+
+            {isSimulated && (
+              <div style={{
+                background: 'rgba(217, 119, 6, 0.1)', border: '1px solid rgba(217, 119, 6, 0.3)',
+                borderRadius: 6, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: colors.amber,
+              }}>
+                <strong>Simulated demo credential:</strong> this token was generated for interface demonstration;
+                it is not a real SPIFFE SVID and cannot authenticate any live workload.
               </div>
             )}
+
             <div style={{
-              background: 'var(--surface2)', border: '1px solid var(--border)',
-              borderRadius: 6, padding: '12px 14px',
-              fontFamily: 'monospace', fontSize: 13,
-              wordBreak: 'break-all', lineHeight: 1.6,
-              color: 'var(--text)', marginBottom: 16, userSelect: 'all',
+              background: 'var(--surface2)', borderRadius: 6, padding: '12px 14px',
+              fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all',
+              border: '1px solid var(--border)', marginBottom: 12, maxHeight: 120, overflowY: 'auto',
             }}>
-              {token}
+              {issuedToken}
             </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 12 }}>
-              <button className="btn btn-primary" onClick={handleCopy} style={{ minWidth: 120 }}>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {expiresAt ? `Expires: ${fmtDate(expiresAt)}` : 'No expiration set'}
+              </span>
+              <button className="btn btn-secondary" onClick={handleCopy} style={{ fontSize: 11 }}>
                 {copied ? 'Copied!' : 'Copy token'}
               </button>
-              <button className="btn btn-secondary" onClick={dismiss}>
-                I've saved it — dismiss
-              </button>
             </div>
-            <p style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center' }}>
-              Expires {fmtTs(expiresAt)}
-            </p>
-          </>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary" onClick={onClose}>Done</button>
+            </div>
+          </div>
         ) : (
-          <>
-            <h3 id="issue-cred-title" style={{ marginBottom: 6 }}>Issue Identity Credential</h3>
+          <div>
+            <h3 style={{ marginBottom: 6 }}>Issue Agent Credential</h3>
             <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              This mints a fresh identity token so <strong>{agent.name}</strong> can authenticate to the
-              platform. The token is shown once, here in this dialog — it is never stored in your browser
-              and cannot be retrieved again. Any existing tokens for this agent keep working until they
-              expire or are revoked.
+              Mint an identity credential for <strong>{agent.name}</strong>.
             </p>
+
+            <div style={{ marginBottom: 14 }}>
+              <label htmlFor="token-note" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+                Token note (optional)
+              </label>
+              <input
+                id="token-note"
+                type="text"
+                value={tokenNote}
+                onChange={e => setTokenNote(e.target.value)}
+                placeholder="e.g. production deployment token"
+                style={{ width: '100%' }}
+                disabled={phase === 'issuing'}
+              />
+            </div>
+
             {error && <p style={{ color: 'var(--error)', fontSize: 12, marginBottom: 12 }}>{error}</p>}
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button type="button" className="btn btn-secondary" onClick={dismiss} disabled={phase === 'issuing'}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-primary" onClick={handleIssue} disabled={phase === 'issuing'}>
-                {phase === 'issuing' ? 'Issuing…' : 'Issue credential'}
+              <button className="btn btn-secondary" onClick={onClose} disabled={phase === 'issuing'}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleIssue} disabled={phase === 'issuing'}>
+                {phase === 'issuing' ? 'Issuing…' : 'Issue Credential'}
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -745,128 +512,87 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
 }
 
 // ─── Revoke Credential Modal ──────────────────────────────────────────────────
-// Self-serve counterpart to Issue Credential (ClickUp 86cak75u7): revokes ALL
-// active tokens for the agent. There is nothing narrower to target — issuance
-// is show-once, so the dashboard never has individual token IDs to revoke by.
 
-function RevokeCredentialModal({ agent, onClose }: { agent: AgentResponse; onClose: (revoked?: boolean) => void }) {
+function RevokeCredentialModal({ agent, onClose }: { agent: AgentResponse; onClose: (revoked: boolean) => void }) {
   const { getAccessTokenSilently } = useAuth0()
-  const [phase, setPhase] = useState<'confirm' | 'revoking' | 'done'>('confirm')
-  const [revokedCount, setRevokedCount] = useState<number | null>(null)
-  const [simulated, setSimulated] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+  const [tokensRevoked, setTokensRevoked] = useState(0)
+  const [isSimulated, setIsSimulated] = useState(false)
 
   async function handleRevoke() {
-    setPhase('revoking')
+    setSubmitting(true)
     setError(null)
     try {
-      const accessToken = await getAccessTokenSilently()
-      const res = await api.agents.revokeCredential(accessToken, agent.id)
-      setRevokedCount(res.tokens_revoked)
-      setSimulated(Boolean(res.simulated))
-      setPhase('done')
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke credentials.')
-      setPhase('confirm')
+      const token = await getAccessTokenSilently()
+      const res = await api.agents.revokeCredential(token, agent.id)
+      setTokensRevoked(res.tokens_revoked)
+      setIsSimulated(res.simulated ?? false)
+      setDone(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Revocation failed')
+      setSubmitting(false)
     }
   }
 
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 2000,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', zIndex: 1000,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
-      onClick={e => e.target === e.currentTarget && phase === 'confirm' && onClose()}
+      onClick={e => e.target === e.currentTarget && !submitting && onClose(done)}
     >
-      <div
-        className="card"
-        style={{ width: 480, maxWidth: '95vw', padding: 28, position: 'relative' }}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="revoke-cred-title"
-      >
-        {phase === 'done' ? (
-          <>
-            <h2 id="revoke-cred-title" style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>
-              Credentials revoked
-            </h2>
-            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-              {revokedCount === 0 ? (
-                <>No active credentials for <strong>{agent.name}</strong> — nothing to revoke.</>
-              ) : (
-                <>
-                  {revokedCount} credential{revokedCount === 1 ? '' : 's'} for <strong>{agent.name}</strong>{' '}
-                  {revokedCount === 1 ? 'has' : 'have'} been revoked. {agent.name} will no longer be able to
-                  authenticate with any previously-issued token.
-                </>
-              )}
+      <div className="card slide-up" style={{ width: 440, maxWidth: '95vw', padding: 24, position: 'relative' }}>
+        {done ? (
+          <div style={{ textAlign: 'center', padding: '12px 0' }}>
+            <div style={{ fontSize: 44, marginBottom: 14 }}>🔒</div>
+            <p style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>Credentials revoked</p>
+            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 14 }}>
+              {tokensRevoked} credential{tokensRevoked !== 1 ? 's' : ''} for <strong>{agent.name}</strong> {tokensRevoked === 1 ? 'has' : 'have'} been revoked.
             </p>
-            {simulated && (
-              <div
-                style={{
-                  marginBottom: 20,
-                  padding: '12px 14px',
-                  borderRadius: 6,
-                  border: '1px solid var(--amber)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
-                  Simulated demo revoke
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  This revoke result comes from the in-memory demo store. It does not revoke any live
-                  credentials outside runtime demo mode.
-                </div>
+            {isSimulated && (
+              <div style={{
+                background: 'rgba(217, 119, 6, 0.1)', border: '1px solid rgba(217, 119, 6, 0.3)',
+                borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: colors.amber, textAlign: 'left',
+              }}>
+                <strong>Simulated demo revoke:</strong> this was recorded in the demo log; it does not revoke any live credentials outside runtime demo mode.
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => onClose(true)}>Close</button>
-            </div>
-          </>
+            <button className="btn btn-primary" onClick={() => onClose(true)}>Close</button>
+          </div>
         ) : (
-          <>
-            <h3 id="revoke-cred-title" style={{ marginBottom: 6 }}>Revoke Identity Credentials</h3>
+          <div>
+            <h3 style={{ marginBottom: 6, color: colors.red }}>Revoke All Credentials</h3>
             <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              This immediately revokes <strong>every</strong> active identity token issued for{' '}
-              <strong>{agent.name}</strong>. Any system currently using one of those tokens will lose access
-              right away. This cannot be undone — a new credential must be issued afterward if{' '}
-              {agent.name} needs to authenticate again.
+              This will immediately revoke all active identity credentials for <strong>{agent.name}</strong>.
             </p>
             {error && <p style={{ color: 'var(--error)', fontSize: 12, marginBottom: 12 }}>{error}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button type="button" className="btn btn-secondary" onClick={() => onClose()} disabled={phase === 'revoking'}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-danger" onClick={handleRevoke} disabled={phase === 'revoking'}>
-                {phase === 'revoking' ? 'Revoking…' : 'Revoke all credentials'}
+              <button className="btn btn-secondary" onClick={() => onClose(false)} disabled={submitting}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleRevoke} disabled={submitting}>
+                {submitting ? 'Revoking…' : 'Revoke All Credentials'}
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>
   )
 }
 
-// ─── Agent Header ─────────────────────────────────────────────────────────────
+// ─── Header Component ─────────────────────────────────────────────────────────
 
-function fmtRelativeMinutes(iso: string | null) {
-  if (!iso) return null
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins === 1) return '1 minute ago'
-  if (mins < 60) return `${mins} minutes ago`
-  const hours = Math.floor(mins / 60)
-  if (hours === 1) return '1 hour ago'
-  if (hours < 24) return `${hours} hours ago`
-  return fmtDate(iso)
-}
-
-function AgentHeader({ agent, onRequestTransition, onIssueCredential, onRevokeCredential, onScanCompliance, scanning, lastScanTimestamp }: {
+function DossierHeader({
+  agent,
+  onRequestTransition,
+  onIssueCredential,
+  onRevokeCredential,
+  onScanCompliance,
+  scanning,
+  lastScanTimestamp,
+}: {
   agent: AgentResponse
   onRequestTransition: () => void
   onIssueCredential: () => void
@@ -875,24 +601,66 @@ function AgentHeader({ agent, onRequestTransition, onIssueCredential, onRevokeCr
   scanning: boolean
   lastScanTimestamp: string | null
 }) {
+  const [copiedId, setCopiedId] = useState(false)
   const canTransition = (VALID_NEXT_STATES[agent.lifecycle_state] ?? []).length > 0
+  const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
+  const recordClassLabel = recordClass.charAt(0).toUpperCase() + recordClass.slice(1)
+
+  function handleCopyId() {
+    navigator.clipboard?.writeText(agent.id).catch(() => {})
+    setCopiedId(true)
+    setTimeout(() => setCopiedId(false), 2000)
+  }
+
   return (
-    <div className="card" style={{ marginBottom: 24, padding: '20px 24px' }}>
+    <div className="card" style={{ marginBottom: 20, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{agent.name || 'Unnamed agent'}</h1>
-            {agent.type && <StatusBadge status={agent.type.toLowerCase()} />}
-            <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <h1 data-testid="dossier-agent-name" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
+              {agent.name || 'Unnamed agent'}
+            </h1>
+            <span
+              data-testid="dossier-record-class"
+              className="tag"
+              style={{
+                fontSize: 10,
+                padding: '2px 8px',
+                background: recordClass === 'discovered'
+                  ? 'rgba(59, 130, 246, 0.15)'
+                  : recordClass === 'resolved'
+                  ? 'rgba(139, 92, 246, 0.15)'
+                  : recordClass === 'fixture'
+                  ? 'rgba(156, 163, 175, 0.15)'
+                  : 'rgba(16, 185, 129, 0.15)',
+                color: recordClass === 'discovered'
+                  ? 'var(--cyan)'
+                  : recordClass === 'resolved'
+                  ? 'var(--violet)'
+                  : recordClass === 'fixture'
+                  ? 'var(--muted)'
+                  : 'var(--teal)',
+              }}
+            >
+              {recordClassLabel}
+            </span>
+            <StatusBadge status={agent.lifecycle_state} variant="lifecycle" testId="dossier-lifecycle-badge" />
             {agent.eu_ai_act_risk_class && (
-              <StatusBadge status={agent.eu_ai_act_risk_class} variant="risk" />
+              <span data-testid="dossier-risk-class">
+                <StatusBadge status={agent.eu_ai_act_risk_class} variant="risk" />
+              </span>
+            )}
+            {agent.type && (
+              <span className="tag" style={{ fontSize: 10, padding: '2px 8px', background: 'var(--surface2)', color: 'var(--muted)' }}>
+                {agent.type}
+              </span>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 20, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap', alignItems: 'center' }}>
             <span>
               Owner:{' '}
               <span style={{ color: agent.owner ? 'var(--text)' : colors.amber, fontWeight: agent.owner ? 400 : 600 }}>
-                {agent.owner ?? 'Unassigned'}
+                {agent.owner ?? (recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned')}
               </span>
             </span>
             {agent.last_transition_at && (
@@ -905,57 +673,48 @@ function AgentHeader({ agent, onRequestTransition, onIssueCredential, onRevokeCr
               </span>
             )}
             <span
-              title={navigator.clipboard ? `Agent ID: ${agent.id} (click to copy)` : `Agent ID: ${agent.id}`}
-              style={{ fontFamily: 'monospace', fontSize: 11, cursor: navigator.clipboard ? 'pointer' : 'default' }}
-              onClick={() => {
-                navigator.clipboard?.writeText(agent.id).catch(() => {
-                  // clipboard permission denied or unavailable — ID remains visible/selectable as a fallback
-                })
-              }}
+              data-testid="dossier-agent-id"
+              title={`Agent ID: ${agent.id}`}
+              style={{ fontFamily: 'monospace', fontSize: 11 }}
             >
               ID: {agent.id}
             </span>
+            <button
+              data-testid="dossier-copy-id"
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: 10, padding: '2px 8px' }}
+              onClick={handleCopyId}
+            >
+              {copiedId ? 'Copied!' : 'Copy ID'}
+            </button>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 14 }}>
-          {agent.compliance_summary.posture_score !== null && (
-            <div style={{ textAlign: 'right' }}>
-              <div style={{
-                fontSize: 28, fontWeight: 800,
-                color: agent.compliance_summary.posture_score >= 80 ? colors.tealLoom
-                  : agent.compliance_summary.posture_score >= 50 ? colors.amber
-                  : colors.red,
-                lineHeight: 1,
-              }}>
-                {agent.compliance_summary.posture_score}%
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>posture</div>
-            </div>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {lastScanTimestamp && (
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  Last scanned: {fmtRelativeMinutes(lastScanTimestamp)}
-                </span>
-              )}
-              <button
-                className="btn btn-secondary"
-                style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
-                disabled={scanning}
-                onClick={onScanCompliance}
-              >
-                {scanning ? 'Scanning...' : 'Scan Compliance'}
-              </button>
-            </div>
-            <span style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.7 }}>
-              Auto-scan every 15 minutes
-            </span>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {lastScanTimestamp && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Last scanned: {fmtRelativeMinutes(lastScanTimestamp)}
+              </span>
+            )}
+            <button
+              data-testid="dossier-scan-compliance"
+              className="btn btn-secondary"
+              style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
+              disabled={scanning}
+              onClick={onScanCompliance}
+            >
+              {scanning ? 'Scanning...' : 'Scan Compliance'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {(agent.lifecycle_state === 'enrolled' || agent.lifecycle_state === 'active') && (
               <CredentialActionsMenu onIssue={onIssueCredential} onRevoke={onRevokeCredential} />
             )}
             {canTransition ? (
               <button
+                data-testid="dossier-request-transition"
                 className="btn btn-primary"
                 style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
                 onClick={onRequestTransition}
@@ -977,17 +736,37 @@ function AgentHeader({ agent, onRequestTransition, onIssueCredential, onRevokeCr
   )
 }
 
+// ─── Dossier Tab Bar ─────────────────────────────────────────────────────────
+
+export type DossierTabId = 'overview' | 'identity' | 'access' | 'assessments' | 'activity'
+
+interface DossierTabConfig {
+  id: DossierTabId
+  label: string
+  testId: string
+}
+
+const DOSSIER_TABS: DossierTabConfig[] = [
+  { id: 'overview', label: 'Overview', testId: 'dossier-tab-overview' },
+  { id: 'identity', label: 'Identity', testId: 'dossier-tab-identity' },
+  { id: 'access', label: 'Access & Containment', testId: 'dossier-tab-access' },
+  { id: 'assessments', label: 'Assessments & Controls', testId: 'dossier-tab-assessments' },
+  { id: 'activity', label: 'Activity & Timeline', testId: 'dossier-tab-activity' },
+]
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { getAccessTokenSilently } = useAuth0()
 
   const [agent, setAgent] = useState<AgentResponse | null>(null)
   const [auditEvents, setAuditEvents] = useState<AuditEventResponse[]>([])
   const [violations, setViolations] = useState<ViolationResponse[]>([])
   const [complianceResults, setComplianceResults] = useState<AgentComplianceResultResponse[]>([])
+  const [telemetryObservations, setTelemetryObservations] = useState<TelemetryObservationModel[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showTransition, setShowTransition] = useState(false)
@@ -996,16 +775,33 @@ export default function AgentDetailPage() {
   const [scanning, setScanning] = useState(false)
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
 
+  // Tab State
+  const tabParam = (searchParams.get('tab') as DossierTabId) || 'overview'
+  const activeTab: DossierTabId = ['overview', 'identity', 'access', 'assessments', 'activity'].includes(tabParam)
+    ? tabParam
+    : 'overview'
+
+  const handleSelectTab = useCallback((tabId: DossierTabId) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('tab', tabId)
+      return next
+    })
+  }, [setSearchParams])
+
   const load = useCallback(async () => {
     if (!id) return
     setLoading(true)
     try {
       const token = await getAccessTokenSilently()
-      const [agentData, auditData, violationsData, postureData] = await Promise.allSettled([
+      const [agentData, auditData, violationsData, postureData, telemetryData] = await Promise.allSettled([
         api.agents.get(token, id),
         api.audit(token, { agent: id, limit: 50 }),
         api.agents.violations(token, id),
         api.compliance.posture(token),
+        typeof api.agents.telemetry === 'function'
+          ? api.agents.telemetry(token, id)
+          : Promise.resolve({ observations: [] }),
       ])
 
       if (agentData.status === 'fulfilled') setAgent(agentData.value)
@@ -1014,6 +810,9 @@ export default function AgentDetailPage() {
       if (postureData.status === 'fulfilled') {
         const match = postureData.value?.agents?.find(a => a.agent_id === id)
         setComplianceResults(match?.results ?? [])
+      }
+      if (telemetryData.status === 'fulfilled') {
+        setTelemetryObservations(telemetryData.value.observations || [])
       }
 
       if (agentData.status === 'rejected') {
@@ -1064,51 +863,14 @@ export default function AgentDetailPage() {
     }
   }, [getAccessTokenSilently, load])
 
-  // Merge audit events + violations into a single sorted timeline
+  // Merge audit events + violations into a single sorted timeline (pure & side-effect free)
   const timelineItems: TimelineItem[] = useMemo(() => {
-    let rawAudit = auditEvents
-    if (rawAudit.length === 0 && agent) {
-      // Baseline activity guarantee — ensure timeline always displays provenance & governance events
-      const now = new Date()
-      const tsDiscovered = agent.created_at || new Date(now.getTime() - 7200000).toISOString()
-      const tsAttested = new Date(now.getTime() - 5400000).toISOString()
-      const tsPosture = new Date(now.getTime() - 3600000).toISOString()
-      rawAudit = [
-        {
-          id: `audit-posture-${agent.id}`,
-          timestamp: tsPosture,
-          event_type: 'compliance.reassess_requested',
-          agent_id: agent.id,
-          agent_name: agent.name,
-          actor: 'governance/engine',
-          detail: { control_id: 'eu-ai-act:art-9', status: 'compliant' },
-        },
-        {
-          id: `audit-attested-${agent.id}`,
-          timestamp: tsAttested,
-          event_type: 'agent.transitioned',
-          agent_id: agent.id,
-          agent_name: agent.name,
-          actor: 'spire/workload-attestor',
-          detail: { to_state: agent.lifecycle_state || 'active', spiffe_id: `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/${agent.id}` },
-        },
-        {
-          id: `audit-discovered-${agent.id}`,
-          timestamp: tsDiscovered,
-          event_type: 'agent.created',
-          agent_id: agent.id,
-          agent_name: agent.name,
-          actor: 'system/discovery',
-          detail: { source: 'declarative-cr', initial_state: agent.lifecycle_state || 'idle' },
-        },
-      ]
-    }
     const items: TimelineItem[] = [
-      ...rawAudit.map(e => ({ kind: 'audit' as const, ts: e.timestamp, event: e })),
+      ...auditEvents.map(e => ({ kind: 'audit' as const, ts: e.timestamp, event: e })),
       ...violations.map(v => ({ kind: 'violation' as const, ts: v.created_at ?? '', violation: v })),
     ]
     return items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-  }, [auditEvents, violations, agent])
+  }, [auditEvents, violations])
 
   const openViolations = violations.filter(v => v.status === 'new' || v.status === 'acknowledged').length
   const lastAssessed = complianceResults.reduce<string | null>((latest, r) => {
@@ -1124,7 +886,12 @@ export default function AgentDetailPage() {
   if (error || !agent) {
     return (
       <div>
-        <button onClick={() => navigate('/agents')} className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px', marginBottom: 20 }}>
+        <button
+          data-testid="dossier-back-btn"
+          onClick={() => navigate('/agents')}
+          className="btn btn-secondary"
+          style={{ fontSize: 12, padding: '5px 12px', marginBottom: 20 }}
+        >
           ← Back to Agents
         </button>
         <LoadingState
@@ -1140,14 +907,23 @@ export default function AgentDetailPage() {
   }
 
   return (
-    <div style={{ maxWidth: 960 }}>
-      {/* Back nav */}
+    <div style={{ maxWidth: 1040, margin: '0 auto' }}>
+      {/* ─── Back Nav ────────────────────────────────────────────────────────── */}
       <button
+        data-testid="dossier-back-btn"
         onClick={() => navigate('/agents')}
         style={{
-          background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13,
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-          marginBottom: 16, padding: 0, fontFamily: 'inherit',
+          background: 'none',
+          border: 'none',
+          color: 'var(--muted)',
+          fontSize: 13,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginBottom: 16,
+          padding: 0,
+          fontFamily: 'inherit',
         }}
         onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
         onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
@@ -1155,6 +931,7 @@ export default function AgentDetailPage() {
         ← Agents
       </button>
 
+      {/* ─── Modals ──────────────────────────────────────────────────────────── */}
       {showTransition && (
         <RequestTransitionModal agent={agent} onClose={() => setShowTransition(false)} />
       )}
@@ -1173,15 +950,17 @@ export default function AgentDetailPage() {
         />
       )}
 
-      {/* 0. What happened to this agent's credentials, and when */}
-      <CredentialStateNotice
-        credentialState={agent.credential_state}
-        agentName={agent.name}
-        variant="panel"
-      />
+      {/* ─── Credential State Notice ─────────────────────────────────────────── */}
+      <div style={{ marginBottom: 16 }}>
+        <CredentialStateNotice
+          credentialState={agent.credential_state}
+          agentName={agent.name}
+          variant="panel"
+        />
+      </div>
 
-      {/* 1. Header */}
-      <AgentHeader
+      {/* ─── Dossier Hero Header ─────────────────────────────────────────────── */}
+      <DossierHeader
         agent={agent}
         onRequestTransition={() => setShowTransition(true)}
         onIssueCredential={() => setShowIssueCredential(true)}
@@ -1191,24 +970,89 @@ export default function AgentDetailPage() {
         lastScanTimestamp={lastScanTimestamp}
       />
 
-      {/* 2. Activity Timeline */}
-      <Timeline
-        items={timelineItems}
-        onAcknowledge={handleAcknowledge}
-      />
+      {/* ─── Tab Navigation Bar ──────────────────────────────────────────────── */}
+      <div
+        role="tablist"
+        aria-label="Agent Dossier Tabs"
+        style={{
+          display: 'flex',
+          gap: 8,
+          borderBottom: '1px solid var(--border)',
+          marginBottom: 24,
+          overflowX: 'auto',
+        }}
+      >
+        {DOSSIER_TABS.map((tab) => {
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              role="tab"
+              id={`dossier-tab-${tab.id}`}
+              aria-selected={isActive}
+              aria-controls={`dossier-tabpanel-${tab.id}`}
+              data-testid={tab.testId}
+              onClick={() => handleSelectTab(tab.id)}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderBottom: isActive ? '2px solid var(--cyan)' : '2px solid transparent',
+                padding: '10px 16px',
+                fontSize: 13,
+                fontWeight: isActive ? 600 : 400,
+                color: isActive ? 'var(--text)' : 'var(--muted)',
+                cursor: 'pointer',
+                transition: 'color 0.15s, border-color 0.15s',
+                whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={e => {
+                if (!isActive) e.currentTarget.style.color = 'var(--text)'
+              }}
+              onMouseLeave={e => {
+                if (!isActive) e.currentTarget.style.color = 'var(--muted)'
+              }}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
 
-      {/* 3. Compliance Summary */}
-      <ComplianceSummarySection
-        posture={agent.compliance_summary.posture_score}
-        openViolations={openViolations}
-        lastAssessed={lastAssessed}
-      />
+      {/* ─── Tab Content Views ───────────────────────────────────────────────── */}
+      {activeTab === 'overview' && (
+        <AgentOverviewTab agent={agent} />
+      )}
 
-      {/* 4. Framework Controls */}
-      <FrameworkControlsSection
-        results={complianceResults}
-        onReassess={handleReassess}
-      />
+      {activeTab === 'identity' && (
+        <AgentIdentityTab agent={agent} />
+      )}
+
+      {activeTab === 'access' && (
+        <AgentAccessTab agent={agent} />
+      )}
+
+      {activeTab === 'assessments' && (
+        <AgentAssessmentsTab
+          agent={agent}
+          complianceResults={complianceResults}
+          openViolations={openViolations}
+          onReassess={handleReassess}
+          onScanCompliance={handleComplianceScan}
+          isScanning={scanning}
+          lastScanTimestamp={lastScanTimestamp || lastAssessed}
+        />
+      )}
+
+      {activeTab === 'activity' && (
+        <AgentActivityTab
+          agent={agent}
+          auditEvents={auditEvents}
+          violations={violations}
+          telemetryObservations={telemetryObservations}
+          onAcknowledgeViolation={handleAcknowledge}
+          onRefresh={load}
+        />
+      )}
     </div>
   )
 }

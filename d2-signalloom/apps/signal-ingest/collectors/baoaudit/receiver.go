@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -223,6 +224,10 @@ func (ar *AuditReceiver) convertToObservation(event *OpenBaoAuditEvent) *model.O
 
 	spiffeID := ""
 	role := ""
+	saName := ""
+	saNamespace := ""
+	saPrincipal := ""
+
 	if event.Auth != nil {
 		if event.Auth.Metadata != nil {
 			if s, ok := event.Auth.Metadata["spiffe_id"]; ok {
@@ -233,10 +238,59 @@ func (ar *AuditReceiver) convertToObservation(event *OpenBaoAuditEvent) *model.O
 				role = r
 				labels["role"] = role
 			}
+			if sa, ok := event.Auth.Metadata["service_account_name"]; ok {
+				saName = sa
+			} else if sa, ok := event.Auth.Metadata["sa"]; ok {
+				saName = sa
+			}
+			if ns, ok := event.Auth.Metadata["service_account_namespace"]; ok {
+				saNamespace = ns
+			} else if ns, ok := event.Auth.Metadata["namespace"]; ok {
+				saNamespace = ns
+			}
+			if sap, ok := event.Auth.Metadata["sa_principal"]; ok {
+				saPrincipal = sap
+			}
+		}
+		if event.Auth.DisplayName != "" {
+			labels["display_name"] = event.Auth.DisplayName
+			if saPrincipal == "" && strings.HasPrefix(event.Auth.DisplayName, "system:serviceaccount:") {
+				saPrincipal = event.Auth.DisplayName
+			}
 		}
 		if event.Auth.Accessor != "" {
 			labels["auth_accessor"] = event.Auth.Accessor
 		}
+	}
+
+	// Derive SA <-> SPIFFE correspondence if not explicitly provided
+	if spiffeID != "" && (saNamespace == "" || saName == "") {
+		ns, sa := parseSPIFFE(spiffeID)
+		if saNamespace == "" {
+			saNamespace = ns
+		}
+		if saName == "" {
+			saName = sa
+		}
+	}
+	if saPrincipal == "" && saNamespace != "" && saName != "" {
+		saPrincipal = fmt.Sprintf("system:serviceaccount:%s:%s", saNamespace, saName)
+	}
+	if saPrincipal != "" && spiffeID == "" {
+		if ns, sa, ok := parseSAPrincipal(saPrincipal); ok {
+			spiffeID = fmt.Sprintf("spiffe://cluster.local/ns/%s/sa/%s", ns, sa)
+			labels["spiffe_id"] = spiffeID
+		}
+	}
+
+	if saPrincipal != "" {
+		labels["sa_principal"] = saPrincipal
+	}
+	if saNamespace != "" {
+		labels["namespace"] = saNamespace
+	}
+	if saName != "" {
+		labels["service_account"] = saName
 	}
 
 	if event.Response != nil && event.Response.Secret != nil {
@@ -251,6 +305,9 @@ func (ar *AuditReceiver) convertToObservation(event *OpenBaoAuditEvent) *model.O
 	}
 
 	actorHint := spiffeID
+	if actorHint == "" && saPrincipal != "" {
+		actorHint = saPrincipal
+	}
 	if actorHint == "" && role != "" {
 		actorHint = "role:" + role
 	}
@@ -266,9 +323,10 @@ func (ar *AuditReceiver) convertToObservation(event *OpenBaoAuditEvent) *model.O
 		Source:         "openbao-audit",
 		Confidence:     0.95,
 		ActorHint:      actorHint,
+		PrincipalID:    saPrincipal,
 		RawEvidenceRef: fmt.Sprintf("openbao://audit/%s", operation),
 		Labels:         labels,
-		Description:    fmt.Sprintf("OpenBao %s on %s (spiffe=%s)", operation, path, spiffeID),
+		Description:    fmt.Sprintf("OpenBao %s on %s (spiffe=%s, sa=%s)", operation, path, spiffeID, saPrincipal),
 	}
 }
 
@@ -279,3 +337,48 @@ func (ar *AuditReceiver) Stats() (received, ingested, dropped, errors uint64) {
 		ar.ringBuffer.DropsTotal(),
 		atomic.LoadUint64(&ar.parseErrors)
 }
+
+// DropsTotal returns the cumulative count of dropped events due to ring buffer saturation.
+func (ar *AuditReceiver) DropsTotal() uint64 {
+	return ar.ringBuffer.DropsTotal()
+}
+
+// Metrics returns operational metrics as a key-value map.
+func (ar *AuditReceiver) Metrics() map[string]uint64 {
+	rec, ing, drp, errs := ar.Stats()
+	return map[string]uint64{
+		"received":     rec,
+		"ingested":     ing,
+		"dropped":      drp,
+		"parse_errors": errs,
+	}
+}
+
+func parseSPIFFE(id string) (namespace, serviceAccount string) {
+	if !strings.HasPrefix(id, "spiffe://") {
+		return "", ""
+	}
+	parts := strings.Split(strings.TrimPrefix(id, "spiffe://"), "/")
+	for i, p := range parts {
+		if p == "ns" && i+1 < len(parts) {
+			namespace = parts[i+1]
+		}
+		if p == "sa" && i+1 < len(parts) {
+			serviceAccount = parts[i+1]
+		}
+	}
+	return namespace, serviceAccount
+}
+
+func parseSAPrincipal(principal string) (namespace, serviceAccount string, ok bool) {
+	if !strings.HasPrefix(principal, "system:serviceaccount:") {
+		return "", "", false
+	}
+	raw := strings.TrimPrefix(principal, "system:serviceaccount:")
+	parts := strings.Split(raw, ":")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+

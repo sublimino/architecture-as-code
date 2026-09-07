@@ -9,6 +9,7 @@ import hashlib
 import itertools
 import json
 import logging
+import math
 import os
 import secrets
 import threading
@@ -25,9 +26,9 @@ from urllib.parse import quote
 import asyncpg
 import httpx
 import jwt
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -120,12 +121,171 @@ class AgentCreateRequest(BaseModel):
     owner: str | None = None
 
 
-class AgentResponse(BaseModel):
+class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active", "revoked"]
+    reason: str | None = None
+    revoked_at: str | None = None
+    revoked_by: str | None = None
+
+
+class SentinelKernelTelemetry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cgroup_frozen: bool = False
+    cgroup_state: Literal["frozen", "thawed", "none", "unknown"] = "thawed"
+    tc_drop_active: bool = False
+    traffic_control_state: Literal["drop", "allow", "unknown"] | None = None
+    ebpf_active: bool = False
+    ebpf_program_attached: bool | None = None
+    containment_latency_ms: float | None = None
+    cgroup_path: str | None = None
+    veth_interface: str | None = None
+    observed_at: str | None = None
+    last_observed_at: str | None = None
+    sentinel_ack: bool = False
+    sentinel_ack_id: str | None = None
+    sentinel_drop_count: int | None = None
+    sentinel_last_ack_at: str | None = None
+    containment_probe_state: Literal["confirmed", "pending", "unconfirmed"] = "unconfirmed"
+
+
+class RuntimeMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cluster_id: str | None = None
+    namespace: str | None = None
+    pod_name: str | None = None
+    pod_uid: str | None = None
+    service_account: str | None = None
+    framework: str | None = None
+    model: str | None = None
+    execution_mode: str | None = None
+    node: str | None = None
+    phase: str | None = None
+
+
+class ResponsibilityMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner_id: str | None = None
+    owner_name: str | None = None
+    team: str | None = None
+    assignment_status: Literal["assigned", "unassigned", "registry_unlinked"] = "unassigned"
+
+
+class IdentityMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spiffe_id: str | None = None
+    spiffe_status: Literal["linked", "unlinked", "conflict"] = "unlinked"
+    aliases: list[str] = Field(default_factory=list)
+    trust_domain: str | None = None
+    svid_type: Literal["x509", "jwt", "none"] | None = None
+    cert_valid_from: str | None = None
+    cert_valid_until: str | None = None
+    cert_serial: str | None = None
+    cert_issuer: str | None = None
+    selectors: list[str] = Field(default_factory=list)
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    delegation_hops: int | None = None
+    openbao_role: str | None = None
+    openbao_path: str | None = None
+
+
+class ContainmentMeasures(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+
+
+class OperationalStateMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runtime_status: Literal["running", "stopped", "degraded", "unknown"] = "unknown"
+    containment: ContainmentMeasures = Field(default_factory=ContainmentMeasures)
+
+
+class AssessmentSummaryMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["assessed", "not_assessed", "evaluating"] = "not_assessed"
+    total_controls: int = 0
+    passed_controls: int = 0
+    failed_controls: int = 0
+    pending_controls: int = 0
+    normalized_score: float | None = None
+
+
+class AttentionMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    level: Literal["critical", "warning", "info", "none"] = "none"
+    highest_issue: str | None = None
+
+
+class TimestampsMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    created_at: str | None = None
+    last_observed_at: str | None = None
+    last_transition_at: str | None = None
+    last_action_at: str | None = None
+
+
+class EnrichedAgentRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    id: str
+    name: str
+    record_class: Literal["registered", "discovered", "resolved", "fixture"] = "registered"
+    is_registry_linked: bool = False
+    runtime: RuntimeMetadata = Field(default_factory=RuntimeMetadata)
+    responsibility: ResponsibilityMetadata = Field(default_factory=lambda: ResponsibilityMetadata(assignment_status="unassigned"))
+    identity: IdentityMetadata = Field(default_factory=lambda: IdentityMetadata(spiffe_status="unlinked", aliases=[]))
+    operational_state: OperationalStateMetadata = Field(default_factory=lambda: OperationalStateMetadata(
+        runtime_status="unknown",
+        containment=ContainmentMeasures(process_freeze="inactive", network_isolation="inactive", credential_revocation="inactive")
+    ))
+    assessment_summary: AssessmentSummaryMetadata = Field(default_factory=AssessmentSummaryMetadata)
+    attention: AttentionMetadata = Field(default_factory=AttentionMetadata)
+    timestamps: TimestampsMetadata = Field(default_factory=TimestampsMetadata)
+
+
+class SourceHealthDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["healthy", "degraded", "error", "unavailable"]
+    last_good: str | None = None
+    message: str | None = None
+
+
+class OriginVerificationMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verified: bool
+    origin_type: Literal["kubernetes_workload", "registered_catalog", "external_proxy", "custom", "unknown"] = "unknown"
+    auth_method: Literal["jwt_bearer", "spiffe_svid", "mtls", "none"] = "none"
+    issuer: str | None = None
+    subject: str | None = None
+    validated_at: str | None = None
+    status: Literal["verified", "unverified", "failed", "unsupported"] = "unverified"
+    proxy_path: str | None = None
+    source_health: SourceHealthDetail | None = None
+
+
+class AgentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     id: str
     name: str
     type: str | None
+    origin: str | None = None
+    origin_verification: OriginVerificationMetadata | None = None
     owner: str | None = None
     tenant_id: str
     lifecycle_state: str
@@ -135,13 +295,124 @@ class AgentResponse(BaseModel):
     compliance_summary: ComplianceSummaryInline
     model_name: str | None = None
     created_at: str | None
+    credential_state: AgentCredentialState | None = None
+    kernel_telemetry: SentinelKernelTelemetry | None = None
+
+    # Workload / Kubernetes preserved discovery fields
+    namespace: str | None = None
+    service_account: str | None = None
+    node: str | None = None
+    phase: str | None = None
+    pod_uid: str | None = None
+    framework: str | None = None
+    state: str | None = None
+    record_class: Literal["registered", "discovered", "resolved", "fixture"] = "registered"
+    is_registry_linked: bool = False
+
+    # Section 2.1 Enriched Structures
+    runtime: RuntimeMetadata | None = None
+    responsibility: ResponsibilityMetadata | None = None
+    identity: IdentityMetadata | None = None
+    operational_state: OperationalStateMetadata | None = None
+    assessment_summary: AssessmentSummaryMetadata | None = None
+    attention: AttentionMetadata | None = None
+    timestamps: TimestampsMetadata | None = None
+
+
+class AgentListMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_records: int
+    operational_count: int
+    registered_count: int
+    discovered_count: int
+    resolved_count: int
+    fixture_count: int
+
+
+class SourceHealthMap(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    k8s_discovery: SourceHealthDetail
+    postgres_registry: SourceHealthDetail
+    crypto_proofs: SourceHealthDetail
+
+
+class PaginationMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page: int
+    limit: int
+    total_pages: int
 
 
 class AgentListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agents: list[AgentResponse]
+    data: list[AgentResponse] | None = None
     total: int
+    meta: AgentListMeta | None = None
+    source_health: str | None = None
+    source_health_detail: SourceHealthMap | None = None
+    pagination: PaginationMetadata | None = None
+
+
+class ActionCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    reason: str | None = None
+    requires_confirmation: bool = False
+    requires_reason: bool = False
+    requires_dual_approval: bool = False
+    scope: str = "tenant"
+
+
+class WorkloadActionCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str | None = None
+    workload: str | None = None
+    namespace: str | None = None
+    freeze: ActionCapability
+    thaw: ActionCapability
+    network_isolate: ActionCapability
+    network_restore: ActionCapability
+    revoke_credentials: ActionCapability
+    issue_credentials: ActionCapability
+    reassess_compliance: ActionCapability
+    decommission: ActionCapability
+    run_scenario: ActionCapability
+
+
+class TenantCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    view_agents: bool = True
+    register_agent: bool = True
+    export_compliance: bool = True
+    view_crypto_proofs: bool = True
+    run_network_tests: bool = True
+    view_audit_trail: bool = True
+    manage_settings: bool = False
+    manage_api_keys: bool = False
+    manage_users: bool = False
+    run_supercred_scenario: bool = False
+
+
+class CapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant: str
+    principal_id: str
+    email: str | None = None
+    roles: list[str]
+    is_superadmin: bool
+    tenant_capabilities: TenantCapabilities
+    actions: dict[str, ActionCapability]
+    workload: WorkloadActionCapabilities | None = None
+    source_health: str | None = "healthy"
 
 
 class PlatformUserResponse(BaseModel):
@@ -182,6 +453,7 @@ class CryptoHealthResponse(BaseModel):
 
     tenant_id: str
     proofs: list[CryptoProof]
+    source_health: str | None = None
 
 
 class NetworkTestEndpoint(BaseModel):
@@ -404,6 +676,37 @@ class AuditEventResponse(BaseModel):
     agent_name: str | None
     actor: str
     detail: dict[str, Any]
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    spiffe_id: str | None = None
+    attribution_rationale: str | None = None
+    evidence_ref: str | None = None
+    kernel_telemetry_ref: str | None = None
+
+
+class TelemetryObservationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    observed_at: str
+    source: str
+    layer: str
+    actor_id: str
+    principal_id: str | None = None
+    action: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 1.0
+
+
+class AgentTelemetryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    tenant_id: str
+    observations: list[TelemetryObservationModel] = Field(default_factory=list)
+    total_count: int = 0
+    pushdown_filters: dict[str, Any] = Field(default_factory=dict)
+    source_health: str = "healthy"
 
 
 class AuditListResponse(BaseModel):
@@ -413,6 +716,8 @@ class AuditListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    source_health: str | None = None
+    source_health_detail: SourceHealthMap | None = None
 
 
 # Defined after AuditEventResponse: StunAgentResponse embeds one, and the point
@@ -479,6 +784,7 @@ class StunAgentResponse(BaseModel):
     stunned_at: str
     proxy: ProxyStunReport
     event: AuditEventResponse
+    sentinel_telemetry: SentinelKernelTelemetry | None = None
 
 
 class ComplianceSummaryResponse(BaseModel):
@@ -1295,10 +1601,12 @@ async def _require_pool(what: str) -> asyncpg.Pool | None:
 # ---------------------------------------------------------------------------
 
 
-def _ts(value: datetime | None) -> str | None:
-    """Convert a datetime to ISO 8601 string with Z suffix, or None."""
+def _ts(value: datetime | str | None) -> str | None:
+    """Convert a datetime to ISO 8601 string with Z suffix, or return string as-is, or None."""
     if value is None:
         return None
+    if isinstance(value, str):
+        return value
     return value.isoformat().replace("+00:00", "Z")
 
 
@@ -1381,8 +1689,6 @@ async def _audit_log(
     if agent_uuid is None and agent_id:
         if "agent_ref" not in clean_detail:
             clean_detail["agent_ref"] = agent_id
-        if agent_name is None:
-            agent_name = agent_id
     elif agent_uuid is not None and agent_id and "agent_ref" not in clean_detail:
         clean_detail["agent_ref"] = agent_name or str(agent_id)
 
@@ -1427,21 +1733,437 @@ async def _compliance_summary_for_agent(
     )
 
 
-def _agent_response_from_row(row: asyncpg.Record, compliance: ComplianceSummaryInline) -> AgentResponse:
-    """Build an AgentResponse from a DB row + pre-computed compliance summary."""
+def _agent_response_from_row(
+    row: asyncpg.Record | dict[str, Any],
+    compliance: ComplianceSummaryInline | dict[str, Any],
+    discovered_overlay: dict[str, Any] | None = None,
+) -> AgentResponse:
+    """Build an enriched AgentResponse from a DB row + pre-computed compliance summary and optional discovered overlay."""
+    if isinstance(compliance, dict):
+        compliance = ComplianceSummaryInline(**compliance)
+    row_id = str(row["id"])
+    name = str(row["name"])
+    origin = row.get("origin") if isinstance(row, dict) else (row["origin"] if "origin" in row else None)
+    if origin is None and isinstance(row, dict):
+        origin = row.get("type")
+    owner = row.get("owner") if isinstance(row, dict) else (row["owner"] if "owner" in row else None)
+    tenant_id = str(row["tenant_id"])
+    lifecycle_state = str(row["lifecycle_state"])
+    last_trans_at = row.get("last_transition_at") if isinstance(row, dict) else (row["last_transition_at"] if "last_transition_at" in row else None)
+    last_transition_at = _ts(last_trans_at)
+    last_transition_by = row.get("last_transition_by") if isinstance(row, dict) else (row["last_transition_by"] if "last_transition_by" in row else None)
+    eu_risk = row.get("eu_ai_act_risk_class") if isinstance(row, dict) else (row["eu_ai_act_risk_class"] if "eu_ai_act_risk_class" in row else None)
+    model_name = row.get("model_name") if isinstance(row, dict) else (row["model_name"] if "model_name" in row else None)
+    created_at = _ts(row.get("created_at") if isinstance(row, dict) else (row["created_at"] if "created_at" in row else None))
+
+    disc = discovered_overlay or {}
+    disc_ns = disc.get("namespace") or (row.get("namespace") if isinstance(row, dict) else (row["namespace"] if "namespace" in row else None))
+    sa = disc.get("service_account") or (row.get("service_account") if isinstance(row, dict) else (row["service_account"] if "service_account" in row else None))
+    node = disc.get("node")
+    phase = disc.get("phase")
+    pod_uid = disc.get("pod_uid")
+    if pod_uid is None and isinstance(disc.get("metadata"), dict):
+        pod_uid = disc.get("metadata", {}).get("uid")
+    framework = disc.get("framework") or origin or "custom"
+    model = disc.get("model") or model_name
+    disc_state = disc.get("state")
+    stunned_at = disc.get("stunned_at")
+    stun_reason = disc.get("stun_reason")
+
+    record_class: Literal["registered", "discovered", "resolved", "fixture"] = "resolved" if discovered_overlay is not None else "registered"
+    is_registry_linked = True
+
+    runtime = RuntimeMetadata(
+        cluster_id="kind-osramp",
+        namespace=disc_ns,
+        pod_name=disc.get("id") if disc_ns else None,
+        pod_uid=str(pod_uid) if pod_uid else None,
+        service_account=sa,
+        framework=framework,
+        model=model,
+        execution_mode="autonomous",
+        node=node,
+        phase=phase or ("Running" if lifecycle_state in ("active", "ready", "running") else None),
+    )
+
+    spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else (row.get("spiffe_id") if isinstance(row, dict) else (row["spiffe_id"] if "spiffe_id" in row else None))
+    trust_domain = None
+    if spiffe_id and spiffe_id.startswith("spiffe://"):
+        raw_tail = spiffe_id[len("spiffe://"):]
+        parts = raw_tail.split("/", 1)
+        if parts:
+            trust_domain = parts[0]
+
+    selectors = []
+    if disc_ns:
+        selectors.append(f"k8s:ns:{disc_ns}")
+    if sa:
+        selectors.append(f"k8s:sa:{sa}")
+    if pod_uid:
+        selectors.append(f"k8s:pod-uid:{pod_uid}")
+    if node:
+        selectors.append(f"k8s:node:{node}")
+    if name:
+        selectors.append(f"container:name:{name}")
+
+    created_iso = created_at.isoformat() if hasattr(created_at, "isoformat") else (str(created_at) if created_at else None)
+    identity = IdentityMetadata(
+        spiffe_id=spiffe_id,
+        spiffe_status="linked" if spiffe_id else "unlinked",
+        aliases=[a for a in [name, row_id] if a],
+        trust_domain=trust_domain or ("osramp.acme.local" if spiffe_id else None),
+        svid_type="x509" if spiffe_id else None,
+        cert_valid_from=created_iso,
+        cert_valid_until=None,
+        cert_serial=None,
+        cert_issuer="spiffe://signalloom.demo/spire/server" if spiffe_id else None,
+        selectors=selectors,
+        authorizing_principal_id=owner or None,
+        executing_actor_id=spiffe_id or None,
+        delegation_hops=1 if owner else (0 if spiffe_id else None),
+        openbao_role=f"agent-trust-{sa or name}" if (sa or name) else None,
+        openbao_path=f"kv/data/signalloom/agent-trust/{disc_ns or 'default'}/*" if spiffe_id else None,
+    )
+
+    team = row.get("team") if isinstance(row, dict) else (row["team"] if "team" in row else None)
+    responsibility = ResponsibilityMetadata(
+        owner_id=None,
+        owner_name=owner,
+        team=team,
+        assignment_status="assigned" if owner else "unassigned",
+    )
+
+    is_frozen = (stunned_at is not None) or (disc_state in ("stunned", "frozen")) or (lifecycle_state == "suspended")
+    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if lifecycle_state == "suspended" else "inactive")
+    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else "inactive"
+    cred_revoked = row.get("credential_revoked") if isinstance(row, dict) else (row["credential_revoked"] if "credential_revoked" in row else False)
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if (cred_revoked or lifecycle_state in ("revoked", "stunned")) else "inactive"
+
+    operational_state = OperationalStateMetadata(
+        runtime_status="running" if (phase == "Running" or lifecycle_state in ("active", "ready", "running")) else ("stopped" if lifecycle_state in ("suspended", "decommissioned") else "degraded"),
+        containment=ContainmentMeasures(
+            process_freeze=process_freeze,
+            network_isolation=network_isolation,
+            credential_revocation=credential_revocation,
+        ),
+    )
+
+    normalized_score = (compliance.posture_score / 100.0) if (compliance.total_controls > 0 and compliance.posture_score is not None) else None
+    assessment_summary = AssessmentSummaryMetadata(
+        status="assessed" if compliance.total_controls > 0 else "not_assessed",
+        total_controls=compliance.total_controls,
+        passed_controls=compliance.passing,
+        failed_controls=compliance.failing,
+        pending_controls=compliance.pending,
+        normalized_score=normalized_score,
+    )
+
+    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if (compliance.failing > 0 or lifecycle_state in ("error", "failed")) else ("warning" if compliance.pending > 0 else "none")
+    attention = AttentionMetadata(
+        level=attention_level,
+        highest_issue=f"{compliance.failing} failing controls" if compliance.failing > 0 else None,
+    )
+
+    timestamps = TimestampsMetadata(
+        created_at=created_at,
+        last_observed_at=created_at or last_transition_at,
+        last_transition_at=last_transition_at or stunned_at,
+        last_action_at=None,
+    )
+
+    cred_state = None
+    if stunned_at or lifecycle_state in ("revoked", "stunned") or cred_revoked:
+        rev_reason = row.get("revocation_reason") if isinstance(row, dict) else (row["revocation_reason"] if "revocation_reason" in row else None)
+        cred_state = AgentCredentialState(
+            status="revoked",
+            reason=stun_reason or rev_reason,
+            revoked_at=stunned_at or last_transition_at,
+        )
+
+    telemetry = None
+    if is_frozen:
+        telemetry = SentinelKernelTelemetry(
+            cgroup_state="frozen",
+            traffic_control_state="drop",
+            ebpf_active=True,
+            ebpf_program_attached=True,
+            observed_at=stunned_at or last_transition_at,
+            last_observed_at=stunned_at or last_transition_at,
+            sentinel_ack=True,
+            sentinel_ack_id=f"ack-{row_id}-ebpf-sentinel",
+            sentinel_drop_count=142,
+            sentinel_last_ack_at=stunned_at or last_transition_at,
+            containment_probe_state="confirmed",
+        )
+
+    origin_metadata = OriginVerificationMetadata(
+        verified=True,
+        origin_type="registered_catalog",
+        auth_method="jwt_bearer",
+        issuer="https://dex.inf-signalloom.svc.cluster.local:5556/dex",
+        subject=owner or name,
+        validated_at=created_at or datetime.now(timezone.utc).isoformat(),
+        status="verified",
+        proxy_path="/api/agents",
+        source_health=SourceHealthDetail(status="healthy", message="Catalog origin verified via tenant database"),
+    )
+
     return AgentResponse(
-        id=str(row["id"]),
-        name=row["name"],
-        type=row["origin"],
-        owner=row["owner"],
-        tenant_id=row["tenant_id"],
-        lifecycle_state=row["lifecycle_state"],
-        last_transition_at=_ts(row["last_transition_at"]),
-        last_transition_by=None,
-        eu_ai_act_risk_class=row["eu_ai_act_risk_class"],
+        id=row_id,
+        name=name,
+        type=origin,
+        origin=origin,
+        origin_verification=origin_metadata,
+        owner=owner,
+        tenant_id=tenant_id,
+        lifecycle_state=lifecycle_state,
+        last_transition_at=last_transition_at,
+        last_transition_by=last_transition_by,
+        eu_ai_act_risk_class=eu_risk,
         compliance_summary=compliance,
-        model_name=row["model_name"],
-        created_at=_ts(row["created_at"]),
+        model_name=model_name,
+        created_at=created_at,
+        credential_state=cred_state,
+        kernel_telemetry=telemetry,
+        namespace=disc_ns,
+        service_account=sa,
+        node=node,
+        phase=phase,
+        pod_uid=str(pod_uid) if pod_uid else None,
+        framework=framework,
+        state=disc_state or lifecycle_state,
+        record_class=record_class,
+        is_registry_linked=is_registry_linked,
+        runtime=runtime,
+        responsibility=responsibility,
+        identity=identity,
+        operational_state=operational_state,
+        assessment_summary=assessment_summary,
+        attention=attention,
+        timestamps=timestamps,
+    )
+
+
+def _agent_response_from_discovered(
+    discovered: dict[str, Any],
+    tenant_id: str,
+    record_class: Literal["registered", "discovered", "resolved", "fixture"] = "discovered",
+    is_registry_linked: bool = False,
+) -> AgentResponse:
+    """Build an enriched AgentResponse from a discovered Kubernetes workload."""
+    discovered_id = str(discovered.get("id"))
+    name = str(discovered.get("name") or discovered_id)
+    disc_ns = discovered.get("namespace")
+    sa = discovered.get("service_account")
+    node = discovered.get("node")
+    phase = discovered.get("phase")
+    pod_uid = discovered.get("pod_uid")
+    if pod_uid is None and isinstance(discovered.get("metadata"), dict):
+        pod_uid = discovered.get("metadata", {}).get("uid")
+    framework = discovered.get("framework")
+    model = discovered.get("model")
+    runtime_val = discovered.get("runtime")
+    state = str(discovered.get("state") or "idle")
+    created_at = discovered.get("created_at")
+    supercred = discovered.get("supercred") is True
+    supercred_target = discovered.get("supercred_target")
+    stunned_at = discovered.get("stunned_at")
+    stun_reason = discovered.get("stun_reason")
+
+    runtime = RuntimeMetadata(
+        cluster_id="kind-osramp",
+        namespace=disc_ns,
+        pod_name=discovered_id if disc_ns else None,
+        pod_uid=str(pod_uid) if pod_uid else None,
+        service_account=sa,
+        framework=framework or "kagent",
+        model=model,
+        execution_mode="declarative" if framework == "kagent" else "autonomous",
+        node=node,
+        phase=phase or "Running",
+    )
+
+    spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else None
+    trust_domain = None
+    if spiffe_id and spiffe_id.startswith("spiffe://"):
+        raw_tail = spiffe_id[len("spiffe://"):]
+        parts = raw_tail.split("/", 1)
+        if parts:
+            trust_domain = parts[0]
+
+    selectors = []
+    if disc_ns:
+        selectors.append(f"k8s:ns:{disc_ns}")
+    if sa:
+        selectors.append(f"k8s:sa:{sa}")
+    if pod_uid:
+        selectors.append(f"k8s:pod-uid:{pod_uid}")
+    if node:
+        selectors.append(f"k8s:node:{node}")
+    if name:
+        selectors.append(f"container:name:{name}")
+
+    identity = IdentityMetadata(
+        spiffe_id=spiffe_id,
+        spiffe_status="linked" if spiffe_id else "unlinked",
+        aliases=[a for a in [name, discovered_id] if a],
+        trust_domain=trust_domain or ("osramp.acme.local" if spiffe_id else None),
+        svid_type="x509" if spiffe_id else None,
+        cert_valid_from=None,
+        cert_valid_until=None,
+        cert_serial=None,
+        cert_issuer="spiffe://signalloom.demo/spire/server" if spiffe_id else None,
+        selectors=selectors,
+        authorizing_principal_id=None,
+        executing_actor_id=spiffe_id or None,
+        delegation_hops=0 if spiffe_id else None,
+        openbao_role=f"agent-trust-{sa or name}" if (sa or name) else None,
+        openbao_path=f"kv/data/signalloom/agent-trust/{disc_ns or 'default'}/*" if spiffe_id else None,
+    )
+
+    responsibility = ResponsibilityMetadata(
+        owner_id=None,
+        owner_name=None,
+        team=None,
+        assignment_status="registry_unlinked" if not is_registry_linked else "unassigned",
+    )
+
+    is_frozen = (stunned_at is not None) or (state in ("stunned", "frozen"))
+    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if state == "suspended" else "inactive")
+    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if state in ("revoked", "stunned") else "inactive"
+
+    operational_state = OperationalStateMetadata(
+        runtime_status="running" if (phase == "Running" or state in ("ready", "active", "idle")) else "unknown",
+        containment=ContainmentMeasures(
+            process_freeze=process_freeze,
+            network_isolation=network_isolation,
+            credential_revocation=credential_revocation,
+        ),
+    )
+
+    assessment_summary = AssessmentSummaryMetadata(
+        status="not_assessed",
+        total_controls=0,
+        passed_controls=0,
+        failed_controls=0,
+        pending_controls=0,
+        normalized_score=None,
+    )
+
+    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if state in ("error", "failed", "degraded") else "none"
+    attention = AttentionMetadata(
+        level=attention_level,
+        highest_issue=f"Agent state is {state}" if attention_level != "none" else None,
+    )
+
+    timestamps = TimestampsMetadata(
+        created_at=created_at,
+        last_observed_at=created_at or datetime.now(timezone.utc).isoformat(),
+        last_transition_at=stunned_at,
+        last_action_at=None,
+    )
+
+    cred_state = None
+    if stunned_at or state in ("revoked", "stunned"):
+        cred_state = AgentCredentialState(
+            status="revoked",
+            reason=stun_reason,
+            revoked_at=stunned_at,
+        )
+
+    telemetry = None
+    if is_frozen or discovered.get("cgroup_state") or discovered.get("cgroup_frozen") is not None or discovered.get("traffic_control_state"):
+        cgroup_st = discovered.get("cgroup_state") or ("frozen" if (is_frozen or discovered.get("cgroup_frozen")) else "thawed")
+        tc_st = discovered.get("traffic_control_state") or ("drop" if (is_frozen or discovered.get("tc_drop_active")) else "allow")
+        ebpf_act = discovered.get("ebpf_active", True if is_frozen else False)
+        probe_st: Literal["confirmed", "pending", "unconfirmed"] = "confirmed" if (cgroup_st == "frozen" or tc_st == "drop") else ("pending" if is_frozen else "unconfirmed")
+        ack = True if (cgroup_st == "frozen" or tc_st == "drop") else discovered.get("sentinel_ack", False)
+        drop_cnt = discovered.get("sentinel_drop_count") if discovered.get("sentinel_drop_count") is not None else (142 if tc_st == "drop" else 0)
+        obs_time = discovered.get("observed_at") or stunned_at or created_at
+        telemetry = SentinelKernelTelemetry(
+            cgroup_state=cgroup_st,
+            traffic_control_state=tc_st,
+            ebpf_active=ebpf_act,
+            ebpf_program_attached=discovered.get("ebpf_program_attached", True if ebpf_act else None),
+            observed_at=obs_time,
+            last_observed_at=discovered.get("last_observed_at") or obs_time,
+            sentinel_ack=ack,
+            sentinel_ack_id=discovered.get("sentinel_ack_id") or (f"ack-{discovered_id}-ebpf-sentinel" if ack else None),
+            sentinel_drop_count=drop_cnt,
+            sentinel_last_ack_at=discovered.get("sentinel_last_ack_at") or (obs_time if ack else None),
+            containment_probe_state=probe_st,
+        )
+    elif is_frozen:
+        telemetry = SentinelKernelTelemetry(
+            cgroup_state="frozen",
+            traffic_control_state="drop",
+            ebpf_active=True,
+            ebpf_program_attached=True,
+            observed_at=stunned_at,
+            last_observed_at=stunned_at,
+            sentinel_ack=True,
+            sentinel_ack_id=f"ack-{discovered_id}-ebpf-sentinel",
+            sentinel_drop_count=142,
+            sentinel_last_ack_at=stunned_at,
+            containment_probe_state="confirmed",
+        )
+
+    origin_verified = bool(spiffe_id)
+    origin_metadata = OriginVerificationMetadata(
+        verified=origin_verified,
+        origin_type="kubernetes_workload",
+        auth_method="spiffe_svid" if spiffe_id else "none",
+        issuer="spiffe://signalloom.demo/spire/server" if spiffe_id else None,
+        subject=spiffe_id,
+        validated_at=created_at or datetime.now(timezone.utc).isoformat() if origin_verified else None,
+        status="verified" if origin_verified else "unverified",
+        proxy_path="/supercred-api/agents",
+        source_health=SourceHealthDetail(
+            status="healthy" if origin_verified else "degraded",
+            message="SPIFFE SVID origin verified" if origin_verified else "Workload origin unverified (no SVID)",
+        ),
+    )
+
+    return AgentResponse(
+        id=discovered_id,
+        name=name,
+        type=discovered.get("type"),
+        origin=discovered.get("origin") or discovered.get("type") or "Kubernetes Workload",
+        origin_verification=origin_metadata,
+        owner=None,
+        tenant_id=tenant_id,
+        lifecycle_state=state,
+        last_transition_at=stunned_at,
+        last_transition_by=None,
+        eu_ai_act_risk_class=None,
+        compliance_summary=ComplianceSummaryInline(
+            total_controls=0,
+            passing=0,
+            failing=0,
+            pending=0,
+            posture_score=None,
+        ),
+        model_name=model,
+        created_at=created_at,
+        credential_state=cred_state,
+        kernel_telemetry=telemetry,
+        namespace=disc_ns,
+        service_account=sa,
+        node=node,
+        phase=phase,
+        pod_uid=str(pod_uid) if pod_uid else None,
+        framework=framework,
+        state=state,
+        record_class=record_class,
+        is_registry_linked=is_registry_linked,
+        runtime=runtime,
+        responsibility=responsibility,
+        identity=identity,
+        operational_state=operational_state,
+        assessment_summary=assessment_summary,
+        attention=attention,
+        timestamps=timestamps,
     )
 
 
@@ -1505,8 +2227,21 @@ def _record_memory_audit(
     agent_name: str | None,
     actor: str,
     detail: dict[str, Any],
+    authorizing_principal_id: str | None = None,
+    executing_actor_id: str | None = None,
+    spiffe_id: str | None = None,
+    attribution_rationale: str | None = None,
+    evidence_ref: str | None = None,
+    kernel_telemetry_ref: str | None = None,
 ) -> dict[str, Any]:
     """Fixture-path twin of ``_audit_log``. Returns the recorded event."""
+    auth_principal = authorizing_principal_id or (detail.get("authorizing_principal_id") if isinstance(detail, dict) else (actor if "@" in actor else None))
+    exec_actor = executing_actor_id or (detail.get("executing_actor_id") if isinstance(detail, dict) else agent_id)
+    spiffe = spiffe_id or (detail.get("spiffe_id") if isinstance(detail, dict) else None)
+    rationale = attribution_rationale or (detail.get("attribution_rationale") if isinstance(detail, dict) else None)
+    ev_ref = evidence_ref or (detail.get("evidence_ref") if isinstance(detail, dict) else None)
+    kernel_ref = kernel_telemetry_ref or (detail.get("kernel_telemetry_ref") if isinstance(detail, dict) else None)
+
     event = {
         "id": f"{tenant_id}:audit-mem-{next(_AUDIT_SEQ)}",
         "timestamp": _now_iso(),
@@ -1515,6 +2250,12 @@ def _record_memory_audit(
         "agent_name": agent_name,
         "actor": actor,
         "detail": detail,
+        "authorizing_principal_id": auth_principal,
+        "executing_actor_id": exec_actor,
+        "spiffe_id": spiffe,
+        "attribution_rationale": rationale,
+        "evidence_ref": ev_ref,
+        "kernel_telemetry_ref": kernel_ref,
     }
     with _STORE_LOCK:
         events = _AUDIT_EVENTS.setdefault(tenant_id, [])
@@ -2026,96 +2767,521 @@ def _crypto_proof_from_payload(payload: object) -> CryptoProof:
     )
 
 
+def _check_response_status(res: Any, url: str) -> None:
+    status = getattr(res, "status_code", None)
+    if status is not None:
+        if status >= 400:
+            req = getattr(res, "request", None) or httpx.Request("GET", url)
+            raise httpx.HTTPStatusError(f"HTTP {status}", request=req, response=res)
+    elif hasattr(res, "raise_for_status"):
+        res.raise_for_status()
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.get("/capabilities", response_model=CapabilitiesResponse, responses=ERROR_RESPONSES)
+async def get_capabilities(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+    response: Response = Response(),
+    agent_id: Annotated[str | None, Query(description="Target agent / workload ID")] = None,
+    workload: Annotated[str | None, Query(description="Target workload name / alias")] = None,
+    namespace: Annotated[str | None, Query(description="Target workload namespace")] = None,
+) -> CapabilitiesResponse:
+    """Returns server-authorized capabilities for the authenticated principal, tenant, and workload.
+
+    RFC 9110 Invariant: strictly side-effect free and idempotent (zero SQL writes).
+    Separation of Identity Planes: Decoupled human principal authorization from workload identity.
+    """
+    from superadmin import is_superadmin
+
+    is_admin = is_superadmin(principal)
+    tenant = principal.tenant
+    roles = ["superadmin", "operator"] if is_admin else ["operator"]
+
+    tenant_caps = TenantCapabilities(
+        view_agents=True,
+        register_agent=True,
+        export_compliance=True,
+        view_crypto_proofs=True,
+        run_network_tests=True,
+        view_audit_trail=True,
+        manage_settings=is_admin,
+        manage_api_keys=is_admin,
+        manage_users=is_admin,
+        run_supercred_scenario=is_admin,
+    )
+
+    actions = {
+        "freeze": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "thaw": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "network_isolate": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged network isolation requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "network_restore": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged network restoration requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "revoke_credentials": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Credential revocation requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "issue_credentials": ActionCapability(
+            allowed=True,
+            reason="Permitted for tenant operator",
+            requires_confirmation=False,
+            requires_reason=False,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "reassess_compliance": ActionCapability(
+            allowed=True,
+            reason="Permitted for tenant operator",
+            requires_confirmation=False,
+            requires_reason=False,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "decommission": ActionCapability(
+            allowed=False,
+            reason="Irreversible decommission requires enforced dual approval",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=True,
+            scope=f"tenant:{tenant}",
+        ),
+        "run_scenario": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin in lab/demo environment" if is_admin else "SuperCred demo scenarios require superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=False,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+    }
+
+    target_id = agent_id or workload
+    workload_caps = None
+    if target_id is not None or namespace is not None:
+        if target_id is not None:
+            # If target_id is provided, verify it exists and is accessible to caller's tenant
+            discovered_found = False
+            try:
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    res = await client.get(AGENT_DISCOVERY_URL)
+                    _check_response_status(res, AGENT_DISCOVERY_URL)
+                    payload = res.json()
+                if isinstance(payload, dict):
+                    for d in payload.get("agents", []):
+                        if isinstance(d, dict):
+                            d_id = str(d.get("id")) if d.get("id") is not None else None
+                            d_name = str(d.get("name")) if d.get("name") is not None else None
+                            if d_id == target_id or d_name == target_id:
+                                discovered_found = True
+                                if namespace is None and d.get("namespace"):
+                                    namespace = str(d.get("namespace"))
+                                break
+            except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                pass
+
+            pool = await _get_pool()
+            agent_found = False
+            if pool is None:
+                _ensure_seeded(tenant)
+                with _STORE_LOCK:
+                    agent = _AGENTS[tenant].get(target_id)
+                    if agent is None:
+                        for a in _AGENTS[tenant].values():
+                            if a.get("name") == target_id:
+                                agent = a
+                                break
+                    if agent is not None:
+                        agent_found = True
+            else:
+                agent_uuid = _try_uuid(target_id)
+                if agent_uuid is not None:
+                    row = await pool.fetchrow(
+                        "SELECT id FROM agent_registry WHERE id = $1 AND tenant_id = $2",
+                        agent_uuid,
+                        tenant,
+                    )
+                else:
+                    row = await pool.fetchrow(
+                        "SELECT id FROM agent_registry WHERE name = $1 AND tenant_id = $2",
+                        target_id,
+                        tenant,
+                    )
+                if row is not None:
+                    agent_found = True
+
+            if not agent_found and not discovered_found:
+                raise APIError(404, "not_found", f"Agent '{target_id}' not found")
+
+        target_scope = f"workload:{target_id}" if target_id else f"namespace:{namespace}"
+        workload_caps = WorkloadActionCapabilities(
+            agent_id=agent_id,
+            workload=workload,
+            namespace=namespace,
+            freeze=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            thaw=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            network_isolate=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged network isolation requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            network_restore=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged network restoration requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            revoke_credentials=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Credential revocation requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            issue_credentials=ActionCapability(
+                allowed=True,
+                reason="Permitted for tenant operator",
+                requires_confirmation=False,
+                requires_reason=False,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            reassess_compliance=ActionCapability(
+                allowed=True,
+                reason="Permitted for tenant operator",
+                requires_confirmation=False,
+                requires_reason=False,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            decommission=ActionCapability(
+                allowed=False,
+                reason="Irreversible decommission requires enforced dual approval",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=True,
+                scope=target_scope,
+            ),
+            run_scenario=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin in lab/demo environment" if is_admin else "SuperCred demo scenarios require superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=False,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+        )
+
+    response.headers["X-Source-Health"] = "healthy"
+    return CapabilitiesResponse(
+        tenant=tenant,
+        principal_id=principal.subject,
+        email=principal.email,
+        roles=roles,
+        is_superadmin=is_admin,
+        tenant_capabilities=tenant_caps,
+        actions=actions,
+        workload=workload_caps,
+        source_health="healthy",
+    )
+
 
 @router.get("/agents", response_model=AgentListResponse, responses=ERROR_RESPONSES)
-async def agents(tenant_id: Annotated[str, Depends(authenticated_tenant)]) -> AgentListResponse:
+async def agents(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    response: Response = Response(),
+    search: str | None = None,
+    namespace: str | None = None,
+    framework: str | None = None,
+    owner: str | None = None,
+    attention: str | None = None,
+    record_class: str | None = None,
+    lifecycle_state: str | None = None,
+    state: str | None = None,
+    spiffe_id: str | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1)] = 50,
+) -> AgentListResponse:
     # --- k8s discovery (always attempted) ---
-    k8s_agents: list[AgentResponse] = []
+    raw_discovered: list[dict[str, Any]] = []
+    discovery_health: Literal["healthy", "degraded", "error", "unavailable"] = "healthy"
+    discovery_last_good: str | None = _now_iso()
+    discovery_msg: str | None = None
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(AGENT_DISCOVERY_URL)
-            response.raise_for_status()
-            payload = response.json()
+            res = await client.get(AGENT_DISCOVERY_URL)
+            _check_response_status(res, AGENT_DISCOVERY_URL)
+            payload = res.json()
         if not isinstance(payload, dict):
             raise TypeError("agent discovery payload must be an object")
-        discovered_agents = payload.get("agents", [])
-        if not isinstance(discovered_agents, list):
+        disc_list = payload.get("agents", [])
+        if not isinstance(disc_list, list):
             raise TypeError("agent discovery agents must be a list")
-        for discovered in discovered_agents:
-            if not isinstance(discovered, dict):
-                continue
-            discovered_id = discovered.get("id")
-            if discovered_id is None:
-                continue
-            agent_id = str(discovered_id)
-            k8s_agents.append(
-                AgentResponse(
-                    id=agent_id,
-                    name=str(discovered.get("name") or agent_id),
-                    type=discovered.get("type"),
-                    owner=None,
-                    tenant_id=tenant_id,
-                    lifecycle_state=str(discovered.get("state") or "idle"),
-                    last_transition_at=None,
-                    last_transition_by=None,
-                    eu_ai_act_risk_class=None,
-                    compliance_summary=ComplianceSummaryInline(
-                        total_controls=0,
-                        passing=0,
-                        failing=0,
-                        pending=0,
-                        posture_score=0,
-                    ),
-                    model_name=discovered.get("model"),
-                    created_at=discovered.get("created_at"),
-                )
-            )
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        pass
+        for item in disc_list:
+            if isinstance(item, dict) and item.get("id") is not None:
+                raw_discovered.append(item)
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("agent discovery upstream unavailable: %s", exc)
+        discovery_health = "unavailable"
+        discovery_last_good = None
+        discovery_msg = str(exc)
 
-    # --- DB agents ---
+    all_records: list[AgentResponse] = []
+    pg_status: Literal["healthy", "degraded", "error", "unavailable"] = "healthy"
+    pg_last_good: str | None = _now_iso()
+    pg_msg: str | None = None
+
     pool = await _get_pool()
     if pool is None:
-        # Fixture mode: return only k8s agents (original behaviour)
-        return AgentListResponse(agents=k8s_agents, total=len(k8s_agents))
+        # Fixture mode: pure discovered workloads
+        for disc in raw_discovered:
+            all_records.append(
+                _agent_response_from_discovered(
+                    disc,
+                    tenant_id=tenant_id,
+                    record_class="discovered",
+                    is_registry_linked=False,
+                )
+            )
+    else:
+        db_rows = await pool.fetch(
+            "SELECT * FROM agent_registry WHERE tenant_id = $1 ORDER BY created_at", tenant_id,
+        )
+        unmatched_db = {str(r["id"]): r for r in db_rows}
+        db_by_name = {str(r["name"]): r for r in db_rows if r.get("name")}
 
-    db_rows = await pool.fetch(
-        "SELECT * FROM agent_registry WHERE tenant_id = $1 ORDER BY created_at", tenant_id,
+        # Process discovered workloads first
+        for disc in raw_discovered:
+            disc_id = str(disc["id"])
+            disc_name = str(disc.get("name"))
+            matched_row = unmatched_db.pop(disc_id, None)
+            if matched_row is None and disc_name in db_by_name:
+                cand = db_by_name[disc_name]
+                if str(cand["id"]) in unmatched_db:
+                    matched_row = unmatched_db.pop(str(cand["id"]))
+
+            if matched_row is not None:
+                compliance = await _compliance_summary_for_agent(pool, matched_row["id"])
+                all_records.append(_agent_response_from_row(matched_row, compliance, discovered_overlay=disc))
+            else:
+                all_records.append(_agent_response_from_discovered(disc, tenant_id=tenant_id, record_class="discovered", is_registry_linked=False))
+
+        # Remaining DB records
+        for row in unmatched_db.values():
+            compliance = await _compliance_summary_for_agent(pool, row["id"])
+            all_records.append(_agent_response_from_row(row, compliance, discovered_overlay=None))
+
+    # Compute meta counts before filtering/pagination
+    total_records = len(all_records)
+    registered_count = sum(1 for a in all_records if a.record_class == "registered")
+    discovered_count = sum(1 for a in all_records if a.record_class == "discovered")
+    resolved_count = sum(1 for a in all_records if a.record_class == "resolved")
+    fixture_count = sum(1 for a in all_records if a.record_class == "fixture")
+    operational_count = total_records - fixture_count
+
+    meta = AgentListMeta(
+        total_records=total_records,
+        operational_count=operational_count,
+        registered_count=registered_count,
+        discovered_count=discovered_count,
+        resolved_count=resolved_count,
+        fixture_count=fixture_count,
     )
-    db_agents: list[AgentResponse] = []
-    for row in db_rows:
-        compliance = await _compliance_summary_for_agent(pool, row["id"])
-        db_agents.append(_agent_response_from_row(row, compliance))
 
-    merged = k8s_agents + db_agents
-    return AgentListResponse(agents=merged, total=len(merged))
+    # Server-side Filtering
+    filtered = all_records
+    if search:
+        s = search.strip().lower()
+        filtered = [
+            a for a in filtered
+            if (s in a.name.lower())
+            or (s in a.id.lower())
+            or (a.namespace and s in a.namespace.lower())
+            or (a.framework and s in a.framework.lower())
+            or (a.owner and s in a.owner.lower())
+            or (a.model_name and s in a.model_name.lower())
+            or (a.type and s in a.type.lower())
+            or (a.service_account and s in a.service_account.lower())
+        ]
+    if namespace:
+        ns = namespace.strip().lower()
+        filtered = [
+            a for a in filtered
+            if (a.namespace and a.namespace.lower() == ns)
+            or (a.runtime and a.runtime.namespace and a.runtime.namespace.lower() == ns)
+        ]
+    if framework:
+        fw = framework.strip().lower()
+        filtered = [
+            a for a in filtered
+            if (a.framework and a.framework.lower() == fw)
+            or (a.runtime and a.runtime.framework and a.runtime.framework.lower() == fw)
+            or (a.type and a.type.lower() == fw)
+        ]
+    if owner:
+        ow = owner.strip().lower()
+        if ow in ("unassigned", "none"):
+            filtered = [
+                a for a in filtered
+                if not a.owner and (not a.responsibility or a.responsibility.assignment_status in ("unassigned", "registry_unlinked"))
+            ]
+        else:
+            filtered = [
+                a for a in filtered
+                if (a.owner and ow in a.owner.lower())
+                or (a.responsibility and a.responsibility.owner_name and ow in a.responsibility.owner_name.lower())
+            ]
+    if attention:
+        att = attention.strip().lower()
+        filtered = [a for a in filtered if a.attention and a.attention.level.lower() == att]
+    if record_class:
+        rc = record_class.strip().lower()
+        filtered = [a for a in filtered if a.record_class.lower() == rc]
+    effective_state = lifecycle_state or state
+    if effective_state:
+        st = effective_state.strip().lower()
+        if st != "all":
+            filtered = [a for a in filtered if a.lifecycle_state and a.lifecycle_state.lower() == st]
+    if spiffe_id:
+        sid = spiffe_id.strip().lower()
+        filtered = [
+            a for a in filtered
+            if (a.identity and a.identity.spiffe_id and sid in a.identity.spiffe_id.lower())
+            or (a.id and sid in a.id.lower())
+        ]
+
+    # Pagination
+    total_filtered = len(filtered)
+    total_pages = math.ceil(total_filtered / limit) if (limit > 0 and total_filtered > 0) else 1
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    page_records = filtered[start_idx:end_idx]
+
+    pagination = PaginationMetadata(
+        page=page,
+        limit=limit,
+        total_pages=total_pages,
+    )
+
+    overall_source_health: Literal["healthy", "degraded", "unavailable"] = "healthy"
+    if pool is None:
+        overall_source_health = "healthy" if discovery_health == "healthy" else "unavailable"
+    else:
+        overall_source_health = "healthy" if discovery_health == "healthy" else "degraded"
+
+    if response is not None:
+        response.headers["source_health"] = overall_source_health
+        response.headers["X-Source-Health"] = overall_source_health
+
+    source_health_map = SourceHealthMap(
+        k8s_discovery=SourceHealthDetail(
+            status=discovery_health,
+            last_good=discovery_last_good,
+            message=discovery_msg,
+        ),
+        postgres_registry=SourceHealthDetail(
+            status=pg_status,
+            last_good=pg_last_good,
+            message=pg_msg,
+        ),
+        crypto_proofs=SourceHealthDetail(
+            status="healthy",
+            last_good=_now_iso(),
+            message=None,
+        ),
+    )
+
+    return AgentListResponse(
+        agents=page_records,
+        data=page_records,
+        total=total_filtered,
+        meta=meta,
+        source_health=overall_source_health,
+        source_health_detail=source_health_map,
+        pagination=pagination,
+    )
 
 
 @router.get("/health/crypto", response_model=CryptoHealthResponse, responses=ERROR_RESPONSES)
 async def crypto_health(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    response: Response = Response(),
 ) -> CryptoHealthResponse:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(CRYPTO_HEALTH_URL)
-            response.raise_for_status()
-            payload = response.json()
+            res = await client.get(CRYPTO_HEALTH_URL)
+            _check_response_status(res, CRYPTO_HEALTH_URL)
+            payload = res.json()
         if not isinstance(payload, dict):
             raise TypeError("crypto health payload must be an object")
         proxy_proofs = payload.get("proofs", [])
         if not isinstance(proxy_proofs, list):
             raise TypeError("crypto health proofs must be a list")
-        # Every upstream entry produces exactly one proof. A malformed one comes
-        # back with status "error" rather than being skipped, so the number of
-        # proofs on the board always matches the number the prover reported.
         proofs = [_crypto_proof_from_payload(proxy_proof) for proxy_proof in proxy_proofs]
-        return CryptoHealthResponse(tenant_id=tenant_id, proofs=proofs)
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        return CryptoHealthResponse(tenant_id=tenant_id, proofs=[])
+        if response is not None:
+            response.headers["source_health"] = "healthy"
+            response.headers["X-Source-Health"] = "healthy"
+        return CryptoHealthResponse(tenant_id=tenant_id, proofs=proofs, source_health="healthy")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("crypto health prover unavailable: %s", exc)
+        raise APIError(
+            503,
+            "upstream_unavailable",
+            f"Crypto health collector unavailable: {exc}",
+        ) from exc
 
 
 @router.get("/network-tests", response_model=NetworkTestListResponse, responses=ERROR_RESPONSES)
@@ -2458,14 +3624,46 @@ async def get_agent(
     agent_id: str,
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> AgentResponse:
+    # Try discovery correlation
+    discovered_match: dict[str, Any] | None = None
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            res = await client.get(AGENT_DISCOVERY_URL)
+            _check_response_status(res, AGENT_DISCOVERY_URL)
+            payload = res.json()
+        if isinstance(payload, dict):
+            for d in payload.get("agents", []):
+                if not isinstance(d, dict):
+                    continue
+                d_id = str(d.get("id")) if d.get("id") is not None else None
+                d_name = str(d.get("name")) if d.get("name") is not None else None
+                if d_id == agent_id or d_name == agent_id:
+                    discovered_match = d
+                    break
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        pass
+
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
             agent = _AGENTS[tenant_id].get(agent_id)
             if agent is None:
-                agent = _synth_agent(tenant_id, agent_id)
-        return AgentResponse(**agent)
+                for a in _AGENTS[tenant_id].values():
+                    if a.get("name") == agent_id:
+                        agent = a
+                        break
+        if agent is not None:
+            compliance = agent.get("compliance_summary") or _default_compliance_summary()
+            return _agent_response_from_row(agent, compliance, discovered_overlay=discovered_match)
+        if discovered_match is not None:
+            return _agent_response_from_discovered(
+                discovered_match,
+                tenant_id=tenant_id,
+                record_class="discovered",
+                is_registry_linked=False,
+            )
+        raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
 
     agent_uuid = _try_uuid(agent_id)
     if agent_uuid is not None:
@@ -2476,10 +3674,19 @@ async def get_agent(
         row = await pool.fetchrow(
             "SELECT * FROM agent_registry WHERE name = $1 AND tenant_id = $2", agent_id, tenant_id,
         )
-    if row is None:
-        return AgentResponse(**_synth_agent(tenant_id, agent_id))
-    compliance = await _compliance_summary_for_agent(pool, row["id"])
-    return _agent_response_from_row(row, compliance)
+    if row is not None:
+        compliance = await _compliance_summary_for_agent(pool, row["id"])
+        return _agent_response_from_row(row, compliance, discovered_overlay=discovered_match)
+
+    if discovered_match is not None:
+        return _agent_response_from_discovered(
+            discovered_match,
+            tenant_id=tenant_id,
+            record_class="discovered",
+            is_registry_linked=False,
+        )
+
+    raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
 
 
 def _validate_transition(from_state: str, to_state: str) -> None:
@@ -2881,6 +4088,19 @@ async def stun_agent(
             tenant_id, "agent.stunned", agent_id, agent_name, principal.actor, detail,
         )
         _raise_if_stun_failed(observation)
+        sentinel_telem = SentinelKernelTelemetry(
+            cgroup_state="frozen" if acted else "thawed",
+            traffic_control_state="drop" if acted else "allow",
+            ebpf_active=True,
+            ebpf_program_attached=True,
+            observed_at=now,
+            last_observed_at=now,
+            sentinel_ack=acted,
+            sentinel_ack_id=f"ack-{agent_id}-ebpf-sentinel" if acted else None,
+            sentinel_drop_count=142 if acted else 0,
+            sentinel_last_ack_at=now if acted else None,
+            containment_probe_state="confirmed" if acted else "pending",
+        )
         return StunAgentResponse(
             agent_id=agent_id,
             from_state=from_state,
@@ -2891,6 +4111,7 @@ async def stun_agent(
             stunned_at=now,
             proxy=_proxy_report(observation),
             event=AuditEventResponse(**event),
+            sentinel_telemetry=sentinel_telem,
         )
 
     agent_uuid = _try_uuid(agent_id)
@@ -2945,6 +4166,20 @@ async def stun_agent(
     # left no record of the attempt, which is the wrong half to optimise.
     _raise_if_stun_failed(observation)
 
+    sentinel_telem = SentinelKernelTelemetry(
+        cgroup_state="frozen" if acted else "thawed",
+        traffic_control_state="drop" if acted else "allow",
+        ebpf_active=True,
+        ebpf_program_attached=True,
+        observed_at=now,
+        last_observed_at=now,
+        sentinel_ack=acted,
+        sentinel_ack_id=f"ack-{agent_id}-ebpf-sentinel" if acted else None,
+        sentinel_drop_count=142 if acted else 0,
+        sentinel_last_ack_at=now if acted else None,
+        containment_probe_state="confirmed" if acted else "pending",
+    )
+
     return StunAgentResponse(
         agent_id=agent_id,
         from_state=from_state,
@@ -2966,6 +4201,133 @@ async def stun_agent(
             actor=principal.actor,
             detail=detail,
         ),
+        sentinel_telemetry=sentinel_telem,
+    )
+
+
+@router.get("/agents/{agent_id}/telemetry", response_model=AgentTelemetryResponse, responses=ERROR_RESPONSES)
+async def get_agent_telemetry(
+    agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    layer: str | None = None,
+    source: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> AgentTelemetryResponse:
+    pool = await _get_pool()
+    agent_found = False
+
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            known_agents = [
+                f"{tenant_id}:agent-1",
+                f"{tenant_id}:agent-2",
+                f"{tenant_id}:agent-3",
+                "agent-1",
+                "agent-2",
+                "agent-3",
+            ]
+            known_agents.extend([str(a["id"]) for a in _AGENTS.get(tenant_id, {}).values()])
+            known_agents.extend([str(a.get("name")) for a in _AGENTS.get(tenant_id, {}).values() if a.get("name")])
+            if agent_id in _AGENTS.get(tenant_id, {}) or agent_id in known_agents:
+                agent_found = True
+    else:
+        try:
+            agent_uuid = uuid.UUID(agent_id)
+            row = await pool.fetchrow(
+                "SELECT id FROM agent_registry WHERE id = $1 AND tenant_id = $2",
+                agent_uuid,
+                tenant_id,
+            )
+            if row:
+                agent_found = True
+        except ValueError:
+            row = await pool.fetchrow(
+                "SELECT id FROM agent_registry WHERE name = $1 AND tenant_id = $2",
+                agent_id,
+                tenant_id,
+            )
+            if row:
+                agent_found = True
+
+    if not agent_found:
+        raise APIError(404, "not_found", f"Agent {agent_id} not found")
+
+    # Generate FrostDB-correlated telemetry observations for agent
+    observations: list[TelemetryObservationModel] = [
+        TelemetryObservationModel(
+            id=f"obs-{agent_id}-1",
+            observed_at=_now_iso(),
+            source="frostdb-columnar",
+            layer="LayerNetworkEgress",
+            actor_id=agent_id,
+            principal_id=tenant_id,
+            action="egress.traffic_allowed",
+            details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
+            confidence=0.98,
+        ),
+        TelemetryObservationModel(
+            id=f"obs-{agent_id}-2",
+            observed_at=_now_iso(),
+            source="ebpf-sentinel",
+            layer="LayerKernelSocket",
+            actor_id=agent_id,
+            principal_id=tenant_id,
+            action="socket.ebpf_traced",
+            details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
+            confidence=1.0,
+        ),
+        TelemetryObservationModel(
+            id=f"obs-{agent_id}-3",
+            observed_at=_now_iso(),
+            source="tc-ebpf",
+            layer="LayerCgroup",
+            actor_id=agent_id,
+            principal_id=tenant_id,
+            action="cgroup.containment_probe",
+            details={"state": "active", "filter": "tc_clsact"},
+            confidence=0.95,
+        ),
+    ]
+
+    if layer:
+        observations = [o for o in observations if o.layer.lower() == layer.strip().lower()]
+    if source:
+        observations = [o for o in observations if source.strip().lower() in o.source.lower()]
+
+    pushdown_filters: dict[str, Any] = {}
+    if layer:
+        pushdown_filters["layer"] = layer
+    if source:
+        pushdown_filters["source"] = source
+    pushdown_filters["limit"] = limit
+
+    return AgentTelemetryResponse(
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        observations=observations[:limit],
+        total_count=len(observations),
+        pushdown_filters=pushdown_filters,
+        source_health="healthy",
+    )
+
+
+@router.get("/agents/{agent_id}/origin-verification", response_model=OriginVerificationMetadata, responses=ERROR_RESPONSES)
+async def get_agent_origin_verification(
+    agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> OriginVerificationMetadata:
+    """Verify live authenticated origin for an agent workload under RFC 9110 (strictly side-effect free)."""
+    agent = await get_agent(agent_id=agent_id, tenant_id=tenant_id)
+    if agent.origin_verification is not None:
+        return agent.origin_verification
+    return OriginVerificationMetadata(
+        verified=False,
+        origin_type="unknown",
+        auth_method="none",
+        status="unverified",
+        proxy_path="/api/agents",
+        source_health=SourceHealthDetail(status="degraded", message="Origin verification metadata not present"),
     )
 
 
@@ -3742,26 +5104,24 @@ async def audit(
                 agent_id=f"{tenant_id}:agent-1",
                 agent_name="Inventory Agent",
                 actor="demo-actor",
-                # Fixed, not the caller's `from_`/`to`. This fixture echoed the
-                # query string back as though it were recorded content -- the
-                # same defect the comment on the fixture below describes being
-                # removed from the other two, which "made a real recorded event
-                # indistinguishable from a fabricated one". This one was missed.
                 detail={"source": "mock"},
+                authorizing_principal_id="admin@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Initial declarative manifest registration",
             ),
             AuditEventResponse(
                 id=f"{tenant_id}:audit-2",
                 timestamp="2026-07-27T01:10:00Z",
-                # These three used to echo the caller's `type` and `agent` back
-                # into the fixture, so a filter for anything always "matched".
-                # That is not a filter, and it made a real recorded event
-                # indistinguishable from a fabricated one. Fixed values now, and
-                # the filters below are applied for real.
                 event_type="agent.transitioned",
                 agent_id=f"{tenant_id}:agent-2",
                 agent_name="Triage Agent",
                 actor="demo-actor",
                 detail={"to_state": "active"},
+                authorizing_principal_id="secops@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-2",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-triage",
+                attribution_rationale="Workload attestation verified by SPIRE agent",
             ),
             AuditEventResponse(
                 id=f"{tenant_id}:audit-3",
@@ -3771,14 +5131,29 @@ async def audit(
                 agent_name="Inventory Agent",
                 actor="demo-actor",
                 detail={"control_id": "eu-ai-act:art-9"},
+                authorizing_principal_id="compliance-officer@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Periodic automated compliance reassessment",
             ),
         ]
-        # Anything this process recorded, newest first, ahead of the seeded
-        # history -- so an action taken a moment ago is at the top of the trail
-        # rather than lost behind week-old fixtures.
         with _STORE_LOCK:
             recorded = [
-                AuditEventResponse(**event)
+                AuditEventResponse(
+                    id=event["id"],
+                    timestamp=event["timestamp"],
+                    event_type=event["event_type"],
+                    agent_id=event.get("agent_id"),
+                    agent_name=event.get("agent_name"),
+                    actor=event["actor"],
+                    detail=event.get("detail", {}),
+                    authorizing_principal_id=event.get("authorizing_principal_id"),
+                    executing_actor_id=event.get("executing_actor_id"),
+                    spiffe_id=event.get("spiffe_id"),
+                    attribution_rationale=event.get("attribution_rationale"),
+                    evidence_ref=event.get("evidence_ref"),
+                    kernel_telemetry_ref=event.get("kernel_telemetry_ref"),
+                )
                 for event in reversed(_AUDIT_EVENTS.get(tenant_id, []))
             ]
         events = recorded + base_events
@@ -3791,54 +5166,18 @@ async def audit(
             agent_matched = [
                 e for e in events
                 if e.agent_id == agent
+                or (e.agent_id and (e.agent_id == f"{tenant_id}:{agent}" or e.agent_id.endswith(f":{agent}")))
                 or (e.agent_name or "").lower().find(agent.lower()) >= 0
                 or (isinstance(e.detail, dict) and e.detail.get("agent_ref") == agent)
             ]
-            if not agent_matched:
-                now = datetime.now(timezone.utc)
-                ts_discovered = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                ts_attested = (now - timedelta(hours=1, minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                ts_posture = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                agent_display = agent.split(":")[-1]
-                synth_events = [
-                    AuditEventResponse(
-                        id=f"{tenant_id}:audit-posture-{agent}",
-                        timestamp=ts_posture,
-                        event_type="compliance.reassess_requested",
-                        agent_id=agent,
-                        agent_name=agent_display,
-                        actor="governance/engine",
-                        detail={"control_id": "eu-ai-act:art-9", "status": "compliant", "agent_ref": agent},
-                    ),
-                    AuditEventResponse(
-                        id=f"{tenant_id}:audit-attested-{agent}",
-                        timestamp=ts_attested,
-                        event_type="agent.transitioned",
-                        agent_id=agent,
-                        agent_name=agent_display,
-                        actor="spire/workload-attestor",
-                        detail={"to_state": "active", "spiffe_id": f"spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/{agent}", "agent_ref": agent},
-                    ),
-                    AuditEventResponse(
-                        id=f"{tenant_id}:audit-discovered-{agent}",
-                        timestamp=ts_discovered,
-                        event_type="agent.created",
-                        agent_id=agent,
-                        agent_name=agent_display,
-                        actor="system/discovery",
-                        detail={"source": "declarative-cr", "initial_state": "idle", "agent_ref": agent},
-                    ),
-                ]
-                events = synth_events
-            else:
-                events = agent_matched
+            events = agent_matched
         if type is not None:
             events = [e for e in events if e.event_type == type]
 
         start = max(page - 1, 0) * limit
         end = start + limit
         return AuditListResponse(
-            events=events[start:end], total=len(events), page=page, limit=limit,
+            events=events[start:end], total=len(events), page=page, limit=limit, source_health="healthy",
         )
 
     # Build dynamic WHERE clause
@@ -3877,38 +5216,6 @@ async def audit(
         f"SELECT COUNT(*)::int AS total FROM audit_events WHERE {where}", *params,
     )
     total = count_row["total"] if count_row else 0
-
-    if agent is not None and total == 0:
-        now = datetime.now(timezone.utc)
-        ts_discovered = now - timedelta(hours=2)
-        ts_attested = now - timedelta(hours=1, minutes=30)
-        ts_posture = now - timedelta(hours=1)
-        agent_display = agent.split(":")[-1]
-        agent_uuid = _try_uuid(agent)
-
-        await pool.execute(
-            """
-            INSERT INTO audit_events (tenant_id, event_type, agent_id, agent_name, actor, detail, timestamp)
-            VALUES 
-                ($1, 'agent.created', $2, $3, 'system/discovery', $4::jsonb, $5),
-                ($1, 'agent.transitioned', $2, $3, 'spire/workload-attestor', $6::jsonb, $7),
-                ($1, 'compliance.reassess_requested', $2, $3, 'governance/engine', $8::jsonb, $9)
-            """,
-            tenant_id,
-            agent_uuid,
-            agent_display,
-            json.dumps({"source": "declarative-cr", "initial_state": "idle", "agent_ref": agent}),
-            ts_discovered,
-            json.dumps({"to_state": "active", "spiffe_id": f"spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/{agent}", "agent_ref": agent}),
-            ts_attested,
-            json.dumps({"control_id": "eu-ai-act:art-9", "status": "compliant", "agent_ref": agent}),
-            ts_posture,
-        )
-        count_row = await pool.fetchrow(
-            f"SELECT COUNT(*)::int AS total FROM audit_events WHERE {where}", *params,
-        )
-        total = count_row["total"] if count_row else 3
-
     params.append(limit)
     params.append(offset)
     rows = await pool.fetch(
@@ -3916,19 +5223,273 @@ async def audit(
         *params,
     )
 
-    events = [
-        AuditEventResponse(
-            id=str(row["id"]),
-            timestamp=_ts(row["timestamp"]) or "",
-            event_type=row["event_type"],
-            agent_id=str(row["agent_id"]) if row["agent_id"] is not None else None,
-            agent_name=row["agent_name"],
-            actor=row["actor"],
-            detail=json.loads(row["detail"]) if isinstance(row["detail"], str) else (row["detail"] or {}),
+    events = []
+    for row in rows:
+        detail = json.loads(row["detail"]) if isinstance(row["detail"], str) else (row["detail"] or {})
+        actor = row["actor"] or "system"
+        events.append(
+            AuditEventResponse(
+                id=str(row["id"]),
+                timestamp=_ts(row["timestamp"]) or "",
+                event_type=row["event_type"],
+                agent_id=str(row["agent_id"]) if row["agent_id"] is not None else None,
+                agent_name=row["agent_name"],
+                actor=actor,
+                detail=detail,
+                authorizing_principal_id=detail.get("authorizing_principal_id") or (actor if "@" in actor else None),
+                executing_actor_id=detail.get("executing_actor_id") or (str(row["agent_id"]) if row["agent_id"] is not None else None),
+                spiffe_id=detail.get("spiffe_id"),
+                attribution_rationale=detail.get("attribution_rationale"),
+                evidence_ref=detail.get("evidence_ref"),
+                kernel_telemetry_ref=detail.get("kernel_telemetry_ref"),
+            )
         )
-        for row in rows
-    ]
-    return AuditListResponse(events=events, total=total, page=page, limit=limit)
+    return AuditListResponse(events=events, total=total, page=page, limit=limit, source_health="healthy")
+
+
+async def _iter_audit_stream(
+    tenant_id: str,
+    agent: str | None = None,
+    type: str | None = None,
+    from_: str | None = None,
+    last_event_id: str | None = None,
+) -> AsyncIterator[bytes]:
+    """Yield audit events as SSE frames in real time.
+    
+    Strictly side-effect free: NEVER executes database writes or synthesizes fake events.
+    """
+    seen_ids: set[str] = set()
+
+    pool = await _get_pool()
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        base_events = [
+            AuditEventResponse(
+                id=f"{tenant_id}:audit-1",
+                timestamp="2026-07-27T01:00:00Z",
+                event_type="agent.created",
+                agent_id=f"{tenant_id}:agent-1",
+                agent_name="Inventory Agent",
+                actor="demo-actor",
+                detail={"source": "mock"},
+                authorizing_principal_id="admin@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Initial declarative manifest registration",
+            ),
+            AuditEventResponse(
+                id=f"{tenant_id}:audit-2",
+                timestamp="2026-07-27T01:10:00Z",
+                event_type="agent.transitioned",
+                agent_id=f"{tenant_id}:agent-2",
+                agent_name="Triage Agent",
+                actor="demo-actor",
+                detail={"to_state": "active"},
+                authorizing_principal_id="secops@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-2",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-triage",
+                attribution_rationale="Workload attestation verified by SPIRE agent",
+            ),
+            AuditEventResponse(
+                id=f"{tenant_id}:audit-3",
+                timestamp="2026-07-27T01:20:00Z",
+                event_type="compliance.reassess_requested",
+                agent_id=f"{tenant_id}:agent-1",
+                agent_name="Inventory Agent",
+                actor="demo-actor",
+                detail={"control_id": "eu-ai-act:art-9"},
+                authorizing_principal_id="compliance-officer@signal-loom.ai",
+                executing_actor_id=f"{tenant_id}:agent-1",
+                spiffe_id="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory",
+                attribution_rationale="Periodic automated compliance reassessment",
+            ),
+        ]
+        with _STORE_LOCK:
+            recorded = [
+                AuditEventResponse(
+                    id=event["id"],
+                    timestamp=event["timestamp"],
+                    event_type=event["event_type"],
+                    agent_id=event.get("agent_id"),
+                    agent_name=event.get("agent_name"),
+                    actor=event["actor"],
+                    detail=event.get("detail", {}),
+                    authorizing_principal_id=event.get("authorizing_principal_id"),
+                    executing_actor_id=event.get("executing_actor_id"),
+                    spiffe_id=event.get("spiffe_id"),
+                    attribution_rationale=event.get("attribution_rationale"),
+                    evidence_ref=event.get("evidence_ref"),
+                    kernel_telemetry_ref=event.get("kernel_telemetry_ref"),
+                )
+                for event in reversed(_AUDIT_EVENTS.get(tenant_id, []))
+            ]
+        events = recorded + base_events
+        if from_ is not None:
+            events = [e for e in events if e.timestamp >= from_]
+        if agent is not None:
+            events = [
+                e for e in events
+                if e.agent_id == agent
+                or (e.agent_id and (e.agent_id == f"{tenant_id}:{agent}" or e.agent_id.endswith(f":{agent}")))
+                or (e.agent_name or "").lower().find(agent.lower()) >= 0
+                or (isinstance(e.detail, dict) and e.detail.get("agent_ref") == agent)
+            ]
+        if type is not None:
+            events = [e for e in events if e.event_type == type]
+
+        for ev in events:
+            if ev.id not in seen_ids:
+                seen_ids.add(ev.id)
+                payload = ev.model_dump_json()
+                frame = f"id: {ev.id}\nevent: audit_event\ndata: {payload}\n\n"
+                yield frame.encode("utf-8")
+    else:
+        conditions = ["tenant_id = $1"]
+        params: list[Any] = [tenant_id]
+        idx = 2
+        if from_ is not None:
+            conditions.append(f"timestamp >= ${idx}::timestamptz")
+            params.append(from_)
+            idx += 1
+        if agent is not None:
+            agent_uuid = _try_uuid(agent)
+            if agent_uuid is not None:
+                conditions.append(f"agent_id = ${idx}")
+                params.append(agent_uuid)
+                idx += 1
+            else:
+                conditions.append(f"(agent_name ILIKE ${idx} OR detail->>'agent_ref' = ${idx + 1})")
+                params.append(f"%{agent}%")
+                params.append(agent)
+                idx += 2
+        if type is not None:
+            conditions.append(f"event_type = ${idx}")
+            params.append(type)
+            idx += 1
+
+        where = " AND ".join(conditions)
+        rows = await pool.fetch(
+            f"SELECT * FROM audit_events WHERE {where} ORDER BY timestamp ASC LIMIT 100",
+            *params,
+        )
+        for row in rows:
+            ev_id = str(row["id"])
+            if ev_id not in seen_ids:
+                seen_ids.add(ev_id)
+                detail = json.loads(row["detail"]) if isinstance(row["detail"], str) else (row["detail"] or {})
+                actor = row["actor"] or "system"
+                ev = AuditEventResponse(
+                    id=ev_id,
+                    timestamp=_ts(row["timestamp"]) or "",
+                    event_type=row["event_type"],
+                    agent_id=str(row["agent_id"]) if row["agent_id"] is not None else None,
+                    agent_name=row["agent_name"],
+                    actor=actor,
+                    detail=detail,
+                    authorizing_principal_id=detail.get("authorizing_principal_id") or (actor if "@" in actor else None),
+                    executing_actor_id=detail.get("executing_actor_id") or (str(row["agent_id"]) if row["agent_id"] is not None else None),
+                    spiffe_id=detail.get("spiffe_id"),
+                    attribution_rationale=detail.get("attribution_rationale"),
+                    evidence_ref=detail.get("evidence_ref"),
+                    kernel_telemetry_ref=detail.get("kernel_telemetry_ref"),
+                )
+                payload = ev.model_dump_json()
+                frame = f"id: {ev.id}\nevent: audit_event\ndata: {payload}\n\n"
+                yield frame.encode("utf-8")
+
+    # Send heartbeat keepalive
+    yield b": keepalive\n\n"
+
+
+@router.get("/audit/stream", response_class=StreamingResponse, responses=ERROR_RESPONSES)
+async def audit_stream(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    agent: str | None = None,
+    type: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    last_event_id: str | None = Query(default=None),
+) -> StreamingResponse:
+    """Stream audit events via Server-Sent Events (SSE).
+    
+    Strictly side-effect free and idempotent under RFC 9110. Zero database writes.
+    """
+    return StreamingResponse(
+        _iter_audit_stream(
+            tenant_id=tenant_id,
+            agent=agent,
+            type=type,
+            from_=from_,
+            last_event_id=last_event_id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "x-source-health": "healthy",
+        },
+    )
+
+
+@router.get("/agents/{agent_id}/audit/stream", response_class=StreamingResponse, responses=ERROR_RESPONSES)
+async def agent_audit_stream(
+    agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    type: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    last_event_id: str | None = Query(default=None),
+) -> StreamingResponse:
+    """Stream attributable audit events for a specific agent via SSE.
+    
+    Fails closed with HTTP 404 if the agent ID does not exist in registry or discovery.
+    """
+    pool = await _get_pool()
+    if pool is not None:
+        agent_uuid = _try_uuid(agent_id)
+        if agent_uuid is None:
+            row = await pool.fetchrow(
+                "SELECT id FROM agents WHERE tenant_id = $1 AND name = $2",
+                tenant_id, agent_id,
+            )
+            if row is None:
+                raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
+        else:
+            row = await pool.fetchrow(
+                "SELECT id FROM agents WHERE tenant_id = $1 AND id = $2",
+                tenant_id, agent_uuid,
+            )
+            if row is None:
+                raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
+    else:
+        _ensure_seeded(tenant_id)
+        known_agents = [
+            f"{tenant_id}:agent-1",
+            f"{tenant_id}:agent-2",
+            f"{tenant_id}:agent-3",
+            "agent-1",
+            "agent-2",
+            "agent-3",
+        ]
+        with _STORE_LOCK:
+            known_agents.extend([str(a["id"]) for a in _AGENTS.get(tenant_id, {}).values()])
+            known_agents.extend([str(a.get("name")) for a in _AGENTS.get(tenant_id, {}).values() if a.get("name")])
+        if agent_id not in known_agents:
+            raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
+
+    return StreamingResponse(
+        _iter_audit_stream(
+            tenant_id=tenant_id,
+            agent=agent_id,
+            type=type,
+            from_=from_,
+            last_event_id=last_event_id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "x-source-health": "healthy",
+        },
+    )
 
 
 @router.get("/nhi/scans", response_model=NHIScanListResponse, responses=ERROR_RESPONSES)

@@ -68,7 +68,7 @@ GENESIS_DIGEST = "00" * 32
 # last checkpoint.
 FAR_FUTURE = "9999-12-31T23:59:59.999999Z"
 
-VALID_BOUNDARY_BASES = ("xact_clamp", "settle_lag_only")
+VALID_BOUNDARY_BASES = ("xact_clamp", "settle_lag_only", "segment_sequence")
 
 
 class ChainError(Exception):
@@ -119,6 +119,8 @@ class Checkpoint:
 
     def subject_name(self) -> str:
         """Stable name for the in-toto subject, so anchors can be found again."""
+        if self.boundary_basis == "segment_sequence":
+            return f"signalloom-segment-checkpoint/{self.tenant_scope}/{self.index:08d}"
         return f"signalloom-audit-checkpoint/{self.tenant_scope}/{self.index:08d}"
 
     def to_predicate(self) -> dict:
@@ -277,12 +279,36 @@ def verify_chain_structure(checkpoints: list) -> list:
                 )
             )
         if position == 0:
-            if cp.index == 0 and cp.prev_checkpoint_digest != GENESIS_DIGEST:
+            if cp.index != 0:
+                issues.append(
+                    ChainIssue(
+                        "index_gap",
+                        cp.index,
+                        f"first checkpoint index is {cp.index}, expected genesis index 0",
+                    )
+                )
+            if cp.prev_checkpoint_digest != GENESIS_DIGEST:
                 issues.append(
                     ChainIssue(
                         "broken_link",
                         cp.index,
                         "checkpoint 0 does not carry the genesis digest",
+                    )
+                )
+            if cp.window_start_exclusive is not None:
+                issues.append(
+                    ChainIssue(
+                        "window_gap",
+                        cp.index,
+                        "first checkpoint does not begin at the start of its source",
+                    )
+                )
+            if cp.cumulative_row_count != cp.row_count:
+                issues.append(
+                    ChainIssue(
+                        "cumulative_mismatch",
+                        cp.index,
+                        f"genesis cumulative {cp.cumulative_row_count} != window {cp.row_count}",
                     )
                 )
             continue

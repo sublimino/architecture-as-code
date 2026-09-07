@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---- shared nested types ---------------------------------------------------
@@ -48,8 +48,143 @@ class AgentCreateRequest(BaseModel):
     owner: str | None = None
 
 
-class AgentResponse(BaseModel):
+class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active", "revoked"]
+    reason: str | None = None
+    revoked_at: str | None = None
+    revoked_by: str | None = None
+
+
+class SentinelKernelTelemetry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cgroup_frozen: bool = False
+    cgroup_state: Literal["frozen", "thawed", "none", "unknown"] = "thawed"
+    tc_drop_active: bool = False
+    traffic_control_state: Literal["drop", "allow", "unknown"] = "allow"
+    ebpf_active: bool = False
+    ebpf_program_attached: bool | None = None
+    observed_at: str | None = None
+    last_observed_at: str | None = None
+    containment_latency_ms: float | None = None
+    cgroup_path: str | None = None
+    veth_interface: str | None = None
+    sentinel_ack: bool = False
+    sentinel_ack_id: str | None = None
+    sentinel_drop_count: int | None = None
+    sentinel_last_ack_at: str | None = None
+    containment_probe_state: Literal["confirmed", "pending", "unconfirmed"] = "unconfirmed"
+
+
+class RuntimeMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cluster_id: str | None = None
+    namespace: str | None = None
+    pod_name: str | None = None
+    pod_uid: str | None = None
+    service_account: str | None = None
+    framework: str | None = None
+    model: str | None = None
+    execution_mode: str | None = None
+    node: str | None = None
+    phase: str | None = None
+
+
+class ResponsibilityMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner_id: str | None = None
+    owner_name: str | None = None
+    team: str | None = None
+    assignment_status: Literal["assigned", "unassigned", "registry_unlinked"] = "unassigned"
+
+
+class IdentityMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spiffe_id: str | None = None
+    spiffe_status: Literal["linked", "unlinked"] = "unlinked"
+    aliases: list[str] = Field(default_factory=list)
+    trust_domain: str | None = None
+    svid_type: str | None = None
+    cert_valid_from: str | None = None
+    cert_valid_until: str | None = None
+    cert_serial: str | None = None
+    cert_issuer: str | None = None
+    selectors: list[str] = Field(default_factory=list)
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    delegation_hops: int | None = None
+    openbao_role: str | None = None
+    openbao_path: str | None = None
+
+
+class ContainmentMeasures(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+
+
+class OperationalStateMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runtime_status: str = "unknown"
+    containment: ContainmentMeasures = Field(default_factory=ContainmentMeasures)
+
+
+class AssessmentSummaryMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["assessed", "not_assessed"] = "not_assessed"
+    total_controls: int = 0
+    passed_controls: int = 0
+    failed_controls: int = 0
+    pending_controls: int = 0
+    normalized_score: float | None = None
+
+
+class AttentionMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    level: Literal["critical", "warning", "info", "none"] = "none"
+    highest_issue: str | None = None
+
+
+class TimestampsMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    created_at: str | None = None
+    last_observed_at: str | None = None
+    last_transition_at: str | None = None
+    last_action_at: str | None = None
+
+
+class EnrichedAgentRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    id: str
+    name: str
+    record_class: Literal["registered", "discovered", "resolved", "fixture"] = "registered"
+    is_registry_linked: bool = False
+    runtime: RuntimeMetadata = Field(default_factory=RuntimeMetadata)
+    responsibility: ResponsibilityMetadata = Field(default_factory=lambda: ResponsibilityMetadata(assignment_status="unassigned"))
+    identity: IdentityMetadata = Field(default_factory=lambda: IdentityMetadata(spiffe_status="unlinked", aliases=[]))
+    operational_state: OperationalStateMetadata = Field(default_factory=lambda: OperationalStateMetadata(
+        runtime_status="unknown",
+        containment=ContainmentMeasures(process_freeze="inactive", network_isolation="inactive", credential_revocation="inactive")
+    ))
+    assessment_summary: AssessmentSummaryMetadata = Field(default_factory=AssessmentSummaryMetadata)
+    attention: AttentionMetadata = Field(default_factory=AttentionMetadata)
+    timestamps: TimestampsMetadata = Field(default_factory=TimestampsMetadata)
+
+
+class AgentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     id: str
     name: str
@@ -63,13 +198,142 @@ class AgentResponse(BaseModel):
     compliance_summary: ComplianceSummaryInline
     model_name: str | None = None
     created_at: str | None
+    credential_state: AgentCredentialState | None = None
+    kernel_telemetry: SentinelKernelTelemetry | None = None
+
+    # Workload / Kubernetes preserved discovery fields
+    namespace: str | None = None
+    service_account: str | None = None
+    node: str | None = None
+    phase: str | None = None
+    pod_uid: str | None = None
+    framework: str | None = None
+    state: str | None = None
+    record_class: Literal["registered", "discovered", "resolved", "fixture"] = "registered"
+    is_registry_linked: bool = False
+
+    # Section 2.1 Enriched Structures
+    runtime: RuntimeMetadata | None = None
+    responsibility: ResponsibilityMetadata | None = None
+    identity: IdentityMetadata | None = None
+    operational_state: OperationalStateMetadata | None = None
+    assessment_summary: AssessmentSummaryMetadata | None = None
+    attention: AttentionMetadata | None = None
+    timestamps: TimestampsMetadata | None = None
+
+
+class AgentListMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_records: int
+    operational_count: int
+    registered_count: int
+    discovered_count: int
+    resolved_count: int
+    fixture_count: int
+
+
+class SourceHealthDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["healthy", "degraded", "error", "unavailable"]
+    last_good: str | None = None
+    message: str | None = None
+
+
+class SourceHealthMap(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    k8s_discovery: SourceHealthDetail
+    postgres_registry: SourceHealthDetail
+    crypto_proofs: SourceHealthDetail
+
+
+class PaginationMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page: int
+    limit: int
+    total_pages: int
 
 
 class AgentListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agents: list[AgentResponse]
+    data: list[AgentResponse] | None = None
     total: int
+    meta: AgentListMeta | None = None
+    source_health: str | None = None
+    source_health_detail: SourceHealthMap | None = None
+    pagination: PaginationMetadata | None = None
+
+
+# ---- Capabilities ----------------------------------------------------------
+
+class ActionCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    reason: str | None = None
+    requires_confirmation: bool = False
+    requires_reason: bool = False
+    requires_dual_approval: bool = False
+    scope: str = "tenant"
+
+
+class WorkloadActionCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str | None = None
+    workload: str | None = None
+    namespace: str | None = None
+    freeze: ActionCapability
+    thaw: ActionCapability
+    network_isolate: ActionCapability
+    network_restore: ActionCapability
+    revoke_credentials: ActionCapability
+    issue_credentials: ActionCapability
+    reassess_compliance: ActionCapability
+    decommission: ActionCapability
+    run_scenario: ActionCapability
+
+
+class TenantCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    view_agents: bool = True
+    register_agent: bool = True
+    export_compliance: bool = True
+    view_crypto_proofs: bool = True
+    run_network_tests: bool = True
+    view_audit_trail: bool = True
+    manage_settings: bool = False
+    manage_api_keys: bool = False
+    manage_users: bool = False
+    run_supercred_scenario: bool = False
+
+
+class CapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant: str
+    principal_id: str
+    email: str | None = None
+    roles: list[str]
+    is_superadmin: bool
+    tenant_capabilities: TenantCapabilities
+    actions: dict[str, ActionCapability]
+    workload: WorkloadActionCapabilities | None = None
+    source_health: str | None = "healthy"
+
+
+class CapabilitiesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str | None = None
+    workload: str | None = None
+    namespace: str | None = None
 
 
 # ---- Credentials -----------------------------------------------------------
@@ -162,6 +426,12 @@ class AuditEventResponse(BaseModel):
     agent_name: str | None
     actor: str
     detail: dict[str, Any]
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    spiffe_id: str | None = None
+    attribution_rationale: str | None = None
+    evidence_ref: str | None = None
+    kernel_telemetry_ref: str | None = None
 
 
 class AuditListResponse(BaseModel):
@@ -171,6 +441,8 @@ class AuditListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    source_health: Literal["healthy", "degraded", "unavailable"] | None = None
+    source_health_detail: dict[str, Any] | None = None
 
 
 # ---- Compliance ------------------------------------------------------------
@@ -271,6 +543,7 @@ class CryptoHealthResponse(BaseModel):
 
     tenant_id: str
     proofs: list[CryptoProof]
+    source_health: str | None = None
 
 
 # ---- NHI Discovery --------------------------------------------------------

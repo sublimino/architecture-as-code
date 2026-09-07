@@ -1,12 +1,5 @@
-"""DSSE envelopes, signature verification, and the two anchor transports.
-
-The Archivista tests run against a stub HTTP server implementing the documented
-endpoints.  That proves our client's wire behaviour -- URLs, payload shape,
-response parsing, error handling -- and it does NOT prove the real Archivista
-agrees with our reading of its API.  The backend slice holding Archivista is not
-deployed in the cluster this was built against, so that remains unverified and
-is called out as such in the README rather than quietly assumed.
-"""
+"""DSSE envelopes, signature verification, and the two anchor transports."""
+import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -25,6 +18,8 @@ from audit_anchor.anchor import (
     pae,
     sign_envelope,
     verify_envelope,
+    store_from_env,
+    require_rekor_if_configured,
 )
 from audit_anchor.checkpoint import GENESIS_DIGEST, PREDICATE_TYPE, build_checkpoint
 
@@ -209,8 +204,6 @@ class _StubArchivista(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/v1/health":
-            return self._respond({"status": "ok"})
         if self.path.startswith("/download/"):
             gitoid = self.path.rsplit("/", 1)[-1]
             return self._respond(self.envelopes[gitoid])
@@ -219,14 +212,13 @@ class _StubArchivista(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         if self.path == "/upload":
-            import hashlib
-
             envelope = json.loads(body)
-            gitoid = hashlib.sha256(body).hexdigest()
+            framed = f"blob {len(body)}\0".encode() + body
+            gitoid = hashlib.sha256(framed).hexdigest()
             self.envelopes[gitoid] = envelope
             return self._respond({"gitoid": gitoid})
         if self.path == "/query":
-            prefix = json.loads(body)["variables"]["prefix"]
+            prefix = json.loads(body).get("variables", {}).get("prefix", "")
             import base64
 
             edges = []
@@ -256,6 +248,20 @@ def test_archivista_health_check_is_false_when_unreachable():
     assert not ArchivistaAnchorStore("http://127.0.0.1:1").health()
 
 
+def test_archivista_health_check_rejects_graphql_errors():
+    class ErrorQuery(_StubArchivista):
+        def do_POST(self):
+            self._respond({"errors": [{"message": "not ready"}]})
+
+    server = HTTPServer(("127.0.0.1", 0), ErrorQuery)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert not ArchivistaAnchorStore(f"http://127.0.0.1:{server.server_port}").health()
+    finally:
+        server.shutdown()
+
+
 def test_archivista_round_trips(stub_archivista, keypair):
     private, public = keypair
     store = ArchivistaAnchorStore(stub_archivista)
@@ -267,6 +273,17 @@ def test_archivista_round_trips(stub_archivista, keypair):
         key=lambda cp: cp.index,
     )
     assert [cp.index for cp in recovered] == [0, 1, 2]
+
+
+def test_archivista_publish_rejects_mismatched_gitoid(stub_archivista, keypair):
+    private, _ = keypair
+    store = ArchivistaAnchorStore(stub_archivista)
+    envelope = sign_envelope(build_statement(_checkpoint()), private)
+    original_post = store._post
+    store._post = lambda path, body, content_type: json.dumps({"gitoid": "0" * 64})
+    with pytest.raises(AnchorError, match="does not match"):
+        store.publish(_checkpoint(), envelope)
+    store._post = original_post
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -348,3 +365,46 @@ def test_archivista_publish_surfaces_an_unreachable_server(keypair):
         ArchivistaAnchorStore("http://127.0.0.1:1").publish(
             cp, sign_envelope(build_statement(cp), private)
         )
+
+
+def test_strict_archivista_does_not_fall_back_without_url(monkeypatch):
+    monkeypatch.delenv("ARCHIVISTA_URL", raising=False)
+    with pytest.raises(AnchorError, match="requires ARCHIVISTA_URL"):
+        store_from_env(require_archivista=True)
+
+
+def test_strict_archivista_does_not_fall_back_when_unreachable(monkeypatch):
+    monkeypatch.setenv("ARCHIVISTA_URL", "http://127.0.0.1:1")
+    with pytest.raises(AnchorError, match="unavailable"):
+        store_from_env(require_archivista=True)
+
+
+def test_strict_archivista_environment_does_not_fall_back(monkeypatch):
+    monkeypatch.setenv("AUDIT_ANCHOR_REQUIRE_LOG", "1")
+    monkeypatch.setenv("ARCHIVISTA_URL", "http://127.0.0.1:1")
+    with pytest.raises(AnchorError, match="unavailable"):
+        store_from_env()
+
+
+def test_expected_key_id_rejects_keyid_replacement(keypair):
+    private, public = keypair
+    envelope = sign_envelope(build_statement(_checkpoint()), private)
+    envelope["signatures"][0]["keyid"] = "00" * 32
+    with pytest.raises(AnchorError):
+        verify_envelope(envelope, public)
+
+
+def test_configured_rekor_failure_is_explicit(monkeypatch):
+    monkeypatch.setenv("REKOR_URL", "http://127.0.0.1:1")
+    with pytest.raises(AnchorError, match="Rekor.*unavailable"):
+        require_rekor_if_configured(timeout=1)
+
+
+def test_reachable_rekor_is_not_mistaken_for_publication(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("REKOR_URL", "http://rekor.example.invalid")
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: nullcontext(SimpleNamespace(status=200)))
+    with pytest.raises(AnchorError, match="no checkpoint was published"):
+        require_rekor_if_configured()

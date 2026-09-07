@@ -44,6 +44,9 @@ type Handlers struct {
 
 	// CollectorHealth, when non-nil, polls source readiness for live collectors.
 	CollectorHealth func(context.Context) error
+
+	// IdentityStore provides access to the persisted identity and delegation graph (SFDP-P3-2).
+	IdentityStore any
 }
 
 // readyCheckTimeout bounds the /readyz connectivity check. It must stay under
@@ -64,6 +67,8 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/observations", h.handleQueryObservations)
 	mux.HandleFunc("GET /api/v1/actors", h.handleListActors)
 	mux.HandleFunc("GET /api/v1/actors/{id}", h.handleGetActor)
+	mux.HandleFunc("GET /api/v1/actors/{id}/authorization", h.handleGetActorAuthorization)
+	mux.HandleFunc("GET /api/v1/authorization", h.handleQueryAuthorization)
 	mux.HandleFunc("POST /api/v1/actors/{id}/promote", h.handlePromoteActor)
 	mux.HandleFunc("GET /api/v1/coverage", handleCoverage)
 	mux.HandleFunc("POST /api/v1/correlate", h.handleCorrelate)
@@ -71,7 +76,12 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/store/stats", h.handleStoreStats)
 	mux.HandleFunc("GET /api/v1/stream", h.handleStream)
 	mux.HandleFunc("GET /api/v1/observations/stream", h.handleStream)
-	mux.HandleFunc("POST /api/v1/audit/webhook", h.handleAuditWebhook)
+	mux.HandleFunc("GET /stream", h.handleStream)
+	mux.HandleFunc("GET /observations/stream", h.handleStream)
+	mux.HandleFunc("POST "+apiaudit.WebhookPath, h.handleAuditWebhook)
+	mux.HandleFunc("POST /audit/webhook", h.handleAuditWebhook)
+	mux.HandleFunc("POST "+apiaudit.GKEWebhookPath, h.handleGKECloudLogging)
+	mux.HandleFunc("POST /audit/gke", h.handleGKECloudLogging)
 }
 
 func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +90,14 @@ func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.AuditReceiver.HandleAuditWebhook(w, r)
+}
+
+func (h *Handlers) handleGKECloudLogging(w http.ResponseWriter, r *http.Request) {
+	if h.AuditReceiver == nil {
+		writeError(w, http.StatusServiceUnavailable, "audit webhook receiver not configured")
+		return
+	}
+	h.AuditReceiver.HandleGKECloudLogging(w, r)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -38,12 +38,14 @@ describe('demo mode', () => {
   // 46 since the signal weave routes were added (observations, actors,
   // actor/:id, promote, coverage, correlate, collectors/seed = 7 new).
   // +1 store/stats route added for Signal Store admin page = 47.
+  // +2 network-tests routes (GET /network-tests, POST /network-tests/scan) = 49.
+  // +1 capabilities route (GET /capabilities) = 50.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
   // This count is deliberately exact rather than a lower bound — it is the
   // guard that notices a route silently disappearing in a merge, which is
   // precisely what nearly happened to the stun route here.
-  it('covers the full 47-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(47)
+  it('covers the full 50-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(50)
   })
 
   // Merge note: this assertion came from feat/supercred-inventory-live, where the
@@ -379,5 +381,51 @@ describe('demo mode', () => {
       data: body,
       headers: expect.objectContaining({ Authorization: 'Bearer live-token' }),
     }))
+  })
+
+  it('serves server-authorized action capabilities in demo mode and queries live endpoint', async () => {
+    setDemoMode(true)
+    const demoCaps = await api.capabilities('demo-token')
+    expect(demoCaps.tenant).toBe('tenant-demo')
+    expect(demoCaps.is_superadmin).toBe(true)
+    expect(demoCaps.roles).toContain('superadmin')
+    expect(demoCaps.actions.freeze.allowed).toBe(true)
+    expect(demoCaps.actions.decommission.allowed).toBe(false)
+    expect(demoCaps.actions.decommission.requires_dual_approval).toBe(true)
+    expect(demoCaps.tenant_capabilities.view_agents).toBe(true)
+
+    setDemoMode(false)
+    const livePayload = {
+      tenant: 'tenant-prod',
+      principal_id: 'operator-1',
+      roles: ['operator'],
+      is_superadmin: false,
+      tenant_capabilities: {
+        view_agents: true,
+        register_agent: true,
+        export_compliance: true,
+        view_crypto_proofs: true,
+        run_network_tests: true,
+        view_audit_trail: true,
+        manage_settings: false,
+        manage_api_keys: false,
+        manage_users: false,
+        run_supercred_scenario: false,
+      },
+      actions: {
+        freeze: { allowed: false, reason: 'Privileged containment requires superadmin authorization', scope: 'tenant:tenant-prod' },
+      },
+      workload: null,
+      source_health: 'healthy',
+    }
+    requestMock.mockResolvedValueOnce({ data: livePayload })
+
+    const result = await api.capabilities('live-token', { agent_id: 'agent-1' })
+    expect(requestMock).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/capabilities?agent_id=agent-1',
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer live-token' }),
+    }))
+    expect(result).toBe(livePayload)
   })
 })

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import PixelLoader from '../components/PixelLoader'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -256,6 +257,7 @@ function DegradedBanner({ topology }: { topology: TrustTopologyResponse | null }
 
 export default function AgentTrustTopologyPage() {
   const { getAccessTokenSilently } = useAuth0()
+  const [searchParams] = useSearchParams()
   const [demo, setDemo] = useState(isDemoMode())
   const [liveTopology, setLiveTopology] = useState<TrustTopologyResponse | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -302,11 +304,20 @@ export default function AgentTrustTopologyPage() {
   const allNodes = useMemo(() => topology?.nodes ?? [], [topology])
   const allEdges = useMemo(() => topology?.edges ?? [], [topology])
   const nodesById = useMemo(() => new Map(allNodes.map(node => [node.id, node])), [allNodes])
+
   useEffect(() => {
+    const actor = searchParams.get('actor') || searchParams.get('agent') || searchParams.get('node')
+    if (actor && allNodes.length > 0) {
+      const match = allNodes.find(n => n.id === actor || n.id.toLowerCase().includes(actor.toLowerCase()) || n.label?.toLowerCase().includes(actor.toLowerCase()))
+      if (match) {
+        setSelected({ type: 'node', id: match.id })
+        return
+      }
+    }
     if (allEdges.some(edge => edge.id === selected.id) || allNodes.some(node => node.id === selected.id)) return
     const first = allEdges[0] ?? allNodes[0]
     if (first) setSelected({ type: allEdges[0] ? 'edge' : 'node', id: first.id })
-  }, [allEdges, allNodes, selected.id])
+  }, [allEdges, allNodes, selected.id, searchParams])
   const { nodes, edges } = useMemo(() => {
     // 'shared' is not a tenant -- SPIRE and OpenBao belong to the platform and
     // serve every tenant. Filtering them out with the tenants left a tenant view

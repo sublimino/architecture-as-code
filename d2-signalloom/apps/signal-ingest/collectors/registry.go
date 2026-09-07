@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 )
 
 // Registry manages the lifecycle, startup ordering, and health checks of registered collectors.
@@ -75,14 +77,21 @@ func (r *Registry) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop terminates all started collectors.
+// Stop terminates all started collectors with per-collector panic isolation.
 func (r *Registry) Stop() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for _, c := range r.started {
 		if s, ok := c.(Stopper); ok {
-			s.Stop()
+			func(col Collector, stopper Stopper) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						slog.Error("collector panic during stop", "name", col.Name(), "panic", rec)
+					}
+				}()
+				stopper.Stop()
+			}(c, s)
 		}
 	}
 	r.started = nil
@@ -112,19 +121,33 @@ func (r *Registry) Health(ctx context.Context) error {
 // NewRegistryFromEnv creates a registry with all six standard collector packages registered,
 // configured from environment variables, defaulting to ModeOff when variables are unset.
 func NewRegistryFromEnv(sink IngestionSink) *Registry {
+	return NewRegistryFromEnvWithReceiver(sink, nil)
+}
+
+// NewRegistryFromEnvWithReceiver creates a registry with all six standard collector packages registered,
+// reusing an existing audit.WebhookReceiver for the k8saudit collector.
+func NewRegistryFromEnvWithReceiver(sink IngestionSink, rcv *audit.WebhookReceiver) *Registry {
 	reg := NewRegistry()
 
 	reg.Register(NewGCPAuditCollector(resolveEnvMode("COLLECTOR_GCPAUDIT_MODE", "SIGNAL_COLLECTOR_GCPAUDIT", "GCPAUDIT_MODE"), sink))
 	reg.Register(NewBaoAuditCollector(resolveEnvMode("COLLECTOR_BAOAUDIT_MODE", "SIGNAL_COLLECTOR_BAOAUDIT", "BAOAUDIT_MODE"), sink))
 	reg.Register(NewSPIREACollector(resolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), sink))
 	reg.Register(NewNetEBPFCollector(resolveEnvMode("COLLECTOR_NETEBPF_MODE", "SIGNAL_COLLECTOR_NETEBPF", "NETEBPF_MODE"), sink))
-	reg.Register(NewK8sAuditCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink))
+	if rcv != nil {
+		reg.Register(NewK8sAuditCollectorWithReceiver(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink, rcv))
+	} else {
+		reg.Register(NewK8sAuditCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink))
+	}
+	reg.Register(NewKAgentCollector(resolveEnvMode("COLLECTOR_KAGENT_MODE", "SIGNAL_COLLECTOR_KAGENT", "KAGENT_MODE"), sink))
+	reg.Register(NewWorkspaceSaaSCollector(resolveEnvMode("COLLECTOR_WORKSPACESAAS_MODE", "SIGNAL_COLLECTOR_WORKSPACESAAS", "WORKSPACESAAS_MODE"), sink))
 	reg.Register(NewFixtureCollector(resolveEnvMode("COLLECTOR_FIXTURES_MODE", "SIGNAL_COLLECTOR_FIXTURES", "FIXTURES_MODE"), sink))
 
 	return reg
 }
 
-func resolveEnvMode(keys ...string) Mode {
+// ResolveEnvMode checks the provided environment variable keys and parses the first non-empty value into a Mode.
+// Defaults to ModeOff if none of the keys are set.
+func ResolveEnvMode(keys ...string) Mode {
 	for _, k := range keys {
 		if val := os.Getenv(k); val != "" {
 			return ParseMode(val)
@@ -132,3 +155,8 @@ func resolveEnvMode(keys ...string) Mode {
 	}
 	return ModeOff
 }
+
+func resolveEnvMode(keys ...string) Mode {
+	return ResolveEnvMode(keys...)
+}
+

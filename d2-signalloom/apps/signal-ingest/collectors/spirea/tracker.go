@@ -14,6 +14,7 @@ type IdentityTracker struct {
 	mu           sync.RWMutex
 	identities   map[string]*ActiveIdentityLease // keyed by SPIFFEID
 	accessorMap  map[string]string               // keyed by AccessorHash -> SPIFFEID
+	saMap        map[string]string               // keyed by SAPrincipal -> SPIFFEID
 }
 
 // NewIdentityTracker initializes an identity lease tracker.
@@ -21,6 +22,7 @@ func NewIdentityTracker() *IdentityTracker {
 	return &IdentityTracker{
 		identities:  make(map[string]*ActiveIdentityLease),
 		accessorMap: make(map[string]string),
+		saMap:       make(map[string]string),
 	}
 }
 
@@ -36,7 +38,22 @@ func (it *IdentityTracker) RecordIssuance(event *SVIDIssuanceEvent) {
 	ns := event.PodNamespace
 	sa := event.ServiceAccount
 	if ns == "" || sa == "" {
-		ns, sa = parseSPIFFEID(event.SPIFFEID)
+		_, parsedNS, parsedSA, ok := ParseSPIFFEID(event.SPIFFEID)
+		if ok {
+			if ns == "" {
+				ns = parsedNS
+			}
+			if sa == "" {
+				sa = parsedSA
+			}
+		} else {
+			ns, sa = parseSPIFFEID(event.SPIFFEID)
+		}
+	}
+
+	saPrincipal := ""
+	if ns != "" && sa != "" {
+		saPrincipal = FormatSAPrincipal(ns, sa)
 	}
 
 	agentRole := sa
@@ -51,15 +68,23 @@ func (it *IdentityTracker) RecordIssuance(event *SVIDIssuanceEvent) {
 			SPIFFEID:       event.SPIFFEID,
 			Namespace:      ns,
 			ServiceAccount: sa,
+			SAPrincipal:    saPrincipal,
 			AgentRole:      agentRole,
 			ActiveLeases:   make([]string, 0),
 		}
 		it.identities[event.SPIFFEID] = lease
 	}
 
+	lease.Namespace = ns
+	lease.ServiceAccount = sa
+	lease.SAPrincipal = saPrincipal
 	lease.IssuedAt = event.IssuedAt
 	lease.ExpiresAt = event.ExpiresAt
 	lease.LastActivity = event.Timestamp
+
+	if saPrincipal != "" {
+		it.saMap[saPrincipal] = event.SPIFFEID
+	}
 }
 
 // BindAccessor associates an OpenBao client token accessor hash with a SPIFFE ID.
@@ -105,6 +130,20 @@ func (it *IdentityTracker) LookupBySPIFFEID(spiffeID string) (*ActiveIdentityLea
 	return lease, exists
 }
 
+// LookupBySAPrincipal returns the identity lease metadata for a Kubernetes service account principal.
+func (it *IdentityTracker) LookupBySAPrincipal(saPrincipal string) (*ActiveIdentityLease, bool) {
+	it.mu.RLock()
+	defer it.mu.RUnlock()
+
+	spiffeID, found := it.saMap[saPrincipal]
+	if !found {
+		return nil, false
+	}
+
+	lease, exists := it.identities[spiffeID]
+	return lease, exists
+}
+
 // FindAbandonedCredentials identifies workloads whose SVID has expired but still possess active OpenBao leases.
 func (it *IdentityTracker) FindAbandonedCredentials(now time.Time) []*ActiveIdentityLease {
 	it.mu.RLock()
@@ -132,6 +171,9 @@ func (it *IdentityTracker) EvictExpired(now time.Time, retention time.Duration) 
 			if lease.AccessorHash != "" {
 				delete(it.accessorMap, lease.AccessorHash)
 			}
+			if lease.SAPrincipal != "" {
+				delete(it.saMap, lease.SAPrincipal)
+			}
 			delete(it.identities, id)
 			evicted++
 		}
@@ -139,8 +181,86 @@ func (it *IdentityTracker) EvictExpired(now time.Time, retention time.Duration) 
 	return evicted
 }
 
+// ParseSPIFFEID validates and extracts trust domain, namespace, and service account from a SPIFFE ID.
+// Expected canonical format: spiffe://<trust_domain>/ns/<namespace>/sa/<service_account>
+func ParseSPIFFEID(id string) (trustDomain, namespace, serviceAccount string, ok bool) {
+	if !strings.HasPrefix(id, "spiffe://") {
+		return "", "", "", false
+	}
+	raw := strings.TrimPrefix(id, "spiffe://")
+	parts := strings.Split(raw, "/")
+	if len(parts) < 5 {
+		return "", "", "", false
+	}
+	trustDomain = parts[0]
+	if trustDomain == "" {
+		return "", "", "", false
+	}
+
+	for i := 1; i < len(parts); i++ {
+		if parts[i] == "ns" && i+1 < len(parts) {
+			namespace = parts[i+1]
+		}
+		if parts[i] == "sa" && i+1 < len(parts) {
+			serviceAccount = parts[i+1]
+		}
+	}
+
+	if namespace == "" || serviceAccount == "" {
+		return "", "", "", false
+	}
+	return trustDomain, namespace, serviceAccount, true
+}
+
+// ParseSAPrincipal validates and extracts namespace and service account from a Kubernetes SA principal.
+// Expected canonical format: system:serviceaccount:<namespace>:<service_account>
+func ParseSAPrincipal(principal string) (namespace, serviceAccount string, ok bool) {
+	if !strings.HasPrefix(principal, "system:serviceaccount:") {
+		return "", "", false
+	}
+	raw := strings.TrimPrefix(principal, "system:serviceaccount:")
+	parts := strings.Split(raw, ":")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+// FormatSAPrincipal formats namespace and service account as a Kubernetes SA principal.
+func FormatSAPrincipal(namespace, serviceAccount string) string {
+	return "system:serviceaccount:" + namespace + ":" + serviceAccount
+}
+
+// FormatSPIFFEID formats trust domain, namespace, and service account as a canonical SPIFFE ID.
+func FormatSPIFFEID(trustDomain, namespace, serviceAccount string) string {
+	if trustDomain == "" {
+		trustDomain = "cluster.local"
+	}
+	return "spiffe://" + trustDomain + "/ns/" + namespace + "/sa/" + serviceAccount
+}
+
+// MatchSAPrincipalAndSPIFFEID asserts exact match/no-match discriminator between an SA principal and SPIFFE ID.
+func MatchSAPrincipalAndSPIFFEID(saPrincipal, spiffeID string) (bool, string, string) {
+	saNS, saName, saOK := ParseSAPrincipal(saPrincipal)
+	if !saOK {
+		return false, "", ""
+	}
+	_, spiffeNS, spiffeSA, spiffeOK := ParseSPIFFEID(spiffeID)
+	if !spiffeOK {
+		return false, "", ""
+	}
+	if saNS == spiffeNS && saName == spiffeSA {
+		return true, saNS, saName
+	}
+	return false, "", ""
+}
+
 func parseSPIFFEID(id string) (namespace, serviceAccount string) {
-	// spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa
+	_, ns, sa, ok := ParseSPIFFEID(id)
+	if ok {
+		return ns, sa
+	}
+	// Fallback for non-standard path layouts
 	parts := strings.Split(id, "/")
 	for i, p := range parts {
 		if p == "ns" && i+1 < len(parts) {
@@ -152,3 +272,4 @@ func parseSPIFFEID(id string) (namespace, serviceAccount string) {
 	}
 	return namespace, serviceAccount
 }
+

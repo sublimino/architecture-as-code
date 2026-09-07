@@ -10,8 +10,7 @@ import type {
   ProvisionalActor,
   CoverageStatement,
   StoreStats,
-  SignalLayer,
-  FidelityTier,
+  AuthorizationChain,
 } from './weaveApi'
 
 // ─── Observations ────────────────────────────────────────────────────────────
@@ -234,6 +233,59 @@ const storeStats: StoreStats = {
   store_type: '*store.FrostDBStore',
 }
 
+// ─── Authorization Chains ───────────────────────────────────────────────────
+
+const authorizationChains: Record<string, AuthorizationChain> = {
+  'actor-shadow-llm-001': {
+    action: 'High-volume outbound HTTPS requests to api.openai.com',
+    agentIdentity: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa',
+    actsOnBehalfOf: 'system:serviceaccount:fe-signalloom-agents:agent-cardvault-sa acts-on-behalf-of security-admin@controlplane.io (authz: k8s-impersonation-policy)',
+    principal: 'security-admin@controlplane.io',
+    decision: 'authorized:actionable',
+    confidence: 0.87,
+    evidenceRefs: [
+      'obs-id-001',
+      'obs-net-001',
+      'obs-cloud-001',
+      'obs-app-001',
+      'opa://decisions/2026-08-15/id-001',
+      'k8s-audit://default/secrets/vault-token',
+      'hubble://flows/2026-08-15/net-001',
+    ],
+    attestationGitoid: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    complete: true,
+    actorId: 'actor-shadow-llm-001',
+    canonicalId: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa',
+    aliases: ['pod/shadow-llm-proxy-7f8b9', 'sa/ml-inference-sa', 'ns/ml-workloads'],
+  },
+  'actor-data-scraper-002': {
+    action: 'Periodic SaaS API outbound exfiltration',
+    agentIdentity: 'pod/enrichment-cron-a3f2',
+    actsOnBehalfOf: 'pod/enrichment-cron-a3f2 acts-on-behalf-of data-pipeline@corp.internal',
+    principal: 'data-pipeline@corp.internal',
+    decision: 'evaluated:provisional',
+    confidence: 0.45,
+    evidenceRefs: ['obs-net-003', 'obs-beh-003'],
+    attestationGitoid: 'f4a1c24298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852c966',
+    complete: true,
+    actorId: 'actor-data-scraper-002',
+    canonicalId: 'pod/enrichment-cron-a3f2',
+  },
+  'actor-promoted-scanner': {
+    action: 'Automated vulnerability port scan and report exfiltration',
+    agentIdentity: 'tenant-demo:agent-scanner',
+    actsOnBehalfOf: 'sa/scanner-sa acts-on-behalf-of security-ops@controlplane.io (authz: cluster-admin-binding)',
+    principal: 'security-ops@controlplane.io',
+    decision: 'authorized:promoted',
+    confidence: 0.92,
+    evidenceRefs: ['obs-net-010', 'obs-id-010', 'obs-app-010'],
+    attestationGitoid: 'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
+    complete: true,
+    actorId: 'actor-promoted-scanner',
+    canonicalId: 'tenant-demo:agent-scanner',
+  },
+}
+
 // ─── Route matcher type (matches fakeData.ts pattern) ───────────────────────
 
 type Match = {
@@ -248,6 +300,25 @@ export const WEAVE_ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/signals\/observations$/), data: () => observations },
   { method: 'GET', test: re(/^\/signals\/actors$/), data: () => actors },
   { method: 'GET', test: re(/^\/signals\/actors\/[^/]+$/), data: () => actors[0] },
+  {
+    method: 'GET',
+    test: re(/^\/signals\/actors\/[^/]+\/authorization/),
+    data: (path: string) => {
+      const match = path.match(/^\/signals\/actors\/([^/?]+)\/authorization/)
+      const id = match ? match[1] : 'actor-shadow-llm-001'
+      return authorizationChains[id] || authorizationChains['actor-shadow-llm-001']
+    },
+  },
+  {
+    method: 'GET',
+    test: re(/^\/signals\/authorization/),
+    data: () => ({
+      chains: Object.values(authorizationChains),
+      total: Object.keys(authorizationChains).length,
+      complete_count: Object.values(authorizationChains).filter((c) => c.complete).length,
+      kpi_fraction: 1.0,
+    }),
+  },
   { method: 'POST', test: re(/^\/signals\/actors\/[^/]+\/promote$/), data: () => ({ status: 'promoted' }) },
   { method: 'GET', test: re(/^\/signals\/coverage$/), data: () => coverage },
   { method: 'POST', test: re(/^\/signals\/correlate$/), data: () => ({ status: 'correlation_complete' }) },
@@ -261,4 +332,5 @@ export const fakeWeaveData = {
   actors,
   coverage,
   storeStats,
+  authorizationChains,
 }

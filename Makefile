@@ -39,7 +39,8 @@ CLUSTER_NAME ?= osramp
 # what made ../$(KEYS_DIR) at the bootstrap-local line look safe, and it aborted
 # both CI lanes. The fallback is for a genuinely git-less tree only.
 GIT_COMMON_DIR := $(shell git rev-parse --git-common-dir 2>/dev/null)
-KEYS_DIR ?= $(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..)/.keys,.keys)
+DEFAULT_KEYS_DIR := $(if $(wildcard .keys/witness.pem),.keys,$(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..)/.keys,.keys))
+KEYS_DIR ?= $(DEFAULT_KEYS_DIR)
 export KEYS_DIR
 SIGNALLOOM_PLATFORM_ROOT ?= /home/andy/src/cp/platform
 OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
@@ -183,6 +184,21 @@ signing-keys: ## Generate the local cosign and witness keys.
 		openssl genpkey -algorithm ed25519 -out $(KEYS_DIR)/witness.pem; \
 		openssl pkey -in $(KEYS_DIR)/witness.pem -pubout -out $(KEYS_DIR)/witness-pub.pem; \
 	fi
+	@test -f $(KEYS_DIR)/witness-pub.pem || { echo "$(KEYS_DIR)/witness-pub.pem missing for existing witness key" >&2; exit 1; }
+	@actual_id=$$(openssl pkey -pubin -in $(KEYS_DIR)/witness-pub.pem -outform DER 2>/dev/null | openssl dgst -sha256 -r | cut -d' ' -f1); \
+		policy=$(KEYS_DIR)/segment-signing-policy.json; \
+		if [ ! -f "$$policy" ]; then \
+			tmp="$$policy.tmp.$$$$"; \
+			umask 077; \
+			jq -n --arg id "$$actual_id" \
+				'{schema_version:"signalloom.segment.signing-policy/v1",expected_key_ids:[$$id]}' > "$$tmp"; \
+			mv "$$tmp" "$$policy"; \
+		fi; \
+		expected_id=$$(jq -er '.expected_key_ids | if length == 1 then .[0] else error("expected exactly one signer") end' "$$policy"); \
+		[ "$$expected_id" = "$$actual_id" ] || { \
+			echo "protected segment signing policy rejects $(KEYS_DIR)/witness-pub.pem" >&2; \
+			exit 1; \
+		}
 	@# Orbit approval keypair: the broker holds the PRIVATE half to mint
 	@# approval JWTs; the sentinel gets only the PUBLIC half and can verify but
 	@# never sign, so the agent process cannot forge its own approval.
@@ -418,10 +434,10 @@ test: ## Run the end-to-end bats suite against the running cluster.
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion
 
 test-signal-ingest: ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
-	cd d2-signalloom/apps/signal-ingest && go test ./... -v -count=1
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
 
-test-signal-ingest-frostdb: ## Run Go signal-ingest tests INCLUDING FrostDB store (requires cgo).
-	cd d2-signalloom/apps/signal-ingest && go test -tags frostdb ./... -v -count=1
+test-signal-ingest-frostdb: ## Run Go signal-ingest tests INCLUDING FrostDB store.
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./... -v -count=1
 
 test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 	cd d2-signalloom/apps/dashboard-signalloom && bun install --frozen-lockfile
@@ -429,6 +445,7 @@ test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 		--root d2-signalloom/apps/dashboard-signalloom \
 		src/pages/WeavePage.test.tsx \
 		src/pages/SignalFusionPage.test.tsx \
+		src/components/WhoAuthorizedPanel.test.tsx \
 		src/api/weaveApi.test.ts \
 		--reporter=verbose
 
@@ -665,11 +682,11 @@ test-signalfusion-images: ## Verify the Signal Fusion image identity guard again
 .PHONY: demo-signalloom-workspace-up test-workspace-acceptance
 demo-signalloom-workspace-up: ## Deploy the Google Workspace agentic identity connector (mock/live Reports API polling).
 	@echo "Starting workspace-connector for Signal Loom Demo 4..."
-	@(cd d2-signalloom/apps/workspace-connector && go test ./...)
+	@(cd d2-signalloom/apps/workspace-connector && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)
 
 test-workspace-acceptance: ## Run the complete Workspace Agentic Identity Streaming acceptance test suite.
 	bats test/workspace-identity-streaming.bats
-	(cd d2-signalloom/apps/workspace-connector && go test ./...)
+	(cd d2-signalloom/apps/workspace-connector && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)
 
 .PHONY: factory-schemas-validate factory-appraisal-test
 factory-schemas-validate: ## Validate AI-Governed Software Factory JSON schemas.
@@ -973,8 +990,8 @@ test-cosign-signing-consistency: ## Assert every cosign sign call site agrees an
 	bats test/cosign-signing-consistency.bats
 
 .PHONY: attested-test
-attested-test: ## Run the test suite under witness, storing evidence in Archivista.
-	./scripts/attested-test.sh
+attested-test: signing-keys ## Run audit tests or the real FrostDB segment proof (ATTESTED_TEST_SOURCE=audit|segments).
+	ATTESTED_TEST_SOURCE=$(ATTESTED_TEST_SOURCE) ./scripts/attested-test.sh
 
 # ── Audit-trail transparency anchoring ────────────────────────────────────────
 # Checkpoints over public.audit_events, signed with the same .keys/witness.pem
@@ -996,23 +1013,39 @@ AUDIT_ANCHOR_KEYS = $(abspath $(KEYS_DIR))
 
 .PHONY: audit-anchor-checkpoint
 audit-anchor-checkpoint: signing-keys ## Publish a signed checkpoint over the audit trail.
-	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
+	strict="$${AUDIT_ANCHOR_REQUIRE_LOG:-}"; \
+		[ -z "$${ARCHIVISTA_URL:-}" ] || strict=1; \
+		cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$$strict" $(AUDIT_ANCHOR_PY) -m audit_anchor \
 		--private-key $(AUDIT_ANCHOR_KEYS)/witness.pem \
-		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem checkpoint
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem $(ARGS) checkpoint $(COMMAND_ARGS)
 
 .PHONY: audit-anchor-verify
-audit-anchor-verify: ## Verify the audit trail against its anchors (exit 2 = DIVERGED).
-	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
-		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem verify
+audit-anchor-verify: signing-keys ## Verify the audit trail against its anchors (exit 2 = DIVERGED).
+	expected=$$(jq -er '.expected_key_ids | if length == 1 then .[0] else error("expected exactly one signer") end' $(AUDIT_ANCHOR_KEYS)/segment-signing-policy.json); \
+		strict="$${AUDIT_ANCHOR_REQUIRE_LOG:-}"; \
+		[ -z "$${ARCHIVISTA_URL:-}" ] || strict=1; \
+		cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$$strict" $(AUDIT_ANCHOR_PY) -m audit_anchor \
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem \
+		--expected-key-id "$$expected" $(ARGS) verify $(COMMAND_ARGS)
 
 .PHONY: audit-anchor-show
 audit-anchor-show: ## List the published audit-trail anchors.
-	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
-		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem show
+	strict="$${AUDIT_ANCHOR_REQUIRE_LOG:-}"; \
+		[ -z "$${ARCHIVISTA_URL:-}" ] || strict=1; \
+		cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$$strict" $(AUDIT_ANCHOR_PY) -m audit_anchor \
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem $(ARGS) show $(COMMAND_ARGS)
 
 .PHONY: audit-anchor-tamper-demo
-audit-anchor-tamper-demo: ## Prove the audit verifier detects a real tamper (writes and cleans up its own rows).
+audit-anchor-tamper-demo: signing-keys ## Prove real audit or FrostDB tamper detection (AUDIT_ANCHOR_TAMPER_SOURCE=audit|segments|all).
 	KEYS_DIR=$(KEYS_DIR) PYTHON=$(AUDIT_ANCHOR_PY) ./scripts/audit-anchor-tamper-demo.sh
+
+.PHONY: test-sfdp-p3-3-root-wiring
+test-sfdp-p3-3-root-wiring: ## Verify local SFDP-P3-3 root script gates without cluster access.
+	bats test/sfdp-p3-3-root-wiring.bats
+
+.PHONY: test-sfdp-p4-4-tamper-regression
+test-sfdp-p4-4-tamper-regression: signing-keys ## Verify SFDP-P4-4 witness verify and tamper regression suite.
+	bats test/sfdp-p4-4-tamper-regression.bats
 
 .PHONY: audit-anchor-test
 audit-anchor-test: ## Run the audit-anchor unit tests (no cluster required).

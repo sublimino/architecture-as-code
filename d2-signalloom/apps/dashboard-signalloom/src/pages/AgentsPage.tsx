@@ -1,20 +1,18 @@
 // Filter interaction adapted from Beautiful UI Filter Table (MIT); see
 // THIRD_PARTY_NOTICES.md. Signal Loom owns data, tokens, and semantics.
-// TODO: migrate table to DataTable (1 table with search/lifecycle filtering)
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
-import { PieChart, Pie, Cell, Label } from 'recharts'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
-import type { AgentResponse } from '../types/api'
-import { colors, donutDefaults } from '../styles/tokens'
+import type { AgentResponse, AgentListMeta, SourceHealthMap } from '../types/api'
 import StatusBadge from '../components/StatusBadge'
 import SignalBadge from '../components/SignalBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
+import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
@@ -160,7 +158,7 @@ function EditAgentModal({ agent, onClose, onSaved }: {
       })
       onSaved()
       onClose()
-    } catch (err: unknown) {
+    } catch (err) {
       setError(err instanceof Error ? err.message : 'Update failed.')
       setSubmitting(false)
     }
@@ -168,30 +166,28 @@ function EditAgentModal({ agent, onClose, onSaved }: {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', zIndex: 1000,
       display: 'flex', alignItems: 'center', justifyContent: 'center'
     }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="card" style={{ width: 440, padding: 24, position: 'relative' }}>
-        <h3 style={{ marginBottom: 6 }}>Edit Agent</h3>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
-          Update this agent's metadata. Name and type are read-only after registration.
-        </p>
+      <div className="card slide-up" style={{ width: 440, padding: 24, position: 'relative' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16 }}>Edit Agent</h3>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{agent.name}</span>
+          </div>
+          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--muted)' }}>
+            {agent.id.slice(0, 8)}…
+          </span>
+        </div>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--muted)' }}>Name</label>
-            <input value={agent.name} disabled style={{ width: '100%', opacity: 0.6 }} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--muted)' }}>Type</label>
-            <input value={agent.type ?? ''} disabled style={{ width: '100%', opacity: 0.6 }} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--muted)' }}>State</label>
-            <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Owner (email or name)</label>
-            <input value={owner} onChange={e => setOwner(e.target.value)} style={{ width: '100%' }} />
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Owner</label>
+            <input
+              value={owner}
+              onChange={e => setOwner(e.target.value)}
+              placeholder="e.g. security-team@signal-loom.ai"
+              style={{ width: '100%' }}
+            />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Description</label>
@@ -242,6 +238,13 @@ function fmtDate(iso: string | null) {
 function fmtRelative(iso: string | null) {
   if (!iso) return '—'
   const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins === 1) return '1m ago'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours === 1) return '1h ago'
+  if (hours < 24) return `${hours}h ago`
   const days = Math.floor(diff / 86400000)
   if (days === 0) return 'Today'
   if (days === 1) return 'Yesterday'
@@ -262,31 +265,7 @@ function fmtRelativeMinutes(iso: string | null) {
   return fmtRelative(iso)
 }
 
-function agentComplianceStatus(a: AgentResponse): string {
-  const { failing, passing, posture_score } = a.compliance_summary
-  if (failing > 0) return 'non_compliant'
-  if (passing > 0 && posture_score !== null) return 'compliant'
-  return 'pending'
-}
-
-// ─── PostureBar ──────────────────────────────────────────────────────────────
-
-function PostureBar({ score }: { score: number | null }) {
-  if (score === null) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
-  const color = score >= 80 ? colors.tealLoom : score >= 50 ? colors.amber : colors.red
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ width: 72, height: 5, background: 'var(--border-subtle)', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ width: `${score}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 0.4s' }} />
-      </div>
-      <span style={{ fontSize: 12, color, fontWeight: 600, minWidth: 28 }}>{score}%</span>
-    </div>
-  )
-}
-
-// ─── Lifecycle Donut (Recharts) ───────────────────────────────────────────────
-
-interface PieEntry { name: string; label: string; value: number; color: string }
+// ─── Theme Colors ────────────────────────────────────────────────────────────
 
 export const DONUT_COLORS = {
   active: 'var(--teal)',
@@ -298,131 +277,55 @@ export const DONUT_COLORS = {
   caption: 'var(--muted)',
 } as const
 
-function LifecyclePieChart({ agents, activeFilter, onFilter }: {
-  agents: AgentResponse[]
-  activeFilter: string
-  onFilter: (state: string) => void
-}) {
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {}
-    for (const a of agents) {
-      const s = a.lifecycle_state
-      c[s] = (c[s] ?? 0) + 1
-    }
-    return c
-  }, [agents])
+// ─── 4 StatCards (Matching Spec Section 3) ──────────────────────────────────
 
-  const palette: PieEntry[] = [
-    { name: 'active',    label: 'Active',    value: counts.active    ?? 0, color: DONUT_COLORS.active },
-    { name: 'enrolled',  label: 'Enrolled',  value: counts.enrolled  ?? 0, color: DONUT_COLORS.enrolled },
-    { name: 'suspended', label: 'Suspended', value: counts.suspended ?? 0, color: DONUT_COLORS.suspended },
-    { name: 'revoked',   label: 'Revoked',   value: counts.revoked   ?? 0, color: DONUT_COLORS.revoked },
-  ]
-  const data = palette.filter(d => d.value > 0)
-  const total = agents.length
-  const empty = [{ name: 'none', value: 1, color: DONUT_COLORS.empty, label: '' }]
-
-  const renderCenter = ({ viewBox }: { viewBox?: unknown }) => {
-    const vb = viewBox as { cx?: number; cy?: number } | undefined
-    const cx = vb?.cx ?? 65
-    const cy = vb?.cy ?? 65
-    return (
-      <g>
-        <text x={cx} y={cy - 4} textAnchor="middle" fill={DONUT_COLORS.centreLabel}
-          fontSize={18} fontWeight={700} fontFamily="Arial, sans-serif">{total}</text>
-        <text x={cx} y={cy + 12} textAnchor="middle" fill={DONUT_COLORS.caption}
-          fontSize={10} fontFamily="Arial, sans-serif">agents</text>
-      </g>
-    )
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-      <div style={{ width: 130, height: 130, flexShrink: 0 }}>
-        <PieChart width={130} height={130}>
-          <Pie
-            data={data.length > 0 ? data : empty}
-            cx={65} cy={65}
-            innerRadius={38} outerRadius={56}
-            dataKey="value"
-            paddingAngle={donutDefaults.paddingAngle}
-            cornerRadius={donutDefaults.cornerRadius}
-            stroke={donutDefaults.stroke}
-            onClick={data.length > 0 ? (entry: unknown) => {
-              const e = entry as PieEntry
-              onFilter(activeFilter === e.name ? 'all' : e.name)
-            } : undefined}
-            style={{ cursor: data.length > 0 ? 'pointer' : 'default' }}
-          >
-            {(data.length > 0 ? data : empty).map((entry, i) => (
-              <Cell
-                key={i}
-                fill={entry.color}
-                opacity={activeFilter === 'all' || activeFilter === entry.name ? 1 : 0.35}
-              />
-            ))}
-            <Label content={renderCenter} position="center" />
-          </Pie>
-        </PieChart>
-      </div>
-
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {palette.filter(d => d.value > 0).map((d) => (
-          <button
-            key={d.name}
-            onClick={() => onFilter(activeFilter === d.name ? 'all' : d.name)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: activeFilter === d.name ? 'rgba(255,255,255,0.08)' : 'none',
-              border: activeFilter === d.name ? `1px solid ${d.color}` : '1px solid transparent',
-              cursor: 'pointer', fontSize: 11, color: 'var(--muted)',
-              padding: '2px 6px', borderRadius: 4, width: '100%',
-              transition: 'background 0.12s, border 0.12s',
-            }}
-          >
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-            <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
-            <span style={{ color: d.color, fontWeight: 700 }}>{d.value}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Agent Metrics Bar ───────────────────────────────────────────────────────
-
-function AgentMetricsBar({
+function AgentStatCards({
   agents,
-  activeFilter,
-  onFilter,
+  meta,
+  sourceHealth,
+  sourceHealthDetail,
 }: {
   agents: AgentResponse[]
-  activeFilter: string
-  onFilter: (state: string) => void
+  meta?: AgentListMeta | null
+  sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
+  sourceHealthDetail?: SourceHealthMap | null
 }) {
   const total = agents.length
 
-  // Posture metrics
-  const scoredAgents = agents.filter(a => a.compliance_summary.posture_score !== null)
-  const avgPosture = scoredAgents.length > 0
-    ? Math.round(scoredAgents.reduce((sum, a) => sum + (a.compliance_summary.posture_score ?? 0), 0) / scoredAgents.length)
-    : null
+  // 1. Needs Attention
+  const failingControlsCount = agents.reduce((sum, a) => sum + a.compliance_summary.failing, 0)
+  const unconfirmedCount = agents.filter(a =>
+    (a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked') &&
+    !(a.kernel_telemetry?.cgroup_state === 'frozen' || a.kernel_telemetry?.traffic_control_state === 'drop')
+  ).length
+  const attentionCount = agents.filter(a =>
+    a.compliance_summary.failing > 0 ||
+    a.attention?.level === 'critical' ||
+    a.attention?.level === 'warning' ||
+    (a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked') ||
+    (a.compliance_summary.posture_score !== null &&
+      (a.compliance_summary.posture_score <= 1.0 ? a.compliance_summary.posture_score < 0.5 : a.compliance_summary.posture_score < 50))
+  ).length
 
-  const totalPassing = agents.reduce((sum, a) => sum + a.compliance_summary.passing, 0)
-  const totalFailing = agents.reduce((sum, a) => sum + a.compliance_summary.failing, 0)
+  // 2. Identity Coverage
+  const registeredCount = meta?.registered_count ?? agents.filter(a => a.record_class === 'registered' || (!a.record_class && a.is_registry_linked !== false)).length
+  const discoveredCount = meta?.discovered_count ?? agents.filter(a => a.record_class === 'discovered' || a.is_registry_linked === false).length
+  const resolvedCount = meta?.resolved_count ?? agents.filter(a => a.record_class === 'resolved').length
+  const resolvedPct = total > 0 ? Math.round(((registeredCount + resolvedCount) / total) * 100) : 0
 
-  // Risk metrics (EU AI Act)
-  const highRiskCount = agents.filter(a => a.eu_ai_act_risk_class === 'high' || a.eu_ai_act_risk_class === 'high_risk').length
-  const specificRiskCount = agents.filter(a => a.eu_ai_act_risk_class === 'specific' || a.eu_ai_act_risk_class === 'specific_risk').length
-  const limitedRiskCount = agents.filter(a => a.eu_ai_act_risk_class === 'limited' || a.eu_ai_act_risk_class === 'limited_risk').length
-  const minimalRiskCount = agents.filter(a => a.eu_ai_act_risk_class === 'minimal' || a.eu_ai_act_risk_class === 'minimal_risk').length
+  // 3. Observed Workloads
+  const operationalCount = meta?.operational_count ?? total
+  const namespaces = new Set(agents.map(a => a.runtime?.namespace || a.namespace || 'default'))
+  const frameworks = new Set(agents.map(a => a.runtime?.framework || a.framework || a.type || 'Custom'))
 
-  // Kernel & Telemetry metrics
-  const frozenCount = agents.filter(a => a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked').length
-  const thawedCount = total - frozenCount
+  // 4. Evidence Coverage
+  const k8sStatus = sourceHealthDetail?.k8s_discovery?.status ?? (sourceHealth === 'unavailable' ? 'unavailable' : 'healthy')
+  const dbStatus = sourceHealthDetail?.postgres_registry?.status ?? (sourceHealth === 'unavailable' ? 'unavailable' : 'healthy')
+  const cryptoStatus = sourceHealthDetail?.crypto_proofs?.status ?? (sourceHealth === 'unavailable' ? 'unavailable' : 'healthy')
 
-  const activeCreds = agents.filter(a => !a.credential_state || a.credential_state.status === 'active').length
+  const effectiveSourceHealth = sourceHealth || 'healthy'
+  const sourceHealthText = effectiveSourceHealth === 'unavailable' ? 'Unavailable' : (effectiveSourceHealth.charAt(0).toUpperCase() + effectiveSourceHealth.slice(1))
+  const sourceHealthColor = effectiveSourceHealth === 'healthy' ? 'var(--teal)' : effectiveSourceHealth === 'degraded' ? 'var(--amber)' : 'var(--error)'
 
   return (
     <div style={{
@@ -431,112 +334,95 @@ function AgentMetricsBar({
       gap: 14,
       marginBottom: 18,
     }}>
-      {/* 1. Fleet Lifecycle Donut */}
-      <div className="card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-          Fleet Lifecycle
-        </div>
-        <LifecyclePieChart
-          agents={agents}
-          activeFilter={activeFilter}
-          onFilter={onFilter}
-        />
-      </div>
-
-      {/* 2. Security & Compliance Posture */}
-      <div className="card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+      {/* 1. Needs Attention */}
+      <div className="card" data-testid="statcard-attention" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-            Compliance Posture
+            Needs Attention
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{
               fontSize: 26,
               fontWeight: 700,
               lineHeight: 1,
-              color: avgPosture !== null
-                ? (avgPosture >= 80 ? colors.tealLoom : avgPosture >= 50 ? colors.amber : colors.red)
-                : 'var(--muted)',
+              color: attentionCount > 0 ? 'var(--error)' : 'var(--teal)',
             }}>
-              {avgPosture !== null ? `${avgPosture}%` : '—'}
+              {attentionCount}
             </span>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>fleet average score</span>
-          </div>
-        </div>
-        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{totalPassing} passing</span>
-          <span style={{ color: totalFailing > 0 ? 'var(--error)' : 'var(--muted)', fontWeight: totalFailing > 0 ? 600 : 400 }}>
-            {totalFailing} failing
-          </span>
-        </div>
-      </div>
-
-      {/* 3. EU AI Act Risk Profile */}
-      <div className="card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-            EU AI Act Risk Profile
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {highRiskCount > 0 && (
-              <span className="tag" style={{ background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}>
-                {highRiskCount} High Risk
-              </span>
-            )}
-            {specificRiskCount > 0 && (
-              <span className="tag" style={{ background: 'color-mix(in srgb, var(--amber) 15%, transparent)', color: 'var(--amber)' }}>
-                {specificRiskCount} Specific
-              </span>
-            )}
-            {limitedRiskCount > 0 && (
-              <span className="tag" style={{ background: 'color-mix(in srgb, var(--amber) 12%, transparent)', color: 'var(--amber)' }}>
-                {limitedRiskCount} Limited
-              </span>
-            )}
-            {minimalRiskCount > 0 && (
-              <span className="tag" style={{ background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)' }}>
-                {minimalRiskCount} Minimal
-              </span>
-            )}
-            {highRiskCount === 0 && specificRiskCount === 0 && limitedRiskCount === 0 && minimalRiskCount === 0 && (
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>No risk classifications</span>
-            )}
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {attentionCount === 1 ? 'workload requiring review' : 'workloads requiring review'}
+            </span>
           </div>
         </div>
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
-          {highRiskCount > 0 ? `${highRiskCount} agent${highRiskCount > 1 ? 's' : ''} require Article 9 risk management` : 'All workloads within governed risk boundaries'}
+          {failingControlsCount > 0 ? `${failingControlsCount} failing control${failingControlsCount > 1 ? 's' : ''}` : 'Zero failing controls'}
+          {unconfirmedCount > 0 ? ` · ${unconfirmedCount} unconfirmed containment` : ''}
         </div>
       </div>
 
-      {/* 4. Kernel Telemetry & Trust */}
-      <div className="card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+      {/* 2. Identity Coverage */}
+      <div className="card" data-testid="statcard-identity" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-            Kernel & SPIFFE Trust
+            Identity Coverage
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-            <span className="tag" style={{ fontSize: 11, background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)' }}>
-              cgroup: {thawedCount} Thawed
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: 'var(--cyan)' }}>
+              {resolvedPct}%
             </span>
-            {frozenCount > 0 && (
-              <span className="tag" style={{ fontSize: 11, background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)' }}>
-                {frozenCount} Frozen
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-            {activeCreds} active SPIFFE/OpenBao credentials
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>governed resolution</span>
           </div>
         </div>
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
-          Sentinel eBPF hooks & TC network isolation active
+          {registeredCount} registered · {discoveredCount} discovered{resolvedCount > 0 ? ` · ${resolvedCount} resolved` : ''}
+        </div>
+      </div>
+
+      {/* 3. Observed Workloads */}
+      <div className="card" data-testid="statcard-workloads" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+            Observed Workloads
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: 'var(--teal)' }}>
+              {operationalCount}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>active workloads</span>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
+          {namespaces.size} namespace{namespaces.size !== 1 ? 's' : ''} · {frameworks.size} framework{frameworks.size !== 1 ? 's' : ''}
+        </div>
+      </div>
+
+      {/* 4. Evidence Coverage */}
+      <div className="card" data-testid="statcard-evidence" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+            Evidence Coverage
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{
+              fontSize: 26,
+              fontWeight: 700,
+              lineHeight: 1,
+              color: sourceHealthColor,
+            }}>
+              {sourceHealthText}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>source status</span>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
+          K8s: {k8sStatus} · Registry: {dbStatus} · Proofs: {cryptoStatus}
         </div>
       </div>
     </div>
   )
 }
 
-// ─── Attention Required ──────────────────────────────────────────────────────
+// ─── Attention Required Panel ────────────────────────────────────────────────
 
 interface AlertItem {
   id: string
@@ -563,9 +449,9 @@ function AttentionPanel({ alerts, onAlert }: {
       gap: 10,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: colors.red }}>Attention Required</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--error)' }}>Attention Required</span>
         <span style={{
-          background: colors.red, color: 'var(--on-accent)', borderRadius: 99,
+          background: 'var(--error)', color: 'var(--on-accent)', borderRadius: 99,
           fontSize: 10, fontWeight: 700, padding: '1px 7px',
         }}>{alerts.length}</span>
       </div>
@@ -581,13 +467,13 @@ function AttentionPanel({ alerts, onAlert }: {
                 : 'rgba(215,119,6,0.12)',
               border: `1px solid ${a.severity === 'critical' ? 'rgba(220,38,38,0.3)' : 'rgba(215,119,6,0.3)'}`,
               borderRadius: 6, padding: '5px 12px',
-              color: a.severity === 'critical' ? colors.red : colors.amber,
+              color: a.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
               fontSize: 12, fontWeight: 500, cursor: 'pointer',
               fontFamily: 'inherit', transition: 'opacity 0.15s',
             }}
           >
             <span style={{
-              background: a.severity === 'critical' ? colors.red : colors.amber,
+              background: a.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
               color: 'var(--on-accent)', borderRadius: 99, fontSize: 10,
               fontWeight: 700, padding: '0px 6px', minWidth: 20, textAlign: 'center',
             }}>{a.count}</span>
@@ -599,18 +485,8 @@ function AttentionPanel({ alerts, onAlert }: {
   )
 }
 
-// ─── Governed Tab ────────────────────────────────────────────────────────────
+// ─── 7-Column Operational Inventory Table Row ────────────────────────────────
 
-// 'registered' is the state POST /api/agents hardcodes in its INSERT, so every
-// agent the product creates starts there. It was absent from this list, which
-// meant the fleet view could not filter to a single newly-created agent — they
-// were present in the table and unreachable through the control provided for
-// reaching them.
-//
-// Checked against the lifecycle_state CHECK constraint and against the states
-// api_compat.py actually writes by
-// fe-signalloom/src/tests/test_dashboard_lifecycle_vocabulary.py, which derives
-// both sides rather than restating either.
 const LIFECYCLE_OPTIONS = ['all', 'registered', 'enrolled', 'active', 'suspended', 'revoked'] as const
 
 const LIFECYCLE_LABELS: Record<string, string> = {
@@ -630,14 +506,43 @@ const LIFECYCLE_TOOLTIP: Record<string, string> = {
   revoked: 'Permanently revoked — terminal state; credentials refused.',
 }
 
-function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
+function AgentTableRow({ agent, shown, onSelect, onEdit }: {
   agent: AgentResponse
   shown: boolean
-  onNavigate: (id: string) => void
+  onSelect: (agent: AgentResponse) => void
   onEdit: (agent: AgentResponse) => void
 }) {
   const hasViolations = agent.compliance_summary.failing > 0
-  const compStatus = agentComplianceStatus(agent)
+  const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
+  const recordClassLabel = recordClass.charAt(0).toUpperCase() + recordClass.slice(1)
+
+  // 1. Agent column
+  const agentName = agent.name || 'Unnamed agent'
+  const agentExecutionMode = agent.runtime?.execution_mode || agent.type || (agent.id ? `ID: ${agent.id.split('-')[0]}…` : '—')
+
+  // 2. Runtime column
+  const namespace = agent.runtime?.namespace || agent.namespace || 'default'
+  const framework = agent.runtime?.framework || agent.framework || agent.type || 'Custom'
+  const model = agent.runtime?.model || agent.model_name || (agent.runtime?.node ? `node: ${agent.runtime.node}` : null)
+
+  // 3. Responsibility column (truthful language)
+  const ownerName = agent.responsibility?.owner_name || agent.owner
+  const team = agent.responsibility?.team
+
+  // 4. Operational State column (with kernel telemetry)
+  const isTelemetryFrozenOrDrop = agent.kernel_telemetry?.cgroup_state === 'frozen' || agent.kernel_telemetry?.traffic_control_state === 'drop'
+  const isContainmentRequested = agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked'
+
+  // 5. Attention column (truthful language)
+  const isNotAssessed = (agent.assessment_summary?.status === 'not_assessed') ||
+    (agent.compliance_summary.total_controls === 0) ||
+    (agent.compliance_summary.posture_score === null && agent.compliance_summary.passing === 0 && agent.compliance_summary.failing === 0)
+
+  // 6. Identity & Evidence column
+  const isSpiffeLinked = agent.identity?.spiffe_status === 'linked' || (!!agent.identity?.spiffe_id && agent.record_class !== 'discovered' && agent.is_registry_linked !== false)
+
+  // 7. Last Observed column
+  const observedTime = agent.timestamps?.last_observed_at || agent.last_transition_at || agent.created_at
 
   return (
     <tbody
@@ -645,6 +550,7 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
       aria-hidden={!shown}
       style={{ opacity: shown ? 1 : 0, visibility: shown ? 'visible' : 'collapse' }}
     >
+<<<<<<< HEAD
     <tr
       onClick={() => onNavigate(agent.id)}
       style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
@@ -721,47 +627,243 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
                   TC: PASS
                 </span>
               </>
+=======
+      <tr
+        data-testid={`agent-row-${agent.id}`}
+        tabIndex={0}
+        role="button"
+        aria-label={`View evidence for ${agentName}`}
+        onClick={() => onSelect(agent)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSelect(agent)
+          }
+        }}
+        style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+      >
+        {/* 1. Agent */}
+        <td style={{ padding: '11px 16px', maxWidth: 220 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{agentName}</span>
+            {hasViolations && (
+              <span
+                title="Unacknowledged violation"
+                style={{
+                  display: 'inline-block', width: 7, height: 7,
+                  background: 'var(--error)', borderRadius: '50%', flexShrink: 0,
+                }}
+              />
+>>>>>>> feat/agents-page-fullwidth-redesign
             )}
           </div>
-        </div>
-      </td>
-      <td style={{ padding: '11px 16px' }}>
-        {/* "suspended" is a governance verdict; this says what it means. */}
-        <CredentialStateNotice
-          credentialState={agent.credential_state}
-          agentName={agent.name}
-          variant="inline"
-        />
-      </td>
-      <td style={{ padding: '11px 16px' }}>
-        {agent.eu_ai_act_risk_class ? (
-          <StatusBadge status={agent.eu_ai_act_risk_class} variant="risk" />
-        ) : (
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>
-        )}
-      </td>
-      <td style={{ padding: '11px 16px' }}>
-        <StatusBadge status={compStatus} variant="compliance" />
-      </td>
-      <td style={{ padding: '11px 16px' }}>
-        <PostureBar score={agent.compliance_summary.posture_score} />
-      </td>
-      <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-        {fmtRelative(agent.last_transition_at)}
-      </td>
-      <td style={{ padding: '11px 16px', textAlign: 'right' }}>
-        <button
-          className="btn btn-secondary"
-          style={{ fontSize: 11, padding: '4px 10px' }}
-          onClick={(e) => { e.stopPropagation(); onEdit(agent) }}
-        >
-          Edit
-        </button>
-      </td>
-    </tr>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+            <span
+              className="tag"
+              style={{
+                fontSize: 10,
+                padding: '1px 5px',
+                background: recordClass === 'discovered'
+                  ? 'rgba(59, 130, 246, 0.15)'
+                  : recordClass === 'resolved'
+                  ? 'rgba(139, 92, 246, 0.15)'
+                  : recordClass === 'fixture'
+                  ? 'rgba(156, 163, 175, 0.15)'
+                  : 'rgba(16, 185, 129, 0.15)',
+                color: recordClass === 'discovered'
+                  ? 'var(--cyan)'
+                  : recordClass === 'resolved'
+                  ? 'var(--violet)'
+                  : recordClass === 'fixture'
+                  ? 'var(--muted)'
+                  : 'var(--teal)',
+              }}
+            >
+              {recordClassLabel}
+            </span>
+            <span
+              title={`Agent ID: ${agent.id}`}
+              style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}
+            >
+              {agentExecutionMode}
+            </span>
+          </div>
+        </td>
+
+        {/* 2. Runtime */}
+        <td style={{ padding: '11px 16px', fontSize: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 500, color: 'var(--text)' }}>{namespace}</span>
+            <span style={{ color: 'var(--muted)' }}>/</span>
+            <span style={{ color: 'var(--muted)' }}>{framework}</span>
+          </div>
+          {model && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              {model}
+            </div>
+          )}
+        </td>
+
+        {/* 3. Responsibility */}
+        <td style={{ padding: '11px 16px', fontSize: 12 }}>
+          {ownerName ? (
+            <div>
+              <span style={{ color: 'var(--text)', fontWeight: 500 }}>{ownerName}</span>
+              {team && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{team}</div>}
+            </div>
+          ) : (
+            <span style={{ color: 'var(--muted)' }}>
+              {recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned'}
+            </span>
+          )}
+        </td>
+
+        {/* 4. Operational State */}
+        <td style={{ padding: '11px 16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
+              <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+            </span>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {isTelemetryFrozenOrDrop ? (
+                <>
+                  <span
+                    data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                    className="tag"
+                    title="cgroup.freeze: 1 (FROZEN) — Processes atomically suspended by Sentinel"
+                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                  >
+                    cgroup: FROZEN
+                  </span>
+                  <span
+                    data-testid={`kernel-telemetry-tc-${agent.id}`}
+                    className="tag"
+                    title="TC matchall drop active — Network isolated by Sentinel"
+                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                  >
+                    TC: DROP
+                  </span>
+                </>
+              ) : isContainmentRequested ? (
+                <span
+                  data-testid={`kernel-telemetry-unconfirmed-${agent.id}`}
+                  className="tag"
+                  title="Containment requested but kernel telemetry observation is unconfirmed"
+                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--amber) 15%, transparent)', color: 'var(--amber)', borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)' }}
+                >
+                  Requested (Outcome unconfirmed)
+                </span>
+              ) : (
+                <>
+                  <span
+                    data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                    className="tag"
+                    title="cgroup.freeze: 0 (THAWED)"
+                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                  >
+                    cgroup: THAWED
+                  </span>
+                  <span
+                    data-testid={`kernel-telemetry-tc-${agent.id}`}
+                    className="tag"
+                    title="TC drop: INACTIVE"
+                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                  >
+                    TC: PASS
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </td>
+
+        {/* 5. Attention */}
+        <td style={{ padding: '11px 16px', fontSize: 12 }}>
+          {isNotAssessed ? (
+            <span className="tag" style={{ background: 'rgba(156, 163, 175, 0.15)', color: 'var(--muted)', fontSize: 11 }}>
+              Not assessed
+            </span>
+          ) : agent.compliance_summary.failing > 0 ? (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="tag" style={{ background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', fontSize: 11 }}>
+                  {agent.compliance_summary.failing} failing
+                </span>
+                {agent.compliance_summary.posture_score !== null && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--error)' }}>
+                    {Math.round(agent.compliance_summary.posture_score <= 1.0 ? agent.compliance_summary.posture_score * 100 : agent.compliance_summary.posture_score)}%
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                {agent.compliance_summary.passing}/{agent.compliance_summary.total_controls} passed
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="tag" style={{ background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', fontSize: 11 }}>
+                  {agent.compliance_summary.passing}/{agent.compliance_summary.total_controls} passing
+                </span>
+                {agent.compliance_summary.posture_score !== null && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>
+                    {Math.round(agent.compliance_summary.posture_score <= 1.0 ? agent.compliance_summary.posture_score * 100 : agent.compliance_summary.posture_score)}%
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </td>
+
+        {/* 6. Identity & Evidence */}
+        <td style={{ padding: '11px 16px', fontSize: 12 }}>
+          <div>
+            {isSpiffeLinked ? (
+              <span style={{ color: 'var(--teal)', fontWeight: 500 }}>SPIFFE linked</span>
+            ) : recordClass === 'discovered' ? (
+              <span style={{ color: 'var(--cyan)' }}>Observed workload</span>
+            ) : (
+              <span style={{ color: 'var(--muted)' }}>Identity unlinked</span>
+            )}
+          </div>
+          <div style={{ marginTop: 2 }}>
+            <CredentialStateNotice
+              credentialState={agent.credential_state}
+              agentName={agent.name}
+              variant="inline"
+            />
+          </div>
+        </td>
+
+        {/* 7. Last Observed */}
+        <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div>
+              <div style={{ color: 'var(--text)', fontSize: 12 }}>
+                {fmtRelative(observedTime)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                {agent.timestamps?.last_observed_at ? 'Observed' : (agent.last_transition_at ? 'Transitioned' : 'Created')}
+              </div>
+            </div>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: 11, padding: '3px 8px', opacity: 0.8 }}
+              onClick={(e) => { e.stopPropagation(); onEdit(agent) }}
+              title="Edit agent settings"
+            >
+              Edit
+            </button>
+          </div>
+        </td>
+      </tr>
     </tbody>
   )
 }
+
+// ─── Governed Tab ────────────────────────────────────────────────────────────
 
 function GovernedTab({
   agents,
@@ -769,6 +871,8 @@ function GovernedTab({
   loaded,
   error,
   lifecycleFilter,
+  sourceHealth,
+  sourceHealthDetail,
   onFilterChange,
   onRetry,
   onReload,
@@ -778,14 +882,81 @@ function GovernedTab({
   loaded: boolean
   error: string | null
   lifecycleFilter: string
+  sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
+  sourceHealthDetail?: SourceHealthMap | null
   onFilterChange: (state: string) => void
   onRetry: () => void
   onReload: () => void
 }) {
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialSearch = searchParams.get('search') || ''
+  const [search, setSearch] = useState(initialSearch)
   const [showRegister, setShowRegister] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
+  const [selectedAgent, setSelectedAgent] = useState<AgentResponse | null>(null)
+
+  // Auto-sync search from URL
+  useEffect(() => {
+    const q = searchParams.get('search') || ''
+    setSearch(q)
+  }, [searchParams])
+
+  // Auto-open drawer if ?drawer=<id> or ?agent=<id> is in URL
+  useEffect(() => {
+    const drawerId = searchParams.get('drawer') || searchParams.get('agent')
+    if (drawerId && agents.length > 0) {
+      const match = agents.find(a => a.id === drawerId || a.name === drawerId)
+      if (match) {
+        setSelectedAgent(match)
+      }
+    } else if (!drawerId && selectedAgent) {
+      setSelectedAgent(null)
+    }
+  }, [searchParams, agents])
+
+  const handleSearchChange = (val: string) => {
+    setSearch(val)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (val.trim()) next.set('search', val.trim())
+      else next.delete('search')
+      return next
+    }, { replace: true })
+  }
+
+  const handleSelectAgent = (agent: AgentResponse) => {
+    setSelectedAgent(agent)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('drawer', agent.id)
+      return next
+    }, { replace: true })
+  }
+
+  const handleCloseDrawer = () => {
+    setSelectedAgent(null)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('drawer')
+      next.delete('agent')
+      return next
+    }, { replace: true })
+  }
+
+  const handleClear = () => {
+    setSearch('')
+    onFilterChange('all')
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('search')
+      next.delete('lifecycle')
+      next.delete('state')
+      next.delete('drawer')
+      next.delete('agent')
+      return next
+    }, { replace: true })
+  }
 
   const filtered = useMemo(() => {
     let list = agents
@@ -796,7 +967,12 @@ function GovernedTab({
         (a.name ?? '').toLowerCase().includes(q) ||
         a.id.toLowerCase().includes(q) ||
         (a.type ?? '').toLowerCase().includes(q) ||
-        (a.owner ?? '').toLowerCase().includes(q)
+        (a.owner ?? '').toLowerCase().includes(q) ||
+        (a.runtime?.namespace ?? a.namespace ?? '').toLowerCase().includes(q) ||
+        (a.runtime?.framework ?? a.framework ?? '').toLowerCase().includes(q) ||
+        (a.responsibility?.owner_name ?? '').toLowerCase().includes(q) ||
+        (a.responsibility?.team ?? '').toLowerCase().includes(q) ||
+        (a.identity?.spiffe_id ?? '').toLowerCase().includes(q)
       )
     }
     return list
@@ -824,15 +1000,28 @@ function GovernedTab({
     <div style={{ width: '100%' }}>
       {showRegister && <RegisterModal onClose={() => setShowRegister(false)} onCreated={onReload} />}
       {editingAgent && <EditAgentModal agent={editingAgent} onClose={() => setEditingAgent(null)} onSaved={onReload} />}
+      {selectedAgent && (
+        <AgentEvidenceDrawer
+          agent={selectedAgent}
+          sourceHealth={sourceHealth}
+          sourceHealthDetail={sourceHealthDetail}
+          onClose={handleCloseDrawer}
+          onOpenFullRecord={(id) => navigate(`/agents/${id}`)}
+          onEdit={(agent) => {
+            setSelectedAgent(null)
+            setEditingAgent(agent)
+          }}
+        />
+      )}
 
       {/* Filter bar */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           type="text"
           aria-label="Search agents"
-          placeholder="Search agents (name, ID, type, owner)…"
+          placeholder="Search agents (name, ID, namespace, framework, owner, SPIFFE)…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => handleSearchChange(e.target.value)}
           style={{ flex: 1, minWidth: 220, maxWidth: 360 }}
         />
         <div className="sl-filter-chips" role="group" aria-label="Filter agents by lifecycle state">
@@ -855,7 +1044,7 @@ function GovernedTab({
           <button
             className="btn btn-secondary"
             style={{ fontSize: 12, padding: '5px 12px' }}
-            onClick={() => { setSearch(''); onFilterChange('all') }}
+            onClick={handleClear}
           >
             Clear
           </button>
@@ -882,16 +1071,13 @@ function GovernedTab({
           <table style={{ width: '100%', minWidth: 1100, borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                <th style={{ ...TH_STYLE, minWidth: 180 }}>Name & ID</th>
-                <th style={{ ...TH_STYLE, minWidth: 100 }}>Type</th>
-                <th style={{ ...TH_STYLE, minWidth: 110 }}>Owner</th>
-                <th style={{ ...TH_STYLE, minWidth: 140 }}>State & Kernel</th>
-                <th style={{ ...TH_STYLE, minWidth: 130 }}>Credentials</th>
-                <th style={{ ...TH_STYLE, minWidth: 100 }}>EU AI Act</th>
-                <th style={{ ...TH_STYLE, minWidth: 110 }}>Compliance</th>
-                <th style={{ ...TH_STYLE, minWidth: 110 }}>Posture</th>
-                <th style={{ ...TH_STYLE, minWidth: 110 }}>Last Activity</th>
-                <th style={{ ...TH_STYLE, minWidth: 90, textAlign: 'right' }}>Actions</th>
+                <th style={TH_STYLE}>Agent</th>
+                <th style={TH_STYLE}>Runtime</th>
+                <th style={TH_STYLE}>Responsibility</th>
+                <th style={TH_STYLE}>Operational State</th>
+                <th style={TH_STYLE}>Attention</th>
+                <th style={TH_STYLE}>Identity & Evidence</th>
+                <th style={TH_STYLE}>Last Observed</th>
               </tr>
             </thead>
             {agents.map((a) => {
@@ -901,7 +1087,7 @@ function GovernedTab({
                   key={a.id}
                   agent={a}
                   shown={shown}
-                  onNavigate={(id) => navigate(`/agents/${id}`)}
+                  onSelect={handleSelectAgent}
                   onEdit={setEditingAgent}
                 />
               )
@@ -923,8 +1109,6 @@ function GovernedTab({
     </div>
   )
 }
-
-// ─── Main Page ───────────────────────────────────────────────────────────────
 
 // ─── Signal Summary Panel ──────────────────────────────────────────────────
 
@@ -1002,9 +1186,12 @@ export default function AgentsPage() {
   const { getAccessTokenSilently } = useAuth0()
 
   const [agents, setAgents] = useState<AgentResponse[]>([])
+  const [meta, setMeta] = useState<AgentListMeta | null>(null)
+  const [sourceHealth, setSourceHealth] = useState<'healthy' | 'degraded' | 'unavailable' | null>('healthy')
+  const [sourceHealthDetail, setSourceHealthDetail] = useState<SourceHealthMap | null>(null)
+  const [lastRefresh, setLastRefresh] = useState<string | null>(null)
+
   const [agentsLoading, setAgentsLoading] = useState(true)
-  // Distinct from `agents.length > 0`: a tenant with genuinely zero agents has
-  // still loaded, and must not be shown the never-loaded state.
   const [agentsLoaded, setAgentsLoaded] = useState(false)
   const [agentsError, setAgentsError] = useState<string | null>(null)
 
@@ -1017,11 +1204,16 @@ export default function AgentsPage() {
     try {
       const token = await getAccessTokenSilently()
       const data = await api.agents.list(token)
-      setAgents(data.agents)
+      setAgents(data.agents || data.data || [])
+      setMeta(data.meta || null)
+      setSourceHealth(data.source_health || 'healthy')
+      setSourceHealthDetail(data.source_health_detail || null)
+      setLastRefresh(new Date().toISOString())
       setAgentsError(null)
       setAgentsLoaded(true)
     } catch (e) {
       setAgentsError(e instanceof Error ? e.message : 'Failed to load agents')
+      setSourceHealth('unavailable')
     } finally {
       setAgentsLoading(false)
     }
@@ -1054,32 +1246,67 @@ export default function AgentsPage() {
   const alerts: AlertItem[] = useMemo(() => {
     const items: AlertItem[] = []
 
-    const enrolledInactive = agents.filter(a => a.lifecycle_state === 'enrolled')
-    if (enrolledInactive.length > 0)
-      items.push({ id: 'enrolled', label: 'enrolled agents not activated', count: enrolledInactive.length, severity: 'warning', filterKey: 'enrolled' })
-
     const withViolations = agents.filter(a => a.compliance_summary.failing > 0)
     if (withViolations.length > 0)
       items.push({ id: 'violations', label: 'agents with new violations', count: withViolations.length, severity: 'critical' })
+
+    const unconfirmed = agents.filter(a =>
+      (a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked') &&
+      !(a.kernel_telemetry?.cgroup_state === 'frozen' || a.kernel_telemetry?.traffic_control_state === 'drop')
+    )
+    if (unconfirmed.length > 0)
+      items.push({ id: 'unconfirmed', label: 'containment unconfirmed', count: unconfirmed.length, severity: 'warning', filterKey: 'suspended' })
+
+    const enrolledInactive = agents.filter(a => a.lifecycle_state === 'enrolled')
+    if (enrolledInactive.length > 0)
+      items.push({ id: 'enrolled', label: 'enrolled agents not activated', count: enrolledInactive.length, severity: 'warning', filterKey: 'enrolled' })
 
     const suspended = agents.filter(a => a.lifecycle_state === 'suspended')
     if (suspended.length > 0)
       items.push({ id: 'suspended', label: 'suspended agents', count: suspended.length, severity: 'warning', filterKey: 'suspended' })
 
-    const critical = agents.filter(a => a.compliance_summary.posture_score !== null && a.compliance_summary.posture_score < 50)
+    const critical = agents.filter(a =>
+      a.compliance_summary.posture_score !== null &&
+      (a.compliance_summary.posture_score <= 1.0 ? a.compliance_summary.posture_score < 0.5 : a.compliance_summary.posture_score < 50)
+    )
     if (critical.length > 0)
       items.push({ id: 'critical', label: 'agents with critical posture', count: critical.length, severity: 'critical' })
 
     return items
   }, [agents])
 
+  const totalAssessed = agents.filter(a => a.compliance_summary.total_controls > 0).length
+
   return (
     <div>
+      {/* Header & Subtitle */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agents</h1>
-          <HelpHint label="About governed agents" testId="agents-governed-help">Live registry records for governed workloads. During SuperCred, Cardvault appears as one enriched record rather than a duplicate.</HelpHint>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agents</h1>
+            <HelpHint label="About governed agents" testId="agents-governed-help">
+              Live registry records for governed workloads. During SuperCred, Cardvault appears as one enriched record rather than a duplicate.
+            </HelpHint>
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+            Runtime identities and their security evidence
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            Inventory refreshed {lastRefresh ? fmtRelativeMinutes(lastRefresh) ?? 'just now' : 'just now'} · Source health:{' '}
+            <span style={{
+              color: sourceHealth === 'healthy' ? 'var(--teal)' : sourceHealth === 'degraded' ? 'var(--amber)' : 'var(--error)',
+              fontWeight: 600,
+              textTransform: 'capitalize',
+            }}>
+              {sourceHealth === 'unavailable' ? 'Source unavailable' : (sourceHealth || 'healthy')}
+            </span>
+            {' '}· Assessments:{' '}
+            <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+              {totalAssessed > 0 ? `${totalAssessed} evaluated` : 'Not assessed'}
+            </span>
+          </div>
         </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LoadingState
             status={loadPhase({ loading: agentsLoading, error: agentsError, loaded: agentsLoaded })}
@@ -1097,7 +1324,9 @@ export default function AgentsPage() {
             <span style={{ fontSize: 11, color: 'var(--muted)', opacity: 0.7 }}>
               Auto-scan every 15 minutes
             </span>
-            <HelpHint label="About agent refresh timing" testId="agents-refresh-help">The list polls live registry state automatically. Use Scan Compliance to run an immediate policy evaluation.</HelpHint>
+            <HelpHint label="About agent refresh timing" testId="agents-refresh-help">
+              The list polls live registry state automatically. Use Scan Compliance to run an immediate policy evaluation.
+            </HelpHint>
           </div>
           <button
             className="btn btn-primary"
@@ -1107,16 +1336,19 @@ export default function AgentsPage() {
           >
             {scanning ? 'Scanning...' : 'Scan Compliance'}
           </button>
-          <HelpHint label="About the policy scan" testId="agents-scan-help">Runs a live policy scan against the governed agent list and updates posture and compliance findings.</HelpHint>
+          <HelpHint label="About the policy scan" testId="agents-scan-help">
+            Runs a live policy scan against the governed agent list and updates posture and compliance findings.
+          </HelpHint>
         </div>
       </div>
 
-      {/* Top Metrics & Governance Bar */}
+      {/* Top 4 StatCards */}
       {agentsLoaded && agents.length > 0 && (
-        <AgentMetricsBar
+        <AgentStatCards
           agents={agents}
-          activeFilter={lifecycleFilter}
-          onFilter={setLifecycleFilter}
+          meta={meta}
+          sourceHealth={sourceHealth}
+          sourceHealthDetail={sourceHealthDetail}
         />
       )}
 
@@ -1130,6 +1362,8 @@ export default function AgentsPage() {
         loaded={agentsLoaded}
         error={agentsError}
         lifecycleFilter={lifecycleFilter}
+        sourceHealth={sourceHealth}
+        sourceHealthDetail={sourceHealthDetail}
         onFilterChange={setLifecycleFilter}
         onRetry={loadAgents}
         onReload={loadAgents}

@@ -5,6 +5,9 @@ setup() {
   root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
   connector_dir="$root/d2-signalloom/apps/workspace-connector"
   ingest_dir="$root/d2-signalloom/apps/signal-ingest"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export CGO_ENABLED=0
 }
 
 @test "workspace-connector: Go module and package structure exist" {
@@ -44,3 +47,22 @@ setup() {
   run bash -c "cd \"$ingest_dir\" && go test ./correlation"
   [ "$status" -eq 0 ]
 }
+
+@test "signal-ingest: authorization query endpoint and >=90% complete chain KPI unit tests pass cleanly" {
+  run bash -c "cd \"$ingest_dir\" && go test -v -run TestQueryAuthorization_SeededEstate_KPIFraction ./api"
+  [ "$status" -eq 0 ]
+}
+
+@test "signal-ingest: resolver false-merge regression corpus passes with false-merge==0 across all cases" {
+  run bash -c "cd \"$ingest_dir\" && LC_ALL=C LANG=C go test -v -run TestFalseMergeRegression_PermanentZeroGate ./correlation"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"False-Merges=0"* ]]
+}
+
+@test "signal-ingest: end-to-end signal -> resolve -> attest -> who-authorized full pipeline test passes" {
+  run bash -c "cd \"$ingest_dir\" && LC_ALL=C LANG=C go test -v -run TestEndToEndAttestedAuthorizationChain_FullPipeline ./api"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Completeness Status:         true"* ]]
+}
+
+

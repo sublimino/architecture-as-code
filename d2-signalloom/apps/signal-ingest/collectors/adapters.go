@@ -3,13 +3,16 @@ package collectors
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/baoaudit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/gcpaudit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/netebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/workspacesaas"
 )
 
 // GCPAuditCollector adapts the gcpaudit package to the Collector interface.
@@ -37,31 +40,18 @@ func (c *GCPAuditCollector) Start(ctx context.Context) error {
 	if c.startFn != nil {
 		return c.startFn(ctx)
 	}
-	switch c.mode {
-	case ModeOff:
-		return nil
-	case ModeFixture:
-		if c.sink != nil {
-			for _, obs := range CloudControlPlaneFixtures(time.Now().UTC()) {
-				o := obs
-				if err := c.sink.IngestObservation(ctx, &o); err != nil {
-					return fmt.Errorf("gcp fixture ingestion failed: %w", err)
-				}
-			}
-		}
-		return nil
-	case ModeLive:
-		if c.col == nil {
-			c.col = gcpaudit.NewCollector(ctx, c.sink, 0)
-		}
-		return nil
+	if c.col == nil {
+		c.col = gcpaudit.New(ctx, c.sink, 0, gcpaudit.WithMode(string(c.mode)))
 	}
-	return nil
+	return c.col.Start(ctx)
 }
 
 func (c *GCPAuditCollector) Health(ctx context.Context) error {
 	if c.healthFn != nil {
 		return c.healthFn(ctx)
+	}
+	if c.col != nil {
+		return c.col.Health(ctx)
 	}
 	return nil
 }
@@ -102,7 +92,7 @@ func (c *BaoAuditCollector) Start(ctx context.Context) error {
 		return nil
 	case ModeFixture:
 		if c.sink != nil {
-			for _, obs := range IdentityAuthFixtures(time.Now().UTC()) {
+			for _, obs := range BaoAuditFixtures(time.Now().UTC()) {
 				o := obs
 				if err := c.sink.IngestObservation(ctx, &o); err != nil {
 					return fmt.Errorf("bao fixture ingestion failed: %w", err)
@@ -113,6 +103,16 @@ func (c *BaoAuditCollector) Start(ctx context.Context) error {
 	case ModeLive:
 		if c.rcv == nil {
 			c.rcv = baoaudit.NewAuditReceiver(1000, c.sink)
+		}
+		if sockPath := resolveEnvPath("BAOAUDIT_SOCKET_PATH", "OPENBAO_AUDIT_SOCKET"); sockPath != "" {
+			if err := c.rcv.ListenUnixgram(sockPath); err != nil {
+				return fmt.Errorf("baoaudit listen unixgram failed on %s: %w", sockPath, err)
+			}
+		}
+		if filePath := resolveEnvPath("BAOAUDIT_FILE_PATH", "OPENBAO_AUDIT_FILE"); filePath != "" {
+			if err := c.rcv.TapTmpfsFile(filePath); err != nil {
+				return fmt.Errorf("baoaudit tap tmpfs file failed on %s: %w", filePath, err)
+			}
 		}
 		c.rcv.Start()
 		return nil
@@ -163,7 +163,7 @@ func (c *SPIREACollector) Start(ctx context.Context) error {
 		return nil
 	case ModeFixture:
 		if c.sink != nil {
-			for _, obs := range IdentityAuthFixtures(time.Now().UTC()) {
+			for _, obs := range SPIREIssuanceFixtures(time.Now().UTC()) {
 				o := obs
 				if err := c.sink.IngestObservation(ctx, &o); err != nil {
 					return fmt.Errorf("spire fixture ingestion failed: %w", err)
@@ -268,11 +268,17 @@ func NewK8sAuditCollector(mode Mode, sink IngestionSink) *K8sAuditCollector {
 	return &K8sAuditCollector{mode: mode, sink: sink}
 }
 
+// NewK8sAuditCollectorWithReceiver creates a K8sAuditCollector using an existing WebhookReceiver instance.
+func NewK8sAuditCollectorWithReceiver(mode Mode, sink IngestionSink, rcv *audit.WebhookReceiver) *K8sAuditCollector {
+	return &K8sAuditCollector{mode: mode, sink: sink, rcv: rcv}
+}
+
 func (c *K8sAuditCollector) Name() string { return "k8saudit" }
 func (c *K8sAuditCollector) Mode() Mode   { return c.mode }
 
 func (c *K8sAuditCollector) SetHealthFunc(fn func(ctx context.Context) error) { c.healthFn = fn }
 func (c *K8sAuditCollector) SetStartFunc(fn func(ctx context.Context) error)  { c.startFn = fn }
+func (c *K8sAuditCollector) SetReceiver(rcv *audit.WebhookReceiver)           { c.rcv = rcv }
 func (c *K8sAuditCollector) RawReceiver() *audit.WebhookReceiver              { return c.rcv }
 
 func (c *K8sAuditCollector) Start(ctx context.Context) error {
@@ -295,6 +301,8 @@ func (c *K8sAuditCollector) Start(ctx context.Context) error {
 	case ModeLive:
 		if c.rcv == nil {
 			c.rcv = audit.NewWebhookReceiver(ctx, 1000, 2, c.sink)
+		} else {
+			c.rcv.Start()
 		}
 		return nil
 	}
@@ -357,3 +365,142 @@ func (c *FixtureCollector) Health(ctx context.Context) error {
 	}
 	return nil
 }
+
+func resolveEnvPath(keys ...string) string {
+	for _, k := range keys {
+		if val := os.Getenv(k); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+// KAgentCollector adapts the kagent package to the Collector interface.
+type KAgentCollector struct {
+	mode     Mode
+	sink     IngestionSink
+	col      *kagent.Collector
+	healthFn func(ctx context.Context) error
+	startFn  func(ctx context.Context) error
+}
+
+// NewKAgentCollector creates a KAgentCollector.
+func NewKAgentCollector(mode Mode, sink IngestionSink) *KAgentCollector {
+	return &KAgentCollector{mode: mode, sink: sink}
+}
+
+func (c *KAgentCollector) Name() string { return "kagent" }
+func (c *KAgentCollector) Mode() Mode   { return c.mode }
+
+func (c *KAgentCollector) SetHealthFunc(fn func(ctx context.Context) error) { c.healthFn = fn }
+func (c *KAgentCollector) SetStartFunc(fn func(ctx context.Context) error)  { c.startFn = fn }
+func (c *KAgentCollector) RawCollector() *kagent.Collector                  { return c.col }
+
+func (c *KAgentCollector) Start(ctx context.Context) error {
+	if c.startFn != nil {
+		return c.startFn(ctx)
+	}
+	switch c.mode {
+	case ModeOff:
+		return nil
+	case ModeFixture:
+		if c.sink != nil {
+			for _, obs := range KAgentFixtures(time.Now().UTC()) {
+				o := obs
+				if err := c.sink.IngestObservation(ctx, &o); err != nil {
+					return fmt.Errorf("kagent fixture ingestion failed: %w", err)
+				}
+			}
+		}
+		return nil
+	case ModeLive:
+		if c.col == nil {
+			c.col = kagent.NewCollector(c.sink, kagent.ResolverConfig{})
+		}
+		return c.col.Start(ctx)
+	}
+	return nil
+}
+
+func (c *KAgentCollector) Health(ctx context.Context) error {
+	if c.healthFn != nil {
+		return c.healthFn(ctx)
+	}
+	if c.col != nil {
+		return c.col.Health(ctx)
+	}
+	return nil
+}
+
+func (c *KAgentCollector) Stop() {
+	if c.col != nil {
+		c.col.Stop()
+	}
+}
+
+// WorkspaceSaaSCollector adapts the workspacesaas package to the Collector interface.
+type WorkspaceSaaSCollector struct {
+	mode     Mode
+	sink     IngestionSink
+	col      *workspacesaas.Collector
+	healthFn func(ctx context.Context) error
+	startFn  func(ctx context.Context) error
+}
+
+// NewWorkspaceSaaSCollector creates a WorkspaceSaaSCollector.
+func NewWorkspaceSaaSCollector(mode Mode, sink IngestionSink) *WorkspaceSaaSCollector {
+	return &WorkspaceSaaSCollector{mode: mode, sink: sink}
+}
+
+func (c *WorkspaceSaaSCollector) Name() string { return "workspacesaas" }
+func (c *WorkspaceSaaSCollector) Mode() Mode   { return c.mode }
+
+func (c *WorkspaceSaaSCollector) SetHealthFunc(fn func(ctx context.Context) error) { c.healthFn = fn }
+func (c *WorkspaceSaaSCollector) SetStartFunc(fn func(ctx context.Context) error)  { c.startFn = fn }
+func (c *WorkspaceSaaSCollector) RawCollector() *workspacesaas.Collector           { return c.col }
+
+func (c *WorkspaceSaaSCollector) Start(ctx context.Context) error {
+	if c.startFn != nil {
+		return c.startFn(ctx)
+	}
+	switch c.mode {
+	case ModeOff:
+		return nil
+	case ModeFixture:
+		if c.sink != nil {
+			for _, obs := range WorkspaceSaaSFixtures(time.Now().UTC()) {
+				o := obs
+				if err := c.sink.IngestObservation(ctx, &o); err != nil {
+					return fmt.Errorf("workspacesaas fixture ingestion failed: %w", err)
+				}
+			}
+		}
+		return nil
+	case ModeLive:
+		if c.col == nil {
+			c.col = workspacesaas.NewCollector(workspacesaas.ModeLive, c.sink)
+		}
+		return c.col.Start(ctx)
+	}
+	return nil
+}
+
+func (c *WorkspaceSaaSCollector) Health(ctx context.Context) error {
+	if c.healthFn != nil {
+		return c.healthFn(ctx)
+	}
+	if c.mode == ModeLive {
+		if c.col == nil {
+			c.col = workspacesaas.NewCollector(workspacesaas.ModeLive, c.sink)
+		}
+		return c.col.Health(ctx)
+	}
+	return nil
+}
+
+func (c *WorkspaceSaaSCollector) Stop() {
+	if c.col != nil {
+		c.col.Stop()
+	}
+}
+

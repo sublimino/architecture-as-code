@@ -5,9 +5,13 @@ import { affectsDemo, projectResponse } from './supercredProjection'
 import { ensureSuperCredState, isSuperCredEnabled } from './supercredSource'
 import type {
   AgentCreateRequest,
+  AgentListParams,
   AgentListResponse,
   AgentResponse,
+  AgentTelemetryResponse,
   AuditListResponse,
+  CapabilitiesParams,
+  CapabilitiesResponse,
   ComplianceSummaryResponse,
   ConsentAcceptRequest,
   ConsentAcceptResponse,
@@ -363,17 +367,40 @@ export const api = {
   trustTopology: (token: string) =>
     req<TrustTopologyResponse>('/trust-topology', token),
 
+  capabilities: (token: string, params?: CapabilitiesParams) => {
+    const searchParams = new URLSearchParams()
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== '') {
+          searchParams.set(key, String(value))
+        }
+      }
+    }
+    const qs = searchParams.toString()
+    return req<CapabilitiesResponse>(qs ? `/capabilities?${qs}` : '/capabilities', token)
+  },
+
   agents: {
-    list: (token: string) =>
-      req<AgentListResponse>('/agents', token),
+    list: (token: string, params?: AgentListParams) => {
+      const searchParams = new URLSearchParams()
+      if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null && value !== '') {
+            searchParams.set(key, String(value))
+          }
+        }
+      }
+      const qs = searchParams.toString()
+      return req<AgentListResponse>(qs ? `/agents?${qs}` : '/agents', token)
+    },
 
     register: (token: string, body: AgentCreateRequest) =>
       req<AgentResponse>('/agents', token, { method: 'POST', data: body }),
 
     // Step 2 of register-then-issue: mint an identity credential for an existing
     // record. The token is returned once; callers must show-once and never store it.
-    issueCredential: (token: string, id: string) =>
-      req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST' }),
+    issueCredential: (token: string, id: string, body?: { token_note?: string }) =>
+      req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST', data: body }),
 
     // Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
     revokeCredential: (token: string, id: string) =>
@@ -412,6 +439,25 @@ export const api = {
 
     reassess: (token: string, agentId: string, controlId: string) =>
       req<ReassessmentResponse>(`/agents/${agentId}/compliance/${controlId}/reassess`, token, { method: 'POST' }),
+
+    auditStreamUrl: (id: string, params: { type?: string; from?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.type) q.set('type', params.type)
+      if (params.from) q.set('from', params.from)
+      const qs = q.toString()
+      return `/api/agents/${id}/audit/stream${qs ? `?${qs}` : ''}`
+    },
+
+    telemetry: (token: string, id: string, params?: { layer?: string; source?: string; limit?: number }) => {
+      const searchParams = new URLSearchParams()
+      if (params) {
+        if (params.layer) searchParams.set('layer', params.layer)
+        if (params.source) searchParams.set('source', params.source)
+        if (params.limit) searchParams.set('limit', String(params.limit))
+      }
+      const qs = searchParams.toString()
+      return req<AgentTelemetryResponse>(qs ? `/agents/${id}/telemetry?${qs}` : `/agents/${id}/telemetry`, token)
+    },
   },
 
   compliance: {
@@ -447,6 +493,15 @@ export const api = {
     if (params.agent) q.set('agent', params.agent)
     if (params.type) q.set('type', params.type)
     return req<AuditListResponse>(`/audit?${q.toString()}`, token)
+  },
+
+  auditStreamUrl: (params: { agent?: string; type?: string; from?: string } = {}) => {
+    const q = new URLSearchParams()
+    if (params.agent) q.set('agent', params.agent)
+    if (params.type) q.set('type', params.type)
+    if (params.from) q.set('from', params.from)
+    const qs = q.toString()
+    return `/api/audit/stream${qs ? `?${qs}` : ''}`
   },
 
   auditExportCsv: async (

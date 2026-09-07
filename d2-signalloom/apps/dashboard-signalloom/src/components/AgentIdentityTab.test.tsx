@@ -388,3 +388,56 @@ describe('AgentIdentityTab — Deep-Link Actions Integration', () => {
     )
   })
 })
+
+describe('AgentIdentityTab — Live Authenticated Origin Verification (SFAGENTS-P3-4)', () => {
+  it('renders Live Authenticated Origin Verification panel with VERIFIED status and jwt_bearer method', () => {
+    const agent = createMockAgent({
+      origin_verification: {
+        verified: true,
+        origin_type: 'registered_catalog',
+        auth_method: 'jwt_bearer',
+        issuer: 'https://dex.inf-signalloom.svc.cluster.local:5556/dex',
+        subject: 'alice@signal-loom.ai',
+        validated_at: '2026-09-07T10:00:00Z',
+        status: 'verified',
+        proxy_path: '/api/agents',
+        source_health: { status: 'healthy', message: 'Catalog origin verified' },
+      },
+    })
+    renderTab(<AgentIdentityTab agent={agent} />)
+
+    expect(screen.getByTestId('identity-panel-origin-verification')).toBeInTheDocument()
+    const statusBadge = screen.getByTestId('identity-origin-status')
+    expect(statusBadge).toHaveTextContent('VERIFIED')
+    expect(screen.getByTestId('identity-origin-type')).toHaveTextContent('registered catalog')
+    expect(screen.getByTestId('identity-origin-method')).toHaveTextContent('jwt_bearer')
+    expect(screen.getByTestId('identity-origin-issuer')).toHaveTextContent('https://dex.inf-signalloom.svc.cluster.local:5556/dex')
+    expect(screen.getByTestId('identity-origin-subject')).toHaveTextContent('alice@signal-loom.ai')
+    expect(screen.getByTestId('identity-origin-proxy-path')).toHaveTextContent('/api/agents (RFC 9110 Read-Only)')
+  })
+
+  it('renders UNVERIFIED status for discovered workload without origin verification attestation', () => {
+    const agent = createMockAgent({
+      record_class: 'discovered',
+      is_registry_linked: false,
+      origin_verification: {
+        verified: false,
+        origin_type: 'kubernetes_workload',
+        auth_method: 'none',
+        issuer: null,
+        subject: null,
+        validated_at: null,
+        status: 'unverified',
+        proxy_path: '/supercred-api/agents',
+        source_health: { status: 'degraded', message: 'Workload unverified' },
+      },
+    })
+    renderTab(<AgentIdentityTab agent={agent} />)
+
+    const statusBadge = screen.getByTestId('identity-origin-status')
+    expect(statusBadge).toHaveTextContent('UNVERIFIED')
+    expect(screen.getByTestId('identity-origin-type')).toHaveTextContent('kubernetes workload')
+    expect(screen.getByTestId('identity-origin-method')).toHaveTextContent('none')
+    expect(screen.getByTestId('identity-origin-proxy-path')).toHaveTextContent('/supercred-api/agents (RFC 9110 Read-Only)')
+  })
+})

@@ -1343,3 +1343,87 @@ def test_agent_detail_get_is_strictly_side_effect_free(client, monkeypatch):
     assert res_miss.status_code == 404
     assert len(writes_recorded) == 0
 
+
+def test_dossier_detail_preserves_all_tab1_metadata(client, monkeypatch):
+    """SFAGENTS-P2-1: Proves GET /api/agents/{id} returns all enriched Tab 1 Overview structures."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("22222222-2222-2222-2222-222222222222"),
+                    "name": "Dossier Test Agent",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "limited",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/22222222-2222-2222-2222-222222222222",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "22222222-2222-2222-2222-222222222222"
+    assert data["name"] == "Dossier Test Agent"
+    assert data["record_class"] == "registered"
+    assert data["is_registry_linked"] is True
+    assert "runtime" in data
+    assert "responsibility" in data
+    assert "identity" in data
+    assert "operational_state" in data
+    assert "assessment_summary" in data
+    assert "attention" in data
+    assert "timestamps" in data
+    assert data["responsibility"]["owner_name"] == "alice@signal-loom.ai"
+    assert data["responsibility"]["assignment_status"] == "assigned"
+
+
+def test_dossier_unknown_id_fails_closed_with_404(client, monkeypatch):
+    """SFAGENTS-P2-1: Proves GET /api/agents/{unknown_id} returns HTTP 404 without synthesizing records."""
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+
+    async def get_empty_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_empty_pool)
+
+    res = client.get(
+        "/api/agents/00000000-0000-0000-0000-000000000000",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 404
+    body = res.json()
+    assert body["error"]["code"] == "not_found"
+    assert "not found" in body["error"]["message"].lower()
+
+

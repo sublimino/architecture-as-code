@@ -127,3 +127,39 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "sfagents-p2-1: /agents/:id route and 5-tab Dossier navigation Vitest suite passes 100%" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentDetailPage.test.tsx -t 'Dossier Route & 5-Tab Navigation'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-1: Tab 1 Overview summary grid and 4 StatCards pass Vitest suite" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentOverviewTab.test.tsx -t '4 Summary StatCards'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-1: Tab 1 truthful state language asserts 'Not assessed', 'Unassigned', 'Registry not linked'" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentOverviewTab.test.tsx src/pages/AgentDetailPage.test.tsx -t 'truthful|Truthful'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-1: Tab 1 kernel containment telemetry asserts eBPF sentinel and TC drop observations" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentOverviewTab.test.tsx src/pages/AgentDetailPage.test.tsx -t 'Kernel Containment|kernel telemetry'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-1: Tab 1 Overview 3 snapshot detail panels render metadata and health" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentOverviewTab.test.tsx -t '3 Snapshot Detail Panels'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-1: GET /api/agents/{id} detail endpoint preserves all Tab 1 metadata structures" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_detail_preserves_all_tab1_metadata'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-1: GET /api/agents/{unknown_id} returns HTTP 404 without synthesizing fake records" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_unknown_id_fails_closed_with_404'"
+  [ "$status" -eq 0 ]
+}
+
+

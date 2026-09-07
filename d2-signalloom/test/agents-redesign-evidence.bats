@@ -263,3 +263,46 @@ setup() {
   run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_agent_detail_preserves_assessment_summary'"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p2-5: Tab 5 Activity & Attributable Timeline Vitest suite passes 100%" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentActivityTab.test.tsx"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-5: Tab 5 renders all 4 summary StatCards with accurate counts and stream status" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentActivityTab.test.tsx -t '4 summary StatCards'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-5: Tab 5 enforces identity plane separation and truthful state language" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentActivityTab.test.tsx -t 'identity plane|truthful'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-5: Tab 5 deep-link navigation buttons route to scoped views" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentActivityTab.test.tsx -t 'deep-link'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-5: GET /api/agents/{id}/audit/stream fails closed with 404 for unknown agents" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_audit_stream_returns_404_for_unknown_agent'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-5: GET /api/agents/{id}/audit/stream returns SSE stream for valid agent" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_audit_stream_for_valid_agent'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-5: GET /api/audit preserves attributable identity plane metadata" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_audit_events_contain_attributable_identity_plane_metadata'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-5: GET /api/audit/stream is strictly side-effect free (zero SQL writes)" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_audit_stream_is_strictly_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+
+
+

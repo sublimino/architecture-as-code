@@ -174,6 +174,14 @@ export default function AgentAssessmentsTab({
     ? Math.round((passingControls / totalControlsCount) * 100)
     : 0
 
+  const overallAssessmentStatus = isNotAssessed
+    ? 'Not assessed'
+    : failingControls > 0
+    ? 'Failed'
+    : pendingControls > 0
+    ? 'Incomplete'
+    : 'Passed'
+
   // 2. Source Health
   const effectiveSourceHealth = sourceHealth || (sourceHealthDetail?.crypto_proofs?.status === 'unavailable' ? 'unavailable' : 'healthy')
   const isSourceUnavailable = effectiveSourceHealth === 'unavailable'
@@ -367,6 +375,23 @@ export default function AgentAssessmentsTab({
               }}
             >
               {isNotAssessed ? 'Not assessed' : `${postureScorePct}%`}
+            </div>
+            <div
+              data-testid="assessments-overall-status"
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                marginTop: 4,
+                color: isNotAssessed
+                  ? 'var(--muted)'
+                  : overallAssessmentStatus === 'Failed'
+                  ? colors.red
+                  : overallAssessmentStatus === 'Incomplete'
+                  ? colors.amber
+                  : colors.tealLoom,
+              }}
+            >
+              {overallAssessmentStatus}
             </div>
           </div>
 

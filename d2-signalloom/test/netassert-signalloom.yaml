@@ -208,3 +208,207 @@
       kind: deployment
       name: redis
       namespace: inf-signalloom
+
+# ── SPIRE / SuperCred policy coverage ───────────────────────────────────────
+#
+# Resolver contract (the runtime image must replace these exact pod names and
+# must exit non-zero before Netassert when no Ready pod matches):
+# agent-patsy => namespace=fe-signalloom-agents label=signalloom.ai/agent=true
+# netassert-cardvault-probe-pod => namespace=fe-signalloom-agents label=app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent serviceAccount=cardvault-agent lifecycle=parent-provisioned-sustained
+# envoy-gateway-pod => namespace=ingress label=gateway.envoyproxy.io/owning-gateway-name=cluster
+#
+# SPIRE agent uses hostNetwork; Kubernetes NetworkPolicy cannot prove its node-network enforcement.
+# These assertions therefore cover the SPIRE server's pod-network endpoint,
+# not traffic to the node-local SPIRE agent socket.
+
+- name: envoy-gateway-to-dashboard-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8080
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: pod, name: envoy-gateway-pod, namespace: ingress}
+  dst:
+    k8sResource: {kind: deployment, name: dashboard-signalloom, namespace: fe-signalloom}
+
+- name: generic-agent-to-spire-server-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8081
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource: {kind: pod, name: agent-patsy, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: spire-server, namespace: inf-bao}
+
+- name: openbao-to-spire-server-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8081
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: openbao, namespace: inf-bao}
+  dst:
+    k8sResource: {kind: deployment, name: spire-server, namespace: inf-bao}
+
+- name: dashboard-to-spire-server-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8081
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource: {kind: deployment, name: dashboard-signalloom, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: spire-server, namespace: inf-bao}
+
+- name: api-to-openbao-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8200
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: fe-signalloom, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: openbao, namespace: inf-bao}
+
+- name: dashboard-to-openbao-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8200
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource: {kind: deployment, name: dashboard-signalloom, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: openbao, namespace: inf-bao}
+
+- name: dashboard-to-supercred-runner-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8000
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: dashboard-signalloom, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: supercred-demo-runner, namespace: fe-signalloom}
+
+- name: api-to-supercred-runner-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8000
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource: {kind: deployment, name: fe-signalloom, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: supercred-demo-runner, namespace: fe-signalloom}
+
+- name: supercred-runner-to-api-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8000
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: supercred-demo-runner, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: fe-signalloom, namespace: fe-signalloom}
+
+- name: supercred-cardvault-agent-to-openbao-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8200
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: pod, name: netassert-cardvault-probe-pod, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: openbao, namespace: inf-bao}
+
+- name: supercred-cardvault-agent-to-cardvault-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8080
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: pod, name: netassert-cardvault-probe-pod, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: cardvault, namespace: inf-signalloom}
+
+- name: generic-agent-to-cardvault-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8080
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource: {kind: pod, name: agent-patsy, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: cardvault, namespace: inf-signalloom}
+
+- name: policy-engine-self-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8081
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: policy-engine, namespace: inf-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: policy-engine, namespace: inf-signalloom}
+
+- name: supercred-runner-to-policy-engine-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8081
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource: {kind: deployment, name: supercred-demo-runner, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: policy-engine, namespace: inf-signalloom}
+
+- name: supercred-runner-to-dns-udp-allowed
+  type: k8s
+  protocol: udp
+  targetPort: 53
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: supercred-demo-runner, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: coredns, namespace: kube-system}
+
+- name: supercred-runner-to-dns-tcp-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 53
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: supercred-demo-runner, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: coredns, namespace: kube-system}

@@ -38,6 +38,7 @@ NETASSERT_JOB_NAME = "netassert-run"
 NETASSERT_JOB_NAMESPACE = "fe-signalloom"
 NETASSERT_RUNNER_SERVICE_ACCOUNT = "netassert-runner"
 NETASSERT_RUNNER_IMAGE = os.environ.get("NETASSERT_RUNNER_IMAGE", "netassert-runner:local")
+NETASSERT_ACTIVE_DEADLINE_SECONDS = 300
 NETASSERT_CONFIGMAP_NAME = "netassert-signalloom-config"
 NETASSERT_TAP_MARKER = "----NETASSERT-TAP-RESULTS----"
 NETASSERT_SCANNER_IMAGE = (
@@ -95,6 +96,8 @@ def _netassert_job_manifest() -> dict[str, object]:
         },
         "spec": {
             "backoffLimit": 0,
+            # Bounds injector/startup plus 26 assertions at concurrency P3.
+            "activeDeadlineSeconds": NETASSERT_ACTIVE_DEADLINE_SECONDS,
             "ttlSecondsAfterFinished": 600,
             "template": {
                 "metadata": {"labels": {"signalloom.ai/purpose": "network-test-run"}},

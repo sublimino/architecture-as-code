@@ -389,12 +389,22 @@ YAML
 #!/usr/bin/env bash
 if [[ "$*" == *"port-forward"* ]]; then
   while :; do sleep 1; done
+elif [[ "$*" == *"get job/netassert-run"*"jsonpath={.spec.activeDeadlineSeconds}"* ]]; then
+  printf '%s' "$JOB_DEADLINE"
 elif [[ "$*" == *"get job/netassert-run"*"-o json"* ]]; then
-  printf '%s\n' '{"status":{"conditions":[{"type":"Failed","status":"True"}]}}'
+  count=0
+  [[ ! -f "$JOB_POLL_COUNT" ]] || read -r count <"$JOB_POLL_COUNT"
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$JOB_POLL_COUNT"
+  if (( count <= COMPLETE_AFTER_POLLS )); then
+    printf '%s\n' '{"status":{"active":1}}'
+  else
+    printf '{"status":{"conditions":[{"type":"%s","status":"True"}]}}\n' "$JOB_CONDITION"
+  fi
 elif [[ "$*" == *"logs"*"job/netassert-run"* ]]; then
   printf '%s\n' 'runner failed before completing assertions'
   printf '%s\n' '----NETASSERT-TAP-RESULTS----'
-  printf '%s\n' 'TAP version 14' '1..1' 'not ok 1 - dashboard-to-api'
+  printf '%s\n' 'TAP version 14' '1..1' "$JOB_LOG_OUTCOME 1 - dashboard-to-api"
 fi
 exit 0
 SH
@@ -404,12 +414,34 @@ exit 0
 SH
   chmod +x "$fake_bin/kubectl" "$fake_bin/curl"
 
-  run env NETASSERT_CONFIG="$config" WAIT_SLEEP=0 WAIT_JITTER=0 \
+  poll_count="$BATS_TEST_TMPDIR/failed.polls"
+  run env NETASSERT_CONFIG="$config" WAIT_SLEEP=0 WAIT_BACKOFF=1 WAIT_JITTER=0 \
+    JOB_DEADLINE=300 JOB_POLL_COUNT="$poll_count" COMPLETE_AFTER_POLLS=0 \
+    JOB_CONDITION=Failed JOB_LOG_OUTCOME='not ok' \
     PATH="$fake_bin:$PATH" "$repo_root/d2-signalloom/test/run-netassert.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"not ok 1 - dashboard-to-api"* ]]
   [[ "$output" == *"job/netassert-run reached Failed condition; TAP evidence collected above"* ]]
   [[ "$output" != *"did not reach a terminal"* ]]
+
+  rm -f "$poll_count"
+  run env NETASSERT_CONFIG="$config" WAIT_SLEEP=0 WAIT_BACKOFF=1 WAIT_JITTER=0 \
+    JOB_DEADLINE=300 JOB_POLL_COUNT="$poll_count" COMPLETE_AFTER_POLLS=121 \
+    JOB_CONDITION=Complete JOB_LOG_OUTCOME=ok \
+    PATH="$fake_bin:$PATH" "$repo_root/d2-signalloom/test/run-netassert.sh"
+  [ "$status" -eq 0 ]
+  [ "$(<"$poll_count")" -gt 120 ]
+}
+
+@test "Job deadline derives bounded grace and rejects invalid contracts" {
+  source "$repo_root/d2-signalloom/test/run-netassert.sh"
+  run derive_job_wait_budget 300
+  [ "$status" -eq 0 ]
+  [ "$output" = 330 ]
+  for deadline in '' 0 invalid 571; do
+    run derive_job_wait_budget "$deadline"
+    [ "$status" -ne 0 ]
+  done
 }
 
 @test "Netassert Roles expose no secret or workload mutation" {

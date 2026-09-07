@@ -515,3 +515,78 @@ describe('AgentDetailPage — Activity Timeline Tab', () => {
     expect(screen.getByText(/Activity Timeline/i)).toBeInTheDocument()
   })
 })
+
+describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
+  it('renders Tab 4 Assessments & Controls with 4 StatCards and Article 9 breakdown', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeAgent({
+        compliance_summary: { total_controls: 4, passing: 3, failing: 1, pending: 0, posture_score: 0.75 },
+        assessment_summary: { status: 'assessed', total_controls: 4, passed_controls: 3, failed_controls: 1, pending_controls: 0, normalized_score: 0.75 },
+      })
+    )
+    ;(api.compliance.posture as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [
+        {
+          agent_id: 'agent-abc-123',
+          agent_name: 'Test Agent',
+          posture_score: 0.75,
+          results: [
+            {
+              agent_id: 'agent-abc-123',
+              control_id: 'eu-ai-act:art-9',
+              control_name: 'Risk management system',
+              framework_name: 'EU AI Act',
+              status: 'pass',
+              assessed_at: '2026-07-20T10:00:00Z',
+              evidence_ref: 'opa://assessments/test/art-9',
+            },
+            {
+              agent_id: 'agent-abc-123',
+              control_id: 'soc2:cc7.2',
+              control_name: 'System monitoring',
+              framework_name: 'SOC 2',
+              status: 'fail',
+              assessed_at: '2026-07-20T10:00:00Z',
+              evidence_ref: 'opa://assessments/test/cc7.2',
+            },
+          ],
+        },
+      ],
+    })
+
+    renderPage('/agents/agent-abc-123?tab=assessments')
+
+    // Tab 4 panel and StatCards present
+    expect(await screen.findByTestId('dossier-panel-assessments')).toBeInTheDocument()
+    expect(screen.getByTestId('assessments-card-posture')).toBeInTheDocument()
+    expect(screen.getByTestId('assessments-card-counts')).toBeInTheDocument()
+    expect(screen.getByTestId('assessments-card-violations')).toBeInTheDocument()
+    expect(screen.getByTestId('assessments-card-lifecycle')).toBeInTheDocument()
+
+    // Article 9 section and Framework section
+    expect(screen.getByTestId('assessments-section-article9')).toBeInTheDocument()
+    expect(screen.getByTestId('assessments-section-frameworks')).toBeInTheDocument()
+    expect(screen.getByTestId('control-row-eu-ai-act:art-9')).toBeInTheDocument()
+    expect(screen.getByTestId('control-row-soc2:cc7.2')).toBeInTheDocument()
+  })
+
+  it('renders truthful "Not assessed" on Tab 4 when 0 controls exist', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeAgent({
+        compliance_summary: { total_controls: 0, passing: 0, failing: 0, pending: 0, posture_score: null },
+        assessment_summary: { status: 'not_assessed', total_controls: 0, passed_controls: 0, failed_controls: 0, pending_controls: 0, normalized_score: null },
+      })
+    )
+    ;(api.compliance.posture as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [],
+    })
+
+    renderPage('/agents/agent-abc-123?tab=assessments')
+
+    expect(await screen.findByTestId('dossier-panel-assessments')).toBeInTheDocument()
+    expect(screen.getByTestId('assessments-posture-score')).toHaveTextContent('Not assessed')
+    expect(screen.getByTestId('assessments-control-ratio')).toHaveTextContent('Not assessed')
+    expect(screen.getByTestId('assessments-empty-state')).toBeInTheDocument()
+  })
+})
+

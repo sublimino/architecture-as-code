@@ -550,84 +550,6 @@ function AgentTableRow({ agent, shown, onSelect, onEdit }: {
       aria-hidden={!shown}
       style={{ opacity: shown ? 1 : 0, visibility: shown ? 'visible' : 'collapse' }}
     >
-<<<<<<< HEAD
-    <tr
-      onClick={() => onNavigate(agent.id)}
-      style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-    >
-      <td style={{ padding: '11px 16px', minWidth: 180, maxWidth: 320 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-          <span style={{ fontWeight: 500, fontSize: 13 }}>{agent.name || 'Unnamed agent'}</span>
-          {hasViolations && (
-            <span
-              title="Unacknowledged violation"
-              style={{
-                display: 'inline-block', width: 7, height: 7,
-                background: colors.red, borderRadius: '50%', marginLeft: 7, flexShrink: 0,
-              }}
-            />
-          )}
-        </div>
-        <div
-          title={`Agent ID: ${agent.id}`}
-          style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, fontFamily: 'monospace' }}
-        >
-          ID: {agent.id.split('-')[0]}…
-        </div>
-      </td>
-      <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)' }}>
-        {agent.type ?? '—'}
-      </td>
-      <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)' }}>
-        {agent.owner ?? '—'}
-      </td>
-      <td style={{ padding: '11px 16px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
-            <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
-          </span>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked' ? (
-              <>
-                <span
-                  data-testid={`kernel-telemetry-cgroup-${agent.id}`}
-                  className="tag"
-                  title="cgroup.freeze: 1 (FROZEN) — Processes atomically suspended by Sentinel"
-                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                >
-                  cgroup: FROZEN
-                </span>
-                <span
-                  data-testid={`kernel-telemetry-tc-${agent.id}`}
-                  className="tag"
-                  title="TC matchall drop active — Network isolated by Sentinel"
-                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                >
-                  TC: DROP
-                </span>
-              </>
-            ) : (
-              <>
-                <span
-                  data-testid={`kernel-telemetry-cgroup-${agent.id}`}
-                  className="tag"
-                  title="cgroup.freeze: 0 (THAWED)"
-                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                >
-                  cgroup: THAWED
-                </span>
-                <span
-                  data-testid={`kernel-telemetry-tc-${agent.id}`}
-                  className="tag"
-                  title="TC drop: INACTIVE"
-                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                >
-                  TC: PASS
-                </span>
-              </>
-=======
       <tr
         data-testid={`agent-row-${agent.id}`}
         tabIndex={0}
@@ -656,7 +578,6 @@ function AgentTableRow({ agent, shown, onSelect, onEdit }: {
                   background: 'var(--error)', borderRadius: '50%', flexShrink: 0,
                 }}
               />
->>>>>>> feat/agents-page-fullwidth-redesign
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>

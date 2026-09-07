@@ -510,6 +510,14 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/demo/signalfusion/runs/{run_id}/stream"),  # superadmin; see sweep below
     ("POST", "/api/demo/signalfusion/reset"),             # superadmin; see sweep below
     ("GET", "/api/demo/signalfusion/status"),             # superadmin; see sweep below
+    # Distance/Latency demo runner -- same infrastructure as SuperCred, no local DB
+    ("GET", "/api/demo/distancelatency/steps"),
+    ("POST", "/api/demo/distancelatency/runs"),
+    ("GET", "/api/demo/distancelatency/runs/{run_id}"),
+    ("GET", "/api/demo/distancelatency/runs/{run_id}/log"),
+    ("GET", "/api/demo/distancelatency/runs/{run_id}/stream"),
+    ("POST", "/api/demo/distancelatency/reset"),
+    ("GET", "/api/demo/distancelatency/status"),
     # Signal fusion -- pure proxy to Go signal-ingest service; no local DB.
     #
     # The exemption rests on a fact worth stating, because "no local DB" only
@@ -841,33 +849,16 @@ def test_listing_agents_returns_only_the_callers_own(client, two_tenant_db):
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_agent_id_is_answered_with_a_synthesised_agent_not_a_404(client, two_tenant_db):
-    """PINNED, NOT ENDORSED -- escalated as a product decision.
-
-    ``get_agent`` answers an id it cannot find by fabricating an agent rather
-    than returning 404::
-
-        if row is None:
-            return AgentResponse(**_synth_agent(tenant_id, agent_id))
-
-    For isolation this is accidentally sound: an id belonging to another tenant
-    and an id belonging to nobody produce identical responses, so the route is
-    not an existence oracle.  That is a real property and worth keeping.
-
-    It is also a route that returns HTTP 200 and a plausible agent for input
-    the server has never seen, in a product whose output is regulatory
-    evidence.  A dashboard cannot distinguish "this agent is registered and
-    idle" from "no such agent".  Which of 404, 403 or synthesis is correct is a
-    product decision -- this test pins what it does today so the answer changes
-    deliberately.
+def test_unknown_agent_id_returns_404_not_synthesized(client, two_tenant_db):
+    """Under RFC 9110 and Signal Loom governance invariants, addressing an
+    unknown agent id or another tenant's agent id returns HTTP 404 (not found)
+    rather than synthesizing fake database records.
     """
     response = client.get(f"/api/agents/{BOB_AGENT_ID}", headers=bearer(ALICE))
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 404, response.text
     body = response.json()
-    assert body["tenant_id"] == TENANT_A
-    assert body["name"].startswith("Synthesized")
-    assert body["lifecycle_state"] == "registered"
+    assert body["error"]["code"] == "not_found"
 
 
 def test_credential_routes_fail_closed_on_an_id_the_caller_does_not_own(
@@ -1619,7 +1610,7 @@ ATTACK_MANIFEST: frozenset[str] = frozenset({
     "test_every_database_statement_is_bound_to_the_callers_tenant",
     "test_addressing_another_tenants_agent_does_not_return_it",
     "test_listing_agents_returns_only_the_callers_own",
-    "test_unknown_agent_id_is_answered_with_a_synthesised_agent_not_a_404",
+    "test_unknown_agent_id_returns_404_not_synthesized",
     "test_credential_routes_fail_closed_on_an_id_the_caller_does_not_own",
     "test_the_privileged_invocation_sink_writes_the_callers_own_tenant",
     # token forgery

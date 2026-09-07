@@ -48,8 +48,28 @@ class AgentCreateRequest(BaseModel):
     owner: str | None = None
 
 
-class AgentResponse(BaseModel):
+class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active", "revoked"]
+    reason: str | None = None
+    revoked_at: str | None = None
+    revoked_by: str | None = None
+
+
+class SentinelKernelTelemetry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cgroup_frozen: bool = False
+    cgroup_state: Literal["frozen", "thawed", "none"] = "thawed"
+    tc_drop_active: bool = False
+    containment_latency_ms: float | None = None
+    cgroup_path: str | None = None
+    veth_interface: str | None = None
+
+
+class AgentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     id: str
     name: str
@@ -63,6 +83,8 @@ class AgentResponse(BaseModel):
     compliance_summary: ComplianceSummaryInline
     model_name: str | None = None
     created_at: str | None
+    credential_state: AgentCredentialState | None = None
+    kernel_telemetry: SentinelKernelTelemetry | None = None
 
 
 class AgentListResponse(BaseModel):
@@ -70,6 +92,7 @@ class AgentListResponse(BaseModel):
 
     agents: list[AgentResponse]
     total: int
+    source_health: str | None = None
 
 
 # ---- Credentials -----------------------------------------------------------
@@ -271,6 +294,7 @@ class CryptoHealthResponse(BaseModel):
 
     tenant_id: str
     proofs: list[CryptoProof]
+    source_health: str | None = None
 
 
 # ---- NHI Discovery --------------------------------------------------------

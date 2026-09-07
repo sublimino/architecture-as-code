@@ -25,7 +25,7 @@ from urllib.parse import quote
 import asyncpg
 import httpx
 import jwt
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -120,8 +120,28 @@ class AgentCreateRequest(BaseModel):
     owner: str | None = None
 
 
-class AgentResponse(BaseModel):
+class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active", "revoked"]
+    reason: str | None = None
+    revoked_at: str | None = None
+    revoked_by: str | None = None
+
+
+class SentinelKernelTelemetry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cgroup_frozen: bool = False
+    cgroup_state: Literal["frozen", "thawed", "none"] = "thawed"
+    tc_drop_active: bool = False
+    containment_latency_ms: float | None = None
+    cgroup_path: str | None = None
+    veth_interface: str | None = None
+
+
+class AgentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     id: str
     name: str
@@ -135,6 +155,8 @@ class AgentResponse(BaseModel):
     compliance_summary: ComplianceSummaryInline
     model_name: str | None = None
     created_at: str | None
+    credential_state: AgentCredentialState | None = None
+    kernel_telemetry: SentinelKernelTelemetry | None = None
 
 
 class AgentListResponse(BaseModel):
@@ -142,6 +164,7 @@ class AgentListResponse(BaseModel):
 
     agents: list[AgentResponse]
     total: int
+    source_health: str | None = None
 
 
 class PlatformUserResponse(BaseModel):
@@ -182,6 +205,7 @@ class CryptoHealthResponse(BaseModel):
 
     tenant_id: str
     proofs: list[CryptoProof]
+    source_health: str | None = None
 
 
 class NetworkTestEndpoint(BaseModel):
@@ -1381,8 +1405,6 @@ async def _audit_log(
     if agent_uuid is None and agent_id:
         if "agent_ref" not in clean_detail:
             clean_detail["agent_ref"] = agent_id
-        if agent_name is None:
-            agent_name = agent_id
     elif agent_uuid is not None and agent_id and "agent_ref" not in clean_detail:
         clean_detail["agent_ref"] = agent_name or str(agent_id)
 
@@ -2026,20 +2048,34 @@ def _crypto_proof_from_payload(payload: object) -> CryptoProof:
     )
 
 
+def _check_response_status(res: Any, url: str) -> None:
+    status = getattr(res, "status_code", None)
+    if status is not None:
+        if status >= 400:
+            req = getattr(res, "request", None) or httpx.Request("GET", url)
+            raise httpx.HTTPStatusError(f"HTTP {status}", request=req, response=res)
+    elif hasattr(res, "raise_for_status"):
+        res.raise_for_status()
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 
 @router.get("/agents", response_model=AgentListResponse, responses=ERROR_RESPONSES)
-async def agents(tenant_id: Annotated[str, Depends(authenticated_tenant)]) -> AgentListResponse:
+async def agents(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    response: Response = Response(),
+) -> AgentListResponse:
     # --- k8s discovery (always attempted) ---
     k8s_agents: list[AgentResponse] = []
+    discovery_health: str = "healthy"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(AGENT_DISCOVERY_URL)
-            response.raise_for_status()
-            payload = response.json()
+            res = await client.get(AGENT_DISCOVERY_URL)
+            _check_response_status(res, AGENT_DISCOVERY_URL)
+            payload = res.json()
         if not isinstance(payload, dict):
             raise TypeError("agent discovery payload must be an object")
         discovered_agents = payload.get("agents", [])
@@ -2068,20 +2104,25 @@ async def agents(tenant_id: Annotated[str, Depends(authenticated_tenant)]) -> Ag
                         passing=0,
                         failing=0,
                         pending=0,
-                        posture_score=0,
+                        posture_score=None,
                     ),
                     model_name=discovered.get("model"),
                     created_at=discovered.get("created_at"),
                 )
             )
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        pass
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("agent discovery upstream unavailable: %s", exc)
+        discovery_health = "unavailable"
 
     # --- DB agents ---
     pool = await _get_pool()
     if pool is None:
-        # Fixture mode: return only k8s agents (original behaviour)
-        return AgentListResponse(agents=k8s_agents, total=len(k8s_agents))
+        # Fixture mode: return only k8s agents
+        source_health = discovery_health
+        if response is not None:
+            response.headers["source_health"] = source_health
+            response.headers["X-Source-Health"] = source_health
+        return AgentListResponse(agents=k8s_agents, total=len(k8s_agents), source_health=source_health)
 
     db_rows = await pool.fetch(
         "SELECT * FROM agent_registry WHERE tenant_id = $1 ORDER BY created_at", tenant_id,
@@ -2092,30 +2133,40 @@ async def agents(tenant_id: Annotated[str, Depends(authenticated_tenant)]) -> Ag
         db_agents.append(_agent_response_from_row(row, compliance))
 
     merged = k8s_agents + db_agents
-    return AgentListResponse(agents=merged, total=len(merged))
+    source_health = "healthy" if discovery_health == "healthy" else "degraded"
+    if response is not None:
+        response.headers["source_health"] = source_health
+        response.headers["X-Source-Health"] = source_health
+    return AgentListResponse(agents=merged, total=len(merged), source_health=source_health)
 
 
 @router.get("/health/crypto", response_model=CryptoHealthResponse, responses=ERROR_RESPONSES)
 async def crypto_health(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    response: Response = Response(),
 ) -> CryptoHealthResponse:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(CRYPTO_HEALTH_URL)
-            response.raise_for_status()
-            payload = response.json()
+            res = await client.get(CRYPTO_HEALTH_URL)
+            _check_response_status(res, CRYPTO_HEALTH_URL)
+            payload = res.json()
         if not isinstance(payload, dict):
             raise TypeError("crypto health payload must be an object")
         proxy_proofs = payload.get("proofs", [])
         if not isinstance(proxy_proofs, list):
             raise TypeError("crypto health proofs must be a list")
-        # Every upstream entry produces exactly one proof. A malformed one comes
-        # back with status "error" rather than being skipped, so the number of
-        # proofs on the board always matches the number the prover reported.
         proofs = [_crypto_proof_from_payload(proxy_proof) for proxy_proof in proxy_proofs]
-        return CryptoHealthResponse(tenant_id=tenant_id, proofs=proofs)
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        return CryptoHealthResponse(tenant_id=tenant_id, proofs=[])
+        if response is not None:
+            response.headers["source_health"] = "healthy"
+            response.headers["X-Source-Health"] = "healthy"
+        return CryptoHealthResponse(tenant_id=tenant_id, proofs=proofs, source_health="healthy")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("crypto health prover unavailable: %s", exc)
+        raise APIError(
+            503,
+            "upstream_unavailable",
+            f"Crypto health collector unavailable: {exc}",
+        ) from exc
 
 
 @router.get("/network-tests", response_model=NetworkTestListResponse, responses=ERROR_RESPONSES)
@@ -2463,9 +2514,42 @@ async def get_agent(
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
             agent = _AGENTS[tenant_id].get(agent_id)
-            if agent is None:
-                agent = _synth_agent(tenant_id, agent_id)
-        return AgentResponse(**agent)
+            if agent is not None:
+                return AgentResponse(**agent)
+        # Check discovered k8s agents in fixture mode
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res = await client.get(AGENT_DISCOVERY_URL)
+                _check_response_status(res, AGENT_DISCOVERY_URL)
+                payload = res.json()
+            if isinstance(payload, dict):
+                for discovered in payload.get("agents", []):
+                    disc_id = str(discovered.get("id")) if discovered.get("id") is not None else None
+                    disc_name = str(discovered.get("name")) if discovered.get("name") is not None else None
+                    if disc_id == agent_id or disc_name == agent_id:
+                        return AgentResponse(
+                            id=disc_id or agent_id,
+                            name=disc_name or agent_id,
+                            type=discovered.get("type"),
+                            owner=None,
+                            tenant_id=tenant_id,
+                            lifecycle_state=str(discovered.get("state") or "idle"),
+                            last_transition_at=None,
+                            last_transition_by=None,
+                            eu_ai_act_risk_class=None,
+                            compliance_summary=ComplianceSummaryInline(
+                                total_controls=0,
+                                passing=0,
+                                failing=0,
+                                pending=0,
+                                posture_score=None,
+                            ),
+                            model_name=discovered.get("model"),
+                            created_at=discovered.get("created_at"),
+                        )
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            pass
+        raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
 
     agent_uuid = _try_uuid(agent_id)
     if agent_uuid is not None:
@@ -2477,7 +2561,40 @@ async def get_agent(
             "SELECT * FROM agent_registry WHERE name = $1 AND tenant_id = $2", agent_id, tenant_id,
         )
     if row is None:
-        return AgentResponse(**_synth_agent(tenant_id, agent_id))
+        # Check discovered k8s agents in DB mode
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res = await client.get(AGENT_DISCOVERY_URL)
+                _check_response_status(res, AGENT_DISCOVERY_URL)
+                payload = res.json()
+            if isinstance(payload, dict):
+                for discovered in payload.get("agents", []):
+                    disc_id = str(discovered.get("id")) if discovered.get("id") is not None else None
+                    disc_name = str(discovered.get("name")) if discovered.get("name") is not None else None
+                    if disc_id == agent_id or disc_name == agent_id:
+                        return AgentResponse(
+                            id=disc_id or agent_id,
+                            name=disc_name or agent_id,
+                            type=discovered.get("type"),
+                            owner=None,
+                            tenant_id=tenant_id,
+                            lifecycle_state=str(discovered.get("state") or "idle"),
+                            last_transition_at=None,
+                            last_transition_by=None,
+                            eu_ai_act_risk_class=None,
+                            compliance_summary=ComplianceSummaryInline(
+                                total_controls=0,
+                                passing=0,
+                                failing=0,
+                                pending=0,
+                                posture_score=None,
+                            ),
+                            model_name=discovered.get("model"),
+                            created_at=discovered.get("created_at"),
+                        )
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            pass
+        raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
     compliance = await _compliance_summary_for_agent(pool, row["id"])
     return _agent_response_from_row(row, compliance)
 
@@ -3877,38 +3994,6 @@ async def audit(
         f"SELECT COUNT(*)::int AS total FROM audit_events WHERE {where}", *params,
     )
     total = count_row["total"] if count_row else 0
-
-    if agent is not None and total == 0:
-        now = datetime.now(timezone.utc)
-        ts_discovered = now - timedelta(hours=2)
-        ts_attested = now - timedelta(hours=1, minutes=30)
-        ts_posture = now - timedelta(hours=1)
-        agent_display = agent.split(":")[-1]
-        agent_uuid = _try_uuid(agent)
-
-        await pool.execute(
-            """
-            INSERT INTO audit_events (tenant_id, event_type, agent_id, agent_name, actor, detail, timestamp)
-            VALUES 
-                ($1, 'agent.created', $2, $3, 'system/discovery', $4::jsonb, $5),
-                ($1, 'agent.transitioned', $2, $3, 'spire/workload-attestor', $6::jsonb, $7),
-                ($1, 'compliance.reassess_requested', $2, $3, 'governance/engine', $8::jsonb, $9)
-            """,
-            tenant_id,
-            agent_uuid,
-            agent_display,
-            json.dumps({"source": "declarative-cr", "initial_state": "idle", "agent_ref": agent}),
-            ts_discovered,
-            json.dumps({"to_state": "active", "spiffe_id": f"spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/{agent}", "agent_ref": agent}),
-            ts_attested,
-            json.dumps({"control_id": "eu-ai-act:art-9", "status": "compliant", "agent_ref": agent}),
-            ts_posture,
-        )
-        count_row = await pool.fetchrow(
-            f"SELECT COUNT(*)::int AS total FROM audit_events WHERE {where}", *params,
-        )
-        total = count_row["total"] if count_row else 3
-
     params.append(limit)
     params.append(offset)
     rows = await pool.fetch(

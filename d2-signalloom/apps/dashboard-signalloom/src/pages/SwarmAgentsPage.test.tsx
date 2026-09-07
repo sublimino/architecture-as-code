@@ -191,9 +191,17 @@ describe('SwarmAgentsPage — demo mode agent rendering', () => {
     })
   })
 
-  it('renders Sentinel kernel containment badges when an agent is suspended/stunned', async () => {
+  it('renders Sentinel kernel containment badges when an agent has observed frozen/drop telemetry', async () => {
     const agents = [
-      makeSwarmAgent('agent-cardvault', { lifecycle_state: 'suspended' }),
+      makeSwarmAgent('agent-cardvault', {
+        lifecycle_state: 'suspended',
+        kernel_telemetry: {
+          cgroup_state: 'frozen',
+          traffic_control_state: 'drop',
+          ebpf_program_attached: true,
+          last_observed_at: '2026-08-01T10:00:00Z',
+        },
+      }),
       makeSwarmAgent('prompt-commit-summarizer', { lifecycle_state: 'active' }),
     ]
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -210,6 +218,22 @@ describe('SwarmAgentsPage — demo mode agent rendering', () => {
 
       const cgroupThawed = screen.getByTestId('kernel-telemetry-cgroup-tenant-demo:prompt-commit-summarizer')
       expect(cgroupThawed.textContent).toContain('cgroup: THAWED')
+    })
+  })
+
+  it('renders unconfirmed badge when containment is requested but kernel telemetry is unobserved', async () => {
+    const agents = [
+      makeSwarmAgent('agent-cardvault', { lifecycle_state: 'suspended' }),
+    ]
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents,
+      total: agents.length,
+    })
+
+    renderPage()
+    await waitFor(() => {
+      const unconfirmed = screen.getByTestId('kernel-telemetry-unconfirmed-tenant-demo:agent-cardvault')
+      expect(unconfirmed.textContent).toContain('Requested (Outcome unconfirmed)')
     })
   })
 

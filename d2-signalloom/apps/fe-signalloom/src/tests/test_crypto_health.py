@@ -152,7 +152,7 @@ def test_crypto_health_maps_proxy_payload_to_compat_response(monkeypatch):
     assert proof["evidence"] == positive_proof["evidence"]
 
 
-def test_crypto_health_returns_empty_list_when_proxy_fails(monkeypatch):
+def test_crypto_health_fails_closed_when_proxy_fails(monkeypatch):
     class FakeAsyncClient:
         def __init__(self, *args, **kwargs):
             assert kwargs["timeout"] == 5.0
@@ -169,5 +169,5 @@ def test_crypto_health_returns_empty_list_when_proxy_fails(monkeypatch):
     with client_for(monkeypatch, FakeAsyncClient) as client:
         response = client.get("/api/health/crypto", headers=bearer(token_for()))
 
-    assert response.status_code == 200
-    assert response.json() == {"tenant_id": "tenant-a", "proofs": []}
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "upstream_unavailable"

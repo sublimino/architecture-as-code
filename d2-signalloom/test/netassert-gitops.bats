@@ -12,6 +12,11 @@ setup() {
   [[ "$output" != *"not installed"* ]]
   [[ "$output" != *"skipping"* ]]
 
+  run grep -F 'command -v netassert' "$repo_root/d2-signalloom/test/run-netassert.sh"
+  [ "$status" -eq 1 ]
+  run grep -F 'netassert run -f' "$repo_root/d2-signalloom/test/run-netassert.sh"
+  [ "$status" -eq 1 ]
+
   run grep -F '$(MAKE) -C d2-signalloom test-netassert' "$repo_root/Makefile"
   [ "$status" -eq 0 ]
   run grep -F 'skipping NetworkPolicy tests' "$repo_root/Makefile"
@@ -42,7 +47,7 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "ephemeral-container patch is namespaced to four required namespaces" {
+@test "ephemeral-container patch is namespaced to six required namespaces" {
   run bash -c "yq e -r '
     select(.kind == \"ResourceSet\")
     | .metadata.name as \$rs
@@ -54,7 +59,7 @@ setup() {
     | [\$rs, \$ns, (.verbs | join(\",\"))] | @tsv
   ' '$fleet' | grep -vE '^$|^---$'"
   [ "$status" -eq 0 ]
-  [ "$output" = $'signalloom-infra\tfe-signalloom-agents\tpatch\nsignalloom-infra\t<< inputs.tenant >>\tpatch\nsignalloom-apps\t<< inputs.tenant >>\tpatch' ]
+  [ "$output" = $'signalloom-infra\tfe-signalloom-agents\tpatch\nsignalloom-infra\t<< inputs.tenant >>\tpatch\nsignalloom-infra\tingress\tpatch\nsignalloom-infra\tkube-system\tpatch\nsignalloom-apps\t<< inputs.tenant >>\tpatch' ]
   run yq e -r '
     select(.kind == "ResourceSet")
     | .spec.resources[]
@@ -96,8 +101,114 @@ SH
   [ "$status" -eq 0 ]
   run grep -F 'http://127.0.0.1:18082/scan' "$runner"
   [ "$status" -eq 0 ]
-  run grep -F 'SuperCred cases require deployment/cardvault' "$runner"
+  run grep -F 'preflight_suite_resources' "$runner"
   [ "$status" -eq 0 ]
-  run grep -F 'SuperCred cases require pod/agent-cardvault' "$runner"
+  run grep -F 'configured ${side} resource is absent' "$runner"
   [ "$status" -eq 0 ]
+}
+
+@test "suite preflight validates labeled sources and destination deployments" {
+  config="$BATS_TEST_TMPDIR/resources.yaml"
+  calls="$BATS_TEST_TMPDIR/kubectl.calls"
+  fake_bin="$BATS_TEST_TMPDIR/preflight-bin"
+  mkdir -p "$fake_bin"
+  cat >"$config" <<'YAML'
+- name: agent-to-cardvault
+  src:
+    k8sResource: {kind: pod, name: agent-patsy, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: cardvault, namespace: inf-signalloom}
+YAML
+  cat >"$fake_bin/kubectl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$KUBECTL_CALLS"
+if [[ "$*" == *"get pods"*"signalloom.ai/agent=true"* ]]; then
+  printf 'pod/agent-arthur\n'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/kubectl"
+
+  run env KUBECTL_CALLS="$calls" NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
+    "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
+  [ "$status" -eq 0 ]
+  run grep -F 'get pods -n fe-signalloom-agents -l signalloom.ai/agent=true -o name' "$calls"
+  [ "$status" -eq 0 ]
+  run grep -F 'get deployment/cardvault -n inf-signalloom' "$calls"
+  [ "$status" -eq 0 ]
+}
+
+@test "suite preflight fails closed on absent SuperCred destination" {
+  config="$BATS_TEST_TMPDIR/supercred.yaml"
+  fake_bin="$BATS_TEST_TMPDIR/missing-bin"
+  mkdir -p "$fake_bin"
+  cat >"$config" <<'YAML'
+- name: dashboard-to-cardvault
+  src:
+    k8sResource: {kind: deployment, name: dashboard-signalloom, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: cardvault, namespace: inf-signalloom}
+YAML
+  cat >"$fake_bin/kubectl" <<'SH'
+#!/usr/bin/env bash
+[[ "$*" != *"get deployment/cardvault -n inf-signalloom"* ]]
+SH
+  chmod +x "$fake_bin/kubectl"
+
+  run env NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
+    "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"configured destination resource is absent: deployment/cardvault in inf-signalloom"* ]]
+}
+
+@test "TAP validator accepts one complete numbered passing plan" {
+  tap="$BATS_TEST_TMPDIR/valid.tap"
+  printf 'TAP version 13\nok 1 - first\nok 2 - second\n1..2\n' >"$tap"
+  run "$repo_root/d2-signalloom/test/run-netassert.sh" --validate-tap "$tap"
+  [ "$status" -eq 0 ]
+}
+
+@test "TAP validator rejects incomplete or malformed result sets" {
+  cases=(
+    '1..2'
+    $'ok 1 - first\n1..2'
+    $'ok 1 - first\nok 1 - duplicate\n1..2'
+    $'ok 1 - first\nok 3 - outside\n1..2'
+    $'ok 1 - first\nnot ok 2 - failed\n1..2'
+    $'Bail out! scanner crashed\n1..1'
+    $'ok 1 - first\nok 2 - second'
+  )
+  for content in "${cases[@]}"; do
+    tap="$BATS_TEST_TMPDIR/invalid-${RANDOM}.tap"
+    printf '%s\n' "$content" >"$tap"
+    run "$repo_root/d2-signalloom/test/run-netassert.sh" --validate-tap "$tap"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"invalid Netassert TAP"* ]]
+  done
+}
+
+@test "Netassert Roles expose no secret or workload mutation" {
+  run yq e -r '
+    select(.kind == "ResourceSet")
+    | .spec.resources[]
+    | select(.kind == "Role" and (.metadata.name | test("netassert")))
+    | .rules[]
+    | select((.resources[] == "secrets") or ((.resources[] | test("deployments|daemonsets|statefulsets|replicasets")) and (.verbs[] | test("create|update|patch|delete|deletecollection"))))
+  ' "$fleet"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "ingress and CoreDNS discovery grants contain only required reads" {
+  for namespace in ingress kube-system; do
+    run yq ea -r "
+      select(.metadata.name == \"signalloom-infra\")
+      | .spec.resources[]
+      | select(.kind == \"Role\" and .metadata.name == \"netassert-runner\" and .metadata.namespace == \"$namespace\")
+      | .rules[]
+      | [(.resources | join(\",\")), (.verbs | join(\",\"))] | @tsv
+    " "$fleet"
+    [ "$status" -eq 0 ]
+    [ "$output" = $'pods\tget,list,watch\ndeployments\tget\nreplicasets\tlist\npods/ephemeralcontainers\tpatch' ]
+  done
 }

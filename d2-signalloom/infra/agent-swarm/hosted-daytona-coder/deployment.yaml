@@ -15,9 +15,12 @@ metadata:
     signalloom.ai/tenant: controlplane
     signalloom.ai/project: osramp
     signalloom.ai/state: idle
+    signalloom.io/stunned: "false"
+    signalloom.io/containment-mode: "none"
   annotations:
     signalloom.ai/stunned-at: ""
     signalloom.ai/stun-reason: ""
+    signalloom.io/stun-reason: ""
     signalloom.ai/agent-display-name: "Hosted Daytona Coder"
     signalloom.ai/description: "On-demand devcontainer workspace manager for human pairing sessions."
 spec:
@@ -38,6 +41,12 @@ spec:
         signalloom.ai/tenant: controlplane
         signalloom.ai/project: osramp
         signalloom.ai/state: idle
+        signalloom.io/stunned: "false"
+        signalloom.io/containment-mode: "none"
+      annotations:
+        signalloom.ai/stunned-at: ""
+        signalloom.ai/stun-reason: ""
+        signalloom.io/stun-reason: ""
     spec:
       serviceAccountName: hosted-daytona-coder
       securityContext:

@@ -15,9 +15,12 @@ metadata:
     signalloom.ai/tenant: controlplane
     signalloom.ai/project: osramp
     signalloom.ai/state: idle
+    signalloom.io/stunned: "false"
+    signalloom.io/containment-mode: "none"
   annotations:
     signalloom.ai/stunned-at: ""
     signalloom.ai/stun-reason: ""
+    signalloom.io/stun-reason: ""
     signalloom.ai/agent-display-name: "CPAI Engineer"
     signalloom.ai/description: "In-cluster sandboxed coding harness using OpenCode + nono Landlock."
 spec:
@@ -39,6 +42,12 @@ spec:
         signalloom.ai/tenant: controlplane
         signalloom.ai/project: osramp
         signalloom.ai/state: idle
+        signalloom.io/stunned: "false"
+        signalloom.io/containment-mode: "none"
+      annotations:
+        signalloom.ai/stunned-at: ""
+        signalloom.ai/stun-reason: ""
+        signalloom.io/stun-reason: ""
     spec:
       serviceAccountName: cpai-engineer
       securityContext:

@@ -19,11 +19,30 @@ import (
 )
 
 const (
-	labelStunned      = "signalloom.ai/state"
-	stunnedValue      = "stunned"
-	watchNamespace    = "fe-signalloom-agents"
-	defaultCgroupRoot = "/sys/fs/cgroup"
+	labelStunnedAI       = "signalloom.ai/state"
+	labelStunnedIO       = "signalloom.io/stunned"
+	labelContainmentMode = "signalloom.io/containment-mode"
+	labelStunned         = "signalloom.ai/state"
+	stunnedValue         = "stunned"
+	watchNamespace       = "fe-signalloom-agents"
+	defaultCgroupRoot    = "/sys/fs/cgroup"
 )
+
+func isPodStunned(pod *corev1.Pod) bool {
+	if pod == nil || pod.Labels == nil {
+		return false
+	}
+	if pod.Labels[labelStunnedAI] == stunnedValue {
+		return true
+	}
+	if pod.Labels[labelStunnedIO] == "true" {
+		return true
+	}
+	if pod.Labels[labelContainmentMode] == "frozen" {
+		return true
+	}
+	return false
+}
 
 type podReconciler interface {
 	reconcile(*corev1.Pod) error
@@ -135,7 +154,7 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		return fmt.Errorf("resolve cgroup: %w", err)
 	}
 
-	if pod.Labels[labelStunned] == stunnedValue {
+	if isPodStunned(pod) {
 		if err := r.freezer.freeze(cgroupPath); err != nil {
 			return fmt.Errorf("freeze: %w", err)
 		}

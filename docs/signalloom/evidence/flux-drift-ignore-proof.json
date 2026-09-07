@@ -1,0 +1,29 @@
+{
+  "task": "CRKC-P1-1",
+  "name": "flux-selective-drift-ignore-verification",
+  "status": "PASSED",
+  "timestamp_start": "2026-09-07T19:05:47Z",
+  "timestamp_end": "2026-09-07T19:09:40Z",
+  "target_resource": {
+    "namespace": "fe-signalloom",
+    "kind": "Deployment",
+    "name": "dashboard-signalloom",
+    "kustomization": "apps"
+  },
+  "iterations_configured": 50,
+  "iterations_completed": 50,
+  "drift_reversions": 0,
+  "checks": {
+    "rfc6901_linter": "PASS",
+    "dynamic_labels_declared_and_ignored": "PASS",
+    "managed_fields_field_manager": "true"
+  },
+  "preserved_paths": [
+    "/metadata/labels/signalloom.io~1stunned",
+    "/metadata/labels/signalloom.io~1containment-mode",
+    "/metadata/annotations/signalloom.io~1stun-reason",
+    "/metadata/labels/signalloom.ai~1state",
+    "/metadata/annotations/signalloom.ai~1stunned-at",
+    "/metadata/annotations/signalloom.ai~1stun-reason"
+  ]
+}

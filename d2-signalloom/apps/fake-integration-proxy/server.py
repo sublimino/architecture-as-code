@@ -328,9 +328,12 @@ def _patch_kubernetes_json(
     token: str,
     context: ssl.SSLContext,
     patch: dict[str, object],
+    field_manager: str = "flux-client-side-apply",
 ) -> None:
+    sep = "&" if "?" in url else "?"
+    url_with_manager = f"{url}{sep}fieldManager={quote(field_manager, safe='')}"
     req = request.Request(
-        url,
+        url_with_manager,
         data=json.dumps(patch).encode(),
         method="PATCH",
         headers={
@@ -1748,10 +1751,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
             now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             patch = {
                 "metadata": {
-                    "labels": {"signalloom.ai/state": "stunned"},
+                    "labels": {
+                        "signalloom.ai/state": "stunned",
+                        "signalloom.io/stunned": "true",
+                        "signalloom.io/containment-mode": "frozen",
+                    },
                     "annotations": {
                         "signalloom.ai/stunned-at": now,
                         "signalloom.ai/stun-reason": "compliance-failure: securityContext not set",
+                        "signalloom.io/stun-reason": "compliance-failure: securityContext not set",
                     },
                 }
             }
@@ -1759,7 +1767,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}"
                 f"/pods/{quote(agent_id, safe='')}"
             )
-            _patch_kubernetes_json(patch_url, token, context, patch)
+            _patch_kubernetes_json(patch_url, token, context, patch, field_manager="flux-client-side-apply")
             self._json(HTTPStatus.OK, {
                 "agent_id": agent_id,
                 "namespace": namespace,

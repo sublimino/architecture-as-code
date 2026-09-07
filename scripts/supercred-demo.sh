@@ -323,7 +323,7 @@ demo_2() {
   log "agent job output:"
   kubectl -n "$NAMESPACE_AGENTS" logs job/supercred-agent-run
 
-  kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=active --overwrite
+  kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=active signalloom.io/stunned=false signalloom.io/containment-mode=none --field-manager=flux-client-side-apply --overwrite
   ok "step 2 complete — credential chain verified, agent marked active"
 }
 
@@ -364,7 +364,7 @@ print()
   local compliant
   compliant=$(python3 -c "import json; print(json.loads('''$result''')['compliant'])")
   if [ "$compliant" = "False" ] || [ "$compliant" = "false" ]; then
-    kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=non-compliant --overwrite
+    kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=non-compliant --field-manager=flux-client-side-apply --overwrite
     ok "step 3 complete — agent is OUT OF COMPLIANCE"
   else
     ok "step 3 complete — agent is compliant"
@@ -508,10 +508,17 @@ $(printf '%s' "$role_delete_out" | indent)"
   assert_kv_revoked
   assert_role_revoked
 
-  kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=stunned --overwrite
+  kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault \
+    signalloom.ai/state=stunned \
+    signalloom.io/stunned=true \
+    signalloom.io/containment-mode=frozen \
+    --field-manager=flux-client-side-apply \
+    --overwrite
   kubectl -n "$AGENT_POD_NAMESPACE" annotate pod agent-cardvault \
     "signalloom.ai/stunned-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "signalloom.ai/stun-reason=compliance-failure: securityContext not set" \
+    "signalloom.io/stun-reason=compliance-failure: securityContext not set" \
+    --field-manager=flux-client-side-apply \
     --overwrite
 
   log "verifying revocation end-to-end: re-running the agent's credential chain"

@@ -30,9 +30,12 @@ metadata:
     signalloom.ai/state: idle
     signalloom.ai/team: ml-ops
     signalloom.ai/fleet: supercred
+    signalloom.io/stunned: "false"
+    signalloom.io/containment-mode: "none"
   annotations:
     signalloom.ai/stunned-at: ""
     signalloom.ai/stun-reason: ""
+    signalloom.io/stun-reason: ""
     signalloom.ai/agent-display-name: "LLM Classifier Agent"
     signalloom.ai/description: "Classifies transactions using LLM inference, handles PII data."
 spec:

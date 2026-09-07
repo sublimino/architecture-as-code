@@ -45,12 +45,15 @@ metadata:
     # reasoning is sound in general and wrong for this mechanism.
     signalloom.ai/state: idle
     signalloom.ai/supercred: "true"
+    signalloom.io/stunned: "false"
+    signalloom.io/containment-mode: "none"
   annotations:
     # Placeholders, load-bearing: the ignore rule can only preserve a path
     # that exists in the desired object. Without these two lines the stun
     # annotations are wiped on every reconcile even WITH the ignore rule.
     signalloom.ai/stunned-at: ""
     signalloom.ai/stun-reason: ""
+    signalloom.io/stun-reason: ""
     signalloom.ai/agent-display-name: "Cardvault Agent"
     signalloom.ai/model-full: "openai/gpt-4o"
     signalloom.ai/description: "SuperCred demo — accesses credit card data via SPIFFE→OpenBao→BasicAuth chain."

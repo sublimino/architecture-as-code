@@ -86,11 +86,6 @@ const EVENT_TYPES = [
   'agent.created', 'agent.transitioned', 'agent.stunned',
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged', 'compliance.reassess_requested',
-  // Swarm lifecycle events
-  'swarm.agent.claimed', 'swarm.agent.released',
-  'swarm.credential.fetched', 'swarm.credential.rotated',
-  'swarm.nono.sandbox_entered', 'swarm.nono.violation_blocked',
-  'swarm.sentinel.stun_triggered', 'swarm.sentinel.stun_released',
   // Legacy vocabulary from migration 007, retained for historical rows.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
   'token_issued', 'token_refused',

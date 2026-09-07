@@ -263,7 +263,8 @@ function fmtRelativeMinutes(iso: string | null) {
 }
 
 function agentComplianceStatus(a: AgentResponse): string {
-  const { failing, passing, posture_score } = a.compliance_summary
+  const { total_controls, failing, passing, posture_score } = a.compliance_summary
+  if (total_controls === 0 || (posture_score === null && passing === 0 && failing === 0)) return 'not_assessed'
   if (failing > 0) return 'non_compliant'
   if (passing > 0 && posture_score !== null) return 'compliant'
   return 'pending'
@@ -272,14 +273,15 @@ function agentComplianceStatus(a: AgentResponse): string {
 // ─── PostureBar ──────────────────────────────────────────────────────────────
 
 function PostureBar({ score }: { score: number | null }) {
-  if (score === null) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
-  const color = score >= 80 ? colors.tealLoom : score >= 50 ? colors.amber : colors.red
+  if (score === null) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>Not assessed</span>
+  const pct = score <= 1.0 ? Math.round(score * 100) : Math.round(score)
+  const color = pct >= 80 ? colors.tealLoom : pct >= 50 ? colors.amber : colors.red
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div style={{ width: 72, height: 5, background: 'var(--border-subtle)', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ width: `${score}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 0.4s' }} />
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 0.4s' }} />
       </div>
-      <span style={{ fontSize: 12, color, fontWeight: 600, minWidth: 28 }}>{score}%</span>
+      <span style={{ fontSize: 12, color, fontWeight: 600, minWidth: 28 }}>{pct}%</span>
     </div>
   )
 }
@@ -672,10 +674,10 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
         </div>
       </td>
       <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)' }}>
-        {agent.type ?? '—'}
+        {agent.type || 'Registry not linked'}
       </td>
       <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)' }}>
-        {agent.owner ?? '—'}
+        {agent.owner || 'Unassigned'}
       </td>
       <td style={{ padding: '11px 16px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -683,7 +685,7 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
             <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
           </span>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked' ? (
+            {agent.kernel_telemetry?.cgroup_state === 'frozen' || agent.kernel_telemetry?.traffic_control_state === 'drop' ? (
               <>
                 <span
                   data-testid={`kernel-telemetry-cgroup-${agent.id}`}
@@ -702,6 +704,15 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
                   TC: DROP
                 </span>
               </>
+            ) : (agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked') ? (
+              <span
+                data-testid={`kernel-telemetry-unconfirmed-${agent.id}`}
+                className="tag"
+                title="Containment requested but kernel telemetry observation is unconfirmed"
+                style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--amber) 15%, transparent)', color: 'var(--amber)', borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)' }}
+              >
+                Requested (Outcome unconfirmed)
+              </span>
             ) : (
               <>
                 <span

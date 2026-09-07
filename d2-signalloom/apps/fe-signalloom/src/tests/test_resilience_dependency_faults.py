@@ -323,10 +323,10 @@ def test_agent_list_cannot_be_told_apart_from_a_healthy_empty_inventory(
     while_genuinely_empty = client.get("/api/agents", headers=_bearer())
 
     assert while_down.status_code == while_genuinely_empty.status_code == 200
-    assert while_down.json() == while_genuinely_empty.json() == {"agents": [], "total": 0}, (
-        "if this assertion fails the defect has been fixed -- update this test "
-        "to pin whatever now distinguishes the two states"
-    )
+    assert while_down.json()["source_health"] == "unavailable"
+    assert while_down.headers["source_health"] == "unavailable"
+    assert while_genuinely_empty.json()["source_health"] == "healthy"
+    assert while_genuinely_empty.headers["source_health"] == "healthy"
 
 
 def test_agent_list_returns_agents_when_discovery_is_healthy(
@@ -374,59 +374,41 @@ def test_every_discovery_fault_collapses_to_the_same_empty_success(
 
     assert requested, f"[{label}] the proxy was never called; the fault never fired"
     assert response.status_code == 200
-    assert response.json() == {"agents": [], "total": 0}, (
-        f"[{label}] behaviour changed -- re-read this test's docstring"
-    )
+    assert response.headers["source_health"] == "unavailable"
+    assert response.headers["X-Source-Health"] == "unavailable"
+    assert response.json() == {"agents": [], "total": 0, "source_health": "unavailable"}
 
 
 def test_crypto_health_cannot_be_told_apart_from_a_prover_with_nothing_to_report(
     client: TestClient, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DEFECT PINNED, and the most consequential of the three.
-
-    ``/health/crypto`` is an *attestation* surface: its proofs are the evidence
-    that signing and verification are working.  An unreachable prover returns
-    ``200 {"proofs": []}``, identical to a prover reporting no proofs.  Any
-    consumer that counts failing proofs -- which is the natural way to read this
-    endpoint -- sees zero failures and concludes all is well, at exactly the
-    moment nothing is being checked at all.
-
-    Fail-closed is meant to beat degrade-quietly for anything touching evidence.
-    This is the clearest place in the module where it does not.
-    """
+    """Proves that crypto health fails closed with 503 on unreachable prover."""
     _stub_proxy(monkeypatch, raises=_connect_error())
     while_down = client.get("/api/health/crypto", headers=_bearer())
 
     _stub_proxy(monkeypatch, payload={"proofs": []})
     while_genuinely_empty = client.get("/api/health/crypto", headers=_bearer())
 
-    assert while_down.status_code == while_genuinely_empty.status_code == 200
-    assert while_down.json() == while_genuinely_empty.json(), (
-        "an unreachable prover and a prover with nothing to say are the same "
-        "response; if this now fails, the defect has been fixed"
-    )
-    assert while_down.json()["proofs"] == []
+    assert while_down.status_code == 503
+    assert while_down.json()["error"]["code"] == "upstream_unavailable"
+    assert while_genuinely_empty.status_code == 200
+    assert while_genuinely_empty.json()["proofs"] == []
+    assert while_genuinely_empty.json()["source_health"] == "healthy"
 
 
 def test_one_fault_three_policies(
     client: TestClient, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The inconsistency, as a single assertion.
-
-    One exception type, one proxy, three endpoints, three different answers.
-    Whatever the right policy is, it is not "whichever the author of each
-    handler happened to pick".  This test exists so that unifying them is a
-    one-line change here rather than an archaeology exercise.
-    """
+    """The unified error policies across proxy dependencies."""
     observed: dict[str, int] = {}
     for path in ("/api/agents", "/api/health/crypto", "/api/network-tests"):
         _stub_proxy(monkeypatch, raises=_connect_error())
         observed[path] = client.get(path, headers=_bearer()).status_code
 
     assert observed == {
-        "/api/agents": 200,          # silent degradation
-        "/api/health/crypto": 200,   # silent degradation, on an evidence surface
-        "/api/network-tests": 502,   # correct
+        "/api/agents": 200,          # returns explicit degraded/unavailable source_health metadata
+        "/api/health/crypto": 503,   # fails closed on evidence surface
+        "/api/network-tests": 502,   # fails closed on cluster networking surface
     }, f"the policies moved: {observed}"
 
 

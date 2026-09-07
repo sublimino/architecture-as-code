@@ -46,6 +46,13 @@ export interface AgentCredentialState {
   revoked_by?: string | null
 }
 
+export interface SentinelKernelTelemetry {
+  cgroup_state: 'frozen' | 'thawed' | 'unknown'
+  traffic_control_state: 'drop' | 'allow' | 'unknown'
+  ebpf_active: boolean
+  observed_at?: string | null
+}
+
 export interface AgentResponse {
   id: string
   name: string
@@ -60,11 +67,14 @@ export interface AgentResponse {
   model_name?: string | null
   created_at: string | null
   credential_state?: AgentCredentialState | null
+  kernel_telemetry?: SentinelKernelTelemetry | null
+  protected_namespaces?: string[]
 }
 
 export interface AgentListResponse {
   agents: AgentResponse[]
   total: number
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
 }
 
 // Trust topology, as the API actually returns it.
@@ -358,6 +368,7 @@ export interface CryptoProof {
 export interface CryptoHealthResponse {
   tenant_id: string
   proofs: CryptoProof[]
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
 }
 
 // ─── Network Tests (netassert) ─────────────────────────────────────────────────

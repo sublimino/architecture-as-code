@@ -153,7 +153,7 @@ def test_agent_discovery_maps_proxy_payload_to_compat_response(monkeypatch):
     assert agent["compliance_summary"]["passing"] == 0
     assert agent["compliance_summary"]["failing"] == 0
     assert agent["compliance_summary"]["pending"] == 0
-    assert agent["compliance_summary"]["posture_score"] == pytest.approx(0.0)
+    assert agent["compliance_summary"]["posture_score"] is None
 
 
 def test_agent_discovery_returns_empty_list_when_proxy_fails(monkeypatch):
@@ -174,4 +174,6 @@ def test_agent_discovery_returns_empty_list_when_proxy_fails(monkeypatch):
         response = client.get("/api/agents", headers=bearer(token_for()))
 
     assert response.status_code == 200
-    assert response.json() == {"agents": [], "total": 0}
+    assert response.headers["source_health"] == "unavailable"
+    assert response.headers["X-Source-Health"] == "unavailable"
+    assert response.json() == {"agents": [], "total": 0, "source_health": "unavailable"}

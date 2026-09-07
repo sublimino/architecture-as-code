@@ -71,6 +71,7 @@ const EVENT_TYPES = [
   // indistinguishable from them never having happened. Migration 032.
   'demo.supercred.phase_run', 'demo.supercred.reset_requested',
   'demo.signalfusion.phase_run', 'demo.signalfusion.reset_requested',
+  'demo.distancelatency.phase_run', 'demo.distancelatency.reset_requested',
   // Legacy vocabulary from migration 007. No call site emits these, but rows
   // using them may exist in long-lived environments, so they stay filterable.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
@@ -111,6 +112,8 @@ const EVENT_COLORS: Record<string, string> = {
   'demo.supercred.reset_requested': 'var(--amber)',
   'demo.signalfusion.phase_run': 'var(--violet)',
   'demo.signalfusion.reset_requested': 'var(--amber)',
+  'demo.distancelatency.phase_run': 'var(--violet)',
+  'demo.distancelatency.reset_requested': 'var(--amber)',
   enrollment: 'var(--teal)',
   state_transition: 'var(--violet)',
   violation_detected: 'var(--error)',

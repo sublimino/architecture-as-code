@@ -5,7 +5,9 @@ import time
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any, Literal
 
+import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -558,3 +560,132 @@ def test_openapi_publishes_response_models_for_each_compatibility_route(client):
         assert responses["405"]["content"]["application/json"]["schema"] == {
             "$ref": "#/components/schemas/ErrorResponse"
         }
+
+
+def test_audit_get_is_strictly_side_effect_free_and_does_not_insert_on_zero_results(client, monkeypatch):
+    """Proves GET /api/audit performs 0 SQL writes and is side-effect free on 0 results."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any]:
+            return {"total": 0}
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/audit must NEVER execute SQL write statements")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def _mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", _mock_get_pool)
+
+    response = client.get("/api/audit?agent=nonexistent-agent", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert response.json()["events"] == []
+    assert response.json()["total"] == 0
+    assert len(executed_writes) == 0
+
+
+def test_agent_detail_returns_404_for_unknown_agent_in_fixture_mode(client, monkeypatch):
+    """Proves GET /api/agents/{id} returns HTTP 404 for unknown agent without synthetic fallback."""
+    async def get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get("/api/agents/unknown-agent-uuid-9999", headers=bearer(token_for("alice")))
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_agent_detail_returns_404_for_unknown_agent_in_db_mode(client, monkeypatch):
+    """Proves GET /api/agents/{id} returns HTTP 404 in DB mode when agent is not found."""
+    class EmptyDBPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+
+    async def get_pool():
+        return EmptyDBPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get("/api/agents/unknown-agent-uuid-9999", headers=bearer(token_for("alice")))
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_source_health_header_and_metadata_emitted_on_agents_get(client, monkeypatch):
+    """Proves source_health header and metadata are emitted on GET /api/agents."""
+    class HealthyAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": [{"id": "pod-1", "name": "Pod Agent"}]})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", HealthyAsyncClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert response.headers.get("source_health") == "healthy"
+    assert response.headers.get("X-Source-Health") == "healthy"
+    assert response.json()["source_health"] == "healthy"
+
+
+def test_source_health_crypto_prover_fails_closed_with_503(client, monkeypatch):
+    """Proves GET /api/health/crypto fails closed with HTTP 503 on unreachable upstream."""
+    class FailingAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            raise httpx.ConnectError("prover down", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", FailingAsyncClient)
+
+    response = client.get("/api/health/crypto", headers=bearer(token_for("alice")))
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "upstream_unavailable"
+
+
+def test_posture_scale_normalized_zero_controls_is_none(client, monkeypatch):
+    """Proves 0 evaluated controls result in posture_score=None (Not assessed)."""
+    class SingleAgentClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": [{"id": "pod-zero-ctrl", "name": "Unassessed Agent"}]})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", SingleAgentClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    agent = response.json()["agents"][0]
+    assert agent["compliance_summary"]["total_controls"] == 0
+    assert agent["compliance_summary"]["posture_score"] is None

@@ -1,0 +1,257 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# CRKC-P1-4 — Tetragon Agent Telemetry (AUDIT ONLY)
+# =================================================
+#
+# Tetragon is a TELEMETRY PRODUCER in Signal Loom. It is NOT an enforcement
+# engine. Containment is owned exclusively by the two-tier stun path:
+#
+#   Tier 0 — cgroup-v2 freeze + host-veth TC packet drop  (CRKC-P1-2 / CRKC-P1-3)
+#   Tier 1 — Flux spec.ignore + field-manager ownership   (CRKC-P1-1)
+#
+# WHY THIS MATTERS. Tetragon's LSM-backed `Override` and `Sigkill` actions
+# install hooks on the same kernel paths that the Tier 0 freezer operates on.
+# Two enforcers contending for one LSM hook is a documented source of node
+# instability, and — worse for this architecture — a Tetragon SIGKILL destroys
+# the process state that a deliberate cgroup freeze exists to preserve for
+# forensics. A frozen process is evidence; a killed process is a gap.
+#
+# THEREFORE: every policy in this file is observation-only. The absence of
+# enforcement is not left to reviewer diligence — `test/tetragon-telemetry-stream.bats`
+# fails the build if any of `Sigkill`, `Override`, `Signal`, `NotifyEnforcer`,
+# or an `enforcer` sensor appears in this file.
+#
+# NAMESPACE SCOPING is mandatory, not stylistic. An unscoped cluster-wide
+# `sys_enter_execve` trace on a single-node kind cluster starves the node's CPU
+# with events from kube-system, Cilium, and the container runtime itself. Every
+# document below is `TracingPolicyNamespaced` and therefore cannot escape its
+# namespace.
+#
+# ARG INDICES. Tracepoint argument indices are ABI-stable per kernel release but
+# are NOT guaranteed identical across kernel versions. Validate against the
+# target kernel at install time with:
+#     cat /sys/kernel/debug/tracing/events/syscalls/sys_enter_openat/format
+# The indices below are correct for the 6.x series that kind's node image ships.
+#
+# INSTALL. This file is applied AFTER Tetragon itself is installed with the
+# enforcement-disabled values in `tetragon-helm-values.yaml`:
+#     helm -n kube-system upgrade --install tetragon cilium/tetragon \
+#       -f d2-signalloom/deploy/tetragon-helm-values.yaml
+#     kubectl apply -f d2-signalloom/deploy/tetragon-agent-telemetry.yaml
+#
+# Consumed by: d2-signalloom/apps/signal-ingest/collectors/ebpf
+# Documented in: docs/signalloom/tetragon-telemetry-pipeline.md
+---
+# Machine-readable declaration of the decoupling. The `signalloom.io/enforcement`
+# key is what makes "Tetragon is audit-only here" a queryable fact rather than a
+# claim in a comment. signal-ingest logs a warning if it observes a Tetragon
+# event whose policy is not listed here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tetragon-telemetry-contract
+  namespace: inf-signalloom
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: telemetry-contract
+    signalloom.io/enforcement: disabled
+  annotations:
+    signalloom.io/card: CRKC-P1-4
+    signalloom.io/role: telemetry-producer
+    signalloom.io/enforcement-owner: "stun-sentinel (Tier 0) / flux-kustomize (Tier 1)"
+data:
+  enforcement: "disabled"
+  # gRPC export socket the signal-ingest ebpf collector dials.
+  exportSocket: "/var/run/cilium/tetragon/tetragon.sock"
+  # Policies this contract covers. Events carrying a policy_name outside this
+  # set are counted as unexpected by the collector.
+  policies: |
+    agent-execve-audit
+    agent-tcp-connect-audit
+    agent-sensitive-file-audit
+  # Namespaces under observation. Anything outside this set is out of contract.
+  namespaces: |
+    fe-signalloom-agents
+    kagent
+---
+# ---------------------------------------------------------------------------
+# 1. Process execution — syscalls/sys_enter_execve
+# ---------------------------------------------------------------------------
+# Normalises to InboundFlowEvent with classification=process_exec.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: agent-execve-audit
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.io/enforcement: disabled
+  annotations:
+    signalloom.io/card: CRKC-P1-4
+    signalloom.io/tracepoint: "syscalls/sys_enter_execve"
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.io/observed: "true"
+  tracepoints:
+    - subsystem: "syscalls"
+      event: "sys_enter_execve"
+      args:
+        # filename (const char __user *)
+        - index: 5
+          type: "string"
+      selectors:
+        # Observation only. There is deliberately no matchActions block:
+        # Tetragon's default for a matched selector is to report the event.
+        - matchNamespaces:
+            - namespace: Pid
+              operator: NotIn
+              values:
+                - "host_ns"
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: agent-execve-audit
+  namespace: kagent
+  labels:
+    signalloom.io/enforcement: disabled
+  annotations:
+    signalloom.io/card: CRKC-P1-4
+    signalloom.io/tracepoint: "syscalls/sys_enter_execve"
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.io/observed: "true"
+  tracepoints:
+    - subsystem: "syscalls"
+      event: "sys_enter_execve"
+      args:
+        - index: 5
+          type: "string"
+---
+# ---------------------------------------------------------------------------
+# 2. Outbound socket connect — kprobe tcp_connect
+# ---------------------------------------------------------------------------
+# Normalises to InboundFlowEvent with DstIP/DstPort from the sock argument and
+# classification=network_connect. This is the event class that feeds the
+# existing NetEBPF egress correlation path unchanged.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: agent-tcp-connect-audit
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.io/enforcement: disabled
+  annotations:
+    signalloom.io/card: CRKC-P1-4
+    signalloom.io/kprobe: "tcp_connect"
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.io/observed: "true"
+  kprobes:
+    - call: "tcp_connect"
+      syscall: false
+      args:
+        - index: 0
+          type: "sock"
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: agent-tcp-connect-audit
+  namespace: kagent
+  labels:
+    signalloom.io/enforcement: disabled
+  annotations:
+    signalloom.io/card: CRKC-P1-4
+    signalloom.io/kprobe: "tcp_connect"
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.io/observed: "true"
+  kprobes:
+    - call: "tcp_connect"
+      syscall: false
+      args:
+        - index: 0
+          type: "sock"
+---
+# ---------------------------------------------------------------------------
+# 3. Sensitive file access — syscalls/sys_enter_openat
+# ---------------------------------------------------------------------------
+# Scoped by matchArgs Prefix to credential-bearing paths only. An unfiltered
+# openat trace is the single highest-volume tracepoint on a busy node and will
+# saturate the ring buffer on its own.
+#
+# NOTE ON THE ABSENT OVERRIDE. The `ebpf-enforcer-spec.md` design document
+# proposes a Tetragon Override returning EACCES on serviceaccount token reads.
+# That is exactly the enforcement coupling this card removes. We OBSERVE the
+# token read and let Signal Fusion price it; we do not block it in the kernel.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: agent-sensitive-file-audit
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.io/enforcement: disabled
+  annotations:
+    signalloom.io/card: CRKC-P1-4
+    signalloom.io/tracepoint: "syscalls/sys_enter_openat"
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.io/observed: "true"
+  tracepoints:
+    - subsystem: "syscalls"
+      event: "sys_enter_openat"
+      args:
+        # dfd (int)
+        - index: 5
+          type: "int"
+        # filename (const char __user *)
+        - index: 6
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 6
+              operator: "Prefix"
+              values:
+                - "/var/run/secrets/kubernetes.io/serviceaccount"
+                - "/run/secrets"
+                - "/etc/shadow"
+                - "/root/.ssh"
+                - "/var/run/cilium/tetragon"
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: agent-sensitive-file-audit
+  namespace: kagent
+  labels:
+    signalloom.io/enforcement: disabled
+  annotations:
+    signalloom.io/card: CRKC-P1-4
+    signalloom.io/tracepoint: "syscalls/sys_enter_openat"
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.io/observed: "true"
+  tracepoints:
+    - subsystem: "syscalls"
+      event: "sys_enter_openat"
+      args:
+        - index: 5
+          type: "int"
+        - index: 6
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 6
+              operator: "Prefix"
+              values:
+                - "/var/run/secrets/kubernetes.io/serviceaccount"
+                - "/run/secrets"
+                - "/etc/shadow"
+                - "/root/.ssh"

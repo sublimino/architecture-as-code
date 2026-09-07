@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ import (
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
@@ -151,6 +153,19 @@ func main() {
 
 	// P2-6: workspacesaas (Workspace/M365 thin adapter collector)
 	// Registered via NewRegistryFromEnvWithReceiver (COLLECTOR_WORKSPACESAAS_MODE) with live/fixture/off modes.
+
+	// --- CRKC-P1-4: tetragon (audit-only runtime telemetry) ---
+	// Registered HERE rather than inside collectors.NewRegistryFromEnv because
+	// collectors/ebpf imports collectors for the shared Mode type; registering
+	// it from the parent package would close an import cycle. Guarded by
+	// TestAntiParentPackageDoesNotImportEbpf.
+	//
+	// Tetragon is a telemetry producer only — no LSM enforcement. Containment
+	// belongs to stun-sentinel (Tier 0) and Flux (Tier 1).
+	// See docs/signalloom/tetragon-telemetry-pipeline.md.
+	tetragonCollector := ebpf.NewCollectorFromEnv(storeSink)
+	collectorRegistry.Register(tetragonCollector)
+
 	if err := collectorRegistry.Start(ctx); err != nil {
 		slog.Warn("collector failed to start; serving degraded", "error", err)
 	}
@@ -183,6 +198,17 @@ func main() {
 
 	mux := http.NewServeMux()
 	handlers.RegisterRoutes(mux)
+
+	// --- CRKC-P1-4: Prometheus metrics for the Tetragon telemetry lane ---
+	// Mounted directly on the mux rather than through api.Handlers.RegisterRoutes
+	// to keep this card's footprint in shared files to two additive blocks.
+	// Renders even before the collector starts (zeroed counters), so a scrape
+	// during rollout reports "0" rather than an empty body that would read as
+	// "this collector does not exist".
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
+	})
 
 	srv := &http.Server{
 		Addr:         ":" + port,

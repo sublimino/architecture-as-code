@@ -415,5 +415,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SFAGENTS-P2-PRE verified: Phase 2 Pre-Flight & Gateway Check, ancestry verified against integration/sfagents-v0.1.0, baseline clean, all test suites green (commit 8a80e9a5)"
+  },
+  "0eeda": {
+    "task_id": "0eeda",
+    "reviewed_at": "2026-09-07T09:12:30.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-1 verified: Dossier Route & Tab 1 (Overview), AgentOverviewTab.tsx, 5-tab navigation, truthful labels, kernel telemetry, 29/29 BATS, Vitest and Pytest green (commit b187ea38)"
   }
 }

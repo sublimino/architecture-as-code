@@ -17,6 +17,7 @@ import CredentialActionsMenu from '../components/CredentialActionsMenu'
 import AgentOverviewTab from '../components/AgentOverviewTab'
 import AgentIdentityTab from '../components/AgentIdentityTab'
 import AgentAccessTab from '../components/AgentAccessTab'
+import AgentAssessmentsTab from '../components/AgentAssessmentsTab'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -230,197 +231,6 @@ function Timeline({ items, onAcknowledge }: {
           </div>
         </div>
       )}
-    </section>
-  )
-}
-
-// ─── Compliance Summary ───────────────────────────────────────────────────────
-
-function ComplianceSummarySection({ posture, openViolations, lastAssessed }: {
-  posture: number | null
-  openViolations: number
-  lastAssessed: string | null
-}) {
-  const isNotAssessed = posture === null
-  const scoreColor = isNotAssessed
-    ? colors.muted
-    : posture >= 80 ? colors.tealLoom
-    : posture >= 50 ? colors.amber
-    : colors.red
-
-  return (
-    <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Compliance</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        <div className="card" style={{ textAlign: 'center', padding: '20px 16px' }}>
-          <div style={{ fontSize: 42, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>
-            {isNotAssessed ? 'Not assessed' : `${posture}%`}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Posture Score
-          </div>
-          {isNotAssessed && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Pending assessment</div>
-          )}
-        </div>
-        <div className="card" style={{ textAlign: 'center', padding: '20px 16px' }}>
-          <div style={{ fontSize: 42, fontWeight: 800, color: openViolations > 0 ? colors.red : colors.tealLoom, lineHeight: 1 }}>
-            {openViolations}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Open Violations
-          </div>
-        </div>
-        <div className="card" style={{ padding: '20px 16px' }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-            Last Assessed
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {lastAssessed ? fmtDate(lastAssessed) : '—'}
-          </div>
-          {!lastAssessed && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Run an assessment to populate this</div>
-          )}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ─── Framework Controls ───────────────────────────────────────────────────────
-
-interface FrameworkGroup {
-  name: string
-  controls: AgentComplianceResultResponse[]
-}
-
-function FrameworkControlsSection({ results, onReassess }: {
-  results: AgentComplianceResultResponse[]
-  onReassess: (controlId: string) => Promise<void>
-}) {
-  const [requesting, setRequesting] = useState<string | null>(null)
-  const [requested, setRequested] = useState<Set<string>>(new Set())
-
-  const frameworks: FrameworkGroup[] = useMemo(() => {
-    const map: Record<string, AgentComplianceResultResponse[]> = {}
-    for (const r of results) {
-      if (!map[r.framework_name]) map[r.framework_name] = []
-      map[r.framework_name].push(r)
-    }
-    return Object.entries(map).map(([name, controls]) => ({ name, controls }))
-  }, [results])
-
-  async function handleReassess(controlId: string) {
-    setRequesting(controlId)
-    try {
-      await onReassess(controlId)
-      setRequested(prev => new Set(prev).add(controlId))
-    } catch (e) {
-      alert(`Reassessment request failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setRequesting(null)
-    }
-  }
-
-  if (frameworks.length === 0) {
-    return (
-      <section>
-        <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Framework Controls</h2>
-        <EmptyState kicker="No assessment results" body="Compliance controls will appear here after the first assessment run." />
-      </section>
-    )
-  }
-
-  const statusIcon: Record<string, string> = {
-    pass: '✓',
-    fail: '✗',
-    pending: '○',
-    reassessment_requested: '↻',
-  }
-  const statusColor: Record<string, string> = {
-    pass: colors.tealLoom,
-    fail: colors.red,
-    pending: colors.muted,
-    reassessment_requested: colors.amber,
-  }
-
-  return (
-    <section>
-      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Framework Controls</h2>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {frameworks.map((fw) => {
-          const passing = fw.controls.filter(c => c.status === 'pass').length
-          const failing = fw.controls.filter(c => c.status === 'fail').length
-          return (
-            <div key={fw.name} className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '14px 20px', borderBottom: '1px solid var(--border)',
-                background: 'var(--surface2)',
-              }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{fw.name}</span>
-                <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                  <span style={{ color: colors.tealLoom }}>{passing} passing</span>
-                  {failing > 0 && <span style={{ color: colors.red }}>{failing} failing</span>}
-                  <span style={{ color: 'var(--muted)' }}>{fw.controls.length} controls</span>
-                </div>
-              </div>
-
-              <div>
-                {fw.controls.map((c, i) => {
-                  const isFail = c.status === 'fail'
-                  const alreadyRequested = requested.has(c.control_id) || c.status === 'reassessment_requested'
-                  return (
-                    <div
-                      key={c.control_id}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 14,
-                        padding: '10px 20px',
-                        borderBottom: i < fw.controls.length - 1 ? '1px solid var(--border)' : 'none',
-                        background: isFail ? 'rgba(220,38,38,0.03)' : 'transparent',
-                      }}
-                    >
-                      <span style={{
-                        fontSize: 15, fontWeight: 700, flexShrink: 0,
-                        color: statusColor[c.status] ?? colors.muted,
-                        width: 18, textAlign: 'center',
-                      }}>
-                        {statusIcon[c.status] ?? '?'}
-                      </span>
-
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: isFail ? 500 : 400 }}>{c.control_name}</div>
-                        {c.assessed_at && (
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                            Assessed {fmtDate(c.assessed_at)}
-                          </div>
-                        )}
-                      </div>
-
-                      <StatusBadge status={c.status} variant="compliance" />
-
-                      {isFail && (
-                        <button
-                          className="btn btn-secondary"
-                          style={{ fontSize: 11, padding: '4px 12px', flexShrink: 0 }}
-                          disabled={alreadyRequested || requesting === c.control_id}
-                          onClick={() => handleReassess(c.control_id)}
-                        >
-                          {requesting === c.control_id
-                            ? 'Requesting…'
-                            : alreadyRequested
-                            ? 'Requested'
-                            : 'Request Reassessment'}
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
-      </div>
     </section>
   )
 }
@@ -1245,17 +1055,15 @@ export default function AgentDetailPage() {
       )}
 
       {activeTab === 'assessments' && (
-        <div data-testid="dossier-panel-assessments" role="tabpanel" id="dossier-tabpanel-assessments" aria-labelledby="dossier-tab-assessments">
-          <ComplianceSummarySection
-            posture={agent.compliance_summary.posture_score}
-            openViolations={openViolations}
-            lastAssessed={lastAssessed}
-          />
-          <FrameworkControlsSection
-            results={complianceResults}
-            onReassess={handleReassess}
-          />
-        </div>
+        <AgentAssessmentsTab
+          agent={agent}
+          complianceResults={complianceResults}
+          openViolations={openViolations}
+          onReassess={handleReassess}
+          onScanCompliance={handleComplianceScan}
+          isScanning={scanning}
+          lastScanTimestamp={lastScanTimestamp || lastAssessed}
+        />
       )}
 
       {activeTab === 'activity' && (

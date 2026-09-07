@@ -211,6 +211,61 @@ export interface AgentListParams {
   limit?: number
 }
 
+export interface ActionCapability {
+  allowed: boolean
+  reason?: string | null
+  requires_confirmation?: boolean
+  requires_reason?: boolean
+  requires_dual_approval?: boolean
+  scope: string
+}
+
+export interface WorkloadActionCapabilities {
+  agent_id?: string | null
+  workload?: string | null
+  namespace?: string | null
+  freeze: ActionCapability
+  thaw: ActionCapability
+  network_isolate: ActionCapability
+  network_restore: ActionCapability
+  revoke_credentials: ActionCapability
+  issue_credentials: ActionCapability
+  reassess_compliance: ActionCapability
+  decommission: ActionCapability
+  run_scenario: ActionCapability
+}
+
+export interface TenantCapabilities {
+  view_agents: boolean
+  register_agent: boolean
+  export_compliance: boolean
+  view_crypto_proofs: boolean
+  run_network_tests: boolean
+  view_audit_trail: boolean
+  manage_settings: boolean
+  manage_api_keys: boolean
+  manage_users: boolean
+  run_supercred_scenario: boolean
+}
+
+export interface CapabilitiesResponse {
+  tenant: string
+  principal_id: string
+  email?: string | null
+  roles: string[]
+  is_superadmin: boolean
+  tenant_capabilities: TenantCapabilities
+  actions: Record<string, ActionCapability>
+  workload?: WorkloadActionCapabilities | null
+  source_health?: 'healthy' | 'degraded' | 'unavailable' | null
+}
+
+export interface CapabilitiesParams {
+  agent_id?: string
+  workload?: string
+  namespace?: string
+}
+
 // Trust topology, as the API actually returns it.
 //
 // These mirror fe-signalloom's api_compat models exactly. The route reports

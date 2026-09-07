@@ -9,6 +9,8 @@ import type {
   AgentListResponse,
   AgentResponse,
   AuditListResponse,
+  CapabilitiesParams,
+  CapabilitiesResponse,
   ComplianceSummaryResponse,
   ConsentAcceptRequest,
   ConsentAcceptResponse,
@@ -274,6 +276,19 @@ export async function req<T>(
 export const api = {
   trustTopology: (token: string) =>
     req<TrustTopologyResponse>('/trust-topology', token),
+
+  capabilities: (token: string, params?: CapabilitiesParams) => {
+    const searchParams = new URLSearchParams()
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== '') {
+          searchParams.set(key, String(value))
+        }
+      }
+    }
+    const qs = searchParams.toString()
+    return req<CapabilitiesResponse>(qs ? `/capabilities?${qs}` : '/capabilities', token)
+  },
 
   agents: {
     list: (token: string, params?: AgentListParams) => {

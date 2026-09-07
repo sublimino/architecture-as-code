@@ -11,6 +11,7 @@ import type {
   AgentListResponse,
   AgentResponse,
   AuditListResponse,
+  CapabilitiesResponse,
   ComplianceSummaryResponse,
   ConsentAcceptResponse,
   ConsentStatusResponse,
@@ -647,6 +648,106 @@ const platformUsers: PlatformUsersResponse = {
   total: 9,
 }
 
+// ─── Capabilities ─────────────────────────────────────────────────────────────
+
+function capabilitiesFixture(): CapabilitiesResponse {
+  return {
+    tenant: TENANT,
+    principal_id: 'demo-user',
+    email: 'demo-user@signalloom.local',
+    roles: ['superadmin', 'operator'],
+    is_superadmin: true,
+    tenant_capabilities: {
+      view_agents: true,
+      register_agent: true,
+      export_compliance: true,
+      view_crypto_proofs: true,
+      run_network_tests: true,
+      view_audit_trail: true,
+      manage_settings: true,
+      manage_api_keys: true,
+      manage_users: true,
+      run_supercred_scenario: true,
+    },
+    actions: {
+      freeze: {
+        allowed: true,
+        reason: 'Permitted for superadmin',
+        requires_confirmation: true,
+        requires_reason: true,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+      thaw: {
+        allowed: true,
+        reason: 'Permitted for superadmin',
+        requires_confirmation: true,
+        requires_reason: true,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+      network_isolate: {
+        allowed: true,
+        reason: 'Permitted for superadmin',
+        requires_confirmation: true,
+        requires_reason: true,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+      network_restore: {
+        allowed: true,
+        reason: 'Permitted for superadmin',
+        requires_confirmation: true,
+        requires_reason: true,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+      revoke_credentials: {
+        allowed: true,
+        reason: 'Permitted for superadmin',
+        requires_confirmation: true,
+        requires_reason: true,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+      issue_credentials: {
+        allowed: true,
+        reason: 'Permitted for tenant operator',
+        requires_confirmation: false,
+        requires_reason: false,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+      reassess_compliance: {
+        allowed: true,
+        reason: 'Permitted for tenant operator',
+        requires_confirmation: false,
+        requires_reason: false,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+      decommission: {
+        allowed: false,
+        reason: 'Irreversible decommission requires enforced dual approval',
+        requires_confirmation: true,
+        requires_reason: true,
+        requires_dual_approval: true,
+        scope: `tenant:${TENANT}`,
+      },
+      run_scenario: {
+        allowed: true,
+        reason: 'Permitted for superadmin in lab/demo environment',
+        requires_confirmation: true,
+        requires_reason: false,
+        requires_dual_approval: false,
+        scope: `tenant:${TENANT}`,
+      },
+    },
+    workload: null,
+    source_health: 'healthy',
+  }
+}
+
 // ─── Resolver ──────────────────────────────────────────────────────────────────
 
 type Match = {
@@ -660,6 +761,8 @@ const re = (r: RegExp) => (path: string) => r.test(path)
 // Ordered most-specific-first; paths are the raw values passed to req() in
 // client.ts (query string stripped before matching).
 const ROUTES: Match[] = [
+  // capabilities
+  { method: 'GET', test: re(/^\/capabilities$/), data: () => capabilitiesFixture() },
   // agents
   { method: 'GET', test: re(/^\/agents$/), data: () => listAgents() },
   { method: 'POST', test: re(/^\/agents$/), data: (_p, body) => registerAgent(body) },

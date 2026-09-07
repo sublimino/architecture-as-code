@@ -71,3 +71,18 @@ setup() {
   run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_get_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p1-5: GET /api/capabilities returns server-authorized capabilities per tenant and role" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_capabilities_for_operator_user or test_capabilities_for_superadmin_user'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-5: GET /api/capabilities supports workload-scoped capabilities and returns 404 for unknown agents" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_capabilities_workload_scoped or test_capabilities_returns_404'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-5: GET /api/capabilities is strictly side-effect free (zero SQL writes)" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_capabilities_get_is_strictly_side_effect_free'"
+  [ "$status" -eq 0 ]
+}

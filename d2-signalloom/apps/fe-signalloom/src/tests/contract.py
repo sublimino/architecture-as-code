@@ -250,6 +250,73 @@ class AgentListResponse(BaseModel):
     pagination: PaginationMetadata | None = None
 
 
+# ---- Capabilities ----------------------------------------------------------
+
+class ActionCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    reason: str | None = None
+    requires_confirmation: bool = False
+    requires_reason: bool = False
+    requires_dual_approval: bool = False
+    scope: str = "tenant"
+
+
+class WorkloadActionCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str | None = None
+    workload: str | None = None
+    namespace: str | None = None
+    freeze: ActionCapability
+    thaw: ActionCapability
+    network_isolate: ActionCapability
+    network_restore: ActionCapability
+    revoke_credentials: ActionCapability
+    issue_credentials: ActionCapability
+    reassess_compliance: ActionCapability
+    decommission: ActionCapability
+    run_scenario: ActionCapability
+
+
+class TenantCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    view_agents: bool = True
+    register_agent: bool = True
+    export_compliance: bool = True
+    view_crypto_proofs: bool = True
+    run_network_tests: bool = True
+    view_audit_trail: bool = True
+    manage_settings: bool = False
+    manage_api_keys: bool = False
+    manage_users: bool = False
+    run_supercred_scenario: bool = False
+
+
+class CapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant: str
+    principal_id: str
+    email: str | None = None
+    roles: list[str]
+    is_superadmin: bool
+    tenant_capabilities: TenantCapabilities
+    actions: dict[str, ActionCapability]
+    workload: WorkloadActionCapabilities | None = None
+    source_health: str | None = "healthy"
+
+
+class CapabilitiesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str | None = None
+    workload: str | None = None
+    namespace: str | None = None
+
+
 # ---- Credentials -----------------------------------------------------------
 
 class IssueCredentialResponse(BaseModel):

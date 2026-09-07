@@ -75,6 +75,11 @@ export interface SentinelKernelTelemetry {
   cgroup_path?: string | null
   /** Host veth interface if attached. */
   veth_interface?: string | null
+  sentinel_ack?: boolean
+  sentinel_ack_id?: string | null
+  sentinel_drop_count?: number
+  sentinel_last_ack_at?: string | null
+  containment_probe_state?: 'confirmed' | 'pending' | 'unconfirmed'
 }
 
 // ─── Discovery record ───────────────────────────────────────────────────────

@@ -260,6 +260,42 @@ describe('AgentAccessTab — 3 Independent Containment Tracks & StatCards', () =
     expect(screen.getByTestId('access-tc-badge')).toHaveTextContent('Requested (Outcome unconfirmed)')
     expect(screen.getByTestId('access-spiffe-crl-badge')).toHaveTextContent('Requested (Outcome unconfirmed)')
   })
+
+  it('renders eBPF Sentinel ACK badges, drop counter, and probe states across containment tracks', () => {
+    const agent = createMockAgent({
+      lifecycle_state: 'suspended',
+      kernel_telemetry: {
+        cgroup_state: 'frozen',
+        traffic_control_state: 'drop',
+        ebpf_active: true,
+        ebpf_program_attached: true,
+        observed_at: '2026-09-07T09:35:00Z',
+        sentinel_ack: true,
+        sentinel_ack_id: 'ack-order-proc-ebpf-001',
+        sentinel_drop_count: 320,
+        sentinel_last_ack_at: '2026-09-07T09:35:00Z',
+        containment_probe_state: 'confirmed',
+      },
+      credential_state: {
+        status: 'revoked',
+        reason: 'containment-policy-triggered',
+        revoked_at: '2026-09-07T09:35:00Z',
+      },
+    })
+    renderTab(<AgentAccessTab agent={agent} />)
+
+    expect(screen.getByTestId('access-cgroup-badge')).toHaveTextContent('cgroup: FROZEN')
+    expect(screen.getByTestId('access-cgroup-sentinel-ack')).toHaveTextContent('ACK: ack-order-proc-ebpf-001')
+    expect(screen.getByTestId('access-cgroup-probe-state')).toHaveTextContent('Probe state: confirmed')
+
+    expect(screen.getByTestId('access-tc-badge')).toHaveTextContent('TC: DROP')
+    expect(screen.getByTestId('access-tc-sentinel-ack')).toHaveTextContent('ACK Confirmed')
+    expect(screen.getByTestId('access-tc-drop-counter')).toHaveTextContent('320 packets dropped')
+
+    expect(screen.getByTestId('access-sentinel-ack-badge')).toHaveTextContent('ACK Verified')
+    expect(screen.getByTestId('access-sentinel-probe-state')).toHaveTextContent('Probe state: confirmed')
+    expect(screen.getByTestId('access-sentinel-drops')).toHaveTextContent('Sentinel drops: 320')
+  })
 })
 
 describe('AgentAccessTab — Containment Tracks Matrix Table', () => {

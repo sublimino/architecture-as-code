@@ -53,6 +53,11 @@ export interface SentinelKernelTelemetry {
   ebpf_program_attached?: boolean
   observed_at?: string | null
   last_observed_at?: string | null
+  sentinel_ack?: boolean
+  sentinel_ack_id?: string | null
+  sentinel_drop_count?: number
+  sentinel_last_ack_at?: string | null
+  containment_probe_state?: 'confirmed' | 'pending' | 'unconfirmed'
 }
 
 export interface RuntimeMetadata {

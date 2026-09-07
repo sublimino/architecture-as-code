@@ -243,6 +243,27 @@ func NewEngine() *Engine {
 // cannot produce the zero-loss years that make a well-governed distribution the shape it actually
 // is — and those years are the whole point of the tail-dominated signal.
 func (e *Engine) Run(contribs []Contribution, riskLoad float64) Result {
+	res, _ := e.RunDistribution(contribs, riskLoad)
+	return res
+}
+
+// RunDistribution is Run, additionally returning the sorted vector of simulated annual losses.
+//
+// WHY THIS EXISTS (CRKC-P2-1). Run reduces the simulation to four headline figures. A caller that
+// needs Value at Risk at percentiles other than 95 — a risk committee routinely wants p50, p90 and
+// p99 alongside it — has no way to obtain them from Result, and the obvious workaround is to write
+// a second sampling loop somewhere else in the repository. That is precisely the defect this
+// package's doc comment forbids, and it is how two surfaces come to disagree about a number.
+//
+// So the loop moved here and Run became a two-line delegation. The body is byte-for-byte the
+// previous implementation: the same generator, seeded the same way, consumed in the same order, so
+// every figure Run has ever produced is unchanged. That claim is not a hope — it is asserted
+// against captured pre-refactor values in aggregate_test.go and by the untouched determinism,
+// adversarial and regression suites in this package.
+//
+// The returned slice is sorted ascending and has exactly Iterations elements. It aliases the
+// engine's working memory and is not copied; callers must treat it as read-only.
+func (e *Engine) RunDistribution(contribs []Contribution, riskLoad float64) (Result, []float64) {
 	iters := e.Iterations
 	if iters <= 0 {
 		iters = DefaultIterations
@@ -296,8 +317,15 @@ func (e *Engine) Run(contribs []Contribution, riskLoad float64) Result {
 		Carried:    tvar * (1 + riskLoad),
 		RiskLoad:   riskLoad,
 		Guards:     *g,
-	}
+	}, losses
 }
+
+// Percentile returns the value at p (0..1) in a pre-sorted ascending loss vector, using the same
+// nearest-rank rule the engine uses internally for VaR95. Exported so callers deriving additional
+// percentiles from RunDistribution get the identical convention rather than an approximation of it;
+// a p95 computed two different ways is two different numbers, and only one of them matches the
+// Result the same run returned.
+func Percentile(sorted []float64, p float64) float64 { return percentile(sorted, p) }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // Distribution sampling — shared by both paths.

@@ -306,9 +306,51 @@ SH
   [ "$status" -ne 0 ]
 }
 
+@test "suite preflight requires the existing SuperCred egress policy read-only" {
+  config="$BATS_TEST_TMPDIR/supercred-policy.yaml"
+  calls="$BATS_TEST_TMPDIR/policy.calls"
+  fake_bin="$BATS_TEST_TMPDIR/policy-bin"
+  mkdir -p "$fake_bin"
+  cat >"$config" <<'YAML'
+- name: cardvault-probe-to-openbao
+  src:
+    k8sResource: {kind: pod, name: netassert-cardvault-probe-pod, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: openbao, namespace: inf-bao}
+YAML
+  cat >"$fake_bin/kubectl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$KUBECTL_CALLS"
+if [[ "$*" == *"get pods"* ]]; then
+  printf '{"items":[{"metadata":{"name":"cardvault-agent"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}}]}\n'
+fi
+[[ "$*" != *"get networkpolicy/allow-supercred-cardvault-egress -n fe-signalloom-agents"* ]]
+SH
+  chmod +x "$fake_bin/kubectl"
+
+  run env KUBECTL_CALLS="$calls" NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
+    "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"networkpolicy/allow-supercred-cardvault-egress is absent in fe-signalloom-agents"* ]]
+  [[ "$output" == *"make demo-signalloom-supercred-1"* ]]
+  run grep -E '(^| )(apply|create|replace|patch)( |$)' "$calls"
+  [ "$status" -ne 0 ]
+}
+
 @test "TAP validator accepts one complete numbered passing plan" {
   tap="$BATS_TEST_TMPDIR/valid.tap"
   printf 'TAP version 13\nok 1 - first\nok 2 - second\n1..2\n' >"$tap"
+  run "$repo_root/d2-signalloom/test/run-netassert.sh" --validate-tap "$tap"
+  [ "$status" -eq 0 ]
+}
+
+@test "TAP validator accepts a complete twenty-six-result plan" {
+  tap="$BATS_TEST_TMPDIR/valid-26.tap"
+  {
+    printf 'TAP version 13\n'
+    for number in $(seq 1 26); do printf 'ok %s - check %s\n' "$number" "$number"; done
+    printf '1..26\n'
+  } >"$tap"
   run "$repo_root/d2-signalloom/test/run-netassert.sh" --validate-tap "$tap"
   [ "$status" -eq 0 ]
 }
@@ -330,6 +372,44 @@ SH
     [ "$status" -ne 0 ]
     [[ "$output" == *"invalid Netassert TAP"* ]]
   done
+}
+
+@test "failed Netassert Job emits logs promptly and remains a failure" {
+  config="$BATS_TEST_TMPDIR/failed-job.yaml"
+  fake_bin="$BATS_TEST_TMPDIR/failed-job-bin"
+  mkdir -p "$fake_bin"
+  cat >"$config" <<'YAML'
+- name: dashboard-to-api
+  src:
+    k8sResource: {kind: deployment, name: dashboard-signalloom, namespace: fe-signalloom}
+  dst:
+    k8sResource: {kind: deployment, name: fe-signalloom, namespace: fe-signalloom}
+YAML
+  cat >"$fake_bin/kubectl" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == *"port-forward"* ]]; then
+  while :; do sleep 1; done
+elif [[ "$*" == *"get job/netassert-run"*"-o json"* ]]; then
+  printf '%s\n' '{"status":{"conditions":[{"type":"Failed","status":"True"}]}}'
+elif [[ "$*" == *"logs"*"job/netassert-run"* ]]; then
+  printf '%s\n' 'runner failed before completing assertions'
+  printf '%s\n' '----NETASSERT-TAP-RESULTS----'
+  printf '%s\n' 'TAP version 14' '1..1' 'not ok 1 - dashboard-to-api'
+fi
+exit 0
+SH
+  cat >"$fake_bin/curl" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fake_bin/kubectl" "$fake_bin/curl"
+
+  run env NETASSERT_CONFIG="$config" WAIT_SLEEP=0 WAIT_JITTER=0 \
+    PATH="$fake_bin:$PATH" "$repo_root/d2-signalloom/test/run-netassert.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not ok 1 - dashboard-to-api"* ]]
+  [[ "$output" == *"job/netassert-run reached Failed condition; TAP evidence collected above"* ]]
+  [[ "$output" != *"did not reach a terminal"* ]]
 }
 
 @test "Netassert Roles expose no secret or workload mutation" {

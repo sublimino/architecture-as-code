@@ -215,8 +215,25 @@ def _parse_tap_results(log_text: str) -> TapResults:
     plan: int | None = None
     numbered: dict[int, tuple[str, str]] = {}
     names: set[str] = set()
+    in_yaml_diagnostic = False
+    diagnostic_allowed = False
     for raw_line in after_marker[2].splitlines():
         line = raw_line.strip()
+        if (
+            raw_line[:1].isspace()
+            and line == "---"
+            and not in_yaml_diagnostic
+            and diagnostic_allowed
+        ):
+            in_yaml_diagnostic = True
+            continue
+        if in_yaml_diagnostic:
+            if not raw_line[:1].isspace():
+                return TapResults(False, {}, "unterminated TAP YAML diagnostic")
+            if line == "...":
+                in_yaml_diagnostic = False
+                diagnostic_allowed = False
+            continue
         if not line or line.startswith("#") or line == "TAP version 13":
             continue
         if line.lower().startswith("bail out!"):
@@ -236,7 +253,10 @@ def _parse_tap_results(log_text: str) -> TapResults:
             return TapResults(False, {}, "duplicate TAP assertion")
         numbered[number] = (name, "pass" if outcome == "ok" else "fail")
         names.add(name)
+        diagnostic_allowed = True
 
+    if in_yaml_diagnostic:
+        return TapResults(False, {}, "unterminated TAP YAML diagnostic")
     if plan is None:
         return TapResults(False, {}, "TAP plan is missing")
     if sorted(numbered) != list(range(1, plan + 1)):

@@ -32,6 +32,21 @@ class TapValidatorTest(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr)
 
+    def test_accepts_twenty_six_results_without_lexical_number_comparison(self):
+        rows = [f"ok {number} - check {number}" for number in range(1, 27)]
+        result = self.validate("TAP version 14\n1..26\n" + "\n".join(rows) + "\n")
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_accepts_twenty_six_results_with_failures_and_yaml_diagnostics(self):
+        rows = []
+        for number in range(1, 27):
+            outcome = "not ok" if number in (20, 21) else "ok"
+            rows.append(f"{outcome} {number} - check {number}")
+            if number in (20, 21):
+                rows.extend(("  ---", "  reason: connection denied", "  ..."))
+        result = self.validate("TAP version 14\n1..26\n" + "\n".join(rows) + "\n")
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def test_rejects_missing_plan(self):
         self.assert_invalid("TAP version 14\nok 1 - first\n", "exactly one plan")
 

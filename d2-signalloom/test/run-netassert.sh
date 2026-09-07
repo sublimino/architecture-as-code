@@ -47,7 +47,8 @@ validate_tap_file() {
         if (seen[number] != 1) reject("numbered results are incomplete")
       }
       for (number in seen) {
-        if (number < 1 || number > plan) reject("numbered result is outside plan")
+        numeric_number = number + 0
+        if (numeric_number < 1 || numeric_number > plan) reject("numbered result is outside plan")
       }
       if (problem != "") {
         print problem
@@ -79,6 +80,11 @@ preflight_suite_resources() {
     fail "suite Kubernetes resources cannot be parsed: $config"
   fi
   [[ -n "$resources" ]] || fail "suite contains no Kubernetes resources: $config"
+  if [[ "$resources" == *$'source\tpod\tnetassert-cardvault-probe-pod\tfe-signalloom-agents'* ]]; then
+    kubectl get networkpolicy/allow-supercred-cardvault-egress \
+      -n fe-signalloom-agents >/dev/null 2>&1 \
+      || fail "networkpolicy/allow-supercred-cardvault-egress is absent in fe-signalloom-agents; bootstrap it with: make demo-signalloom-supercred-1"
+  fi
   while IFS=$'\t' read -r side kind name namespace; do
     [[ -n "$kind" && -n "$name" && -n "$namespace" ]] \
       || fail "suite contains an incomplete ${side} Kubernetes resource"
@@ -147,12 +153,18 @@ curl -fsS -X POST http://127.0.0.1:18082/scan >/dev/null \
 
 wait_k8s_exists job netassert-run -n fe-signalloom 30 >/dev/null \
   || fail "controller did not create job/netassert-run"
-wait_k8s_ready job netassert-run -n fe-signalloom --for condition=complete 120 >/dev/null \
-  || fail "job/netassert-run did not complete successfully"
+_wait_retry 120 "job/netassert-run terminal condition" \
+  "kubectl get job/netassert-run -n fe-signalloom -o json | yq -p=json -e '(.status.conditions // []) | any_c(.status == \"True\" and (.type == \"Complete\" or .type == \"Failed\"))' >/dev/null" \
+  || fail "job/netassert-run did not reach a terminal Complete or Failed condition"
+
+job_condition="$(kubectl get job/netassert-run -n fe-signalloom -o json \
+  | yq -p=json -r '[.status.conditions[]? | select(.status == "True" and (.type == "Complete" or .type == "Failed")) | .type] | .[-1]')"
 
 logs="$(kubectl logs -n fe-signalloom job/netassert-run -c netassert 2>&1)" \
   || fail "cannot read netassert-run Job logs"
 printf '%s\n' "$logs"
+[[ "$job_condition" != "Failed" ]] \
+  || fail "job/netassert-run reached Failed condition; TAP evidence collected above"
 [[ "$logs" == *"${NETASSERT_TAP_MARKER}"* ]] \
   || fail "netassert-run logs contain no TAP marker"
 printf '%s\n' "${logs#*"${NETASSERT_TAP_MARKER}"}" >"$tap_file"

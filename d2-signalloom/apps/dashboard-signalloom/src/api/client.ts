@@ -8,6 +8,7 @@ import type {
   AgentListParams,
   AgentListResponse,
   AgentResponse,
+  AgentTelemetryResponse,
   AuditListResponse,
   CapabilitiesParams,
   CapabilitiesResponse,
@@ -356,6 +357,17 @@ export const api = {
       if (params.from) q.set('from', params.from)
       const qs = q.toString()
       return `/api/agents/${id}/audit/stream${qs ? `?${qs}` : ''}`
+    },
+
+    telemetry: (token: string, id: string, params?: { layer?: string; source?: string; limit?: number }) => {
+      const searchParams = new URLSearchParams()
+      if (params) {
+        if (params.layer) searchParams.set('layer', params.layer)
+        if (params.source) searchParams.set('source', params.source)
+        if (params.limit) searchParams.set('limit', String(params.limit))
+      }
+      const qs = searchParams.toString()
+      return req<AgentTelemetryResponse>(qs ? `/agents/${id}/telemetry?${qs}` : `/agents/${id}/telemetry`, token)
     },
   },
 

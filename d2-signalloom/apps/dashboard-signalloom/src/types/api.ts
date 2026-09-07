@@ -810,3 +810,26 @@ export interface PlatformUsersResponse {
 export interface UserPreferencesResponse {
   display_currency: string
 }
+
+// ─── FrostDB Telemetry Correlation ──────────────────────────────────────────
+
+export interface TelemetryObservationModel {
+  id: string
+  observed_at: string
+  source: string
+  layer: string
+  actor_id: string
+  principal_id?: string | null
+  action: string
+  details?: Record<string, any>
+  confidence?: number
+}
+
+export interface AgentTelemetryResponse {
+  agent_id: string
+  tenant_id: string
+  observations: TelemetryObservationModel[]
+  total_count: number
+  pushdown_filters?: Record<string, any>
+  source_health: 'healthy' | 'degraded' | 'unavailable'
+}

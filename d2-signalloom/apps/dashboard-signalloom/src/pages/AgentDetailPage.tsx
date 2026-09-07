@@ -7,6 +7,7 @@ import type {
   AuditEventResponse,
   ViolationResponse,
   AgentComplianceResultResponse,
+  TelemetryObservationModel,
 } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
@@ -765,6 +766,7 @@ export default function AgentDetailPage() {
   const [auditEvents, setAuditEvents] = useState<AuditEventResponse[]>([])
   const [violations, setViolations] = useState<ViolationResponse[]>([])
   const [complianceResults, setComplianceResults] = useState<AgentComplianceResultResponse[]>([])
+  const [telemetryObservations, setTelemetryObservations] = useState<TelemetryObservationModel[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showTransition, setShowTransition] = useState(false)
@@ -792,11 +794,14 @@ export default function AgentDetailPage() {
     setLoading(true)
     try {
       const token = await getAccessTokenSilently()
-      const [agentData, auditData, violationsData, postureData] = await Promise.allSettled([
+      const [agentData, auditData, violationsData, postureData, telemetryData] = await Promise.allSettled([
         api.agents.get(token, id),
         api.audit(token, { agent: id, limit: 50 }),
         api.agents.violations(token, id),
         api.compliance.posture(token),
+        typeof api.agents.telemetry === 'function'
+          ? api.agents.telemetry(token, id)
+          : Promise.resolve({ observations: [] }),
       ])
 
       if (agentData.status === 'fulfilled') setAgent(agentData.value)
@@ -805,6 +810,9 @@ export default function AgentDetailPage() {
       if (postureData.status === 'fulfilled') {
         const match = postureData.value?.agents?.find(a => a.agent_id === id)
         setComplianceResults(match?.results ?? [])
+      }
+      if (telemetryData.status === 'fulfilled') {
+        setTelemetryObservations(telemetryData.value.observations || [])
       }
 
       if (agentData.status === 'rejected') {
@@ -1040,6 +1048,7 @@ export default function AgentDetailPage() {
           agent={agent}
           auditEvents={auditEvents}
           violations={violations}
+          telemetryObservations={telemetryObservations}
           onAcknowledgeViolation={handleAcknowledge}
           onRefresh={load}
         />

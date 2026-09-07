@@ -11,38 +11,49 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 NAMESPACES=("frontend" "backend")
 RESOURCESET="apps"
 FLUX_NS="flux-system"
-INPUTS_FILE="/tmp/.osramp-resourceset-inputs.json"
+INPUTS_FILE="${OSRAMP_INPUTS_FILE:-/tmp/.osramp-resourceset-inputs.json}"
 
 # Default inputs if saved file doesn't exist
 DEFAULT_INPUTS='[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","environment":"local","tag":"latest","tenant":"frontend"},{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","environment":"local","tag":"latest","tenant":"backend"}]'
 
-# Check if already up
-ALL_EXIST=true
-for ns in "${NAMESPACES[@]}"; do
-  if ! kubectl get namespace "${ns}" &>/dev/null; then
-    ALL_EXIST=false
-    break
+valid_inputs() {
+  jq -e '
+    type == "array" and length > 0 and
+    all(.[];
+      . as $input |
+      type == "object" and
+      all(["tenant", "environment", "tag", "artifactSubjectWorkflow", "artifactSubjectGitRef"][];
+        . as $key | ($input[$key] | type == "string" and length > 0)))
+  ' >/dev/null 2>&1
+}
+
+CURRENT_INPUTS=$(kubectl get resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  -o jsonpath='{.spec.inputs}') || {
+  echo "ERROR: ResourceSet '${RESOURCESET}' is unavailable." >&2
+  exit 1
+}
+
+PATCH_INPUTS=false
+if valid_inputs <<<"${CURRENT_INPUTS}"; then
+  echo "==> Preserving current ResourceSet inputs..."
+elif [ -z "${CURRENT_INPUTS}" ] || \
+    jq -e '(. == null) or (type == "array" and length == 0)' \
+      <<<"${CURRENT_INPUTS}" >/dev/null 2>&1; then
+  PATCH_INPUTS=true
+  if [ -f "${INPUTS_FILE}" ] && [ -s "${INPUTS_FILE}" ]; then
+    INPUTS=$(<"${INPUTS_FILE}")
+    echo "==> Restoring ResourceSet inputs from saved file..."
+  else
+    INPUTS="${DEFAULT_INPUTS}"
+    echo "==> Using default ResourceSet inputs (no saved file found)..."
   fi
-done
-
-if [ "${ALL_EXIST}" = true ]; then
-  echo "==> All OSRAMP namespaces already exist."
-  for ns in "${NAMESPACES[@]}"; do
-    echo "    --- ${ns} ---"
-    kubectl get pods -n "${ns}" --no-headers 2>/dev/null | head -5
-  done
-  echo ""
-  echo "    To force re-deploy, run osramp-down.sh first."
-  exit 0
-fi
-
-# Determine inputs to restore
-if [ -f "${INPUTS_FILE}" ] && [ -s "${INPUTS_FILE}" ]; then
-  INPUTS=$(cat "${INPUTS_FILE}")
-  echo "==> Restoring ResourceSet inputs from saved file..."
+  if ! valid_inputs <<<"${INPUTS}"; then
+    echo "ERROR: ResourceSet inputs must be a valid non-empty JSON input array." >&2
+    exit 1
+  fi
 else
-  INPUTS="${DEFAULT_INPUTS}"
-  echo "==> Using default ResourceSet inputs (no saved file found)..."
+  echo "ERROR: Current ResourceSet inputs are invalid; refusing to overwrite them." >&2
+  exit 1
 fi
 
 # The ResourceSet ships with fluxcd.controlplane.io/reconcile: disabled, which
@@ -55,13 +66,18 @@ echo "==> Enabling reconciliation for ResourceSet '${RESOURCESET}'..."
 kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   fluxcd.controlplane.io/reconcile-
 
-echo "==> Patching ResourceSet '${RESOURCESET}' with inputs..."
-kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
-  --type merge -p "{\"spec\":{\"inputs\":${INPUTS}}}"
+if [ "${PATCH_INPUTS}" = true ]; then
+  echo "==> Patching ResourceSet '${RESOURCESET}' with inputs..."
+  kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+    --type merge -p "{\"spec\":{\"inputs\":${INPUTS}}}"
+fi
 
 echo "==> Triggering immediate reconciliation..."
 kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+
+echo "==> Waiting for ResourceSet '${RESOURCESET}' to become Ready..."
+wait_flux_ready resourceset "${RESOURCESET}" -n "${FLUX_NS}" 300
 
 echo "==> Waiting for namespaces to appear..."
 for ns in "${NAMESPACES[@]}"; do

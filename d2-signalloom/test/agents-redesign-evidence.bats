@@ -51,3 +51,23 @@ setup() {
   run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentsPage.test.tsx src/pages/SwarmAgentsPage.test.tsx src/api/demoMode.test.ts"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p1-4: GET /api/agents preserves discovery metadata (namespace, SA, node, pod_uid, framework, phase)" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_preserves_discovery_fields'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-4: GET /api/agents server-side search, namespace, framework, and attention filters" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_server_side_search_and_filters'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-4: GET /api/agents pagination and meta metrics breakdown" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_pagination_and_meta'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p1-4: GET /api/agents is strictly side-effect free (zero writes)" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_get_is_strictly_side_effect_free'"
+  [ "$status" -eq 0 ]
+}

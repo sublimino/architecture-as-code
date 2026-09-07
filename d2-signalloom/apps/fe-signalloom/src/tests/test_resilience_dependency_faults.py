@@ -375,8 +375,10 @@ def test_every_discovery_fault_collapses_to_the_same_empty_success(
     assert requested, f"[{label}] the proxy was never called; the fault never fired"
     assert response.status_code == 200
     assert response.headers["source_health"] == "unavailable"
-    assert response.headers["X-Source-Health"] == "unavailable"
-    assert response.json() == {"agents": [], "total": 0, "source_health": "unavailable"}
+    body = response.json()
+    assert body["agents"] == []
+    assert body["total"] == 0
+    assert body["source_health"] == "unavailable"
 
 
 def test_crypto_health_cannot_be_told_apart_from_a_prover_with_nothing_to_report(

@@ -47,10 +47,82 @@ export interface AgentCredentialState {
 }
 
 export interface SentinelKernelTelemetry {
-  cgroup_state: 'frozen' | 'thawed' | 'unknown'
+  cgroup_state: 'frozen' | 'thawed' | 'none' | 'unknown'
   traffic_control_state: 'drop' | 'allow' | 'unknown'
   ebpf_active: boolean
   observed_at?: string | null
+}
+
+export interface RuntimeMetadata {
+  cluster_id?: string | null
+  namespace?: string | null
+  pod_name?: string | null
+  pod_uid?: string | null
+  service_account?: string | null
+  framework?: string | null
+  model?: string | null
+  execution_mode?: string | null
+  node?: string | null
+  phase?: string | null
+}
+
+export interface ResponsibilityMetadata {
+  owner_id?: string | null
+  owner_name?: string | null
+  team?: string | null
+  assignment_status: 'assigned' | 'unassigned' | 'registry_unlinked'
+}
+
+export interface IdentityMetadata {
+  spiffe_id?: string | null
+  spiffe_status: 'linked' | 'unlinked'
+  aliases: string[]
+}
+
+export interface ContainmentMeasures {
+  process_freeze: 'active' | 'inactive' | 'requested' | 'unsupported'
+  network_isolation: 'active' | 'inactive' | 'requested' | 'unsupported'
+  credential_revocation: 'active' | 'inactive' | 'requested' | 'unsupported'
+}
+
+export interface OperationalStateMetadata {
+  runtime_status: string
+  containment: ContainmentMeasures
+}
+
+export interface AssessmentSummaryMetadata {
+  status: 'assessed' | 'not_assessed'
+  total_controls: number
+  passed_controls: number
+  failed_controls: number
+  pending_controls: number
+  normalized_score?: number | null
+}
+
+export interface AttentionMetadata {
+  level: 'critical' | 'warning' | 'info' | 'none'
+  highest_issue?: string | null
+}
+
+export interface TimestampsMetadata {
+  created_at?: string | null
+  last_observed_at?: string | null
+  last_transition_at?: string | null
+  last_action_at?: string | null
+}
+
+export interface EnrichedAgentRecord {
+  id: string
+  name: string
+  record_class: 'registered' | 'discovered' | 'resolved' | 'fixture'
+  is_registry_linked: boolean
+  runtime: RuntimeMetadata
+  responsibility: ResponsibilityMetadata
+  identity: IdentityMetadata
+  operational_state: OperationalStateMetadata
+  assessment_summary: AssessmentSummaryMetadata
+  attention: AttentionMetadata
+  timestamps: TimestampsMetadata
 }
 
 export interface AgentResponse {
@@ -69,12 +141,74 @@ export interface AgentResponse {
   credential_state?: AgentCredentialState | null
   kernel_telemetry?: SentinelKernelTelemetry | null
   protected_namespaces?: string[]
+
+  // Workload / Kubernetes preserved discovery fields
+  namespace?: string | null
+  service_account?: string | null
+  node?: string | null
+  phase?: string | null
+  pod_uid?: string | null
+  framework?: string | null
+  state?: string | null
+  record_class?: 'registered' | 'discovered' | 'resolved' | 'fixture'
+  is_registry_linked?: boolean
+
+  // Section 2.1 Enriched Structures
+  runtime?: RuntimeMetadata | null
+  responsibility?: ResponsibilityMetadata | null
+  identity?: IdentityMetadata | null
+  operational_state?: OperationalStateMetadata | null
+  assessment_summary?: AssessmentSummaryMetadata | null
+  attention?: AttentionMetadata | null
+  timestamps?: TimestampsMetadata | null
+}
+
+export interface AgentListMeta {
+  total_records: number
+  operational_count: number
+  registered_count: number
+  discovered_count: number
+  resolved_count: number
+  fixture_count: number
+}
+
+export interface SourceHealthDetail {
+  status: 'healthy' | 'degraded' | 'error' | 'unavailable'
+  last_good?: string | null
+  message?: string | null
+}
+
+export interface SourceHealthMap {
+  k8s_discovery: SourceHealthDetail
+  postgres_registry: SourceHealthDetail
+  crypto_proofs: SourceHealthDetail
+}
+
+export interface PaginationMetadata {
+  page: number
+  limit: number
+  total_pages: number
 }
 
 export interface AgentListResponse {
   agents: AgentResponse[]
+  data?: AgentResponse[] | null
   total: number
+  meta?: AgentListMeta | null
   source_health?: 'healthy' | 'degraded' | 'unavailable' | null
+  source_health_detail?: SourceHealthMap | null
+  pagination?: PaginationMetadata | null
+}
+
+export interface AgentListParams {
+  search?: string
+  namespace?: string
+  framework?: string
+  owner?: string
+  attention?: string
+  record_class?: string
+  page?: number
+  limit?: number
 }
 
 // Trust topology, as the API actually returns it.

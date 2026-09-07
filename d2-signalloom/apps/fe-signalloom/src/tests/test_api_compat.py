@@ -689,3 +689,218 @@ def test_posture_scale_normalized_zero_controls_is_none(client, monkeypatch):
     agent = response.json()["agents"][0]
     assert agent["compliance_summary"]["total_controls"] == 0
     assert agent["compliance_summary"]["posture_score"] is None
+
+
+def test_enriched_inventory_preserves_discovery_fields(client, monkeypatch):
+    """Proves GET /api/agents preserves Kubernetes discovery metadata."""
+    class DiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "pod-worker-1",
+                            "name": "Worker Agent",
+                            "namespace": "fe-signalloom-agents",
+                            "service_account": "sa-worker",
+                            "node": "kind-osramp-control-plane",
+                            "phase": "Running",
+                            "pod_uid": "uid-worker-123",
+                            "framework": "kagent",
+                            "model": "gpt-5.4",
+                            "state": "active",
+                            "created_at": "2026-08-01T12:00:00Z",
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", DiscoveryClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    agent = data["agents"][0]
+    assert agent["namespace"] == "fe-signalloom-agents"
+    assert agent["service_account"] == "sa-worker"
+    assert agent["node"] == "kind-osramp-control-plane"
+    assert agent["phase"] == "Running"
+    assert agent["pod_uid"] == "uid-worker-123"
+    assert agent["framework"] == "kagent"
+    assert agent["model_name"] == "gpt-5.4"
+    assert agent["state"] == "active"
+    assert agent["record_class"] == "discovered"
+    assert agent["is_registry_linked"] is False
+
+    # Check Section 2.1 sub-objects
+    assert agent["runtime"]["cluster_id"] == "kind-osramp"
+    assert agent["runtime"]["namespace"] == "fe-signalloom-agents"
+    assert agent["runtime"]["pod_uid"] == "uid-worker-123"
+    assert agent["runtime"]["framework"] == "kagent"
+    assert agent["identity"]["spiffe_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-worker"
+    assert agent["identity"]["spiffe_status"] == "linked"
+    assert agent["responsibility"]["assignment_status"] == "registry_unlinked"
+    assert agent["assessment_summary"]["status"] == "not_assessed"
+
+
+def test_enriched_inventory_server_side_search_and_filters(client, monkeypatch):
+    """Proves GET /api/agents server-side search, namespace, framework, and attention filters."""
+    class MultiAgentClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "pod-alpha",
+                            "name": "Alpha Service",
+                            "namespace": "production",
+                            "framework": "langchain",
+                            "state": "active",
+                        },
+                        {
+                            "id": "pod-beta",
+                            "name": "Beta Scanner",
+                            "namespace": "staging",
+                            "framework": "crewai",
+                            "state": "error",
+                        },
+                        {
+                            "id": "pod-gamma",
+                            "name": "Gamma Auditor",
+                            "namespace": "production",
+                            "framework": "kagent",
+                            "state": "active",
+                        },
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", MultiAgentClient)
+
+    # Search filter
+    res_search = client.get("/api/agents?search=scanner", headers=bearer(token_for("alice")))
+    assert res_search.status_code == 200
+    assert res_search.json()["total"] == 1
+    assert res_search.json()["agents"][0]["name"] == "Beta Scanner"
+
+    # Namespace filter
+    res_ns = client.get("/api/agents?namespace=production", headers=bearer(token_for("alice")))
+    assert res_ns.status_code == 200
+    assert res_ns.json()["total"] == 2
+    assert {a["id"] for a in res_ns.json()["agents"]} == {"pod-alpha", "pod-gamma"}
+
+    # Framework filter
+    res_fw = client.get("/api/agents?framework=kagent", headers=bearer(token_for("alice")))
+    assert res_fw.status_code == 200
+    assert res_fw.json()["total"] == 1
+    assert res_fw.json()["agents"][0]["id"] == "pod-gamma"
+
+    # Attention filter
+    res_att = client.get("/api/agents?attention=critical", headers=bearer(token_for("alice")))
+    assert res_att.status_code == 200
+    assert res_att.json()["total"] == 1
+    assert res_att.json()["agents"][0]["id"] == "pod-beta"
+
+
+def test_enriched_inventory_pagination_and_meta(client, monkeypatch):
+    """Proves GET /api/agents pagination and meta metrics."""
+    class PaginatedClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {"id": "agent-p1", "name": "P1"},
+                        {"id": "agent-p2", "name": "P2"},
+                        {"id": "agent-p3", "name": "P3"},
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", PaginatedClient)
+
+    res_p1 = client.get("/api/agents?page=1&limit=2", headers=bearer(token_for("alice")))
+    assert res_p1.status_code == 200
+    data_p1 = res_p1.json()
+    assert len(data_p1["agents"]) == 2
+    assert data_p1["total"] == 3
+    assert data_p1["pagination"]["page"] == 1
+    assert data_p1["pagination"]["limit"] == 2
+    assert data_p1["pagination"]["total_pages"] == 2
+    assert data_p1["meta"]["total_records"] == 3
+    assert data_p1["meta"]["discovered_count"] == 3
+
+    res_p2 = client.get("/api/agents?page=2&limit=2", headers=bearer(token_for("alice")))
+    assert res_p2.status_code == 200
+    data_p2 = res_p2.json()
+    assert len(data_p2["agents"]) == 1
+    assert data_p2["agents"][0]["id"] == "agent-p3"
+
+
+def test_enriched_inventory_get_is_strictly_side_effect_free(client, monkeypatch):
+    """Proves GET /api/agents does not execute any write/INSERT queries."""
+    write_executed = []
+
+    class MockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                write_executed.append(query)
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    response = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert len(write_executed) == 0

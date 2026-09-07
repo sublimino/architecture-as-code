@@ -1,132 +1,102 @@
-# Deploying a new backend service
+# Deploying a New Backend Service
 
-Companion to [`cluster-debugging.md`](cluster-debugging.md). That file catalogues
-probes that report a confident answer they have not earned; this one covers the
-sibling failure — a service that is *complete and never deployed*, where every
-layer between the browser and the code fails in a way that names something other
-than the cause.
+This document complements [`cluster-debugging.md`](cluster-debugging.md).
+That document covers false-positive diagnostic probes.
+This document covers services that are fully coded but never deployed.
+In these cases, intermediate network and routing layers report misleading errors.
 
-Twice in two days a finished backend slice sat in this repo and was never
-deployed, and in both cases the first human to notice got a message that pointed
-at the wrong thing:
+Two backend services encountered this failure pattern:
 
-- **fleet-manager** — Go source, tests and full manifests since 2026-08-04. No
-  build target, in no kustomization, no nginx proxy. The Fleet page died on
-  `Unexpected token '<', "<!doctype "... is not valid JSON`, because nginx's SPA
-  catch-all answered the API call with `index.html` at **200 OK**. Wired up in
-  `a430fe8`, which is the worked example below.
-- **afm-platform** (KubeSec-AFM) — `d2-signalloom/apps/fe-signalloom/src/rbac_correlation.py:73`
-  has pointed at `afm-platform.fe-k8s-afm.svc.cluster.local:8000` since the RBAC
-  Explorer was wired against a live cluster on 2026-08-02. Nothing deploys that
-  service unless you opt in with `make demo-k8s-afm-up`, so on a cluster where
-  nobody had, `/rbac-explorer` answered with a 503 whose body was
+- **fleet-manager**: Source code, tests, and Kubernetes manifests existed since 2026-08-04.
+  The service lacked a build target, Flux inclusion, and an nginx proxy rule.
+  The Fleet UI page failed with `Unexpected token '<', "<!doctype "... is not valid JSON`.
+  The nginx SPA fallback returned `index.html` with HTTP status **200 OK**.
+  Commit `a430fe8` resolved this defect.
+- **afm-platform** (KubeSec-AFM): The backend router `d2-signalloom/apps/fe-signalloom/src/rbac_correlation.py`
+  calls `afm-platform.fe-k8s-afm.svc.cluster.local:8000`.
+  The platform deploys this service only when an operator runs `make demo-k8s-afm-up`.
+  Without this step, `/rbac-explorer` returned HTTP 503 with error:
   `KubeSec-AFM is unreachable: [Errno -2] Name or service not known`.
 
-The 503 is the better of the two — `rbac_correlation.py` fails visibly and by
-design, and says the words "KubeSec-AFM is unreachable". It still describes a DNS
-result rather than the fact a human needs, which is *that slice was never
-deployed, run `make demo-k8s-afm-up`*.
+The HTTP 503 response clearly states unreachable status.
+However, it describes DNS resolution rather than the operational root cause:
+the operator did not deploy the slice via `make demo-k8s-afm-up`.
 
-## Four layers, each of which alone breaks the page
+## Four Independent Layers
 
-Do not treat these as steps in a pipeline where the first failure masks the rest.
-They are independent, and fixing one reveals the next. On fleet-manager, fixing
-DNS produced an immediate 504 from layers 3 and 4.
+Do not treat these layers as a linear pipeline where one failure masks another.
+These layers operate independently. Resolving one layer reveals faults in subsequent layers.
+For fleet-manager, fixing DNS immediately revealed HTTP 504 errors in layers 3 and 4.
 
-**1. The service is actually deployed.** It needs a target that builds the image,
-loads it into kind, and applies the manifests — and something has to *call* that
-target. fleet-manager's manifests were correct and complete for eight days while
-appearing in no kustomization and no `make` recipe, so nothing ever applied them.
-Use `scripts/kind-load-verified.sh` rather than a bare `kind load docker-image`:
-on a Docker daemon using the containerd image store, `kind load` can print
-"loading…", exit 0, and transfer nothing, after which the pod goes
-`ImagePullBackOff` against Docker Hub and the error names an HTML media type, not
-your image.
+**1. Service Deployment**:
+Provide targets to build the container image, load it into Kind, and apply Kubernetes manifests.
+Execute these targets systematically.
+Use `scripts/kind-load-verified.sh` instead of bare `kind load docker-image`.
+With containerd storage, `kind load` can exit 0 without transferring data,
+causing `ImagePullBackOff` errors against public registries.
 
-**2. nginx proxies the browser-facing path.** With no `location` block, the
-request falls through to `location /` and `try_files` serves `index.html` with
-**200 OK**. `res.ok` is true, so a `fetch` goes straight to `res.json()` and
-throws a parse error about a doctype. Two constraints on the prefix you pick: it
-must not shadow a client-side route (nginx matches proxy locations before
-`location /` reaches `try_files`, which is why the SuperCred proxy is
-`/supercred-api/` and not `/supercred/`), and it usually needs a `rewrite` onto
-the service's real mount — `/fleet-api` → `/api`, because the Go server registers
-`/api/v1/fleet/topology` while the client calls `/fleet-api/v1/fleet/topology`.
+**2. Reverse Proxy Routing (nginx)**:
+Configure explicit `location` blocks for backend paths in nginx.
+Without a matching `location`, nginx falls back to `location /` and serves `index.html` with status **200 OK**.
+Client code evaluates `res.ok` as true and fails when parsing HTML as JSON.
+Ensure your path prefix does not conflict with client-side SPA routes.
+Rewrite external paths to match server mounts (for example, rewrite `/fleet-api` to `/api`).
 
-**3. The receiver's NetworkPolicy admits the caller's actual labels.** Not the
-labels you assume it has. fleet-manager's ingress admitted
-`app.kubernetes.io/part-of: signalloom`; the dashboard pods carry only
-`app.kubernetes.io/name: dashboard-signalloom`. A NetworkPolicy naming a label
-the sender does not have is a closed door wearing a timeout's clothes — the
-symptom is a 504 against a service that is healthy, listening, and correct.
-Check the pod, not the manifest you remember:
+**3. Ingress NetworkPolicy**:
+Configure the receiver's NetworkPolicy to accept the caller's actual pod labels.
+Inspect running pod labels directly:
 `kubectl -n <ns> get pod <caller> --show-labels`.
+If the policy specifies mismatched labels, requests drop silently and return HTTP 504 gateway timeouts.
 
-**4. The caller's egress policy allows the destination.** The dashboard's
-`allow-dashboard-egress` rule is per-destination; adding an nginx upstream
-without adding the matching egress entry produces the same 504 as layer 3, from
-the other end. This is the one layer the repo already guards: the
-`every nginx upstream has a matching dashboard egress rule` test in
-`d2-signalloom/test/dashboard-route-collisions.bats` went red the moment the
-`/fleet-api/` proxy was added, which is exactly what it is for.
+**4. Egress NetworkPolicy**:
+Configure the caller's NetworkPolicy to allow outbound traffic to the destination service port.
+The dashboard egress policy `allow-dashboard-egress` restricts destinations per port and namespace.
+Adding an upstream target without an egress rule causes HTTP 504 timeouts.
+Test route collisions with:
+`bats d2-signalloom/test/dashboard-route-collisions.bats`.
 
-Note that the guard covers the **dashboard's nginx** only. A server-side caller —
-the FastAPI backend reaching AFM over `httpx`, for example — takes its egress
-from `allow-portal-dependencies` (selected by `bao.controlplane.io/consumer:
-fe-signalloom`, not by app name), and no test asserts that rule exists. Layer 1
-has no guard at all: nothing in CI fails because a service is undeployed.
+Note: This automated test covers the dashboard nginx proxy only.
+Server-side callers (such as FastAPI calling AFM via `httpx`) rely on `allow-portal-dependencies`.
+CI test suites do not check for missing service deployments.
 
-## Two traps that are silent by construction
+## Two Silent Configuration Pitfalls
 
-**`kubectl apply -k` puts namespace-less manifests in `default`.** Kustomize does
-not infer a namespace. If neither the manifests nor `kustomization.yaml` names
-one, the Deployment and Service land in `default`, where
-`fleet-manager.fe-signalloom.svc.cluster.local` does not resolve and the proxy
-cannot reach them. Nothing errors — `kubectl apply -k` reports success and the
-pod runs. Pin it once in the kustomization (`namespace: fe-signalloom`, as
-fleet-manager now does) or declare it on every object (as `afm-platform` does,
-shipping its own `namespace.yaml`).
+**Manifests Without Namespaces Default to `default`**:
+Kustomize does not infer namespaces automatically.
+If manifests omit namespaces, resources deploy to the `default` namespace.
+Internal cluster DNS names will not resolve, and reverse proxies cannot connect.
+Declare namespaces explicitly in `kustomization.yaml` or in every resource manifest.
 
-**A RoleBinding to a ServiceAccount that does not exist is legal and silent.**
-The API server does not validate that the subject exists; it is a forward
-reference by design. fleet-manager's binding named `namespace: default` for a SA
-living in `fe-signalloom`, so it bound nothing and every pod `list`/`patch`
-403'd. The sting is what happens next: **client-go surfaces a Forbidden list as
-an empty result, not an error.** The Fleet page would have rendered an empty
-fleet with no reason given — no 500, no log line, no red anything. Verify the
-subject namespace matches where the Deployment actually runs, and prove the grant
-resolves:
+**RoleBindings Allow Non-Existent ServiceAccounts**:
+The Kubernetes API server accepts RoleBindings that reference non-existent ServiceAccounts.
+If a binding targets a ServiceAccount in the wrong namespace, authorization fails silently.
+In client-go, unauthorized `list` operations return empty collections without raising errors.
+The dashboard then renders empty tables without reporting failures.
+Verify that the ServiceAccount exists in the target namespace and test permissions:
 
 ```bash
 kubectl auth can-i list pods \
   --as=system:serviceaccount:fe-signalloom:fleet-manager -n fe-signalloom-agents
 ```
 
-## The checklist
+## Deployment Checklist
 
-1. **Build and load, verifiably.** A `demo-<slice>-<svc>-image` target that runs
-   `docker build` then `scripts/kind-load-verified.sh`.
-2. **Apply and wait.** A `demo-<slice>-<svc>-up` target depending on the image
-   target, then `kubectl apply -k …` and `kubectl rollout status` (or
-   `wait_rollout` from `scripts/lib/wait.sh` — never `kubectl wait
-   --for=condition=ready` on a Deployment; Deployments have no `Ready` condition).
-   A matching `-down` target that deletes only this service.
-3. **Pin the namespace** in `kustomization.yaml`, or declare it on every object.
-4. **Check the RoleBinding subject namespace** against where the pod runs, and
-   confirm with `kubectl auth can-i --as=system:serviceaccount:…`.
-5. **Add the nginx `location`**, with a prefix that shadows no SPA route and a
-   `rewrite` onto the server's real mount. Raise `proxy_read_timeout` if the
-   endpoint is long-running; forward `Authorization` if it is gated server-side.
-6. **Open the receiver's ingress** to the caller's real pod labels.
-7. **Open the caller's egress** to the receiver's port.
-8. **Make the client say what is wrong.** Check `content-type` before parsing: a
-   200 that is not JSON is not an answer from your API. `fleetApi.ts` raises
-   `FleetUnreachableError` naming both the cause and the remedy — "the
-   fleet-manager service is not deployed or `/fleet-api/` is not proxied. Run
-   `make demo-signalloom-fleet-up`."
-9. **Run the guard**: `bats d2-signalloom/test/dashboard-route-collisions.bats`.
-10. **Prove it end to end** through the same path the browser uses, not against a
-    port-forward to the service:
+Follow this checklist for every new backend service:
+
+1. **Build and Load**: Create a `demo-<slice>-<svc>-image` target using `scripts/kind-load-verified.sh`.
+2. **Apply and Wait**: Create a `demo-<slice>-<svc>-up` target that applies manifests and waits for rollout.
+   Use `wait_rollout` from `scripts/lib/wait.sh`.
+   Do not use `kubectl wait --for=condition=ready` on Deployments.
+   Create a matching `-down` target that removes the service.
+3. **Set Namespaces**: Pin namespaces in `kustomization.yaml` or declare them in each manifest.
+4. **Verify RBAC**: Confirm ServiceAccount namespaces and test permissions with `kubectl auth can-i`.
+5. **Configure Proxy**: Add nginx `location` blocks with route rewrites and appropriate timeouts.
+6. **Set Ingress Policy**: Grant network ingress to the caller's pod labels.
+7. **Set Egress Policy**: Grant network egress to the receiver's service port.
+8. **Add Error Handling**: Validate the response `content-type` header before parsing JSON bodies.
+   Raise explicit errors when responses return HTML or unexpected content types.
+9. **Run Route Guards**: Run `bats d2-signalloom/test/dashboard-route-collisions.bats`.
+10. **Test End-to-End**: Test connectivity through the reverse proxy from inside the dashboard container:
 
 ```bash
 kubectl -n fe-signalloom exec deploy/dashboard-signalloom -- \
@@ -134,52 +104,41 @@ kubectl -n fe-signalloom exec deploy/dashboard-signalloom -- \
   http://localhost:8080/fleet-api/v1/fleet/topology
 ```
 
-`200 application/json` is a pass. `200 text/html` means layer 2 — nginx answered
-with the SPA. `504` means layer 3 or 4. A DNS failure means layer 1.
+Interpret test results:
+- `200 application/json`: The service functions correctly.
+- `200 text/html`: Reverse proxy missing; nginx returned the SPA HTML.
+- `504`: NetworkPolicy blocked ingress or egress traffic.
+- DNS failure: The target service is not deployed.
 
-## Worked example — `git show a430fe8`
+## Implementation Example: `git show a430fe8`
 
-The Fleet Manager wiring commit, and the shape to copy. Four gaps, one commit,
-each fixed at its own layer:
+Commit `a430fe8` wired Fleet Manager across all four layers:
 
-| Layer | Gap | Fix in `a430fe8` |
+| Layer | Issue | Solution in `a430fe8` |
 |---|---|---|
-| 1 | No build target; in no kustomization | `demo-signalloom-fleet-{image,up,down}` in `Makefile`, applied directly rather than through Flux |
-| 1 | Manifests would land in `default` | `namespace: fe-signalloom` in `apps/fleet-manager/base/kustomization.yaml` |
-| 1 | RoleBinding subject named `default` | subject `namespace: fe-signalloom` in `apps/fleet-manager/base/rbac.yaml` |
-| 2 | No `/fleet-api/` location | `location /fleet-api/` in `apps/dashboard-signalloom/nginx.conf`, rewriting to `/api` |
-| 3 | Ingress admitted `part-of` only | second `podSelector` for `app.kubernetes.io/name: dashboard-signalloom` in `apps/fleet-manager/base/networkpolicy.yaml` |
-| 4 | No dashboard egress for 8082 | rule in `apps/fe-signalloom/base/networkpolicy.yaml` |
-| — | Client parsed the SPA fallback | `content-type` check + `FleetUnreachableError` in `src/api/fleetApi.ts`, five tests |
+| 1 | No build or deployment targets | Added `demo-signalloom-fleet-{image,up,down}` to Makefile |
+| 1 | Manifests lacked namespace | Added `namespace: fe-signalloom` to `apps/fleet-manager/base/kustomization.yaml` |
+| 1 | RoleBinding targeted `default` namespace | Updated subject namespace to `fe-signalloom` in `apps/fleet-manager/base/rbac.yaml` |
+| 2 | Missing proxy location | Added `/fleet-api/` proxy and rewrite rule to `nginx.conf` |
+| 3 | Ingress restricted by `part-of` label | Added `dashboard-signalloom` selector to `networkpolicy.yaml` |
+| 4 | Dashboard egress lacked port 8082 | Added egress rule to `apps/fe-signalloom/base/networkpolicy.yaml` |
+| Client | Client parsed HTML fallback | Added `content-type` validation and `FleetUnreachableError` to `fleetApi.ts` |
 
-## The AFM variant — only layer 1 missing
+## AFM Integration Pattern
 
-Worth studying because it is the *asymmetric* case, and it is why "the page is
-broken" is never enough information to locate the fault.
+The AFM platform illustrates an asymmetric integration failure.
+The dashboard proxy routes seven endpoints to `afm-platform.fe-k8s-afm.svc.cluster.local:8000`.
+Egress rules permit dashboard and FastAPI traffic to port 8000.
+The AFM service has no ingress NetworkPolicy restrictions.
+Layers 2, 3, and 4 operated correctly, but layer 1 was absent.
 
-The dashboard's nginx already proxies seven prefixes to
-`afm-platform.fe-k8s-afm.svc.cluster.local:8000` (`/dashboard/`, `/afm/`,
-`/clusters`, `/metrics/`, `/health`, `/jobs`, `/webhooks/`); `allow-dashboard-egress`
-already permits `fe-k8s-afm:8000`; `allow-portal-dependencies` already permits
-the FastAPI backend's server-side `httpx` call; and `afm-platform` has no ingress
-NetworkPolicy of its own, so layer 3 is vacuously satisfied. Layers 2, 3 and 4
-were all in place. Only layer 1 was missing, and that alone was enough.
+Remember these operational characteristics:
+- **Deployment is opt-in**: Run `make demo-k8s-afm-up` before accessing AFM dashboard pages.
+- **External repository build**: `scripts/k8s-afm.sh` builds images from `$KUBESEC_AFM_ROOT`.
+  Ensure this environment variable points to a valid checkout.
 
-Two durable properties of this slice, independent of whether it happens to be
-running right now:
+## Deployment Rule
 
-- **It is opt-in.** Neither `make up` nor `make demo-signalloom-up` deploys it.
-  `make demo-k8s-afm-up` does, via `scripts/k8s-afm.sh up`, and any dashboard
-  page backed by AFM is broken until someone runs it.
-- **Its image is not built from this repo.** `scripts/k8s-afm.sh` builds from
-  `$KUBESEC_AFM_ROOT`, defaulting to `/home/andy/src/cp/kubesec-afm`. On a
-  machine without that checkout the build fails, and no amount of reading
-  `d2-k8s-afm/` explains why.
-
-## The rule
-
-Deployment is part of the feature. A slice with source, tests and manifests but
-no path from `make` to a running pod is not done — it is a slice that will be
-discovered by whoever opens the page, via an error naming a doctype, a DNS
-result, or a timeout. If you cannot name the target that deploys your service and
-the command that proves it answers through nginx, you have not finished.
+Deployment integration forms an essential part of every feature.
+A codebase with source files and manifests is incomplete without automated deployment targets.
+Always define the deployment target and verify connectivity through the reverse proxy.

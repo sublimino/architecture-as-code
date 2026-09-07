@@ -1,98 +1,92 @@
-# GCP demo runbook — zero to a browser
+# GCP Demo Runbook: Zero to Browser
 
-From an empty GCP project to the Signal Loom dashboard open in front of you,
-then back to nothing. Every command here is real and in order.
+This runbook guides you from an empty GCP project to a running Signal Loom dashboard.
+Follow every procedure in the specified order.
 
-The estate is a hardened VM with **no external IP**. There is nothing to browse
-to and nothing to SSH to from the open internet. Two access paths exist, and
-which one you want is a decision worth making once:
+The estate runs on a hardened virtual machine with **no external IP address**.
+The VM does not accept direct connections from the public internet.
+Select one of two secure access paths:
 
-| | **Tailscale** (primary) | **IAP** (fallback) |
+| Feature | Tailscale (Primary) | IAP Tunnel (Fallback) |
 | :--- | :--- | :--- |
-| Get in with | membership of the tailnet | a Google identity + `roles/iap.tunnelResourceAccessor` |
-| `/etc/hosts` edit | none | none |
-| Certificate | real, issued to the MagicDNS name | none — plain HTTP over the tunnel |
-| Holds a terminal | no | yes — the tunnel is foreground |
-| Works from a phone | yes | no |
-| Target | `make gcp-tf-ts-up ENV=demo-1` | `make gcp-tf-public ENV=demo-1` |
+| Access Requirement | Membership in target tailnet | Google identity with `roles/iap.tunnelResourceAccessor` |
+| `/etc/hosts` Configuration | None | None |
+| TLS Certificate | Valid CA certificate for MagicDNS name | None; plain HTTP via tunnel |
+| Terminal Session | Background daemon; no active terminal | Requires active foreground process |
+| Mobile Access | Supported | Not supported |
+| Command | `make gcp-tf-ts-up ENV=demo-1` | `make gcp-tf-public ENV=demo-1` |
 
-**Use Tailscale.** IAP is not deprecated and is not going anywhere — it is fully
-tested, and it is the only path that works for someone who cannot join the
-tailnet (a client on a customer's laptop, a CI job, an auditor). But every
-ergonomic difference above runs the same direction, and the hosts-file line in
-particular is the single most common reason a handed-over demo does not open.
+Use Tailscale as your default access path.
+Use IAP when users cannot join the tailnet (for example, client laptops or external auditors).
 
-Throughout, `ENV` is the environment key — `demo-1`, `demo-2`, `ci-1`. It is
-matched against `^(demo|ci)-[1-9][0-9]*$`; `prod-1` is rejected on purpose.
+Set `ENV` to the target environment key (`demo-1`, `demo-2`, or `ci-1`).
+The scripts validate input against `^(demo|ci)-[1-9][0-9]*$`.
 
 ---
 
-## The short version
+## Quick Reference
+
+Run these commands to provision and connect via Tailscale:
 
 ```bash
 export TF_STATE_BUCKET=<your-state-bucket>
 
-make gcp-tf-up      ENV=demo-1     # plan, review, apply, write the hand-off
-make gcp-tf-demo-up ENV=demo-1     # deliver the code, build the estate, test it
-make gcp-tf-ts-up   ENV=demo-1     # serve it on the tailnet; prints the URL
+make gcp-tf-up      ENV=demo-1     # Plan, review, apply, and generate hand-off
+make gcp-tf-demo-up ENV=demo-1     # Deliver codebase, build estate, and run tests
+make gcp-tf-ts-up   ENV=demo-1     # Serve dashboard over Tailscale and print URL
 ```
 
-The IAP fallback, if you are not on the tailnet:
+Run this command if you connect via IAP tunnel:
 
 ```bash
-make gcp-tf-public  ENV=demo-1     # publish, prove a 200, print the URL (foreground)
+make gcp-tf-public  ENV=demo-1     # Publish tunnel and print localhost URL
 ```
 
-Then the teardown, which is not optional — the VM bills until it is gone:
+Run these commands to remove all resources and stop billing:
 
 ```bash
-make gcp-tf-funnel-down ENV=demo-1           # ONLY if you turned Funnel on
-make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1
-./scripts/gcp-tf/teardown-verify.sh          # believe the destroy only after this
+make gcp-tf-funnel-down ENV=demo-1           # Disable public Funnel if enabled
+make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1 # Destroy cloud infrastructure
+./scripts/gcp-tf/teardown-verify.sh          # Verify complete resource deletion
 ```
 
 ---
 
 ## Step 0 — Prerequisites
 
-| Thing | Why | Check |
+| Requirement | Purpose | Verification Command |
 | :--- | :--- | :--- |
-| `gcloud`, `terraform`, `jq`, `tar` | the driver shells out to all four | `command -v gcloud terraform jq tar` |
-| An authenticated gcloud | everything below | `gcloud auth list` |
-| `deploy/gcp/deploy-sa` | one line, the **Terraform deploy** SA email. Untracked. | `cat deploy/gcp/deploy-sa` |
-| A state bucket | Terraform's backend | `make gcp-tf-bootstrap` (below) |
+| `gcloud`, `terraform`, `jq`, `tar` | Command-line tools | `command -v gcloud terraform jq tar` |
+| Authenticated Google Cloud CLI | Cloud API authentication | `gcloud auth list` |
+| `deploy/gcp/deploy-sa` | Service account email for Terraform | `cat deploy/gcp/deploy-sa` |
+| Terraform State Bucket | Remote state storage | `make gcp-tf-bootstrap` |
 
-Two service accounts are involved and they are **not** the same thing:
+The platform requires two separate service accounts:
 
-- **deploy SA** — what Terraform impersonates to build the estate. Read from
-  `deploy/gcp/deploy-sa`. It holds resource-creation rights.
-- **operator SA** — what the *driver* impersonates to SSH and tunnel. Published
-  into the hand-off as `operator_sa`, or overridden with
-  `GCP_TF_DEMO_OPERATOR_SA`. It holds no creation rights, and it needs
-  **`roles/iap.tunnelResourceAccessor`** — without it every tunnel returns
-  `4033: 'not authorized'`, which mentions no permission at all.
+- **Deploy SA**: Terraform impersonates this account to build resources.
+  Store the email in `deploy/gcp/deploy-sa`. This identity holds resource creation permissions.
+- **Operator SA**: The local test driver impersonates this account for SSH and IAP tunnels.
+  The hand-off file records this account as `operator_sa`.
+  This identity requires **`roles/iap.tunnelResourceAccessor`**.
 
-The driver refuses to fall back from one to the other. See
-[Why impersonation, and why it is not the usual reason](#why-impersonation-and-why-it-is-not-the-usual-reason).
+Do not interchange these two service accounts.
 
 ---
 
-## Step 0a — One-time Tailscale admin console setup
+## Step 0a — One-Time Tailscale Admin Console Setup
 
-**None of this is in code and none of it can be.** It is tailnet-level policy,
-it is done once ever, and it is done in the admin console by someone with owner
-or admin rights on the tailnet. Terraform can create the node; it cannot grant
-the node permission to exist.
+Complete this configuration in the Tailscale admin console before provisioning.
+A tailnet administrator must configure these policies once.
 
-Skip this section entirely if you are only using the IAP fallback.
+Skip this section if you use the IAP tunnel fallback only.
 
-| # | Setting | Where | Why it is not optional |
+| Step | Setting | Location | Requirement |
 | :--- | :--- | :--- | :--- |
-| 1 | `tagOwners` for `tag:sl-demo` | [Access controls](https://login.tailscale.com/admin/acls) | An auth key cannot apply a tag nobody owns. Without this the VM's `tailscale up` is **rejected**, and the node simply never appears — indistinguishable from a VM that failed to boot. |
-| 2 | **MagicDNS: on** | [DNS](https://login.tailscale.com/admin/dns) | Without it the node has an IP and no name. No name means no certificate, which means `tailscale serve` has nothing to terminate TLS with and there is no URL to hand over. |
-| 3 | **HTTPS Certificates: on** | [DNS](https://login.tailscale.com/admin/dns) | This is what issues the real certificate for `<node>.<tailnet>.ts.net`. Off, `tailscale serve` fails at the certificate step and `gcp-tf-ts-up` reports it as such. |
-| 4 | `nodeAttrs` granting `funnel` to `tag:sl-demo` | [Access controls](https://login.tailscale.com/admin/acls) | **Only needed for `gcp-tf-funnel-up`.** Without it the funnel command is refused by policy and the edge will not route. Leaving this off is a perfectly reasonable posture — it makes the public path structurally impossible. |
-| 5 | An ACL rule letting *your user* reach `tag:sl-demo` | [Access controls](https://login.tailscale.com/admin/acls) | A node you cannot see and a node that does not exist look identical from `tailscale status`. |
+| 1 | `tagOwners` for `tag:sl-demo` | Access Controls | Authorizes machines to apply the demo tag |
+| 2 | MagicDNS: Enabled | DNS Settings | Assigns stable domain names for TLS certificates |
+| 3 | HTTPS Certificates: Enabled | DNS Settings | Issues Let's Encrypt certificates for nodes |
+| 4 | Funnel permission for `tag:sl-demo` | Access Controls | Required only for public Funnel deployments |
+| 5 | ACL access to `tag:sl-demo` | Access Controls | Grants your user identity access to demo nodes |
 
 The policy fragments, for reference — merge them into the existing document
 rather than replacing it:

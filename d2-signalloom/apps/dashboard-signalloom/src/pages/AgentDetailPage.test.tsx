@@ -286,6 +286,37 @@ describe('AgentDetailPage — Tab 1 (Overview) Summary Grid & Snapshot Panels', 
   })
 })
 
+describe('AgentDetailPage — Tab 2 (Identity & SPIFFE Integration)', () => {
+  it('renders Tab 2 Identity panel with SPIFFE SVID, certificate validity, selectors, and delegation chain', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())
+    renderPage('/agents/agent-abc-123?tab=identity')
+
+    expect(await screen.findByTestId('dossier-panel-identity')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-card-spiffe')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-spiffe-id')).toHaveTextContent(
+      'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-invoice-bot'
+    )
+    expect(screen.getByTestId('identity-spiffe-status')).toHaveTextContent('SPIFFE linked')
+    expect(screen.getByTestId('identity-card-cert')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-card-selectors')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-card-custody')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-panel-selectors')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-panel-delegation')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-panel-vault')).toBeInTheDocument()
+  })
+
+  it('renders truthful separation of identity planes with authorizing principal and executing actor', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())
+    renderPage('/agents/agent-abc-123?tab=identity')
+
+    expect(await screen.findByTestId('identity-authorizing-principal')).toHaveTextContent('ops@acme.com')
+    expect(screen.getByTestId('identity-executing-actor')).toHaveTextContent(
+      'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-invoice-bot'
+    )
+    expect(screen.getByTestId('identity-plane-separation-notice')).toBeInTheDocument()
+  })
+})
+
 describe('AgentDetailPage — Header & Interactions', () => {
   it('renders Dossier header with agent name, record class, risk badge, and copy ID button', async () => {
     ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())

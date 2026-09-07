@@ -176,6 +176,18 @@ class IdentityMetadata(BaseModel):
     spiffe_id: str | None = None
     spiffe_status: Literal["linked", "unlinked", "conflict"] = "unlinked"
     aliases: list[str] = Field(default_factory=list)
+    trust_domain: str | None = None
+    svid_type: Literal["x509", "jwt", "none"] | None = None
+    cert_valid_from: str | None = None
+    cert_valid_until: str | None = None
+    cert_serial: str | None = None
+    cert_issuer: str | None = None
+    selectors: list[str] = Field(default_factory=list)
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    delegation_hops: int | None = None
+    openbao_role: str | None = None
+    openbao_path: str | None = None
 
 
 class ContainmentMeasures(BaseModel):
@@ -1720,10 +1732,42 @@ def _agent_response_from_row(
     )
 
     spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else (row.get("spiffe_id") if isinstance(row, dict) else (row["spiffe_id"] if "spiffe_id" in row else None))
+    trust_domain = None
+    if spiffe_id and spiffe_id.startswith("spiffe://"):
+        raw_tail = spiffe_id[len("spiffe://"):]
+        parts = raw_tail.split("/", 1)
+        if parts:
+            trust_domain = parts[0]
+
+    selectors = []
+    if disc_ns:
+        selectors.append(f"k8s:ns:{disc_ns}")
+    if sa:
+        selectors.append(f"k8s:sa:{sa}")
+    if pod_uid:
+        selectors.append(f"k8s:pod-uid:{pod_uid}")
+    if node:
+        selectors.append(f"k8s:node:{node}")
+    if name:
+        selectors.append(f"container:name:{name}")
+
+    created_iso = created_at.isoformat() if hasattr(created_at, "isoformat") else (str(created_at) if created_at else None)
     identity = IdentityMetadata(
         spiffe_id=spiffe_id,
         spiffe_status="linked" if spiffe_id else "unlinked",
         aliases=[a for a in [name, row_id] if a],
+        trust_domain=trust_domain or ("osramp.acme.local" if spiffe_id else None),
+        svid_type="x509" if spiffe_id else None,
+        cert_valid_from=created_iso,
+        cert_valid_until=None,
+        cert_serial=None,
+        cert_issuer="spiffe://signalloom.demo/spire/server" if spiffe_id else None,
+        selectors=selectors,
+        authorizing_principal_id=owner or None,
+        executing_actor_id=spiffe_id or None,
+        delegation_hops=1 if owner else (0 if spiffe_id else None),
+        openbao_role=f"agent-trust-{sa or name}" if (sa or name) else None,
+        openbao_path=f"kv/data/signalloom/agent-trust/{disc_ns or 'default'}/*" if spiffe_id else None,
     )
 
     team = row.get("team") if isinstance(row, dict) else (row["team"] if "team" in row else None)
@@ -1864,10 +1908,41 @@ def _agent_response_from_discovered(
     )
 
     spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else None
+    trust_domain = None
+    if spiffe_id and spiffe_id.startswith("spiffe://"):
+        raw_tail = spiffe_id[len("spiffe://"):]
+        parts = raw_tail.split("/", 1)
+        if parts:
+            trust_domain = parts[0]
+
+    selectors = []
+    if disc_ns:
+        selectors.append(f"k8s:ns:{disc_ns}")
+    if sa:
+        selectors.append(f"k8s:sa:{sa}")
+    if pod_uid:
+        selectors.append(f"k8s:pod-uid:{pod_uid}")
+    if node:
+        selectors.append(f"k8s:node:{node}")
+    if name:
+        selectors.append(f"container:name:{name}")
+
     identity = IdentityMetadata(
         spiffe_id=spiffe_id,
         spiffe_status="linked" if spiffe_id else "unlinked",
         aliases=[a for a in [name, discovered_id] if a],
+        trust_domain=trust_domain or ("osramp.acme.local" if spiffe_id else None),
+        svid_type="x509" if spiffe_id else None,
+        cert_valid_from=None,
+        cert_valid_until=None,
+        cert_serial=None,
+        cert_issuer="spiffe://signalloom.demo/spire/server" if spiffe_id else None,
+        selectors=selectors,
+        authorizing_principal_id=None,
+        executing_actor_id=spiffe_id or None,
+        delegation_hops=0 if spiffe_id else None,
+        openbao_role=f"agent-trust-{sa or name}" if (sa or name) else None,
+        openbao_path=f"kv/data/signalloom/agent-trust/{disc_ns or 'default'}/*" if spiffe_id else None,
     )
 
     responsibility = ResponsibilityMetadata(

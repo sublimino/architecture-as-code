@@ -162,4 +162,40 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "sfagents-p2-2: Tab 2 (Identity) component Vitest suite passes 100%" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentIdentityTab.test.tsx"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-2: Tab 2 SVID selectors and workload binding pass Vitest suite" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentIdentityTab.test.tsx -t 'SVID Selectors & Workload Binding'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-2: Tab 2 delegation chain asserts separation of identity planes (authorizing principal vs executing actor)" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentIdentityTab.test.tsx -t 'Delegation Chain & Separation of Identity Planes'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-2: Tab 2 truthful state language asserts 'Identity unlinked', 'Registry not linked', 'Unassigned', 'Source unavailable'" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentIdentityTab.test.tsx -t 'Truthful State Language & Error Handling'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-2: Tab 2 AgentDetailPage integration renders Identity tab panel in Vitest" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentDetailPage.test.tsx -t 'Tab 2 (Identity & SPIFFE Integration)'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-2: GET /api/agents/{id} returns enriched Tab 2 IdentityMetadata structures in Pytest" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_identity_spiffe_metadata_enrichment or test_dossier_identity_separation_of_planes'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-2: GET /api/agents/{id} identity queries are strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_identity_get_is_strictly_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+
+
 

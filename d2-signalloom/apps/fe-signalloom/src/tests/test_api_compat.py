@@ -5,7 +5,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 import jwt
@@ -1425,5 +1425,142 @@ def test_dossier_unknown_id_fails_closed_with_404(client, monkeypatch):
     body = res.json()
     assert body["error"]["code"] == "not_found"
     assert "not found" in body["error"]["message"].lower()
+
+
+def test_dossier_identity_spiffe_metadata_enrichment(client, monkeypatch):
+    """SFAGENTS-P2-2: Proves GET /api/agents/{id} returns all enriched Tab 2 IdentityMetadata structures."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("33333333-3333-3333-3333-333333333333"),
+                    "name": "Identity Test Agent",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "active",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "limited",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                    "spiffe_id": "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-identity-agent",
+                }
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "identity" in data
+    ident = data["identity"]
+    assert ident["spiffe_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-identity-agent"
+    assert ident["spiffe_status"] == "linked"
+    assert ident["trust_domain"] == "osramp.acme.local"
+    assert ident["svid_type"] == "x509"
+    assert ident["cert_issuer"] == "spiffe://signalloom.demo/spire/server"
+    assert ident["authorizing_principal_id"] == "alice@signal-loom.ai"
+    assert ident["executing_actor_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-identity-agent"
+    assert ident["delegation_hops"] == 1
+    assert "openbao_role" in ident
+    assert "openbao_path" in ident
+
+
+def test_dossier_identity_separation_of_planes(client, monkeypatch):
+    """SFAGENTS-P2-2: Proves separation of identity planes (authorizing principal vs executing actor)."""
+    class MockDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={
+                "agents": [
+                    {
+                        "id": "discovered-agent-4444",
+                        "name": "Discovered K8s Workload",
+                        "namespace": "fe-signalloom-agents",
+                        "service_account": "sa-discovered",
+                        "state": "active",
+                        "node": "worker-node-1",
+                        "pod_uid": "uid-4444-5555",
+                    }
+                ]
+            })
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", MockDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_empty_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_empty_pool)
+
+    res = client.get(
+        "/api/agents/discovered-agent-4444",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    ident = data["identity"]
+    # Discovered workload has no human authorizing principal -> None (rendered as Unassigned / Registry not linked)
+    assert ident["authorizing_principal_id"] is None
+    # Executing actor is the workload SVID
+    assert ident["executing_actor_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-discovered"
+    assert ident["delegation_hops"] == 0
+    # Selectors are populated
+    assert "k8s:ns:fe-signalloom-agents" in ident["selectors"]
+    assert "k8s:sa:sa-discovered" in ident["selectors"]
+
+
+def test_dossier_identity_get_is_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P2-2: Proves GET /api/agents and detail queries are side-effect-free (zero SQL DML writes)."""
+    writes_recorded = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                writes_recorded.append(query)
+            return None
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+                writes_recorded.append(query)
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            writes_recorded.append(query)
+            return "OK"
+
+    async def get_ro_pool():
+        return ReadOnlyMockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_ro_pool)
+
+    res = client.get(
+        "/api/agents/unknown-identity-probe",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 404
+    assert len(writes_recorded) == 0
+
 
 

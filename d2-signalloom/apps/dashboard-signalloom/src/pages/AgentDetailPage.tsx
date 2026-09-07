@@ -7,7 +7,6 @@ import type {
   AuditEventResponse,
   ViolationResponse,
   AgentComplianceResultResponse,
-  SourceHealthMap,
 } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
@@ -16,6 +15,7 @@ import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import CredentialActionsMenu from '../components/CredentialActionsMenu'
 import AgentOverviewTab from '../components/AgentOverviewTab'
+import AgentIdentityTab from '../components/AgentIdentityTab'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1236,46 +1236,7 @@ export default function AgentDetailPage() {
       )}
 
       {activeTab === 'identity' && (
-        <div data-testid="dossier-panel-identity" role="tabpanel" id="dossier-tabpanel-identity" aria-labelledby="dossier-tab-identity">
-          <div className="card" style={{ padding: 20 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Identity & SPIFFE SVID</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, fontSize: 13 }}>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>SPIFFE Workload ID</span>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 4, wordBreak: 'break-all' }}>
-                  {agent.identity?.spiffe_id || '—'}
-                </div>
-              </div>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>Identity Status</span>
-                <div style={{ marginTop: 4 }}>
-                  <span className="tag" style={{
-                    fontSize: 10,
-                    padding: '2px 8px',
-                    background: agent.identity?.spiffe_status === 'linked' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(156, 163, 175, 0.15)',
-                    color: agent.identity?.spiffe_status === 'linked' ? 'var(--teal)' : 'var(--muted)',
-                  }}>
-                    {agent.identity?.spiffe_status === 'linked' ? 'SPIFFE linked' : 'Identity unlinked'}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>Tenant Boundary</span>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 4 }}>{agent.tenant_id}</div>
-              </div>
-              <div>
-                <span style={{ color: 'var(--muted)' }}>Identity Aliases</span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                  {(agent.identity?.aliases && agent.identity.aliases.length > 0) ? (
-                    agent.identity.aliases.map(a => <span key={a} className="tag" style={{ fontSize: 10 }}>{a}</span>)
-                  ) : (
-                    <span style={{ color: 'var(--muted)', fontSize: 12 }}>No aliases registered</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AgentIdentityTab agent={agent} />
       )}
 
       {activeTab === 'access' && (

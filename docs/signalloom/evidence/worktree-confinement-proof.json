@@ -1,0 +1,189 @@
+{
+  "artifact": "worktree-confinement-proof",
+  "rule": "SP-1",
+  "card": "CRKC-P3-2",
+  "generated": "2026-09-07T21:11:05+00:00",
+  "host": {
+    "kernel": "7.1.3+deb13-amd64",
+    "lsm": "lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm",
+    "nono": "nono 0.73.0",
+    "git": "git version 2.47.3"
+  },
+  "profile": "/home/andy/src/.worktrees/23068/osramp-demo/nono/profiles/worktree-agent.json",
+  "totals": {
+    "probes": 21,
+    "passed": 21,
+    "failed": 0,
+    "skipped": 0
+  },
+  "probes": [
+    {
+      "id": "control.unconfined-connect-closed-port",
+      "description": "unconfined connect to 127.0.0.1:39999 succeeds",
+      "expectation": "exit 0, TCP_OK",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "TCP_OK"
+    },
+    {
+      "id": "control.confined-connect-open-port",
+      "description": "confined connect to allow-listed 127.0.0.1:5001 succeeds",
+      "expectation": "exit 0, TCP_OK",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "TCP_OK"
+    },
+    {
+      "id": "net.closed-port-denied",
+      "description": "confined connect to non-allow-listed 127.0.0.1:39999 is refused by the kernel",
+      "expectation": "non-zero exit, EACCES/EPERM from connect(2)",
+      "exit_code": 1,
+      "verdict": "pass",
+      "evidence": "/usr/bin/bash: connect: Permission denied\n/usr/bin/bash: line 1: /dev/tcp/127.0.0.1/39999: Permission denied"
+    },
+    {
+      "id": "git.commit-no-gpg-sign",
+      "description": "confined 'git commit --no-gpg-sign' in a worktree succeeds",
+      "expectation": "exit 0",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "bb1aab8 (HEAD -> refs/heads/sp1/probe) confined commit"
+    },
+    {
+      "id": "git.commit-unflagged-fails-fast",
+      "description": "confined 'git commit' without --no-gpg-sign fails in seconds, not on a prompt timeout",
+      "expectation": "non-zero exit within 30s",
+      "exit_code": 128,
+      "verdict": "pass",
+      "evidence": "elapsed=0s :: error: gpg failed to sign the data: gpg: Fatal: can't create directory '/tmp/crkc-sp1.UjRyyrvX/home/.gnupg': Permission denied "
+    },
+    {
+      "id": "pinentry.shim-control",
+      "description": "the pinentry shim records its own invocation",
+      "expectation": "sentinel file non-empty after a direct call",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "invoked 1788815462"
+    },
+    {
+      "id": "pinentry.never-invoked",
+      "description": "a wrapper-driven confined commit never invokes pinentry",
+      "expectation": "sentinel file absent",
+      "exit_code": 127,
+      "verdict": "pass",
+      "evidence": "no pinentry invocation recorded; commit rc=127"
+    },
+    {
+      "id": "git.push-denied.https",
+      "description": "confined 'git push' over https to https://127.0.0.1:39443/example.git is refused",
+      "expectation": "non-zero exit, no successful publication",
+      "exit_code": 128,
+      "verdict": "pass",
+      "evidence": "fatal: unable to access 'https://127.0.0.1:39443/example.git/': Failed to connect to 127.0.0.1 port 39443 after 0 ms: Could not connect to server"
+    },
+    {
+      "id": "git.push-denied.ssh",
+      "description": "confined 'git push' over ssh to ssh://git@127.0.0.1:22/example.git is refused",
+      "expectation": "non-zero exit, no successful publication",
+      "exit_code": 128,
+      "verdict": "pass",
+      "evidence": ""
+    },
+    {
+      "id": "git.push-denied.git",
+      "description": "confined 'git push' over git to git://127.0.0.1:9418/example.git is refused",
+      "expectation": "non-zero exit, no successful publication",
+      "exit_code": 128,
+      "verdict": "pass",
+      "evidence": "fatal: unable to connect to 127.0.0.1:"
+    },
+    {
+      "id": "fs.credential-denied.ssh",
+      "description": "confined process cannot enumerate /home/andy/.ssh",
+      "expectation": "DENIED",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "DENIED"
+    },
+    {
+      "id": "fs.credential-denied.gnupg",
+      "description": "confined process cannot enumerate /home/andy/.gnupg",
+      "expectation": "DENIED",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "DENIED"
+    },
+    {
+      "id": "fs.credential-denied.aws",
+      "description": "confined process cannot enumerate /home/andy/.aws",
+      "expectation": "DENIED",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "DENIED"
+    },
+    {
+      "id": "fs.credential-denied.gcloud",
+      "description": "confined process cannot enumerate /home/andy/.config/gcloud",
+      "expectation": "DENIED",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "DENIED"
+    },
+    {
+      "id": "fs.parent-worktree-denied",
+      "description": "confined process cannot read the parent repository's WORKING TREE (its .git is granted; its source is not)",
+      "expectation": "DENIED",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "DENIED"
+    },
+    {
+      "id": "child.hook-inherits-network-denial",
+      "description": "a git hook spawned by a confined commit inherits the network denial",
+      "expectation": "CHILD_CONNECT_DENIED",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "CHILD_CONNECT_DENIED"
+    },
+    {
+      "id": "submodule.outside-allowlist-denied",
+      "description": "a submodule sourced from outside the allow-list cannot be materialised inside the sandbox",
+      "expectation": "non-zero exit and no submodule content on disk",
+      "exit_code": 1,
+      "verdict": "pass",
+      "evidence": "fatal: '/tmp/crkc-sp1.UjRyyrvX/outside-src' does not appear to be a git repository"
+    },
+    {
+      "id": "submodule.allowed-source-control",
+      "description": "the same submodule update SUCCEEDS when its source is added to the allow-list",
+      "expectation": "exit 0 and submodule content present",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "content materialised"
+    },
+    {
+      "id": "lock.stale-index-lock-cleared",
+      "description": "agent-git clears an unheld, stale .git/index.lock and completes the commit",
+      "expectation": "exit 0 and no lock left behind",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "agent-git: removed a stale index.lock (7201s old). If this recurs, a previous agent is being killed mid-commit."
+    },
+    {
+      "id": "lock.fresh-index-lock-preserved",
+      "description": "agent-git leaves a FRESH .git/index.lock in place rather than racing a live writer",
+      "expectation": "lock still present",
+      "exit_code": 128,
+      "verdict": "pass",
+      "evidence": "lock preserved; commit rc=128"
+    },
+    {
+      "id": "telemetry.blocked-connect-is-structured",
+      "description": "a blocked connect(2) yields a parseable errno plus a sandbox diagnostic code",
+      "expectation": "syscall_denials non-empty AND command_failed_likely_sandbox present",
+      "exit_code": 0,
+      "verdict": "pass",
+      "evidence": "{\"syscall_denials\": [\"Permission denied\"], \"sandbox_diagnostic_codes\": [\"command_failed_likely_sandbox\", \"command_failed_application\"], \"session_denials\": [], \"structured\": true}"
+    }
+  ]
+}

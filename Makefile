@@ -114,6 +114,26 @@ test-demo-signalloom-lifecycle: ## Test the deterministic local Signal Loom life
 test-signalloom-security-validation-evidence: ## Verify Signal Loom fail-closed security validation evidence.
 	bats test/signalloom-security-validation-evidence.bats
 
+# CRKC Rule SP-1 — worktree Landlock confinement.
+#
+# A Makefile target rather than a CI stage, and deliberately so. The harness
+# proves a KERNEL control: it needs `nono` on PATH and `landlock` in
+# /sys/kernel/security/lsm, and the CI VM has neither. Inventing a stage that
+# appears to satisfy those preconditions would produce a green report about a
+# control that was never exercised, which is worse than not running it.
+#
+# The static half IS in CI: test/worktree-landlock-confinement.bats is registered
+# in stage 1g and asserts the profile's content, the wrapper's argv handling and
+# the committed evidence artifact on every run, skipping only the live-kernel
+# tests and saying how many it skipped.
+#
+# Regenerate the evidence artifact after any change to the profile or wrapper —
+# docs/signalloom/evidence/worktree-confinement-proof.json is what the bats suite
+# reads, so a stale artifact is a stale claim.
+.PHONY: test-worktree-confinement
+test-worktree-confinement: ## Prove Rule SP-1 against the live kernel and regenerate the evidence artifact (nono + Landlock required).
+	./scripts/test-worktree-confinement.sh
+
 ##@ Cluster lifecycle
 
 .PHONY: cluster

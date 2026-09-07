@@ -1,0 +1,71 @@
+{
+  "$schema": "https://nono.sh/schema/profile.json",
+  "meta": {
+    "name": "worktree-agent",
+    "version": "0.1.0",
+    "description": "CRKC Rule SP-1 — host Landlock confinement for coding agents working in a git worktree. Grants read+write to the canonical worktree homes and to the PARENT repository's .git directory (which a worktree commit provably cannot do without), and nothing else. All outbound network is blocked at the kernel, so `git push` over https/ssh/git:// fails with a connect(2) permission error rather than on a policy string an agent could ignore. Loopback daemon ports used by the Signal Loom demo stay reachable so an agent can still drive the local stack. Credential stores are additionally named in filesystem.deny as defence-in-depth for the case where this profile is composed with a broader one. Signing is deliberately made IMPOSSIBLE rather than made to work: ~/.gnupg and the gpg-agent IPC directory are denied, so a forgotten --no-gpg-sign fails in milliseconds instead of blocking on an unreachable pinentry for the harness timeout. Use bin/agent-git, which injects the flag. See docs/signalloom/worktree-landlock-confinement.md.",
+    "author": "andy@control-plane.io"
+  },
+  "filesystem": {
+    "allow": [
+      "~/src/.worktrees/",
+      "~/.cline/worktrees/",
+      "~/src/cp/*/.git/",
+      "~/src/*/.git/"
+    ],
+    "read": [
+      "/usr/lib/git-core/",
+      "/usr/share/git-core/",
+      "/etc/gitconfig",
+      "/etc/ssl/certs/"
+    ],
+    "deny": [
+      "~/.ssh/",
+      "~/.gnupg/",
+      "~/.andy_sync/conf/.gnupg/",
+      "~/.aws/",
+      "~/.config/gcloud/",
+      "~/.config/gh/",
+      "~/.docker/config.json",
+      "~/.kube/config",
+      "~/.netrc",
+      "~/.git-credentials",
+      "~/.claude/",
+      "~/.andy_sync/",
+      "/etc/shadow",
+      "/etc/gshadow",
+      "/run/user/1000/gnupg/"
+    ]
+  },
+  "environment": {
+    "deny_vars": [
+      "SSH_AUTH_SOCK",
+      "SSH_ASKPASS",
+      "GIT_ASKPASS",
+      "GIT_SSH_COMMAND",
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "GH_ENTERPRISE_TOKEN",
+      "GNUPGHOME",
+      "GPG_TTY",
+      "PINENTRY_USER_DATA",
+      "GIT_TERMINAL_PROMPT"
+    ]
+  },
+  "network": {
+    "block": true,
+    "open_port": [
+      5001,
+      5173,
+      6443,
+      8080,
+      8082,
+      8200,
+      18000,
+      18080,
+      18081,
+      30754,
+      31337
+    ]
+  }
+}

@@ -65,10 +65,17 @@ class SentinelKernelTelemetry(BaseModel):
     tc_drop_active: bool = False
     traffic_control_state: Literal["drop", "allow", "unknown"] = "allow"
     ebpf_active: bool = False
+    ebpf_program_attached: bool | None = None
     observed_at: str | None = None
+    last_observed_at: str | None = None
     containment_latency_ms: float | None = None
     cgroup_path: str | None = None
     veth_interface: str | None = None
+    sentinel_ack: bool = False
+    sentinel_ack_id: str | None = None
+    sentinel_drop_count: int | None = None
+    sentinel_last_ack_at: str | None = None
+    containment_probe_state: Literal["confirmed", "pending", "unconfirmed"] = "unconfirmed"
 
 
 class RuntimeMetadata(BaseModel):

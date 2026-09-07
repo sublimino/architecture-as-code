@@ -338,3 +338,24 @@ setup() {
   run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_telemetry_unknown_agent_404'"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p3-2: Tab 3 renders eBPF Sentinel ACK, drop counters, and probe states across containment tracks" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentAccessTab.test.tsx -t 'Sentinel ACK'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-2: GET /api/agents/{id} returns Sentinel kernel telemetry with ACK and containment probe state" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_sentinel_containment_feedback_model'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-2: POST /api/agents/{id}/stun returns Sentinel ACK feedback and probe state" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_post_agent_stun_returns_sentinel_containment_feedback'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-2: GET /api/agents/{id} kernel telemetry endpoint is strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_detail_returns_sentinel_telemetry_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+

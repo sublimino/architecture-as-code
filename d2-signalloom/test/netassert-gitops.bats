@@ -138,7 +138,7 @@ SH
   [ "$status" -eq 0 ]
 }
 
-@test "suite preflight fails closed on absent SuperCred destination" {
+@test "suite preflight fails closed on absent SuperCred prerequisites" {
   config="$BATS_TEST_TMPDIR/supercred.yaml"
   fake_bin="$BATS_TEST_TMPDIR/missing-bin"
   mkdir -p "$fake_bin"
@@ -159,6 +159,28 @@ SH
     "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
   [ "$status" -ne 0 ]
   [[ "$output" == *"configured destination resource is absent: deployment/cardvault in inf-signalloom"* ]]
+
+  calls="$BATS_TEST_TMPDIR/sustained.calls"
+  cat >"$config" <<'YAML'
+- name: cardvault-probe-to-openbao
+  src:
+    k8sResource: {kind: pod, name: netassert-cardvault-probe-pod, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: openbao, namespace: inf-bao}
+YAML
+  cat >"$fake_bin/kubectl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$KUBECTL_CALLS"
+[[ "$*" != *"get pod/netassert-cardvault-probe-pod -n fe-signalloom-agents"* ]]
+SH
+  chmod +x "$fake_bin/kubectl"
+
+  run env KUBECTL_CALLS="$calls" NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
+    "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"parent-provisioned sustained source is absent: pod/netassert-cardvault-probe-pod in fe-signalloom-agents"* ]]
+  run grep -E '(^| )(apply|create|replace|patch)( |$)' "$calls"
+  [ "$status" -ne 0 ]
 }
 
 @test "TAP validator accepts one complete numbered passing plan" {

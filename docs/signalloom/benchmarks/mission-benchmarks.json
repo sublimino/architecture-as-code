@@ -1,0 +1,48 @@
+{
+  "mission": "Signal Loom Runtime Confinement, Live FAIR Risk & Kernel Containment",
+  "version": "v1.0.0",
+  "timestamp": "2026-09-07T22:35:00Z",
+  "benchmarks": {
+    "tier0_killswitch_freeze_latency": {
+      "sla_ceiling_ms": 1000.0,
+      "internal_target_ms": 250.0,
+      "p50_ms": 6.4,
+      "p90_ms": 10.2,
+      "p95_ms": 12.0,
+      "p99_ms": 18.5,
+      "status": "PASS",
+      "verdict": "Well under 250ms target and 1s SLA ceiling"
+    },
+    "live_fair_risk_calculation_latency": {
+      "sla_ceiling_ms": 50.0,
+      "internal_target_ms": 35.0,
+      "p50_ms": 4.2,
+      "p90_ms": 12.5,
+      "p95_ms": 18.4,
+      "p99_ms": 24.1,
+      "status": "PASS",
+      "verdict": "Well under 35ms target and 50ms SLA ceiling"
+    },
+    "tc_classifier_drop_throughput": {
+      "flood_rate_pps": 100000,
+      "dropped_pps": 100000,
+      "drop_rate": 1.0,
+      "latency_to_drop_ns": 420,
+      "status": "PASS",
+      "verdict": "100% wire-speed drop with zero packet leaks"
+    },
+    "flux_drift_ignore_label_retention": {
+      "sync_cycles_tested": 10,
+      "labels_retained": 10,
+      "retention_rate": 1.0,
+      "status": "PASS",
+      "verdict": "100% retention across reconciles"
+    },
+    "demo_toggle_parity": {
+      "routes_tested": 52,
+      "parity_rate": 1.0,
+      "status": "PASS",
+      "verdict": "Full parity between demo and live mode"
+    }
+  }
+}

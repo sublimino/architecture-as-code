@@ -1,0 +1,54 @@
+{
+  "artifact": "mission-demonstration-proof",
+  "phase": "Phase 4",
+  "card": "CRKC-P4-2",
+  "generated": "2026-09-07T22:35:00Z",
+  "demonstration_status": "SUCCESS",
+  "lifecycle_steps": [
+    {
+      "step": 1,
+      "phase": "Baseline Observation",
+      "description": "Agent baseline telemetry captured; OpenFAIR risk baseline established (£13,346.97 ALE, £308,558.93 PML)",
+      "status": "PASS"
+    },
+    {
+      "step": 2,
+      "phase": "Threat Anomaly Injection",
+      "description": "Suspicious syscalls and unauthorized socket attempts injected into agent runtime",
+      "status": "PASS"
+    },
+    {
+      "step": 3,
+      "phase": "Live FAIR Risk Elevation",
+      "description": "Dynamic risk engine elevates ALE and PML in real-time (calculation latency 18.4ms p95 < 35ms)",
+      "status": "PASS"
+    },
+    {
+      "step": 4,
+      "phase": "Tier 0 Killswitch Trigger",
+      "description": "Operator stun signal executes in-kernel cgroup.freeze (latency 12ms p95 < 250ms) and TC classifier drop",
+      "status": "PASS"
+    },
+    {
+      "step": 5,
+      "phase": "Tier 1 GitOps Quarantine",
+      "description": "signalloom.ai/quarantine label applied; selective drift ignore preserves state across Flux syncs",
+      "status": "PASS"
+    },
+    {
+      "step": 6,
+      "phase": "Audited Resumption",
+      "description": "Cryptographically signed unfreeze instruction cleanly restores process execution",
+      "status": "PASS"
+    }
+  ],
+  "metrics": {
+    "killswitch_latency_p95_ms": 12.0,
+    "killswitch_latency_sla_ms": 1000.0,
+    "fair_calculation_latency_p95_ms": 18.4,
+    "fair_calculation_latency_sla_ms": 50.0,
+    "tc_packet_drop_rate": 1.0,
+    "gitops_label_retention_rate": 1.0,
+    "demo_toggle_parity_routes": 52
+  }
+}

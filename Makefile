@@ -726,9 +726,14 @@ test-kind-load-verified: ## Verify the kind image-load guard against fake docker
 test-deployed-staleness: ## Verify the deployed-vs-source guard against a fake kubectl, including that it cannot pass vacuously (no cluster required).
 	bats test/deployed-staleness.bats
 
-.PHONY: test-supervise-port-forward
+.PHONY: test-supervise-port-forward test-signalloom-portforward
 test-supervise-port-forward: ## Verify port-forward supervision against fake kubectl/curl clients (no cluster required).
 	bats test/supervise-port-forward.bats
+
+test-signalloom-portforward: ## Verify systemd user service portforward and automatic pod recovery (cluster required).
+	./scripts/verify-portforward-service.sh
+	bats test/signalloom-portforward.bats
+
 
 .PHONY: demo-signalloom-supercred-runtime-test demo-signalloom-supercred-api-test
 demo-signalloom-supercred-runtime-test: ## Probe Cardvault and agent-cardvault after explicit SuperCred step 1 (cluster required; does not deploy).

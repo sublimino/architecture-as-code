@@ -2050,6 +2050,93 @@ def test_get_agents_deep_link_filters_strictly_side_effect_free(client, monkeypa
     assert len(executed_writes) == 0
 
 
+def test_agent_telemetry_endpoint_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-1: Proves GET /api/agents/{agent_id}/telemetry executes 0 SQL writes and is strictly side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {"id": "agent-123", "name": "Agent 123"}
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents/{id}/telemetry must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-123/telemetry", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["agent_id"] == "agent-123"
+    assert "observations" in data
+    assert len(executed_writes) == 0
 
 
+def test_agent_telemetry_pushdown_filters(client, monkeypatch):
+    """SFAGENTS-P3-1: Verifies pushdown query parameters (layer, source, limit) filter telemetry observations."""
+    async def mock_get_pool():
+        return None
 
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    # Seed an agent for tenant-a (alice)
+    api_compat._ensure_seeded("tenant-a")
+    with api_compat._STORE_LOCK:
+        agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
+
+    # Unfiltered
+    res_all = client.get(f"/api/agents/{agent_id}/telemetry", headers=bearer(token_for("alice")))
+    assert res_all.status_code == 200
+    data_all = res_all.json()
+    assert len(data_all["observations"]) >= 3
+    assert data_all["source_health"] == "healthy"
+
+    # Filter by layer
+    res_layer = client.get(
+        f"/api/agents/{agent_id}/telemetry?layer=LayerKernelSocket",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_layer.status_code == 200
+    data_layer = res_layer.json()
+    assert len(data_layer["observations"]) == 1
+    assert data_layer["observations"][0]["layer"] == "LayerKernelSocket"
+    assert data_layer["pushdown_filters"]["layer"] == "LayerKernelSocket"
+
+    # Filter by source substring
+    res_source = client.get(
+        f"/api/agents/{agent_id}/telemetry?source=frostdb",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_source.status_code == 200
+    data_source = res_source.json()
+    assert len(data_source["observations"]) == 1
+    assert "frostdb" in data_source["observations"][0]["source"].lower()
+    assert data_source["pushdown_filters"]["source"] == "frostdb"
+
+    # Limit filter
+    res_limit = client.get(
+        f"/api/agents/{agent_id}/telemetry?limit=1",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_limit.status_code == 200
+    data_limit = res_limit.json()
+    assert len(data_limit["observations"]) == 1
+    assert data_limit["pushdown_filters"]["limit"] == 1
+
+
+def test_agent_telemetry_unknown_agent_404(client, monkeypatch):
+    """SFAGENTS-P3-1: Proves GET /api/agents/{agent_id}/telemetry fails closed with 404 for unknown agent."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/non-existent-agent-uuid/telemetry", headers=bearer(token_for("alice")))
+    assert res.status_code == 404
+    err = res.json()
+    assert err["error"]["code"] == "not_found"

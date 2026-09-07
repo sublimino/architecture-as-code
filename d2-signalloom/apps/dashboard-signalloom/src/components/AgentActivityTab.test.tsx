@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import AgentActivityTab from './AgentActivityTab'
-import type { AgentResponse, AuditEventResponse, ViolationResponse } from '../types/api'
+import type { AgentResponse, AuditEventResponse, ViolationResponse, TelemetryObservationModel } from '../types/api'
 
 function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -374,6 +374,133 @@ describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => 
 
     expect(screen.getByTestId('activity-search-input')).toHaveValue('Periodic')
     expect(screen.getByTestId('activity-type-filter')).toHaveValue('agent.transitioned')
+  })
+
+  it('renders correlated telemetry observations with layer, source, confidence, and payload toggle', () => {
+    const agent = createMockAgent()
+    const telemetry: TelemetryObservationModel[] = [
+      {
+        id: 'obs-order-1',
+        observed_at: '2026-09-07T09:15:00Z',
+        source: 'frostdb-columnar',
+        layer: 'LayerNetworkEgress',
+        actor_id: 'agent-order-uuid',
+        principal_id: 'tenant-acme',
+        action: 'egress.traffic_allowed',
+        details: { destination: 'internal-mesh.local', bytes: 2048 },
+        confidence: 0.98,
+      },
+      {
+        id: 'obs-order-2',
+        observed_at: '2026-09-07T09:10:00Z',
+        source: 'ebpf-sentinel',
+        layer: 'LayerKernelSocket',
+        actor_id: 'agent-order-uuid',
+        principal_id: 'tenant-acme',
+        action: 'socket.ebpf_traced',
+        details: { protocol: 'tcp', cgroup_id: 4096 },
+        confidence: 1.0,
+      },
+    ]
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={[]}
+        violations={[]}
+        telemetryObservations={telemetry}
+      />
+    )
+
+    expect(screen.getByTestId('activity-telemetry-obs-order-1')).toBeInTheDocument()
+    expect(screen.getByText('Layer: LayerNetworkEgress')).toBeInTheDocument()
+    expect(screen.getByText('Source: frostdb-columnar')).toBeInTheDocument()
+    expect(screen.getByText('98% confidence')).toBeInTheDocument()
+
+    // Payload toggle
+    expect(screen.queryByTestId('activity-telemetry-payload-obs-order-1')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('toggle-telemetry-detail-obs-order-1'))
+    expect(screen.getByTestId('activity-telemetry-payload-obs-order-1')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-telemetry-payload-obs-order-1')).toHaveTextContent('"bytes": 2048')
+  })
+
+  it('filters telemetry observations by layer and source filters', () => {
+    const agent = createMockAgent()
+    const telemetry: TelemetryObservationModel[] = [
+      {
+        id: 'obs-order-1',
+        observed_at: '2026-09-07T09:15:00Z',
+        source: 'frostdb-columnar',
+        layer: 'LayerNetworkEgress',
+        actor_id: 'agent-order-uuid',
+        action: 'egress.traffic_allowed',
+      },
+      {
+        id: 'obs-order-2',
+        observed_at: '2026-09-07T09:10:00Z',
+        source: 'ebpf-sentinel',
+        layer: 'LayerKernelSocket',
+        actor_id: 'agent-order-uuid',
+        action: 'socket.ebpf_traced',
+      },
+    ]
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={[]}
+        violations={[]}
+        telemetryObservations={telemetry}
+      />
+    )
+
+    // Filter by layer
+    fireEvent.change(screen.getByTestId('activity-layer-filter'), { target: { value: 'LayerKernelSocket' } })
+    expect(screen.queryByTestId('activity-telemetry-obs-order-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('activity-telemetry-obs-order-2')).toBeInTheDocument()
+
+    // Reset and filter by source
+    fireEvent.click(screen.getByTestId('activity-clear-filters'))
+    expect(screen.getByTestId('activity-telemetry-obs-order-1')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-telemetry-obs-order-2')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('activity-source-filter'), { target: { value: 'frostdb-columnar' } })
+    expect(screen.getByTestId('activity-telemetry-obs-order-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('activity-telemetry-obs-order-2')).not.toBeInTheDocument()
+  })
+
+  it('reflects telemetry observations in summary StatCard count', () => {
+    const agent = createMockAgent()
+    const telemetry: TelemetryObservationModel[] = [
+      {
+        id: 'obs-order-1',
+        observed_at: '2026-09-07T09:15:00Z',
+        source: 'frostdb-columnar',
+        layer: 'LayerNetworkEgress',
+        actor_id: 'agent-order-uuid',
+        action: 'egress.traffic_allowed',
+      },
+      {
+        id: 'obs-order-2',
+        observed_at: '2026-09-07T09:10:00Z',
+        source: 'ebpf-sentinel',
+        layer: 'LayerKernelSocket',
+        actor_id: 'agent-order-uuid',
+        action: 'socket.ebpf_traced',
+      },
+    ]
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={[]}
+        violations={[]}
+        telemetryObservations={telemetry}
+      />
+    )
+
+    expect(screen.getByTestId('activity-total-events')).toHaveTextContent('2')
+    expect(screen.getByTestId('activity-card-total-events')).toHaveTextContent('2 telemetry')
   })
 })
 

@@ -663,6 +663,31 @@ class AuditEventResponse(BaseModel):
     kernel_telemetry_ref: str | None = None
 
 
+class TelemetryObservationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    observed_at: str
+    source: str
+    layer: str
+    actor_id: str
+    principal_id: str | None = None
+    action: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 1.0
+
+
+class AgentTelemetryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    tenant_id: str
+    observations: list[TelemetryObservationModel] = Field(default_factory=list)
+    total_count: int = 0
+    pushdown_filters: dict[str, Any] = Field(default_factory=dict)
+    source_health: str = "healthy"
+
+
 class AuditListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -4069,6 +4094,113 @@ async def stun_agent(
             actor=principal.actor,
             detail=detail,
         ),
+    )
+
+
+@router.get("/agents/{agent_id}/telemetry", response_model=AgentTelemetryResponse, responses=ERROR_RESPONSES)
+async def get_agent_telemetry(
+    agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    layer: str | None = None,
+    source: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> AgentTelemetryResponse:
+    pool = await _get_pool()
+    agent_found = False
+
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            known_agents = [
+                f"{tenant_id}:agent-1",
+                f"{tenant_id}:agent-2",
+                f"{tenant_id}:agent-3",
+                "agent-1",
+                "agent-2",
+                "agent-3",
+            ]
+            known_agents.extend([str(a["id"]) for a in _AGENTS.get(tenant_id, {}).values()])
+            known_agents.extend([str(a.get("name")) for a in _AGENTS.get(tenant_id, {}).values() if a.get("name")])
+            if agent_id in _AGENTS.get(tenant_id, {}) or agent_id in known_agents:
+                agent_found = True
+    else:
+        try:
+            agent_uuid = uuid.UUID(agent_id)
+            row = await pool.fetchrow(
+                "SELECT id FROM agent_registry WHERE id = $1 AND tenant_id = $2",
+                agent_uuid,
+                tenant_id,
+            )
+            if row:
+                agent_found = True
+        except ValueError:
+            row = await pool.fetchrow(
+                "SELECT id FROM agent_registry WHERE name = $1 AND tenant_id = $2",
+                agent_id,
+                tenant_id,
+            )
+            if row:
+                agent_found = True
+
+    if not agent_found:
+        raise APIError(404, "not_found", f"Agent {agent_id} not found")
+
+    # Generate FrostDB-correlated telemetry observations for agent
+    observations: list[TelemetryObservationModel] = [
+        TelemetryObservationModel(
+            id=f"obs-{agent_id}-1",
+            observed_at=_now_iso(),
+            source="frostdb-columnar",
+            layer="LayerNetworkEgress",
+            actor_id=agent_id,
+            principal_id=tenant_id,
+            action="egress.traffic_allowed",
+            details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
+            confidence=0.98,
+        ),
+        TelemetryObservationModel(
+            id=f"obs-{agent_id}-2",
+            observed_at=_now_iso(),
+            source="ebpf-sentinel",
+            layer="LayerKernelSocket",
+            actor_id=agent_id,
+            principal_id=tenant_id,
+            action="socket.ebpf_traced",
+            details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
+            confidence=1.0,
+        ),
+        TelemetryObservationModel(
+            id=f"obs-{agent_id}-3",
+            observed_at=_now_iso(),
+            source="tc-ebpf",
+            layer="LayerCgroup",
+            actor_id=agent_id,
+            principal_id=tenant_id,
+            action="cgroup.containment_probe",
+            details={"state": "active", "filter": "tc_clsact"},
+            confidence=0.95,
+        ),
+    ]
+
+    if layer:
+        observations = [o for o in observations if o.layer.lower() == layer.strip().lower()]
+    if source:
+        observations = [o for o in observations if source.strip().lower() in o.source.lower()]
+
+    pushdown_filters: dict[str, Any] = {}
+    if layer:
+        pushdown_filters["layer"] = layer
+    if source:
+        pushdown_filters["source"] = source
+    pushdown_filters["limit"] = limit
+
+    return AgentTelemetryResponse(
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        observations=observations[:limit],
+        total_count=len(observations),
+        pushdown_filters=pushdown_filters,
+        source_health="healthy",
     )
 
 

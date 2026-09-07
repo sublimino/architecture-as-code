@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealthMap } from '../types/api'
+import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealthMap, TelemetryObservationModel } from '../types/api'
 import { colors } from '../styles/tokens'
 import EmptyState from './EmptyState'
 
@@ -64,11 +64,13 @@ const ALL_EVENT_TYPES = [
 export type AttributableTimelineItem =
   | { kind: 'audit'; id: string; ts: string; event: AuditEventResponse }
   | { kind: 'violation'; id: string; ts: string; violation: ViolationResponse }
+  | { kind: 'telemetry'; id: string; ts: string; observation: TelemetryObservationModel }
 
 export interface AgentActivityTabProps {
   agent: AgentResponse
   auditEvents?: AuditEventResponse[]
   violations?: ViolationResponse[]
+  telemetryObservations?: TelemetryObservationModel[]
   sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
   sourceHealthDetail?: SourceHealthMap | null
   onAcknowledgeViolation?: (violationId: string) => Promise<void>
@@ -82,6 +84,7 @@ export default function AgentActivityTab({
   agent,
   auditEvents = [],
   violations = [],
+  telemetryObservations = [],
   sourceHealth = 'healthy',
   sourceHealthDetail,
   onAcknowledgeViolation,
@@ -93,11 +96,15 @@ export default function AgentActivityTab({
   const [searchParams, setSearchParams] = useSearchParams()
   const initialType = searchParams.get('type') || searchParams.get('event_type') || 'all'
   const initialActor = searchParams.get('actor') || searchParams.get('actor_plane') || 'all'
+  const initialLayer = searchParams.get('layer') || 'all'
+  const initialSource = searchParams.get('source') || 'all'
   const initialSearch = searchParams.get('search') || ''
   const initialLive = searchParams.get('live') !== 'false'
 
   const [typeFilter, setTypeFilter] = useState<string>(initialType)
   const [actorFilter, setActorFilter] = useState<string>(initialActor)
+  const [layerFilter, setLayerFilter] = useState<string>(initialLayer)
+  const [sourceFilter, setSourceFilter] = useState<string>(initialSource)
   const [searchQuery, setSearchQuery] = useState<string>(initialSearch)
   const [liveStreaming, setLiveStreaming] = useState<boolean>(initialLive)
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
@@ -106,12 +113,16 @@ export default function AgentActivityTab({
   useEffect(() => {
     const t = searchParams.get('type') || searchParams.get('event_type') || 'all'
     const a = searchParams.get('actor') || searchParams.get('actor_plane') || 'all'
+    const l = searchParams.get('layer') || 'all'
+    const s = searchParams.get('source') || 'all'
     const q = searchParams.get('search') || ''
-    const l = searchParams.get('live') !== 'false'
+    const live = searchParams.get('live') !== 'false'
     setTypeFilter(t)
     setActorFilter(a)
+    setLayerFilter(l)
+    setSourceFilter(s)
     setSearchQuery(q)
-    setLiveStreaming(l)
+    setLiveStreaming(live)
   }, [searchParams])
 
   const handleTypeChange = useCallback((val: string) => {
@@ -134,6 +145,26 @@ export default function AgentActivityTab({
     }, { replace: true })
   }, [setSearchParams])
 
+  const handleLayerChange = useCallback((val: string) => {
+    setLayerFilter(val)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (val && val !== 'all') next.set('layer', val)
+      else next.delete('layer')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleSourceChange = useCallback((val: string) => {
+    setSourceFilter(val)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (val && val !== 'all') next.set('source', val)
+      else next.delete('source')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
   const handleSearchChange = useCallback((val: string) => {
     setSearchQuery(val)
     setSearchParams(prev => {
@@ -147,6 +178,8 @@ export default function AgentActivityTab({
   const handleClearFilters = useCallback(() => {
     setTypeFilter('all')
     setActorFilter('all')
+    setLayerFilter('all')
+    setSourceFilter('all')
     setSearchQuery('')
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -154,6 +187,8 @@ export default function AgentActivityTab({
       next.delete('event_type')
       next.delete('actor')
       next.delete('actor_plane')
+      next.delete('layer')
+      next.delete('source')
       next.delete('search')
       return next
     }, { replace: true })
@@ -198,9 +233,15 @@ export default function AgentActivityTab({
         ts: v.created_at ?? '',
         violation: v,
       })),
+      ...telemetryObservations.map(o => ({
+        kind: 'telemetry' as const,
+        id: o.id,
+        ts: o.observed_at,
+        observation: o,
+      })),
     ]
     return items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-  }, [allAuditEvents, violations])
+  }, [allAuditEvents, violations, telemetryObservations])
 
   // Filter items
   const filteredItems = useMemo(() => {
@@ -208,7 +249,8 @@ export default function AgentActivityTab({
       // 1. Type Filter
       if (typeFilter !== 'all') {
         if (typeFilter === 'violations' && item.kind !== 'violation') return false
-        if (typeFilter !== 'violations') {
+        if (typeFilter === 'telemetry' && item.kind !== 'telemetry') return false
+        if (typeFilter !== 'violations' && typeFilter !== 'telemetry') {
           if (item.kind !== 'audit' || item.event.event_type !== typeFilter) return false
         }
       }
@@ -217,6 +259,8 @@ export default function AgentActivityTab({
       if (actorFilter !== 'all') {
         if (item.kind === 'violation') {
           if (actorFilter !== 'system') return false
+        } else if (item.kind === 'telemetry') {
+          if (actorFilter !== 'system' && actorFilter !== 'workload') return false
         } else {
           const ev = item.event
           const hasHumanPrincipal = !!(ev.authorizing_principal_id || (ev.actor && ev.actor.includes('@')))
@@ -227,7 +271,26 @@ export default function AgentActivityTab({
         }
       }
 
-      // 3. Search Query
+      // 3. Layer Filter
+      if (layerFilter !== 'all') {
+        if (item.kind !== 'telemetry' || item.observation.layer.toLowerCase() !== layerFilter.toLowerCase()) {
+          return false
+        }
+      }
+
+      // 4. Source Filter
+      if (sourceFilter !== 'all') {
+        if (item.kind === 'telemetry') {
+          if (!item.observation.source.toLowerCase().includes(sourceFilter.toLowerCase())) return false
+        } else if (item.kind === 'audit') {
+          const s = (item.event.actor || '') + ' ' + JSON.stringify(item.event.detail || {})
+          if (!s.toLowerCase().includes(sourceFilter.toLowerCase())) return false
+        } else {
+          return false
+        }
+      }
+
+      // 5. Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase()
         if (item.kind === 'violation') {
@@ -237,6 +300,17 @@ export default function AgentActivityTab({
             (v.analysis || '').toLowerCase().includes(q) ||
             (v.recommended_action || '').toLowerCase().includes(q) ||
             (v.severity || '').toLowerCase().includes(q)
+          if (!match) return false
+        } else if (item.kind === 'telemetry') {
+          const o = item.observation
+          const detailStr = JSON.stringify(o.details || {}).toLowerCase()
+          const match =
+            (o.action || '').toLowerCase().includes(q) ||
+            (o.layer || '').toLowerCase().includes(q) ||
+            (o.source || '').toLowerCase().includes(q) ||
+            (o.actor_id || '').toLowerCase().includes(q) ||
+            (o.principal_id || '').toLowerCase().includes(q) ||
+            detailStr.includes(q)
           if (!match) return false
         } else {
           const ev = item.event
@@ -257,7 +331,7 @@ export default function AgentActivityTab({
 
       return true
     })
-  }, [rawTimelineItems, typeFilter, actorFilter, searchQuery])
+  }, [rawTimelineItems, typeFilter, actorFilter, layerFilter, sourceFilter, searchQuery])
 
   // Summary counts
   const totalEventsCount = rawTimelineItems.length
@@ -301,7 +375,7 @@ export default function AgentActivityTab({
             {isSourceUnavailable ? '—' : totalEventsCount}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-            {isSourceUnavailable ? 'Source unavailable' : `${allAuditEvents.length} audit · ${violations.length} violations`}
+            {isSourceUnavailable ? 'Source unavailable' : `${allAuditEvents.length} audit · ${violations.length} violations${telemetryObservations.length > 0 ? ` · ${telemetryObservations.length} telemetry` : ''}`}
           </div>
         </div>
 
@@ -397,6 +471,7 @@ export default function AgentActivityTab({
             >
               <option value="all">All Event Types</option>
               <option value="violations">Violations Only</option>
+              <option value="telemetry">Telemetry Observations</option>
               {ALL_EVENT_TYPES.map(t => (
                 <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
               ))}
@@ -414,7 +489,31 @@ export default function AgentActivityTab({
               <option value="system">System & Telemetry</option>
             </select>
 
-            {(typeFilter !== 'all' || actorFilter !== 'all' || searchQuery) && (
+            <select
+              data-testid="activity-layer-filter"
+              value={layerFilter}
+              onChange={e => handleLayerChange(e.target.value)}
+              style={{ padding: '6px 10px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)' }}
+            >
+              <option value="all">All Telemetry Layers</option>
+              <option value="LayerNetworkEgress">LayerNetworkEgress</option>
+              <option value="LayerKernelSocket">LayerKernelSocket</option>
+              <option value="LayerCgroup">LayerCgroup</option>
+            </select>
+
+            <select
+              data-testid="activity-source-filter"
+              value={sourceFilter}
+              onChange={e => handleSourceChange(e.target.value)}
+              style={{ padding: '6px 10px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)' }}
+            >
+              <option value="all">All Sources</option>
+              <option value="frostdb-columnar">FrostDB Columnar</option>
+              <option value="ebpf-sentinel">eBPF Sentinel</option>
+              <option value="tc-ebpf">TC eBPF</option>
+            </select>
+
+            {(typeFilter !== 'all' || actorFilter !== 'all' || layerFilter !== 'all' || sourceFilter !== 'all' || searchQuery) && (
               <button
                 data-testid="activity-clear-filters"
                 className="btn btn-secondary"
@@ -607,6 +706,119 @@ export default function AgentActivityTab({
                       {v.status === 'acknowledged' && v.acknowledged_by && (
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                           Acknowledged by {v.acknowledged_by} · {fmtTs(v.acknowledged_at)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+
+              if (item.kind === 'telemetry') {
+                const obs = item.observation
+                const isExpanded = !!expandedDetails[obs.id]
+                return (
+                  <div
+                    key={`tel-${obs.id}`}
+                    data-testid={`activity-telemetry-${obs.id}`}
+                    style={{
+                      display: 'flex',
+                      gap: 14,
+                      padding: '12px 0',
+                      borderBottom: idx < filteredItems.length - 1 ? '1px solid var(--border)' : 'none',
+                    }}
+                  >
+                    <div style={{
+                      width: 3,
+                      background: colors.cyanLoom,
+                      borderRadius: 2,
+                      flexShrink: 0,
+                      minHeight: 48,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}>
+                          {fmtTs(obs.observed_at)}
+                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '2px 8px',
+                          borderRadius: 3,
+                          background: 'rgba(0, 196, 204, 0.15)',
+                          color: colors.cyanLoom,
+                        }}>
+                          TELEMETRY: {obs.action}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 3,
+                          background: 'var(--surface2)',
+                          color: 'var(--text)',
+                          border: '1px solid var(--border)',
+                        }}>
+                          Layer: {obs.layer}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 3,
+                          background: 'var(--surface2)',
+                          color: 'var(--muted)',
+                        }}>
+                          Source: {obs.source}
+                        </span>
+                        {obs.confidence !== undefined && (
+                          <span style={{
+                            fontSize: 10,
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            color: colors.tealLoom,
+                            fontWeight: 500,
+                          }}>
+                            {Math.round(obs.confidence * 100)}% confidence
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                        {obs.action}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap', marginBottom: 6 }}>
+                        <span>Actor ID: <code style={{ color: 'var(--text)' }}>{obs.actor_id}</code></span>
+                        {obs.principal_id && (
+                          <span>Principal ID: <code style={{ color: 'var(--text)' }}>{obs.principal_id}</code></span>
+                        )}
+                      </div>
+
+                      {obs.details && Object.keys(obs.details).length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          <button
+                            data-testid={`toggle-telemetry-detail-${obs.id}`}
+                            className="btn btn-secondary"
+                            onClick={() => toggleDetail(obs.id)}
+                            style={{ fontSize: 11, padding: '2px 8px' }}
+                          >
+                            {isExpanded ? 'Hide Observation Payload' : 'View Observation Payload'}
+                          </button>
+                          {isExpanded && (
+                            <pre
+                              data-testid={`activity-telemetry-payload-${obs.id}`}
+                              style={{
+                                marginTop: 8,
+                                padding: 10,
+                                background: 'var(--surface2)',
+                                borderRadius: 4,
+                                fontSize: 11,
+                                overflowX: 'auto',
+                                border: '1px solid var(--border)',
+                              }}
+                            >
+                              {JSON.stringify(obs.details, null, 2)}
+                            </pre>
+                          )}
                         </div>
                       )}
                     </div>

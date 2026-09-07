@@ -8,7 +8,7 @@
  * - Compliance scan, agent registration, filtering, search, and signal summary
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import AgentsPage from './AgentsPage'
@@ -592,5 +592,176 @@ describe('AgentsPage — Signal Summary Panel', () => {
 
     await screen.findByText('Invoice Bot')
     expect(screen.queryByTestId('signal-summary-panel')).not.toBeInTheDocument()
+  })
+})
+
+describe('AgentsPage — Quick Evidence Side Drawer (SFAGENTS-P1-7)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  it('opens quick evidence side drawer when an agent row is clicked', async () => {
+    const agent = makeAgent({
+      id: 'agent-drawer-test-1',
+      name: 'Drawer Test Workload',
+      type: 'Signal Loom Built',
+      runtime: {
+        namespace: 'sec-ops',
+        framework: 'kagent',
+        execution_mode: 'autonomous',
+        model: 'claude-3-7-sonnet',
+        node: 'worker-node-1',
+        pod_uid: 'pod-uid-test-1',
+        service_account: 'test-sa',
+        phase: 'Running',
+      },
+      responsibility: {
+        owner_name: 'alice@signal-loom.ai',
+        team: 'Platform Security',
+        assignment_status: 'assigned',
+      },
+      identity: {
+        spiffe_id: 'spiffe://cluster.local/ns/sec-ops/sa/test-sa',
+        spiffe_status: 'linked',
+        aliases: ['alias-alpha'],
+      },
+      attention: {
+        level: 'critical',
+        highest_issue: '2 failing controls detected',
+      },
+      compliance_summary: {
+        total_controls: 5,
+        passing: 3,
+        failing: 2,
+        pending: 0,
+        posture_score: 0.6,
+      },
+      kernel_telemetry: {
+        cgroup_state: 'frozen',
+        traffic_control_state: 'drop',
+        ebpf_active: true,
+      },
+    })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent],
+      total: 1,
+    })
+
+    renderPage()
+
+    await screen.findByText('Drawer Test Workload')
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+
+    // Click on the agent row
+    await userEvent.click(screen.getByTestId('agent-row-agent-drawer-test-1'))
+
+    // Drawer should open
+    expect(screen.getByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Drawer Test Workload')
+    expect(screen.getByTestId('drawer-agent-id')).toHaveTextContent('ID: agent-drawer-test-1')
+    expect(screen.getByTestId('drawer-runtime-namespace')).toHaveTextContent('sec-ops')
+    expect(screen.getByTestId('drawer-runtime-framework')).toHaveTextContent('kagent (autonomous)')
+    expect(screen.getByTestId('drawer-responsibility-owner')).toHaveTextContent('alice@signal-loom.ai')
+    expect(screen.getByTestId('drawer-spiffe-status')).toHaveTextContent('SPIFFE linked')
+    expect(screen.getByTestId('drawer-kernel-cgroup')).toHaveTextContent('cgroup: FROZEN')
+    expect(screen.getByTestId('drawer-kernel-tc')).toHaveTextContent('TC: DROP')
+    expect(screen.getByTestId('drawer-posture-score')).toHaveTextContent('60%')
+  })
+
+  it('opens quick evidence side drawer via keyboard selection (Enter key)', async () => {
+    const agent = makeAgent({
+      id: 'agent-kb-test-1',
+      name: 'Keyboard Select Agent',
+    })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent],
+      total: 1,
+    })
+
+    renderPage()
+
+    await screen.findByText('Keyboard Select Agent')
+    const row = screen.getByTestId('agent-row-agent-kb-test-1')
+
+    fireEvent.keyDown(row, { key: 'Enter', code: 'Enter' })
+
+    expect(screen.getByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Keyboard Select Agent')
+  })
+
+  it('closes quick evidence drawer on close button click and on Escape key', async () => {
+    const agent = makeAgent({
+      id: 'agent-close-test-1',
+      name: 'Dismissable Agent',
+    })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent],
+      total: 1,
+    })
+
+    renderPage()
+
+    await screen.findByText('Dismissable Agent')
+    await userEvent.click(screen.getByTestId('agent-row-agent-close-test-1'))
+
+    expect(screen.getByTestId('agent-evidence-drawer')).toBeInTheDocument()
+
+    // Click close button
+    await userEvent.click(screen.getByTestId('agent-evidence-drawer-close'))
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+
+    // Re-open and close with Escape
+    await userEvent.click(screen.getByTestId('agent-row-agent-close-test-1'))
+    expect(screen.getByTestId('agent-evidence-drawer')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' })
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+  })
+
+  it('renders truthful language in drawer for unassessed and unlinked records', async () => {
+    const discoveredAgent = makeAgent({
+      id: 'agent-disc-drawer',
+      name: 'Discovered Pod',
+      record_class: 'discovered',
+      is_registry_linked: false,
+      owner: null,
+      responsibility: undefined,
+      compliance_summary: {
+        total_controls: 0,
+        passing: 0,
+        failing: 0,
+        pending: 0,
+        posture_score: null,
+      },
+      assessment_summary: {
+        status: 'not_assessed',
+        total_controls: 0,
+        passed_controls: 0,
+        failed_controls: 0,
+        pending_controls: 0,
+        normalized_score: null,
+      },
+    })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [discoveredAgent],
+      total: 1,
+    })
+
+    renderPage()
+
+    await screen.findByText('Discovered Pod')
+    await userEvent.click(screen.getByTestId('agent-row-agent-disc-drawer'))
+
+    expect(screen.getByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-responsibility-owner')).toHaveTextContent('Registry not linked')
+    expect(screen.getByTestId('drawer-assessment-status')).toHaveTextContent('Not assessed')
+    expect(screen.getByTestId('drawer-posture-score')).toHaveTextContent('Not assessed')
   })
 })

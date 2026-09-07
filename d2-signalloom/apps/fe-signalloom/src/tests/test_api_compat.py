@@ -1004,6 +1004,60 @@ def test_capabilities_for_superadmin_user(client, monkeypatch):
     assert actions["run_scenario"]["allowed"] is True
 
 
+def test_operational_inventory_response_envelope_and_models(client, monkeypatch):
+    """SFAGENTS-P1-6: Asserts enriched inventory models and envelope for operational table."""
+    class SampleClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "agent-op-1",
+                            "name": "Audit Scanner",
+                            "namespace": "security",
+                            "framework": "LangChain",
+                            "model": "gpt-4o",
+                            "service_account": "scanner-sa",
+                            "node": "node-1",
+                            "phase": "Running",
+                            "pod_uid": "uid-12345",
+                            "cgroup_frozen": False,
+                            "cgroup_state": "thawed",
+                            "tc_drop_active": False,
+                            "traffic_control_state": "allow",
+                            "ebpf_active": True,
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", SampleClient)
+
+    res = client.get("/api/agents", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["agents"]) == 1
+    agent = data["agents"][0]
+    assert agent["id"] == "agent-op-1"
+    assert agent["runtime"]["namespace"] == "security"
+    assert agent["runtime"]["framework"] == "LangChain"
+    assert agent["responsibility"]["assignment_status"] in ("unassigned", "registry_unlinked")
+    assert agent["assessment_summary"]["status"] == "not_assessed"
+    assert agent["kernel_telemetry"]["cgroup_state"] == "thawed"
+    assert agent["kernel_telemetry"]["traffic_control_state"] == "allow"
+
+
 def test_capabilities_workload_scoped_discovery(client, monkeypatch):
     """Proves GET /api/capabilities?agent_id=... resolves discovered workload scope."""
     class DiscoveryClient:

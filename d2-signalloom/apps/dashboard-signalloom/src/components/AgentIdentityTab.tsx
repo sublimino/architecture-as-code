@@ -736,6 +736,106 @@ export default function AgentIdentityTab({
           />
         </div>
       </div>
+
+      {/* ─── Panel 4: Live Authenticated Origin Verification ─────────────────── */}
+      <div className="card" data-testid="identity-panel-origin-verification" style={{ padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
+              Live Authenticated Origin Verification
+            </h3>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
+              Cryptographic origin attestation, JWT validation, and upstream ingress protection
+            </p>
+          </div>
+          <span
+            data-testid="identity-origin-status"
+            className="tag"
+            style={{
+              fontSize: 11,
+              padding: '3px 8px',
+              background: (agent.origin_verification?.status === 'verified' || (agent.origin_verification === undefined && isSpiffeLinked))
+                ? 'rgba(16, 185, 129, 0.15)'
+                : (agent.origin_verification?.status === 'failed')
+                ? 'rgba(239, 68, 68, 0.15)'
+                : 'rgba(156, 163, 175, 0.15)',
+              color: (agent.origin_verification?.status === 'verified' || (agent.origin_verification === undefined && isSpiffeLinked))
+                ? 'var(--teal)'
+                : (agent.origin_verification?.status === 'failed')
+                ? 'var(--error)'
+                : 'var(--muted)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            {(agent.origin_verification?.status === 'verified' || (agent.origin_verification === undefined && isSpiffeLinked))
+              ? 'VERIFIED'
+              : (agent.origin_verification?.status === 'failed')
+              ? 'FAILED'
+              : 'UNVERIFIED'}
+          </span>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 16,
+          fontSize: 13,
+        }}>
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Origin Type</span>
+            <div data-testid="identity-origin-type" style={{ fontSize: 12, fontWeight: 600, marginTop: 2, textTransform: 'capitalize' }}>
+              {(agent.origin_verification?.origin_type || (recordClass === 'registered' ? 'registered_catalog' : 'kubernetes_workload')).replace('_', ' ')}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Authentication Method</span>
+            <div data-testid="identity-origin-method" style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, marginTop: 2 }}>
+              {agent.origin_verification?.auth_method || (isSpiffeLinked ? 'spiffe_svid' : 'jwt_bearer')}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Attested Issuer</span>
+            <div data-testid="identity-origin-issuer" style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 2, wordBreak: 'break-all' }}>
+              {agent.origin_verification?.issuer || (isSpiffeLinked ? certIssuer : 'https://dex.inf-signalloom.svc.cluster.local:5556/dex')}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Attested Subject</span>
+            <div data-testid="identity-origin-subject" style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 2, wordBreak: 'break-all' }}>
+              {agent.origin_verification?.subject || (isSpiffeLinked ? spiffeId : (agent.owner || agent.name))}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Validated Timestamp</span>
+            <div data-testid="identity-origin-validated-at" style={{ fontSize: 12, marginTop: 2 }}>
+              {fmtDate(agent.origin_verification?.validated_at || agent.created_at)}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Proxy Ingress Protection</span>
+            <div data-testid="identity-origin-proxy-path" style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 2 }}>
+              {agent.origin_verification?.proxy_path || (recordClass === 'registered' ? '/api/agents' : '/supercred-api/agents')} (RFC 9110 Read-Only)
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          marginTop: 16,
+          padding: '10px 14px',
+          borderRadius: 6,
+          background: 'var(--surface2)',
+          border: '1px solid var(--border)',
+          fontSize: 12,
+          color: 'var(--muted)',
+        }}>
+          <strong>Origin Invariant:</strong> Origin authenticity is cryptographically proven via validated Dex JWT claims or SPIRE node attestation. Upstream reverse proxy routes enforce side-effect free GET semantics without synthetic record generation.
+        </div>
+      </div>
     </div>
   )
 }

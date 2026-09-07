@@ -2254,3 +2254,189 @@ def test_get_agent_detail_returns_sentinel_telemetry_side_effect_free(client, mo
     assert telem["containment_probe_state"] == "confirmed"
     assert telem["sentinel_drop_count"] == 142
     assert len(executed_writes) == 0
+
+
+def test_origin_verification_model_and_structure():
+    """SFAGENTS-P3-4: Proves OriginVerificationMetadata model structure and defaults."""
+    ov = api_compat.OriginVerificationMetadata(
+        verified=True,
+        origin_type="registered_catalog",
+        auth_method="jwt_bearer",
+        issuer="https://dex.inf-signalloom.svc.cluster.local:5556/dex",
+        subject="alice@signal-loom.ai",
+        validated_at="2026-09-07T10:00:00Z",
+        status="verified",
+        proxy_path="/api/agents",
+        source_health=api_compat.SourceHealthDetail(status="healthy", message="Origin verified"),
+    )
+    assert ov.verified is True
+    assert ov.origin_type == "registered_catalog"
+    assert ov.auth_method == "jwt_bearer"
+    assert ov.status == "verified"
+    assert ov.source_health is not None
+    assert ov.source_health.status == "healthy"
+
+
+def test_get_agent_detail_returns_origin_and_verification_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id} returns origin and origin_verification side-effect free."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-origin-001",
+                "name": "Verified Origin Agent",
+                "type": "Signal Loom Built",
+                "origin": "Signal Loom Built",
+                "owner": "alice@signal-loom.ai",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "active",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "low",
+                "total_controls": 4,
+                "passing_controls": 4,
+                "failing_controls": 0,
+                "pending_controls": 0,
+                "posture_score": 100.0,
+                "model_name": "claude-3-7-sonnet",
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET /api/agents/{id} must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-origin-001", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "agent-origin-001"
+    assert data["origin"] == "Signal Loom Built"
+    assert "origin_verification" in data
+    assert data["origin_verification"] is not None
+    ov = data["origin_verification"]
+    assert ov["verified"] is True
+    assert ov["origin_type"] == "registered_catalog"
+    assert ov["auth_method"] == "jwt_bearer"
+    assert ov["status"] == "verified"
+    assert len(executed_writes) == 0
+
+
+def test_get_agent_origin_verification_endpoint_for_db_agent(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id}/origin-verification returns OriginVerificationMetadata."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-origin-002",
+                "name": "Live Origin Agent",
+                "type": "Signal Loom Built",
+                "origin": "Signal Loom Built",
+                "owner": "alice@signal-loom.ai",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "active",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "minimal",
+                "total_controls": 2,
+                "passing_controls": 2,
+                "failing_controls": 0,
+                "pending_controls": 0,
+                "posture_score": 100.0,
+                "model_name": "claude-3-7-sonnet",
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("GET must NEVER execute SQL writes")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-origin-002/origin-verification", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    ov = res.json()
+    assert ov["verified"] is True
+    assert ov["origin_type"] == "registered_catalog"
+    assert ov["auth_method"] == "jwt_bearer"
+    assert ov["status"] == "verified"
+    assert ov["source_health"]["status"] == "healthy"
+    assert len(executed_writes) == 0
+
+
+def test_get_agent_origin_verification_404_for_unknown_agent(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id}/origin-verification returns 404 for unknown agents."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/unknown-nonexistent-agent/origin-verification", headers=bearer(token_for("alice")))
+    assert res.status_code == 404
+    err = res.json()
+    assert err["error"]["code"] == "not_found"
+
+
+def test_get_agent_origin_verification_strictly_side_effect_free(client, monkeypatch):
+    """SFAGENTS-P3-4: Proves GET /api/agents/{id}/origin-verification is strictly side-effect free under RFC 9110."""
+    executed_writes = []
+
+    class ReadOnlyMockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return {
+                "id": "agent-origin-003",
+                "name": "Side Effect Free Agent",
+                "type": "Signal Loom Built",
+                "origin": "Signal Loom Built",
+                "owner": "alice@signal-loom.ai",
+                "tenant_id": "tenant-a",
+                "lifecycle_state": "active",
+                "last_transition_at": "2026-09-07T09:00:00Z",
+                "last_transition_by": "operator",
+                "created_at": "2026-09-01T10:00:00Z",
+                "eu_ai_act_risk_class": "minimal",
+                "total_controls": 0,
+                "passing_controls": 0,
+                "failing_controls": 0,
+                "pending_controls": 0,
+                "posture_score": None,
+                "model_name": None,
+            }
+
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def execute(self, query: str, *params: Any) -> str:
+            executed_writes.append((query, params))
+            raise AssertionError("Zero writes allowed under RFC 9110")
+
+    mock_pool = ReadOnlyMockPool()
+
+    async def mock_get_pool():
+        return mock_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    res = client.get("/api/agents/agent-origin-003/origin-verification", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert len(executed_writes) == 0
+

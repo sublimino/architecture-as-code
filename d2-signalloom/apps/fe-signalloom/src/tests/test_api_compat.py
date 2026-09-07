@@ -5,7 +5,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import jwt
@@ -1427,7 +1427,7 @@ def test_dossier_unknown_id_fails_closed_with_404(client, monkeypatch):
     assert "not found" in body["error"]["message"].lower()
 
 
-def test_dossier_identity_spiffe_metadata_enrichment(client, monkeypatch):
+dossier_identity_spiffe_metadata_enrichment(client, monkeypatch):
     """SFAGENTS-P2-2: Proves GET /api/agents/{id} returns all enriched Tab 2 IdentityMetadata structures."""
     class MockPool:
         async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
@@ -1563,4 +1563,126 @@ def test_dossier_identity_get_is_strictly_side_effect_free(client, monkeypatch):
     assert len(writes_recorded) == 0
 
 
+def test_tab3_access_containment_tracks_models_and_telemetry(client, monkeypatch):
+    """SFAGENTS-P2-3: Proves GET /api/agents/{id} returns 3 independent containment tracks and kernel telemetry."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {
+                    "id": uuid.UUID("33333333-3333-3333-3333-333333333333"),
+                    "name": "Containment Sentinel Workload",
+                    "type": "Signal Loom Built",
+                    "owner": "alice@signal-loom.ai",
+                    "tenant_id": "tenant-demo",
+                    "lifecycle_state": "suspended",
+                    "last_transition_at": datetime.now(timezone.utc),
+                    "last_transition_by": "operator@signal-loom.ai",
+                    "eu_ai_act_risk_class": "high",
+                    "model_name": "claude-3-7-sonnet",
+                    "created_at": datetime.now(timezone.utc),
+                }
+            return None
 
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            return []
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/agents/33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "33333333-3333-3333-3333-333333333333"
+    assert "kernel_telemetry" in data
+    assert "credential_state" in data
+    assert "operational_state" in data
+
+    # Verify containment tracks in operational_state
+    op_state = data["operational_state"]
+    assert "containment" in op_state
+    assert op_state["containment"]["process_freeze"] in ("active", "inactive", "requested", "unsupported")
+    assert op_state["containment"]["network_isolation"] in ("active", "inactive", "requested", "unsupported")
+    assert op_state["containment"]["credential_revocation"] in ("active", "inactive", "requested", "unsupported")
+
+
+def test_tab3_capabilities_workload_scoped_rbac_and_invariants(client, monkeypatch):
+    """SFAGENTS-P2-3: Proves GET /api/capabilities returns workload-scoped capabilities and enforces identity plane separation."""
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "agent_registry" in query:
+                return {"id": uuid.UUID("33333333-3333-3333-3333-333333333333")}
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    # 1. Non-superadmin operator caller
+    res_op = client.get(
+        "/api/capabilities?agent_id=33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res_op.status_code == 200
+    data_op = res_op.json()
+    assert data_op["is_superadmin"] is False
+    assert data_op["workload"] is not None
+    assert data_op["workload"]["freeze"]["allowed"] is False
+    assert data_op["workload"]["network_isolate"]["allowed"] is False
+    assert data_op["workload"]["issue_credentials"]["allowed"] is True
+    assert data_op["workload"]["reassess_compliance"]["allowed"] is True
+    assert data_op["workload"]["decommission"]["allowed"] is False
+    assert data_op["workload"]["decommission"]["requires_dual_approval"] is True
+
+    # 2. Superadmin caller
+    monkeypatch.setattr(
+        settings,
+        "api_subject_tenants",
+        {"alice": "tenant-demo", "demo-user": "tenant-demo"},
+    )
+    admin_token = token_for("demo-user", extra_claims={"email": "demo-user@signalloom.local"})
+    res_admin = client.get(
+        "/api/capabilities?agent_id=33333333-3333-3333-3333-333333333333",
+        headers=bearer(admin_token),
+    )
+    assert res_admin.status_code == 200
+    data_admin = res_admin.json()
+    assert data_admin["is_superadmin"] is True
+    assert data_admin["workload"]["freeze"]["allowed"] is True
+    assert data_admin["workload"]["network_isolate"]["allowed"] is True
+    assert data_admin["workload"]["revoke_credentials"]["allowed"] is True
+
+
+def test_tab3_capabilities_is_strictly_side_effect_free_under_rfc9110(client, monkeypatch):
+    """SFAGENTS-P2-3: Proves GET /api/capabilities performs 0 SQL writes and is strictly idempotent."""
+    writes_recorded = []
+
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            if "agent_registry" in query:
+                return {"id": uuid.UUID("33333333-3333-3333-3333-333333333333")}
+            return None
+
+        async def execute(self, query: str, *params: Any) -> str:
+            writes_recorded.append(query)
+            raise AssertionError("GET /api/capabilities must never write to database")
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    res = client.get(
+        "/api/capabilities?agent_id=33333333-3333-3333-3333-333333333333",
+        headers=bearer(token_for("alice")),
+    )
+    assert res.status_code == 200
+    assert len(writes_recorded) == 0
+    assert res.headers.get("X-Source-Health") == "healthy"

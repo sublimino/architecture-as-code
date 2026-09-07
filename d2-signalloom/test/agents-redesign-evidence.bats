@@ -199,3 +199,32 @@ setup() {
 
 
 
+@test "sfagents-p2-3: Tab 3 (Access & Containment) 3 independent containment tracks and StatCards pass Vitest" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentAccessTab.test.tsx -t '3 Independent Containment Tracks|overview StatCards'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-3: Tab 3 server-authorized action capabilities and RBAC pass Vitest" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentAccessTab.test.tsx -t 'Server-Authorized Action Capabilities'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-3: Tab 3 truthful state language asserts 'Not assessed', 'Unassigned', 'Registry not linked', 'Source unavailable'" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentAccessTab.test.tsx -t 'Truthful Language Dictionary'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-3: Tab 3 /agents/:id?tab=access deep link navigation renders in AgentDetailPage Vitest" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentDetailPage.test.tsx -t 'Access & Containment Tab'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-3: backend GET /api/capabilities and containment tracks pass Pytest contract" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab3_access_containment_tracks_models_and_telemetry or test_tab3_capabilities_workload_scoped_rbac_and_invariants'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-3: backend GET /api/capabilities is strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab3_capabilities_is_strictly_side_effect_free_under_rfc9110'"
+  [ "$status" -eq 0 ]
+}

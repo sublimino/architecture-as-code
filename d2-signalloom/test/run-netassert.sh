@@ -87,6 +87,11 @@ preflight_suite_resources() {
         || fail "configured source resource is absent: labeled agent pod in $namespace"
       continue
     fi
+    if [[ "$side" == "source" && "$kind" == "pod" && "$name" == "netassert-cardvault-probe-pod" ]]; then
+      kubectl get "pod/${name}" -n "$namespace" >/dev/null 2>&1 \
+        || fail "parent-provisioned sustained source is absent: pod/${name} in ${namespace}"
+      continue
+    fi
     kubectl get "${kind}/${name}" -n "$namespace" >/dev/null 2>&1 \
       || fail "configured ${side} resource is absent: ${kind}/${name} in ${namespace}"
   done <<<"$resources"

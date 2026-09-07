@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import AgentActivityTab from './AgentActivityTab'
 import type { AgentResponse, AuditEventResponse, ViolationResponse } from '../types/api'
 
@@ -115,8 +115,8 @@ function createMockViolations(): ViolationResponse[] {
   ]
 }
 
-function renderWithRouter(ui: React.ReactElement) {
-  return render(<BrowserRouter>{ui}</BrowserRouter>)
+function renderWithRouter(ui: React.ReactElement, initialEntries = ['/agents/agent-order-uuid?tab=activity']) {
+  return render(<MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>)
 }
 
 describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => {
@@ -359,4 +359,21 @@ describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => 
     expect(screen.getByTestId('activity-payload-audit-ev-1')).toBeInTheDocument()
     expect(screen.getByTestId('activity-payload-audit-ev-1')).toHaveTextContent('"to_state": "active"')
   })
+
+  it('filters activity timeline items from URL search params', () => {
+    const agent = createMockAgent()
+    const auditEvents = createMockAuditEvents()
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={auditEvents}
+        violations={[]}
+      />,
+      ['/agents/agent-order-uuid?tab=activity&search=Periodic&type=agent.transitioned']
+    )
+
+    expect(screen.getByTestId('activity-search-input')).toHaveValue('Periodic')
+    expect(screen.getByTestId('activity-type-filter')).toHaveValue('agent.transitioned')
+  })
 })
+

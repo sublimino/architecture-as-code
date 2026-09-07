@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import AgentIdentityTab from './AgentIdentityTab'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
+
+function renderTab(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
 
 function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -103,7 +108,7 @@ function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse 
 describe('AgentIdentityTab — 4 Summary StatCards', () => {
   it('renders SPIFFE Workload SVID card with full URI, linkage badge, trust domain and copy button', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-card-spiffe')).toBeInTheDocument()
     expect(screen.getByTestId('identity-spiffe-id')).toHaveTextContent(
@@ -116,7 +121,7 @@ describe('AgentIdentityTab — 4 Summary StatCards', () => {
 
   it('renders Certificate Validity card with active status, SVID type and issuer', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-card-cert')).toBeInTheDocument()
     expect(screen.getByTestId('identity-svid-type')).toHaveTextContent('X.509 SVID')
@@ -128,7 +133,7 @@ describe('AgentIdentityTab — 4 Summary StatCards', () => {
 
   it('renders Workload Attestation card with selector count and target service account', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-card-selectors')).toBeInTheDocument()
     expect(screen.getByTestId('identity-selectors-count')).toHaveTextContent('5 selectors')
@@ -139,7 +144,7 @@ describe('AgentIdentityTab — 4 Summary StatCards', () => {
 
   it('renders Key Custody & Roles card with OpenBao role and in-memory custody mode', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-card-custody')).toBeInTheDocument()
     expect(screen.getByTestId('identity-openbao-role')).toHaveTextContent('agent-trust-sa-order-agent')
@@ -150,7 +155,7 @@ describe('AgentIdentityTab — 4 Summary StatCards', () => {
 describe('AgentIdentityTab — SVID Selectors & Workload Binding', () => {
   it('renders all attested SPIFFE selectors in the assertion list', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     const list = screen.getByTestId('identity-selectors-list')
     expect(list).toHaveTextContent('k8s:ns:fe-signalloom-agents')
@@ -162,7 +167,7 @@ describe('AgentIdentityTab — SVID Selectors & Workload Binding', () => {
 
   it('renders runtime binding details including cluster, namespace, node, and pod UID', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     const panel = screen.getByTestId('identity-panel-selectors')
     expect(panel).toHaveTextContent('cluster-prod-1')
@@ -174,7 +179,7 @@ describe('AgentIdentityTab — SVID Selectors & Workload Binding', () => {
 
   it('renders registered identity aliases when present', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     const aliasesList = screen.getByTestId('identity-aliases-list')
     expect(aliasesList).toHaveTextContent('order-proc')
@@ -185,7 +190,7 @@ describe('AgentIdentityTab — SVID Selectors & Workload Binding', () => {
 describe('AgentIdentityTab — Delegation Chain & Separation of Identity Planes', () => {
   it('renders the 4-step delegation graph from Root CA to Executing Actor SVID', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     const chain = screen.getByTestId('identity-delegation-chain')
     expect(chain).toHaveTextContent('spiffe://signalloom.demo')
@@ -200,7 +205,7 @@ describe('AgentIdentityTab — Delegation Chain & Separation of Identity Planes'
 
   it('renders the explicit Separation of Identity Planes invariant notice', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     const notice = screen.getByTestId('identity-plane-separation-notice')
     expect(notice).toHaveTextContent('Separation of Identity Planes Invariant')
@@ -211,7 +216,7 @@ describe('AgentIdentityTab — Delegation Chain & Separation of Identity Planes'
 
   it('renders delegation hops count and tenant boundary', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-delegation-hops')).toHaveTextContent(
       '1 hop (Delegated by alice@signal-loom.ai)'
@@ -223,7 +228,7 @@ describe('AgentIdentityTab — Delegation Chain & Separation of Identity Planes'
 describe('AgentIdentityTab — OpenBao Integration & Key Custody', () => {
   it('renders OpenBao JWT role and secret path boundary', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-openbao-role-detail')).toHaveTextContent('agent-trust-sa-order-agent')
     expect(screen.getByTestId('identity-openbao-path-detail')).toHaveTextContent(
@@ -233,7 +238,7 @@ describe('AgentIdentityTab — OpenBao Integration & Key Custody', () => {
 
   it('renders audience and rotation policy', () => {
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     const panel = screen.getByTestId('identity-panel-vault')
     expect(panel).toHaveTextContent('openbao-supercredential')
@@ -250,7 +255,7 @@ describe('AgentIdentityTab — Truthful State Language & Error Handling', () => 
         aliases: [],
       },
     })
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-spiffe-status')).toHaveTextContent('Identity unlinked')
     expect(screen.getByTestId('identity-spiffe-id')).toHaveTextContent('—')
@@ -275,7 +280,7 @@ describe('AgentIdentityTab — Truthful State Language & Error Handling', () => 
         aliases: [],
       },
     })
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-spiffe-status')).toHaveTextContent('Registry not linked')
     expect(screen.getByTestId('identity-authorizing-principal')).toHaveTextContent('Registry not linked')
@@ -297,7 +302,7 @@ describe('AgentIdentityTab — Truthful State Language & Error Handling', () => 
         authorizing_principal_id: null,
       },
     })
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-authorizing-principal')).toHaveTextContent('Unassigned')
     expect(screen.getByTestId('identity-delegation-hops')).toHaveTextContent('0 hops (Direct Workload Execution)')
@@ -310,7 +315,7 @@ describe('AgentIdentityTab — Truthful State Language & Error Handling', () => 
       postgres_registry: { status: 'healthy' },
       crypto_proofs: { status: 'unavailable', message: 'SPIRE node agent offline' },
     }
-    render(
+    renderTab(
       <AgentIdentityTab
         agent={agent}
         sourceHealth="unavailable"
@@ -331,7 +336,7 @@ describe('AgentIdentityTab — Truthful State Language & Error Handling', () => 
         revoked_by: 'security-sentinel',
       },
     })
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-cert-validity')).toHaveTextContent('Revoked')
   })
@@ -347,7 +352,7 @@ describe('AgentIdentityTab — User Interactions', () => {
     })
 
     const agent = createMockAgent()
-    render(<AgentIdentityTab agent={agent} />)
+    renderTab(<AgentIdentityTab agent={agent} />)
 
     const copyBtn = screen.getByTestId('identity-copy-spiffe-id')
     fireEvent.click(copyBtn)
@@ -356,5 +361,30 @@ describe('AgentIdentityTab — User Interactions', () => {
       'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-order-agent'
     )
     expect(copyBtn).toHaveTextContent('Copied!')
+  })
+})
+
+describe('AgentIdentityTab — Deep-Link Actions Integration', () => {
+  it('renders scoped deep-link buttons pointing to Credential Inventory, Cryptography, and Trust Topology', () => {
+    const agent = createMockAgent()
+    renderTab(<AgentIdentityTab agent={agent} />)
+
+    const credLink = screen.getByTestId('identity-deeplink-credentials')
+    expect(credLink).toHaveAttribute(
+      'href',
+      `/credential-inventory?actor=${encodeURIComponent(agent.identity!.executing_actor_id!)}`
+    )
+
+    const cryptoLink = screen.getByTestId('identity-deeplink-crypto')
+    expect(cryptoLink).toHaveAttribute(
+      'href',
+      `/cryptography?actor=${encodeURIComponent(agent.identity!.executing_actor_id!)}`
+    )
+
+    const topologyLink = screen.getByTestId('identity-deeplink-topology')
+    expect(topologyLink).toHaveAttribute(
+      'href',
+      `/agent-trust-topology?actor=${encodeURIComponent(agent.identity!.executing_actor_id!)}`
+    )
   })
 })

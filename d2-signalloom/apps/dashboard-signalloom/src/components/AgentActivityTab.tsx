@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealthMap } from '../types/api'
 import { colors } from '../styles/tokens'
 import EmptyState from './EmptyState'
@@ -90,12 +90,86 @@ export default function AgentActivityTab({
   onToggleLiveStream,
   streamEvents = [],
 }: AgentActivityTabProps) {
-  const [typeFilter, setTypeFilter] = useState<string>('all')
-  const [actorFilter, setActorFilter] = useState<string>('all')
-  const [searchQuery, setSearchQuery] = useState<string>('')
-  const [liveStreaming, setLiveStreaming] = useState<boolean>(initialLiveStreaming)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialType = searchParams.get('type') || searchParams.get('event_type') || 'all'
+  const initialActor = searchParams.get('actor') || searchParams.get('actor_plane') || 'all'
+  const initialSearch = searchParams.get('search') || ''
+  const initialLive = searchParams.get('live') !== 'false'
+
+  const [typeFilter, setTypeFilter] = useState<string>(initialType)
+  const [actorFilter, setActorFilter] = useState<string>(initialActor)
+  const [searchQuery, setSearchQuery] = useState<string>(initialSearch)
+  const [liveStreaming, setLiveStreaming] = useState<boolean>(initialLive)
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
   const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    const t = searchParams.get('type') || searchParams.get('event_type') || 'all'
+    const a = searchParams.get('actor') || searchParams.get('actor_plane') || 'all'
+    const q = searchParams.get('search') || ''
+    const l = searchParams.get('live') !== 'false'
+    setTypeFilter(t)
+    setActorFilter(a)
+    setSearchQuery(q)
+    setLiveStreaming(l)
+  }, [searchParams])
+
+  const handleTypeChange = useCallback((val: string) => {
+    setTypeFilter(val)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (val && val !== 'all') next.set('type', val)
+      else next.delete('type')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleActorChange = useCallback((val: string) => {
+    setActorFilter(val)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (val && val !== 'all') next.set('actor', val)
+      else next.delete('actor')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleSearchChange = useCallback((val: string) => {
+    setSearchQuery(val)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (val.trim()) next.set('search', val.trim())
+      else next.delete('search')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleClearFilters = useCallback(() => {
+    setTypeFilter('all')
+    setActorFilter('all')
+    setSearchQuery('')
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('type')
+      next.delete('event_type')
+      next.delete('actor')
+      next.delete('actor_plane')
+      next.delete('search')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleToggleStream = useCallback(() => {
+    const nextState = !liveStreaming
+    setLiveStreaming(nextState)
+    onToggleLiveStream?.(nextState)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (!nextState) next.set('live', 'false')
+      else next.delete('live')
+      return next
+    }, { replace: true })
+  }, [liveStreaming, onToggleLiveStream, setSearchParams])
 
   // Merge static audit events and any live stream events (deduping by id)
   const allAuditEvents = useMemo(() => {
@@ -193,12 +267,6 @@ export default function AgentActivityTab({
   ).length
 
   // Handlers
-  const handleToggleStream = () => {
-    const nextState = !liveStreaming
-    setLiveStreaming(nextState)
-    if (onToggleLiveStream) onToggleLiveStream(nextState)
-  }
-
   const handleAcknowledge = async (violationId: string) => {
     if (!onAcknowledgeViolation) return
     setAcknowledging(violationId)
@@ -309,7 +377,7 @@ export default function AgentActivityTab({
               data-testid="activity-search-input"
               placeholder="Search event type, actor, rationale, payload..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => handleSearchChange(e.target.value)}
               style={{
                 padding: '6px 10px',
                 fontSize: 12,
@@ -324,7 +392,7 @@ export default function AgentActivityTab({
             <select
               data-testid="activity-type-filter"
               value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
+              onChange={e => handleTypeChange(e.target.value)}
               style={{ padding: '6px 10px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)' }}
             >
               <option value="all">All Event Types</option>
@@ -337,7 +405,7 @@ export default function AgentActivityTab({
             <select
               data-testid="activity-actor-filter"
               value={actorFilter}
-              onChange={e => setActorFilter(e.target.value)}
+              onChange={e => handleActorChange(e.target.value)}
               style={{ padding: '6px 10px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)' }}
             >
               <option value="all">All Identity Planes</option>
@@ -350,11 +418,7 @@ export default function AgentActivityTab({
               <button
                 data-testid="activity-clear-filters"
                 className="btn btn-secondary"
-                onClick={() => {
-                  setTypeFilter('all')
-                  setActorFilter('all')
-                  setSearchQuery('')
-                }}
+                onClick={handleClearFilters}
                 style={{ fontSize: 11, padding: '4px 8px' }}
               >
                 Clear

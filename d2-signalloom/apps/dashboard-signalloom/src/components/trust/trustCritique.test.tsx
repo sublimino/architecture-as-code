@@ -46,6 +46,14 @@ import { shortVerb, visual } from './trustVisuals'
 import { borderPoint, bowFor, edgeGeometry, labelRect, placeLabels, pointAt, reservedForLabels, wallFraction } from './trustGeometry'
 import { deriveBoundaries } from './trustBoundaries'
 
+function renderPage(ui = <AgentTrustTopologyPage />) {
+  return render(
+    <MemoryRouter>
+      {ui}
+    </MemoryRouter>,
+  )
+}
+
 describe('the external band is bounded by its members, not by the canvas', () => {
   // It used to be `canvasHeight - y`, mixing CSS pixels into graph coordinates.
   // It enclosed the external row by about 12px of luck; moving that row at all
@@ -118,7 +126,7 @@ describe('the page under filtering', () => {
   // mouseleave, and on touch there is no mouseleave at all.
   it('never dims the whole diagram with nothing highlighted', async () => {
     const user = userEvent.setup()
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     await user.hover(screen.getByRole('button', { name: /planner · in-cluster/i }))
     await user.selectOptions(screen.getByLabelText('Tenant'), 'northstar')
@@ -135,7 +143,7 @@ describe('the page under filtering', () => {
   // for that tenant's own agents with them.
   it('keeps shared platform services when filtering to one tenant', async () => {
     const user = userEvent.setup()
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     await user.selectOptions(screen.getByLabelText('Tenant'), 'acme')
 
@@ -148,7 +156,7 @@ describe('the page under filtering', () => {
 
   it('explains an empty result instead of showing a blank canvas', async () => {
     const user = userEvent.setup()
-    render(<AgentTrustTopologyPage />)
+    renderPage()
 
     await user.selectOptions(screen.getByLabelText('Evidence'), 'observed')
 
@@ -171,7 +179,7 @@ describe('relationships are distinguishable from each other', () => {
   // byte-identical. On a page about which identity trusts which, that is a
   // failure of its core job.
   it('gives every selectable relationship a unique accessible name', () => {
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     const list = screen.getByRole('group', { name: 'Selectable topology items' })
     const names = within(list).getAllByRole('button').map(b => b.textContent ?? '')
     expect(new Set(names).size).toBe(names.length)
@@ -179,7 +187,7 @@ describe('relationships are distinguishable from each other', () => {
 
   it('names both endpoints in the inspector so two similar edges differ', async () => {
     const user = userEvent.setup()
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     await user.click(screen.getByRole('button', { name: /^Evidence plane$/i }))
 
     const list = screen.getByRole('group', { name: 'Selectable topology items' })
@@ -197,7 +205,7 @@ describe('relationships are distinguishable from each other', () => {
 
   it('marks which item is currently pinned', async () => {
     const user = userEvent.setup()
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     const list = screen.getByRole('group', { name: 'Selectable topology items' })
     const planner = within(list).getByRole('button', { name: /planner · in-cluster/i })
 
@@ -214,12 +222,12 @@ describe('the canvas is decoration, the list is the interface', () => {
   // instructions before reaching the buttons that work -- and heard every node
   // name twice.
   it('hides the drawn canvas from assistive technology', () => {
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     expect(screen.getByTestId('trust-canvas')).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('reaches every node and relationship through the button list', () => {
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     const list = screen.getByRole('group', { name: 'Selectable topology items' })
     const buttons = within(list).getAllByRole('button')
     // Identity plane: all 15 nodes plus its 3 relationships.
@@ -227,7 +235,7 @@ describe('the canvas is decoration, the list is the interface', () => {
   })
 
   it('labels the Decision filter with the word shown next to it', () => {
-    render(<AgentTrustTopologyPage />)
+    renderPage()
     // WCAG 2.5.3: a voice-control user saying "Decision" has to be able to hit
     // the control that visibly reads "Decision".
     expect(screen.getByLabelText('Decision')).toBeInTheDocument()

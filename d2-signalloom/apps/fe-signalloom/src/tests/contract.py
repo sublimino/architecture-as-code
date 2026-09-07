@@ -101,6 +101,18 @@ class IdentityMetadata(BaseModel):
     spiffe_id: str | None = None
     spiffe_status: Literal["linked", "unlinked"] = "unlinked"
     aliases: list[str] = Field(default_factory=list)
+    trust_domain: str | None = None
+    svid_type: str | None = None
+    cert_valid_from: str | None = None
+    cert_valid_until: str | None = None
+    cert_serial: str | None = None
+    cert_issuer: str | None = None
+    selectors: list[str] = Field(default_factory=list)
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    delegation_hops: int | None = None
+    openbao_role: str | None = None
+    openbao_path: str | None = None
 
 
 class ContainmentMeasures(BaseModel):
@@ -407,6 +419,12 @@ class AuditEventResponse(BaseModel):
     agent_name: str | None
     actor: str
     detail: dict[str, Any]
+    authorizing_principal_id: str | None = None
+    executing_actor_id: str | None = None
+    spiffe_id: str | None = None
+    attribution_rationale: str | None = None
+    evidence_ref: str | None = None
+    kernel_telemetry_ref: str | None = None
 
 
 class AuditListResponse(BaseModel):
@@ -416,6 +434,8 @@ class AuditListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    source_health: Literal["healthy", "degraded", "unavailable"] | None = None
+    source_health_detail: dict[str, Any] | None = None
 
 
 # ---- Compliance ------------------------------------------------------------

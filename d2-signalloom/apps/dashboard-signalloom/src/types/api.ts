@@ -221,6 +221,9 @@ export interface AgentListParams {
   owner?: string
   attention?: string
   record_class?: string
+  lifecycle_state?: string
+  state?: string
+  spiffe_id?: string
   page?: number
   limit?: number
 }

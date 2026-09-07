@@ -658,4 +658,23 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
     expect(screen.getByTestId('assessments-control-ratio')).toHaveTextContent('Not assessed')
     expect(screen.getByTestId('assessments-empty-state')).toBeInTheDocument()
   })
+
+  it('switches tabs and updates the URL search params while preserving secondary filters', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())
+    const user = userEvent.setup()
+    renderPage('/agents/agent-abc-123?tab=overview&filter=active')
+
+    expect(await screen.findByTestId('dossier-tab-identity')).toBeInTheDocument()
+    await user.click(screen.getByTestId('dossier-tab-identity'))
+    expect(await screen.findByTestId('dossier-panel-identity')).toBeInTheDocument()
+  })
+
+  it('renders scoped deep-link buttons on Overview tab leading to other surfaces with query params', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())
+    renderPage('/agents/agent-abc-123?tab=overview')
+
+    expect(await screen.findByTestId('overview-deeplink-audit')).toHaveAttribute('href', '/audit?agent=agent-abc-123')
+    expect(screen.getByTestId('overview-deeplink-credentials')).toHaveAttribute('href', '/credential-inventory?actor=agent-abc-123')
+  })
 })
+

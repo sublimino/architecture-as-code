@@ -116,9 +116,9 @@ function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   }
 }
 
-function renderPage() {
+function renderPage(initialEntries = ['/agents']) {
   return render(
-    <MemoryRouter initialEntries={['/agents']}>
+    <MemoryRouter initialEntries={initialEntries}>
       <AgentsPage />
     </MemoryRouter>,
   )
@@ -765,3 +765,45 @@ describe('AgentsPage — Quick Evidence Side Drawer (SFAGENTS-P1-7)', () => {
     expect(screen.getByTestId('drawer-posture-score')).toHaveTextContent('Not assessed')
   })
 })
+
+describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  it('initializes search and lifecycle filters from URL search params', async () => {
+    const agentActive = makeAgent({ id: 'agent-act', name: 'Active Bot', lifecycle_state: 'active' })
+    const agentDraft = makeAgent({ id: 'agent-drf', name: 'Draft Bot', lifecycle_state: 'draft' })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agentActive, agentDraft],
+      total: 2,
+    })
+
+    renderPage(['/agents?search=Active&lifecycle=active'])
+
+    expect(await screen.findByText('Active Bot')).toBeInTheDocument()
+    const rowAct = screen.getByTestId('agent-row-agent-act').closest('tbody')
+    const rowDrf = screen.getByTestId('agent-row-agent-drf').closest('tbody')
+    expect(rowAct).toHaveAttribute('aria-hidden', 'false')
+    expect(rowDrf).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('textbox', { name: 'Search agents' })).toHaveValue('Active')
+  })
+
+  it('opens agent evidence drawer when ?drawer= is present in URL', async () => {
+    const agent = makeAgent({ id: 'agent-drawer-test', name: 'Drawer Bot' })
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent],
+      total: 1,
+    })
+
+    renderPage(['/agents?drawer=agent-drawer-test'])
+
+    expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Drawer Bot')
+  })
+})
+

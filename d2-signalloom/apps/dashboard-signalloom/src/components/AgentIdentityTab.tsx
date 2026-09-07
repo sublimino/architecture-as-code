@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
 import { colors } from '../styles/tokens'
 import CredentialStateNotice from './CredentialStateNotice'
@@ -123,6 +124,34 @@ export default function AgentIdentityTab({
       aria-labelledby="dossier-tab-identity"
       style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
     >
+      {/* ─── Scoped Deep-Link Navigation ────────────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+        <Link
+          to={`/credential-inventory?actor=${encodeURIComponent(executingActor || agent.id)}`}
+          data-testid="identity-deeplink-credentials"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '5px 12px', textDecoration: 'none', color: 'var(--text)' }}
+        >
+          Credential Inventory ↗
+        </Link>
+        <Link
+          to={`/cryptography?actor=${encodeURIComponent(executingActor || agent.id)}`}
+          data-testid="identity-deeplink-crypto"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '5px 12px', textDecoration: 'none', color: 'var(--text)' }}
+        >
+          Cryptography ↗
+        </Link>
+        <Link
+          to={`/agent-trust-topology?actor=${encodeURIComponent(executingActor || agent.id)}`}
+          data-testid="identity-deeplink-topology"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '5px 12px', textDecoration: 'none', color: 'var(--text)' }}
+        >
+          Trust Topology ↗
+        </Link>
+      </div>
+
       {/* ─── Source Health Warning (if degraded or unavailable) ─────────────── */}
       {isSourceUnavailable && (
         <div

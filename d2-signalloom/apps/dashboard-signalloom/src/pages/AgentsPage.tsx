@@ -1,7 +1,7 @@
 // Filter interaction adapted from Beautiful UI Filter Table (MIT); see
 // THIRD_PARTY_NOTICES.md. Signal Loom owns data, tokens, and semantics.
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
@@ -810,10 +810,74 @@ function GovernedTab({
   onReload: () => void
 }) {
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialSearch = searchParams.get('search') || ''
+  const [search, setSearch] = useState(initialSearch)
   const [showRegister, setShowRegister] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<AgentResponse | null>(null)
+
+  // Auto-sync search from URL
+  useEffect(() => {
+    const q = searchParams.get('search') || ''
+    setSearch(q)
+  }, [searchParams])
+
+  // Auto-open drawer if ?drawer=<id> or ?agent=<id> is in URL
+  useEffect(() => {
+    const drawerId = searchParams.get('drawer') || searchParams.get('agent')
+    if (drawerId && agents.length > 0) {
+      const match = agents.find(a => a.id === drawerId || a.name === drawerId)
+      if (match) {
+        setSelectedAgent(match)
+      }
+    } else if (!drawerId && selectedAgent) {
+      setSelectedAgent(null)
+    }
+  }, [searchParams, agents])
+
+  const handleSearchChange = (val: string) => {
+    setSearch(val)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (val.trim()) next.set('search', val.trim())
+      else next.delete('search')
+      return next
+    }, { replace: true })
+  }
+
+  const handleSelectAgent = (agent: AgentResponse) => {
+    setSelectedAgent(agent)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('drawer', agent.id)
+      return next
+    }, { replace: true })
+  }
+
+  const handleCloseDrawer = () => {
+    setSelectedAgent(null)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('drawer')
+      next.delete('agent')
+      return next
+    }, { replace: true })
+  }
+
+  const handleClear = () => {
+    setSearch('')
+    onFilterChange('all')
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('search')
+      next.delete('lifecycle')
+      next.delete('state')
+      next.delete('drawer')
+      next.delete('agent')
+      return next
+    }, { replace: true })
+  }
 
   const filtered = useMemo(() => {
     let list = agents
@@ -862,7 +926,7 @@ function GovernedTab({
           agent={selectedAgent}
           sourceHealth={sourceHealth}
           sourceHealthDetail={sourceHealthDetail}
-          onClose={() => setSelectedAgent(null)}
+          onClose={handleCloseDrawer}
           onOpenFullRecord={(id) => navigate(`/agents/${id}`)}
           onEdit={(agent) => {
             setSelectedAgent(null)
@@ -878,7 +942,7 @@ function GovernedTab({
           aria-label="Search agents"
           placeholder="Search agents (name, ID, namespace, framework, owner, SPIFFE)…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => handleSearchChange(e.target.value)}
           style={{ flex: 1, minWidth: 220, maxWidth: 360 }}
         />
         <div className="sl-filter-chips" role="group" aria-label="Filter agents by lifecycle state">
@@ -901,7 +965,7 @@ function GovernedTab({
           <button
             className="btn btn-secondary"
             style={{ fontSize: 12, padding: '5px 12px' }}
-            onClick={() => { setSearch(''); onFilterChange('all') }}
+            onClick={handleClear}
           >
             Clear
           </button>
@@ -944,7 +1008,7 @@ function GovernedTab({
                   key={a.id}
                   agent={a}
                   shown={shown}
-                  onSelect={setSelectedAgent}
+                  onSelect={handleSelectAgent}
                   onEdit={setEditingAgent}
                 />
               )

@@ -304,5 +304,17 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "sfagents-p2-6: URL deep-linking and secondary filters synchronize cleanly across Dossier tabs in Vitest" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/pages/AgentDetailPage.test.tsx -t 'deep-link|filter|tab'"
+  [ "$status" -eq 0 ]
+}
 
+@test "sfagents-p2-6: Secondary filters on /api/agents (lifecycle_state, spiffe_id) filter server-side in Pytest" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agents_filter_by_lifecycle_state_and_spiffe_id'"
+  [ "$status" -eq 0 ]
+}
 
+@test "sfagents-p2-6: Secondary filters on /api/agents are strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agents_deep_link_filters_strictly_side_effect_free'"
+  [ "$status" -eq 0 ]
+}

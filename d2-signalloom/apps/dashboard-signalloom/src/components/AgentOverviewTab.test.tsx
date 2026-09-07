@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import AgentOverviewTab from './AgentOverviewTab'
+import { MemoryRouter } from 'react-router-dom'
+import AgentOverviewTab, { type AgentOverviewTabProps } from './AgentOverviewTab'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
+
+function renderTab(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
 
 function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -86,7 +91,7 @@ function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse 
 describe('AgentOverviewTab — 4 Summary StatCards', () => {
   it('renders Posture Score card with assessed percentage and controls breakdown', () => {
     const agent = createMockAgent()
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-card-posture')).toBeInTheDocument()
     expect(screen.getByTestId('overview-posture-score')).toHaveTextContent('80%')
@@ -111,7 +116,7 @@ describe('AgentOverviewTab — 4 Summary StatCards', () => {
         normalized_score: null,
       },
     })
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-posture-score')).toHaveTextContent('Not assessed')
     expect(screen.getByTestId('overview-assessment-status')).toHaveTextContent('Not assessed')
@@ -127,7 +132,7 @@ describe('AgentOverviewTab — 4 Summary StatCards', () => {
         highest_issue: 'Critical network egress violation',
       },
     })
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-card-attention')).toBeInTheDocument()
     expect(screen.getByTestId('overview-attention-level')).toHaveTextContent('CRITICAL')
@@ -136,7 +141,7 @@ describe('AgentOverviewTab — 4 Summary StatCards', () => {
 
   it('renders SPIFFE Trust card with linked status, SVID, and aliases', () => {
     const agent = createMockAgent()
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-card-identity')).toBeInTheDocument()
     expect(screen.getByTestId('overview-spiffe-status')).toHaveTextContent('SPIFFE linked')
@@ -153,7 +158,7 @@ describe('AgentOverviewTab — 4 Summary StatCards', () => {
         ebpf_program_attached: true,
       },
     })
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-card-containment')).toBeInTheDocument()
     expect(screen.getByTestId('overview-kernel-cgroup')).toHaveTextContent('cgroup: FROZEN')
@@ -168,7 +173,7 @@ describe('AgentOverviewTab — 4 Summary StatCards', () => {
         traffic_control_state: 'unknown',
       },
     })
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-card-containment')).toBeInTheDocument()
     expect(screen.getByTestId('overview-kernel-unconfirmed')).toHaveTextContent('Requested (Outcome unconfirmed)')
@@ -178,7 +183,7 @@ describe('AgentOverviewTab — 4 Summary StatCards', () => {
 describe('AgentOverviewTab — 3 Snapshot Detail Panels', () => {
   it('renders Runtime & Deployment Snapshot panel with workload metadata', () => {
     const agent = createMockAgent()
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-section-runtime')).toBeInTheDocument()
     expect(screen.getByTestId('overview-runtime-namespace')).toHaveTextContent('fe-signalloom-agents (cluster-prod-1)')
@@ -192,7 +197,7 @@ describe('AgentOverviewTab — 3 Snapshot Detail Panels', () => {
 
   it('renders Responsibility & Ownership panel with assigned owner and decoupling note', () => {
     const agent = createMockAgent()
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-section-responsibility')).toBeInTheDocument()
     expect(screen.getByTestId('overview-responsibility-owner')).toHaveTextContent('alice@signal-loom.ai')
@@ -214,7 +219,7 @@ describe('AgentOverviewTab — 3 Snapshot Detail Panels', () => {
         assignment_status: 'registry_unlinked',
       },
     })
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-responsibility-owner')).toHaveTextContent('Registry not linked')
   })
@@ -231,7 +236,7 @@ describe('AgentOverviewTab — 3 Snapshot Detail Panels', () => {
         assignment_status: 'unassigned',
       },
     })
-    render(<AgentOverviewTab agent={agent} />)
+    renderTab(<AgentOverviewTab agent={agent} />)
 
     expect(screen.getByTestId('overview-responsibility-owner')).toHaveTextContent('Unassigned')
   })
@@ -243,7 +248,7 @@ describe('AgentOverviewTab — 3 Snapshot Detail Panels', () => {
       postgres_registry: { status: 'healthy', message: 'OK' },
       crypto_proofs: { status: 'healthy', message: 'OK' },
     }
-    render(<AgentOverviewTab agent={agent} sourceHealth="healthy" sourceHealthDetail={healthDetail} />)
+    renderTab(<AgentOverviewTab agent={agent} sourceHealth="healthy" sourceHealthDetail={healthDetail} />)
 
     expect(screen.getByTestId('overview-section-source-health')).toBeInTheDocument()
     expect(screen.getByTestId('overview-overall-source-health')).toHaveTextContent('Healthy')
@@ -257,9 +262,37 @@ describe('AgentOverviewTab — 3 Snapshot Detail Panels', () => {
 
   it('renders truthful "Source unavailable" when collector health is unavailable', () => {
     const agent = createMockAgent()
-    render(<AgentOverviewTab agent={agent} sourceHealth="unavailable" />)
+    renderTab(<AgentOverviewTab agent={agent} sourceHealth="unavailable" />)
 
     expect(screen.getByTestId('overview-overall-source-health')).toHaveTextContent('Source unavailable')
     expect(screen.getByTestId('overview-k8s-health')).toHaveTextContent('unavailable')
+  })
+})
+
+describe('AgentOverviewTab — Deep-Link Actions Integration', () => {
+  it('renders scoped deep-link buttons pointing to dossier tabs and secondary investigative surfaces with correct query params', () => {
+    const agent = createMockAgent()
+    renderTab(<AgentOverviewTab agent={agent} />)
+
+    const identityLink = screen.getByTestId('overview-link-identity')
+    expect(identityLink).toHaveAttribute('href', `/agents/${agent.id}?tab=identity`)
+
+    const accessLink = screen.getByTestId('overview-link-access')
+    expect(accessLink).toHaveAttribute('href', `/agents/${agent.id}?tab=access`)
+
+    const assessmentsLink = screen.getByTestId('overview-link-assessments')
+    expect(assessmentsLink).toHaveAttribute('href', `/agents/${agent.id}?tab=assessments`)
+
+    const activityLink = screen.getByTestId('overview-link-activity')
+    expect(activityLink).toHaveAttribute('href', `/agents/${agent.id}?tab=activity`)
+
+    const auditLink = screen.getByTestId('overview-deeplink-audit')
+    expect(auditLink).toHaveAttribute('href', `/audit?agent=${encodeURIComponent(agent.id)}`)
+
+    const credLink = screen.getByTestId('overview-deeplink-credentials')
+    expect(credLink).toHaveAttribute('href', `/credential-inventory?actor=${encodeURIComponent(agent.id)}`)
+
+    const topologyLink = screen.getByTestId('overview-deeplink-topology')
+    expect(topologyLink).toHaveAttribute('href', `/agent-trust-topology?actor=${encodeURIComponent(agent.id)}`)
   })
 })

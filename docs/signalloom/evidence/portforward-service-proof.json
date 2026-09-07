@@ -3,7 +3,7 @@
   "task": "CRKC-P2-3",
   "name": "signalloom-portforward-service-verification",
   "status": "PASSED",
-  "timestamp": "2026-09-07T20:28:22Z",
+  "timestamp": "2026-09-07T20:29:37Z",
   "service": {
     "name": "signalloom-portforward.service",
     "unit_path": "/home/andy/.config/systemd/user/signalloom-portforward.service",
@@ -21,9 +21,9 @@
     "content_type": "text/html"
   },
   "pod_restart_recovery": {
-    "original_pod": "dashboard-signalloom-788b85c4c5-8dk5g",
-    "new_pod": "dashboard-signalloom-788b85c4c5-4sjtb",
-    "recovery_latency_ms": 4116,
+    "original_pod": "dashboard-signalloom-788b85c4c5-sbd67",
+    "new_pod": "dashboard-signalloom-788b85c4c5-8npf5",
+    "recovery_latency_ms": 4095,
     "auto_healed": true
   },
   "checks": {

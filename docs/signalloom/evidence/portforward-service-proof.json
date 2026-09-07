@@ -1,0 +1,36 @@
+{
+  "schema": "signalloom.portforward-service-proof/v1",
+  "task": "CRKC-P2-3",
+  "name": "signalloom-portforward-service-verification",
+  "status": "PASSED",
+  "timestamp": "2026-09-07T20:28:22Z",
+  "service": {
+    "name": "signalloom-portforward.service",
+    "unit_path": "/home/andy/.config/systemd/user/signalloom-portforward.service",
+    "active_state": "active",
+    "sub_state": "running",
+    "restart_policy": "always",
+    "restart_sec": "3s",
+    "local_port": 5173,
+    "remote_service": "fe-signalloom/dashboard-signalloom:8080",
+    "listen_address": "127.0.0.1"
+  },
+  "http_probe": {
+    "endpoint": "http://localhost:5173",
+    "http_code": 200,
+    "content_type": "text/html"
+  },
+  "pod_restart_recovery": {
+    "original_pod": "dashboard-signalloom-788b85c4c5-8dk5g",
+    "new_pod": "dashboard-signalloom-788b85c4c5-4sjtb",
+    "recovery_latency_ms": 4116,
+    "auto_healed": true
+  },
+  "checks": {
+    "systemd_unit_active": "PASS",
+    "http_200_baseline": "PASS",
+    "pod_deletion_resilience": "PASS",
+    "http_200_recovered": "PASS",
+    "journal_logging_healthy": "PASS"
+  }
+}

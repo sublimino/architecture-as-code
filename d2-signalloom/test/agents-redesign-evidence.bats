@@ -228,3 +228,38 @@ setup() {
   run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab3_capabilities_is_strictly_side_effect_free_under_rfc9110'"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p2-4: Tab 4 (Assessments & Control Ratios) Vitest suite passes 100%" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentAssessmentsTab.test.tsx src/pages/AgentDetailPage.test.tsx -t 'Tab 4'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-4: Tab 4 truthful state language asserts 'Not assessed' and 'Source unavailable'" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentAssessmentsTab.test.tsx -t 'truthful|Not assessed|Source unavailable'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-4: Tab 4 EU AI Act Article 9 breakdown renders risk class and requirement ratios" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentAssessmentsTab.test.tsx -t 'Article 9'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-4: GET /api/compliance/posture is strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_compliance_posture_is_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-4: GET /api/compliance/frameworks returns EU AI Act and Article 9 controls" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_compliance_frameworks_returns_article9'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-4: POST /api/agents/{id}/compliance/{control_id}/reassess records audit truthfully" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_compliance_reassess_records_audit_honestly'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p2-4: GET /api/agents/{id} detail endpoint preserves assessment_summary structure" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_agent_detail_preserves_assessment_summary'"
+  [ "$status" -eq 0 ]
+}

@@ -1,0 +1,93 @@
+{
+  "schema": "signalloom.tc-drop-proof/v1",
+  "card": "CRKC-P1-3",
+  "generated": "2026-09-07T20:29:35+01:00",
+  "regenerate": "scripts/test-tc-ebpf.sh --out docs/signalloom/evidence/tc-drop-proof.json",
+  "toolchain": {
+    "clang": "Debian clang version 19.1.7 (3+b1)",
+    "builder_image": "signalloom-bpf-builder:trixie (debian:trixie)"
+  },
+  "artifact": {
+    "path": "d2-signalloom/apps/stun-sentinel/bpf/tc_drop.bpf.o",
+    "sha256": "f75e8790f9824a40fc71d12d66822ad965ef793b9540d7eea3a68a256284b4d9",
+    "elf_sections": [
+      ".BTF",
+      ".BTF.ext",
+      "classifier/drop",
+      "classifier/drop_egress",
+      "classifier/drop_ingress",
+      ".maps"
+    ]
+  },
+  "live_severance_proof": {
+    "schema": "signalloom.tc-drop-proof/v1",
+    "kernel": "7.1.3+deb13-amd64",
+    "host_interface": "veth-host",
+    "pod_ip": "10.99.0.2",
+    "setup_error": "",
+    "verifier_error": "",
+    "control": {
+      "lines_received_before_isolation": 5,
+      "path_was_live": true
+    },
+    "mechanism": {
+      "clsact_present": true,
+      "ingress_filter_present": true,
+      "egress_filter_present": true,
+      "program_type": "sched_cls",
+      "program_name": "stun_tc_drop",
+      "map_dump_ok": true
+    },
+    "severance": {
+      "isolate_call_ms": 9,
+      "isolate_reported_ms": 4.497412,
+      "last_byte_gap_ms": 0,
+      "isolated_flag": true,
+      "post_isolate_reachable": false
+    },
+    "attribution": {
+      "packets_dropped": 20,
+      "bytes_dropped": 2114
+    },
+    "conntrack": {
+      "entries_before": 1,
+      "entries_after": 0
+    },
+    "recovery": {
+      "reachable_after_release": true,
+      "filters_after_detach": false
+    },
+    "metrics": {
+      "has_packets_dropped_total": true,
+      "has_isolation_duration_seconds": true
+    },
+    "safety": {
+      "eth0_attach_refused": true
+    }
+  },
+  "benchmark": {
+    "schema": "signalloom.tc-drop-bench/v1",
+    "kernel": "7.1.3+deb13-amd64",
+    "load": {
+      "flooders": 8,
+      "duration_ms": 5012,
+      "packets_generated": 5414029,
+      "observed_pps": 1080213
+    },
+    "activation": {
+      "wall_ms": 12,
+      "reported_ms": 5.579763,
+      "under_100ms": true
+    },
+    "drops": {
+      "packets_dropped": 937,
+      "bytes_dropped": 91658
+    }
+  },
+  "mutation_check": {
+    "method": "TC_ACT_SHOT -> TC_ACT_OK on the ifindex path, rebuilt, suite re-run",
+    "result": "tests 8 (stream stops <100ms) and 13 (conntrack zero) FAILED; 14 others passed",
+    "conclusion": "the severance assertions are falsifiable, not vacuous",
+    "caveat": "the drop counter still incremented under the mutant, because account_drop() runs before the verdict is returned; the counter proves the program executed, not that it destroyed the packet"
+  }
+}

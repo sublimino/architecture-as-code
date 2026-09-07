@@ -1,34 +1,51 @@
 # OSRAMP demo for Acme Co.
 
-OSRAMP (Open Source Risk and Asset Management Platform) is a tiered framework for managing the risk of open source software in a regulated environment. This repository is a working demo of it, built for Acme Co., an investment banking firm that is the fictional client for this proof of concept. The demo runs locally on a [kind](https://kind.sigs.k8s.io/) cluster with open source tooling only, the same pipeline runs in GitHub Actions, and the same stack also runs on GCP across four independent lanes.
+OSRAMP (Open Source Risk and Asset Management Platform) manages open source software
+risk in regulated environments. This repository provides a working demonstration of OSRAMP.
+Acme Co., an investment banking firm, is the example client.
 
-> **Start here for anything not in this file:** [`docs/README.md`](docs/README.md) is the documentation index. It maps every document to the question it answers, in the order a newcomer needs them: what this is, how to run it, how to debug it.
+The demo runs locally on a [kind](https://kind.sigs.k8s.io/) cluster using open source tools.
+The same pipeline runs in GitHub Actions. The stack also runs on GCP across four independent lanes.
 
-The problem it addresses: every third-party package an organization ingests crosses its trust boundary and drags the package's own supply chain in with it. Scanners then bury teams in CVE findings, most of which are not exploitable in context. OSRAMP answers with SBOMs, signed attestations for every pipeline step, VEX documents that record triage decisions once and share them everywhere, and policy that gates promotion on evidence instead of on a green checkbox someone hopes is meaningful.
+> **Start here:** [`docs/README.md`](docs/README.md) is the documentation index. It maps
+> each document to the question it answers.
 
-## The maturity model
+The problem: third-party packages cross the organizational trust boundary. Packages introduce
+vulnerabilities from their supply chains. Security scanners output many CVE findings.
+Most findings cannot be exploited in context.
 
-OSRAMP progresses through four levels, delivered in four phases:
+OSRAMP provides:
+- SBOMs for every image.
+- Signed attestations for each pipeline step.
+- OpenVEX documents to record triage decisions once and share them across teams.
+- Policy gates that permit promotion based on verified evidence.
 
-| Level | Phase | What it delivers | Owner |
+## The Maturity Model
+
+OSRAMP progresses through four levels across four phases:
+
+| Level | Phase | What It Delivers | Owner |
 | --- | --- | --- | --- |
-| L1 Triage and prioritization uplift | 1 | SBOMs per image, operationalized VEX turning non-exploitable findings green, signing keys and trust anchors, baseline CVE metrics | Security team (VA sub-team), with the pilot application team |
-| L2 Centralized traceability | 2 | Witness attestations in CI, Archivista as the queryable system of record, reusable workflow templates, test evidence capture | Platform team, application teams adopting |
-| L3 Verifiable builds and releases | 3 | SLSA L3 provenance, Witness policies verifying every pipeline step, catching simulated supply chain compromises | Security team authors policy, platform team enforces it |
-| L4 Policy-driven automation | 3 | Three reconciliation loops (ingestion, SDLC, deployment) chained by policy enforcement points, admission control, governed rollback | Security team authors policy, platform team enforces it |
-| Agentic remediation PoC | 4 | Human-in-the-loop agent that analyzes a CVE, proposes remediation, opens a PR on approval, and produces Witness-attested outputs at every step | Security and platform jointly, application teams review the PRs |
+| L1 Triage and prioritization uplift | 1 | SBOMs per image, VEX suppression for non-exploitable findings, signing keys, baseline CVE metrics | Security team (VA sub-team) and pilot application team |
+| L2 Centralized traceability | 2 | Witness attestations in CI, Archivista as system of record, reusable workflows, test evidence | Platform team and adopting application teams |
+| L3 Verifiable builds and releases | 3 | SLSA L3 provenance, Witness policies for each pipeline step, supply chain compromise detection | Security team authors policy; platform team enforces policy |
+| L4 Policy-driven automation | 3 | Three reconciliation loops (ingestion, SDLC, deployment) chained by policy enforcement, admission control, rollback | Security team authors policy; platform team enforces policy |
+| Agentic remediation PoC | 4 | Human-in-the-loop agent that analyzes CVEs, proposes fixes, opens PRs, and makes Witness attestations | Security and platform teams jointly; application teams review PRs |
 
-## Team ownership
+## Team Ownership
 
-Acme Co. runs a shared responsibility model. Application teams consume the platform rather than run it.
+Acme Co. uses a shared responsibility model. Application teams consume the platform.
 
-| Team | Owns |
+| Team | Responsibilities |
 | --- | --- |
-| Security | Software ingestion, base image policy and composition, the internal software repositories (base images, OS packages, application libraries, binary artifacts), policy authorship for pipeline, admission, and container build, security incident response. Its Vulnerability Assessment sub-team keeps scanners green with time-limited VEX exemptions. |
-| Platform | Middleware images built and patched as a service, base image builds to security's policy, deployment of versioned policy as code at every enforcement point, availability incident response. |
-| Application | First-party code, application images and their security configuration, dependency hygiene against internally provided packages, responding to dependency-update PRs, and providing exception evidence to security. |
+| Security | Manages software ingestion, base image policy, internal repositories, and security policies. Keeps scanners clear using time-limited VEX exemptions. |
+| Platform | Provides middleware images, builds base images, deploys versioned policy as code, and manages availability incidents. |
+| Application | Develops first-party code, sets application security, updates dependencies, and provides exception evidence to security. |
 
-In practice: a base image CVE means security ships a patched image to everyone. A middleware CVE (nginx, Spring Boot) is platform's, with security assisting on ingestion. An application dependency CVE arrives at the application team as a PR from the internal repositories.
+In practice:
+- A base image CVE: Security distributes a patched base image.
+- A middleware CVE (nginx, Spring Boot): Platform patches the service with help from security.
+- An application dependency CVE: The application team receives an automated PR.
 
 ## Architecture
 
@@ -86,36 +103,51 @@ flowchart TB
 
 > **Interactive system map.** For a visual overview of all 28 services, their ports, namespaces, and the control/data/identity/GitOps paths between them, see the [isometric system map](docs/system-map/). Serve with `python3 -m http.server 8901 -d docs/system-map`.
 
-### The ingestion flow, step by step
+### The Ingestion Flow, Step by Step
 
-This is the OSRAMP ingestion data flow as implemented today:
+This sequence describes the current OSRAMP ingestion flow:
 
-1. An artifact enters as a package URL (purl), published to the `tasks.purl` NATS subject.
-2. The purl listener picks it up and hands it to its processor over a Unix socket.
-3. The processor parses the purl and checks a local cache. A hit returns the prior result; a miss queues an `npm_install` task on `tasks.input`.
-4. The multipurpose worker installs the package in an isolated directory, then generates an SPDX SBOM with syft. The SBOM step runs under `witness run`, so it produces a signed in-toto attestation that is uploaded to Archivista.
-5. Results, the full SBOM, and signatures are published back to NATS on `tasks.results`, `tasks.sbom`, and `tasks.signatures`.
-6. The archiver consumes results and SBOMs and writes them to PostgreSQL, giving security and platform teams a queryable record.
+1. A package URL (purl) arrives on the `tasks.purl` NATS subject.
+2. The purl listener receives the purl and sends it to the processor across a Unix socket.
+3. The processor parses the purl and checks the local cache. If cached, it returns the prior result. If missing, it adds an `npm_install` task to `tasks.input`.
+4. The multipurpose worker installs the package in an isolated directory. It runs `syft` to make an SPDX SBOM. This step runs under `witness run` to create a signed in-toto attestation. The worker uploads the attestation to Archivista.
+5. The worker publishes results, SBOMs, and signatures to `tasks.results`, `tasks.sbom`, and `tasks.signatures`.
+6. The archiver reads results and SBOMs from NATS and writes them to PostgreSQL. This gives teams a queryable audit record.
 
-The later phases build on this stored evidence rather than changing the core flow: grype scans and vexctl triage (Phase 1), attested test and VEX evidence (Phase 2), witness promotion policy, Kyverno admission and trust revocation (Phase 3), and the agent harness (Phase 4). Each is runnable as its own demo, documented below.
+Later phases build on this evidence:
+- Phase 1: Grype scans and vexctl triage.
+- Phase 2: Attested test and VEX evidence.
+- Phase 3: Witness promotion policy, Kyverno admission control, and trust revocation.
+- Phase 4: Agent remediation harness.
 
-### GitOps delivery (Flux D2, gitless GitOps)
+### GitOps Delivery (Flux D2, Gitless GitOps)
 
-Cluster state is not pulled from git at runtime. CI packages each logical D2 source directory's manifests as OCI artifacts, signs them with cosign keyless (GitHub OIDC), and pushes them to GHCR. Flux inside the cluster pulls the artifacts, verifies that the signature identity matches the exact workflow and branch that was supposed to publish them, and reconciles. Staging tracks the `latest` tag, production tracks `latest-stable`, and a rollback is one `flux tag` command. A CEL ValidatingAdmissionPolicy rejects any tenant Flux source that is not on the allowlist, so a compromised tenant cannot point the cluster at an arbitrary registry.
+The cluster does not pull state directly from git at runtime.
 
-Local mode keeps the whole model intact without GitHub: `make push-local` pushes the same artifacts to a zot registry running inside the cluster and signs them with a locally generated cosign key, and the `clusters/local` fleet definition verifies against that key's public half. The trust chain is identical in shape; only the identity provider differs.
+1. CI packages each logical D2 source directory into an OCI artifact.
+2. CI signs each artifact using keyless Cosign with GitHub OIDC.
+3. CI pushes the artifacts to GHCR.
+4. Flux pulls the artifacts inside the cluster. It checks that the signature identity matches the approved workflow and branch.
+5. Flux reconciles the manifests.
 
-## Repository layout
+Staging tracks the `latest` tag. Production tracks the `latest-stable` tag. Roll back a release with the `flux tag` command. A CEL ValidatingAdmissionPolicy rejects any tenant Flux source not on the allowlist.
 
-| Path | What it is |
+Local mode keeps this model intact without GitHub:
+- The command `make push-local` pushes artifacts to an in-cluster Zot registry.
+- It signs artifacts using a local Cosign key.
+- The `clusters/local` fleet definition checks signatures against the local public key.
+
+## Repository Layout
+
+| Path | Description |
 | --- | --- |
-| `d2-osramp-apps/` | Application logical source directory: the three Go services (`apps/`), Kubernetes manifests (`components/`), bats end-to-end test suite (`test/`), and component-local workflows. Owned by the application team; its Flux reconciliation boundary is namespace-scoped, not a separate Git repository. |
-| `d2-infra/` | Infrastructure logical source directory: cluster add-ons (cert-manager with a self-signed issuer, Envoy Gateway ingress, kube-prometheus-stack and metrics-server) in the controllers/configs layout the fleet expects. Owned by the platform team. Its infrastructure tenants intentionally retain cluster-admin authority. |
-| `d2-osramp-fleet/` | Platform logical source directory: cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), Terraform bootstrap (`terraform/`), and e2e workflows. Owned by the platform team. |
-| `d2-signalloom/` | The Signal Loom slice: dashboard SPA, FastAPI backend, identity plane (`infra/inf-bao`: OpenBao + SPIRE) and its own fleet wiring, reusing the D2 patterns with separate signed OCI artefacts and reconciliation boundaries. See [d2-signalloom/AGENTS.md](d2-signalloom/AGENTS.md). |
-| `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy — A2A identity, OpenBao JWT roles and enforced NetworkPolicy boundaries. Additive: consumes `inf-bao`'s SPIRE and OpenBao rather than deploying its own. See [d2-agent-trust/AGENTS.md](d2-agent-trust/AGENTS.md). |
-| `olly-replica/` | The Olly Sentinel replica tenant: contracts (versioned JSON schemas), the ELK/Redpanda/Grafana data plane as Flux manifests, seed data with the injection corpus, and scaffolds for the MCP server, stubs, agent, and eval harness. See [olly-replica/README.md](olly-replica/README.md). |
-| `docs/system-map/` | [Interactive isometric system map](docs/system-map/) of the Signal Loom D2 platform. 28 services as shaped 3D buildings with traced control, data, identity, and GitOps paths. Serve with `python3 -m http.server 8901 -d docs/system-map`. |
+| `d2-osramp-apps/` | Application logical source directory: Go services (`apps/`), Kubernetes manifests (`components/`), BATS e2e tests (`test/`), and workflows. |
+| `d2-infra/` | Infrastructure directory: cluster add-ons (cert-manager, Envoy Gateway, monitoring stack). |
+| `d2-osramp-fleet/` | Platform directory: cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), and Terraform bootstrap (`terraform/`). |
+| `d2-signalloom/` | Signal Loom slice: dashboard SPA, FastAPI backend, and identity plane (`infra/inf-bao`: OpenBao and SPIRE). See [d2-signalloom/AGENTS.md](d2-signalloom/AGENTS.md). |
+| `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy (A2A identity, OpenBao JWT roles, NetworkPolicies). See [d2-agent-trust/AGENTS.md](d2-agent-trust/AGENTS.md). |
+| `olly-replica/` | Olly Sentinel replica tenant: data plane manifests, contracts, seed data, and eval harness. See [olly-replica/README.md](olly-replica/README.md). |
+| `docs/system-map/` | Interactive system map. 28 services with control, data, and identity paths. Run `python3 -m http.server 8901 -d docs/system-map` to view. |
 | `ui/` + `tools/demo-console/` | The interactive architecture map (plain HTML/CSS/JS) and the Go service that executes its actions with streamed output. |
 | `scripts/` | The orchestration behind the make targets: `setup.sh` (tool install plus full build), local publish and sign, the VEX, promotion, admission, and revocation demos, attested tests, VEX retrieval. |
 | `policy/` | The witness promotion policy generator output and the Kyverno image verification policy. |
@@ -145,165 +177,185 @@ Local mode keeps the whole model intact without GitHub: `make push-local` pushes
 
 You do not install these by hand: `./scripts/setup.sh` installs everything except Docker (and the optional agent tools) at pinned versions, skipping whatever is already present. On Windows, run everything from WSL2 or Git Bash; the Makefiles assume a POSIX shell.
 
-### Local quickstart (no GitHub credentials needed)
+### Local Quickstart (No GitHub Credentials Needed)
 
-One script installs every missing tool (pinned versions, skips what you have) and creates the shared GitOps foundation: a kind cluster, an in-cluster Zot registry, cosign-signed foundation artifacts, and Flux reconciliation. Docker is the only precondition.
+The setup script installs missing tools at pinned versions. It creates the shared
+GitOps foundation: a Kind cluster, an in-cluster Zot registry, Cosign-signed
+foundation artifacts, and Flux reconciliation.
+
+Docker is the only required precondition.
 
 ```bash
-./scripts/setup.sh    # install tools, then create a healthy shared cluster
-make demo-osramp-up   # opt into the OSRAMP workload before its end-to-end suite
-make test             # run the OSRAMP bats end-to-end suite
-make acceptance-test  # run the browser acceptance suite
+./scripts/setup.sh    # Install tools and create a healthy shared cluster
+make demo-osramp-up   # Deploy the OSRAMP workload before tests
+make test             # Run the OSRAMP BATS test suite
+make acceptance-test  # Run the Playwright browser test suite
 ```
 
-`./scripts/setup.sh --tools-only` installs without building; `make up` creates
-the shared foundation without installing tools or building demo images.
+- Run `./scripts/setup.sh --tools-only` to install tools without building.
+- Run `make up` to create the shared foundation without installing tools.
 
-Browser acceptance setup, diagnostics, and the latest observed baseline are documented in [TESTING.md](TESTING.md). Use [HUMAN_VALIDATION.md](HUMAN_VALIDATION.md) when a person needs to review the live browser experience and record evidence.
+Read [TESTING.md](TESTING.md) for browser acceptance test instructions and diagnostics.
+Read [HUMAN_VALIDATION.md](HUMAN_VALIDATION.md) for manual verification steps.
 
-For the normal fast loop, keep the cluster running: `make up` creates the shared foundation and confirms it is healthy without starting a demo. It prints the available opt-in targets: `make demo-signalloom-up`, `make demo-osramp-up`, `make demo-olly-up`, and `make demo-bao-up`. `make signalloom-images` builds the local Signalloom frontend and pushes it into Zot. Zot stores OCI data in the host-backed `ZOT_CACHE_DIR` (default `.cache/zot`), mounted through Kind into the Zot pod at `/var/lib/zot`; this survives `make down && make up` and makes cluster restarts reuse already-pushed foundation artifacts. Use `make zot-cache-reset && make up` when a deliberately empty registry is required. Use `make teardown` (or `./scripts/teardown.sh`) only for a full bootstrap/trust-root reset because it also removes local keys and generated build state; `make teardown-all` also uninstalls the CLIs `setup.sh` added. Your `.env` is left untouched.
+For normal development, keep the cluster running. The command `make up` creates the
+foundation and checks health. It prints available opt-in targets:
+- `make demo-signalloom-up`
+- `make demo-osramp-up`
+- `make demo-olly-up`
+- `make demo-bao-up`
 
-`make up` composes only foundation targets (`make help` lists them): `cluster`, `registry` (Zot), `signing-keys` (a local cosign key pair plus a witness key), `push-local-foundation` (the fleet and shared infrastructure), `bootstrap-local` (Flux Operator with a FluxInstance that verifies signatures against the local public key), `wait`, and `healthcheck`. Demo images, workloads, and secrets are activated only by their corresponding `demo-*-up` command. Nothing reaches the cluster unsigned, even locally.
+Zot stores OCI artifacts in `.cache/zot`. This cache survives `make down && make up`.
+Cluster restarts reuse existing artifacts from the cache. Run `make zot-cache-reset`
+if you require an empty registry.
 
-Observability (kube-prometheus-stack + trivy-system) is **off by default** — these tenants are not dependencies of any demo slice and dominate cluster build time. Opt in with `ENABLE_OBSERVABILITY=true make up`. The CI pipeline also defaults to off (`CI_ENABLE_OBSERVABILITY=false`); this mode packages a local-only fleet artifact without those tenants, while preserving their installer sources and Flux Operator management.
+Run `make teardown` only for a complete reset. It removes local signing keys and
+build state. Run `make teardown-all` to also remove CLI tools installed by `setup.sh`.
+Your `.env` file is preserved.
 
-There is also a shortcut that skips GitOps entirely for tight inner-loop work on the services: `make -C d2-osramp-apps local-dev` applies the manifests directly with kustomize.
+Observability (`kube-prometheus-stack` and `trivy-system`) is disabled by default.
+To enable observability, run:
 
-To poke at it manually, ingest a package and watch it flow:
+```bash
+ENABLE_OBSERVABILITY=true make up
+```
+
+To test the ingestion flow manually:
 
 ```bash
 ./scripts/publish-purl.sh pkg:npm/lodash@4.17.21
-kubectl logs -n frontend -l app=osramp-multipurpose -c processor -f   # watch the SBOM generation
-make -C d2-osramp-apps postgres-shell                                 # then: SELECT * FROM task_results;
+kubectl logs -n frontend -l app=osramp-multipurpose -c processor -f
+make -C d2-osramp-apps postgres-shell
+# Inside postgres shell: SELECT * FROM task_results;
 ```
 
-### The interactive console
+### The Interactive Console
+
+Run the interactive console:
 
 ```bash
-make console    # then open http://localhost:8675
+make console    # Open http://localhost:8675
 ```
 
-The console is the architecture map as a working control surface: three lanes (deliver, operate, assure), one card per step, each labeled with its owning team and OSRAMP phase. Clicking a card opens its detail and its run buttons; every button executes the exact command the CLI uses and streams the output live. Planned steps (the witness policy gate, the agent) appear on the map, marked as roadmap items.
+The console shows the architecture map across three lanes: Deliver, Operate, and Assure.
+Each card corresponds to one step. Click a card to see details and run buttons.
+Each button executes the underlying CLI command and streams the output.
 
-### The VEX triage demo (Phase 1)
+### The VEX Triage Demo (Phase 1)
+
+Run the VEX triage demo:
 
 ```bash
 make vex-demo
 ```
 
-The demo publishes the three service images to the local registry, generates syft SBOMs as the attested analysis evidence, and scans the registry images with grype (scanner passes target image digests because grype's VEX product matching binds to them; SPDX files do not carry image identity through). It then triages three canonical findings into signed OpenVEX statements: a base image CVE shared across containers, CVE-2022-32149 on the pinned `golang.org/x/text` module that govulncheck proves unreachable (statements are issued for the CVE and every alias the scanner reports it under), and a finding recorded as mitigated by the pod hardening. The statements merge with vexctl, the merged document is signed under `witness run` with the vex attestor and stored in Archivista, the rescan with VEX applied asserts the triaged findings are suppressed, and `./scripts/fetch-vex.sh` retrieves the attested document from Archivista the way another team's pipeline would. If govulncheck ever reports the vulnerable symbol as reachable, the demo refuses to issue the `not_affected` statement and fails; unrelated reachable findings are reported as remediation items rather than swept into the VEX.
+The demo performs these steps:
+1. Publishes service images to the local registry.
+2. Makes syft SBOMs as attested analysis evidence.
+3. Scans the registry images using Grype.
+4. Triages findings into signed OpenVEX statements.
+5. Merges statements with `vexctl` and signs the merged file under `witness run`.
+6. Stores the signed document in Archivista.
+7. Rescans the images to confirm suppressed CVE findings.
 
-### The governance demos (Phase 3)
+### Governance Demos (Phase 3)
+
+Run the governance demos:
 
 ```bash
-make promotion-demo    # witness policy gate: attested artifact approved, tampered one rejected
-make admission-demo    # Kyverno at the API server: signed image admitted, unsigned denied
-make revocation-demo   # revoke artifact trust, watch Flux block it, restore and promote
+make promotion-demo    # Witness policy gate: approved vs tampered artifacts
+make admission-demo    # Kyverno admission: signed admitted, unsigned denied
+make revocation-demo   # Revoke artifact trust, verify Flux blocks deployment
 ```
 
-The promotion gate verifies artifacts against a signed witness policy (the security team signs the policy, the pipeline key is the functionary) and records both decisions in Archivista. The admission demo installs Kyverno and proves an unsigned image cannot even be scheduled. The revocation walkthrough pushes an unsigned frontend artifact, shows Flux failing verification closed while the running workload stays on the last good state, then signs a fixed artifact and follows it in.
+The promotion gate checks artifacts against a signed witness policy.
+The admission demo checks that Kyverno blocks unsigned images from scheduling.
+The revocation walkthrough pushes an unsigned artifact and confirms Flux blocks it.
 
-### The agent demo (Phase 4)
+### Remediation Agent Demo (Phase 4)
+
+Run the agent demo:
 
 ```bash
-make agent-demo                          # analyze, recommend, stop at the human gate
-agent/harness.sh CVE-2022-32149 --approve  # apply the recommendation as a PR branch
+make agent-demo                          # Analyze CVE and create proposal
+agent/harness.sh CVE-2022-32149 --approve  # Apply recommendation to PR branch
 ```
 
-The harness assembles the evidence bundle (scans, reachability, attested VEX), runs the claude CLI sandboxed under nono (kernel-enforced filesystem and network restrictions, boundary-injected API key), and produces a structured recommendation: a dependency bump or a VEX proposal, nothing else. Applying it needs an explicit approval, is restricted to the allowed change shapes, and every step is witness-attested into Archivista. The full boundary is documented in [agent/GUARDRAILS.md](agent/GUARDRAILS.md). Requires Linux (WSL2 works), nono, and the claude CLI.
+The harness collects the evidence bundle. It runs Claude inside the `nono` sandbox
+with kernel-level network and filesystem restrictions. The agent produces a
+structured recommendation: a dependency update or a VEX proposal.
 
-### The Olly Sentinel replica (olly-replica tenant)
+Applying the change requires human approval. Each action is witness-attested into Archivista.
+Read [agent/GUARDRAILS.md](agent/GUARDRAILS.md) for safety boundary details.
 
-The repo also hosts a ControlPlane-internal replica of an AI SRE pipeline
-(Olly Sentinel / Eye in the Sky) built on this same substrate: a fourth
-tenant, `olly-replica`, reconciled by Flux from its own signed artifact
-(`olly/olly-replica`). It carries a single-broker Redpanda, an ECK-managed
-Elasticsearch seeded with synthetic logs (including an injection corpus and
-planted fake secrets for the safety evals), and three managed tenant apps
-(`inventory-service`, `payments-api`, `customer-portal`) that run as real
-workloads emitting request, error, and latency metrics. The agent runs on
-Google ADK and speaks A2A, serving a committed AgentCard as its
-identity/skills/auth contract, and enriches incidents that the IO Mapping
-Service stub writes to a ServiceNow PDI. A dedicated Grafana is the Eye in
-the Sky: an estate view plus a per-tenant view that ties each app's live
-metrics, its Trivy vulnerabilities, its ServiceNow enrichment activity, and its slice of
-the agent lifecycle together. Trivy Operator
-(`d2-infra/components/trivy-system`) plays the Aqua role, feeding runtime
-vulnerability data through the monitoring stack. The tenant namespace is
-allowlist-gated like the app tenants, and its chart repositories are pinned
-in the fleet policy. Design doc:
-[olly-replica/agentic-sre-design-doc.md](olly-replica/agentic-sre-design-doc.md);
-component detail in [olly-replica/README.md](olly-replica/README.md).
+### The Olly Sentinel Replica (`olly-replica` Tenant)
 
-### Running it on GCP (four lanes)
+The repository hosts an internal replica of an AI SRE pipeline (Olly Sentinel).
+The tenant `olly-replica` reconciles through Flux from its own signed OCI artifact
+(`olly/olly-replica`).
 
-The same stack runs on Google Cloud as four independent **lanes**: `demo-1`,
-`demo-2`, `ci-1` and `ci-2`. Terraform provisions a lane, and a second step
-builds the **estate** that runs on its VM. Each lane owns one VM, one Tailscale
-node and one hand-off file, and the four share only a project, a state bucket
-and a CPU quota.
+It contains:
+- A single-broker Redpanda event bus.
+- An ECK-managed Elasticsearch cluster seeded with synthetic logs.
+- Three managed tenant applications: `inventory-service`, `payments-api`, and `customer-portal`.
+- An agent that runs on Google ADK and communicates via A2A.
+- A dedicated Grafana instance for unified observability.
+
+Read [olly-replica/agentic-sre-design-doc.md](olly-replica/agentic-sre-design-doc.md) for design details.
+Read [olly-replica/README.md](olly-replica/README.md) for component instructions.
+
+### Running on GCP (Four Lanes)
+
+The stack runs on Google Cloud across four independent lanes: `demo-1`, `demo-2`, `ci-1`, and `ci-2`.
+Terraform provisions each lane VM. A second step deploys the software estate to the VM.
 
 ```bash
 export TF_STATE_BUCKET=<your-state-bucket>
 
-make gcp-tf-up      ENV=demo-1               # plan, review, apply, write the hand-off
-make gcp-tf-demo-up ENV=demo-1               # deliver the code, build the estate, test it
-make gcp-tf-ts-up   ENV=demo-1               # serve it on the tailnet; prints the URL
-make doctor-node    ENV=demo-1               # node-level health for that lane
+make gcp-tf-up      ENV=demo-1               # Plan, review, apply, and save hand-off
+make gcp-tf-demo-up ENV=demo-1               # Deliver code, build estate, and test
+make gcp-tf-ts-up   ENV=demo-1               # Serve estate on Tailscale; prints URL
+make doctor-node    ENV=demo-1               # Check node-level health for that lane
 
-make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1
-./scripts/gcp-tf/teardown-verify.sh          # believe the destroy only after this
+make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1 # Destroy resources to stop billing
+./scripts/gcp-tf/teardown-verify.sh          # Check that all resources were removed
 ```
 
-The VM bills until it is gone, so the teardown is not optional.
-[`docs/gcp-demo/RUNBOOK.md`](docs/gcp-demo/RUNBOOK.md) is the step-by-step
-operator path, and [`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md)
-covers the lanes, the health tooling and the traps.
+Running VMs incur costs until removed. Always run the teardown step.
+Read [`docs/gcp-demo/RUNBOOK.md`](docs/gcp-demo/RUNBOOK.md) for step-by-step instructions.
+Read [`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md) for lane operations.
 
-### GHCR-published mode (staging and production clusters)
+### GHCR-Published Mode (Staging and Production)
 
-The same fleet definitions run against GHCR-published artifacts: the `push-artifacts` and `push-images` workflows publish and cosign-sign everything under `ghcr.io/<owner>/<repo>`, staging clusters verify the keyless OIDC identity of the exact publishing workflow and branch, and production clusters track `latest-stable` from the release workflow. The canonical identity in the manifests is `acme-co/osramp`; a fork updates the `REGISTRY_BASE`/`IMAGE_BASE` values in `d2-osramp-fleet/clusters/*/flux-system/runtime-info.yaml` and the verify subjects to its own owner, then runs `make -C d2-osramp-fleet bootstrap-staging` with a `read:packages` PAT.
+The fleet definitions also run against GHCR-published artifacts:
+- The workflows `push-artifacts` and `push-images` publish signed artifacts under `ghcr.io/<owner>/<repo>`.
+- Staging clusters check keyless OIDC identity from the publishing workflow.
+- Production clusters track the `latest-stable` tag.
 
 ## CI
 
-The same pipeline runs in GitHub Actions, so local and CI behavior match. The root workflows are the active ones for this monorepo:
+The CI pipeline runs in GitHub Actions. Monorepo root workflows include:
 
-| Workflow | Trigger | What it does |
+| Workflow | Trigger | Description |
 | --- | --- | --- |
-| `e2e-local` | manual (`workflow_dispatch`) | the parity pipeline: runs the same make targets as `make up` in a CI kind cluster, then the attested test suite, the olly enrichment-loop suite, and the VEX demo. Manual because the full stack oversubscribes a standard 2-vCPU runner (Prometheus and Redpanda land Pending); run it from the Actions tab on a machine with room |
-| `push-artifacts` | push to `main` | packages fleet, infra, and apps manifests as OCI artifacts, cosign keyless signs, tags `latest` |
-| `push-images` | push touching `d2-osramp-apps/apps/` | multi-arch image builds with SBOM and provenance, signed, pushed to GHCR |
-| `release-artifacts` | `v*` tag | versioned artifacts plus the `latest-stable` pointer production tracks |
-| `reusable-witness-step` | `workflow_call` | wraps any command in `witness run` so its evidence is signed and preserved |
+| `e2e-local` | Manual (`workflow_dispatch`) | Runs foundation setup, attested tests, and the VEX demo in a CI Kind cluster. |
+| `push-artifacts` | Push to `main` | Packages fleet, infra, and apps manifests as OCI artifacts with Cosign signatures. |
+| `push-images` | Push to `d2-osramp-apps/apps/` | Builds multi-arch container images with SBOMs and provenance. |
+| `release-artifacts` | Tag `v*` | Publishes versioned artifacts and updates the `latest-stable` pointer. |
+| `reusable-witness-step` | `workflow_call` | Runs commands under `witness run` to record signed evidence. |
 
-The component-local workflows inside `d2-osramp-apps`, `d2-infra`, and `d2-osramp-fleet` remain intact to support their current logical ownership boundaries and any future extraction justified by CI, release or access-control needs.
+## Current State and Roadmap
 
-## Validation status
+Working features:
+- Fully local, signed GitOps loop with Kind, Zot, and Flux.
+- Ingestion pipeline from purl to syft SBOM, Archivista, and PostgreSQL.
+- Phase 1 VEX workflow with `vexctl` triage.
+- Phase 2 evidence collection with attested tests and VEX retrieval.
+- Interactive console with live command execution and output streaming.
+- Phase 3 governance demos (admission policy and trust revocation).
+- Phase 4 remediation agent under `nono` sandbox.
 
-> **HISTORICAL.** Both runs below predate the GCP lanes and much of the current
-> tree. They record what was true on their dates, not what is true today. For a
-> current verdict, run `make doctor-node-all` and
-> `make gcp-tf-surfaces-report`, which derive their answers from the estate
-> rather than from prose.
-
-The historical validation run on 2026-07-09 covered the full signed local GitOps loop, all eight OSRAMP end-to-end tests, the VEX demo, witness-attested evidence, governance demos, and the interactive console. The latest V2.5 browser baseline on 2026-07-26 passed four tests (Grafana and SignalLoom) and failed four tests because the Archivista and Olly customer-portal services were unavailable. See [TESTING.md](TESTING.md) and [HUMAN_VALIDATION.md](HUMAN_VALIDATION.md) for reproducible commands and review evidence.
-
-## Current state and roadmap
-
-Working today:
-
-- The fully local, fully signed GitOps loop: `make up` builds the cluster, the zot registry, pushes cosign-signed manifest artifacts, and Flux verifies every one before reconciling. The identical pipeline runs in CI (`e2e-local`).
-- The ingestion pipeline: purl to isolated install to syft SBOM under `witness run` to Archivista, with results archived in PostgreSQL and the bats e2e suite proving it.
-- The Phase 1 VEX workflow (`make vex-demo`): three canonical triage cases issued with vexctl, merged, applied, and the rescan asserted green for the triaged findings.
-- Phase 2 evidence: test runs attested into Archivista (`make attested-test`), attested VEX retrieval (`scripts/fetch-vex.sh`), and the reusable witness workflow for CI steps.
-- The interactive console (`make console`): the architecture map with owner and phase labels, running every implemented step live with streamed output.
-
-Also working: the Phase 3 governance demos (witness policy promotion gate with both decisions in Archivista, Kyverno signature verification at admission, the trust revocation walkthrough) and the Phase 4 agent harness (nono-sandboxed, human-gated, witness-attested, guardrails in [agent/GUARDRAILS.md](agent/GUARDRAILS.md)).
-
-Remaining refinements:
-
-1. Witness attestation verification at admission time (today admission verifies image signatures; attestation-level policy runs at the promotion gate) via a small witness-verify external-data service for Kyverno.
-2. Keyless signing for workloads (Fulcio with Kubernetes service account OIDC) to retire the static ed25519 secret.
-3. The KPI dashboard fed from the PostgreSQL archive.
-
-MinIO stays as the Archivista blob store for now, flagged in the manifests as nearing end of support.
+Planned refinements:
+1. Admission-time Witness attestation verification with Kyverno.
+2. Keyless workload signing via Fulcio and Kubernetes OIDC.
+3. KPI dashboard connected to PostgreSQL.

@@ -19,7 +19,7 @@ resources:
   # The namespace, cross-namespace RBAC, and baseline agent are inline in the
   # signalloom-infra ResourceSet — they run first so Flux dry-run passes here.
   - health-rbac.yaml
-  # SuperCred demo: cardvault-agent ServiceAccount only.
+  # SuperCred demo: cardvault-agent ServiceAccount source only.
   #
   # The agent POD is deliberately NOT here, for the same reason the
   # credential-chain Job is not: this Kustomization sets
@@ -36,8 +36,9 @@ resources:
   # script, because only it can place the pod in the namespace the SPIFFE ID,
   # the SPIRE selectors and the OpenBao role all name.
   #
-  # The SA stays: it is namespace-correct under targetNamespace and the demo
-  # depends on it existing before step 1 runs.
+  # This source renders into fe-signalloom under targetNamespace. The distinct
+  # agents-namespace ServiceAccount required by the sustained Netassert fixture
+  # is owned by the fleet's signalloom-netassert-fixtures ResourceSet.
   - agents-cardvault-sa.yaml
   # Network Tests: ServiceAccount for the netassert-run Job. The Job itself is
   # NOT a static manifest here — fake-integration-proxy creates/deletes it on

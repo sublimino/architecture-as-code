@@ -21,14 +21,14 @@ ephemeral-container patching solely for resolver validation.
 Mount the immutable suite as `/config/netassert-signalloom.yaml`. The resolver
 supports these fixed source placeholders and no caller-provided mappings:
 
-- `agent-patsy` → `fe-signalloom-agents`, `signalloom.ai/agent=true`.
+- `agent-patsy` → `fe-signalloom-agents`, `signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent`.
 - `envoy-gateway-pod` → `ingress`, `gateway.envoyproxy.io/owning-gateway-name=cluster`.
 - `netassert-cardvault-probe-pod` → `fe-signalloom-agents`,
-  `app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent`.
+  `app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent,netassert.signalloom.ai/fixture=cardvault-agent`.
 
-The Cardvault entry is a parent-provisioned sustained fixture using
-ServiceAccount `cardvault-agent` and exactly those three network-identity
-labels. The resolver excludes Job-owned pods, so the transient
+The Cardvault entry is a fleet-provisioned sustained fixture using a tokenless
+ServiceAccount `cardvault-agent` owned in `fe-signalloom-agents` by the same
+fixture ResourceSet. The resolver excludes Job-owned pods, so the transient
 `supercred-agent-run-*` Job can never satisfy this prerequisite. The fixture
 must remain Running and Ready for the complete Netassert scan lifecycle.
 

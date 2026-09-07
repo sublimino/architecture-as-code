@@ -60,6 +60,21 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "rendered fixture resources own Cardvault service account in agents namespace" {
+  rendered="$BATS_TEST_TMPDIR/fleet.yaml"
+  kubectl kustomize --load-restrictor LoadRestrictionsNone \
+    "$repo_root/d2-osramp-fleet/tenants/local" >"$rendered"
+
+  run yq ea -e '
+    select(.kind == "ResourceSet" and .metadata.name == "signalloom-netassert-fixtures")
+    | ((([.spec.resources[] | select(.kind == "ServiceAccount" and .metadata.name == "cardvault-agent" and .metadata.namespace == "fe-signalloom-agents" and .automountServiceAccountToken == false)] | length) == 1) and
+      (([.spec.resources[] | select(.kind == "Secret")] | length) == 0) and
+      (([.spec.resources[] | select(.kind == "Role" or .kind == "RoleBinding" or .kind == "ClusterRole" or .kind == "ClusterRoleBinding") | select(.subjects[]?.name == "cardvault-agent")] | length) == 0) and
+      (([.spec.resources[] | select(.kind == "Deployment" and .metadata.name == "netassert-cardvault-agent-fixture" and .metadata.namespace == "fe-signalloom-agents" and .spec.template.spec.serviceAccountName == "cardvault-agent")] | length) == 1))
+  ' "$rendered"
+  [ "$status" -eq 0 ]
+}
+
 @test "fixture labels model policy identities without kagent ownership" {
   run yq ea -e '
     select(.kind == "ResourceSet" and .metadata.name == "signalloom-netassert-fixtures")
@@ -169,6 +184,80 @@ SH
   run grep -F 'get pods -n fe-signalloom-agents -l signalloom.ai/agent=true,signalloom.ai/framework=custom,netassert.signalloom.ai/fixture=generic-agent -o json' "$calls"
   [ "$status" -eq 0 ]
   run grep -F 'get deployment/cardvault -n inf-signalloom' "$calls"
+  [ "$status" -eq 0 ]
+}
+
+@test "suite preflight resolves Envoy placeholder through canonical selector" {
+  config="$BATS_TEST_TMPDIR/envoy.yaml"
+  calls="$BATS_TEST_TMPDIR/envoy.calls"
+  fake_bin="$BATS_TEST_TMPDIR/envoy-bin"
+  mkdir -p "$fake_bin"
+  cat >"$config" <<'YAML'
+- name: envoy-to-dashboard
+  src:
+    k8sResource: {kind: pod, name: envoy-gateway-pod, namespace: ingress}
+  dst:
+    k8sResource: {kind: deployment, name: dashboard-signalloom, namespace: fe-signalloom}
+YAML
+  cat >"$fake_bin/kubectl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$KUBECTL_CALLS"
+if [[ "$*" == *"get pods"*"gateway.envoyproxy.io/owning-gateway-name=cluster"* ]]; then
+  printf '{"items":[{"metadata":{"name":"envoy-fixture"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}}]}\n'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/kubectl"
+
+  run env KUBECTL_CALLS="$calls" NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
+    "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
+  [ "$status" -eq 0 ]
+  run grep -F 'get pods -n ingress -l gateway.envoyproxy.io/owning-gateway-name=cluster -o json' "$calls"
+  [ "$status" -eq 0 ]
+  run grep -F 'get pod/envoy-gateway-pod -n ingress' "$calls"
+  [ "$status" -ne 0 ]
+}
+
+@test "suite preflight rejects ambiguous and unready placeholder candidates" {
+  config="$BATS_TEST_TMPDIR/candidates.yaml"
+  fake_bin="$BATS_TEST_TMPDIR/candidates-bin"
+  mkdir -p "$fake_bin"
+  cat >"$config" <<'YAML'
+- name: agent-to-api
+  src:
+    k8sResource: {kind: pod, name: agent-patsy, namespace: fe-signalloom-agents}
+  dst:
+    k8sResource: {kind: deployment, name: fe-signalloom, namespace: fe-signalloom}
+YAML
+  cat >"$fake_bin/kubectl" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == *"get pods"* ]]; then cat "$POD_RESPONSE"; fi
+exit 0
+SH
+  chmod +x "$fake_bin/kubectl"
+
+  for state in ambiguous unready; do
+    response="$BATS_TEST_TMPDIR/$state.json"
+    if [ "$state" = ambiguous ]; then
+      printf '%s\n' '{"items":[{"metadata":{"name":"one"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"name":"two"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}}]}' >"$response"
+    else
+      printf '%s\n' '{"items":[{"metadata":{"name":"one"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"False"}]}}]}' >"$response"
+    fi
+    run env POD_RESPONSE="$response" NETASSERT_CONFIG="$config" PATH="$fake_bin:$PATH" \
+      "$repo_root/d2-signalloom/test/run-netassert.sh" --preflight-only
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not uniquely Running and Ready"* ]]
+  done
+}
+
+@test "host collector marker matches controller emitter exactly" {
+  runner="$repo_root/d2-signalloom/test/run-netassert.sh"
+  controller="$repo_root/d2-signalloom/apps/netassert-controller/server.py"
+  run bash -c '
+    shell_marker=$(grep "^NETASSERT_TAP_MARKER=" "$1" | cut -d= -f2- | tr -d "\"")
+    python_marker=$(grep "^NETASSERT_TAP_MARKER =" "$2" | cut -d= -f2- | tr -d " \"")
+    test "$shell_marker" = "$python_marker"
+  ' _ "$runner" "$controller"
   [ "$status" -eq 0 ]
 }
 

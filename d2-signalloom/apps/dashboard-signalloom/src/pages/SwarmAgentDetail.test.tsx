@@ -169,7 +169,7 @@ describe('SwarmAgentDetail — audit event timeline', () => {
     mockApi.agents.violations.mockResolvedValue({ violations: [], total: 0 })
     mockApi.compliance.posture.mockResolvedValue({ posture_score: 83, controls: [] })
 
-    renderDetail()
+    renderDetail(`${encodeURIComponent(AGENT_ID)}?tab=activity`)
 
     // Wait for the agent name to render, confirming the page loaded.
     await waitFor(() => {

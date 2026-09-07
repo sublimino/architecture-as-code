@@ -646,5 +646,12 @@
     "reviewer": "antigravity",
     "verdict": "APPROVED",
     "reason": "Phase 3 preflight certified: Kubernetes v1.36.1 VAP support verified, Linux kernel Landlock active in /sys/kernel/security/lsm, nono 0.73.0 verified, proof artifact recorded"
+  },
+  "23068": {
+    "task_id": "23068",
+    "reviewed_at": "2026-09-07T21:12:09Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P3-2 verified: Rule SP-1 worktree Landlock confinement, nono profile, bin/agent-git wrapper, 21/21 probe harness pass, 36/36 BATS pass, runbook documented (commit 6aae8672)"
   }
 }

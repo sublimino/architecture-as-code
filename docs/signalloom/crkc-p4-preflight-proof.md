@@ -3,7 +3,7 @@
 **Created:** 2026-09-07 22:33:00+01:00 (2026-09-07T21:33:00Z)  
 **Status:** `pass` — GO verdict for Phase 4 (Integration & Mission Verification)  
 **Integration Ref:** `refs/heads/integration/crkc-v0.1.0`  
-**Base Commit SHA:** `ef719ec49089ca2483863777598fe9307d0f04c6`  
+**Base Commit SHA:** `6ac0c9c64604a11f93f9c6f0e3408a6b63bb3eb8`  
 **Workspace:** `osramp-demo` (`/home/andy/src/cp/osramp-demo`)  
 **Kernel:** Linux `7.1.3+deb13-amd64` (x86_64)  
 **Toolchain:** Go `go1.24.4 linux/amd64`, Bun, Docker, Kind, `kubectl v1.36.0` / server `v1.36.1`

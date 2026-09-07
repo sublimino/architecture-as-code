@@ -450,5 +450,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SFAGENTS-P2-5 verified: Tab 5 Activity and Attributable Timeline, AgentActivityTab.tsx, 4 StatCards, SSE stream, identity plane separation, 57/57 BATS, Vitest, and Pytest green (commit f55397ca)"
+  },
+  "ce658": {
+    "task_id": "ce658",
+    "reviewed_at": "2026-09-07T09:56:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-6 verified: URL deep-link engine & secondary filters, dossier tab synchronisation, 60/60 BATS, Vitest, and Pytest green (commit 9946aa16)"
   }
 }

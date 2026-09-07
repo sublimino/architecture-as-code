@@ -7,6 +7,8 @@ DECLARED_TESTS=10
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
 }
 
 @test "unified-p1: flux selective drift ignore rules are valid RFC 6901 pointers" {
@@ -20,14 +22,12 @@ setup() {
 }
 
 @test "unified-p1: stun-sentinel binary builds statically and compiles cleanly" {
-  export PATH=/usr/bin:$PATH
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-sentinel"
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-sentinel"
   [ "$status" -eq 0 ]
 }
 
 @test "unified-p1: stun-tcctl binary builds cleanly" {
-  export PATH=/usr/bin:$PATH
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && go build -o /dev/null ./cmd/stun-tcctl"
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-tcctl"
   [ "$status" -eq 0 ]
 }
 

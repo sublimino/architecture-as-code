@@ -97,9 +97,9 @@ export default function AgentIdentityTab({
 
   // 6. Separation of Identity Planes & Delegation
   const ownerName = agent.responsibility?.owner_name || agent.owner
-  const authorizingPrincipal = identity?.authorizing_principal_id || ownerName || null
-  const executingActor = identity?.executing_actor_id || spiffeId || agent.id
-  const delegationHops = identity?.delegation_hops ?? (authorizingPrincipal ? 1 : 0)
+  const authorizingPrincipal = (identity as any)?.delegation?.authorizing_principal || identity?.authorizing_principal_id || ownerName || null
+  const executingActor = (identity as any)?.delegation?.executing_actor || identity?.executing_actor_id || spiffeId || agent.id
+  const delegationHops = identity?.delegation_hops ?? ((identity as any)?.delegation?.delegation_depth ?? (authorizingPrincipal ? 1 : 0))
 
   // 7. OpenBao & Key Custody
   const openbaoRole = identity?.openbao_role || `agent-trust-${serviceAccount !== '—' ? serviceAccount : agent.id}`

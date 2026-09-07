@@ -653,5 +653,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "CRKC-P3-2 verified: Rule SP-1 worktree Landlock confinement, nono profile, bin/agent-git wrapper, 21/21 probe harness pass, 36/36 BATS pass, runbook documented (commit 6aae8672)"
+  },
+  "d2121": {
+    "task_id": "d2121",
+    "reviewed_at": "2026-09-07T21:22:56Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P3-1 verified: Declarative CEL-to-Landlock policy compiler, Rule SP-4 non-Turing complete CEL checks, cross-tier semantic equivalence (95/95 probes), CLI (compile/validate/verify), Go unit tests and 6/6 BATS tests green (commit b02171ab)"
   }
 }

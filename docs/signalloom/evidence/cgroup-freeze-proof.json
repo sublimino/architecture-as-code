@@ -1,0 +1,114 @@
+{
+  "card": "CRKC-P1-2",
+  "harness": "scripts/test-cgroup-freezer.sh",
+  "overall": "pass",
+  "environment": {
+    "kernel": "7.1.3+deb13-amd64",
+    "node": "osramp-control-plane",
+    "cgroup_version": 2,
+    "freezer_is_core_interface": true
+  },
+  "target": {
+    "namespace": "crkc-freeze-test",
+    "pod": "crkc-cpu-burner",
+    "pod_uid": "b93f4c27-1f58-46a4-bc73-602a292cd1bf",
+    "cgroup_path": "/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-besteffort.slice/kubelet-kubepods-besteffort-podb93f4c27_1f58_46a4_bc73_602a292cd1bf.slice"
+  },
+  "measurements": {
+    "sample_window_seconds": 0.5,
+    "cpu_usec_running": 578938,
+    "cpu_usec_frozen": 0,
+    "cpu_usec_after_resume": 582309,
+    "freeze_latency_ms": 0.069379,
+    "deadline_ms": 50,
+    "cgroup_events_before": "populated 1;frozen 0;",
+    "cgroup_events_after": "populated 1;frozen 1;",
+    "frozen_task_states": "4060459:S/get_signal 4060497:S/get_signal "
+  },
+  "probes": {
+    "declared": 12,
+    "executed": 12,
+    "passed": 12,
+    "failed": 0,
+    "results": [
+      {
+        "probe": "P01-healthcheck-cgroup-writable",
+        "status": "pass",
+        "detail": "healthz={\"status\":\"ok\",\"cgroup_write\":true}"
+      },
+      {
+        "probe": "P02-cgroup-path-exists",
+        "status": "pass",
+        "detail": "expected /sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-besteffort.slice/kubelet-kubepods-besteffort-podb93f4c27_1f58_46a4_bc73_602a292cd1bf.slice"
+      },
+      {
+        "probe": "P03-baseline-cpu-burning",
+        "status": "pass",
+        "detail": "usage_usec delta over 0.5s = 578938"
+      },
+      {
+        "probe": "P04-pre-freeze-thawed",
+        "status": "pass",
+        "detail": "cgroup.events=populated 1;frozen 0;"
+      },
+      {
+        "probe": "P05-stun-returns-200",
+        "status": "pass",
+        "detail": "http_status=200"
+      },
+      {
+        "probe": "P06-daemon-resolved-expected-path",
+        "status": "pass",
+        "detail": "daemon=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-besteffort.slice/kubelet-kubepods-besteffort-podb93f4c27_1f58_46a4_bc73_602a292cd1bf.slice"
+      },
+      {
+        "probe": "P07-daemon-reports-frozen",
+        "status": "pass",
+        "detail": "frozen=true"
+      },
+      {
+        "probe": "P08-freeze-latency-under-50ms",
+        "status": "pass",
+        "detail": "latency_ms=0.069379"
+      },
+      {
+        "probe": "P09-kernel-reports-frozen-1",
+        "status": "pass",
+        "detail": "cgroup.events=populated 1;frozen 1;"
+      },
+      {
+        "probe": "P10-cpu-usage-drops-to-zero",
+        "status": "pass",
+        "detail": "usage_usec delta over 0.5s = 0 (was 578938)"
+      },
+      {
+        "probe": "P11-resume-without-credential-refused",
+        "status": "pass",
+        "detail": "http_status=403"
+      },
+      {
+        "probe": "P12-authorised-resume-restores-execution",
+        "status": "pass",
+        "detail": "frozen=false, usage_usec delta = 582309"
+      }
+    ]
+  },
+  "signal_loom_telemetry": {
+    "timestamp": "2026-09-07T19:18:12.749174545Z",
+    "event": "StunExecutionHalted",
+    "tier": "tier-0-kernel-execution-state",
+    "pod_uid": "b93f4c27-1f58-46a4-bc73-602a292cd1bf",
+    "pod": "crkc-cpu-burner",
+    "namespace": "crkc-freeze-test",
+    "cgroup_path": "/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-besteffort.slice/kubelet-kubepods-besteffort-podb93f4c27_1f58_46a4_bc73_602a292cd1bf.slice",
+    "frozen": true,
+    "latency_ms": 0.069379,
+    "deadline_ms": 50,
+    "polls": 1,
+    "pids": [
+      4060459,
+      4060497
+    ],
+    "pid_count": 2
+  }
+}

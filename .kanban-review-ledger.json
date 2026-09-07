@@ -478,5 +478,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SFAGENTS-P3-1 verified: FrostDB telemetry correlation endpoint /api/agents/{id}/telemetry side-effect-free, pushdown query filters (layer, source, limit), AgentActivityTab telemetry cards and filters, 64/64 BATS, 74/74 Pytest, 15/15 Vitest passing (commit 86d7352f)"
+  },
+  "816d5": {
+    "task_id": "816d5",
+    "reviewed_at": "2026-09-07T11:32:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P3-2 verified: eBPF Sentinel & Stun Containment Feedback, sentinel_ack, sentinel_drop_count, containment_probe_state, AgentAccessTab containment feedback, 68/68 BATS, 77/77 Pytest, 12/12 Vitest passing (commit a069ccde)"
   }
 }

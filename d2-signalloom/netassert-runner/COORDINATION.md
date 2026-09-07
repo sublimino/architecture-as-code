@@ -6,7 +6,9 @@ The parent integration owns manifests and suite content. This runtime requires:
 
 The `netassert-runner` ServiceAccount needs these read-only resolver permissions:
 
-- `list` pods in `fe-signalloom-agents` for label `signalloom.ai/agent=true`.
+- `list` pods in `fe-signalloom-agents` for the generic-agent selector.
+- `list` pods in `fe-signalloom-agents` for the SuperCred selector.
+- `list` pods in `ingress` for the owning-Gateway selector.
 - `get` each suite destination `pod` in its declared namespace.
 - `get` each suite destination `deployment`, `statefulset`, or `daemonset`.
 
@@ -16,12 +18,37 @@ ephemeral-container patching solely for resolver validation.
 
 ## Suite ConfigMap
 
-Mount the immutable suite as `/config/netassert-signalloom.yaml`. Agent source
-entries use the exact placeholder `name: agent-patsy`; the resolver writes only
-the substituted copy at `/work/netassert-run.yaml`. Each destination must use a
-`dst.k8sResource` of kind `pod`, `deployment`, `statefulset`, or `daemonset`.
+Mount the immutable suite as `/config/netassert-signalloom.yaml`. The resolver
+supports these fixed source placeholders and no caller-provided mappings:
+
+- `agent-patsy` → `fe-signalloom-agents`, `signalloom.ai/agent=true`.
+- `envoy-gateway-pod` → `ingress`, `gateway.envoyproxy.io/owning-gateway-name=cluster`.
+- `supercred-cardvault-agent-pod` → `fe-signalloom-agents`,
+  `app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true`.
+
+The SuperCred selector intentionally identifies the short-lived
+`supercred-agent-run-*` Job pod. No long-running equivalent exists. The
+`agent-cardvault` Deployment shares ServiceAccount `cardvault-agent` but lacks
+the SuperCred policy labels. The standalone `agent-cardvault` Pod has the
+SuperCred label but uses the default ServiceAccount and a different application
+label. Either substitution would test a different identity and NetworkPolicy.
+
+The resolver writes only the substituted copy at `/work/netassert-run.yaml`.
+Each destination must use a `dst.k8sResource` of kind `pod`, `deployment`,
+`statefulset`, or `daemonset`.
 Unsupported or unavailable destinations fail the Job before Netassert runs, so
 an expected connection failure cannot be presented as policy-denial evidence.
+
+## TAP validator
+
+`/usr/local/bin/validate-tap.sh TAP_FILE` accepts Netassert TAP version 14 only
+when it has exactly one positive plan, one uniquely numbered result per plan
+entry, no out-of-plan numbering, no malformed top-level records, and no
+bailout. Complete `not ok` assertions are valid TAP and retain Netassert's exit
+status `1`; absent or structurally invalid TAP changes the Job status to `2`.
+The controller's fixed command prints the marker and TAP before validation
+affects completion. GitOps should invoke scans through the controller only;
+there is no supported host-side runner bypass.
 
 ## Pinned helper images
 

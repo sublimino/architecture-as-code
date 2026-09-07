@@ -162,8 +162,18 @@ class ScanTest(ControllerServerTestCase):
         shell = container["command"][2]
         self.assertIn(server.NETASSERT_TAP_MARKER, shell)
         self.assertIn("cat /work/results.tap", shell)
+        self.assertIn("/usr/local/bin/validate-tap.sh /work/results.tap", shell)
+        self.assertIn("status=2", shell)
         self.assertIn("exit ${status}", shell)
         self.assertNotIn("|| true", shell)
+        self.assertLess(shell.index("netassert run"), shell.index("validate-tap.sh"))
+        self.assertLess(shell.index("validate-tap.sh"), shell.index("exit ${status}"))
+
+    def test_fixed_job_distinguishes_assertion_failure_from_invalid_execution(self):
+        shell = server._netassert_job_manifest()["spec"]["template"]["spec"]["containers"][0]["command"][2]
+        self.assertIn("|| status=$?", shell)
+        self.assertIn("if ! /usr/local/bin/validate-tap.sh", shell)
+        self.assertIn("status=2", shell)
 
     def test_fixed_job_pins_ephemeral_runner_images_by_digest(self):
         shell = server._netassert_job_manifest()["spec"]["template"]["spec"]["containers"][0]["command"][2]

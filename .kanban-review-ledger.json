@@ -436,5 +436,19 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SFAGENTS-P2-3 verified: Tab 3 Access and Containment integration, AgentAccessTab.tsx, 3 containment tracks, eBPF Sentinel, server-authorized capabilities, 35/35 BATS, Vitest, and Pytest green (commit d6e36c79)"
+  },
+  "a76e5": {
+    "task_id": "a76e5",
+    "reviewed_at": "2026-09-07T09:33:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-4 verified: Tab 4 Assessments & Control Ratios, AgentAssessmentsTab.tsx, 4 StatCards, Article 9 breakdown, 49/49 BATS, Vitest, and Pytest green (commit 27381b4f)"
+  },
+  "9826c": {
+    "task_id": "9826c",
+    "reviewed_at": "2026-09-07T09:37:00.000Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SFAGENTS-P2-5 verified: Tab 5 Activity and Attributable Timeline, AgentActivityTab.tsx, 4 StatCards, SSE stream, identity plane separation, 57/57 BATS, Vitest, and Pytest green (commit f55397ca)"
   }
 }

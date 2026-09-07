@@ -33,13 +33,13 @@ class TestJWKClient:
 def token_for(
     subject: str = "alice",
     *,
+    email: str | None = None,
     issuer: str = "https://issuer.test/dex",
     audience: str = "signalloom-api",
     authorized_party: str = "signalloom-dashboard",
 ) -> str:
     now = int(time.time())
-    return jwt.encode(
-        {
+    claims = {
             "iss": issuer,
             "aud": audience,
             "iat": now,
@@ -47,7 +47,11 @@ def token_for(
             "exp": now + 300,
             "azp": authorized_party,
             "sub": subject,
-        },
+        }
+    if email is not None:
+        claims["email"] = email
+    return jwt.encode(
+        claims,
         TEST_SIGNING_KEY,
         algorithm="RS256",
         headers={"kid": "test-key", "typ": "JWT"},
@@ -254,6 +258,32 @@ def test_network_tests_scan_denies_an_ordinary_authenticated_principal(monkeypat
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "superadmin_required"
+
+
+def test_network_tests_scan_does_not_trust_an_allowlisted_unverified_email(monkeypatch):
+    class MustNotReachProxy:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("an email claim must not authorize a network scan")
+
+    token = token_for("alice", email="demo-user@signalloom.local")
+    with client_for(monkeypatch, MustNotReachProxy) as client:
+        monkeypatch.setattr(settings, "api_superadmin_emails", {"demo-user@signalloom.local"})
+        response = client.post("/api/network-tests/scan", headers=bearer(token))
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "superadmin_required"
+
+
+def test_authenticated_principal_propagates_subject_and_email_claims(monkeypatch):
+    class UnusedAsyncClient:
+        pass
+
+    token = token_for("alice", email="alice@example.test")
+    with client_for(monkeypatch, UnusedAsyncClient):
+        principal = api_compat.authenticated_principal(f"Bearer {token}")
+
+    assert principal.subject == "alice"
+    assert principal.email == "alice@example.test"
 
 
 def test_network_tests_scan_denies_an_unauthenticated_caller(monkeypatch):

@@ -2129,6 +2129,17 @@ def _superadmin_principal(
     return principal
 
 
+def _network_scan_principal(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> Principal:
+    """Require a configured JWT subject; unverified email is insufficient."""
+    from superadmin import is_superadmin_subject
+
+    if not is_superadmin_subject(principal):
+        raise APIError(403, "superadmin_required", "Superadmin access is required")
+    return principal
+
+
 @router.get("/network-tests", response_model=NetworkTestListResponse, responses=ERROR_RESPONSES)
 async def network_tests(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
@@ -2163,7 +2174,7 @@ async def network_tests(
 
 @router.post("/network-tests/scan", response_model=NetworkTestScanResponse, responses=ERROR_RESPONSES)
 async def network_tests_scan(
-    principal: Annotated[Principal, Depends(_superadmin_principal)],
+    principal: Annotated[Principal, Depends(_network_scan_principal)],
 ) -> JSONResponse:
     del principal
     try:

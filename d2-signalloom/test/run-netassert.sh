@@ -4,6 +4,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config="${NETASSERT_CONFIG:-${here}/netassert-signalloom.yaml}"
 NETASSERT_TAP_MARKER="----NETASSERT-TAP-RESULTS----"
+NETASSERT_OBSERVATION_GRACE_SECONDS=30
+NETASSERT_MAX_CI_WAIT_SECONDS=600
 # shellcheck source=scripts/lib/wait.sh
 source "${here}/../../scripts/lib/wait.sh"
 
@@ -59,6 +61,18 @@ validate_tap_file() {
     fail "invalid Netassert TAP: $detail"
   fi
 }
+
+derive_job_wait_budget() {
+  local deadline="$1" budget
+  [[ "$deadline" =~ ^[1-9][0-9]*$ ]] || return 1
+  budget=$((deadline + NETASSERT_OBSERVATION_GRACE_SECONDS))
+  (( budget <= NETASSERT_MAX_CI_WAIT_SECONDS )) || return 1
+  printf '%s\n' "$budget"
+}
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
 
 if [[ "${1:-}" == "--validate-tap" ]]; then
   [[ $# -eq 2 && -f "$2" ]] || fail "--validate-tap requires one readable file"
@@ -153,7 +167,12 @@ curl -fsS -X POST http://127.0.0.1:18082/scan >/dev/null \
 
 wait_k8s_exists job netassert-run -n fe-signalloom 30 >/dev/null \
   || fail "controller did not create job/netassert-run"
-_wait_retry 120 "job/netassert-run terminal condition" \
+job_deadline="$(kubectl get job/netassert-run -n fe-signalloom \
+  -o jsonpath='{.spec.activeDeadlineSeconds}' 2>/dev/null)" \
+  || fail "job/netassert-run activeDeadlineSeconds cannot be read"
+job_wait_budget="$(derive_job_wait_budget "$job_deadline")" \
+  || fail "job/netassert-run activeDeadlineSeconds is missing, invalid, or exceeds the ${NETASSERT_MAX_CI_WAIT_SECONDS}s CI budget after ${NETASSERT_OBSERVATION_GRACE_SECONDS}s grace"
+_wait_retry "$job_wait_budget" "job/netassert-run terminal condition" \
   "kubectl get job/netassert-run -n fe-signalloom -o json | yq -p=json -e '(.status.conditions // []) | any_c(.status == \"True\" and (.type == \"Complete\" or .type == \"Failed\"))' >/dev/null" \
   || fail "job/netassert-run did not reach a terminal Complete or Failed condition"
 

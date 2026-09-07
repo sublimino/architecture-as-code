@@ -91,6 +91,7 @@ class ScanTest(ControllerServerTestCase):
         namespace, manifest = state.created[0]
         self.assertEqual(server.NETASSERT_JOB_NAMESPACE, namespace)
         self.assertEqual(server.NETASSERT_JOB_NAME, manifest["metadata"]["name"])
+        self.assertEqual(300, manifest["spec"]["activeDeadlineSeconds"])
         self.assertEqual(0, len(state.deleted))
 
     def test_scan_ignores_the_request_body_entirely(self):

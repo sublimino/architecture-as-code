@@ -24,5 +24,6 @@ FROM alpine:3.20
 RUN apk add --no-cache curl jq yq
 COPY --from=fetch /usr/local/bin/netassert /usr/local/bin/netassert
 COPY netassert-runner/resolve-agent-pod.sh /usr/local/bin/resolve-agent-pod.sh
-RUN chmod +x /usr/local/bin/resolve-agent-pod.sh
+COPY netassert-runner/validate-tap.sh /usr/local/bin/validate-tap.sh
+RUN chmod +x /usr/local/bin/resolve-agent-pod.sh /usr/local/bin/validate-tap.sh
 ENTRYPOINT ["/usr/local/bin/netassert"]

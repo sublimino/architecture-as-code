@@ -13,10 +13,12 @@ import os
 import re
 import ssl
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
+from pathlib import Path
 from urllib import error, request
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -136,11 +138,9 @@ TRUST_PROBE_EDGES = {
 
 # ── Network tests (netassert) ────────────────────────────────────────────────
 #
-# NETWORK_TEST_DEFINITIONS mirrors d2-signalloom/test/netassert-signalloom.yaml
-# 1:1 (kept in sync by hand — the same trade-off already accepted for
-# CRYPTO_PROOF_DEFINITIONS above; this process has no YAML dependency). It is
-# the catalogue GET /network-tests always returns; live per-test status is
-# layered on top from the most recent netassert-run Job's TAP output.
+# network-test-catalogue.json is generated from the canonical NetAssert suite.
+# Both the runtime projection and browser acceptance test consume this one
+# artefact; the policy-coverage owner mechanically compares it with the suite.
 #
 # The Job itself runs the real `netassert` CLI (github.com/controlplaneio/
 # netassert) via Kubernetes ephemeral containers injected into the ALREADY
@@ -168,74 +168,83 @@ NETASSERT_CONTROLLER_URL = os.environ.get(
     "http://netassert-controller.inf-signalloom.svc.cluster.local:8080/scan",
 )
 
-NETWORK_TEST_DEFINITIONS: tuple[dict[str, object], ...] = (
-    {"name": "dashboard-to-api-allowed", "expectedExit": 0, "targetPort": 8000,
-     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
-     "dst": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
-     "description": "Dashboard to API backend (nginx /api proxy)"},
-    {"name": "dashboard-to-dex-allowed", "expectedExit": 0, "targetPort": 5556,
-     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
-     "dst": {"namespace": "inf-signalloom", "name": "dex"},
-     "description": "Dashboard to Dex (OIDC discovery/auth/token)"},
-    {"name": "api-to-postgresql-allowed", "expectedExit": 0, "targetPort": 5432,
-     "src": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
-     "dst": {"namespace": "inf-signalloom", "name": "postgresql"},
-     "description": "API to PostgreSQL (persistence)"},
-    {"name": "api-to-redis-allowed", "expectedExit": 0, "targetPort": 6379,
-     "src": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
-     "dst": {"namespace": "inf-signalloom", "name": "redis"},
-     "description": "API to Redis (cache)"},
-    {"name": "api-to-minio-allowed", "expectedExit": 0, "targetPort": 9000,
-     "src": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
-     "dst": {"namespace": "inf-signalloom", "name": "minio"},
-     "description": "API to MinIO (report storage)"},
-    {"name": "agents-to-api-denied", "expectedExit": 1, "targetPort": 8000,
-     "src": {"namespace": "fe-signalloom-agents", "name": "agent-patsy"},
-     "dst": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
-     "description": "Agent pods MUST NOT reach the API backend directly"},
-    {"name": "agents-to-dashboard-denied", "expectedExit": 1, "targetPort": 8080,
-     "src": {"namespace": "fe-signalloom-agents", "name": "agent-patsy"},
-     "dst": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
-     "description": "Agent pods MUST NOT reach the dashboard"},
-    {"name": "agents-to-postgresql-denied", "expectedExit": 1, "targetPort": 5432,
-     "src": {"namespace": "fe-signalloom-agents", "name": "agent-patsy"},
-     "dst": {"namespace": "inf-signalloom", "name": "postgresql"},
-     "description": "Agent pods MUST NOT reach PostgreSQL directly"},
-    {"name": "dashboard-to-postgresql-denied", "expectedExit": 1, "targetPort": 5432,
-     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
-     "dst": {"namespace": "inf-signalloom", "name": "postgresql"},
-     "description": "Dashboard MUST NOT reach PostgreSQL directly (only via API)"},
-    {"name": "dashboard-to-redis-denied", "expectedExit": 1, "targetPort": 6379,
-     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
-     "dst": {"namespace": "inf-signalloom", "name": "redis"},
-     "description": "Dashboard MUST NOT reach Redis directly"},
+def _load_network_test_catalogue() -> tuple[dict[str, object], ...]:
+    path = Path(__file__).with_name("network-test-catalogue.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("assertions"), list):
+        raise ValueError("network test catalogue must use the generated schema")
+    assertions = payload["assertions"]
+    if len(assertions) != 26:
+        raise ValueError("network test catalogue must contain exactly 26 assertions")
+    names = [item.get("id") for item in assertions if isinstance(item, dict)]
+    if len(names) != len(assertions) or len(set(names)) != len(names):
+        raise ValueError("network test catalogue names must be unique objects")
+    return tuple(assertions)
+
+
+NETWORK_TEST_CATALOGUE = _load_network_test_catalogue()
+NETWORK_TEST_DEFINITIONS: tuple[dict[str, object], ...] = tuple(
+    {
+        "name": item["id"],
+        "expectedExit": item["expectedExitCode"],
+        "targetPort": item["port"],
+        "src": {"namespace": item["source"]["namespace"], "name": item["source"]["name"]},
+        "dst": {"namespace": item["destination"]["namespace"], "name": item["destination"]["name"]},
+        "description": str(item["id"]).replace("-", " "),
+    }
+    for item in NETWORK_TEST_CATALOGUE
 )
 
-_TAP_LINE = re.compile(r"^(ok|not ok)\s+\d+\s*-\s*(.+?)\s*$")
+_TAP_LINE = re.compile(r"^(ok|not ok)\s+(\d+)\s*-\s*(.+?)\s*$")
+_TAP_PLAN = re.compile(r"^1\.\.(\d+)\s*$")
 
 
-def _parse_tap_results(log_text: str) -> dict[str, str]:
-    """Map test name -> 'pass'/'fail' from netassert's TAP (-t) output.
+@dataclass(frozen=True)
+class TapResults:
+    valid: bool
+    results: dict[str, str]
+    error: str | None = None
 
-    The Job's container prints the TAP file to its own log after
-    NETASSERT_TAP_MARKER (see _netassert_job_manifest), so a plain pod-log
-    fetch is enough to read results — no artifact store needed. TAP lines look
-    like `ok 1 - dashboard-to-api-allowed` / `not ok 2 - some-test`.
-    """
-    results: dict[str, str] = {}
-    marker_seen = False
-    for line in log_text.splitlines():
-        if NETASSERT_TAP_MARKER in line:
-            marker_seen = True
+
+def _parse_tap_results(log_text: str) -> TapResults:
+    """Accept results only when the complete TAP document is self-consistent."""
+    after_marker = log_text.partition(NETASSERT_TAP_MARKER)
+    if not after_marker[1]:
+        return TapResults(False, {}, "TAP marker is missing")
+
+    plan: int | None = None
+    numbered: dict[int, tuple[str, str]] = {}
+    names: set[str] = set()
+    for raw_line in after_marker[2].splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line == "TAP version 13":
             continue
-        if not marker_seen:
+        if line.lower().startswith("bail out!"):
+            return TapResults(False, {}, "TAP bailout reported")
+        plan_match = _TAP_PLAN.match(line)
+        if plan_match:
+            if plan is not None:
+                return TapResults(False, {}, "duplicate TAP plan")
+            plan = int(plan_match.group(1))
             continue
-        match = _TAP_LINE.match(line.strip())
-        if match is None:
-            continue
-        outcome, name = match.groups()
-        results[name] = "pass" if outcome == "ok" else "fail"
-    return results
+        assertion = _TAP_LINE.match(line)
+        if assertion is None:
+            return TapResults(False, {}, f"malformed TAP line: {line}")
+        outcome, number_text, name = assertion.groups()
+        number = int(number_text)
+        if number in numbered or name in names:
+            return TapResults(False, {}, "duplicate TAP assertion")
+        numbered[number] = (name, "pass" if outcome == "ok" else "fail")
+        names.add(name)
+
+    if plan is None:
+        return TapResults(False, {}, "TAP plan is missing")
+    if sorted(numbered) != list(range(1, plan + 1)):
+        return TapResults(False, {}, "TAP assertion rows do not match the plan")
+    expected_names = {str(definition["name"]) for definition in NETWORK_TEST_DEFINITIONS}
+    if plan != len(expected_names) or names != expected_names:
+        return TapResults(False, {}, "TAP assertions do not match the network test catalogue")
+    return TapResults(True, {name: outcome for name, outcome in numbered.values()})
 
 
 def redact(value: object, key: str = "") -> object:
@@ -1580,13 +1589,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         definition: dict[str, object],
         job: object,
         pods: list[object],
-        tap_results: dict[str, str],
+        tap: TapResults,
     ) -> tuple[str, str]:
         name = definition["name"]
-        if name in tap_results:
-            outcome = tap_results[name]
-            tap_line = "ok" if outcome == "pass" else "not ok"
-            return outcome, f"netassert TAP: {tap_line} - {name}"
         if not isinstance(job, dict):
             return "pending", "no scan has been run yet"
         pod_error = _pod_error_evidence(pods)
@@ -1595,9 +1600,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
         status = job.get("status")
         if isinstance(status, dict) and _job_status_count(status, "active") >= 1:
             return "running", "scan in progress"
-        if isinstance(status, dict) and (
-            _job_has_condition(status, "Complete") or _job_has_condition(status, "Failed")
-        ):
+        if isinstance(status, dict) and _job_has_condition(status, "Failed"):
+            return "error", "scan Job failed; partial TAP output is not evidence"
+        if isinstance(status, dict) and _job_has_condition(status, "Complete"):
+            if not tap.valid:
+                return "error", f"scan produced unavailable evidence: {tap.error}"
+            if name in tap.results:
+                outcome = tap.results[name]
+                tap_line = "ok" if outcome == "pass" else "not ok"
+                return outcome, f"netassert TAP: {tap_line} - {name}"
             return "error", "scan finished but produced no result for this test — check Job logs"
         return "pending", _pod_phase_evidence(pods) if pods else "job not found in namespace"
 
@@ -1627,7 +1638,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         job = _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
         pods: list[object] = []
-        tap_results: dict[str, str] = {}
+        tap_documents: list[TapResults] = []
         last_run: str | None = None
         if job is not None:
             pods = _list_job_pods(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
@@ -1643,16 +1654,25 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     log_text = _fetch_kubernetes_text(log_url, token, context)
                 except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError):
                     continue
-                tap_results.update(_parse_tap_results(log_text))
+                tap_documents.append(_parse_tap_results(log_text))
             status = job.get("status")
             if isinstance(status, dict):
                 start_time = status.get("startTime")
                 if isinstance(start_time, str):
                     last_run = start_time
 
+        valid_documents = [document for document in tap_documents if document.valid]
+        if len(valid_documents) == 1:
+            tap = valid_documents[0]
+        elif len(valid_documents) > 1:
+            tap = TapResults(False, {}, "multiple complete TAP documents found")
+        else:
+            errors = [document.error for document in tap_documents if document.error]
+            tap = TapResults(False, {}, errors[0] if errors else "TAP output is missing")
+
         tests = []
         for definition in NETWORK_TEST_DEFINITIONS:
-            result, evidence = self._network_test_result(definition, job, pods, tap_results)
+            result, evidence = self._network_test_result(definition, job, pods, tap)
             tests.append({**definition, "result": result, "evidence": evidence, "lastRun": last_run})
 
         self._json(

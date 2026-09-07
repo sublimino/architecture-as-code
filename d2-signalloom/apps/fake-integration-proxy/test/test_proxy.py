@@ -648,13 +648,75 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         self.assertIn("dashboard-to-api-allowed", names)
         self.assertIn("agents-to-postgresql-denied", names)
 
-    def test_get_maps_tap_output_to_pass_and_fail_per_test(self):
-        tap = (
-            "TAP version 13\n"
-            "1..2\n"
-            "ok 1 - dashboard-to-api-allowed\n"
-            "not ok 2 - dashboard-to-postgresql-denied\n"
+    def test_catalogue_contains_the_latest_canonical_suite_metadata(self):
+        self.assertEqual(26, len(server.NETWORK_TEST_DEFINITIONS))
+        by_name = {test["id"]: test for test in server.NETWORK_TEST_CATALOGUE}
+        self.assertEqual(
+            {
+                "kind": "deployment",
+                "name": "coredns",
+                "namespace": "kube-system",
+            },
+            by_name["supercred-runner-to-dns-tcp-allowed"]["destination"],
         )
+        self.assertEqual(53, by_name["supercred-runner-to-dns-udp-allowed"]["port"])
+        self.assertEqual(1, by_name["supercred-runner-to-policy-engine-denied"]["expectedExitCode"])
+
+    def test_tap_parser_accepts_a_complete_document_with_not_ok_failure(self):
+        rows = []
+        for number, definition in enumerate(server.NETWORK_TEST_DEFINITIONS, start=1):
+            outcome = "not ok" if definition["name"] == "dashboard-to-postgresql-denied" else "ok"
+            rows.append(f"{outcome} {number} - {definition['name']}")
+        parsed = server._parse_tap_results(
+            f"{server.NETASSERT_TAP_MARKER}\nTAP version 13\n1..{len(rows)}\n"
+            + "\n".join(rows)
+            + "\n"
+        )
+        self.assertTrue(parsed.valid)
+        self.assertEqual("pass", parsed.results["dashboard-to-api-allowed"])
+        self.assertEqual("fail", parsed.results["dashboard-to-postgresql-denied"])
+
+    def test_tap_parser_rejects_plan_only_document(self):
+        parsed = server._parse_tap_results(f"{server.NETASSERT_TAP_MARKER}\nTAP version 13\n1..2\n")
+        self.assertFalse(parsed.valid)
+        self.assertEqual({}, parsed.results)
+
+    def test_tap_parser_rejects_truncated_document(self):
+        parsed = server._parse_tap_results(
+            f"{server.NETASSERT_TAP_MARKER}\n1..2\nok 1 - dashboard-to-api-allowed\n"
+        )
+        self.assertFalse(parsed.valid)
+        self.assertEqual({}, parsed.results)
+
+    def test_tap_parser_rejects_a_self_consistent_plan_smaller_than_the_catalogue(self):
+        parsed = server._parse_tap_results(
+            f"{server.NETASSERT_TAP_MARKER}\n1..1\nok 1 - dashboard-to-api-allowed\n"
+        )
+        self.assertFalse(parsed.valid)
+        self.assertEqual({}, parsed.results)
+
+    def test_tap_parser_rejects_duplicate_assertion_numbers(self):
+        parsed = server._parse_tap_results(
+            f"{server.NETASSERT_TAP_MARKER}\n1..2\nok 1 - dashboard-to-api-allowed\n"
+            "ok 1 - dashboard-to-dex-allowed\n"
+        )
+        self.assertFalse(parsed.valid)
+        self.assertEqual({}, parsed.results)
+
+    def test_tap_parser_rejects_trailing_bailout(self):
+        parsed = server._parse_tap_results(
+            f"{server.NETASSERT_TAP_MARKER}\n1..1\nok 1 - dashboard-to-api-allowed\n"
+            "Bail out! runner crashed\n"
+        )
+        self.assertFalse(parsed.valid)
+        self.assertEqual({}, parsed.results)
+
+    def test_get_maps_tap_output_to_pass_and_fail_per_test(self):
+        rows = []
+        for number, definition in enumerate(server.NETWORK_TEST_DEFINITIONS, start=1):
+            outcome = "not ok" if definition["name"] == "dashboard-to-postgresql-denied" else "ok"
+            rows.append(f"{outcome} {number} - {definition['name']}")
+        tap = f"TAP version 13\n1..{len(rows)}\n" + "\n".join(rows) + "\n"
         log = f"some netassert log noise\n{server.NETASSERT_TAP_MARKER}\n{tap}"
         job = {"status": {"succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}}
         self.install(job=job, pod_logs={"netassert-run-abcde": log})
@@ -665,9 +727,7 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         by_name = {t["name"]: t for t in body["tests"]}
         self.assertEqual("pass", by_name["dashboard-to-api-allowed"]["result"])
         self.assertEqual("fail", by_name["dashboard-to-postgresql-denied"]["result"])
-        # Tests absent from the TAP output but with a finished job read as
-        # errors rather than silently staying "pending" forever.
-        self.assertEqual("error", by_name["api-to-redis-allowed"]["result"])
+        self.assertEqual("pass", by_name["api-to-redis-allowed"]["result"])
 
     def test_get_reports_running_while_the_job_is_still_active(self):
         job = {"status": {"active": 1}}
@@ -676,6 +736,18 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         self.assertEqual(200, status)
         self.assertEqual("running", body["scanStatus"])
         self.assertTrue(all(t["result"] == "running" for t in body["tests"]))
+
+    def test_failed_job_with_partial_pass_never_reports_a_pass(self):
+        job = {"status": {"failed": 1, "conditions": [{"type": "Failed", "status": "True"}]}}
+        tap = f"{server.NETASSERT_TAP_MARKER}\n1..1\nok 1 - dashboard-to-api-allowed\n"
+        self.install(job=job, pod_logs={"netassert-run-abcde": tap})
+
+        status, body = self.request("GET", "/network-tests")
+
+        self.assertEqual(200, status)
+        self.assertEqual("failed", body["scanStatus"])
+        self.assertFalse(any(test["result"] == "pass" for test in body["tests"]))
+        self.assertTrue(all(test["result"] == "error" for test in body["tests"]))
 
     def test_completed_job_with_malformed_tap_never_fabricates_a_pass(self):
         job = {"status": {"succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}}
@@ -686,6 +758,17 @@ class NetworkTestsTestCase(ProxyServerTestCase):
 
         self.assertEqual(200, status)
         self.assertEqual("complete", body["scanStatus"])
+        self.assertTrue(all(test["result"] == "error" for test in body["tests"]))
+        self.assertFalse(any(test["result"] == "pass" for test in body["tests"]))
+
+    def test_completed_job_with_shrunk_plan_never_fabricates_a_pass(self):
+        job = {"status": {"succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}}
+        truncated = f"{server.NETASSERT_TAP_MARKER}\n1..1\nok 1 - dashboard-to-api-allowed\n"
+        self.install(job=job, pod_logs={"netassert-run-abcde": truncated})
+
+        status, body = self.request("GET", "/network-tests")
+
+        self.assertEqual(200, status)
         self.assertTrue(all(test["result"] == "error" for test in body["tests"]))
         self.assertFalse(any(test["result"] == "pass" for test in body["tests"]))
 

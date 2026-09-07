@@ -1,5 +1,23 @@
 import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { config, login } from "./helpers";
+
+interface CatalogueEntry {
+  id: string;
+  port: number;
+  expectedExitCode: number;
+  source: { kind: string; name: string; namespace: string };
+  destination: { kind: string; name: string; namespace: string };
+}
+
+const cataloguePath = resolve(
+  __dirname,
+  "../../d2-signalloom/apps/fake-integration-proxy/network-test-catalogue.json",
+);
+const expectedCatalogue = (
+  JSON.parse(readFileSync(cataloguePath, "utf8")) as { assertions: CatalogueEntry[] }
+).assertions;
 
 test.describe("Network security SUPER ADMIN boundary", () => {
   test("an unauthenticated direct route follows the product login boundary", async ({ page }) => {
@@ -23,8 +41,33 @@ test.describe("Network security SUPER ADMIN boundary", () => {
 
       const response = await resultsResponse;
       expect(response.status()).toBe(200);
-      const payload = (await response.json()) as { tests: Array<{ name: string }> };
-      expect(payload.tests.length).toBeGreaterThan(0);
+      const payload = (await response.json()) as {
+        tests: Array<{
+          name: string;
+          targetPort: number;
+          expectedExit: number;
+          src: { name: string; namespace: string };
+          dst: { name: string; namespace: string };
+        }>;
+      };
+      expect(payload.tests).toHaveLength(26);
+      expect(
+        payload.tests.map(({ name, targetPort, expectedExit, src, dst }) => ({
+          name,
+          targetPort,
+          expectedExit,
+          src,
+          dst,
+        })),
+      ).toEqual(
+        expectedCatalogue.map(({ id, port, expectedExitCode, source, destination }) => ({
+          name: id,
+          targetPort: port,
+          expectedExit: expectedExitCode,
+          src: { name: source.name, namespace: source.namespace },
+          dst: { name: destination.name, namespace: destination.namespace },
+        })),
+      );
       for (const networkTest of payload.tests) {
         await expect(page.getByText(networkTest.name, { exact: true })).toBeVisible();
       }

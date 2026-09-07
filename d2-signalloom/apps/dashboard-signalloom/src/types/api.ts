@@ -148,6 +148,8 @@ export interface AgentResponse {
   id: string
   name: string
   type: string | null
+  origin?: string | null
+  origin_verification?: OriginVerificationMetadata | null
   owner?: string | null
   tenant_id: string
   lifecycle_state: string
@@ -195,6 +197,18 @@ export interface SourceHealthDetail {
   status: 'healthy' | 'degraded' | 'error' | 'unavailable'
   last_good?: string | null
   message?: string | null
+}
+
+export interface OriginVerificationMetadata {
+  verified: boolean
+  origin_type: 'kubernetes_workload' | 'registered_catalog' | 'external_proxy' | 'custom' | 'unknown'
+  auth_method: 'jwt_bearer' | 'spiffe_svid' | 'mtls' | 'none'
+  issuer?: string | null
+  subject?: string | null
+  validated_at?: string | null
+  status: 'verified' | 'unverified' | 'failed' | 'unsupported'
+  proxy_path?: string | null
+  source_health?: SourceHealthDetail | null
 }
 
 export interface SourceHealthMap {

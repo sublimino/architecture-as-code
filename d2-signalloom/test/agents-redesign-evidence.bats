@@ -364,4 +364,35 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "sfagents-p3-4: GET /api/agents/{id} returns origin and origin_verification side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_detail_returns_origin_and_verification_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-4: GET /api/agents/{id}/origin-verification returns OriginVerificationMetadata in Pytest" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_origin_verification_endpoint_for_db_agent'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-4: GET /api/agents/{id}/origin-verification fails closed with 404 for unknown agent" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_origin_verification_404_for_unknown_agent'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-4: GET /api/agents/{id}/origin-verification is strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_origin_verification_strictly_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-4: Tab 2 Identity renders Live Authenticated Origin Verification panel and status in Vitest" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentIdentityTab.test.tsx -t 'Live Authenticated Origin Verification'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-4: database migration 034 exists and declares agent_origin_verifications table" {
+  [ -f "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/src/db/migrations/034_agent_origin_verification.sql" ]
+  run grep -E "CREATE TABLE IF NOT EXISTS public\.agent_origin_verifications" "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/src/db/migrations/034_agent_origin_verification.sql"
+  [ "$status" -eq 0 ]
+}
+
 

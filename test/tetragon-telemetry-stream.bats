@@ -36,7 +36,7 @@ setup() {
 
 @test "tetragon manifest: exists and is valid YAML" {
   [ -f "$MANIFEST" ]
-  run python3 -c "import sys,yaml; list(yaml.safe_load_all(open(sys.argv[1])))" "$MANIFEST"
+  run yq eval-all '.' "$MANIFEST"
   [ "$status" -eq 0 ]
 }
 
@@ -72,17 +72,17 @@ setup() {
 @test "tetragon manifest: every TracingPolicy is namespace-scoped" {
   policies="$(grep -c 'kind: TracingPolicyNamespaced' "$MANIFEST")"
 
-  run python3 - "$MANIFEST" <<'PY'
-import sys, yaml
-docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
-policies = [d for d in docs if d.get("kind") == "TracingPolicyNamespaced"]
-unscoped = [d["metadata"].get("name") for d in policies
-            if not d.get("metadata", {}).get("namespace")]
+  run bash -c "yq eval-all -o=json '[.]' '$MANIFEST' | python3 -c '
+import sys, json
+docs = json.load(sys.stdin)
+policies = [d for d in docs if d.get(\"kind\") == \"TracingPolicyNamespaced\"]
+unscoped = [d[\"metadata\"].get(\"name\") for d in policies
+            if not d.get(\"metadata\", {}).get(\"namespace\")]
 if unscoped:
-    print("UNSCOPED:", unscoped)
+    print(\"UNSCOPED:\", unscoped)
     sys.exit(1)
-print(f"OK {len(policies)} namespaced policies")
-PY
+print(f\"OK {len(policies)} namespaced policies\")
+'"
   [ "$status" -eq 0 ]
   [[ "$output" =~ "OK ${policies} namespaced policies" ]]
 }
@@ -103,11 +103,11 @@ PY
 # ---------------------------------------------------------------------------
 
 # forbidden_verb_scan walks every parsed document and prints one line per
-# violation. Comments are invisible to it because yaml.safe_load_all discards
+# violation. Comments are invisible to it because yaml/json parser discards
 # them; string values are visible because a matchAction is a string value.
 forbidden_verb_scan() {
-  python3 - "$1" <<'PY'
-import sys, yaml
+  yq eval-all -o=json '[.]' "$1" | python3 -c '
+import sys, json
 
 FORBIDDEN = {"sigkill", "override", "notifyenforcer", "signal", "post"}
 ACTION_KEYS = {"action", "matchactions"}
@@ -132,7 +132,7 @@ def walk(node, path):
         for i, v in enumerate(node):
             walk(v, f"{path}[{i}]")
 
-docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+docs = [d for d in json.load(sys.stdin) if d]
 if not docs:
     print("NO_DOCUMENTS_PARSED")
     sys.exit(2)
@@ -143,7 +143,7 @@ for d in docs:
 for v in violations:
     print("VIOLATION:", v)
 print(f"SCANNED {len(docs)} documents, {len(violations)} violations")
-PY
+'
 }
 
 @test "tetragon manifest anti: no enforcement verb at any action key in any document" {
@@ -211,14 +211,14 @@ YAML
   run grep -q '/var/run/cilium/tetragon/tetragon.sock' "$HELM_VALUES"
   [ "$status" -eq 0 ]
 
-  run python3 - "$HELM_VALUES" <<'PY'
-import sys, yaml
-v = yaml.safe_load(open(sys.argv[1]))
-assert v["rthooks"]["enabled"] is False, "rthooks must be disabled"
-assert v["tetragon"]["grpc"]["enabled"] is True, "grpc export must be enabled"
-assert v["tetragon"]["enablePolicyFilterCgroupMap"] is False, "cgroup map must stay off"
-print("OK")
-PY
+  run bash -c "yq -o=json '.' '$HELM_VALUES' | python3 -c '
+import sys, json
+v = json.load(sys.stdin)
+assert v[\"rthooks\"][\"enabled\"] is False, \"rthooks must be disabled\"
+assert v[\"tetragon\"][\"grpc\"][\"enabled\"] is True, \"grpc export must be enabled\"
+assert v[\"tetragon\"][\"enablePolicyFilterCgroupMap\"] is False, \"cgroup map must stay off\"
+print(\"OK\")
+'"
   [ "$status" -eq 0 ]
   [[ "$output" =~ "OK" ]]
 }

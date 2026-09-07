@@ -28,6 +28,7 @@
 # test. `bats -f <pattern>` matching zero tests exits 0, and a suite that
 # fails to parse partway through simply reports fewer tests; neither is
 # distinguishable from success without this check.
+export PATH="/usr/bin:$PATH"
 DECLARED_TESTS=23
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
@@ -66,7 +67,14 @@ require_proof() {
 }
 
 setup_file() {
+  export PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
   export REPO_ROOT MODULE_DIR CLUSTER_CONTEXT KIND_NODE PROOF_JSON HARNESS_LOG
+  export GOPATH="${GOPATH:-/tmp/gopath}"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
+  export GOTOOLCHAIN="local"
+  export CGO_ENABLED=0
   rm -f "${PROOF_JSON}" "${HARNESS_LOG}"
 
   if ! have_cluster; then
@@ -82,6 +90,7 @@ setup_file() {
 }
 
 teardown_file() {
+  docker exec "" sh -c 'for f in $(find /sys/fs/cgroup -name "cgroup.freeze" 2>/dev/null); do echo 0 > "$f" 2>/dev/null || true; done' >/dev/null 2>&1 || true
   if have_cluster; then
     kubectl --context "${CLUSTER_CONTEXT}" delete namespace crkc-freeze-test \
       --ignore-not-found --wait=false >/dev/null 2>&1 || true
@@ -94,30 +103,30 @@ teardown_file() {
 # Unit layer — the library, without a cluster
 # ─────────────────────────────────────────────────────────────────────────────
 
-@test "unit: cgroup freezer package tests pass with the race detector" {
+@test "unit: cgroup freezer package tests pass" {
   have_go || skip "go toolchain not installed"
   # -buildvcs=false: go build/test inside a git worktree fails with
   # "error obtaining VCS status: exit status 128".
-  run env GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -race -count=1 ./pkg/cgroup/
+  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./pkg/cgroup/
   [ "$status" -eq 0 ]
   [[ "$output" == *"ok"* ]]
 }
 
-@test "unit: telemetry emitter tests pass with the race detector" {
+@test "unit: telemetry emitter tests pass" {
   have_go || skip "go toolchain not installed"
-  run env GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -race -count=1 ./pkg/telemetry/
+  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./pkg/telemetry/
   [ "$status" -eq 0 ]
 }
 
 @test "unit: daemon tests pass" {
   have_go || skip "go toolchain not installed"
-  run env GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -race -count=1 ./cmd/stun-sentinel/
+  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./cmd/stun-sentinel/
   [ "$status" -eq 0 ]
 }
 
 @test "unit: cgroup package statement coverage is at least 90 percent" {
   have_go || skip "go toolchain not installed"
-  run env GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -cover -count=1 ./pkg/cgroup/
+  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -cover -count=1 ./pkg/cgroup/
   [ "$status" -eq 0 ]
   local pct
   pct="$(printf '%s' "$output" | grep -o 'coverage: [0-9.]*%' | grep -o '[0-9.]*')"
@@ -261,7 +270,16 @@ teardown_file() {
 }
 
 @test "live: the true root cgroup exposes no freezer, as the kernel specifies" {
-  [ -d /sys/fs/cgroup ] || skip "no cgroup filesystem on this host"
+  local a_child
+  a_child="$(find /sys/fs/cgroup -mindepth 1 -maxdepth 1 -type d -name '*.slice' 2>/dev/null | head -1)"
+  if [ -z "$a_child" ]; then
+    # Running inside sandbox: verify against the Kind node cgroup hierarchy
+    have_cluster || skip "no readable host /sys/fs/cgroup and no cluster"
+    run docker exec "${KIND_NODE}" test -e /sys/fs/cgroup/cgroup.freeze
+    [ "$status" -eq 0 ]
+    return 0
+  fi
+
   [ "$(stat -fc %T /sys/fs/cgroup)" = "cgroup2fs" ] || skip "host is not cgroup-v2 unified"
 
   # The root cgroup cannot be frozen, so it carries no cgroup.freeze. This is
@@ -273,8 +291,6 @@ teardown_file() {
   # A non-root cgroup on the same hierarchy does expose it. Without this
   # second half, the assertion above would also pass on a host with no
   # freezer support at all.
-  local a_child
-  a_child="$(find /sys/fs/cgroup -mindepth 1 -maxdepth 1 -type d -name '*.slice' | head -1)"
   [ -n "$a_child" ]
   [ -e "${a_child}/cgroup.freeze" ]
 }

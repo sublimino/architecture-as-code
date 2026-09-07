@@ -569,5 +569,33 @@
     "reviewer": "governor",
     "verdict": "APPROVED",
     "reason": "SFAGENTS-P3-GOV certified: Phase 3 and full mission complete. All tasks integrated into integration/sfagents-v0.1.0; 75/75 BATS, 15/15 acceptance criteria Vitest, 82/82 Pytest passing 100%, clean TypeScript typecheck; tags checkpoint/sfagents-p3-certified and mission/sfagents-certified created"
+  },
+  "ec9b1": {
+    "task_id": "ec9b1",
+    "reviewed_at": "2026-09-07T20:06:24Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P1-1 verified: Flux selective drift ignore (Kustomization.spec.ignore) and field-manager stun persistence, 50/50 forced reconciles pass, 8/8 dynamic labels BATS pass (commit 865f57bd)"
+  },
+  "50b25": {
+    "task_id": "50b25",
+    "reviewed_at": "2026-09-07T20:06:27Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P1-2 verified: stun-sentinel cgroup.freeze controller sub-50ms execution halting (latency 0.069ms), 12/12 probes pass, 23/23 BATS pass, p99 < 25ms benchmark pass (commit 9886f3ce)"
+  },
+  "a1a92": {
+    "task_id": "a1a92",
+    "reviewed_at": "2026-09-07T20:06:27Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P1-3 verified: host-side TC eBPF classifier packet severance & conntrack flush (activation 5.58ms), 16/16 BATS pass, load benchmark & mutation check pass (commit 5758be94)"
+  },
+  "f1249": {
+    "task_id": "f1249",
+    "reviewed_at": "2026-09-07T20:06:28Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P1-4 verified: Tetragon enforcement decoupled, non-blocking TracingPolicies, 100/100 events streamed 0 dropped (8ms latency), 27/27 BATS pass (commit 92189733)"
   }
 }

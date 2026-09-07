@@ -77,8 +77,20 @@ export interface ResponsibilityMetadata {
 
 export interface IdentityMetadata {
   spiffe_id?: string | null
-  spiffe_status: 'linked' | 'unlinked'
+  spiffe_status: 'linked' | 'unlinked' | 'conflict'
   aliases: string[]
+  trust_domain?: string | null
+  svid_type?: 'x509' | 'jwt' | 'none' | null
+  cert_valid_from?: string | null
+  cert_valid_until?: string | null
+  cert_serial?: string | null
+  cert_issuer?: string | null
+  selectors?: string[]
+  authorizing_principal_id?: string | null
+  executing_actor_id?: string | null
+  delegation_hops?: number | null
+  openbao_role?: string | null
+  openbao_path?: string | null
 }
 
 export interface ContainmentMeasures {

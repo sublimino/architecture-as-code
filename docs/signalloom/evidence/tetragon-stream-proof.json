@@ -1,0 +1,37 @@
+{
+  "card": "CRKC-P1-4",
+  "artifact": "tetragon-stream-proof",
+  "generated_by": "scripts/test-tetragon-stream.sh",
+  "generated_at": "2026-09-07T20:04:10Z",
+  "commit": "f0a842ffcbe502c1ec15860d38e3a39110798edc",
+  "harness": {
+    "mode": "offline",
+    "producer": "test/mocks/tetragon_grpc_mock (ebpf.MockTetragonServer)",
+    "transport": "grpc over unix socket, tetragon.FineGuidanceSensors/GetEvents",
+    "protobuf_api": "github.com/cilium/tetragon/api v1.1.0",
+    "consumer": "collectors/ebpf.StreamClient -> Normalizer -> RingBuffer"
+  },
+  "results": {
+    "events_requested": 100,
+    "events_received": 100,
+    "events_ingested": 100,
+    "events_dropped": 0,
+    "events_skipped": 0,
+    "stream_errors": 0,
+    "first_event_latency_ms": 8,
+    "latency_budget_ms": 500
+  },
+  "assertions": {
+    "all_metric_series_present": true,
+    "zero_dropped_during_burst": true,
+    "zero_stream_errors": true,
+    "no_event_loss": true,
+    "within_latency_budget": true
+  },
+  "enforcement_decoupling": {
+    "manifest": "d2-signalloom/deploy/tetragon-agent-telemetry.yaml",
+    "forbidden_verbs": ["Sigkill", "Override", "NotifyEnforcer", "Signal"],
+    "guard": "test/tetragon-telemetry-stream.bats"
+  },
+  "verdict": "pass"
+}

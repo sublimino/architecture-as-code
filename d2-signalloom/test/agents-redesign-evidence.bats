@@ -318,3 +318,23 @@ setup() {
   run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agents_deep_link_filters_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
+
+@test "sfagents-p3-1: Tab 5 renders correlated telemetry observations with layer and source filters" {
+  run bash -c "cd '${DASHBOARD_DIR}' && bunx vitest run src/components/AgentActivityTab.test.tsx -t 'correlated telemetry observations'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-1: GET /api/agents/{id}/telemetry supports pushdown filters (layer, source, limit)" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_telemetry_pushdown_filters'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-1: GET /api/agents/{id}/telemetry is strictly side-effect free under RFC 9110" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_telemetry_endpoint_side_effect_free'"
+  [ "$status" -eq 0 ]
+}
+
+@test "sfagents-p3-1: GET /api/agents/{id}/telemetry fails closed with 404 for unknown agent" {
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_telemetry_unknown_agent_404'"
+  [ "$status" -eq 0 ]
+}

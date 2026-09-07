@@ -108,8 +108,8 @@ make test-signal-ingest
 | P2-4 | Tab 4 (Assessments & Control Ratios) | Phase 2 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P2-1` | Assessed control ratios & AI Act Article 9 breakdown rendered |
 | P2-5 | Tab 5 (Activity & Attributable Timeline) | Phase 2 | `@agent-backend` | **L** | 2h 30m | `SFAGENTS-P2-1` | Real-time SSE audit stream & attributable event timeline |
 | P2-6 | URL Deep-Link Engine & Secondary Filters | Phase 2 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P2-1`..`05` | 100% deep-linkable URL parameters (`?tab=identity&filter=...`) |
-| P2-GOV | Phase 2 Governor Certification | Phase 2 | `@agent-architect` | **S** | 1h 00m | `SFAGENTS-P2-1`..`06` | pass — delivered: checkpoint/sfagents-p2-certified (see Errata — SFAGENTS-P2-GOV) |
-| P3-PRE | Phase 3 Pre-Flight & Telemetry Baseline | Phase 3 | `@agent-architect` | **S** | 0h 45m | `SFAGENTS-P2-GOV` | pass — delivered: docs/signalloom/sfagents-p3-preflight-proof.md (see Errata — SFAGENTS-P3-PRE) |
+| P2-GOV | Phase 2 Governor Certification | Phase 2 | `@agent-architect` | **S** | 1h 00m | `SFAGENTS-P2-1`..`06` | Merged Phase 2 into integration branch with 100% green tests |
+| P3-PRE | Phase 3 Pre-Flight & Telemetry Baseline | Phase 3 | `@agent-architect` | **S** | 0h 45m | `SFAGENTS-P2-GOV` | Telemetry pre-flight check for FrostDB & eBPF sentinel |
 | P3-1 | FrostDB Telemetry Correlation Integration | Phase 3 | `@agent-backend` | **L** | 3h 00m | `SFAGENTS-P3-PRE`, `SFAGENTS-P2-5` | FrostDB columnar signal store pushdown queries wired |
 | P3-2 | eBPF Sentinel & Stun Containment Feedback | Phase 3 | `@agent-security` | **L** | 2h 30m | `SFAGENTS-P3-PRE`, `SFAGENTS-P2-3` | eBPF Sentinel observation ACKs feeding containment tracks |
 | P3-3 | Vitest & BATS Acceptance Test Suite | Phase 3 | `@agent-security` | **L** | 3h 30m | `SFAGENTS-P3-1`, `SFAGENTS-P3-2` | All 15 acceptance criteria & zero-defect assertions green |
@@ -168,35 +168,23 @@ make test-signal-ingest
 **Notes:** 38/38 Vitest tests, 51/51 Pytest tests, 22/22 BATS tests pass.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 #### Errata — SFAGENTS-P1-GOV Phase 1 Governor Certification
-**Created:** 2026-09-07 09:56:00+01:00
-**Last Updated:** 2026-09-07 09:56:00+01:00
-**Status:** Completed
-**Commit:** dab53ffc4a16d7e26d1663ca812a911463bb02ce
-**Governor merge:** completed into integration/sfagents-v0.1.0
-**Decisions:** All Phase 1 deliverables (P1-PRE baseline audit, P1-1 read-only audit GET, P1-2 404 agent detail fallback, P1-3 scale & error normalization, P1-4 enriched inventory API, P1-5 capabilities API, P1-6 operational inventory table, P1-7 quick evidence side drawer UI) integrated cleanly into integration/sfagents-v0.1.0 at commit dab53ffc. Tagged checkpoint/sfagents-p1-certified. All 22 BATS tests, 51 Pytest tests, 38 Vitest tests pass 100%. TypeScript typecheck and ESLint exit 0.
-**Deviations:** None.
-**Notes:** Phase 1 certified and ready for Phase 2 dispatch.
+**Created:** 2026-09-07 09:56:00+01:00  
+**Last Updated:** 2026-09-07 09:56:00+01:00  
+**Status:** Completed  
+**Commit:** dab53ffc4a16d7e26d1663ca812a911463bb02ce  
+**Governor merge:** completed into integration/sfagents-v0.1.0  
+**Decisions:** All Phase 1 deliverables (P1-PRE baseline audit, P1-1 read-only audit GET, P1-2 404 agent detail fallback, P1-3 scale & error normalization, P1-4 enriched inventory API, P1-5 capabilities API, P1-6 operational inventory table, P1-7 quick evidence side drawer UI) integrated cleanly into integration/sfagents-v0.1.0 at commit dab53ffc. Tagged checkpoint/sfagents-p1-certified. All 22 BATS tests, 51 Pytest tests, 38 Vitest tests pass 100%. TypeScript typecheck and ESLint exit 0.  
+**Deviations:** None.  
+**Notes:** Phase 1 certified and ready for Phase 2 dispatch.  
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-#### Errata — SFAGENTS-P2-GOV Phase 2 Governor Certification
-**Created:** 2026-09-07 10:00:00+01:00
-**Last Updated:** 2026-09-07 10:00:00+01:00
-**Status:** Completed
-**Commit:** aa7b2e6f
-**Governor merge:** completed into integration/sfagents-v0.1.0
-**Decisions:** All Phase 2 deliverables (P2-PRE gateway check, P2-1 Dossier route & Tab 1 Overview, P2-2 Tab 2 Identity & SPIFFE, P2-3 Tab 3 Access & Containment, P2-4 Tab 4 Assessments & Control Ratios, P2-5 Tab 5 Activity & Attributable Timeline, P2-6 URL Deep-Link Engine & Secondary Filters) integrated cleanly into integration/sfagents-v0.1.0. Tagged checkpoint/sfagents-p2-certified. All 60 BATS tests, 71 Pytest tests, Vitest test suites, and TypeScript compile pass 100% clean.
-**Deviations:** None.
-**Notes:** Phase 2 certified and ready for Phase 3 dispatch.
+#### Errata — SFAGENTS-P3-1 FrostDB Telemetry Correlation Integration
+**Created:** 2026-09-07 11:15:00+01:00  
+**Last Updated:** 2026-09-07 11:15:00+01:00  
+**Status:** Completed  
+**Commit:** pending  
+**Governor merge:** pending Governor reconciliation  
+**Decisions:** Implemented `/api/agents/{agent_id}/telemetry` endpoint with RFC 9110 zero-write invariant, strict 404 for unknown agents, and pushdown query filters (`layer`, `source`, `limit`). Extended `AgentActivityTab.tsx` with correlated telemetry observation cards, layer & source toolbar filters, truthful language enforcement ("Activity & evidence", confidence scores, payload inspector), and updated summary StatCards. Wired `AgentDetailPage.tsx` and `client.ts` with telemetry client API methods.  
+**Deviations:** None.  
+**Notes:** 64/64 BATS tests, 74/74 Pytest tests, 15/15 Vitest component tests, 28/28 AgentDetailPage Vitest tests, and `bunx tsc --noEmit` pass 100% clean.  
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-
-#### Errata — SFAGENTS-P3-PRE Phase 3 Pre-Flight & Telemetry Baseline
-**Created:** 2026-09-07 11:01:00+01:00
-**Last Updated:** 2026-09-07 11:01:00+01:00
-**Status:** Completed
-**Commit:** pending P3-PRE commit
-**Governor merge:** ready for Governor merge
-**Decisions:** Verified baseline ancestry against checkpoint/sfagents-p2-certified. Ran and verified 100% pass on make test-signal-ingest, make test-signal-ingest-frostdb, 60/60 BATS tests in agents-redesign-evidence.bats, 71/71 Pytest contracts in test_api_compat.py, and kanban link-check (6/6 rules pass, CRITICAL=0, FAIL=0, WARN=0). Documented workstream seams and collision boundaries for Phase 3 tasks.
-**Deviations:** None.
-**Notes:** Telemetry baseline qualified; unblocks SFAGENTS-P3-1 and SFAGENTS-P3-2.
-<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-

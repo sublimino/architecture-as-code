@@ -34,6 +34,7 @@ vi.mock('../api/client', () => ({
       revokeCredential: vi.fn(),
       reassess: vi.fn(),
       acknowledge: vi.fn(),
+      telemetry: vi.fn().mockResolvedValue({ observations: [], total_count: 0, source_health: 'healthy' }),
     },
     audit: vi.fn().mockResolvedValue({ events: [], total: 0, page: 1, limit: 50 }),
     compliance: { posture: vi.fn().mockResolvedValue({ agents: [] }) },

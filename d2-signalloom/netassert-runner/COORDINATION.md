@@ -23,15 +23,18 @@ supports these fixed source placeholders and no caller-provided mappings:
 
 - `agent-patsy` → `fe-signalloom-agents`, `signalloom.ai/agent=true`.
 - `envoy-gateway-pod` → `ingress`, `gateway.envoyproxy.io/owning-gateway-name=cluster`.
-- `supercred-cardvault-agent-pod` → `fe-signalloom-agents`,
-  `app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true`.
+- `netassert-cardvault-probe-pod` → `fe-signalloom-agents`,
+  `app.kubernetes.io/name=cardvault-agent,signalloom.ai/supercred=true,bao.controlplane.io/consumer=cardvault-agent`.
 
-The SuperCred selector intentionally identifies the short-lived
-`supercred-agent-run-*` Job pod. No long-running equivalent exists. The
-`agent-cardvault` Deployment shares ServiceAccount `cardvault-agent` but lacks
-the SuperCred policy labels. The standalone `agent-cardvault` Pod has the
-SuperCred label but uses the default ServiceAccount and a different application
-label. Either substitution would test a different identity and NetworkPolicy.
+The Cardvault entry is a parent-provisioned sustained fixture using
+ServiceAccount `cardvault-agent` and exactly those three network-identity
+labels. The resolver excludes Job-owned pods, so the transient
+`supercred-agent-run-*` Job can never satisfy this prerequisite. The fixture
+must remain Running and Ready for the complete Netassert scan lifecycle.
+
+For each placeholder present in the suite, exactly one Running, Ready,
+non-terminating candidate must remain after the Job-owner exclusion. Zero or
+multiple candidates fail closed rather than selecting by Kubernetes list order.
 
 The resolver writes only the substituted copy at `/work/netassert-run.yaml`.
 Each destination must use a `dst.k8sResource` of kind `pod`, `deployment`,

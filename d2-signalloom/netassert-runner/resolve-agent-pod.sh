@@ -19,36 +19,40 @@ resolve_pod() {
   placeholder=$1
   namespace=$2
   selector=$3
-  pod=$(api_get "/api/v1/namespaces/${namespace}/pods?labelSelector=${selector}" | jq -r '
+  reject_job_owner=$4
+  candidates=$(api_get "/api/v1/namespaces/${namespace}/pods?labelSelector=${selector}" | jq -c \
+    --argjson reject_job_owner "$reject_job_owner" '
     [.items[]
      | select(.metadata.deletionTimestamp == null)
      | select(.status.phase == "Running")
-     | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))]
-    | sort_by(.metadata.creationTimestamp)
-    | first.metadata.name // empty
+     | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))
+     | select(($reject_job_owner | not) or
+         (any(.metadata.ownerReferences[]?; .kind == "Job") | not))]
   ')
-  if [ -z "${pod:-}" ]; then
-    echo "resolve-agent-pod: no Running, Ready, non-terminating pod for ${placeholder} in ${namespace}" >&2
+  count=$(printf '%s\n' "$candidates" | jq 'length')
+  if [ "$count" -ne 1 ]; then
+    echo "resolve-agent-pod: expected exactly one Running, Ready, non-terminating pod for ${placeholder} in ${namespace}; found ${count}" >&2
     return 1
   fi
+  pod=$(printf '%s\n' "$candidates" | jq -r '.[0].metadata.name')
   printf '%s\n' "$pod"
 }
 
 cp "$CONFIG_FILE" "$OUTPUT_FILE"
-while IFS="$(printf '\t')" read -r placeholder namespace selector; do
+while IFS="$(printf '\t')" read -r placeholder namespace selector reject_job_owner; do
   if grep -Fq "$placeholder" "$OUTPUT_FILE"; then
-    pod=$(resolve_pod "$placeholder" "$namespace" "$selector")
+    pod=$(resolve_pod "$placeholder" "$namespace" "$selector" "$reject_job_owner")
     sed "s/${placeholder}/${pod}/g" "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp"
     mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
     echo "resolve-agent-pod: resolved ${placeholder} to ${pod}" >&2
   fi
 done <<'RESOLVERS'
-agent-patsy	fe-signalloom-agents	signalloom.ai%2Fagent%3Dtrue
-envoy-gateway-pod	ingress	gateway.envoyproxy.io%2Fowning-gateway-name%3Dcluster
-supercred-cardvault-agent-pod	fe-signalloom-agents	app.kubernetes.io%2Fname%3Dcardvault-agent%2Csignalloom.ai%2Fsupercred%3Dtrue
+agent-patsy	fe-signalloom-agents	signalloom.ai%2Fagent%3Dtrue	false
+netassert-cardvault-probe-pod	fe-signalloom-agents	app.kubernetes.io%2Fname%3Dcardvault-agent%2Csignalloom.ai%2Fsupercred%3Dtrue%2Cbao.controlplane.io%2Fconsumer%3Dcardvault-agent	true
+envoy-gateway-pod	ingress	gateway.envoyproxy.io%2Fowning-gateway-name%3Dcluster	false
 RESOLVERS
 
-if grep -Eq 'agent-patsy|envoy-gateway-pod|supercred-cardvault-agent-pod' "$OUTPUT_FILE"; then
+if grep -Eq 'agent-patsy|netassert-cardvault-probe-pod|envoy-gateway-pod' "$OUTPUT_FILE"; then
   echo "resolve-agent-pod: recognized pod placeholder remained unresolved" >&2
   exit 1
 fi

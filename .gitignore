@@ -40,6 +40,9 @@ __pycache__/
 # .DS_Store
 .DS_Store
 
+# Node dependencies
+node_modules/
+
 # Playwright storage-state / auth artifacts (session material — never commit)
 test/acceptance/.auth/
 

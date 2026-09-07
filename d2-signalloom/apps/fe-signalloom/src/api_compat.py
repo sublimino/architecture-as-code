@@ -1863,7 +1863,17 @@ def _agent_response_from_discovered(
         )
 
     telemetry = None
-    if is_frozen:
+    if is_frozen or discovered.get("cgroup_state") or discovered.get("cgroup_frozen") is not None or discovered.get("traffic_control_state"):
+        cgroup_st = discovered.get("cgroup_state") or ("frozen" if (is_frozen or discovered.get("cgroup_frozen")) else "thawed")
+        tc_st = discovered.get("traffic_control_state") or ("drop" if (is_frozen or discovered.get("tc_drop_active")) else "allow")
+        ebpf_act = discovered.get("ebpf_active", True if is_frozen else False)
+        telemetry = SentinelKernelTelemetry(
+            cgroup_state=cgroup_st,
+            traffic_control_state=tc_st,
+            ebpf_active=ebpf_act,
+            observed_at=discovered.get("observed_at") or stunned_at or created_at,
+        )
+    elif is_frozen:
         telemetry = SentinelKernelTelemetry(
             cgroup_state="frozen",
             traffic_control_state="drop",

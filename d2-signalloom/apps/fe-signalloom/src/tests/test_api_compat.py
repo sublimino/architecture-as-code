@@ -904,3 +904,236 @@ def test_enriched_inventory_get_is_strictly_side_effect_free(client, monkeypatch
     response = client.get("/api/agents", headers=bearer(token_for("alice")))
     assert response.status_code == 200
     assert len(write_executed) == 0
+
+
+# ===========================================================================
+# SFAGENTS-P1-5: Action Capabilities API (/api/capabilities)
+# ===========================================================================
+
+def test_capabilities_requires_authentication(client):
+    """Proves GET /api/capabilities enforces Bearer authentication and tenant binding."""
+    # Missing token -> 401
+    res_no_auth = client.get("/api/capabilities")
+    assert res_no_auth.status_code == 401
+    assert res_no_auth.json()["error"]["code"] == "authentication_required"
+
+    # Invalid token -> 401
+    res_bad_token = client.get("/api/capabilities", headers=bearer("not-a-valid-jwt"))
+    assert res_bad_token.status_code == 401
+    assert res_bad_token.json()["error"]["code"] == "invalid_token"
+
+    # Forbidden subject -> 403
+    res_forbidden = client.get("/api/capabilities", headers=bearer(token_for("mallory")))
+    assert res_forbidden.status_code == 403
+    assert res_forbidden.json()["error"]["code"] == "tenant_forbidden"
+
+
+def test_capabilities_for_operator_user(client):
+    """Proves GET /api/capabilities returns tenant-scoped capabilities for standard operator."""
+    response = client.get("/api/capabilities", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert response.headers.get("X-Source-Health") == "healthy"
+
+    data = response.json()
+    assert data["tenant"] == "tenant-a"
+    assert data["principal_id"] == "alice"
+    assert data["is_superadmin"] is False
+    assert data["roles"] == ["operator"]
+    assert data["source_health"] == "healthy"
+
+    # Tenant capabilities
+    tenant_caps = data["tenant_capabilities"]
+    assert tenant_caps["view_agents"] is True
+    assert tenant_caps["register_agent"] is True
+    assert tenant_caps["export_compliance"] is True
+    assert tenant_caps["view_crypto_proofs"] is True
+    assert tenant_caps["run_network_tests"] is True
+    assert tenant_caps["view_audit_trail"] is True
+    assert tenant_caps["manage_settings"] is False
+    assert tenant_caps["manage_api_keys"] is False
+    assert tenant_caps["manage_users"] is False
+    assert tenant_caps["run_supercred_scenario"] is False
+
+    # Action capabilities
+    actions = data["actions"]
+    assert actions["freeze"]["allowed"] is False
+    assert "superadmin" in actions["freeze"]["reason"].lower()
+    assert actions["thaw"]["allowed"] is False
+    assert actions["network_isolate"]["allowed"] is False
+    assert actions["network_restore"]["allowed"] is False
+    assert actions["revoke_credentials"]["allowed"] is False
+    assert actions["issue_credentials"]["allowed"] is True
+    assert actions["reassess_compliance"]["allowed"] is True
+    assert actions["decommission"]["allowed"] is False
+    assert actions["decommission"]["requires_dual_approval"] is True
+    assert actions["run_scenario"]["allowed"] is False
+    assert data["workload"] is None
+
+
+def test_capabilities_for_superadmin_user(client, monkeypatch):
+    """Proves GET /api/capabilities returns elevated capabilities for superadmin."""
+    monkeypatch.setattr(
+        settings,
+        "api_subject_tenants",
+        {"alice": "tenant-a", "bob": "tenant-b", "demo-user": "tenant-demo"},
+    )
+    token = token_for("demo-user", extra_claims={"email": "demo-user@signalloom.local"})
+    response = client.get("/api/capabilities", headers=bearer(token))
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["is_superadmin"] is True
+    assert "superadmin" in data["roles"]
+
+    tenant_caps = data["tenant_capabilities"]
+    assert tenant_caps["manage_settings"] is True
+    assert tenant_caps["manage_api_keys"] is True
+    assert tenant_caps["manage_users"] is True
+    assert tenant_caps["run_supercred_scenario"] is True
+
+    actions = data["actions"]
+    assert actions["freeze"]["allowed"] is True
+    assert actions["thaw"]["allowed"] is True
+    assert actions["network_isolate"]["allowed"] is True
+    assert actions["network_restore"]["allowed"] is True
+    assert actions["revoke_credentials"]["allowed"] is True
+    assert actions["issue_credentials"]["allowed"] is True
+    assert actions["reassess_compliance"]["allowed"] is True
+    assert actions["decommission"]["allowed"] is False
+    assert actions["decommission"]["requires_dual_approval"] is True
+    assert actions["run_scenario"]["allowed"] is True
+
+
+def test_capabilities_workload_scoped_discovery(client, monkeypatch):
+    """Proves GET /api/capabilities?agent_id=... resolves discovered workload scope."""
+    class DiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(
+                200,
+                json={
+                    "agents": [
+                        {
+                            "id": "discovered-agent-1",
+                            "name": "Discovered Pod",
+                            "namespace": "agent-ns",
+                            "service_account": "agent-sa",
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", DiscoveryClient)
+
+    response = client.get(
+        "/api/capabilities?agent_id=discovered-agent-1",
+        headers=bearer(token_for("alice")),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workload"] is not None
+    assert data["workload"]["agent_id"] == "discovered-agent-1"
+    assert data["workload"]["namespace"] == "agent-ns"
+    assert data["workload"]["freeze"]["scope"] == "workload:discovered-agent-1"
+    assert data["workload"]["freeze"]["allowed"] is False  # alice is not admin
+
+
+def test_capabilities_workload_scoped_db(client, monkeypatch):
+    """Proves GET /api/capabilities?agent_id=... resolves DB agent scope."""
+    monkeypatch.setattr(
+        settings,
+        "api_subject_tenants",
+        {"alice": "tenant-a", "bob": "tenant-b", "demo-user": "tenant-demo"},
+    )
+    class MockPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if "SELECT id FROM agent_registry" in query:
+                return {"id": "11111111-1111-1111-1111-111111111111"}
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    token = token_for("demo-user", extra_claims={"email": "demo-user@signalloom.local"})
+    response = client.get(
+        "/api/capabilities?agent_id=11111111-1111-1111-1111-111111111111&namespace=custom-ns",
+        headers=bearer(token),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workload"] is not None
+    assert data["workload"]["agent_id"] == "11111111-1111-1111-1111-111111111111"
+    assert data["workload"]["namespace"] == "custom-ns"
+    assert data["workload"]["freeze"]["allowed"] is True
+    assert data["workload"]["freeze"]["scope"] == "workload:11111111-1111-1111-1111-111111111111"
+
+
+def test_capabilities_returns_404_for_unknown_agent_id(client, monkeypatch):
+    """Proves GET /api/capabilities?agent_id=... returns 404 for unknown agent without synthetic fallback."""
+    class EmptyDiscoveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            import httpx
+            return httpx.Response(200, json={"agents": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", EmptyDiscoveryClient)
+
+    class EmptyPool:
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            return None
+
+    async def get_pool():
+        return EmptyPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get(
+        "/api/capabilities?agent_id=unknown-agent-uuid-9999",
+        headers=bearer(token_for("alice")),
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_capabilities_get_is_strictly_side_effect_free(client, monkeypatch):
+    """Proves GET /api/capabilities performs zero SQL INSERT/UPDATE/DELETE writes."""
+    writes_recorded = []
+
+    class MockPool:
+        async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return []
+
+        async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+            if any(w in query.upper() for w in ("INSERT", "UPDATE", "DELETE")):
+                writes_recorded.append(query)
+            return None
+
+    async def get_pool():
+        return MockPool()
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+
+    response = client.get("/api/capabilities", headers=bearer(token_for("alice")))
+    assert response.status_code == 200
+    assert len(writes_recorded) == 0

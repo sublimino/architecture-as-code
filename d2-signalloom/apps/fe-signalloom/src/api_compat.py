@@ -323,6 +323,63 @@ class AgentListResponse(BaseModel):
     pagination: PaginationMetadata | None = None
 
 
+class ActionCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    reason: str | None = None
+    requires_confirmation: bool = False
+    requires_reason: bool = False
+    requires_dual_approval: bool = False
+    scope: str = "tenant"
+
+
+class WorkloadActionCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str | None = None
+    workload: str | None = None
+    namespace: str | None = None
+    freeze: ActionCapability
+    thaw: ActionCapability
+    network_isolate: ActionCapability
+    network_restore: ActionCapability
+    revoke_credentials: ActionCapability
+    issue_credentials: ActionCapability
+    reassess_compliance: ActionCapability
+    decommission: ActionCapability
+    run_scenario: ActionCapability
+
+
+class TenantCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    view_agents: bool = True
+    register_agent: bool = True
+    export_compliance: bool = True
+    view_crypto_proofs: bool = True
+    run_network_tests: bool = True
+    view_audit_trail: bool = True
+    manage_settings: bool = False
+    manage_api_keys: bool = False
+    manage_users: bool = False
+    run_supercred_scenario: bool = False
+
+
+class CapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant: str
+    principal_id: str
+    email: str | None = None
+    roles: list[str]
+    is_superadmin: bool
+    tenant_capabilities: TenantCapabilities
+    actions: dict[str, ActionCapability]
+    workload: WorkloadActionCapabilities | None = None
+    source_health: str | None = "healthy"
+
+
 class PlatformUserResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2505,6 +2562,263 @@ def _check_response_status(res: Any, url: str) -> None:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@router.get("/capabilities", response_model=CapabilitiesResponse, responses=ERROR_RESPONSES)
+async def get_capabilities(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+    response: Response = Response(),
+    agent_id: Annotated[str | None, Query(description="Target agent / workload ID")] = None,
+    workload: Annotated[str | None, Query(description="Target workload name / alias")] = None,
+    namespace: Annotated[str | None, Query(description="Target workload namespace")] = None,
+) -> CapabilitiesResponse:
+    """Returns server-authorized capabilities for the authenticated principal, tenant, and workload.
+
+    RFC 9110 Invariant: strictly side-effect free and idempotent (zero SQL writes).
+    Separation of Identity Planes: Decoupled human principal authorization from workload identity.
+    """
+    from superadmin import is_superadmin
+
+    is_admin = is_superadmin(principal)
+    tenant = principal.tenant
+    roles = ["superadmin", "operator"] if is_admin else ["operator"]
+
+    tenant_caps = TenantCapabilities(
+        view_agents=True,
+        register_agent=True,
+        export_compliance=True,
+        view_crypto_proofs=True,
+        run_network_tests=True,
+        view_audit_trail=True,
+        manage_settings=is_admin,
+        manage_api_keys=is_admin,
+        manage_users=is_admin,
+        run_supercred_scenario=is_admin,
+    )
+
+    actions = {
+        "freeze": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "thaw": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "network_isolate": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged network isolation requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "network_restore": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Privileged network restoration requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "revoke_credentials": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin" if is_admin else "Credential revocation requires superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "issue_credentials": ActionCapability(
+            allowed=True,
+            reason="Permitted for tenant operator",
+            requires_confirmation=False,
+            requires_reason=False,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "reassess_compliance": ActionCapability(
+            allowed=True,
+            reason="Permitted for tenant operator",
+            requires_confirmation=False,
+            requires_reason=False,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+        "decommission": ActionCapability(
+            allowed=False,
+            reason="Irreversible decommission requires enforced dual approval",
+            requires_confirmation=True,
+            requires_reason=True,
+            requires_dual_approval=True,
+            scope=f"tenant:{tenant}",
+        ),
+        "run_scenario": ActionCapability(
+            allowed=is_admin,
+            reason="Permitted for superadmin in lab/demo environment" if is_admin else "SuperCred demo scenarios require superadmin authorization",
+            requires_confirmation=True,
+            requires_reason=False,
+            requires_dual_approval=False,
+            scope=f"tenant:{tenant}",
+        ),
+    }
+
+    target_id = agent_id or workload
+    workload_caps = None
+    if target_id is not None or namespace is not None:
+        if target_id is not None:
+            # If target_id is provided, verify it exists and is accessible to caller's tenant
+            discovered_found = False
+            try:
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    res = await client.get(AGENT_DISCOVERY_URL)
+                    _check_response_status(res, AGENT_DISCOVERY_URL)
+                    payload = res.json()
+                if isinstance(payload, dict):
+                    for d in payload.get("agents", []):
+                        if isinstance(d, dict):
+                            d_id = str(d.get("id")) if d.get("id") is not None else None
+                            d_name = str(d.get("name")) if d.get("name") is not None else None
+                            if d_id == target_id or d_name == target_id:
+                                discovered_found = True
+                                if namespace is None and d.get("namespace"):
+                                    namespace = str(d.get("namespace"))
+                                break
+            except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                pass
+
+            pool = await _get_pool()
+            agent_found = False
+            if pool is None:
+                _ensure_seeded(tenant)
+                with _STORE_LOCK:
+                    agent = _AGENTS[tenant].get(target_id)
+                    if agent is None:
+                        for a in _AGENTS[tenant].values():
+                            if a.get("name") == target_id:
+                                agent = a
+                                break
+                    if agent is not None:
+                        agent_found = True
+            else:
+                agent_uuid = _try_uuid(target_id)
+                if agent_uuid is not None:
+                    row = await pool.fetchrow(
+                        "SELECT id FROM agent_registry WHERE id = $1 AND tenant_id = $2",
+                        agent_uuid,
+                        tenant,
+                    )
+                else:
+                    row = await pool.fetchrow(
+                        "SELECT id FROM agent_registry WHERE name = $1 AND tenant_id = $2",
+                        target_id,
+                        tenant,
+                    )
+                if row is not None:
+                    agent_found = True
+
+            if not agent_found and not discovered_found:
+                raise APIError(404, "not_found", f"Agent '{target_id}' not found")
+
+        target_scope = f"workload:{target_id}" if target_id else f"namespace:{namespace}"
+        workload_caps = WorkloadActionCapabilities(
+            agent_id=agent_id,
+            workload=workload,
+            namespace=namespace,
+            freeze=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            thaw=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged containment requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            network_isolate=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged network isolation requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            network_restore=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Privileged network restoration requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            revoke_credentials=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin" if is_admin else "Credential revocation requires superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            issue_credentials=ActionCapability(
+                allowed=True,
+                reason="Permitted for tenant operator",
+                requires_confirmation=False,
+                requires_reason=False,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            reassess_compliance=ActionCapability(
+                allowed=True,
+                reason="Permitted for tenant operator",
+                requires_confirmation=False,
+                requires_reason=False,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+            decommission=ActionCapability(
+                allowed=False,
+                reason="Irreversible decommission requires enforced dual approval",
+                requires_confirmation=True,
+                requires_reason=True,
+                requires_dual_approval=True,
+                scope=target_scope,
+            ),
+            run_scenario=ActionCapability(
+                allowed=is_admin,
+                reason="Permitted for superadmin in lab/demo environment" if is_admin else "SuperCred demo scenarios require superadmin authorization",
+                requires_confirmation=True,
+                requires_reason=False,
+                requires_dual_approval=False,
+                scope=target_scope,
+            ),
+        )
+
+    response.headers["X-Source-Health"] = "healthy"
+    return CapabilitiesResponse(
+        tenant=tenant,
+        principal_id=principal.subject,
+        email=principal.email,
+        roles=roles,
+        is_superadmin=is_admin,
+        tenant_capabilities=tenant_caps,
+        actions=actions,
+        workload=workload_caps,
+        source_health="healthy",
+    )
+
 
 @router.get("/agents", response_model=AgentListResponse, responses=ERROR_RESPONSES)
 async def agents(

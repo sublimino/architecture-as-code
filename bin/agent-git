@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+#
+# agent-git — Rule SP-1 git front-end for confined coding agents.
+#
+# @id      agent-git
+# @doc     docs/signalloom/worktree-landlock-confinement.md
+# @rules   CRKC proposal, Shared pattern SP-1
+# @tests   test/worktree-landlock-confinement.bats
+# @lib     nono/profiles/worktree-agent.json
+#
+# Two jobs, and they are not the same job.
+#
+#   1. Make `git commit` work FIRST TIME inside a Landlock sandbox. This host sets
+#      commit.gpgsign=true globally. A bare `git commit` therefore tries to sign,
+#      gpg tries to talk to pinentry, pinentry wants a tty the agent harness does
+#      not have, and the call blocks until the harness times out. Ten minutes for
+#      nothing, and it reads as a hang rather than a config fault. So this wrapper
+#      injects --no-gpg-sign on every commit that did not already ask for a
+#      signing decision.
+#
+#   2. Refuse `git push` in userspace BEFORE a connect(2) is attempted, so the
+#      operator gets a sentence explaining why instead of a transport error.
+#
+# The second job is belt to the profile's braces and must never be mistaken for
+# the control itself. nono/profiles/worktree-agent.json sets network.block=true,
+# so a push attempted by bare `git` — bypassing this script entirely — still dies
+# at the kernel with a permission error. That is the actual enforcement. A wrapper
+# an agent can decline to call is a convenience, not a boundary; this file says so
+# out loud because the failure mode of security tooling is being believed.
+#
+# Injectable boundaries (per the testability rule): every external dependency is
+# overridable, so the whole file is exercisable without a sandbox or a remote.
+#
+#   AGENT_GIT_BIN             real git binary                  [default: first `git` on PATH that is not this script]
+#   AGENT_GIT_WORKTREE_ROOTS  colon-separated allowed roots    [default: ~/src/.worktrees:~/.cline/worktrees]
+#   AGENT_GIT_AUDIT_LOG       append-only invocation log       [default: none]
+#   AGENT_GIT_DRY_RUN=1       print the resolved argv, run nothing
+#   AGENT_GIT_SKIP_ROOT_CHECK=1  bypass the worktree precondition (tests only)
+#   AGENT_GIT_LOCK_STALE_SECONDS  age past which an unheld index.lock is removed [default: 300]
+
+set -euo pipefail
+
+readonly PROGNAME="agent-git"
+
+# Subcommands this wrapper refuses outright. `push` is Rule SP-1's named
+# prohibition. The rest are the other ways a working tree reaches a remote and
+# would otherwise produce a confusing transport error instead of a reason.
+readonly -a DENIED_SUBCOMMANDS=(push send-email request-pull)
+
+err() { printf '%s: %s\n' "$PROGNAME" "$*" >&2; }
+
+usage() {
+	cat <<'EOF'
+agent-git — Rule SP-1 git front-end for confined coding agents.
+
+USAGE
+  agent-git <git-subcommand> [args...]
+
+BEHAVIOUR
+  commit          --no-gpg-sign is injected unless the caller already passed a
+                  signing flag (--no-gpg-sign, --gpg-sign, -S).
+  push            refused. Publication is a human action; see the runbook.
+  everything else passed through verbatim.
+
+PRECONDITION
+  The working directory must resolve (symlinks followed) to a path under one of
+  AGENT_GIT_WORKTREE_ROOTS. Refuses otherwise, so the wrapper cannot be used to
+  drive the principal checkout.
+
+SEE ALSO
+  docs/signalloom/worktree-landlock-confinement.md
+  nono/profiles/worktree-agent.json
+EOF
+}
+
+# ── audit ────────────────────────────────────────────────────────────────────
+# One JSON object per line. Written before the verdict is acted on, so a refusal
+# is recorded even though the process is about to exit non-zero.
+audit() {
+	local verdict="$1" detail="$2"
+	local log="${AGENT_GIT_AUDIT_LOG:-}"
+	[ -n "$log" ] || return 0
+	local dir
+	dir="$(dirname "$log")"
+	[ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 0
+	# Each argument is emitted as its own JSON string rather than joining with
+	# "$*", so an argument containing a space survives the round trip. A commit
+	# message is almost always such an argument, which makes this the common case
+	# rather than an edge one.
+	local args_json="" a esc
+	for a in ${ORIGINAL_ARGV[@]+"${ORIGINAL_ARGV[@]}"}; do
+		esc="$(printf '%s' "$a" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/ /g')"
+		args_json="${args_json}\"${esc}\","
+	done
+	args_json="[${args_json%,}]"
+	printf '{"ts":"%s","tool":"%s","verdict":"%s","cwd":"%s","argv":%s,"detail":"%s"}\n' \
+		"$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$PROGNAME" "$verdict" "$PWD" "$args_json" "$detail" \
+		>>"$log" 2>/dev/null || true
+}
+
+# ── real git ─────────────────────────────────────────────────────────────────
+# Resolve the git this wrapper should exec. Explicitly refuses to find ITSELF,
+# which is the failure this whole function exists for: bin/ is prepended to PATH
+# so agents reach the wrapper, and a naive `command -v git` in that environment
+# would return the wrapper and recurse until the process table complains.
+resolve_git() {
+	if [ -n "${AGENT_GIT_BIN:-}" ]; then
+		printf '%s' "$AGENT_GIT_BIN"
+		return 0
+	fi
+	local self candidate
+	self="$(readlink -f "${BASH_SOURCE[0]}")"
+	while IFS= read -r candidate; do
+		[ -n "$candidate" ] || continue
+		[ "$(readlink -f "$candidate" 2>/dev/null || printf '%s' "$candidate")" = "$self" ] && continue
+		printf '%s' "$candidate"
+		return 0
+	done < <(type -aP git 2>/dev/null || true)
+	return 1
+}
+
+# ── worktree precondition ────────────────────────────────────────────────────
+# Canonicalise before comparing. ~/.cline/worktrees is a SYMLINK to
+# ~/src/.worktrees on this host, so a textual prefix test on $PWD accepts one
+# spelling of the same directory and rejects the other. readlink -f collapses
+# both to the same real path, which is also what Landlock compares — the kernel
+# resolves to inodes and has no opinion about how you spelled the path.
+worktree_root_ok() {
+	[ "${AGENT_GIT_SKIP_ROOT_CHECK:-0}" = "1" ] && return 0
+
+	local roots="${AGENT_GIT_WORKTREE_ROOTS:-${HOME}/src/.worktrees:${HOME}/.cline/worktrees}"
+	local here root real_root
+	here="$(readlink -f "$PWD" 2>/dev/null || printf '%s' "$PWD")"
+
+	local IFS=:
+	for root in $roots; do
+		[ -n "$root" ] || continue
+		real_root="$(readlink -f "$root" 2>/dev/null || printf '%s' "$root")"
+		[ -n "$real_root" ] || continue
+		# Trailing slash on the prefix so /a/b-other does not match root /a/b.
+		case "$here/" in
+		"$real_root"/*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
+# ── index.lock hygiene ───────────────────────────────────────────────────────
+# A killed agent leaves .git/index.lock behind and every later commit dies with
+# "Unable to create index.lock: File exists". Removing it unconditionally is the
+# obvious fix and is wrong: a lock held by a LIVE git process is doing its job,
+# and deleting it corrupts a concurrent write.
+#
+# So: only when nothing holds the file open, and only when it is older than the
+# stale threshold. `fuser` is the real check; when it is unavailable the age test
+# alone decides, which is why the default threshold is minutes rather than
+# seconds. Every removal is logged — a lock that keeps reappearing is a signal,
+# and silently tidying it away destroys that signal.
+clear_stale_index_lock() {
+	local git_dir lock age now mtime
+	git_dir="$("$REAL_GIT" rev-parse --git-dir 2>/dev/null || true)"
+	[ -n "$git_dir" ] || return 0
+	lock="$git_dir/index.lock"
+	[ -e "$lock" ] || return 0
+
+	if command -v fuser >/dev/null 2>&1; then
+		if fuser "$lock" >/dev/null 2>&1; then
+			audit "lock-held" "index.lock is held by a live process; left alone"
+			return 0
+		fi
+	fi
+
+	now="$(date +%s)"
+	mtime="$(stat -c %Y "$lock" 2>/dev/null || printf '%s' "$now")"
+	age=$((now - mtime))
+	if [ "$age" -lt "${AGENT_GIT_LOCK_STALE_SECONDS:-300}" ]; then
+		audit "lock-fresh" "index.lock is ${age}s old; below stale threshold"
+		return 0
+	fi
+
+	rm -f "$lock"
+	audit "lock-cleared" "removed stale index.lock aged ${age}s"
+	err "removed a stale index.lock (${age}s old). If this recurs, a previous agent is being killed mid-commit."
+}
+
+# ── argv analysis ────────────────────────────────────────────────────────────
+# Find the subcommand, skipping git's global options. `git -C dir commit` and
+# `git -c k=v commit` are both legal and both put the subcommand at a position
+# argv[0] does not predict. Options that CONSUME a following value have to be
+# enumerated, otherwise that value is mistaken for the subcommand — `git -C push`
+# would read as a push.
+subcommand_index() {
+	local -a argv=("$@")
+	local i=0 n=${#argv[@]} arg
+	while [ "$i" -lt "$n" ]; do
+		arg="${argv[$i]}"
+		case "$arg" in
+		# Global options that take a separate value.
+		-C | -c | --git-dir | --work-tree | --namespace | --exec-path | --config-env | --super-prefix)
+			i=$((i + 2))
+			;;
+		# Value-attached (--git-dir=x) and valueless global flags.
+		--*=* | --bare | --no-pager | --paginate | -P | --no-replace-objects | --literal-pathspecs | \
+			--glob-pathspecs | --noglob-pathspecs | --icase-pathspecs | --no-optional-locks | --html-path | \
+			--man-path | --info-path | --version | --help | -h | -v)
+			i=$((i + 1))
+			;;
+		-*)
+			# Unknown leading option: skip it rather than guessing it is a
+			# subcommand. A wrong guess here would silently stop enforcing.
+			i=$((i + 1))
+			;;
+		*)
+			printf '%s' "$i"
+			return 0
+			;;
+		esac
+	done
+	return 1
+}
+
+# True when the caller already expressed a signing intent, in which case the
+# wrapper must not add a second, contradictory flag.
+has_signing_flag() {
+	local arg
+	for arg in "$@"; do
+		case "$arg" in
+		--no-gpg-sign | --gpg-sign | --gpg-sign=* | -S | -S*) return 0 ;;
+		--) return 1 ;;
+		esac
+	done
+	return 1
+}
+
+main() {
+	ORIGINAL_ARGV=("$@")
+
+	if [ "$#" -eq 0 ]; then
+		usage
+		return 2
+	fi
+	case "$1" in
+	--help | -h)
+		usage
+		return 0
+		;;
+	esac
+
+	if ! REAL_GIT="$(resolve_git)" || [ -z "$REAL_GIT" ]; then
+		err "no real git binary found (set AGENT_GIT_BIN)"
+		audit "error" "git binary not resolvable"
+		return 127
+	fi
+
+	if ! worktree_root_ok; then
+		err "refusing to run: $PWD does not resolve under an allowed worktree root."
+		err "allowed: ${AGENT_GIT_WORKTREE_ROOTS:-${HOME}/src/.worktrees:${HOME}/.cline/worktrees}"
+		err "Agents work in worktrees; the principal checkout is not theirs to drive."
+		audit "denied-root" "cwd outside AGENT_GIT_WORKTREE_ROOTS"
+		return 3
+	fi
+
+	# subcommand_index returns a 0-BASED index into the argv array; positional
+	# parameters are 1-based, hence the +1. The slice form is used rather than
+	# indirect expansion (${!n}) because the latter's behaviour for positional
+	# parameters differs between bash builds and a wrong read here would silently
+	# stop the wrapper enforcing anything.
+	local idx sub=""
+	if idx="$(subcommand_index "$@")"; then
+		sub="${*:$((idx + 1)):1}"
+	else
+		idx=$(($# - 1))
+	fi
+
+	local denied
+	for denied in "${DENIED_SUBCOMMANDS[@]}"; do
+		if [ "$sub" = "$denied" ]; then
+			err "refusing '$sub'. Rule SP-1: agents commit locally; publication is a human action."
+			err "The kernel refuses it too — nono/profiles/worktree-agent.json sets network.block."
+			err "Report your committed SHA and let the Governor merge."
+			audit "denied-subcommand" "$sub"
+			return 4
+		fi
+	done
+
+	local -a final=("$@")
+	if [ "$sub" = "commit" ] && ! has_signing_flag "${@:$((idx + 2))}"; then
+		# Insert immediately after the subcommand so it lands before any `--`
+		# pathspec separator the caller supplied.
+		final=("${@:1:$((idx + 1))}" --no-gpg-sign "${@:$((idx + 2))}")
+	fi
+
+	if [ "$sub" = "commit" ]; then
+		clear_stale_index_lock
+	fi
+
+	if [ "${AGENT_GIT_DRY_RUN:-0}" = "1" ]; then
+		printf '%s\n' "${final[@]}"
+		audit "dry-run" "$sub"
+		return 0
+	fi
+
+	audit "exec" "$sub"
+	exec "$REAL_GIT" "${final[@]}"
+}
+
+main "$@"

@@ -349,6 +349,14 @@ export const api = {
 
     reassess: (token: string, agentId: string, controlId: string) =>
       req<ReassessmentResponse>(`/agents/${agentId}/compliance/${controlId}/reassess`, token, { method: 'POST' }),
+
+    auditStreamUrl: (id: string, params: { type?: string; from?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.type) q.set('type', params.type)
+      if (params.from) q.set('from', params.from)
+      const qs = q.toString()
+      return `/api/agents/${id}/audit/stream${qs ? `?${qs}` : ''}`
+    },
   },
 
   compliance: {
@@ -384,6 +392,15 @@ export const api = {
     if (params.agent) q.set('agent', params.agent)
     if (params.type) q.set('type', params.type)
     return req<AuditListResponse>(`/audit?${q.toString()}`, token)
+  },
+
+  auditStreamUrl: (params: { agent?: string; type?: string; from?: string } = {}) => {
+    const q = new URLSearchParams()
+    if (params.agent) q.set('agent', params.agent)
+    if (params.type) q.set('type', params.type)
+    if (params.from) q.set('from', params.from)
+    const qs = q.toString()
+    return `/api/audit/stream${qs ? `?${qs}` : ''}`
   },
 
   auditExportCsv: async (

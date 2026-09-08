@@ -15,10 +15,14 @@ import type { ThemeName } from '../styles/themes'
 // corner widgets side by side without touching DemoToggle's own positioning.
 const RIGHT_OFFSET = 140
 
+export interface ThemeToggleProps {
+  bottom?: number
+}
+
 // Corner widget that repaints the app palette. Purely client-side: it writes
 // the selected theme's CSS custom properties onto <html> and remembers the
 // choice in localStorage. No reload, no API call, no stored user preference.
-export default function ThemeToggle() {
+export default function ThemeToggle({ bottom = 16 }: ThemeToggleProps = {}) {
   const [theme, setTheme] = useState<ThemeName>(() => readStoredTheme())
 
   useLayoutEffect(() => {
@@ -40,7 +44,7 @@ export default function ThemeToggle() {
       title="Change the dashboard colour theme"
       style={{
         position: 'fixed',
-        bottom: 16,
+        bottom,
         right: RIGHT_OFFSET,
         zIndex: 4000,
         padding: '8px 12px',

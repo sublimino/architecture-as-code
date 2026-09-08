@@ -672,6 +672,36 @@ describe('AgentsPage — Quick Evidence Side Drawer (SFAGENTS-P1-7)', () => {
     expect(screen.getByTestId('drawer-posture-score')).toHaveTextContent('60%')
   })
 
+  it('provides direct links to the full agent dossier in Column 1 and Column 7 without opening the drawer', async () => {
+    const agent = makeAgent({
+      id: 'agent-nav-test-1',
+      name: 'Direct Nav Agent',
+    })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent],
+      total: 1,
+    })
+
+    renderPage()
+
+    await screen.findByText('Direct Nav Agent')
+
+    // Column 1 link
+    const agentLink = screen.getByTestId('agent-link-agent-nav-test-1')
+    expect(agentLink).toBeInTheDocument()
+    expect(agentLink.getAttribute('href')).toBe('/agents/agent-nav-test-1?tab=overview')
+
+    // Column 7 Dossier action button
+    const dossierBtn = screen.getByTestId('agent-dossier-btn-agent-nav-test-1')
+    expect(dossierBtn).toBeInTheDocument()
+    expect(dossierBtn.getAttribute('href')).toBe('/agents/agent-nav-test-1?tab=overview')
+
+    // Clicking the direct link stops propagation and does not open the drawer
+    await userEvent.click(agentLink)
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+  })
+
   it('opens quick evidence side drawer via keyboard selection (Enter key)', async () => {
     const agent = makeAgent({
       id: 'agent-kb-test-1',

@@ -14,10 +14,14 @@ import type { LayoutWidth } from '../styles/layoutWidth'
 // 250 leaves the three corner widgets side by side without collision.
 export const WIDTH_TOGGLE_RIGHT_OFFSET = 250
 
+export interface WidthToggleProps {
+  bottom?: number
+}
+
 // Corner widget that controls the main page container max-width ceiling.
 // Purely client-side: updates --content-max-width on <html> and remembers
 // the choice in localStorage. No reload, no API call.
-export default function WidthToggle() {
+export default function WidthToggle({ bottom = 16 }: WidthToggleProps = {}) {
   const [width, setWidth] = useState<LayoutWidth>(() => readStoredLayoutWidth())
 
   useLayoutEffect(() => {
@@ -39,7 +43,7 @@ export default function WidthToggle() {
       title="Change the dashboard content width"
       style={{
         position: 'fixed',
-        bottom: 16,
+        bottom,
         right: WIDTH_TOGGLE_RIGHT_OFFSET,
         zIndex: 4000,
         padding: '8px 12px',

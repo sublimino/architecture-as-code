@@ -5,9 +5,7 @@ import { useSuperadmin } from './auth/superadmin'
 import Sidebar, { NAV } from './components/Sidebar'
 import PixelLoader from './components/PixelLoader'
 import ProtectedRoute from './auth/ProtectedRoute'
-import DemoToggle from './components/DemoToggle'
-import ThemeToggle from './components/ThemeToggle'
-import WidthToggle from './components/WidthToggle'
+import FloatingConfigControls from './components/FloatingConfigControls'
 import KeyboardShortcutsOverlay from './components/KeyboardShortcutsOverlay'
 import SetupBanner from './components/onboarding/SetupBanner'
 import { CurrencyProvider } from './money/CurrencyContext'
@@ -306,9 +304,7 @@ export default function App() {
           currency beside a figure in another, both unlabelled, is worse than
           either alone. */}
       <CurrencyProvider>
-      <DemoToggle />
-      <ThemeToggle />
-      <WidthToggle />
+      <FloatingConfigControls />
 
       {CONSENT_ENABLED && ConsentModal && isAuthenticated && consentRequired === true && (
         <Suspense fallback={null}>

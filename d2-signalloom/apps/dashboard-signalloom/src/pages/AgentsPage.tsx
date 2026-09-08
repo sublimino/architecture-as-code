@@ -1,7 +1,7 @@
 // Filter interaction adapted from Beautiful UI Filter Table (MIT); see
 // THIRD_PARTY_NOTICES.md. Signal Loom owns data, tokens, and semantics.
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
@@ -569,7 +569,25 @@ function AgentTableRow({ agent, shown, onSelect, onEdit }: {
         {/* 1. Agent */}
         <td style={{ padding: '11px 16px', maxWidth: 220 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{agentName}</span>
+            <Link
+              to={`/agents/${agent.id}?tab=overview`}
+              data-testid={`agent-link-${agent.id}`}
+              onClick={(e) => e.stopPropagation()}
+              title={`Open full dossier for ${agentName}`}
+              style={{
+                fontWeight: 600,
+                fontSize: 13,
+                color: 'var(--text)',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              className="hover:underline"
+            >
+              <span>{agentName}</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', opacity: 0.7 }} aria-hidden="true">&rarr;</span>
+            </Link>
             {hasViolations && (
               <span
                 title="Unacknowledged violation"
@@ -769,14 +787,35 @@ function AgentTableRow({ agent, shown, onSelect, onEdit }: {
                 {agent.timestamps?.last_observed_at ? 'Observed' : (agent.last_transition_at ? 'Transitioned' : 'Created')}
               </div>
             </div>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: 11, padding: '3px 8px', opacity: 0.8 }}
-              onClick={(e) => { e.stopPropagation(); onEdit(agent) }}
-              title="Edit agent settings"
-            >
-              Edit
-            </button>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Link
+                to={`/agents/${agent.id}?tab=overview`}
+                onClick={(e) => e.stopPropagation()}
+                className="btn btn-secondary"
+                data-testid={`agent-dossier-btn-${agent.id}`}
+                style={{
+                  fontSize: 11,
+                  padding: '3px 8px',
+                  opacity: 0.85,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                }}
+                title="Open full agent dossier"
+              >
+                <span>Dossier</span>
+                <span style={{ fontSize: 10 }}>&rarr;</span>
+              </Link>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: '3px 8px', opacity: 0.8 }}
+                onClick={(e) => { e.stopPropagation(); onEdit(agent) }}
+                title="Edit agent settings"
+              >
+                Edit
+              </button>
+            </div>
           </div>
         </td>
       </tr>
@@ -927,7 +966,7 @@ function GovernedTab({
           sourceHealth={sourceHealth}
           sourceHealthDetail={sourceHealthDetail}
           onClose={handleCloseDrawer}
-          onOpenFullRecord={(id) => navigate(`/agents/${id}`)}
+          onOpenFullRecord={(id) => navigate(`/agents/${id}?tab=overview`)}
           onEdit={(agent) => {
             setSelectedAgent(null)
             setEditingAgent(agent)

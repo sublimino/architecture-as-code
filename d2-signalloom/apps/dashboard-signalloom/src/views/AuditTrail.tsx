@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
@@ -829,10 +829,28 @@ export default function AuditTrail() {
                 </td>
                 <td style={{ ...DataTable.td, maxWidth: 160 }}>
                   {ev.agent_name ? (
-                    <div>
-                      <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
-                      {ev.agent_id && <div style={{ color: 'var(--muted)', fontSize: 10, fontFamily: 'monospace' }}>{ev.agent_id.slice(0, 8)}…</div>}
-                    </div>
+                    ev.agent_id ? (
+                      <Link
+                        to={`/agents/${ev.agent_id}?tab=overview`}
+                        data-testid={`audit-agent-link-${ev.id}`}
+                        style={{ color: 'var(--text)', textDecoration: 'none', display: 'block' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+                      >
+                        <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
+                        <div style={{ color: 'var(--muted)', fontSize: 10, fontFamily: 'monospace' }}>{ev.agent_id.slice(0, 8)}…</div>
+                      </Link>
+                    ) : (
+                      <Link
+                        to={`/agents?search=${encodeURIComponent(ev.agent_name)}`}
+                        data-testid={`audit-agent-link-${ev.id}`}
+                        style={{ color: 'var(--text)', textDecoration: 'none', display: 'block' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+                      >
+                        <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
+                      </Link>
+                    )
                   ) : <span style={{ color: 'var(--muted)' }}>—</span>}
                 </td>
                 {/* Both of these cells are ellipsised, and until now the cut-off

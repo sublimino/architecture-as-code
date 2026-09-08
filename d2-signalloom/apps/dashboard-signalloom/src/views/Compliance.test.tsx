@@ -174,4 +174,11 @@ describe('the posture table explains the columns an executive will misread', () 
     expect(screen.queryByRole('button', { name: 'What SOC 2 Type II means' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'What Agent means' })).toBeNull()
   })
+
+  it('renders agent name as a drill-down link to the agent overview', async () => {
+    renderCompliance()
+    const link = await screen.findByRole('link', { name: 'Cardvault Agent' })
+    expect(link).toHaveAttribute('href', '/agents/a1?tab=overview')
+  })
 })
+

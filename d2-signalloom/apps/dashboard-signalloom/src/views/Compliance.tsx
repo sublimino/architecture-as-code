@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { PieChart, Pie, Cell } from 'recharts'
 import { api } from '../api/client'
@@ -13,6 +13,7 @@ import OpenFindingsPanel from '../components/OpenFindingsPanel'
 import EmptyState from '../components/EmptyState'
 import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
+import DataTable, { type Column } from '../components/DataTable'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -355,78 +356,68 @@ export default function Compliance() {
           body={filterSegment ? 'Try a different filter or run an assessment.' : 'Run an assessment to populate agent posture.'}
         />
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                {[
-                  { label: 'Agent' },
-                  { label: 'Lifecycle', help: COLUMN_HELP.lifecycle, testId: 'compliance-lifecycle-help' },
-                  { label: 'Posture Score', help: COLUMN_HELP.postureScore, testId: 'compliance-posture-help' },
-                  ...frameworks.map(f => ({ label: f.name })),
-                  { label: 'Last Assessed', help: COLUMN_HELP.lastAssessed, testId: 'compliance-assessed-help' },
-                ].map(h => (
-                  <th key={h.label} style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-                    {h.help ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        {h.label}
-                        <HelpHint label={`What ${h.label} means`} testId={h.testId}>{h.help}</HelpHint>
-                      </span>
-                    ) : h.label}
-                  </th>
-                ))}
+        <DataTable<AgentPosture>
+          columns={[
+            { key: 'agent_name', label: 'Agent', sortable: true },
+            { key: 'agent_id', label: 'Lifecycle', help: COLUMN_HELP.lifecycle, helpTestId: 'compliance-lifecycle-help' },
+            { key: 'posture_score', label: 'Posture Score', sortable: true, help: COLUMN_HELP.postureScore, helpTestId: 'compliance-posture-help' },
+            ...frameworks.map(f => ({
+              key: `framework_${f.id}` as keyof AgentPosture & string,
+              label: f.name,
+            })),
+            { key: 'agent_id', label: 'Last Assessed', help: COLUMN_HELP.lastAssessed, helpTestId: 'compliance-assessed-help' },
+          ]}
+          data={filteredAgents}
+          pageSize={25}
+          hidePaginationWhenSinglePage
+          testIdPrefix="compliance"
+          renderRow={(a) => {
+            const agent = agentMap.get(a.agent_id)
+            const assessed = lastAssessed(a)
+            return (
+              <tr key={a.agent_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={DataTable.td}>
+                  <Link
+                    to={`/agents/${a.agent_id}?tab=overview`}
+                    style={{ color: 'var(--text)', fontWeight: 500, textDecoration: 'none' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+                  >
+                    {a.agent_name}
+                  </Link>
+                </td>
+                <td style={DataTable.td}>
+                  {agent
+                    ? <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+                    : <span style={{ color: 'var(--muted)' }}>—</span>}
+                  {agent?.credential_state?.status === 'revoked' && (
+                    <div style={{ marginTop: 6 }}>
+                      <CredentialStateNotice
+                        credentialState={agent.credential_state}
+                        agentName={agent.name}
+                        variant="inline"
+                      />
+                    </div>
+                  )}
+                </td>
+                <td style={DataTable.td}>
+                  <PostureBar score={a.posture_score} />
+                </td>
+                {frameworks.map(fw => {
+                  const st = agentFrameworkStatus(a, fw.name)
+                  return (
+                    <td key={fw.id} style={DataTable.td}>
+                      {st ? <StatusBadge status={st} variant="compliance" /> : <span style={{ color: 'var(--muted)' }}>—</span>}
+                    </td>
+                  )
+                })}
+                <td style={{ ...DataTable.td, color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  {fmtDate(assessed) ?? '—'}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredAgents.map((a, i) => {
-                const agent = agentMap.get(a.agent_id)
-                const assessed = lastAssessed(a)
-                return (
-                  <tr key={a.agent_id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                    <td style={{ padding: '10px 16px' }}>
-                      <a
-                        href={`/agents/${a.agent_id}`}
-                        style={{ color: 'var(--text)', fontWeight: 500, textDecoration: 'none' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
-                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
-                      >
-                        {a.agent_name}
-                      </a>
-                    </td>
-                    <td style={{ padding: '10px 16px' }}>
-                      {agent
-                        ? <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
-                        : <span style={{ color: 'var(--muted)' }}>—</span>}
-                      {agent?.credential_state?.status === 'revoked' && (
-                        <div style={{ marginTop: 6 }}>
-                          <CredentialStateNotice
-                            credentialState={agent.credential_state}
-                            agentName={agent.name}
-                            variant="inline"
-                          />
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 16px' }}>
-                      <PostureBar score={a.posture_score} />
-                    </td>
-                    {frameworks.map(fw => {
-                      const st = agentFrameworkStatus(a, fw.name)
-                      return (
-                        <td key={fw.id} style={{ padding: '10px 16px' }}>
-                          {st ? <StatusBadge status={st} variant="compliance" /> : <span style={{ color: 'var(--muted)' }}>—</span>}
-                        </td>
-                      )
-                    })}
-                    <td style={{ padding: '10px 16px', color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                      {fmtDate(assessed) ?? '—'}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+            )
+          }}
+        />
       )}
     </div>
   )

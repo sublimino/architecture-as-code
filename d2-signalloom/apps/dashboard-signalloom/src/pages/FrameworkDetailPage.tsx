@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type { FrameworkResponse, PostureResponse } from '../types/api'
@@ -179,14 +179,14 @@ export default function FrameworkDetailPage() {
                     style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
                   >
                     <td style={{ padding: '10px 16px', fontWeight: 500, whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                      <a
-                        href={`/agents/${agent.agent_id}`}
+                      <Link
+                        to={`/agents/${agent.agent_id}?tab=overview`}
                         style={{ color: 'inherit', textDecoration: 'none' }}
                         onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
                         onMouseLeave={e => (e.currentTarget.style.color = 'inherit')}
                       >
                         {agent.agent_name}
-                      </a>
+                      </Link>
                       {agent.posture_score !== null && (
                         <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>{agent.posture_score}%</span>
                       )}

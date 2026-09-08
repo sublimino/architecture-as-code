@@ -19,6 +19,7 @@
 //   --muted on the 12% error tint ...... 5.37:1  (AA needs 4.5)
 //   --error 2px border vs host surface .. 3.03:1  (AA-UI needs 3.0)
 
+import { Link, useInRouterContext } from 'react-router-dom'
 import type { AgentPosture } from '../types/api'
 import { tint } from './StatusBadge'
 
@@ -78,6 +79,7 @@ function fmtStamp(iso: string | null): string | null {
 
 export default function OpenFindingsPanel({ agents }: { agents: AgentPosture[] }) {
   const findings = openFindings(agents)
+  const inRouter = useInRouterContext()
 
   // Nothing open means nothing to say. The panel's absence is the all-clear —
   // and it is what makes a teardown visible: the findings stop being reported
@@ -106,7 +108,28 @@ export default function OpenFindingsPanel({ agents }: { agents: AgentPosture[] }
           const when = fmtStamp(f.assessedAt)
           return (
             <li key={`${f.agentId}:${f.controlId}`} style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>{f.controlName}</strong> failed on <strong>{f.agentName}</strong>
+              <strong>{f.controlName}</strong> failed on{' '}
+              {inRouter ? (
+                <Link
+                  to={`/agents/${f.agentId}?tab=overview`}
+                  data-testid={`finding-agent-link-${f.agentId}`}
+                  style={{ color: 'var(--text)', fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+                >
+                  {f.agentName}
+                </Link>
+              ) : (
+                <a
+                  href={`/agents/${f.agentId}?tab=overview`}
+                  data-testid={`finding-agent-link-${f.agentId}`}
+                  style={{ color: 'var(--text)', fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+                >
+                  {f.agentName}
+                </a>
+              )}
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                 {f.frameworkName} · {f.controlId}
                 {when && <> · assessed {when}</>}

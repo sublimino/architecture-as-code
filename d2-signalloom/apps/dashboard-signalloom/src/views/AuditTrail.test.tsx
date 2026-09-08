@@ -472,3 +472,13 @@ describe('AuditTrail — URL deep-link parameter ingestion', () => {
   })
 })
 
+describe('AuditTrail — agent drill-down links', () => {
+  it('renders drill-down link to agent overview when agent_id is present', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
+    const link = screen.getByTestId('audit-agent-link-evt-1')
+    expect(link).toHaveAttribute('href', '/agents/agent-1?tab=overview')
+  })
+})
+
+

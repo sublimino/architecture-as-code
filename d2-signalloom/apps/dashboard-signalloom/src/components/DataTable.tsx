@@ -68,6 +68,8 @@ export interface Column<T> {
    * restates the header is noise. Omit it and no hint renders.
    */
   help?: string
+  /** Optional custom test-id for the HelpHint element. */
+  helpTestId?: string
 }
 
 type SortDir = 'asc' | 'desc' | null
@@ -303,7 +305,7 @@ export default function DataTable<T>({
                         <span onClick={(e) => e.stopPropagation()}>
                           <HelpHint
                             label={`What ${col.label} means`}
-                            testId={`${testIdPrefix}-help-${col.key}`}
+                            testId={col.helpTestId ?? `${testIdPrefix}-help-${col.key}`}
                           >
                             {col.help}
                           </HelpHint>

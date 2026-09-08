@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Link, useInRouterContext } from 'react-router-dom'
 import {
   Background,
   BackgroundVariant,
@@ -109,6 +110,7 @@ const nodeTypes = { fleet: FleetNode }
 function FleetNode({ data }: { data: FleetNodeData }) {
   const { agent, cascadeActive } = data
   const bg = stateColour(agent.state)
+  const inRouter = useInRouterContext()
 
   return (
     <div
@@ -133,17 +135,49 @@ function FleetNode({ data }: { data: FleetNodeData }) {
       {/* Header: icon + name */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
         <span style={{ fontSize: 16 }}>{TYPE_ICONS[agent.type] ?? ''}</span>
-        <span style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--text)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          flex: 1,
-        }}>
-          {agent.name}
-        </span>
+        {inRouter ? (
+          <Link
+            to={`/agents/${agent.id}?tab=overview`}
+            data-testid={`fleet-node-link-${agent.id}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--text)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              textDecoration: 'none',
+              flex: 1,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+            title={`View agent dossier for ${agent.name}`}
+          >
+            {agent.name}
+          </Link>
+        ) : (
+          <a
+            href={`/agents/${agent.id}?tab=overview`}
+            data-testid={`fleet-node-link-${agent.id}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--text)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              textDecoration: 'none',
+              flex: 1,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+            title={`View agent dossier for ${agent.name}`}
+          >
+            {agent.name}
+          </a>
+        )}
       </div>
 
       {/* Footer: team + trust badge */}

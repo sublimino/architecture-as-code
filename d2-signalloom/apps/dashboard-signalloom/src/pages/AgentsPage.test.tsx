@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import axe from 'axe-core'
 import AgentsPage from './AgentsPage'
 import { api } from '../api/client'
 import type { AgentResponse, AgentListResponse } from '../types/api'
@@ -24,10 +25,17 @@ vi.mock('../auth/oidc', () => ({
   useAuth0: () => ({ getAccessTokenSilently }),
 }))
 
+const claimApiMock = vi.hoisted(() => ({
+  claimDiscoveredAgent: vi.fn(),
+}))
+
+vi.mock('../api/agentClaim', () => claimApiMock)
+
 vi.mock('../api/client', () => ({
   api: {
     agents: {
       list: vi.fn(),
+      get: vi.fn(),
       register: vi.fn(),
       update: vi.fn(),
     },
@@ -877,3 +885,220 @@ describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
   })
 })
 
+describe('AgentsPage — Auto-Claim workflow (SLAC-P2-1)', () => {
+  const discoveredAgent = () => makeAgent({
+    id: 'discovered:claim-target',
+    name: 'Kagent Reader',
+    owner: null,
+    record_class: 'discovered',
+    is_registry_linked: false,
+    namespace: 'fe-signalloom-agents',
+    service_account: 'kagent-reader',
+    framework: 'kagent',
+    model_name: 'anthropic-claude',
+    runtime: {
+      namespace: 'fe-signalloom-agents',
+      pod_name: 'kagent-k8s-reader',
+      service_account: 'kagent-reader',
+      framework: 'kagent',
+      model: 'anthropic-claude',
+    },
+    identity: {
+      spiffe_id: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-reader',
+      spiffe_status: 'unlinked',
+      aliases: [],
+    },
+    responsibility: {
+      owner_name: null,
+      owner_id: null,
+      team: null,
+      assignment_status: 'registry_unlinked',
+    },
+    compliance_summary: {
+      total_controls: 0,
+      passing: 0,
+      failing: 0,
+      pending: 0,
+      posture_score: null,
+    },
+    assessment_summary: {
+      status: 'not_assessed',
+      total_controls: 0,
+      passed_controls: 0,
+      failed_controls: 0,
+      pending_controls: 0,
+      normalized_score: null,
+    },
+  })
+
+  const grantedClaim = {
+    claim_id: 'claim-kagent-reader',
+    status: 'granted' as const,
+    spiffe_svid_verified: true,
+    allocated_token_budget: 100000,
+    signal_session_url: '/ws/agents/registry-agent/signal',
+    ebpf_sentinel_bound: true,
+    agent_id: 'registry-agent',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  it('renders the secondary Auto-Claim action only for discovered or unlinked rows', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        discoveredAgent(),
+        makeAgent({ id: 'unlinked-registered', name: 'Unlinked Registered', record_class: 'registered', is_registry_linked: false }),
+        makeAgent({ id: 'governed', name: 'Governed Agent', record_class: 'resolved', is_registry_linked: true }),
+      ],
+      total: 3,
+    })
+
+    renderPage()
+
+    const buttons = await screen.findAllByTestId('agent-auto-claim-btn')
+    expect(buttons).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Auto-Claim Kagent Reader into governance' })).toHaveClass('btn-secondary')
+    expect(screen.getByRole('button', { name: 'Auto-Claim Unlinked Registered into governance' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Auto-Claim Governed Agent into governance' })).not.toBeInTheDocument()
+  })
+
+  it('submits once, isolates the row click, and renders authoritative resolved posture without reload', async () => {
+    let resolveClaim!: (value: typeof grantedClaim) => void
+    claimApiMock.claimDiscoveredAgent.mockImplementation(() => new Promise(resolve => { resolveClaim = resolve }))
+    const claimed = makeAgent({
+      id: 'registry-agent',
+      name: 'Kagent Reader',
+      record_class: 'resolved',
+      is_registry_linked: true,
+      compliance_summary: { total_controls: 6, passing: 5, failing: 1, pending: 0, posture_score: 0.83 },
+      assessment_summary: { status: 'not_assessed', total_controls: 0, passed_controls: 0, failed_controls: 0, pending_controls: 0, normalized_score: null },
+    })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [discoveredAgent()], total: 1 })
+    vi.mocked(api.agents.get).mockResolvedValue(claimed)
+
+    renderPage()
+    const button = await screen.findByTestId('agent-auto-claim-btn')
+    await userEvent.click(button)
+
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByTestId('agent-auto-claim-spinner-discovered:claim-target')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+    fireEvent.click(button)
+    expect(claimApiMock.claimDiscoveredAgent).toHaveBeenCalledTimes(1)
+    expect(claimApiMock.claimDiscoveredAgent).toHaveBeenCalledWith(
+      'test-token',
+      'discovered:claim-target',
+      {
+        pod_name: 'kagent-k8s-reader',
+        namespace: 'fe-signalloom-agents',
+        spiffe_id: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-reader',
+        harness: 'kagent',
+        model: 'anthropic-claude',
+        declared_tools: [],
+        token_budget_limit: 100000,
+        agent_id: 'discovered:claim-target',
+      },
+    )
+
+    resolveClaim(grantedClaim)
+
+    await waitFor(() => expect(api.agents.get).toHaveBeenCalledWith('test-token', 'registry-agent'))
+    const resolvedRow = await screen.findByTestId('agent-row-registry-agent')
+    expect(within(resolvedRow).getByText('Resolved')).toBeInTheDocument()
+    expect(within(resolvedRow).getByText('83%')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-auto-claim-btn')).not.toBeInTheDocument()
+    expect(screen.getByTestId('agent-claim-toast')).toHaveAttribute('role', 'status')
+    expect(screen.getByTestId('agent-claim-toast')).toHaveTextContent('Kagent Reader enrolled into governance successfully.')
+    expect(api.agents.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the actionable discovered row and announces an API 500 failure', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [discoveredAgent()], total: 1 })
+    claimApiMock.claimDiscoveredAgent.mockRejectedValue(new Error('Claim service unavailable'))
+
+    renderPage()
+    await userEvent.click(await screen.findByTestId('agent-auto-claim-btn'))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Could not auto-claim Kagent Reader: Claim service unavailable')
+    const restored = screen.getByTestId('agent-auto-claim-btn')
+    expect(restored).toBeEnabled()
+    expect(restored).toHaveAttribute('aria-busy', 'false')
+    expect(screen.getByText('Discovered')).toBeInTheDocument()
+    expect(api.agents.get).not.toHaveBeenCalled()
+  })
+
+  it('does not transition state when the backend returns a non-granted claim', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [discoveredAgent()], total: 1 })
+    claimApiMock.claimDiscoveredAgent.mockResolvedValue({ ...grantedClaim, status: 'pending-review' })
+
+    renderPage()
+    await userEvent.click(await screen.findByTestId('agent-auto-claim-btn'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Auto-claim was pending-review')
+    expect(screen.getByText('Discovered')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-auto-claim-btn')).toBeEnabled()
+    expect(api.agents.get).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale polling response that began before the successful claim', async () => {
+    let resolveStaleList!: (value: AgentListResponse) => void
+    vi.mocked(api.agents.list)
+      .mockResolvedValueOnce({ agents: [discoveredAgent()], total: 1 })
+      .mockImplementationOnce(() => new Promise(resolve => { resolveStaleList = resolve }))
+    vi.mocked(api.compliancePolicy.scan).mockResolvedValue({
+      checks: [],
+      summary: {
+        totalChecks: 0,
+        passed: 0,
+        failed: 0,
+        currency: 'GBP',
+        totalAle: { amount: 0, currency: 'GBP' },
+        totalVar95: { amount: 0, currency: 'GBP' },
+        totalTvar: { amount: 0, currency: 'GBP' },
+        totalCarried: { amount: 0, currency: 'GBP' },
+        scanTimestamp: '2026-09-08T12:00:00Z',
+        frameworks: [],
+      },
+    })
+    claimApiMock.claimDiscoveredAgent.mockResolvedValue(grantedClaim)
+    vi.mocked(api.agents.get).mockResolvedValue(makeAgent({
+      id: 'registry-agent',
+      name: 'Kagent Reader',
+      record_class: 'resolved',
+      is_registry_linked: true,
+      compliance_summary: { total_controls: 6, passing: 5, failing: 1, pending: 0, posture_score: 0.83 },
+    }))
+
+    renderPage()
+    await screen.findByTestId('agent-auto-claim-btn')
+    await userEvent.click(screen.getByRole('button', { name: /scan compliance/i }))
+    await waitFor(() => expect(api.agents.list).toHaveBeenCalledTimes(2))
+    await userEvent.click(screen.getByTestId('agent-auto-claim-btn'))
+    await screen.findByTestId('agent-row-registry-agent')
+
+    resolveStaleList({ agents: [discoveredAgent()], total: 1 })
+
+    await waitFor(() => expect(screen.getByTestId('agent-row-registry-agent')).toHaveTextContent('Resolved'))
+    expect(screen.queryByTestId('agent-auto-claim-btn')).not.toBeInTheDocument()
+  })
+
+  it('has zero axe-core violations in the Auto-Claim action cell', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [discoveredAgent()], total: 1 })
+    renderPage()
+
+    const button = await screen.findByTestId('agent-auto-claim-btn')
+    const actionCell = button.closest('td')
+    expect(actionCell).not.toBeNull()
+    const audit = await axe.run(actionCell as HTMLElement, {
+      rules: { 'color-contrast': { enabled: false } },
+    })
+    expect(audit.violations).toEqual([])
+  })
+})

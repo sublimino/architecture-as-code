@@ -28,6 +28,8 @@ export interface AgentClaimRequest {
   declared_tools: string[]
   /** Maximum token budget the agent requests (0 = platform default). */
   token_budget_limit: number
+  /** Existing discovered record being reconciled, when available. */
+  agent_id?: string
 }
 
 export interface AgentClaimResponse {
@@ -43,6 +45,8 @@ export interface AgentClaimResponse {
   signal_session_url: string | null
   /** Whether the eBPF sentinel is bound to this agent's cgroup. */
   ebpf_sentinel_bound: boolean
+  /** Canonical registry identifier returned by the claim transaction. */
+  agent_id: string
 }
 
 export type ClaimStatus = AgentClaimResponse['status']
@@ -64,6 +68,33 @@ export interface ClaimRecord {
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 
+interface ApiErrorEnvelope {
+  error?: {
+    message?: unknown
+  }
+}
+
+function authHeaders(token: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  }
+}
+
+async function claimError(response: Response, action: string): Promise<Error> {
+  const raw = await response.text().catch(() => '')
+  let message = ''
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as ApiErrorEnvelope
+      if (typeof parsed.error?.message === 'string') message = parsed.error.message
+    } catch {
+      // A non-JSON proxy response is not safe or useful to expose in the UI.
+    }
+  }
+  return new Error(message || `${action} failed (${response.status})`)
+}
+
 /**
  * Submit a claim request for a new agent pod.
  *
@@ -71,18 +102,37 @@ const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
  * from the dashboard's agent management panel.
  */
 export async function submitClaim(
+  token: string,
   request: AgentClaimRequest,
   signal?: AbortSignal,
 ): Promise<AgentClaimResponse> {
   const res = await fetch(`${BASE}/api/v1/agents/claim`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(token),
     body: JSON.stringify(request),
     signal,
   })
   if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Claim failed (${res.status}): ${body}`)
+    throw await claimError(res, 'Claim')
+  }
+  return res.json() as Promise<AgentClaimResponse>
+}
+
+/** Claim one discovered inventory record into the canonical registry. */
+export async function claimDiscoveredAgent(
+  token: string,
+  agentId: string,
+  request: AgentClaimRequest,
+  signal?: AbortSignal,
+): Promise<AgentClaimResponse> {
+  const res = await fetch(`${BASE}/api/v1/agents/${encodeURIComponent(agentId)}/claim`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+    signal,
+  })
+  if (!res.ok) {
+    throw await claimError(res, 'Auto-claim')
   }
   return res.json() as Promise<AgentClaimResponse>
 }
@@ -91,11 +141,13 @@ export async function submitClaim(
  * Release a claim — called when an agent is shutting down or being stunned.
  */
 export async function releaseClaim(
+  token: string,
   claimId: string,
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${BASE}/api/v1/agents/claim/${encodeURIComponent(claimId)}`, {
     method: 'DELETE',
+    headers: authHeaders(token),
     signal,
   })
   if (!res.ok && res.status !== 404) {
@@ -107,9 +159,13 @@ export async function releaseClaim(
  * List all active claims — used by the dashboard's Agent Overview panel.
  */
 export async function listClaims(
+  token: string,
   signal?: AbortSignal,
 ): Promise<ClaimRecord[]> {
-  const res = await fetch(`${BASE}/api/v1/agents/claims`, { signal })
+  const res = await fetch(`${BASE}/api/v1/agents/claims`, {
+    headers: authHeaders(token),
+    signal,
+  })
   if (!res.ok) {
     console.warn(`[agentClaim] listClaims returned ${res.status}`)
     return []
@@ -122,12 +178,13 @@ export async function listClaims(
  * Get a single claim by ID.
  */
 export async function getClaim(
+  token: string,
   claimId: string,
   signal?: AbortSignal,
 ): Promise<ClaimRecord | null> {
   const res = await fetch(
     `${BASE}/api/v1/agents/claim/${encodeURIComponent(claimId)}`,
-    { signal },
+    { headers: authHeaders(token), signal },
   )
   if (res.status === 404) return null
   if (!res.ok) {

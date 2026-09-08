@@ -304,7 +304,38 @@ def unscoped_statements(pool: RecordingPool, tenant: str) -> list[tuple[str, tup
 DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/agents", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1", None),
+    ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/origin-verification", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/violations", None),
+    (
+        "POST",
+        "/api/v1/agents/claim",
+        {
+            "pod_name": "probe-workload",
+            "namespace": "fe-signalloom-agents",
+            "spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/probe-workload",
+            "harness": "claude-code",
+            "model": "claude-3-5-sonnet",
+            "declared_tools": [],
+            "token_budget_limit": 100000,
+        },
+    ),
+    (
+        "POST",
+        "/api/agents/claim",
+        {
+            "pod_name": "probe-workload",
+            "namespace": "fe-signalloom-agents",
+            "spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/probe-workload",
+            "harness": "claude-code",
+            "model": "claude-3-5-sonnet",
+            "declared_tools": [],
+            "token_budget_limit": 100000,
+        },
+    ),
+    ("POST", "/api/v1/agents/00000000-0000-0000-0000-0000000000a1/claim", None),
+    ("POST", "/api/agents/00000000-0000-0000-0000-0000000000a1/claim", None),
+    ("POST", "/api/v1/agents/autoclaim-discovered", None),
+    ("POST", "/api/agents/autoclaim-discovered", None),
     ("GET", "/api/audit", None),
     ("GET", "/api/compliance/summary", None),
     ("GET", "/api/compliance/posture", None),
@@ -486,6 +517,16 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/compliance/frameworks"),               # SEE test_compliance_frameworks_*
     ("GET", "/api/compliance/export"),                   # returns a URL, no query
     ("POST", "/api/agents/{agent_id}/stun"),             # cluster call; covered by test_agent_stun
+    ("GET", "/api/capabilities"),                        # in-memory capability projection
+    ("GET", "/api/audit/stream"),                        # in-memory SSE stream
+    ("GET", "/api/agents/{agent_id}/audit/stream"),      # in-memory SSE stream
+    ("GET", "/api/agents/{agent_id}/telemetry"),         # in-memory sentinel telemetry
+    ("GET", "/api/v1/agents/claims"),                    # in-memory claim registry
+    ("GET", "/api/agents/claims"),                       # in-memory claim registry
+    ("GET", "/api/v1/agents/claim/{claim_id}"),          # in-memory claim registry
+    ("GET", "/api/agents/claim/{claim_id}"),             # in-memory claim registry
+    ("DELETE", "/api/v1/agents/claim/{claim_id}"),       # in-memory claim release
+    ("DELETE", "/api/agents/claim/{claim_id}"),          # in-memory claim release
     ("GET", "/api/compliance/policy/frameworks"),        # projection of the two above
     ("GET", "/api/compliance/policy/summary"),           # projection of the two above
     ("PUT", "/api/onboarding/state"),                    # covered by test_onboarding

@@ -183,12 +183,36 @@ class EnrichedAgentRecord(BaseModel):
     timestamps: TimestampsMetadata = Field(default_factory=TimestampsMetadata)
 
 
+class SourceHealthDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["healthy", "degraded", "error", "unavailable"]
+    last_good: str | None = None
+    message: str | None = None
+
+
+class OriginVerificationMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verified: bool
+    origin_type: Literal["kubernetes_workload", "registered_catalog", "external_proxy", "custom", "unknown"] = "unknown"
+    auth_method: Literal["jwt_bearer", "spiffe_svid", "mtls", "none"] = "none"
+    issuer: str | None = None
+    subject: str | None = None
+    validated_at: str | None = None
+    status: Literal["verified", "unverified", "failed", "unsupported"] = "unverified"
+    proxy_path: str | None = None
+    source_health: SourceHealthDetail | None = None
+
+
 class AgentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     id: str
     name: str
     type: str | None
+    origin: str | None = None
+    origin_verification: OriginVerificationMetadata | None = None
     owner: str | None = None
     tenant_id: str
     lifecycle_state: str

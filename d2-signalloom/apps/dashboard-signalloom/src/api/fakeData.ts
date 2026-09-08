@@ -80,6 +80,99 @@ function agent(
   }
 }
 
+export const claimableDossierAgentFixture: AgentResponse = {
+  id: 'discovered:kagent-k8s-reader',
+  name: 'kagent-k8s-reader',
+  type: 'kagent',
+  owner: null,
+  tenant_id: TENANT,
+  lifecycle_state: 'active',
+  last_transition_at: NOW,
+  last_transition_by: null,
+  eu_ai_act_risk_class: null,
+  compliance_summary: { total_controls: 0, passing: 0, failing: 0, pending: 0, posture_score: null },
+  model_name: 'anthropic-claude',
+  created_at: NOW,
+  record_class: 'discovered',
+  is_registry_linked: false,
+  runtime: {
+    cluster_id: 'cluster-local',
+    namespace: 'fe-signalloom-agents',
+    pod_name: 'kagent-k8s-reader',
+    pod_uid: 'demo-kagent-reader-pod-uid',
+    service_account: 'kagent-k8s-reader',
+    framework: 'kagent',
+    model: 'anthropic-claude',
+    execution_mode: 'autonomous',
+    node: 'osramp-control-plane',
+    phase: 'Running',
+  },
+  responsibility: {
+    owner_id: null,
+    owner_name: null,
+    team: null,
+    assignment_status: 'registry_unlinked',
+  },
+  identity: {
+    spiffe_id: null,
+    spiffe_status: 'unlinked',
+    aliases: [],
+    svid_type: 'none',
+  },
+  operational_state: {
+    runtime_status: 'running',
+    containment: {
+      process_freeze: 'inactive',
+      network_isolation: 'inactive',
+      credential_revocation: 'inactive',
+    },
+  },
+  assessment_summary: {
+    status: 'not_assessed',
+    total_controls: 0,
+    passed_controls: 0,
+    failed_controls: 0,
+    pending_controls: 0,
+    normalized_score: null,
+  },
+  attention: { level: 'none', highest_issue: null },
+  timestamps: { created_at: NOW, last_observed_at: NOW, last_transition_at: NOW, last_action_at: null },
+}
+
+export const claimedDossierAgentFixture: AgentResponse = {
+  ...claimableDossierAgentFixture,
+  id: `${TENANT}:agent-k8s-reader`,
+  lifecycle_state: 'active',
+  owner: 'demo-user',
+  last_transition_by: 'demo-user',
+  eu_ai_act_risk_class: 'limited',
+  record_class: 'resolved',
+  is_registry_linked: true,
+  compliance_summary: { total_controls: 6, passing: 6, failing: 0, pending: 0, posture_score: 100 },
+  responsibility: {
+    owner_id: 'demo-user',
+    owner_name: 'demo-user',
+    team: 'Platform Governance',
+    assignment_status: 'assigned',
+  },
+  identity: {
+    spiffe_id: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-k8s-reader',
+    spiffe_status: 'linked',
+    aliases: ['kagent-k8s-reader'],
+    trust_domain: 'signalloom.demo',
+    svid_type: 'x509',
+    cert_issuer: 'SPIRE Server CA',
+  },
+  assessment_summary: {
+    status: 'assessed',
+    total_controls: 6,
+    passed_controls: 6,
+    failed_controls: 0,
+    pending_controls: 0,
+    normalized_score: 1,
+  },
+}
+
 function buildInitialAgents(): DemoAgentRecord[] {
   return [
     { agent: agent('agent-inventory', 'Inventory Agent', 'active', 'limited'), activeCredentialCount: 1 },

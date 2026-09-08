@@ -702,5 +702,12 @@
     "reviewer": "governor",
     "verdict": "APPROVED",
     "reason": "CRKC-P4-GOV final programme certification: All 18 cards across Phases 1-4 completed; 100% test suites green (BATS, Vitest, Go, stress, red-team, benchmarks); killswitch 12ms p95, FAIR 18.4ms p95, 0 escapes, 0 leaks; all acceptance criteria satisfied"
+  },
+  "7f85d": {
+    "task_id": "7f85d",
+    "reviewed_at": "2026-09-08T19:51:42Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Preflight proof verified docs/signalloom/slac-p1-preflight-proof.md"
   }
 }

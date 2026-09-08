@@ -1,185 +1,185 @@
 ---
-task: "Unify public tunnel with Tailscale serve and funnel"
-slug: 20260905-unify-public-tunnel-tailscale
+task: "Signal Loom in-cluster agent discovery and autoclaim demonstration"
+slug: 20260908-signalloom-agent-discovery-autoclaim
 project: osramp-demo
 effort: advanced
 effort_source: explicit
-phase: complete
-progress: 36/36
+phase: plan
+progress: 0/36
 mode: interactive
-started: 2026-09-05T14:22:00Z
-updated: 2026-09-05T14:25:30Z
+started: 2026-09-08T19:00:00Z
+updated: 2026-09-08T19:05:00Z
 ---
 
 ## Problem
 
-The repository historically exposed the SignalLoom demo via `scripts/public-tunnel.sh` using ngrok with cookie-gating traffic policies. In recent work, Tailscale was introduced as the primary access path for the GCP estate (`gcp-tf-ts-up`, `gcp-tf-funnel-up`), but the local `make public` suite remained tied to ngrok. This created fragmented access paradigms: GCP lanes used Tailscale serve and Funnel, while local Kind runs depended on ngrok binaries and authtokens. There was no local target for Tailnet-only `serve` vs public `funnel`, and no single unified entry point across environments.
+Discovered agents running in the Kubernetes cluster (such as Kagent declarative agents or autonomous pods in `fe-signalloom-agents`) are detected by `fake-integration-proxy` and surfaced on `GET /api/agents`, but remain permanently classified as `record_class="discovered"`, `is_registry_linked=false`, displaying "Registry not linked", "Not assessed", and zero compliance controls. There is no implemented backend claim endpoint (calls to `/api/v1/agents/claim` 404 despite references in `cardvault-agent/autoclaim.go`, `agentClaim.ts`, and `scripts/lib/agent-auto-claim.sh`), no auto-claim reconciler or batch auto-claim API, no UI auto-claim action, and no automated demo target to prove discovering and claiming an external agent into Signal Loom governance.
 
 ## Vision
 
-A single unified public/remote exposure system (`scripts/public-tunnel.sh`) that acts as the universal entry point for both local Kind and remote GCP environments. Operators have clear, symmetric targets (`serve`, `funnel`, `serve-down`, `funnel-down`, `public`, `public-down`, `public-status`, `public-test`). Local runs use native Tailscale CLI (`tailscale serve` and `tailscale funnel`) backed by supervised port-forwarding to the dashboard nginx (`dashboard-signalloom:8080`) and cluster-wide Dex OIDC leasing via `scripts/lib/dex-origin.sh`. GCP runs can be seamlessly driven through the same entry point. Euphoric surprise: typing `make serve` or `make funnel` locally immediately exposes the live Kind demo on Tailscale with automated MagicDNS resolution, verified TLS, and OIDC auth that never bounces.
+An operator or demo instructor can deploy an autonomous agent via Kagent or a bare Kubernetes manifest in an agent namespace, open Signal Loom, and immediately see the discovered workload flagged as "Discovered (Unclaimed)". With one click in the UI or an automated hook/reconciler (`make demo-signalloom-autoclaim`), the workload is auto-claimed into Signal Loom: bound to a tenant, issued cryptographic SPIFFE origin verification, enrolled in `agent_registry`, evaluated against initial security/compliance policies (generating real posture metrics), and logged to the immutable audit trail (`agent.claimed`). The UI live-updates to show the agent as "Registered / Resolved", with active governance controls, SPIFFE linkage, and posture score.
 
 ## Out of Scope
 
-- **No ngrok dependency retained.** ngrok binary downloads, orphan reaping on :4040, and ngrok custom response policies are removed.
-- **No changes to GCP Terraform infrastructure modules.** Terraform network/compute configurations remain untouched.
-- **No changes to Envoy Gateway cluster ingress routing.** All access continues to target the dashboard nginx (`dashboard-signalloom:8080`) same-origin proxy.
-- **No manual /etc/hosts edits.** Tailscale MagicDNS and real TLS certificates provide seamless resolution without host file hacks.
+- **No custom out-of-tree OpenBao plugins.** Standard OpenBao JWT auth with glob-bound claims and KV secrets mounts are used.
+- **No changes to Kagent upstream CRDs or controller binaries.** Kagent `Agent.kagent.dev` CRs are treated as declarative carriers to discover and claim.
+- **No modifications to Envoy Gateway ingress routing definitions.** All communications use existing service and same-origin proxy paths.
+- **No bypass of tenant authentication or JWT verification.** Privileged claim operations enforce tenant authorization and record caller identity.
 
 ## Principles
 
-- **One entry point, one truth.** A single script (`scripts/public-tunnel.sh`) manages local Tailscale serve/funnel and delegates to GCP lanes when `ENV` is specified.
-- **The lease is the law.** Dex has exactly one OIDC issuer. Every access method MUST claim a lease via `scripts/lib/dex-origin.sh` and refuse if another method holds it.
-- **Fail fast and local.** Check local Tailscale daemon, node state, and MagicDNS resolution before initiating cluster mutations or background forwards.
-- **Honest status reporting.** Report individual facts (node state, MagicDNS resolution, serve status, forward health, Dex holder) rather than a single opaque boolean.
-- **Public internet is deliberate.** `serve` (private to Tailnet) and `funnel` (public internet) are distinct actions with clear warnings.
+- **Discovery before claim.** Workload reality in the cluster is the ground truth; discovery identifies what exists, claim governs it.
+- **Zero-unassessed governance.** Claiming an agent is not just a database row insert; it establishes identity linkage (SPIFFE), tenant assignment, baseline policy evaluation, and audit attribution.
+- **Idempotent and resilient.** Claiming an already-claimed agent is safe (200 OK / updated), and releasing or unlinking a claim detaches governance without destroying the underlying cluster workload.
+- **Provenance over fabrication.** Never invent synthetic attestation or audit history; record verified cluster facts (pod UID, node, namespace, service account, SVID).
 
 ## Constraints
 
-- Pure Bash matching repository standards (`set -euo pipefail`).
-- Must pass all existing regression suites (`terraform-tailscale-access.bats`, `terraform-dex-origin.bats`, `terraform-make-contract.bats`).
-- Subprocess isolation: port-forwards and background tasks must use proper process group management and avoid stdout leaks.
-- Zero external package dependencies beyond `tailscale`, `kubectl`, `jq`, and `curl`.
+- Pure Python (FastAPI/asyncpg) matching `d2-signalloom/apps/fe-signalloom/src/api_compat.py` conventions and error response formats.
+- Pure TypeScript/React matching `d2-signalloom/apps/dashboard-signalloom` standards (`bun run build` and `bun test` clean).
+- Backward compatibility with existing `/api/agents` and `/supercred-api/agents` contracts.
+- All unit and BATS tests must be deterministic and runnable in both fixture and live-cluster environments.
 
 ## Goal
 
-Refactor `scripts/public-tunnel.sh` and `Makefile` to replace ngrok with native Tailscale `serve` (private to tailnet) and `funnel` (public internet), unifying the access architecture with GCP demo lanes so that a single robust entry point handles remote and public publishing with comprehensive self-checking, error handling, and test coverage.
+Implement and demonstrate end-to-end agent discovery and auto-claim in Signal Loom: create the `/api/v1/agents/claim`, `/api/v1/agents/{id}/claim`, and `/api/v1/agents/autoclaim-discovered` endpoints in `api_compat.py`; wire the UI "Auto-Claim" actions on `/agents` and `/agents/:id`; implement initial compliance evaluation and audit logging on claim; and deliver `make demo-signalloom-autoclaim` with comprehensive BATS and unit tests verifying discovery and autoclaim of running Kagent and cluster workloads.
 
 ## Criteria
 
-### Build & Syntax
+### Backend & API Claim Contracts
 
-- [x] ISC-1: `bash -n scripts/public-tunnel.sh` exits 0 with zero syntax errors.
-- [x] ISC-2: `scripts/lib/dex-origin.sh` functions resolve cleanly from `scripts/public-tunnel.sh`.
-- [x] ISC-3: Makefile targets `serve`, `serve-down`, `serve-status`, `funnel`, `funnel-down`, `funnel-status`, `public`, `public-down`, `public-status`, `public-test` are defined.
-- [x] ISC-4: `make -n` on all new targets produces no recipe or syntax warnings.
+- [ ] ISC-1: `POST /api/v1/agents/claim` accepts `AgentClaimRequest` payload and returns `201 Created` with `AgentClaimResponse`.
+- [ ] ISC-2: `POST /api/v1/agents/claim` creates or updates row in `agent_registry` with `lifecycle_state = 'active'` and `status = 'active'`.
+- [ ] ISC-3: `POST /api/v1/agents/claim` records SPIFFE identity, namespace, service account, and origin verification metadata.
+- [ ] ISC-4: `POST /api/v1/agents/claim` assigns a default or requested token budget limit and binds eBPF sentinel flag.
+- [ ] ISC-5: `POST /api/v1/agents/{agent_id}/claim` allows one-click claim of an already-discovered workload by its discovered ID.
+- [ ] ISC-6: `POST /api/v1/agents/autoclaim-discovered` batch-claims all discovered unclaimed agents in target namespaces.
+- [ ] ISC-7: `GET /api/v1/agents/claims` lists all active claims for the authenticated tenant.
+- [ ] ISC-8: `GET /api/v1/agents/claim/{claim_id}` returns detail for a specific claim record.
+- [ ] ISC-9: `DELETE /api/v1/agents/claim/{claim_id}` releases a claim and records transition in `audit_events`.
+- [ ] ISC-10: Claim endpoints enforce Bearer authentication and reject requests missing valid tenant context.
 
-### Local Preflight & Self-Checking
+### Database Schema & Governance Wiring
 
-- [x] ISC-5: `scripts/public-tunnel.sh` fails fast with an explanatory error if `tailscale` CLI is missing.
-- [x] ISC-6: `scripts/public-tunnel.sh` checks `tailscale status --json` and reports error if `BackendState != "Running"`.
-- [x] ISC-7: `scripts/public-tunnel.sh` detects if Tailscale node requires authentication (`NeedsLogin`) and suggests `tailscale up`.
-- [x] ISC-8: `scripts/public-tunnel.sh` extracts `.Self.DNSName` without trailing dot and fails if DNSName is empty.
-- [x] ISC-9: `scripts/public-tunnel.sh` verifies node is online (`.Self.Online == true`) and reports offline state distinctly.
-- [x] ISC-10: `scripts/public-tunnel.sh` checks MagicDNS local resolution and warns if machine cannot resolve the FQDN.
-- [x] ISC-11: `scripts/public-tunnel.sh` checks for conflicting Dex origin lease before mutating cluster state.
-- [x] ISC-12: `scripts/public-tunnel.sh` allows re-application if origin is already held by the same method and URL.
+- [ ] ISC-11: Claiming an agent inserts an immutable `agent.claimed` event into `audit_events` with principal actor attribution.
+- [ ] ISC-12: Claiming an agent seeds baseline compliance control results in `agent_compliance_results` so the agent is immediately assessed.
+- [ ] ISC-13: Claiming an agent updates `compliance_posture` score in `agent_registry` to reflect initial evaluation.
+- [ ] ISC-14: Claiming an agent creates an entry in `agent_origin_verifications` with `origin_type = 'kubernetes_workload'`.
+- [ ] ISC-15: Claiming an agent records a transition in `lifecycle_transitions` from `discovered` to `active`.
+- [ ] ISC-16: `agent_registry.name` uniqueness is preserved without collisions when claiming workloads.
+- [ ] ISC-17: Claiming is idempotent: re-claiming an already-claimed agent updates metadata without 500 error or duplicate rows.
 
-### Port-Forward & Backend Supervision
+### Agent List & Discovery Reconciliation
 
-- [x] ISC-13: `scripts/public-tunnel.sh` supervises port-forward to `fe-signalloom/dashboard-signalloom:8080`.
-- [x] ISC-14: `scripts/public-tunnel.sh` records port-forward PID and supervisor PID in `.tunnel/`.
-- [x] ISC-15: `scripts/public-tunnel.sh` waits for port-forward to bind and answer `/readyz` or `/livez` within deadline.
-- [x] ISC-16: `scripts/public-tunnel.sh` cleanly terminates prior orphaned port-forwards on the target port before start.
+- [ ] ISC-18: Discovered workload matching an `agent_registry` row returns with `record_class = 'resolved'` and `is_registry_linked = true`.
+- [ ] ISC-19: Claimed agent in `GET /api/agents` displays populated owner/team, active lifecycle state, and compliance summary.
+- [ ] ISC-20: Unclaimed discovered agent continues to return `record_class = 'discovered'` with `is_registry_linked = false`.
+- [ ] ISC-21: Discovery metadata (namespace, node, pod_uid, framework, model, service_account) is preserved on claimed agents.
+- [ ] ISC-22: `fake-integration-proxy` continues to serve discovered pods and Kagent CRs without disruption.
 
-### Tailscale Serve (Tailnet Only)
+### Dashboard UI Integration
 
-- [x] ISC-17: `scripts/public-tunnel.sh serve` configures `tailscale serve --bg --https=443 "http://127.0.0.1:${port}"`.
-- [x] ISC-18: `scripts/public-tunnel.sh serve` claims Dex origin lease as method `tailscale`.
-- [x] ISC-19: `scripts/public-tunnel.sh serve` verifies `https://${TS_FQDN}/readyz` answers HTTP 200 before claiming success.
-- [x] ISC-20: `scripts/public-tunnel.sh serve` states clearly that URL is private to the Tailnet.
-- [x] ISC-21: `scripts/public-tunnel.sh serve-down` resets Tailscale serve configuration.
-- [x] ISC-22: `scripts/public-tunnel.sh serve-down` restores Dex baseline origin if held by `tailscale`.
+- [ ] ISC-23: `/agents` table renders an "Auto-Claim" action button for any row where `recordClass === 'discovered'`.
+- [ ] ISC-24: Clicking "Auto-Claim" triggers the claim API call with loading indicator and visual feedback.
+- [ ] ISC-25: Upon successful claim, the table row transitions to "Resolved / Registered" without full page reload.
+- [ ] ISC-26: `AgentOverviewTab` and `AgentAccessTab` display "Claim Agent" action when viewing an unclaimed discovered dossier.
+- [ ] ISC-27: Claimed agent displays truthful posture score (e.g. percentage) and "Assessed" badge instead of "Not assessed".
+- [ ] ISC-28: Claimed agent displays SPIFFE linked status and verified workload origin in `AgentIdentityTab`.
+- [ ] ISC-29: `bun run build` in `dashboard-signalloom` passes with zero TypeScript or bundling errors.
 
-### Tailscale Funnel (Public Internet)
+### Demonstration & Automation
 
-- [x] ISC-23: `scripts/public-tunnel.sh funnel` configures Tailscale Funnel on port 443.
-- [x] ISC-24: `scripts/public-tunnel.sh funnel` prints public internet exposure warning before configuring.
-- [x] ISC-25: `scripts/public-tunnel.sh funnel` claims Dex origin lease as method `funnel`.
-- [x] ISC-26: `scripts/public-tunnel.sh funnel` verifies `https://${TS_FQDN}/readyz` answers HTTP 200.
-- [x] ISC-27: `scripts/public-tunnel.sh funnel-down` turns off Funnel listener and leaves Tailnet serve standing.
-- [x] ISC-28: `scripts/public-tunnel.sh funnel-down` updates Dex origin lease back to `tailscale`.
+- [ ] ISC-30: Script `scripts/demo-agent-autoclaim.sh` implements an automated interactive CLI demo.
+- [ ] ISC-31: Makefile target `make demo-signalloom-autoclaim` runs the end-to-end discovery and claim demo.
+- [ ] ISC-32: Demo finds a live running Kagent agent (e.g. `kagent-k8s-reader`), shows it unclaimed, claims it, and verifies governance.
+- [ ] ISC-33: Demo supports deploying an ephemeral shadow agent pod, finding it, and auto-claiming it.
+- [ ] ISC-34: BATS test suite `test/signalloom-autoclaim.bats` covers the complete claim lifecycle against live cluster or mock.
 
-### Unified Entry Point & Teardown
+### Anti-Criteria
 
-- [x] ISC-29: `scripts/public-tunnel.sh` accepts `ENV=<lane>` or `--env <lane>` and delegates to GCP driver (`scripts/gcp-tf/demo-up.sh`).
-- [x] ISC-30: `scripts/public-tunnel.sh status` reports all 5 facts (node state, MagicDNS, serve/funnel, forward health, Dex origin).
-- [x] ISC-31: `scripts/public-tunnel.sh url` prints the active URL and exits 0, or exits 1 with message when inactive.
-- [x] ISC-32: `scripts/public-tunnel.sh down` performs full teardown (funnel off, serve reset, supervisor killed, Dex restored).
-
-### Anti-criteria & Regression Guards
-
-- [x] ISC-33: Anti: `scripts/public-tunnel.sh` must NOT download, invoke, or require `ngrok` anywhere in its execution path.
-- [x] ISC-34: Anti: `test/terraform-tailscale-access.bats` (all 82 tests) must pass with zero failures.
-- [x] ISC-35: Anti: `test/terraform-dex-origin.bats` (all 26 tests) must pass with zero failures.
-- [x] ISC-36: Anti: `test/terraform-make-contract.bats` (all 69 tests) must pass with zero failures.
+- [ ] ISC-35: Anti: Re-submitting a claim for an already-registered agent must NOT create a duplicate record or return 500.
+- [ ] ISC-36: Anti: Claiming an agent under Tenant A must NOT allow Tenant B to read or modify the claimed agent record.
 
 ## Test Strategy
 
 ```yaml
 - isc: ISC-1
-  type: syntax
-  check: bash syntax validation
-  threshold: exit 0
-  tool: bash -n scripts/public-tunnel.sh
+  type: functional
+  check: POST /api/v1/agents/claim endpoint response
+  threshold: HTTP 201 with claim_id, status=granted
+  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
 
-- isc: ISC-3
-  type: make-contract
-  check: targets present in Makefile
-  threshold: 10 matches
-  tool: grep -E '^(serve|funnel|public)(-down|-status|-test)?:' Makefile
+- isc: ISC-5
+  type: functional
+  check: POST /api/v1/agents/{id}/claim one-click claim
+  threshold: HTTP 200 with agent record linked
+  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
 
-- isc: ISC-30
-  type: cli-status
-  check: status reports five discrete facts
-  threshold: exit 0
-  tool: ./scripts/public-tunnel.sh status
+- isc: ISC-11
+  type: data-integrity
+  check: audit_events row created on claim
+  threshold: event_type = agent.claimed with actor
+  tool: psql SELECT COUNT(*) FROM audit_events WHERE event_type = 'agent.claimed'
 
-- isc: ISC-33
-  type: anti-probe
-  check: no ngrok references in active execution code
-  threshold: 0 occurrences outside deprecation warnings
-  tool: grep -i 'ngrok_bin\|find_ngrok\|reap_orphan_ngrok' scripts/public-tunnel.sh
+- isc: ISC-18
+  type: contract
+  check: GET /api/agents reflects claimed agent as resolved
+  threshold: record_class = resolved, is_registry_linked = true
+  tool: curl /api/agents with Bearer token
+
+- isc: ISC-29
+  type: build
+  check: Dashboard TypeScript build
+  threshold: bun run build exit 0
+  tool: bun run build in d2-signalloom/apps/dashboard-signalloom
+
+- isc: ISC-31
+  type: e2e
+  check: Makefile demo-signalloom-autoclaim target
+  threshold: exits 0 with verified claim evidence
+  tool: make demo-signalloom-autoclaim
 
 - isc: ISC-34
   type: regression
-  check: GCP tailscale access tests
-  threshold: 82 passed, 0 failed
-  tool: bats test/terraform-tailscale-access.bats
+  check: BATS test suite
+  threshold: 100% tests pass
+  tool: bats test/signalloom-autoclaim.bats
 
 - isc: ISC-35
-  type: regression
-  check: Dex origin leasing tests
-  threshold: 26 passed, 0 failed
-  tool: bats test/terraform-dex-origin.bats
+  type: anti-criterion
+  check: Duplicate claim idempotency
+  threshold: HTTP 200/201, single database row
+  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
 
 - isc: ISC-36
-  type: regression
-  check: Makefile contract tests
-  threshold: 69 passed, 0 failed
-  tool: bats test/terraform-make-contract.bats
+  type: security
+  check: Multi-tenant isolation on claim
+  threshold: HTTP 403 / tenant isolation enforced
+  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
 ```
 
 ## Features
 
 | Feature | Satisfies | Depends On | Parallelizable |
 |---------|-----------|------------|----------------|
-| Tailscale local discovery & preflights | ISC-5, ISC-6, ISC-7, ISC-8, ISC-9, ISC-10 | none | yes |
-| Supervised local port-forwarding | ISC-13, ISC-14, ISC-15, ISC-16 | none | yes |
-| Local Tailscale serve & teardown | ISC-17, ISC-18, ISC-19, ISC-20, ISC-21, ISC-22 | discovery, port-forward | no |
-| Local Tailscale funnel & teardown | ISC-23, ISC-24, ISC-25, ISC-26, ISC-27, ISC-28 | serve | no |
-| Unified CLI & GCP delegation | ISC-29, ISC-30, ISC-31, ISC-32 | serve, funnel | no |
-| Makefile targets & Where script sync | ISC-3, ISC-4, ISC-33 | unified CLI | no |
-| Regression test verification | ISC-34, ISC-35, ISC-36 | all above | no |
+| Claim API models & endpoints (`api_compat.py`) | ISC-1, ISC-4, ISC-5, ISC-6, ISC-7, ISC-8, ISC-9, ISC-10 | none | yes |
+| Database claim transaction & governance seeding | ISC-2, ISC-3, ISC-11, ISC-12, ISC-13, ISC-14, ISC-15, ISC-16, ISC-17 | Claim API models | no |
+| Discovery-to-Registry reconciliation & overlay | ISC-18, ISC-19, ISC-20, ISC-21, ISC-22 | Database claim | no |
+| Dashboard UI Auto-Claim buttons & state update | ISC-23, ISC-24, ISC-25, ISC-26, ISC-27, ISC-28, ISC-29 | Claim endpoints | yes |
+| CLI Demo Runner (`scripts/demo-agent-autoclaim.sh`) & Makefile | ISC-30, ISC-31, ISC-32, ISC-33 | UI & API | no |
+| Automated BATS and Pytest test suites | ISC-34, ISC-35, ISC-36 | all above | no |
 
 ## Decisions
 
-- 2026-09-05: Adopt Tailscale serve (tailnet-only) and Tailscale Funnel (public internet) as the single standard across both local Kind and GCP demo estates.
-- 2026-09-05: Remove ngrok transport entirely from `public-tunnel.sh`. `public` becomes an alias to `funnel` (true public exposure) while `serve` provides private Tailnet access.
-- 2026-09-05: Unify entry points by supporting `ENV=<lane>` in `scripts/public-tunnel.sh`, delegating to `scripts/gcp-tf/demo-up.sh` when an environment key is supplied.
-- 2026-09-05: Maintain `EXPOSE_ORIGIN_METHOD` default in `scripts/lib/expose.sh` to preserve contract for test suites while setting explicit method in `public-tunnel.sh`.
+- 2026-09-08: Selected `POST /api/v1/agents/claim` as canonical endpoint matching `agent-auto-claim.sh`, `cardvault-agent/autoclaim.go`, and `agentClaim.ts`.
+- 2026-09-08: Added `POST /api/v1/agents/{agent_id}/claim` to enable simple one-click claim from the UI using discovered workload ID.
+- 2026-09-08: Added `POST /api/v1/agents/autoclaim-discovered` to allow bulk automated reconciliation of all discovered agents in an agent namespace.
+- 2026-09-08: Initial governance on claim automatically seeds 6 standard compliance controls (`POL-SEC-01` through `POL-SEC-06`) and assigns initial posture score to avoid leaving newly claimed agents as "Not assessed".
 
 ## Changelog
 
-- 2026-09-05: Completed full refactor of `scripts/public-tunnel.sh` with native Tailscale serve & Funnel, unified GCP delegation, and Dex origin leasing.
-- 2026-09-05: Updated `Makefile` with symmetric `serve` and `funnel` targets, and updated `scripts/where.sh` status reporting.
-- 2026-09-05: Verified all 82 tests in `terraform-tailscale-access.bats`, 26 tests in `terraform-dex-origin.bats`, and 69 tests in `terraform-make-contract.bats` pass with 0 failures.
+- 2026-09-08: Initialized ISA for Signal Loom in-cluster agent discovery and autoclaim demonstration.
 
 ## Verification
 
-- `bash -n scripts/public-tunnel.sh`: 0 errors
-- `bats test/terraform-tailscale-access.bats`: 82 tests, 0 failures
-- `bats test/terraform-dex-origin.bats`: 26 tests, 0 failures
-- `bats test/terraform-make-contract.bats`: 69 tests, 0 failures
-- `scripts/public-tunnel.sh status`: outputs 5 facts cleanly
-- `make -n` on 10 targets: dry-run verified
+*(Pending execution after plan approval)*

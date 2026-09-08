@@ -14,6 +14,7 @@
  * subsystems and remain self-contained demo data.
  */
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
@@ -779,13 +780,37 @@ export default function NetworkTestsPage() {
                 </button>
               </td>
               <td style={DataTable.td}>
-                <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
-                  {t.src.namespace}/{t.src.name}
-                </code>
+                {t.src.namespace === 'fe-signalloom-agents' ? (
+                  <Link
+                    to={`/agents/${t.src.name}?tab=overview`}
+                    data-testid={`netassert-src-agent-link-${t.name}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
+                      {t.src.namespace}/{t.src.name}
+                    </code>
+                  </Link>
+                ) : (
+                  <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
+                    {t.src.namespace}/{t.src.name}
+                  </code>
+                )}
                 <span style={{ margin: '0 4px', color: 'var(--muted)' }}>{t.expectedExit === 0 ? '→' : '✘'}</span>
-                <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
-                  {t.dst.namespace}/{t.dst.name}
-                </code>
+                {t.dst.namespace === 'fe-signalloom-agents' ? (
+                  <Link
+                    to={`/agents/${t.dst.name}?tab=overview`}
+                    data-testid={`netassert-dst-agent-link-${t.name}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
+                      {t.dst.namespace}/{t.dst.name}
+                    </code>
+                  </Link>
+                ) : (
+                  <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
+                    {t.dst.namespace}/{t.dst.name}
+                  </code>
+                )}
               </td>
               <td style={DataTable.td}>{t.targetPort}</td>
               {/* An intent, not an outcome, so both values are deliberately
@@ -968,7 +993,17 @@ export default function NetworkTestsPage() {
           }
           renderRow={(a) => (
             <tr key={a.name} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ ...DataTable.td, fontWeight: 500 }}>{a.name}</td>
+              <td style={{ ...DataTable.td, fontWeight: 500 }}>
+                <Link
+                  to={`/agents/${a.name}?tab=overview`}
+                  data-testid={`agent-test-link-${a.name}`}
+                  style={{ color: 'var(--text)', textDecoration: 'none' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                >
+                  {a.name}
+                </Link>
+              </td>
               <td style={DataTable.td}><code style={{ fontSize: 11, color: 'var(--cyan)' }}>{a.namespace}</code></td>
               <td style={DataTable.td}>{a.type}</td>
               <td style={DataTable.td}><StatusBadge status={a.status} variant="lifecycle" /></td>

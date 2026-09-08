@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import FleetTopology from '../components/fleet/FleetTopology'
@@ -899,8 +900,28 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                 data-testid={`fleet-roster-row-${row.id}`}
                 style={{ borderBottom: '1px solid var(--border)' }}
               >
-                <td style={DataTable.td}>{row.name}</td>
-                <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.id}</td>
+                <td style={DataTable.td}>
+                  <Link
+                    to={`/agents/${row.id}?tab=overview`}
+                    data-testid={`fleet-roster-link-${row.id}`}
+                    style={{ color: 'var(--text)', textDecoration: 'none', fontWeight: 500 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                  >
+                    {row.name}
+                  </Link>
+                </td>
+                <td style={{ ...DataTable.td, color: 'var(--muted)' }}>
+                  <Link
+                    to={`/agents/${row.id}?tab=overview`}
+                    data-testid={`fleet-roster-id-link-${row.id}`}
+                    style={{ color: 'var(--muted)', textDecoration: 'none' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
+                  >
+                    {row.id}
+                  </Link>
+                </td>
                 <td style={DataTable.td}>{row.type}</td>
                 <td style={DataTable.td}>{row.team}</td>
                 <td style={DataTable.td}>

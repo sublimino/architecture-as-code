@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import PixelLoader from '../components/PixelLoader'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -422,8 +422,149 @@ export default function AgentTrustTopologyPage() {
           </div>
         )}
         <div className="trust-inspector__body" key={`${selected.type}:${selected.id}`}>
-          {node && <><h2 style={{ fontSize: 16 }}>{node.label}</h2><TrustPath nodeId={node.id} nodesById={nodesById} /><AssuranceMeter evidence={node.evidence} /><Detail label="SPIFFE ID" value={node.spiffeId} /><Detail label="Namespace / service account" value={node.namespace && node.serviceAccount ? `${node.namespace} / ${node.serviceAccount}` : undefined} /><Detail label="Selectors" value={node.selectors?.join(', ')} /><Detail label="OpenBao role / path / audience / TTL" value={[node.baoRole, node.baoPath, node.audience, node.ttl && `TTL: ${node.ttl}`].filter(Boolean).join(' · ')} /><Detail label="Provider assertion / binding" value={node.providerAssertion} /><Detail label="Key custody / export" value={node.keyCustody} /><Detail label="Rotation / reload" value={node.rotationReload} /><Detail label="Trust bundle" value={node.trustBundle} /><Detail label="De-enrollment" value={node.deEnrollment} /><Detail label="Production gap" value={node.productionGap} /><Detail label="Source" value={node.source} /><Detail label="Evidence / freshness / assurance" value={`${visual[node.evidence].label} · ${node.freshness} · ${node.assurance}`} /><Detail label="Reason" value={node.reason} /></>}
-          {edge && <><h2 style={{ fontSize: 16 }}>{edge.verb}</h2><div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 10 }}>{endpointsOf(edge, nodesById)}</div>{edge.denialKind && <div style={{ border: '1px solid var(--error)', background: 'color-mix(in srgb, var(--error) 10%, var(--surface))', color: 'var(--text)', padding: 8, borderRadius: 5, fontSize: 12, marginBottom: 10 }}>{edge.denialKind === 'network-block' ? 'Network block' : 'Application authorization rejection'}</div>}<AssuranceMeter evidence={edge.evidence} /><Detail label="Plane / decision" value={`${edge.plane} · ${edge.decision}`} /><Detail label="OpenBao role / path / audience / TTL" value={[edge.baoRole, edge.baoPath, edge.audience, edge.ttl && `TTL: ${edge.ttl}`].filter(Boolean).join(' · ')} /><Detail label="Policy reference" value={edge.policyRef} /><Detail label="Source" value={edge.source} /><Detail label="Evidence / freshness / assurance" value={`${visual[edge.evidence].label} · ${edge.freshness} · ${edge.assurance}`} /><Detail label="Failure / denial reason" value={edge.reason} /></>}
+          {node && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                <h2 style={{ fontSize: 16, margin: 0 }}>{node.label}</h2>
+                {node.kind === 'agent' && (
+                  <span className="tag" style={{ fontSize: 10, padding: '1px 5px', background: 'color-mix(in srgb, var(--cyan) 15%, var(--surface))', color: 'var(--cyan)' }}>
+                    Agent
+                  </span>
+                )}
+              </div>
+              <TrustPath nodeId={node.id} nodesById={nodesById} />
+              {node.kind === 'agent' && (
+                <div style={{ marginBottom: 12, marginTop: 4 }}>
+                  <Link
+                    to={`/agents/${node.id}?tab=overview`}
+                    data-testid="inspector-agent-dossier-link"
+                    className="btn btn-primary"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      padding: '6px 12px',
+                      textDecoration: 'none',
+                      width: '100%',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <span>View Agent Dossier</span>
+                    <span style={{ fontSize: 14 }}>&rarr;</span>
+                  </Link>
+                </div>
+              )}
+              <AssuranceMeter evidence={node.evidence} />
+              {node.spiffeId && (
+                <div style={{ marginBottom: 9 }}>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>
+                    SPIFFE ID
+                  </div>
+                  <Link
+                    to={`/agents?search=${encodeURIComponent('spiffe:' + node.spiffeId)}`}
+                    data-testid="inspector-spiffe-link"
+                    title="Filter agents by SPIFFE ID"
+                    style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none', overflowWrap: 'anywhere' }}
+                  >
+                    {node.spiffeId}
+                  </Link>
+                </div>
+              )}
+              <Detail
+                label="Namespace / service account"
+                value={node.namespace && node.serviceAccount ? `${node.namespace} / ${node.serviceAccount}` : undefined}
+              />
+              {node.selectors && node.selectors.length > 0 && (
+                <div style={{ marginBottom: 9 }}>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>
+                    Selectors
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {node.selectors.map(sel => (
+                      <Link
+                        key={sel}
+                        to={`/agents?search=${encodeURIComponent(sel)}`}
+                        data-testid={`inspector-selector-${sel}`}
+                        title={`Filter agents by ${sel}`}
+                        style={{
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          background: 'var(--surface2)',
+                          color: 'var(--cyan)',
+                          border: '1px solid var(--border)',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        {sel}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <Detail
+                label="OpenBao role / path / audience / TTL"
+                value={[node.baoRole, node.baoPath, node.audience, node.ttl && `TTL: ${node.ttl}`].filter(Boolean).join(' · ')}
+              />
+              <Detail label="Provider assertion / binding" value={node.providerAssertion} />
+              <Detail label="Key custody / export" value={node.keyCustody} />
+              <Detail label="Rotation / reload" value={node.rotationReload} />
+              <Detail label="Trust bundle" value={node.trustBundle} />
+              <Detail label="De-enrollment" value={node.deEnrollment} />
+              <Detail label="Production gap" value={node.productionGap} />
+              <Detail label="Source" value={node.source} />
+              <Detail label="Evidence / freshness / assurance" value={`${visual[node.evidence].label} · ${node.freshness} · ${node.assurance}`} />
+              <Detail label="Reason" value={node.reason} />
+            </>
+          )}
+          {edge && (() => {
+            const fromNode = nodesById.get(edge.from)
+            const toNode = nodesById.get(edge.to)
+            return (
+              <>
+                <h2 style={{ fontSize: 16 }}>{edge.verb}</h2>
+                <div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 8 }}>{endpointsOf(edge, nodesById)}</div>
+                {(fromNode?.kind === 'agent' || toNode?.kind === 'agent') && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                    {fromNode?.kind === 'agent' && (
+                      <Link
+                        to={`/agents/${fromNode.id}?tab=overview`}
+                        data-testid="inspector-source-agent-link"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none' }}
+                      >
+                        Source Agent Dossier &rarr;
+                      </Link>
+                    )}
+                    {toNode?.kind === 'agent' && (
+                      <Link
+                        to={`/agents/${toNode.id}?tab=overview`}
+                        data-testid="inspector-target-agent-link"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none' }}
+                      >
+                        Target Agent Dossier &rarr;
+                      </Link>
+                    )}
+                  </div>
+                )}
+                {edge.denialKind && (
+                  <div style={{ border: '1px solid var(--error)', background: 'color-mix(in srgb, var(--error) 10%, var(--surface))', color: 'var(--text)', padding: 8, borderRadius: 5, fontSize: 12, marginBottom: 10 }}>
+                    {edge.denialKind === 'network-block' ? 'Network block' : 'Application authorization rejection'}
+                  </div>
+                )}
+                <AssuranceMeter evidence={edge.evidence} />
+                <Detail label="Plane / decision" value={`${edge.plane} · ${edge.decision}`} />
+                <Detail label="OpenBao role / path / audience / TTL" value={[edge.baoRole, edge.baoPath, edge.audience, edge.ttl && `TTL: ${edge.ttl}`].filter(Boolean).join(' · ')} />
+                <Detail label="Policy reference" value={edge.policyRef} />
+                <Detail label="Source" value={edge.source} />
+                <Detail label="Evidence / freshness / assurance" value={`${visual[edge.evidence].label} · ${edge.freshness} · ${edge.assurance}`} />
+                <Detail label="Failure / denial reason" value={edge.reason} />
+              </>
+            )
+          })()}
         </div>
       </aside>
     </div>

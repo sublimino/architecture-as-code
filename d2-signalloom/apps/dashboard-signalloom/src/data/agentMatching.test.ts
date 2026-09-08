@@ -55,8 +55,19 @@ describe('findMatchingAgent', () => {
     expect(match?.id).toBe('agent-4')
   })
 
+  it('matches by id: prefix in target ID', () => {
+    const match = findMatchingAgent({ account_name: 'anything', id: 'id:agent-sir-lancelot' }, agents)
+    expect(match?.id).toBe('agent-sir-lancelot')
+  })
+
+  it('matches by sa: prefix in account name', () => {
+    const match = findMatchingAgent({ account_name: 'sa:svc-billing-sync' }, agents)
+    expect(match?.id).toBe('agent-billing-sync')
+  })
+
   it('returns undefined when no agent matches', () => {
     const match = findMatchingAgent({ account_name: 'completely-unknown-svc', owner_email: 'unknown@example.com' }, agents)
     expect(match).toBeUndefined()
   })
 })
+

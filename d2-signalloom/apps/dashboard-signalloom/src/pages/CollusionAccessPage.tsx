@@ -65,7 +65,11 @@ import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
+import SafeLink from '../components/SafeLink'
+import type { AgentResponse } from '../types/api'
+import { findMatchingAgent } from '../data/agentMatching'
 import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
+import { resolveFake } from '../api/fakeData'
 import {
   fetchAnalysisStatus,
   fetchClusterJobs,
@@ -748,8 +752,136 @@ const GUARD_COLUMNS: Column<GuardRow>[] = [
   },
 ]
 
+function cleanSubjectForMatch(subject: string): string {
+  return subject
+    .replace(/^system:serviceaccount:[^:]+:/, '')
+    .replace(/^(sa:|group:|user:|serviceaccount:)/, '')
+    .trim()
+}
+
+export function SubjectAgentLink({
+  subject,
+  agents,
+  testId,
+}: {
+  subject: string
+  agents: AgentResponse[]
+  testId?: string
+}) {
+  const clean = cleanSubjectForMatch(subject)
+  const matched =
+    findMatchingAgent({ account_name: clean, id: clean }, agents) ||
+    findMatchingAgent({ account_name: subject, id: subject }, agents)
+
+  if (!matched) {
+    return <span data-testid={testId}>{subject}</span>
+  }
+
+  return (
+    <SafeLink
+      to={`/agents/${encodeURIComponent(matched.id)}?tab=overview`}
+      data-testid={testId}
+      style={{ color: 'var(--text)', textDecoration: 'none', fontWeight: 500 }}
+      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
+    >
+      {subject}
+    </SafeLink>
+  )
+}
+
+export function GroupMembersLink({
+  group,
+  agents,
+  testIdPrefix,
+}: {
+  group: string
+  agents: AgentResponse[]
+  testIdPrefix?: string
+}) {
+  const members = group.split(',').map((s) => s.trim()).filter(Boolean)
+  return (
+    <span data-testid={testIdPrefix}>
+      {members.map((member, i) => (
+        <span key={i}>
+          {i > 0 && ', '}
+          <SubjectAgentLink
+            subject={member}
+            agents={agents}
+            testId={testIdPrefix ? `${testIdPrefix}-member-${i}` : undefined}
+          />
+        </span>
+      ))}
+    </span>
+  )
+}
+
+export function CollaboratorGainsLinks({
+  text,
+  agents,
+  testIdPrefix,
+}: {
+  text: string
+  agents: AgentResponse[]
+  testIdPrefix?: string
+}) {
+  if (text === '—') return <span>—</span>
+  const parts = text.split(';').map((s) => s.trim()).filter(Boolean)
+  return (
+    <span data-testid={testIdPrefix}>
+      {parts.map((part, i) => {
+        const colonSpaceMatch = part.match(/:\s+/)
+        if (!colonSpaceMatch || colonSpaceMatch.index === undefined) {
+          return <span key={i}>{i > 0 && '; '}{part}</span>
+        }
+        const colonIdx = colonSpaceMatch.index
+        const sub = part.slice(0, colonIdx).trim()
+        const perm = part.slice(colonIdx + colonSpaceMatch[0].length).trim()
+        return (
+          <span key={i}>
+            {i > 0 && '; '}
+            <SubjectAgentLink
+              subject={sub}
+              agents={agents}
+              testId={testIdPrefix ? `${testIdPrefix}-sub-${i}` : undefined}
+            />
+            {': '}
+            <code style={{ color: 'var(--muted)', fontSize: 11 }}>{perm}</code>
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
 export default function CollusionAccessPage() {
   const [demo, setDemo] = useState(isDemoMode())
+  const [agents, setAgents] = useState<AgentResponse[]>(() => {
+    try {
+      return (resolveFake('GET', '/agents') as { agents: AgentResponse[] } | undefined)?.agents ?? []
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    if (demo) return
+    let cancelled = false
+    async function loadAgents() {
+      try {
+        const res = await fetch('/agents')
+          .then((r) => (r.ok ? (r.json() as Promise<{ agents?: AgentResponse[] }>) : null))
+          .catch(() => null)
+        if (!cancelled && res?.agents && res.agents.length > 0) {
+          setAgents(res.agents)
+        }
+      } catch {
+        // ignore
+      }
+    }
+    void loadAgents()
+    return () => { cancelled = true }
+  }, [demo])
   const [clusters, setClusters] = useState<ClusterMeta[]>([])
   const [runOptions, setRunOptions] = useState<RunOption[]>([])
   const [selectedRunId, setSelectedRunId] = useState<string>(AGGREGATE_ID)
@@ -1387,7 +1519,9 @@ export default function CollusionAccessPage() {
               )}
               renderRow={(row: SingleRow) => (
                 <ProofRow key={row.key} id={row.key} span={SINGLE_COLUMNS.length} proofs={row.proofs} open={openProof[row.key] === true}>
-                  <td style={{ ...DataTable.td, fontWeight: 500 }}>{row.subject}</td>
+                  <td style={{ ...DataTable.td, fontWeight: 500 }}>
+                    <SubjectAgentLink subject={row.subject} agents={agents} testId={`single-subject-link-${row.key}`} />
+                  </td>
                   <td style={DataTable.td}><code style={{ color: 'var(--violet)', fontSize: 12 }}>{row.escalationType}</code></td>
                   <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.scope}</td>
                   <td style={DataTable.td}><code style={{ color: 'var(--amber)', fontSize: 12 }}>{row.gained}</code></td>
@@ -1433,10 +1567,16 @@ export default function CollusionAccessPage() {
               )}
               renderRow={(row: GroupRow) => (
                 <ProofRow key={row.key} id={row.key} span={GROUP_COLUMNS.length} proofs={row.proofs} open={openProof[row.key] === true}>
-                  <td style={{ ...DataTable.td, fontWeight: 500, whiteSpace: 'normal' }}>{row.group}</td>
-                  <td style={DataTable.td}>{row.primaryActor}</td>
+                  <td style={{ ...DataTable.td, fontWeight: 500, whiteSpace: 'normal' }}>
+                    <GroupMembersLink group={row.group} agents={agents} testIdPrefix={`group-members-${row.key}`} />
+                  </td>
+                  <td style={DataTable.td}>
+                    <SubjectAgentLink subject={row.primaryActor} agents={agents} testId={`group-primary-actor-${row.key}`} />
+                  </td>
                   <td style={DataTable.td}><code style={{ color: 'var(--amber)', fontSize: 12 }}>{row.primaryGain}</code></td>
-                  <td style={{ ...DataTable.td, color: 'var(--muted)', whiteSpace: 'normal' }}>{row.collaboratorGains}</td>
+                  <td style={{ ...DataTable.td, color: 'var(--muted)', whiteSpace: 'normal' }}>
+                    <CollaboratorGainsLinks text={row.collaboratorGains} agents={agents} testIdPrefix={`group-collaborator-gains-${row.key}`} />
+                  </td>
                   <td style={DataTable.td}><Pill label={row.risk} /></td>
                   <td style={DataTable.td}><ProofButton id={row.key} proofs={row.proofs} /></td>
                 </ProofRow>

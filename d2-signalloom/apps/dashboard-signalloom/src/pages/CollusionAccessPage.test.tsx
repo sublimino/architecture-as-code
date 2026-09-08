@@ -45,8 +45,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import CollusionAccessPage from './CollusionAccessPage'
+import CollusionAccessPage, {
+  SubjectAgentLink,
+  GroupMembersLink,
+  CollaboratorGainsLinks,
+} from './CollusionAccessPage'
 import { DEMO_RUNS } from '../api/afmDemoFixtures'
+import type { AgentResponse } from '../types/api'
 
 const isDemoMode = vi.fn(() => true)
 const fetchMock = vi.fn()
@@ -202,6 +207,9 @@ function routeLiveFetch(overrides: RouteOverrides = {}) {
     }
     if (url === '/afm/clusters/prod/analysis/guards') {
       return overrides.guards ? overrides.guards() : Promise.resolve(response(true, LIVE_GUARDS))
+    }
+    if (url.startsWith('/agents') || url.includes('/agents')) {
+      return Promise.resolve(response(true, { agents: [] }))
     }
     return Promise.reject(new Error(`unexpected fetch: ${url}`))
   })
@@ -907,5 +915,100 @@ describe('CollusionAccessPage — explanations', () => {
       .toHaveAttribute('aria-label', 'What risk means')
     expect(within(sectionFor('Remediation Priorities')).getByTestId('guards-facet-help'))
       .toHaveAttribute('aria-label', 'What kind means')
+  })
+
+  describe('agent drill-down links', () => {
+    const mockAgents: AgentResponse[] = [
+      {
+        id: 'agent-ci-runner',
+        name: 'CI Runner Agent',
+        type: 'Signal Loom Built',
+        tenant_id: 'tenant-1',
+        service_account: 'ci/runner',
+        lifecycle_state: 'active',
+        last_transition_at: null,
+        eu_ai_act_risk_class: null,
+        compliance_summary: {
+          total_controls: 10,
+          passing: 10,
+          failing: 0,
+          pending: 0,
+          posture_score: 100,
+        },
+        created_at: null,
+      },
+    ]
+
+    it('renders SubjectAgentLink as a link when an agent matches', () => {
+      render(
+        <MemoryRouter>
+          <SubjectAgentLink
+            subject="sa:ci/runner"
+            agents={mockAgents}
+            testId="test-subject-link"
+          />
+        </MemoryRouter>,
+      )
+      const link = screen.getByTestId('test-subject-link')
+      expect(link.tagName.toLowerCase()).toBe('a')
+      expect(link).toHaveAttribute('href', '/agents/agent-ci-runner?tab=overview')
+      expect(link).toHaveTextContent('sa:ci/runner')
+    })
+
+    it('renders SubjectAgentLink as plain span when no agent matches', () => {
+      render(
+        <MemoryRouter>
+          <SubjectAgentLink
+            subject="group:dev-eu"
+            agents={mockAgents}
+            testId="test-unmatched-link"
+          />
+        </MemoryRouter>,
+      )
+      const span = screen.getByTestId('test-unmatched-link')
+      expect(span.tagName.toLowerCase()).toBe('span')
+      expect(span).toHaveTextContent('group:dev-eu')
+    })
+
+    it('renders GroupMembersLink with links for matching members', () => {
+      render(
+        <MemoryRouter>
+          <GroupMembersLink
+            group="group:dev-eu, sa:ci/runner"
+            agents={mockAgents}
+            testIdPrefix="group-members-test"
+          />
+        </MemoryRouter>,
+      )
+      const member0 = screen.getByTestId('group-members-test-member-0')
+      const member1 = screen.getByTestId('group-members-test-member-1')
+      expect(member0.tagName.toLowerCase()).toBe('span')
+      expect(member1.tagName.toLowerCase()).toBe('a')
+      expect(member1).toHaveAttribute('href', '/agents/agent-ci-runner?tab=overview')
+    })
+
+    it('renders CollaboratorGainsLinks parsing subject and permission', () => {
+      render(
+        <MemoryRouter>
+          <CollaboratorGainsLinks
+            text="sa:ci/runner: bind role:flux-reconciler"
+            agents={mockAgents}
+            testIdPrefix="gains-test"
+          />
+        </MemoryRouter>,
+      )
+      const sub = screen.getByTestId('gains-test-sub-0')
+      expect(sub.tagName.toLowerCase()).toBe('a')
+      expect(sub).toHaveAttribute('href', '/agents/agent-ci-runner?tab=overview')
+    })
+
+    it('renders Collusion Pairs table with actor and collaborator testids', () => {
+      renderPage()
+      // In demo mode with aggregate view, collusion pairs have row keys and testids
+      const actorElement = screen.getByTestId('group-primary-actor-group-0')
+      expect(actorElement).toBeInTheDocument()
+      const membersElement = screen.getByTestId('group-members-group-0')
+      expect(membersElement).toBeInTheDocument()
+    })
   })
 })

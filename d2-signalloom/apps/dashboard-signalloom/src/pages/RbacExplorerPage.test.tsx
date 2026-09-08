@@ -13,6 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import RbacExplorerPage, { conformanceProofs, correlatedPath, escalationProofs } from './RbacExplorerPage'
 
 const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
@@ -612,6 +613,23 @@ describe('RbacExplorerPage', () => {
       const finding = { severity: 'high', reason: 'unnamed role' }
       const [proof] = conformanceProofs(finding, [finding], 'local', false)
       expect(proof.command).toContain('select(.role_name == null)')
+    })
+
+    it('renders matching ServiceAccount subjects with an agent link and badge in demo mode', async () => {
+      isDemoMode.mockReturnValue(true)
+      render(
+        <MemoryRouter>
+          <RbacExplorerPage />
+        </MemoryRouter>
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('subject-agent-link-agent-triage')).toBeInTheDocument()
+      })
+
+      const link = screen.getByTestId('subject-agent-link-agent-triage')
+      expect(link).toHaveAttribute('href', expect.stringContaining('/agents/tenant-demo%3Aagent-triage?tab=overview'))
+      expect(screen.getByTestId('subject-agent-badge-agent-triage')).toHaveTextContent('agent')
     })
   })
 })

@@ -53,6 +53,10 @@ import {
 import AddClusterModal, { type NewClusterEntry } from '../components/AddClusterModal'
 import LoadingState from '../components/LoadingState'
 import { curlPipeJq, jqOutput, jqString } from './proofQuery'
+import SafeLink from '../components/SafeLink'
+import { api } from '../api/client'
+import type { AgentResponse } from '../types/api'
+import { findMatchingAgent } from '../data/agentMatching'
 
 class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -464,8 +468,11 @@ function makeFakeSubjects(): RbacSubject[] {
   for (let i = 0; i < 92; i++) {
     const kind = kinds[i % kinds.length]
     const ns = kind === 'ServiceAccount' ? namespaces[i % namespaces.length] : undefined
+    let name = `${kind.toLowerCase()}-${i}`
+    if (i === 6) name = 'agent-triage'
+    if (i === 9) name = 'agent-remediation'
     subjects.push({
-      name: `${kind.toLowerCase()}-${i}`,
+      name,
       kind,
       namespace: ns,
       isAdmin: i === 0,
@@ -577,6 +584,26 @@ export default function RbacExplorerPage() {
   const [subjectSearch, setSubjectSearch] = useState('')
   const [subjectKind, setSubjectKind] = useState('all')
   const [subjectFlag, setSubjectFlag] = useState('all')
+  const [agents, setAgents] = useState<AgentResponse[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadAgents() {
+      try {
+        const token = await getAccessTokenSilently().catch(() => undefined)
+        if (api.agents?.list && token) {
+          const res = await api.agents.list(token).catch(() => ({ agents: [] }))
+          if (!cancelled && res?.agents) {
+            setAgents(res.agents)
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    void loadAgents()
+    return () => { cancelled = true }
+  }, [getAccessTokenSilently])
 
   const demo = isDemoMode()
 
@@ -1279,27 +1306,62 @@ export default function RbacExplorerPage() {
                   clearTestId="subjects-clear"
                 />
               }
-              renderRow={(s, i) => (
-                <tr key={`${s.kind}-${s.name}-${s.namespace}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ ...DataTable.td, fontWeight: 500 }}>{s.name}</td>
-                  <td style={DataTable.td}><Pill label={s.kind.toLowerCase()} /></td>
-                  <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{s.namespace ?? '—'}</td>
-                  <td style={DataTable.td}>
-                    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                      {s.boundRoles.slice(0, 4).map((r, j) => (
-                        <code key={j} style={{ fontSize: 11, color: 'var(--cyan)' }}>{r}</code>
-                      ))}
-                      {s.boundRoles.length > 4 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>+{s.boundRoles.length - 4}</span>}
-                    </div>
-                  </td>
-                  <td style={DataTable.td}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {s.isEscalationActor && <Pill label="escalation" />}
-                      {s.isAdmin && <Pill label="admin" />}
-                    </div>
-                  </td>
-                </tr>
-              )}
+              renderRow={(s, i) => {
+                const matchedAgent = s.kind === 'ServiceAccount'
+                  ? findMatchingAgent({ account_name: s.name, id: s.name }, agents)
+                  : undefined
+
+                return (
+                  <tr key={`${s.kind}-${s.name}-${s.namespace}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ ...DataTable.td, fontWeight: 500 }}>
+                      {matchedAgent ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <SafeLink
+                            to={`/agents/${encodeURIComponent(matchedAgent.id)}?tab=overview`}
+                            data-testid={`subject-agent-link-${s.name}`}
+                            style={{ color: 'var(--text)', textDecoration: 'none' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                          >
+                            {s.name}
+                          </SafeLink>
+                          <span
+                            data-testid={`subject-agent-badge-${s.name}`}
+                            style={{
+                              fontSize: 10,
+                              padding: '1px 5px',
+                              borderRadius: 3,
+                              background: 'rgba(0, 200, 255, 0.15)',
+                              color: 'var(--cyan)',
+                              border: '1px solid var(--cyan)',
+                            }}
+                          >
+                            agent
+                          </span>
+                        </span>
+                      ) : (
+                        s.name
+                      )}
+                    </td>
+                    <td style={DataTable.td}><Pill label={s.kind.toLowerCase()} /></td>
+                    <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{s.namespace ?? '—'}</td>
+                    <td style={DataTable.td}>
+                      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                        {s.boundRoles.slice(0, 4).map((r, j) => (
+                          <code key={j} style={{ fontSize: 11, color: 'var(--cyan)' }}>{r}</code>
+                        ))}
+                        {s.boundRoles.length > 4 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>+{s.boundRoles.length - 4}</span>}
+                      </div>
+                    </td>
+                    <td style={DataTable.td}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {s.isEscalationActor && <Pill label="escalation" />}
+                        {s.isAdmin && <Pill label="admin" />}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              }}
             />
           </Section>
         </>

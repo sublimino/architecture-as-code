@@ -677,5 +677,35 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
     expect(await screen.findByTestId('overview-deeplink-audit')).toHaveAttribute('href', '/audit?agent=agent-abc-123')
     expect(screen.getByTestId('overview-deeplink-credentials')).toHaveAttribute('href', '/credential-inventory?actor=agent-abc-123')
   })
+
+  it('renders Active Target Instance banner when ?instance= param is provided and clears on click', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeAgent({
+        runtime: {
+          cluster_id: 'cluster-local',
+          namespace: 'fe-signalloom-agents',
+          pod_name: 'invoice-bot-pod-123',
+          pod_uid: 'uid-1111-2222',
+        },
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage('/agents/agent-abc-123?instance=uid-1111-2222')
+
+    expect(await screen.findByTestId('active-target-instance-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('target-instance-value')).toHaveTextContent('uid-1111-2222')
+    expect(screen.getByText('(Pod: invoice-bot-pod-123)')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('clear-target-instance-btn'))
+    expect(screen.queryByTestId('active-target-instance-banner')).not.toBeInTheDocument()
+  })
+
+  it('renders Active Target Instance banner when ?selector= param is provided', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())
+    renderPage('/agents/agent-abc-123?selector=k8s:sa:sa-invoice-bot')
+
+    expect(await screen.findByTestId('active-target-instance-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('target-instance-value')).toHaveTextContent('k8s:sa:sa-invoice-bot')
+  })
 })
 

@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import AgentAccessTab from './AgentAccessTab'
 import type { AgentResponse, CapabilitiesResponse } from '../types/api'
+import { claimableDossierAgentFixture, claimedDossierAgentFixture } from '../api/fakeData'
 
 function renderTab(ui: React.ReactElement) {
   return render(<MemoryRouter>{ui}</MemoryRouter>)
@@ -440,5 +442,73 @@ describe('AgentAccessTab — Deep-Link Actions Integration', () => {
 
     const supercredLink = screen.getByTestId('access-deeplink-supercred')
     expect(supercredLink).toHaveAttribute('href', `/supercred?actor=${encodeURIComponent(agent.id)}`)
+  })
+})
+
+describe('AgentAccessTab — Governance Claim', () => {
+  it('shows an unclaimed workload action with enrolment-benefit tooltip', async () => {
+    const onClaim = vi.fn()
+    renderTab(<AgentAccessTab agent={claimableDossierAgentFixture} onClaim={onClaim} />)
+
+    expect(screen.getByTestId('access-unclaimed-banner')).toHaveTextContent('Unclaimed Workload')
+    const button = screen.getByTestId('access-claim-governance')
+    expect(button).toHaveTextContent('Claim into Governance')
+    expect(button).toHaveAttribute('title', expect.stringContaining('governed access controls'))
+
+    await userEvent.click(button)
+    expect(onClaim).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an in-flight spinner while preventing duplicate claim submissions', () => {
+    renderTab(<AgentAccessTab agent={claimableDossierAgentFixture} claiming onClaim={vi.fn()} />)
+
+    expect(screen.getByTestId('access-claim-governance')).toBeDisabled()
+    expect(screen.getByTestId('access-claim-governance')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByTestId('access-claim-spinner')).toBeInTheDocument()
+  })
+
+  it('recovers from a transient failure through the explicit retry button', async () => {
+    const onClaim = vi.fn()
+    renderTab(
+      <AgentAccessTab
+        agent={claimableDossierAgentFixture}
+        claimError="Could not claim workload: transient network failure"
+        onClaim={onClaim}
+      />,
+    )
+
+    expect(screen.getByText(/transient network failure/i)).toBeInTheDocument()
+    const retry = screen.getByRole('button', { name: 'Retry Claim into Governance' })
+    expect(retry).toBeEnabled()
+    await userEvent.click(retry)
+    expect(onClaim).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders linked SPIFFE identity and six active controls after claim', () => {
+    const { rerender } = renderTab(<AgentAccessTab agent={claimableDossierAgentFixture} onClaim={vi.fn()} />)
+    expect(screen.getByTestId('access-governance-enrolment')).toHaveStyle({ minHeight: '88px' })
+
+    rerender(
+      <MemoryRouter>
+        <AgentAccessTab agent={claimedDossierAgentFixture} onClaim={vi.fn()} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByTestId('access-unclaimed-banner')).not.toBeInTheDocument()
+    expect(screen.getByTestId('access-enrolled-badge')).toHaveTextContent('Enrolled in Governance')
+    expect(screen.getByTestId('access-active-controls')).toHaveTextContent('6 active compliance controls')
+    expect(screen.getByTestId('access-panel-identity')).toHaveTextContent(claimedDossierAgentFixture.identity?.spiffe_id ?? '')
+    expect(screen.getByTestId('access-posture-truthful')).toHaveTextContent('100%')
+    expect(screen.getByTestId('access-governance-enrolment')).toHaveStyle({ minHeight: '88px' })
+  })
+
+  it('renders safely when a response omits its compliance summary', () => {
+    const agent = {
+      ...claimableDossierAgentFixture,
+      compliance_summary: null,
+    } as unknown as AgentResponse
+
+    renderTab(<AgentAccessTab agent={agent} onClaim={vi.fn()} />)
+    expect(screen.getByTestId('access-posture-truthful')).toHaveTextContent('Not assessed')
   })
 })

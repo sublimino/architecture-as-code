@@ -44,6 +44,10 @@ export interface AgentAccessTabProps {
   sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
   sourceHealthDetail?: SourceHealthMap | null
   onActionTrigger?: (actionName: string) => void
+  claiming?: boolean
+  claimError?: string | null
+  retryingClaimRefresh?: boolean
+  onClaim?: () => void
 }
 
 export default function AgentAccessTab({
@@ -51,10 +55,22 @@ export default function AgentAccessTab({
   capabilities,
   sourceHealth,
   onActionTrigger,
+  claiming = false,
+  claimError,
+  retryingClaimRefresh = false,
+  onClaim,
 }: AgentAccessTabProps) {
   // ─── 1. Identity & Record Classification ───────────────────────────────────
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
   const isRegistryLinked = agent.is_registry_linked !== false && recordClass !== 'discovered'
+  const isUnclaimed = !isRegistryLinked
+  const complianceSummary = agent.compliance_summary ?? {
+    total_controls: 0,
+    passing: 0,
+    failing: 0,
+    pending: 0,
+    posture_score: null,
+  }
   const spiffeId = agent.identity?.spiffe_id || (agent.id ? `spiffe://signalloom.demo/ns/${agent.runtime?.namespace || agent.namespace || 'default'}/sa/${agent.id}` : '—')
   const isSpiffeLinked = agent.identity?.spiffe_status === 'linked' || (!!agent.identity?.spiffe_id && isRegistryLinked)
 
@@ -63,11 +79,11 @@ export default function AgentAccessTab({
   const truthfulOwner = ownerName ?? (recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned')
 
   const isNotAssessed = (agent.assessment_summary?.status === 'not_assessed') ||
-    (agent.compliance_summary.total_controls === 0) ||
-    (agent.compliance_summary.posture_score === null && agent.compliance_summary.passing === 0 && agent.compliance_summary.failing === 0)
+    (complianceSummary.total_controls === 0) ||
+    (complianceSummary.posture_score === null && complianceSummary.passing === 0 && complianceSummary.failing === 0)
   const truthfulPosture = isNotAssessed ? 'Not assessed' : (
-    agent.compliance_summary.posture_score !== null
-      ? `${Math.round(agent.compliance_summary.posture_score <= 1.0 ? agent.compliance_summary.posture_score * 100 : agent.compliance_summary.posture_score)}%`
+    complianceSummary.posture_score !== null
+      ? `${Math.round(complianceSummary.posture_score <= 1.0 ? complianceSummary.posture_score * 100 : complianceSummary.posture_score)}%`
       : 'Not assessed'
   )
 
@@ -259,6 +275,74 @@ export default function AgentAccessTab({
       aria-labelledby="dossier-tab-access"
       style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
     >
+      <div
+        className="card"
+        data-testid="access-governance-enrolment"
+        style={{
+          minHeight: 88,
+          padding: '14px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 16,
+          flexWrap: 'wrap',
+          borderColor: claimError ? 'var(--error)' : isUnclaimed ? 'var(--amber)' : 'var(--teal)',
+          background: claimError
+            ? 'color-mix(in srgb, var(--error) 8%, var(--surface))'
+            : isUnclaimed
+            ? 'color-mix(in srgb, var(--amber) 8%, var(--surface))'
+            : 'color-mix(in srgb, var(--teal) 8%, var(--surface))',
+        }}
+      >
+        <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+          {isUnclaimed ? (
+            <>
+              <div data-testid="access-unclaimed-banner" style={{ color: claimError ? 'var(--error)' : 'var(--amber)', fontWeight: 700, marginBottom: 4 }}>
+                Unclaimed Workload
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+                {claimError ?? 'Enroll this workload to activate SPIFFE-backed access controls, containment authority, and continuous policy evaluation.'}
+              </div>
+            </>
+          ) : (
+            <>
+              <span data-testid="access-enrolled-badge" className="tag" style={{ color: 'var(--teal)', background: 'rgba(16, 185, 129, 0.15)', fontWeight: 700 }}>
+                Enrolled in Governance
+              </span>
+              <div data-testid="access-active-controls" style={{ color: 'var(--muted)', fontSize: 12, marginTop: 7 }}>
+                {complianceSummary.total_controls} active compliance controls
+              </div>
+            </>
+          )}
+        </div>
+        {isUnclaimed && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-testid="access-claim-governance"
+            disabled={claiming || !onClaim}
+            aria-busy={claiming}
+            title="Enroll this workload to verify its SPIFFE identity and activate governed access controls"
+            onClick={onClaim}
+            style={{ minWidth: 190, whiteSpace: 'nowrap' }}
+          >
+            {claiming && (
+              <svg data-testid="access-claim-spinner" aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" style={{ marginRight: 6, verticalAlign: '-1px' }}>
+                <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeOpacity="0.3" />
+                <path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="currentColor" strokeLinecap="round">
+                  <animateTransform attributeName="transform" type="rotate" from="0 6 6" to="360 6 6" dur="0.8s" repeatCount="indefinite" />
+                </path>
+              </svg>
+            )}
+            {claiming
+              ? retryingClaimRefresh ? 'Refreshing…' : 'Claiming…'
+              : claimError
+              ? retryingClaimRefresh ? 'Retry Governance Refresh' : 'Retry Claim into Governance'
+              : 'Claim into Governance'}
+          </button>
+        )}
+      </div>
+
       {/* ─── Scoped Deep-Link Navigation ────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
         <Link

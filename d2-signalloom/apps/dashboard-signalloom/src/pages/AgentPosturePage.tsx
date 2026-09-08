@@ -1,6 +1,6 @@
 // TODO: migrate tables to DataTable (expandable accordion tables — may need DataTable extension for nested rows)
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { colors } from '../styles/tokens'
@@ -414,7 +414,17 @@ export default function AgentPosturePage() {
             Agent Posture
           </h1>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-            olly-sentinel | namespace: default
+            <Link
+              to="/agents/olly-sentinel?tab=overview"
+              data-testid="agent-posture-dossier-link"
+              style={{ color: 'var(--text)', fontWeight: 600, textDecoration: 'none' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+              title="View agent dossier for olly-sentinel"
+            >
+              olly-sentinel ↗
+            </Link>{' '}
+            | namespace: default
           </div>
           <ConversionNote note={summary ? noteFor(summary.currency) : null} testId="posture-conversion-note" />
         </div>

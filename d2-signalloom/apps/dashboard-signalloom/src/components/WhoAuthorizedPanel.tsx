@@ -2,6 +2,7 @@
 // Copyright 2026 ControlPlane Security Authors
 
 import React, { useState, useEffect } from 'react'
+import { Link, useInRouterContext } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { weaveApi, type AuthorizationChain } from '../api/weaveApi'
 
@@ -66,6 +67,15 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = ({
   }
 
   const chain = activeChain
+  const inRouter = useInRouterContext()
+
+  const extractAgentSlug = (identity: string): string => {
+    const saMatch = identity.match(/(?:^|\/)sa\/([^/]+)$/)
+    if (saMatch) {
+      return saMatch[1].replace(/-sa$/, '')
+    }
+    return identity.replace(/^spiffe:\/\/[^/]+\//, '')
+  }
 
   return (
     <div
@@ -221,7 +231,29 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = ({
               2. Agent Identity
             </span>
             <div data-testid="hop-agent-identity" style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--teal, #10b981)', fontWeight: 600 }}>
-              {chain.agentIdentity}
+              {inRouter ? (
+                <Link
+                  to={`/agents/${extractAgentSlug(chain.agentIdentity)}?tab=overview`}
+                  data-testid="hop-agent-identity-link"
+                  style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2 }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan, #06b6d4)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--teal, #10b981)')}
+                  title={`View agent dossier for ${extractAgentSlug(chain.agentIdentity)}`}
+                >
+                  {chain.agentIdentity}
+                </Link>
+              ) : (
+                <a
+                  href={`/agents/${extractAgentSlug(chain.agentIdentity)}?tab=overview`}
+                  data-testid="hop-agent-identity-link"
+                  style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2 }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan, #06b6d4)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--teal, #10b981)')}
+                  title={`View agent dossier for ${extractAgentSlug(chain.agentIdentity)}`}
+                >
+                  {chain.agentIdentity}
+                </a>
+              )}
             </div>
           </div>
 

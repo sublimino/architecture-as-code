@@ -36,9 +36,11 @@
  *    table cannot disappear along with the rows.
  */
 import { useState, useEffect, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link, useInRouterContext } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import type { AgentResponse } from '../types/api'
+import { findMatchingAgent } from '../data/agentMatching'
 import { isDemoMode } from '../api/demoMode'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import DataTable, { type Column } from '../components/DataTable'
@@ -357,6 +359,65 @@ export default function CredentialInventoryPage() {
   const [credentialSource, setCredentialSource] = useState<'all' | Provenance>('all')
   const [proofOpen, setProofOpen] = useState(false)
   const [unregisteredProofOpen, setUnregisteredProofOpen] = useState(false)
+  const inRouter = useInRouterContext()
+  const [registeredAgents, setRegisteredAgents] = useState<AgentResponse[]>([])
+
+  useEffect(() => {
+    let active = true
+    async function loadAgents() {
+      try {
+        const token = await getAccessTokenSilently()
+        const res = await api.agents.list(token)
+        if (active && res?.agents) {
+          setRegisteredAgents(res.agents)
+        }
+      } catch {
+        // Tolerated in offline / fixture mode
+      }
+    }
+    void loadAgents()
+    return () => { active = false }
+  }, [getAccessTokenSilently])
+
+  const renderWorkload = (workload: string, testId?: string) => {
+    const matched = findMatchingAgent({ account_name: workload }, registeredAgents)
+    const url = matched ? `/agents/${matched.id}?tab=overview` : `/agents?search=${encodeURIComponent(workload)}`
+    const title = matched ? `View agent dossier for ${matched.name}` : `Find agent matching ${workload}`
+
+    const content = (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <span>{workload}</span>
+        {matched && <span style={{ color: 'var(--muted)', fontSize: 10 }}>↗</span>}
+      </span>
+    )
+
+    if (inRouter) {
+      return (
+        <Link
+          to={url}
+          data-testid={testId}
+          style={{ color: 'var(--text)', fontWeight: 500, textDecoration: 'none' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+          title={title}
+        >
+          {content}
+        </Link>
+      )
+    }
+    return (
+      <a
+        href={url}
+        data-testid={testId}
+        style={{ color: 'var(--text)', fontWeight: 500, textDecoration: 'none' }}
+        onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
+        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+        title={title}
+      >
+        {content}
+      </a>
+    )
+  }
 
   useEffect(() => {
     const actor = searchParams.get('actor') || searchParams.get('agent') || searchParams.get('search')
@@ -701,7 +762,7 @@ export default function CredentialInventoryPage() {
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'var(--muted)', fontSize: 12 }}>
             {unregistered.map((entry) => (
               <li key={entry.spiffeId} data-testid={`unregistered-${entry.spiffeId}`}>
-                <code style={{ color: 'var(--amber)' }}>{entry.spiffeId}</code> — {entry.workload}
+                <code style={{ color: 'var(--amber)' }}>{entry.spiffeId}</code> — {renderWorkload(entry.workload, `unregistered-workload-${entry.spiffeId}`)}
               </li>
             ))}
           </ul>
@@ -787,7 +848,7 @@ export default function CredentialInventoryPage() {
           renderRow={(entry) => (
             <tr key={entry.spiffeId} data-testid={`identity-row-${entry.spiffeId}`} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{entry.spiffeId}</code></td>
-              <td style={td}>{entry.workload}</td>
+              <td style={td}>{renderWorkload(entry.workload, `identity-workload-${entry.spiffeId}`)}</td>
               <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>
                 {entry.selectors.map((s) => <div key={s}>{s}</div>)}
               </td>
@@ -917,7 +978,7 @@ export default function CredentialInventoryPage() {
             const expiringSoon = status === 'active' && Date.parse(cred.expiresAt) - now.getTime() <= 15 * 60_000
             return (
               <tr key={cred.id} data-testid={`credential-row-${cred.id}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={td}>{cred.workload}</td>
+                <td style={td}>{renderWorkload(cred.workload, `credential-workload-${cred.id}`)}</td>
                 <td style={{ ...td, fontSize: 12 }}><code style={{ color: 'var(--violet)' }}>{cred.kind}</code></td>
                 <td style={{ ...td, color: 'var(--muted)', fontSize: 12 }}>{cred.issuer}</td>
                 <td style={{ ...td, fontSize: 11, wordBreak: 'break-all' }}>{cred.scope}</td>

@@ -896,3 +896,16 @@ describe('CredentialInventoryPage — URL deep-link parameter ingestion', () => 
   })
 })
 
+describe('CredentialInventoryPage — agent and workload drill-downs', () => {
+  it('renders workload identities as links to agent dossiers or search', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('identity-search')).toBeInTheDocument())
+    const spiffeId = 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent'
+    const link = await screen.findByTestId(`identity-workload-${spiffeId}`)
+    expect(link).toHaveAttribute('href')
+    expect(link.getAttribute('href')).toMatch(/^\/agents/)
+  })
+})
+
+

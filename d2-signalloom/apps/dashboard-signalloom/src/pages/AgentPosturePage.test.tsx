@@ -100,7 +100,13 @@ describe('AgentPosturePage', () => {
 
   it('renders the agent namespace', async () => {
     renderPage()
-    expect(await screen.findByText(/olly-sentinel/)).toBeInTheDocument()
+    expect(await screen.findByText(/namespace: default/i)).toBeInTheDocument()
+  })
+
+  it('renders olly-sentinel header as a drill-down link to the agent dossier', async () => {
+    renderPage()
+    const link = await screen.findByTestId('agent-posture-dossier-link')
+    expect(link).toHaveAttribute('href', '/agents/olly-sentinel?tab=overview')
   })
 
   it('renders check pass/fail summary after loading', async () => {

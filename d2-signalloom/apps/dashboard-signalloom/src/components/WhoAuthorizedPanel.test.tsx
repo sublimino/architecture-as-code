@@ -144,4 +144,11 @@ describe('WhoAuthorizedPanel', () => {
     fireEvent.change(select, { target: { value: 'actor-2' } })
     expect(handleSelect).toHaveBeenCalledWith('actor-2')
   })
+
+  it('renders Hop 2 agent identity as a drill-down link to the agent overview', () => {
+    render(<WhoAuthorizedPanel chain={mockCompleteChain} />)
+    const link = screen.getByTestId('hop-agent-identity-link')
+    expect(link).toHaveAttribute('href', '/agents/agent-cardvault?tab=overview')
+  })
 })
+

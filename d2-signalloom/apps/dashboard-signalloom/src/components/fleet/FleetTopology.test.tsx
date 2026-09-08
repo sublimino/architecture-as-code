@@ -317,3 +317,12 @@ describe('FleetTopology chrome', () => {
       .not.toMatch(/(stroke|fill)="#/)
   })
 })
+
+describe('FleetTopology agent drill-down links', () => {
+  it('renders agent name as a drill-down link to the agent dossier', () => {
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    const link = screen.getByTestId('fleet-node-link-agent-cardvault')
+    expect(link).toHaveAttribute('href', '/agents/agent-cardvault?tab=overview')
+  })
+})
+

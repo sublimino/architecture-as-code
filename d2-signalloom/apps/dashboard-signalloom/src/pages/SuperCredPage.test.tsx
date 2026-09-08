@@ -1139,4 +1139,14 @@ describe('Sentinel Kernel Containment Telemetry on SuperCredPage', () => {
     expect(screen.getByTestId('supercred-telemetry-cgroup')).toHaveTextContent('1 · FROZEN')
     expect(screen.getByTestId('supercred-telemetry-tc')).toHaveTextContent('MATCHALL DROP · ACTIVE')
   })
+
+  it('renders agent name as a drill-down link to the agent overview', async () => {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+
+    const link = await screen.findByTestId('supercred-agent-link-agent-cardvault')
+    expect(link).toHaveAttribute('href', '/agents/agent-cardvault?tab=overview')
+  })
 })
+

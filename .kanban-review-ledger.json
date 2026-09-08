@@ -1,10 +1,66 @@
 {
+  "21309": {
+    "task_id": "21309",
+    "reviewed_at": "2026-09-01T23:56:59Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "FUSION-P1-GOV: Phase 1 certified 100% PASS across FrostDB, multi-layer collectors, and CEL correlation (commit 49e66553)"
+  },
+  "23068": {
+    "task_id": "23068",
+    "reviewed_at": "2026-09-07T21:12:09Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P3-2 verified: Rule SP-1 worktree Landlock confinement, nono profile, bin/agent-git wrapper, 21/21 probe harness pass, 36/36 BATS pass, runbook documented (commit 6aae8672)"
+  },
+  "24612": {
+    "task_id": "24612",
+    "reviewed_at": "2026-09-05T21:25:20Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
+  },
+  "36157": {
+    "task_id": "36157",
+    "reviewed_at": "2026-09-05T15:35:26Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "K8s audit receiver and impersonation pipeline verified green"
+  },
   "40398": {
     "task_id": "40398",
     "reviewed_at": "2026-08-29T23:34:18Z",
     "reviewer": "antigravity",
     "verdict": "APPROVED",
     "reason": "[P0] Harness Smoke Test: Kind cluster readiness and test runner certified via .kagent-preflight-proof.json"
+  },
+  "43271": {
+    "task_id": "43271",
+    "reviewed_at": "2026-08-29T23:34:18Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "reason": "[P2-2] Tool Server Wiring: kagent-tool-server remote MCP tools wired to reader"
+  },
+  "55793": {
+    "task_id": "55793",
+    "reviewed_at": "2026-09-07T20:15:34Z",
+    "reviewer": "governor",
+    "verdict": "APPROVED",
+    "reason": "CRKC-P1-GOV certified: Phase 1 reconciled into integration/crkc-v0.1.0 at a5d1e451; 97 tests across 7 suites pass 100% (crkc-phase1-unified-stun, flux-drift-ignore, cgroup-freeze-stun, tc-ebpf-drop, tetragon-telemetry-stream, test-signal-ingest, signalfusion-bats); combined containment latency 5.65ms < 1000ms SLA"
+  },
+  "55846": {
+    "task_id": "55846",
+    "reviewed_at": "2026-09-05T15:30:50Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Workspace M365 thin adapter verified green"
+  },
+  "97551": {
+    "task_id": "97551",
+    "reviewed_at": "2026-09-05T15:40:27Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Supervisor waiver: NetEBPF collector and fixture model verified green in codebase (4/4 tests pass); live GKE Dataplane V2 Hubble acceptance deferred to GCP staging environment due to non-interactive token expiration. Blocker evidence committed in rescue-19983b81 (docs/signalloom/sfdp-p2-4-blocker.md)."
   },
   "624ed": {
     "task_id": "624ed",
@@ -54,13 +110,6 @@
     "reviewer": "antigravity",
     "verdict": "APPROVED",
     "reason": "[P2-1] K8s Reader CR: kagent-k8s-reader defined with Go ADK runtime"
-  },
-  "43271": {
-    "task_id": "43271",
-    "reviewed_at": "2026-08-29T23:34:18Z",
-    "reviewer": "antigravity",
-    "verdict": "APPROVED",
-    "reason": "[P2-2] Tool Server Wiring: kagent-tool-server remote MCP tools wired to reader"
   },
   "bf443": {
     "task_id": "bf443",
@@ -244,13 +293,6 @@
     "verdict": "APPROVED",
     "reason": "FUSION-P1-3: Partitioned CEL correlation engine verified 13/13 tests PASS with zero race conditions (commit b863b23f)"
   },
-  "21309": {
-    "task_id": "21309",
-    "reviewed_at": "2026-09-01T23:56:59Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "FUSION-P1-GOV: Phase 1 certified 100% PASS across FrostDB, multi-layer collectors, and CEL correlation (commit 49e66553)"
-  },
   "3c264": {
     "task_id": "3c264",
     "reviewed_at": "2026-09-03T08:35:08Z",
@@ -286,13 +328,6 @@
     "verdict": "APPROVED",
     "reason": "Unit tests, registration, and live mode passed"
   },
-  "55846": {
-    "task_id": "55846",
-    "reviewed_at": "2026-09-05T15:30:50Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "Workspace M365 thin adapter verified green"
-  },
   "dfe21": {
     "task_id": "dfe21",
     "reviewed_at": "2026-09-05T15:30:51Z",
@@ -307,33 +342,12 @@
     "verdict": "APPROVED",
     "reason": "Baoaudit and spirea registered and verified green"
   },
-  "36157": {
-    "task_id": "36157",
-    "reviewed_at": "2026-09-05T15:35:26Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "K8s audit receiver and impersonation pipeline verified green"
-  },
   "739a2": {
     "task_id": "739a2",
     "reviewed_at": "2026-09-05T15:35:27Z",
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "KAgent tool-log resolver verified green"
-  },
-  "97551": {
-    "task_id": "97551",
-    "reviewed_at": "2026-09-05T15:40:27Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "Supervisor waiver: NetEBPF collector and fixture model verified green in codebase (4/4 tests pass); live GKE Dataplane V2 Hubble acceptance deferred to GCP staging environment due to non-interactive token expiration. Blocker evidence committed in rescue-19983b81 (docs/signalloom/sfdp-p2-4-blocker.md)."
-  },
-  "24612": {
-    "task_id": "24612",
-    "reviewed_at": "2026-09-05T21:25:20Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
   },
   "0f47a": {
     "task_id": "0f47a",
@@ -598,13 +612,6 @@
     "verdict": "APPROVED",
     "reason": "CRKC-P1-4 verified: Tetragon enforcement decoupled, non-blocking TracingPolicies, 100/100 events streamed 0 dropped (8ms latency), 27/27 BATS pass (commit 92189733)"
   },
-  "55793": {
-    "task_id": "55793",
-    "reviewed_at": "2026-09-07T20:15:34Z",
-    "reviewer": "governor",
-    "verdict": "APPROVED",
-    "reason": "CRKC-P1-GOV certified: Phase 1 reconciled into integration/crkc-v0.1.0 at a5d1e451; 97 tests across 7 suites pass 100% (crkc-phase1-unified-stun, flux-drift-ignore, cgroup-freeze-stun, tc-ebpf-drop, tetragon-telemetry-stream, test-signal-ingest, signalfusion-bats); combined containment latency 5.65ms < 1000ms SLA"
-  },
   "4e44a": {
     "task_id": "4e44a",
     "reviewed_at": "2026-09-07T20:23:35Z",
@@ -646,13 +653,6 @@
     "reviewer": "antigravity",
     "verdict": "APPROVED",
     "reason": "Phase 3 preflight certified: Kubernetes v1.36.1 VAP support verified, Linux kernel Landlock active in /sys/kernel/security/lsm, nono 0.73.0 verified, proof artifact recorded"
-  },
-  "23068": {
-    "task_id": "23068",
-    "reviewed_at": "2026-09-07T21:12:09Z",
-    "reviewer": "supervisor",
-    "verdict": "APPROVED",
-    "reason": "CRKC-P3-2 verified: Rule SP-1 worktree Landlock confinement, nono profile, bin/agent-git wrapper, 21/21 probe harness pass, 36/36 BATS pass, runbook documented (commit 6aae8672)"
   },
   "d2121": {
     "task_id": "d2121",
@@ -737,5 +737,599 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SLAC-P2-PRE verified: frontend build and vitest 100% clean in docs/signalloom/slac-p2-preflight-proof.md at a3f1e996"
+  },
+  "run-211fe-1788897443817": {
+    "task_id": "211fe",
+    "run_id": "run-211fe-1788897443817",
+    "reviewed_at": "2026-09-08T20:55:40.840Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task execution is stalled because the Kanban board reports no active tasks in progress despite the prompt requirements, leading to repeated no-op supervisor cycles.",
+    "next_step": "The operator should manually verify if the task '211fe' is correctly registered in the board's active workflow or re-initialize the task status to 'in_progress' to allow the agent to proceed.",
+    "reason": "FAIL: The task execution is stalled because the Kanban board reports no active tasks in progress despite the prompt requirements, leading to repeated no-op supervisor cycles. Next step: The operator should manually verify if the task '211fe' is correctly registered in the board's active workflow or re-initialize the task status to 'in_progress' to allow the agent to proceed."
+  },
+  "run-211fe-1788898147589": {
+    "task_id": "211fe",
+    "run_id": "run-211fe-1788898147589",
+    "reviewed_at": "2026-09-08T20:55:53.859Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task is incomplete; while the terminal logs indicate ongoing work on UI components and API integration, the critical implementation criteria (ISC-4 through ISC-32) remain largely unverified or unimplemented.",
+    "next_step": "The agent must complete the implementation of the Auto-Claim logic in AgentsPage.tsx and ensure all listed validation criteria are satisfied through passing test suites.",
+    "reason": "FAIL: The task is incomplete; while the terminal logs indicate ongoing work on UI components and API integration, the critical implementation criteria (ISC-4 through ISC-32) remain largely unverified or unimplemented. Next step: The agent must complete the implementation of the Auto-Claim logic in AgentsPage.tsx and ensure all listed validation criteria are satisfied through passing test suites."
+  },
+  "run-211fe-1788899795933": {
+    "task_id": "211fe",
+    "run_id": "run-211fe-1788899795933",
+    "reviewed_at": "2026-09-08T20:56:05.785Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task is currently in a 'running' state with zero file modifications and the harness logs indicate that the Kanban board is empty, suggesting the assigned task was never actually initiated or picked up by the agent.",
+    "next_step": "The operator should manually trigger the task execution or re-assign the task to the workspace to ensure the implementation of the Auto-Claim action button begins.",
+    "reason": "FAIL: The task is currently in a 'running' state with zero file modifications and the harness logs indicate that the Kanban board is empty, suggesting the assigned task was never actually initiated or picked up by the agent. Next step: The operator should manually trigger the task execution or re-assign the task to the workspace to ensure the implementation of the Auto-Claim action button begins."
+  },
+  "211fe": {
+    "task_id": "211fe",
+    "run_id": "run-211fe-1788899795933",
+    "reviewed_at": "2026-09-08T20:56:05.785Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task is currently in a 'running' state with zero file modifications and the harness logs indicate that the Kanban board is empty, suggesting the assigned task was never actually initiated or picked up by the agent.",
+    "next_step": "The operator should manually trigger the task execution or re-assign the task to the workspace to ensure the implementation of the Auto-Claim action button begins.",
+    "reason": "FAIL: The task is currently in a 'running' state with zero file modifications and the harness logs indicate that the Kanban board is empty, suggesting the assigned task was never actually initiated or picked up by the agent. Next step: The operator should manually trigger the task execution or re-assign the task to the workspace to ensure the implementation of the Auto-Claim action button begins."
+  },
+  "run-task-dual-err-harness-1788901828983": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788901828983",
+    "reviewed_at": "2026-09-08T21:10:30.121Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test suite failed due to a fatal uncaught panic in the worker routine, indicating an unhandled runtime error during execution.",
+    "next_step": "Investigate the codebase for concurrency issues or improper error handling in the worker routine and examine the stack trace leading to the panic.",
+    "reason": "FAIL: The test suite failed due to a fatal uncaught panic in the worker routine, indicating an unhandled runtime error during execution. Next step: Investigate the codebase for concurrency issues or improper error handling in the worker routine and examine the stack trace leading to the panic."
+  },
+  "task-dual-err-harness": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788902239844",
+    "reviewed_at": "2026-09-08T21:17:20.835Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test execution failed due to a fatal uncaught panic in the worker routine, preventing the validation of the task deliverables.",
+    "next_step": "Investigate the panic stack trace in the harness logs to identify the source of the worker failure and implement a fix.",
+    "reason": "FAIL: The test execution failed due to a fatal uncaught panic in the worker routine, preventing the validation of the task deliverables. Next step: Investigate the panic stack trace in the harness logs to identify the source of the worker failure and implement a fix."
+  },
+  "run-task-dual-clean-1788901830124": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788901830124",
+    "reviewed_at": "2026-09-08T21:10:31.123Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were successfully implemented, and all 25 unit tests passed without errors.",
+    "next_step": "Merge the changes into the main branch and mark the task as complete.",
+    "reason": "PASS: The task deliverables were successfully implemented, and all 25 unit tests passed without errors. Next step: Merge the changes into the main branch and mark the task as complete."
+  },
+  "task-dual-clean": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788902240848",
+    "reviewed_at": "2026-09-08T21:17:21.862Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task execution successfully passed all 25 unit tests within the test suite.",
+    "next_step": "Merge the changes into the main branch and mark the task as closed.",
+    "reason": "PASS: The task execution successfully passed all 25 unit tests within the test suite. Next step: Merge the changes into the main branch and mark the task as closed."
+  },
+  "run-task-roborev-pass-1788901831125": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788901831125",
+    "reviewed_at": "2026-09-08T21:10:31.995Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The environment was successfully verified with all correlation tests passing, despite the optional 'roborev' tool being absent.",
+    "next_step": "Deploy the changes to the staging environment for final integration validation.",
+    "reason": "PASS: The environment was successfully verified with all correlation tests passing, despite the optional 'roborev' tool being absent. Next step: Deploy the changes to the staging environment for final integration validation."
+  },
+  "task-roborev-pass": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788902241877",
+    "reviewed_at": "2026-09-08T21:17:22.738Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The environment successfully passed all correlation tests despite the absence of the optional roborev dependency.",
+    "next_step": "Deploy the validated changes to the staging environment for final integration testing.",
+    "reason": "PASS: The environment successfully passed all correlation tests despite the absence of the optional roborev dependency. Next step: Deploy the validated changes to the staging environment for final integration testing."
+  },
+  "run-task-heuristic-fail-1788901831998": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788901831998",
+    "reviewed_at": "2026-09-08T21:10:32.011Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "task-heuristic-fail": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788902242745",
+    "reviewed_at": "2026-09-08T21:17:22.781Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788901832012": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788901832012",
+    "reviewed_at": "2026-09-08T21:10:32.021Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "task-heuristic-pass": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788902242784",
+    "reviewed_at": "2026-09-08T21:17:22.806Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788901882771": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788901882771",
+    "reviewed_at": "2026-09-08T21:11:24.116Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test execution encountered a fatal uncaught panic in the worker routine, preventing the validation of the task deliverables.",
+    "next_step": "Investigate the worker routine code and the system environment to identify the cause of the panic and resolve the underlying concurrency or memory error.",
+    "reason": "FAIL: The test execution encountered a fatal uncaught panic in the worker routine, preventing the validation of the task deliverables. Next step: Investigate the worker routine code and the system environment to identify the cause of the panic and resolve the underlying concurrency or memory error."
+  },
+  "run-task-dual-clean-1788901884120": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788901884120",
+    "reviewed_at": "2026-09-08T21:11:25.105Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were successfully implemented, and the test suite passed with 100% success across all 25 unit tests.",
+    "next_step": "Merge the changes into the main branch and transition the task to the 'Done' column.",
+    "reason": "PASS: The task deliverables were successfully implemented, and the test suite passed with 100% success across all 25 unit tests. Next step: Merge the changes into the main branch and transition the task to the 'Done' column."
+  },
+  "run-task-roborev-pass-1788901885107": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788901885107",
+    "reviewed_at": "2026-09-08T21:11:25.974Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task execution completed successfully as all correlation tests passed, despite the optional 'roborev' tool being unavailable.",
+    "next_step": "Deploy the changes to the staging environment for final verification.",
+    "reason": "PASS: The task execution completed successfully as all correlation tests passed, despite the optional 'roborev' tool being unavailable. Next step: Deploy the changes to the staging environment for final verification."
+  },
+  "run-task-heuristic-fail-1788901885976": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788901885976",
+    "reviewed_at": "2026-09-08T21:11:25.988Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788901885989": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788901885989",
+    "reviewed_at": "2026-09-08T21:11:26.003Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788901898829": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788901898829",
+    "reviewed_at": "2026-09-08T21:11:39.984Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test suite execution resulted in a fatal uncaught panic within the worker routine, indicating a critical runtime failure in the implementation.",
+    "next_step": "Analyze the stack trace of the worker panic and investigate the code paths triggered during the test execution to identify the source of the crash.",
+    "reason": "FAIL: The test suite execution resulted in a fatal uncaught panic within the worker routine, indicating a critical runtime failure in the implementation. Next step: Analyze the stack trace of the worker panic and investigate the code paths triggered during the test execution to identify the source of the crash."
+  },
+  "run-task-dual-clean-1788901899996": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788901899996",
+    "reviewed_at": "2026-09-08T21:11:40.914Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were successfully implemented, and all 25 unit tests passed without errors.",
+    "next_step": "Merge the changes into the main branch and mark the task as complete.",
+    "reason": "PASS: The task deliverables were successfully implemented, and all 25 unit tests passed without errors. Next step: Merge the changes into the main branch and mark the task as complete."
+  },
+  "run-task-roborev-pass-1788901900916": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788901900916",
+    "reviewed_at": "2026-09-08T21:11:41.906Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task execution completed successfully as all correlation tests passed, despite the optional roborev tool being unavailable.",
+    "next_step": "Deploy the changes to the staging environment for final validation.",
+    "reason": "PASS: The task execution completed successfully as all correlation tests passed, despite the optional roborev tool being unavailable. Next step: Deploy the changes to the staging environment for final validation."
+  },
+  "run-task-heuristic-fail-1788901901907": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788901901907",
+    "reviewed_at": "2026-09-08T21:11:41.917Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788901901918": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788901901918",
+    "reviewed_at": "2026-09-08T21:11:41.929Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788902033342": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788902033342",
+    "reviewed_at": "2026-09-08T21:13:54.430Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test execution failed due to a fatal uncaught panic in the worker routine, preventing the validation of task deliverables.",
+    "next_step": "Investigate the stack trace associated with the worker panic to identify the source of the runtime error and implement a fix.",
+    "reason": "FAIL: The test execution failed due to a fatal uncaught panic in the worker routine, preventing the validation of task deliverables. Next step: Investigate the stack trace associated with the worker panic to identify the source of the runtime error and implement a fix."
+  },
+  "run-task-dual-clean-1788902034434": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788902034434",
+    "reviewed_at": "2026-09-08T21:13:55.373Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were implemented successfully, and all 25 unit tests passed without errors.",
+    "next_step": "Merge the changes into the main branch and mark the task as closed.",
+    "reason": "PASS: The task deliverables were implemented successfully, and all 25 unit tests passed without errors. Next step: Merge the changes into the main branch and mark the task as closed."
+  },
+  "run-task-roborev-pass-1788902035376": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788902035376",
+    "reviewed_at": "2026-09-08T21:13:56.203Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The environment was successfully verified and all correlation tests passed despite the roborev tool being unavailable.",
+    "next_step": "Deploy the verified implementation to the staging environment for final validation.",
+    "reason": "PASS: The environment was successfully verified and all correlation tests passed despite the roborev tool being unavailable. Next step: Deploy the verified implementation to the staging environment for final validation."
+  },
+  "run-task-heuristic-fail-1788902036204": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788902036204",
+    "reviewed_at": "2026-09-08T21:13:56.212Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788902036213": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788902036213",
+    "reviewed_at": "2026-09-08T21:13:56.219Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788902092007": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788902092007",
+    "reviewed_at": "2026-09-08T21:14:52.855Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test suite failed due to a fatal uncaught panic in the worker routine during execution.",
+    "next_step": "Investigate the root cause of the worker panic by inspecting the relevant error logs and stack trace.",
+    "reason": "FAIL: The test suite failed due to a fatal uncaught panic in the worker routine during execution. Next step: Investigate the root cause of the worker panic by inspecting the relevant error logs and stack trace."
+  },
+  "run-task-dual-clean-1788902092859": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788902092859",
+    "reviewed_at": "2026-09-08T21:14:53.934Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were successfully implemented and verified, as evidenced by the 100% pass rate across all 25 unit tests.",
+    "next_step": "Merge the changes into the main branch and transition the task to the 'Done' column.",
+    "reason": "PASS: The task deliverables were successfully implemented and verified, as evidenced by the 100% pass rate across all 25 unit tests. Next step: Merge the changes into the main branch and transition the task to the 'Done' column."
+  },
+  "run-task-roborev-pass-1788902093943": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788902093943",
+    "reviewed_at": "2026-09-08T21:14:54.979Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task execution completed successfully as all correlation tests passed, despite the optional roborev tool being unavailable.",
+    "next_step": "Deploy the changes to the staging environment for final validation.",
+    "reason": "PASS: The task execution completed successfully as all correlation tests passed, despite the optional roborev tool being unavailable. Next step: Deploy the changes to the staging environment for final validation."
+  },
+  "run-task-heuristic-fail-1788902094980": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788902094980",
+    "reviewed_at": "2026-09-08T21:14:54.987Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788902094988": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788902094988",
+    "reviewed_at": "2026-09-08T21:14:54.994Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788902136526": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788902136526",
+    "reviewed_at": "2026-09-08T21:15:37.612Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test suite failed due to a fatal uncaught panic in the worker routine, preventing verification of the task deliverables.",
+    "next_step": "Investigate the panic stack trace in the logs and debug the worker routine concurrency logic before re-running the test harness.",
+    "reason": "FAIL: The test suite failed due to a fatal uncaught panic in the worker routine, preventing verification of the task deliverables. Next step: Investigate the panic stack trace in the logs and debug the worker routine concurrency logic before re-running the test harness."
+  },
+  "run-task-dual-clean-1788902137621": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788902137621",
+    "reviewed_at": "2026-09-08T21:15:38.677Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were successfully implemented, and all 25 unit tests passed without errors.",
+    "next_step": "Merge the changes into the main branch and deploy to the staging environment.",
+    "reason": "PASS: The task deliverables were successfully implemented, and all 25 unit tests passed without errors. Next step: Merge the changes into the main branch and deploy to the staging environment."
+  },
+  "run-task-roborev-pass-1788902138680": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788902138680",
+    "reviewed_at": "2026-09-08T21:15:39.548Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task completed successfully as all correlation tests passed, despite the optional roborev tool being unavailable.",
+    "next_step": "Deploy the changes to the staging environment for final validation.",
+    "reason": "PASS: The task completed successfully as all correlation tests passed, despite the optional roborev tool being unavailable. Next step: Deploy the changes to the staging environment for final validation."
+  },
+  "run-task-heuristic-fail-1788902139553": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788902139553",
+    "reviewed_at": "2026-09-08T21:15:39.616Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788902139622": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788902139622",
+    "reviewed_at": "2026-09-08T21:15:39.647Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788902182907": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788902182907",
+    "reviewed_at": "2026-09-08T21:16:23.855Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test execution encountered a fatal uncaught panic in a worker routine, preventing successful verification of the task.",
+    "next_step": "Investigate the crash logs or stack trace to identify the root cause of the worker routine panic.",
+    "reason": "FAIL: The test execution encountered a fatal uncaught panic in a worker routine, preventing successful verification of the task. Next step: Investigate the crash logs or stack trace to identify the root cause of the worker routine panic."
+  },
+  "run-task-dual-clean-1788902183860": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788902183860",
+    "reviewed_at": "2026-09-08T21:16:24.822Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were successfully implemented and verified with a 100% pass rate across the 25 unit tests.",
+    "next_step": "Deploy the changes to the staging environment for final validation.",
+    "reason": "PASS: The task deliverables were successfully implemented and verified with a 100% pass rate across the 25 unit tests. Next step: Deploy the changes to the staging environment for final validation."
+  },
+  "run-task-roborev-pass-1788902184827": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788902184827",
+    "reviewed_at": "2026-09-08T21:16:25.755Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task was completed successfully, with all required correlation tests passing despite the absence of the roborev tool.",
+    "next_step": "Transition the task to the 'Done' column and archive the execution logs.",
+    "reason": "PASS: The task was completed successfully, with all required correlation tests passing despite the absence of the roborev tool. Next step: Transition the task to the 'Done' column and archive the execution logs."
+  },
+  "run-task-heuristic-fail-1788902185764": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788902185764",
+    "reviewed_at": "2026-09-08T21:16:25.796Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788902185798": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788902185798",
+    "reviewed_at": "2026-09-08T21:16:25.822Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788902232552": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788902232552",
+    "reviewed_at": "2026-09-08T21:17:13.694Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test suite execution encountered a fatal uncaught panic in the worker routine, indicating a critical regression or environmental failure.",
+    "next_step": "Investigate the panic stack trace and environment configuration to resolve the underlying runtime exception.",
+    "reason": "FAIL: The test suite execution encountered a fatal uncaught panic in the worker routine, indicating a critical regression or environmental failure. Next step: Investigate the panic stack trace and environment configuration to resolve the underlying runtime exception."
+  },
+  "run-task-dual-clean-1788902233732": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788902233732",
+    "reviewed_at": "2026-09-08T21:17:14.846Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task deliverables were implemented successfully, and the test suite confirmed full compliance with all 25 unit tests passing.",
+    "next_step": "Merge the changes into the main branch and transition the task status to closed.",
+    "reason": "PASS: The task deliverables were implemented successfully, and the test suite confirmed full compliance with all 25 unit tests passing. Next step: Merge the changes into the main branch and transition the task status to closed."
+  },
+  "run-task-roborev-pass-1788902234850": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788902234850",
+    "reviewed_at": "2026-09-08T21:17:15.879Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task execution completed successfully as all correlation tests passed, despite the optional 'roborev' tool being unavailable.",
+    "next_step": "Close the task as completed and update the Kanban board state to 'Done'.",
+    "reason": "PASS: The task execution completed successfully as all correlation tests passed, despite the optional 'roborev' tool being unavailable. Next step: Close the task as completed and update the Kanban board state to 'Done'."
+  },
+  "run-task-heuristic-fail-1788902235894": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788902235894",
+    "reviewed_at": "2026-09-08T21:17:15.926Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788902235932": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788902235932",
+    "reviewed_at": "2026-09-08T21:17:15.964Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
+  },
+  "run-task-dual-err-harness-1788902239844": {
+    "task_id": "task-dual-err-harness",
+    "run_id": "run-task-dual-err-harness-1788902239844",
+    "reviewed_at": "2026-09-08T21:17:20.835Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "FAIL",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The test execution failed due to a fatal uncaught panic in the worker routine, preventing the validation of the task deliverables.",
+    "next_step": "Investigate the panic stack trace in the harness logs to identify the source of the worker failure and implement a fix.",
+    "reason": "FAIL: The test execution failed due to a fatal uncaught panic in the worker routine, preventing the validation of the task deliverables. Next step: Investigate the panic stack trace in the harness logs to identify the source of the worker failure and implement a fix."
+  },
+  "run-task-dual-clean-1788902240848": {
+    "task_id": "task-dual-clean",
+    "run_id": "run-task-dual-clean-1788902240848",
+    "reviewed_at": "2026-09-08T21:17:21.862Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The task execution successfully passed all 25 unit tests within the test suite.",
+    "next_step": "Merge the changes into the main branch and mark the task as closed.",
+    "reason": "PASS: The task execution successfully passed all 25 unit tests within the test suite. Next step: Merge the changes into the main branch and mark the task as closed."
+  },
+  "run-task-roborev-pass-1788902241877": {
+    "task_id": "task-roborev-pass",
+    "run_id": "run-task-roborev-pass-1788902241877",
+    "reviewed_at": "2026-09-08T21:17:22.738Z",
+    "reviewer": "supervisor (gemini-flash)",
+    "verdict": "PASS",
+    "model": "gemini-flash:gemini-3.1-flash-lite",
+    "summary": "The environment successfully passed all correlation tests despite the absence of the optional roborev dependency.",
+    "next_step": "Deploy the validated changes to the staging environment for final integration testing.",
+    "reason": "PASS: The environment successfully passed all correlation tests despite the absence of the optional roborev dependency. Next step: Deploy the validated changes to the staging environment for final integration testing."
+  },
+  "run-task-heuristic-fail-1788902242745": {
+    "task_id": "task-heuristic-fail",
+    "run_id": "run-task-heuristic-fail-1788902242745",
+    "reviewed_at": "2026-09-08T21:17:22.781Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "FAIL",
+    "model": "unsupported-model-fallback",
+    "summary": "Execution encountered errors (unknown): Uncategorized execution diagnostic or log output",
+    "next_step": "Resolve the unknown in the worktree and re-execute.",
+    "reason": "FAIL: Execution encountered errors (unknown): Uncategorized execution diagnostic or log output Next step: Resolve the unknown in the worktree and re-execute."
+  },
+  "run-task-heuristic-pass-1788902242784": {
+    "task_id": "task-heuristic-pass",
+    "run_id": "run-task-heuristic-pass-1788902242784",
+    "reviewed_at": "2026-09-08T21:17:22.806Z",
+    "reviewer": "supervisor-heuristic",
+    "verdict": "PASS",
+    "model": "unsupported-model-fallback",
+    "summary": "Task execution completed and unit test suites passed.",
+    "next_step": "Inspect worktree diff and proceed to governor merge.",
+    "reason": "PASS: Task execution completed and unit test suites passed. Next step: Inspect worktree diff and proceed to governor merge."
   }
 }

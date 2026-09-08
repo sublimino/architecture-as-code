@@ -18,6 +18,9 @@ vi.mock('../api/client', () => ({
       enrollAccount: vi.fn().mockResolvedValue({ account_id: 'acct-1', status: 'enrollment_requested' }),
       dismissAccount: vi.fn().mockResolvedValue({ account_id: 'acct-1', status: 'dismissed' }),
     },
+    agents: {
+      list: vi.fn().mockResolvedValue({ agents: [] }),
+    },
   },
 }))
 
@@ -112,5 +115,52 @@ describe('DiscoveryAccountDetailPage', () => {
 
     expect(await screen.findByText('network error')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Back to Discovery/ })).toBeInTheDocument()
+  })
+
+  it('renders Associated Agent Dossier panel when a registered agent matches the account', async () => {
+    ;(api.nhi.getAccount as ReturnType<typeof vi.fn>).mockResolvedValue(makeDetail())
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [
+        {
+          id: 'agent-billing-sync',
+          name: 'Billing Agent Worker',
+          service_account: 'svc-billing-sync',
+          owner: 'billing-team@acme.com',
+          type: 'Signal Loom Built',
+          tenant_id: 'tenant-1',
+          lifecycle_state: 'active',
+          last_transition_at: null,
+          eu_ai_act_risk_class: null,
+          compliance_summary: { total_controls: 10, passing: 9, failing: 1, pending: 0, posture_score: 90 },
+          created_at: null,
+        },
+      ],
+    })
+
+    renderPage()
+    await screen.findByText('svc-billing-sync')
+
+    const dossierPanel = await screen.findByTestId('associated-agent-dossier')
+    expect(dossierPanel).toBeInTheDocument()
+    expect(dossierPanel).toHaveTextContent('Billing Agent Worker')
+    expect(dossierPanel).toHaveTextContent('Posture Score: 90%')
+
+    const viewBtn = screen.getByTestId('view-agent-dossier-btn')
+    expect(viewBtn).toHaveAttribute('href', '/agents/agent-billing-sync?tab=overview')
+    expect(viewBtn).toHaveTextContent('View Agent Dossier ↗')
+  })
+
+  it('renders Search Agent Registry button when no registered agent matches', async () => {
+    ;(api.nhi.getAccount as ReturnType<typeof vi.fn>).mockResolvedValue(makeDetail({ account_name: 'unknown-cron-svc' }))
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({ agents: [] })
+
+    renderPage()
+    await screen.findByText('unknown-cron-svc')
+
+    const searchCard = await screen.findByTestId('associated-agent-search')
+    expect(searchCard).toBeInTheDocument()
+    const searchBtn = screen.getByTestId('search-agent-registry-btn')
+    expect(searchBtn).toHaveAttribute('href', '/agents?search=unknown-cron-svc')
+    expect(searchBtn).toHaveTextContent('Search Agent Registry ↗')
   })
 })

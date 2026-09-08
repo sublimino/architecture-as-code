@@ -1,14 +1,15 @@
-// TODO: migrate table to DataTable (already has server-side pagination — complement with client-side sorting)
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import type { NHIAccount, NHIScan } from '../types/api'
+import type { NHIAccount, NHIScan, AgentResponse } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import TriageMenu, { type TriageAction } from '../components/TriageMenu'
 import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
+import DataTable, { type Column } from '../components/DataTable'
+import { findMatchingAgent } from '../data/agentMatching'
 
 const POLL_MS = 15 * 60 * 1000
 const PAGE_SIZE = 50
@@ -302,17 +303,20 @@ function FilterMenu({
 
 // ─── Account row ──────────────────────────────────────────────────────────────
 
-function NHIAccountRow({ account, onAction, onOpen }: {
+interface NHIAccountRowProps {
   account: NHIAccount
+  matchedAgent?: AgentResponse
   onAction: (action: TriageAction, id: string) => void
   onOpen: (id: string) => void
-}) {
+}
+
+function NHIAccountRow({ account, matchedAgent, onAction, onOpen }: NHIAccountRowProps) {
   const isDismissed = account.status === 'dismissed'
   const rowStyle: React.CSSProperties = {
     borderBottom: '1px solid var(--border)',
     opacity: isDismissed || account.source_removed ? 0.65 : 1,
   }
-  const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13 }
+  const td: React.CSSProperties = { ...DataTable.td, padding: '10px 14px', fontSize: 13 }
 
   const findings = Array.isArray(account.findings) ? account.findings : []
 
@@ -331,6 +335,30 @@ function NHIAccountRow({ account, onAction, onOpen }: {
         >
           {account.account_name}
         </button>
+        {matchedAgent && (
+          <div style={{ marginTop: 4 }}>
+            <Link
+              to={`/agents/${matchedAgent.id}?tab=overview`}
+              data-testid={`discovery-agent-link-${account.id}`}
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--cyan)',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'color-mix(in srgb, var(--cyan) 10%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--cyan) 25%, transparent)',
+                padding: '1px 6px',
+                borderRadius: 4,
+              }}
+              title={`View agent dossier for ${matchedAgent.name}`}
+            >
+              <span>🤖 {matchedAgent.name} ↗</span>
+            </Link>
+          </div>
+        )}
         {isDismissed && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
             <span style={{
@@ -413,17 +441,40 @@ function NHIAccountRow({ account, onAction, onOpen }: {
 
       {/* Actions */}
       <td style={{ ...td, textAlign: 'right' }}>
-        {isDismissed ? (
-          <button
-            className="btn btn-secondary"
-            style={{ fontSize: 11, padding: '4px 10px' }}
-            onClick={() => onAction('enroll', account.id)}
-          >
-            Enroll
-          </button>
-        ) : (
-          <TriageMenu accountId={account.id} onAction={onAction} />
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+          {matchedAgent ? (
+            <Link
+              to={`/agents/${matchedAgent.id}?tab=overview`}
+              className="btn btn-secondary"
+              data-testid={`discovery-agent-dossier-btn-${account.id}`}
+              style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              title={`Inspect ${matchedAgent.name} dossier`}
+            >
+              Dossier ↗
+            </Link>
+          ) : (
+            <Link
+              to={`/agents?search=${encodeURIComponent(account.account_name)}`}
+              className="btn btn-secondary"
+              data-testid={`discovery-agent-search-btn-${account.id}`}
+              style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              title={`Search agent registry for ${account.account_name}`}
+            >
+              Find Agent ↗
+            </Link>
+          )}
+          {isDismissed ? (
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              onClick={() => onAction('enroll', account.id)}
+            >
+              Enroll
+            </button>
+          ) : (
+            <TriageMenu accountId={account.id} onAction={onAction} />
+          )}
+        </div>
       </td>
     </tr>
   )
@@ -444,19 +495,26 @@ export default function DiscoveryPage() {
   const [error, setError] = useState<string | null>(null)
   const [nhiFilter, setNhiFilter] = useState<'all' | 'triage' | 'dismissed' | string>('all')
   const [showDisconnected, setShowDisconnected] = useState(false)
+  const [agents, setAgents] = useState<AgentResponse[]>([])
 
   const loadNhi = useCallback(async (targetPage: number, includeDisconnected: boolean) => {
     try {
       const token = await getAccessTokenSilently()
-      const [discovered, scansData] = await Promise.all([
+      const [discovered, scansData, agentsData] = await Promise.all([
         api.nhi.discovered(token, targetPage, PAGE_SIZE, undefined, includeDisconnected),
         api.nhi.scans(token).catch(() => ({ scans: [] as NHIScan[] })),
+        api.agents?.list
+          ? api.agents.list(token).catch(() => ({ agents: [] as AgentResponse[] }))
+          : Promise.resolve({ agents: [] as AgentResponse[] }),
       ])
       setAccounts(discovered.accounts)
       setNhiSummary(discovered.summary)
       setTotal(discovered.total)
       const scans = scansData.scans
       setLatestScan(scans.length > 0 ? scans[0] : null)
+      if (agentsData && 'agents' in agentsData && Array.isArray(agentsData.agents)) {
+        setAgents(agentsData.agents)
+      }
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load discovery data')
@@ -543,10 +601,15 @@ export default function DiscoveryPage() {
     URL.revokeObjectURL(url)
   }
 
-  const TH: React.CSSProperties = {
-    padding: '9px 14px', textAlign: 'left', color: 'var(--muted)',
-    fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
-  }
+  const DISCOVERY_COLUMNS: Column<NHIAccount>[] = [
+    { key: 'account_name', label: 'Account', sortable: true, help: 'Discovered non-human identity or service account name.' },
+    { key: 'directory_source', label: 'Source', sortable: true, help: 'Identity provider or directory where this account was discovered.' },
+    { key: 'owner_email', label: 'Owner', sortable: true, help: 'Human owner or team responsible for this credential.' },
+    { key: 'last_credential_rotation', label: 'Last Rotation', sortable: true, help: 'When this account credential was last rotated.' },
+    { key: 'privilege_level', label: 'Privilege', sortable: true, help: 'Granted permission tier across connected directory services.' },
+    { key: 'findings', label: 'Findings', help: 'Security findings identified for this account.' },
+    { key: 'id', label: 'Actions' },
+  ]
 
   return (
     <div>
@@ -612,31 +675,25 @@ export default function DiscoveryPage() {
           {filtered.length === 0 ? (
             <EmptyState kicker="No accounts found" body="Trigger a discovery scan from your operator to populate this list." />
           ) : (
-            <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={TH}>Account</th>
-                    <th style={TH}>Source</th>
-                    <th style={TH}>Owner</th>
-                    <th style={TH}>Last Rotation</th>
-                    <th style={TH}>Privilege</th>
-                    <th style={TH}>Findings</th>
-                    <th style={{ ...TH, textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((a) => (
-                    <NHIAccountRow
-                      key={a.id}
-                      account={a}
-                      onAction={handleNhiAction}
-                      onOpen={(id) => navigate(`/discovery/accounts/${id}`)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<NHIAccount>
+              columns={DISCOVERY_COLUMNS}
+              data={filtered}
+              pageSize={PAGE_SIZE}
+              hidePaginationWhenSinglePage
+              testIdPrefix="discovery"
+              renderRow={(a) => {
+                const matched = findMatchingAgent(a, agents)
+                return (
+                  <NHIAccountRow
+                    key={a.id}
+                    account={a}
+                    matchedAgent={matched}
+                    onAction={handleNhiAction}
+                    onOpen={(id) => navigate(`/discovery/accounts/${id}`)}
+                  />
+                )
+              }}
+            />
           )}
 
           {total > PAGE_SIZE && (

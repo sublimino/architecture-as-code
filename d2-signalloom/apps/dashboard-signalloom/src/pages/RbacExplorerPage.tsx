@@ -29,6 +29,7 @@
  * count belongs.
  */
 import { Component, Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
+import AgentDeepLink from '../components/AgentDeepLink'
 import ErrorState from '../components/ErrorState'
 import { StatCard, Section, Pill } from '../components/DashKit'
 import { tint } from '../components/StatusBadge'
@@ -1316,15 +1317,13 @@ export default function RbacExplorerPage() {
                     <td style={{ ...DataTable.td, fontWeight: 500 }}>
                       {matchedAgent ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <SafeLink
-                            to={`/agents/${encodeURIComponent(matchedAgent.id)}?tab=overview`}
-                            data-testid={`subject-agent-link-${s.name}`}
+                          <AgentDeepLink
+                            target={matchedAgent.id}
+                            label={s.name}
+                            dataTestId={`subject-agent-link-${s.name}`}
                             style={{ color: 'var(--text)', textDecoration: 'none' }}
-                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
-                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
-                          >
-                            {s.name}
-                          </SafeLink>
+                            className="hover:text-[var(--cyan)]"
+                          />
                           <span
                             data-testid={`subject-agent-badge-${s.name}`}
                             style={{
@@ -1339,6 +1338,16 @@ export default function RbacExplorerPage() {
                             agent
                           </span>
                         </span>
+                      ) : s.kind === 'ServiceAccount' ? (
+                        <AgentDeepLink
+                          target={`sa:${s.name}`}
+                          variant="subtle"
+                          dataTestId={`subject-sa-link-${s.name}`}
+                          style={{ color: 'var(--text)', textDecoration: 'none' }}
+                          className="hover:text-[var(--cyan)]"
+                        >
+                          {s.name}
+                        </AgentDeepLink>
                       ) : (
                         s.name
                       )}

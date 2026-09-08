@@ -189,7 +189,11 @@ function matchClause(agent: AgentResponse, clause: QueryClause): boolean {
     case 'id':
     case 'uuid': {
       const cleanVal = val.replace(/^(id:|uuid:)/, '')
-      return agent.id.toLowerCase() === cleanVal
+      return (
+        agent.id.toLowerCase() === cleanVal ||
+        agent.id.toLowerCase().replace(/^[^:]+:/, '') === cleanVal ||
+        agent.id.toLowerCase().includes(cleanVal)
+      )
     }
     case 'name':
       return (agent.name || '').toLowerCase().includes(val)

@@ -375,6 +375,7 @@ describe('DesignSystemPage', () => {
     'streaming-proof',
     'credential-state-notice',
     'safe-link',
+    'agent-deep-link',
     'dash-kit',
     'not-shown',
   ] as const
@@ -407,6 +408,16 @@ describe('DesignSystemPage', () => {
     expect(screen.getByTestId('ds-proof-console')).toBeInTheDocument()
     expect(screen.getByTestId('credential-state-revoked')).toBeInTheDocument()
     expect(screen.getByText(/No agents match this filter/i)).toBeInTheDocument()
+  })
+
+  it('renders AgentDeepLink specimens across all design system variants', () => {
+    render(<DesignSystemPage />)
+    const section = screen.getByTestId('ds-section-agent-deep-link')
+    expect(within(section).getByTestId('ds-agentdeeplink-link')).toBeInTheDocument()
+    expect(within(section).getByTestId('ds-agentdeeplink-badge')).toBeInTheDocument()
+    expect(within(section).getByTestId('ds-agentdeeplink-chip')).toBeInTheDocument()
+    expect(within(section).getByTestId('ds-agentdeeplink-pill')).toBeInTheDocument()
+    expect(within(section).getByTestId('ds-agentdeeplink-subtle')).toBeInTheDocument()
   })
 
   // ── DataTable: the pair ───────────────────────────────────────────────────

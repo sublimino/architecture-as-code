@@ -479,6 +479,13 @@ describe('AuditTrail — agent drill-down links', () => {
     const link = screen.getByTestId('audit-agent-link-evt-1')
     expect(link).toHaveAttribute('href', '/agents/agent-1?tab=overview')
   })
+
+  it('renders drill-down link for actor when present', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
+    const actorLink = screen.getByTestId('audit-actor-link-evt-1')
+    expect(actorLink).toBeInTheDocument()
+  })
 })
 
 

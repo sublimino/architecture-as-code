@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
+import AgentDeepLink from '../components/AgentDeepLink'
 import PixelLoader from '../components/PixelLoader'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -435,9 +436,9 @@ export default function AgentTrustTopologyPage() {
               <TrustPath nodeId={node.id} nodesById={nodesById} />
               {node.kind === 'agent' && (
                 <div style={{ marginBottom: 12, marginTop: 4 }}>
-                  <Link
-                    to={`/agents/${node.id}?tab=overview`}
-                    data-testid="inspector-agent-dossier-link"
+                  <AgentDeepLink
+                    target={{ kind: 'agent', agentId: node.id }}
+                    dataTestId="inspector-agent-dossier-link"
                     className="btn btn-primary"
                     style={{
                       display: 'inline-flex',
@@ -452,7 +453,7 @@ export default function AgentTrustTopologyPage() {
                   >
                     <span>View Agent Dossier</span>
                     <span style={{ fontSize: 14 }}>&rarr;</span>
-                  </Link>
+                  </AgentDeepLink>
                 </div>
               )}
               <AssuranceMeter evidence={node.evidence} />
@@ -461,14 +462,13 @@ export default function AgentTrustTopologyPage() {
                   <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>
                     SPIFFE ID
                   </div>
-                  <Link
-                    to={`/agents?search=${encodeURIComponent('spiffe:' + node.spiffeId)}`}
-                    data-testid="inspector-spiffe-link"
+                  <AgentDeepLink
+                    target={node.spiffeId}
+                    label={node.spiffeId}
+                    dataTestId="inspector-spiffe-link"
                     title="Filter agents by SPIFFE ID"
                     style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none', overflowWrap: 'anywhere' }}
-                  >
-                    {node.spiffeId}
-                  </Link>
+                  />
                 </div>
               )}
               <Detail
@@ -482,24 +482,13 @@ export default function AgentTrustTopologyPage() {
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {node.selectors.map(sel => (
-                      <Link
+                      <AgentDeepLink
                         key={sel}
-                        to={`/agents?search=${encodeURIComponent(sel)}`}
-                        data-testid={`inspector-selector-${sel}`}
+                        target={sel}
+                        variant="chip"
+                        dataTestId={`inspector-selector-${sel}`}
                         title={`Filter agents by ${sel}`}
-                        style={{
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          background: 'var(--surface2)',
-                          color: 'var(--cyan)',
-                          border: '1px solid var(--border)',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        {sel}
-                      </Link>
+                      />
                     ))}
                   </div>
                 </div>
@@ -529,24 +518,24 @@ export default function AgentTrustTopologyPage() {
                 {(fromNode?.kind === 'agent' || toNode?.kind === 'agent') && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                     {fromNode?.kind === 'agent' && (
-                      <Link
-                        to={`/agents/${fromNode.id}?tab=overview`}
-                        data-testid="inspector-source-agent-link"
+                      <AgentDeepLink
+                        target={{ kind: 'agent', agentId: fromNode.id }}
+                        dataTestId="inspector-source-agent-link"
                         className="btn btn-secondary"
                         style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none' }}
                       >
                         Source Agent Dossier &rarr;
-                      </Link>
+                      </AgentDeepLink>
                     )}
                     {toNode?.kind === 'agent' && (
-                      <Link
-                        to={`/agents/${toNode.id}?tab=overview`}
-                        data-testid="inspector-target-agent-link"
+                      <AgentDeepLink
+                        target={{ kind: 'agent', agentId: toNode.id }}
+                        dataTestId="inspector-target-agent-link"
                         className="btn btn-secondary"
                         style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none' }}
                       >
                         Target Agent Dossier &rarr;
-                      </Link>
+                      </AgentDeepLink>
                     )}
                   </div>
                 )}

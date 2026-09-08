@@ -62,6 +62,7 @@ import { colors } from '../styles/tokens'
 import { CSS_VAR_NAMES, THEMES, THEME_LABELS, THEME_NAMES, type CssVarName } from '../styles/themes'
 import ButtonWait from '../components/ButtonWait'
 import SafeLink from '../components/SafeLink'
+import AgentDeepLink from '../components/AgentDeepLink'
 import PageTocLayout, { type TocEntry } from '../components/PageToc'
 
 // ── Loader gallery ───────────────────────────────────────────────────────────
@@ -603,6 +604,7 @@ export const DESIGN_SYSTEM_SECTIONS: readonly TocEntry[] = [
   { id: 'streaming-proof', title: 'ProofConsole streaming demo' },
   { id: 'credential-state-notice', title: 'CredentialStateNotice' },
   { id: 'safe-link', title: 'SafeLink' },
+  { id: 'agent-deep-link', title: 'AgentDeepLink' },
   { id: 'dash-kit', title: 'DashKit' },
   { id: 'not-shown', title: 'Not shown on this page' },
 ]
@@ -1721,6 +1723,79 @@ export default function DesignSystemPage() {
             >
               k8s:sa:planner
             </SafeLink>
+          </Specimen>
+        </div>
+      </Group>
+
+      {/* ── AgentDeepLink ────────────────────────────────────────────────── */}
+      <Group
+        id="agent-deep-link"
+        title="AgentDeepLink"
+        when="Domain-specific navigation primitive for agent dossiers and filtered inventory searches. Normalizes identifiers, SPIFFE IDs, Kubernetes service accounts, pod UIDs, and query selectors into consistent deep links across 5 visual variants."
+      >
+        <div style={{ ...rowStyle, gap: 16 }}>
+          <Specimen
+            caption="Variant: link (default)"
+            minWidth={220}
+            note="Hyperlink with hover transitions and optional trailing external/dossier arrow."
+          >
+            <AgentDeepLink
+              target={{ kind: 'agent', agentId: 'agent-sir-lancelot' }}
+              label="Sir Lancelot"
+              showIcon={true}
+              dataTestId="ds-agentdeeplink-link"
+            />
+          </Specimen>
+
+          <Specimen
+            caption="Variant: badge"
+            minWidth={220}
+            note="Cyan highlight badge for primary workload cells in tables and audit streams."
+          >
+            <AgentDeepLink
+              target="agent-cardvault"
+              label="agent-cardvault"
+              variant="badge"
+              showIcon={true}
+              dataTestId="ds-agentdeeplink-badge"
+            />
+          </Specimen>
+
+          <Specimen
+            caption="Variant: chip"
+            minWidth={240}
+            note="Monospace chip for Kubernetes service accounts, namespaces, and query selectors."
+          >
+            <AgentDeepLink
+              target="k8s:sa:planner"
+              variant="chip"
+              dataTestId="ds-agentdeeplink-chip"
+            />
+          </Specimen>
+
+          <Specimen
+            caption="Variant: pill"
+            minWidth={220}
+            note="Rounded pill badge with instance UID metadata support."
+          >
+            <AgentDeepLink
+              target="agent-triage"
+              variant="pill"
+              instanceUid="pod-987"
+              dataTestId="ds-agentdeeplink-pill"
+            />
+          </Specimen>
+
+          <Specimen
+            caption="Variant: subtle"
+            minWidth={220}
+            note="Muted secondary text link for actors, audit logs, and ancillary metadata."
+          >
+            <AgentDeepLink
+              target="security-admin@controlplane.io"
+              variant="subtle"
+              dataTestId="ds-agentdeeplink-subtle"
+            />
           </Specimen>
         </div>
       </Group>

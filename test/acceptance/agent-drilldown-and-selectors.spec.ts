@@ -43,7 +43,7 @@ test.describe("Agent Drilldown, Topology Inspector & Query Selectors", () => {
     // Inspector should also show interactive selector links
     const selectorLink = page.locator('[data-testid^="inspector-selector-"]').first();
     await expect(selectorLink).toBeVisible({ timeout: 5000 });
-    await expect(selectorLink).toHaveAttribute("href", /^\/agents\?search=/);
+    await expect(selectorLink).toHaveAttribute("href", /^\/agents\?(selector|search)=/);
   });
 
   test("Agents Page filters by ?selector= parameter and displays active selector chip", async ({ page }) => {
@@ -96,5 +96,33 @@ test.describe("Agent Drilldown, Topology Inspector & Query Selectors", () => {
       const href = await latencyAgentLink.getAttribute("href");
       expect(href).toMatch(/\/agents\//);
     }
+
+    // Check Discovery page
+    await page.goto(`${BASE}/discovery`);
+    await expect(page.locator("h1, h2").filter({ hasText: /Non-Human Identities|Discovery/i }).first()).toBeVisible({ timeout: 15000 });
+    const discoveryAgentLink = page.locator('a[data-testid^="discovery-agent-dossier-btn-"]').first();
+    if (await discoveryAgentLink.isVisible({ timeout: 4000 }).catch(() => false)) {
+      const href = await discoveryAgentLink.getAttribute("href");
+      expect(href).toMatch(/\/agents\//);
+    }
+
+    // Check Audit Trail page
+    await page.goto(`${BASE}/audit`);
+    await expect(page.locator("h1, h2").filter({ hasText: /Audit Trail/i }).first()).toBeVisible({ timeout: 15000 });
+    const auditAgentLink = page.locator('a[data-testid^="audit-agent-link-"]').first();
+    if (await auditAgentLink.isVisible({ timeout: 4000 }).catch(() => false)) {
+      const href = await auditAgentLink.getAttribute("href");
+      expect(href).toMatch(/\/agents\//);
+    }
+
+    // Check Design System page renders AgentDeepLink gallery specimens
+    await page.goto(`${BASE}/design-system`);
+    await expect(page.locator('[data-testid="ds-section-agent-deep-link"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="ds-agentdeeplink-link"]')).toBeVisible();
+    await expect(page.locator('[data-testid="ds-agentdeeplink-badge"]')).toBeVisible();
+    await expect(page.locator('[data-testid="ds-agentdeeplink-chip"]')).toBeVisible();
+    await expect(page.locator('[data-testid="ds-agentdeeplink-pill"]')).toBeVisible();
+    await expect(page.locator('[data-testid="ds-agentdeeplink-subtle"]')).toBeVisible();
   });
 });
+

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
+import AgentDeepLink from '../components/AgentDeepLink'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
@@ -829,28 +830,16 @@ export default function AuditTrail() {
                 </td>
                 <td style={{ ...DataTable.td, maxWidth: 160 }}>
                   {ev.agent_name ? (
-                    ev.agent_id ? (
-                      <Link
-                        to={`/agents/${ev.agent_id}?tab=overview`}
-                        data-testid={`audit-agent-link-${ev.id}`}
-                        style={{ color: 'var(--text)', textDecoration: 'none', display: 'block' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
-                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
-                      >
-                        <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
+                    <AgentDeepLink
+                      target={ev.agent_id ? { kind: 'agent', agentId: ev.agent_id } : ev.agent_name}
+                      dataTestId={`audit-agent-link-${ev.id}`}
+                      style={{ color: 'var(--text)', display: 'block' }}
+                    >
+                      <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
+                      {ev.agent_id && (
                         <div style={{ color: 'var(--muted)', fontSize: 10, fontFamily: 'monospace' }}>{ev.agent_id.slice(0, 8)}…</div>
-                      </Link>
-                    ) : (
-                      <Link
-                        to={`/agents?search=${encodeURIComponent(ev.agent_name)}`}
-                        data-testid={`audit-agent-link-${ev.id}`}
-                        style={{ color: 'var(--text)', textDecoration: 'none', display: 'block' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
-                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
-                      >
-                        <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
-                      </Link>
-                    )
+                      )}
+                    </AgentDeepLink>
                   ) : <span style={{ color: 'var(--muted)' }}>—</span>}
                 </td>
                 {/* Both of these cells are ellipsised, and until now the cut-off
@@ -859,7 +848,13 @@ export default function AuditTrail() {
                     the browser's own affordance for exactly that and costs
                     nothing; it is not a substitute for the column hint, which
                     explains what the value IS. */}
-                <td title={ev.actor || undefined} style={{ ...DataTable.td, color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.actor || '—'}</td>
+                <td title={ev.actor || undefined} style={{ ...DataTable.td, color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ev.actor ? (
+                    <AgentDeepLink target={ev.actor} variant="subtle" dataTestId={`audit-actor-link-${ev.id}`} />
+                  ) : (
+                    '—'
+                  )}
+                </td>
                 <td style={{ ...DataTable.td, maxWidth: 300 }}>
                   <code title={JSON.stringify(ev.detail ?? {}, null, 2)} style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {Object.keys(ev.detail).length > 0 ? JSON.stringify(ev.detail) : '{}'}

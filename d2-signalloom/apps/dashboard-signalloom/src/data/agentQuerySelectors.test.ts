@@ -224,6 +224,44 @@ describe('matchAgentByQuery', () => {
     expect(matchAgentByQuery(mockAgents[2], 'payments')).toBe(true)
     expect(matchAgentByQuery(mockAgents[2], 'nonexistent-query')).toBe(false)
   })
+
+  it('handles case-insensitive prefixes and values', () => {
+    expect(matchAgentByQuery(mockAgents[0], 'ID:UUID-23-1245-124')).toBe(true)
+    expect(matchAgentByQuery(mockAgents[1], 'SA:CARDVAULT-AGENT')).toBe(true)
+    expect(matchAgentByQuery(mockAgents[2], 'K8S:SA:AGENT-TRUST-PLANNER')).toBe(true)
+    expect(matchAgentByQuery(mockAgents[0], 'NS:FE-SIGNALLOOM-AGENTS')).toBe(true)
+    expect(matchAgentByQuery(mockAgents[0], 'CLUSTER:KIND-OSRAMP')).toBe(true)
+    expect(matchAgentByQuery(mockAgents[0], 'FRAMEWORK:LANGCHAIN')).toBe(true)
+    expect(matchAgentByQuery(mockAgents[0], 'MODEL:CLAUDE')).toBe(true)
+  })
+
+  it('handles agents with missing or nullish runtime and identity fields gracefully', () => {
+    const minimalAgent: AgentResponse = {
+      id: 'agent-minimal',
+      name: 'Minimal Agent',
+      type: 'Custom',
+      owner: 'dev@acme.com',
+      tenant_id: 'acme',
+      lifecycle_state: 'active',
+      last_transition_at: '2026-08-01T00:00:00Z',
+      eu_ai_act_risk_class: null,
+      compliance_summary: { total_controls: 0, passing: 0, failing: 0, pending: 0, posture_score: 0 },
+      created_at: '2026-08-01T00:00:00Z',
+    }
+
+    expect(matchAgentByQuery(minimalAgent, 'id:agent-minimal')).toBe(true)
+    expect(matchAgentByQuery(minimalAgent, 'sa:nonexistent')).toBe(false)
+    expect(matchAgentByQuery(minimalAgent, 'pod:nonexistent')).toBe(false)
+    expect(matchAgentByQuery(minimalAgent, 'spiffe:nonexistent')).toBe(false)
+    expect(matchAgentByQuery(minimalAgent, 'app=nonexistent')).toBe(false)
+    expect(matchAgentByQuery(minimalAgent, 'minimal')).toBe(true)
+  })
+
+  it('handles null, undefined, and empty string queries safely', () => {
+    // Empty query matches all agents
+    expect(matchAgentByQuery(mockAgents[0], '')).toBe(true)
+    expect(matchAgentByQuery(mockAgents[0], '   ')).toBe(true)
+  })
 })
 
 describe('resolveAgentOrInstance', () => {
@@ -244,5 +282,16 @@ describe('resolveAgentOrInstance', () => {
     const res = resolveAgentOrInstance(mockAgents, 'id:non-existent-agent-id')
     expect(res.matchedAgent).toBeUndefined()
     expect(res.allMatches).toHaveLength(0)
+  })
+
+  it('handles empty agent list and null query without error', () => {
+    const res1 = resolveAgentOrInstance([], 'id:some-id')
+    expect(res1.matchedAgent).toBeUndefined()
+    expect(res1.allMatches).toHaveLength(0)
+
+    const res2 = resolveAgentOrInstance(mockAgents, '')
+    expect(res2.allMatches).toHaveLength(0)
+    expect(res2.matchedAgent).toBeUndefined()
+    expect(res2.isExactInstance).toBe(false)
   })
 })

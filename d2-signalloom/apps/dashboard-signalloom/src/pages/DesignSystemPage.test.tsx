@@ -374,6 +374,7 @@ describe('DesignSystemPage', () => {
     'proof-console',
     'streaming-proof',
     'credential-state-notice',
+    'safe-link',
     'dash-kit',
     'not-shown',
   ] as const
@@ -944,6 +945,21 @@ describe('DesignSystemPage', () => {
       // caller who adds streaming without thinking about accessibility adds no
       // regions at all rather than adding a bad one.
       expect(screen.queryByTestId('ds-stream-stalled-stream-announce')).not.toBeInTheDocument()
+    })
+  })
+
+  // ── SafeLink specimens ─────────────────────────────────────────────────────
+
+  describe('SafeLink specimens', () => {
+    it('renders all three SafeLink specimens without throwing', () => {
+      render(<DesignSystemPage />)
+      const textLink = screen.getByTestId('ds-safelink-text')
+      const badgeLink = screen.getByTestId('ds-safelink-badge')
+      const selectorLink = screen.getByTestId('ds-safelink-selector')
+
+      expect(textLink).toHaveAttribute('href', '/agents')
+      expect(badgeLink).toHaveAttribute('href', '/agents/UUID-23-1245-124?tab=overview')
+      expect(selectorLink).toHaveAttribute('href', '/agents?selector=k8s:sa:planner')
     })
   })
 

@@ -61,6 +61,7 @@ import { Pill, StatCard, Section as DashSection, Table as DashTable, td as dashT
 import { colors } from '../styles/tokens'
 import { CSS_VAR_NAMES, THEMES, THEME_LABELS, THEME_NAMES, type CssVarName } from '../styles/themes'
 import ButtonWait from '../components/ButtonWait'
+import SafeLink from '../components/SafeLink'
 import PageTocLayout, { type TocEntry } from '../components/PageToc'
 
 // ── Loader gallery ───────────────────────────────────────────────────────────
@@ -564,7 +565,7 @@ const NOT_SHOWN: { name: string; reason: string }[] = [
   { name: 'ApiKeyRotateModal', reason: 'Full-screen overlay; confirming rotates a real credential.' },
   { name: 'KeyboardShortcutsOverlay', reason: 'Full-screen overlay bound to a global key handler; open it anywhere with "?".' },
   { name: 'HelpModal', reason: 'Full-screen overlay; fetches help content from api/client.' },
-  { name: 'DemoToggle / ThemeToggle / WidthToggle', reason: 'Position-fixed app-shell controls rendered once by App.tsx. A second copy would overlap the real one.' },
+  { name: 'DemoToggle / ThemeToggle / WidthToggle / FloatingConfigControls', reason: 'Position-fixed app-shell controls rendered once by App.tsx. A second copy would overlap the real one.' },
   { name: 'CredentialEvidencePanel', reason: 'Fetches evidence bundles from api/credentialEvidence for a specific credential.' },
   { name: 'RbacImporterPanel', reason: 'Uploads and parses a live RBAC dump through api/afmApi.' },
   { name: 'SuperCredInstructorPanel', reason: 'Drives a live demo runner against a cluster via api/demoRunner.' },
@@ -601,6 +602,7 @@ export const DESIGN_SYSTEM_SECTIONS: readonly TocEntry[] = [
   { id: 'proof-console', title: 'ProofConsole' },
   { id: 'streaming-proof', title: 'ProofConsole streaming demo' },
   { id: 'credential-state-notice', title: 'CredentialStateNotice' },
+  { id: 'safe-link', title: 'SafeLink' },
   { id: 'dash-kit', title: 'DashKit' },
   { id: 'not-shown', title: 'Not shown on this page' },
 ]
@@ -1646,6 +1648,81 @@ export default function DesignSystemPage() {
           <code>announce</code> would fix it. The page&rsquo;s test asserts the full live-region roster
           by name, so this is counted rather than tolerated.
         </Caveat>
+      </Group>
+
+      {/* ── SafeLink ────────────────────────────────────────────────────────── */}
+      <Group
+        id="safe-link"
+        title="SafeLink"
+        when="Router-resilient navigation primitive. Within React Router context it renders a <Link>; outside router context (such as here on the static design gallery or in isolated unit tests) it falls back gracefully to a standard <a> tag without throwing."
+      >
+        <div style={{ ...rowStyle, gap: 16 }}>
+          <Specimen
+            caption="Standard text link"
+            minWidth={240}
+            note="Inline navigation text linking to route targets."
+          >
+            <SafeLink
+              to="/agents"
+              data-testid="ds-safelink-text"
+              style={{ color: 'var(--cyan)', textDecoration: 'none', fontWeight: 600, fontSize: 13 }}
+            >
+              All Agents Inventory →
+            </SafeLink>
+          </Specimen>
+
+          <Specimen
+            caption="Workload drill-down badge"
+            minWidth={280}
+            note="Used in telemetry, network, and RBAC tables to drill down into agent dossiers."
+          >
+            <SafeLink
+              to="/agents/UUID-23-1245-124?tab=overview"
+              data-testid="ds-safelink-badge"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: 'none',
+                background: 'color-mix(in srgb, var(--cyan) 12%, transparent)',
+                color: 'var(--cyan)',
+                border: '1px solid color-mix(in srgb, var(--cyan) 30%, transparent)',
+              }}
+            >
+              <span>Sir Lancelot</span>
+              <span style={{ fontSize: 10, opacity: 0.8 }}>↗</span>
+            </SafeLink>
+          </Specimen>
+
+          <Specimen
+            caption="Kubernetes query selector chip"
+            minWidth={280}
+            note="Clickable selector pill linking directly to filtered agent inventory."
+          >
+            <SafeLink
+              to="/agents?selector=k8s:sa:planner"
+              data-testid="ds-safelink-selector"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '2px 7px',
+                borderRadius: 3,
+                fontSize: 11,
+                fontFamily: 'monospace',
+                textDecoration: 'none',
+                background: 'var(--surface2)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              k8s:sa:planner
+            </SafeLink>
+          </Specimen>
+        </div>
       </Group>
 
       {/* ── DashKit ────────────────────────────────────────────────────────── */}

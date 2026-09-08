@@ -110,7 +110,12 @@ function nowIso(): string {
 }
 
 function findDemoAgent(id: string): DemoAgentRecord | undefined {
-  return demoAgents.find((record) => record.agent.id === id)
+  return demoAgents.find(
+    (record) =>
+      record.agent.id === id ||
+      record.agent.id === `${TENANT}:${id}` ||
+      record.agent.id.replace(`${TENANT}:`, '') === id,
+  )
 }
 
 function listAgents(): AgentListResponse {

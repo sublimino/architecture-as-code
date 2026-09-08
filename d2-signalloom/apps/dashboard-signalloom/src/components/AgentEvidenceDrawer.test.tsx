@@ -302,9 +302,13 @@ describe('AgentEvidenceDrawer Component', () => {
     await userEvent.click(screen.getByTestId('agent-evidence-drawer-close'))
     expect(onClose).toHaveBeenCalledTimes(1)
 
-    // 2. Open Full Record
+    // 2. Open Full Record (Footer)
     await userEvent.click(screen.getByTestId('drawer-open-full-record'))
     expect(onOpenFullRecord).toHaveBeenCalledWith('agent-uuid-1234')
+
+    // 2b. Open Full Dossier (Header)
+    await userEvent.click(screen.getByTestId('drawer-header-full-record'))
+    expect(onOpenFullRecord).toHaveBeenCalledTimes(2)
 
     // 3. Edit Agent
     await userEvent.click(screen.getByTestId('drawer-edit-agent'))

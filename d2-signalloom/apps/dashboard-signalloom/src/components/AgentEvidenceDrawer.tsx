@@ -246,22 +246,43 @@ export default function AgentEvidenceDrawer({
                 Quick Evidence Dossier · {framework} · {executionMode}
               </div>
             </div>
-            <button
-              onClick={onClose}
-              aria-label="Close evidence drawer"
-              data-testid="agent-evidence-drawer-close"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--muted)',
-                fontSize: 22,
-                cursor: 'pointer',
-                padding: '2px 6px',
-                lineHeight: 1,
-              }}
-            >
-              &times;
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {onOpenFullRecord && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  data-testid="drawer-header-full-record"
+                  onClick={() => onOpenFullRecord(agent.id)}
+                  style={{
+                    fontSize: 11,
+                    padding: '3px 8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                  title="Open full agent dossier"
+                >
+                  <span>Full Dossier</span>
+                  <span style={{ fontSize: 10 }}>&rarr;</span>
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                aria-label="Close evidence drawer"
+                data-testid="agent-evidence-drawer-close"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--muted)',
+                  fontSize: 22,
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  lineHeight: 1,
+                }}
+              >
+                &times;
+              </button>
+            </div>
           </div>
 
           {/* Identifier bar (Safe copy: only copies ID string) */}

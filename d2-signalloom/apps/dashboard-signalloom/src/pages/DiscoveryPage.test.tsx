@@ -19,6 +19,9 @@ vi.mock('../api/client', () => ({
       enrollAccount: vi.fn().mockResolvedValue({ account_id: 'acct-1', status: 'enrollment_requested' }),
       dismissAccount: vi.fn().mockResolvedValue({ account_id: 'acct-1', status: 'dismissed' }),
     },
+    agents: {
+      list: vi.fn().mockResolvedValue({ agents: [] }),
+    },
   },
 }))
 
@@ -186,5 +189,81 @@ describe('DiscoveryPage', () => {
 
     await waitFor(() => expect(api.nhi.discovered).toHaveBeenLastCalledWith('test-token', 1, 50, undefined, true))
     expect(screen.getByRole('button', { name: /Filter: All \+ Disconnected/ })).toBeInTheDocument()
+  })
+
+  it('renders sortable column headers via DataTable and allows sorting', async () => {
+    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accounts: [
+        makeAccount({ id: 'acct-b', account_name: 'zebra-worker' }),
+        makeAccount({ id: 'acct-a', account_name: 'alpha-worker' }),
+      ],
+      total: 2,
+      summary: { total_discovered: 2, needs_triage: 2, previously_dismissed: 0 },
+    })
+    renderPage()
+    await screen.findByText('zebra-worker')
+
+    // Find Account sortable header
+    const accountHeader = screen.getByRole('columnheader', { name: /Account/i })
+    expect(accountHeader).toBeInTheDocument()
+
+    // Click to sort ascending (alpha-worker first)
+    await userEvent.click(accountHeader)
+    const rows = screen.getAllByRole('row')
+    expect(rows[1]).toHaveTextContent('alpha-worker')
+    expect(rows[2]).toHaveTextContent('zebra-worker')
+  })
+
+  it('correlates discovered account with registered agent and renders drill-down links', async () => {
+    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accounts: [makeAccount({ id: 'acct-1', account_name: 'svc-billing-sync' })],
+      total: 1,
+      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
+    })
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [
+        {
+          id: 'agent-billing-sync',
+          name: 'Billing Agent',
+          service_account: 'svc-billing-sync',
+          type: 'Signal Loom Built',
+          tenant_id: 'tenant-1',
+          lifecycle_state: 'active',
+          last_transition_at: null,
+          eu_ai_act_risk_class: null,
+          compliance_summary: { total_controls: 5, passing: 5, failing: 0, pending: 0, posture_score: 100 },
+          created_at: null,
+        },
+      ],
+    })
+
+    renderPage()
+    await screen.findByText('svc-billing-sync')
+
+    // The inline agent dossier link should be present
+    const agentLink = await screen.findByTestId('discovery-agent-link-acct-1')
+    expect(agentLink).toBeInTheDocument()
+    expect(agentLink).toHaveAttribute('href', '/agents/agent-billing-sync?tab=overview')
+    expect(agentLink).toHaveTextContent('Billing Agent')
+
+    // The actions column Dossier button should also link to agent overview
+    const dossierBtn = screen.getByTestId('discovery-agent-dossier-btn-acct-1')
+    expect(dossierBtn).toHaveAttribute('href', '/agents/agent-billing-sync?tab=overview')
+  })
+
+  it('renders Find Agent registry link when no registered agent directly matches', async () => {
+    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accounts: [makeAccount({ id: 'acct-unmatched', account_name: 'unmatched-svc' })],
+      total: 1,
+      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
+    })
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({ agents: [] })
+
+    renderPage()
+    await screen.findByText('unmatched-svc')
+
+    const findAgentBtn = screen.getByTestId('discovery-agent-search-btn-acct-unmatched')
+    expect(findAgentBtn).toHaveAttribute('href', '/agents?search=unmatched-svc')
+    expect(findAgentBtn).toHaveTextContent('Find Agent ↗')
   })
 })

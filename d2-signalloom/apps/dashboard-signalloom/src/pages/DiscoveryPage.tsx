@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import AgentDeepLink from '../components/AgentDeepLink'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type { NHIAccount, NHIScan, AgentResponse } from '../types/api'
@@ -337,26 +338,15 @@ function NHIAccountRow({ account, matchedAgent, onAction, onOpen }: NHIAccountRo
         </button>
         {matchedAgent && (
           <div style={{ marginTop: 4 }}>
-            <Link
-              to={`/agents/${matchedAgent.id}?tab=overview`}
-              data-testid={`discovery-agent-link-${account.id}`}
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--cyan)',
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                background: 'color-mix(in srgb, var(--cyan) 10%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--cyan) 25%, transparent)',
-                padding: '1px 6px',
-                borderRadius: 4,
-              }}
+            <AgentDeepLink
+              target={matchedAgent.id}
+              variant="badge"
+              dataTestId={`discovery-agent-link-${account.id}`}
               title={`View agent dossier for ${matchedAgent.name}`}
+              showIcon={true}
             >
-              <span>🤖 {matchedAgent.name} ↗</span>
-            </Link>
+              <span>🤖 {matchedAgent.name}</span>
+            </AgentDeepLink>
           </div>
         )}
         {isDismissed && (
@@ -443,25 +433,27 @@ function NHIAccountRow({ account, matchedAgent, onAction, onOpen }: NHIAccountRo
       <td style={{ ...td, textAlign: 'right' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
           {matchedAgent ? (
-            <Link
-              to={`/agents/${matchedAgent.id}?tab=overview`}
+            <AgentDeepLink
+              target={matchedAgent.id}
               className="btn btn-secondary"
-              data-testid={`discovery-agent-dossier-btn-${account.id}`}
+              dataTestId={`discovery-agent-dossier-btn-${account.id}`}
               style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
               title={`Inspect ${matchedAgent.name} dossier`}
+              showIcon={true}
             >
-              Dossier ↗
-            </Link>
+              Dossier
+            </AgentDeepLink>
           ) : (
-            <Link
-              to={`/agents?search=${encodeURIComponent(account.account_name)}`}
+            <AgentDeepLink
+              target={account.account_name}
               className="btn btn-secondary"
-              data-testid={`discovery-agent-search-btn-${account.id}`}
+              dataTestId={`discovery-agent-search-btn-${account.id}`}
               style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
               title={`Search agent registry for ${account.account_name}`}
+              showIcon={true}
             >
-              Find Agent ↗
-            </Link>
+              Find Agent
+            </AgentDeepLink>
           )}
           {isDismissed ? (
             <button

@@ -14,8 +14,10 @@ See `fe-signalloom/README.md` for full documentation.
 Signal Loom dashboard. React, Vite, TypeScript, served by nginx on port 8080.
 Dex OIDC login through a single-origin nginx proxy for `/dex` and `/api`.
 Pages: Agents, Compliance, Audit Trail, NHI Discovery, Settings, Cryptography
-(bao-spire proofs), Onboarding wizard. Demo-data toggle (bottom-right corner)
-switches to client-side fixtures for offline rendering.
+(bao-spire proofs), Onboarding wizard. Universal agent deep linking supports
+`id:`, `sa:`, `instance:`, `spiffe:`, and `k8s:sa:` query selectors.
+See `docs/signalloom/agent-deep-linking-and-selectors.md` for the specification.
+Demo-data toggle (bottom-right corner) switches to client-side fixtures for offline rendering.
 
 ## fake-integration-proxy (mock and discovery proxy)
 

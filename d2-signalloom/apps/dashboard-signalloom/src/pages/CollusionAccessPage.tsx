@@ -59,6 +59,7 @@
  * under the first row the moment anyone sorted the table.
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import AgentDeepLink from '../components/AgentDeepLink'
 import { StatCard, Section, Pill } from '../components/DashKit'
 import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
@@ -773,21 +774,34 @@ export function SubjectAgentLink({
     findMatchingAgent({ account_name: clean, id: clean }, agents) ||
     findMatchingAgent({ account_name: subject, id: subject }, agents)
 
-  if (!matched) {
-    return <span data-testid={testId}>{subject}</span>
+  if (matched) {
+    return (
+      <AgentDeepLink
+        target={matched.id}
+        label={subject}
+        dataTestId={testId}
+        style={{ color: 'var(--text)', textDecoration: 'none', fontWeight: 500 }}
+        className="hover:text-[var(--cyan)]"
+      />
+    )
   }
 
-  return (
-    <SafeLink
-      to={`/agents/${encodeURIComponent(matched.id)}?tab=overview`}
-      data-testid={testId}
-      style={{ color: 'var(--text)', textDecoration: 'none', fontWeight: 500 }}
-      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
-      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
-    >
-      {subject}
-    </SafeLink>
-  )
+  // If subject is a serviceaccount (e.g. system:serviceaccount:ns:sa), create selector link
+  const saMatch = subject.match(/^system:serviceaccount:([^:]+):([^:]+)$/)
+  if (saMatch) {
+    return (
+      <AgentDeepLink
+        target={`k8s:sa:${saMatch[2]}`}
+        variant="subtle"
+        dataTestId={testId}
+        className="hover:text-[var(--cyan)]"
+      >
+        {subject}
+      </AgentDeepLink>
+    )
+  }
+
+  return <span data-testid={testId}>{subject}</span>
 }
 
 export function GroupMembersLink({

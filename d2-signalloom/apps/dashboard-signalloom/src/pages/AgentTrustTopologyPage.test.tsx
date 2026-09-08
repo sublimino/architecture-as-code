@@ -302,11 +302,11 @@ describe('AgentTrustTopologyPage — Inspector Agent Dossier Drilldown', () => {
     renderPage(<AgentTrustTopologyPage />, ['/agent-trust-topology?actor=planner'])
     const spiffeLink = await screen.findByTestId('inspector-spiffe-link')
     expect(spiffeLink).toBeInTheDocument()
-    expect(spiffeLink.getAttribute('href')).toContain('/agents?search=spiffe%3Aspiffe%3A%2F%2Fsignalloom.demo')
+    expect(spiffeLink.getAttribute('href')).toContain('/agents?selector=spiffe%3A%2F%2Fsignalloom.demo')
 
     const selectorPill = await screen.findByTestId('inspector-selector-k8s:sa:agent-trust-planner')
     expect(selectorPill).toBeInTheDocument()
-    expect(selectorPill.getAttribute('href')).toContain('/agents?search=k8s%3Asa%3Aagent-trust-planner')
+    expect(selectorPill.getAttribute('href')).toContain('/agents?selector=k8s%3Asa%3Aagent-trust-planner')
   })
 
   it('renders source and target agent dossier links when an edge between agents is inspected', async () => {

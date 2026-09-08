@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import AgentDeepLink from '../components/AgentDeepLink'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import FleetTopology from '../components/fleet/FleetTopology'
@@ -901,26 +902,21 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                 style={{ borderBottom: '1px solid var(--border)' }}
               >
                 <td style={DataTable.td}>
-                  <Link
-                    to={`/agents/${row.id}?tab=overview`}
-                    data-testid={`fleet-roster-link-${row.id}`}
+                  <AgentDeepLink
+                    target={row.id}
+                    label={row.name}
+                    dataTestId={`fleet-roster-link-${row.id}`}
                     style={{ color: 'var(--text)', textDecoration: 'none', fontWeight: 500 }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
-                  >
-                    {row.name}
-                  </Link>
+                    className="hover:text-[var(--cyan)]"
+                  />
                 </td>
                 <td style={{ ...DataTable.td, color: 'var(--muted)' }}>
-                  <Link
-                    to={`/agents/${row.id}?tab=overview`}
-                    data-testid={`fleet-roster-id-link-${row.id}`}
-                    style={{ color: 'var(--muted)', textDecoration: 'none' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
-                  >
-                    {row.id}
-                  </Link>
+                  <AgentDeepLink
+                    target={row.id}
+                    variant="subtle"
+                    dataTestId={`fleet-roster-id-link-${row.id}`}
+                    className="hover:text-[var(--cyan)]"
+                  />
                 </td>
                 <td style={DataTable.td}>{row.type}</td>
                 <td style={DataTable.td}>{row.team}</td>

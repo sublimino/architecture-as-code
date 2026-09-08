@@ -15,6 +15,7 @@
  */
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import AgentDeepLink from '../components/AgentDeepLink'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
@@ -781,15 +782,15 @@ export default function NetworkTestsPage() {
               </td>
               <td style={DataTable.td}>
                 {t.src.namespace === 'fe-signalloom-agents' ? (
-                  <Link
-                    to={`/agents/${t.src.name}?tab=overview`}
-                    data-testid={`netassert-src-agent-link-${t.name}`}
+                  <AgentDeepLink
+                    target={t.src.name}
+                    dataTestId={`netassert-src-agent-link-${t.name}`}
                     style={{ textDecoration: 'none' }}
                   >
                     <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
                       {t.src.namespace}/{t.src.name}
                     </code>
-                  </Link>
+                  </AgentDeepLink>
                 ) : (
                   <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
                     {t.src.namespace}/{t.src.name}
@@ -797,15 +798,15 @@ export default function NetworkTestsPage() {
                 )}
                 <span style={{ margin: '0 4px', color: 'var(--muted)' }}>{t.expectedExit === 0 ? '→' : '✘'}</span>
                 {t.dst.namespace === 'fe-signalloom-agents' ? (
-                  <Link
-                    to={`/agents/${t.dst.name}?tab=overview`}
-                    data-testid={`netassert-dst-agent-link-${t.name}`}
+                  <AgentDeepLink
+                    target={t.dst.name}
+                    dataTestId={`netassert-dst-agent-link-${t.name}`}
                     style={{ textDecoration: 'none' }}
                   >
                     <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
                       {t.dst.namespace}/{t.dst.name}
                     </code>
-                  </Link>
+                  </AgentDeepLink>
                 ) : (
                   <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
                     {t.dst.namespace}/{t.dst.name}
@@ -994,15 +995,14 @@ export default function NetworkTestsPage() {
           renderRow={(a) => (
             <tr key={a.name} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={{ ...DataTable.td, fontWeight: 500 }}>
-                <Link
-                  to={`/agents/${a.name}?tab=overview`}
-                  data-testid={`agent-test-link-${a.name}`}
+                <AgentDeepLink
+                  target={{ kind: 'agent', agentId: a.name }}
+                  dataTestId={`agent-test-link-${a.name}`}
                   style={{ color: 'var(--text)', textDecoration: 'none' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                  className="hover:text-[var(--cyan)]"
                 >
                   {a.name}
-                </Link>
+                </AgentDeepLink>
               </td>
               <td style={DataTable.td}><code style={{ fontSize: 11, color: 'var(--cyan)' }}>{a.namespace}</code></td>
               <td style={DataTable.td}>{a.type}</td>

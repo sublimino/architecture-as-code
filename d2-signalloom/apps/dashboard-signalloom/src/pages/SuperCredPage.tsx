@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
+import AgentDeepLink from '../components/AgentDeepLink'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import SuperCredInstructorPanel from '../components/SuperCredInstructorPanel'
@@ -812,15 +813,14 @@ export default function SuperCredPage() {
               renderRow={(agent: RuntimeAgent) => (
                 <tr key={agent.id} data-testid={`agent-row-${agent.id}`} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={DataTable.td}>
-                    <Link
-                      to={`/agents/${agent.id}?tab=overview`}
-                      data-testid={`supercred-agent-link-${agent.id}`}
-                      style={{ color: 'var(--text)', textDecoration: 'none' }}
-                      onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
-                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
+                    <AgentDeepLink
+                      target={agent.id}
+                      label={agent.name}
+                      dataTestId={`supercred-agent-link-${agent.id}`}
+                      style={{ color: 'var(--text)' }}
                     >
                       <div style={{ fontWeight: 600 }}>{agent.name}</div>
-                    </Link>
+                    </AgentDeepLink>
                     {agent.type && (
                       <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>{agent.type}</div>
                     )}

@@ -182,6 +182,17 @@ describe('demo mode', () => {
     expect(agent.name).toBe('Compliance Reporter')
   })
 
+  it('resolves demo agent detail when queried with or without tenant prefix', async () => {
+    setDemoMode(true)
+
+    const withPrefix = await api.agents.get('tok', TRIAGE_AGENT_ID)
+    const bare = await api.agents.get('tok', 'agent-triage')
+
+    expect(withPrefix.id).toBe(TRIAGE_AGENT_ID)
+    expect(bare.id).toBe(TRIAGE_AGENT_ID)
+    expect(bare.name).toBe('Triage Agent')
+  })
+
   it('fails loudly with a 404 when a demo agent id is unknown', async () => {
     setDemoMode(true)
 

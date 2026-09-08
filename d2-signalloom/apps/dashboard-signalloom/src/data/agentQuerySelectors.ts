@@ -68,7 +68,7 @@ export function parseAgentSelectorQuery(input: string): ParsedAgentQuery {
     const colonIdx = token.indexOf(':')
     const eqIdx = token.indexOf('=')
 
-    if (token.startsWith('k8s:')) {
+    if (token.toLowerCase().startsWith('k8s:')) {
       // e.g. k8s:sa:planner or k8s:ns:agent-trust or k8s:pod-label:app=cardvault
       clauses.push({
         prefix: 'k8s',

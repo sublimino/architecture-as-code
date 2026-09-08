@@ -9,6 +9,7 @@
  *   - Real-Time CEL Governance Benchmark
  */
 import { useState, useCallback, useEffect, useRef, type CSSProperties } from 'react'
+import { Link } from 'react-router-dom'
 import { colors } from '../styles/tokens'
 import { Section, StatCard, Pill } from '../components/DashKit'
 import HelpHint from '../components/HelpHint'
@@ -517,7 +518,17 @@ export default function DistanceLatencyPage() {
                 {topologyNodes.map(node => (
                   <tr key={node.id} data-testid={`topology-node-${node.id}`}>
                     <td style={tableCellStyle}>
-                      <div style={{ fontWeight: 600, color: 'var(--text)' }}>{node.name}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text)' }}>
+                        <Link
+                          to={`/agents/${encodeURIComponent(node.id)}?tab=overview`}
+                          data-testid={`spatial-node-link-${node.id}`}
+                          style={{ color: 'var(--text)', textDecoration: 'none' }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                        >
+                          {node.name}
+                        </Link>
+                      </div>
                       <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>
                         {node.namespace}
                       </div>
@@ -566,7 +577,17 @@ export default function DistanceLatencyPage() {
                 <tr key={idx}>
                   <td style={{ ...tableCellStyle, fontFamily: 'monospace', color: 'var(--muted)' }}>{row.timestamp}</td>
                   <td style={tableCellStyle}>
-                    <div style={{ fontWeight: 600, color: 'var(--text)' }}>{row.agentId}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--text)' }}>
+                      <Link
+                        to={`/agents/${encodeURIComponent(row.agentId)}?tab=overview`}
+                        data-testid={`frostdb-agent-link-${row.agentId}`}
+                        style={{ color: 'var(--text)', textDecoration: 'none' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                      >
+                        {row.agentId}
+                      </Link>
+                    </div>
                     <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{row.spiffeId}</div>
                   </td>
                   <td style={{ ...tableCellStyle, fontFamily: 'monospace' }}>

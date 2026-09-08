@@ -708,4 +708,22 @@ describe('NetworkTestsPage', () => {
       expect(verdictNarrative(test_({ result: 'error', evidence: '' }))).toContain('no evidence was recorded')
     })
   })
+
+  describe('Agent Drilldown Links in Network Tests', () => {
+    it('renders agent test infrastructure items as links to agent dossiers', async () => {
+      renderPage()
+      const cardvaultLink = await screen.findByTestId('agent-test-link-cardvault')
+      expect(cardvaultLink).toBeInTheDocument()
+      expect(cardvaultLink).toHaveAttribute('href', '/agents/cardvault?tab=overview')
+    })
+
+    it('renders netassert fe-signalloom-agents endpoints as links to agent dossiers', async () => {
+      renderPage()
+      // agents-to-postgresql-denied has src in fe-signalloom-agents with name agent-patsy
+      const srcLink = await screen.findByTestId('netassert-src-agent-link-agents-to-postgresql-denied')
+      expect(srcLink).toBeInTheDocument()
+      expect(srcLink).toHaveAttribute('href', '/agents/agent-patsy?tab=overview')
+    })
+  })
 })
+

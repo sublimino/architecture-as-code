@@ -14,6 +14,7 @@ import LoadingState, { loadPhase } from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
 import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
+import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -850,16 +851,50 @@ function GovernedTab({
 }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialSearch = searchParams.get('search') || ''
-  const [search, setSearch] = useState(initialSearch)
+
+  const resolveInitialSearch = () => {
+    const s = searchParams.get('search')
+    if (s) return s
+    const sel = searchParams.get('selector')
+    if (sel) return sel
+    const id = searchParams.get('id')
+    if (id) return `id:${id}`
+    const sa = searchParams.get('sa')
+    if (sa) return `sa:${sa}`
+    const spiffe = searchParams.get('spiffe')
+    if (spiffe) return `spiffe:${spiffe}`
+    const inst = searchParams.get('instance')
+    if (inst) return `pod:${inst}`
+    return ''
+  }
+
+  const [search, setSearch] = useState(resolveInitialSearch)
   const [showRegister, setShowRegister] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<AgentResponse | null>(null)
 
   // Auto-sync search from URL
   useEffect(() => {
-    const q = searchParams.get('search') || ''
-    setSearch(q)
+    const s = searchParams.get('search')
+    const sel = searchParams.get('selector')
+    const id = searchParams.get('id')
+    const sa = searchParams.get('sa')
+    const spiffe = searchParams.get('spiffe')
+    const inst = searchParams.get('instance')
+
+    if (s !== null && s !== undefined) {
+      setSearch(s)
+    } else if (sel) {
+      setSearch(sel)
+    } else if (id) {
+      setSearch(`id:${id}`)
+    } else if (sa) {
+      setSearch(`sa:${sa}`)
+    } else if (spiffe) {
+      setSearch(`spiffe:${spiffe}`)
+    } else if (inst) {
+      setSearch(`pod:${inst}`)
+    }
   }, [searchParams])
 
   // Auto-open drawer if ?drawer=<id> or ?agent=<id> is in URL
@@ -881,6 +916,11 @@ function GovernedTab({
       const next = new URLSearchParams(prev)
       if (val.trim()) next.set('search', val.trim())
       else next.delete('search')
+      next.delete('selector')
+      next.delete('id')
+      next.delete('sa')
+      next.delete('spiffe')
+      next.delete('instance')
       return next
     }, { replace: true })
   }
@@ -910,6 +950,11 @@ function GovernedTab({
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       next.delete('search')
+      next.delete('selector')
+      next.delete('id')
+      next.delete('sa')
+      next.delete('spiffe')
+      next.delete('instance')
       next.delete('lifecycle')
       next.delete('state')
       next.delete('drawer')
@@ -918,25 +963,16 @@ function GovernedTab({
     }, { replace: true })
   }
 
+  const parsedQuery = useMemo(() => parseAgentSelectorQuery(search), [search])
+
   const filtered = useMemo(() => {
     let list = agents
     if (lifecycleFilter !== 'all') list = list.filter(a => a.lifecycle_state === lifecycleFilter)
     if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter(a =>
-        (a.name ?? '').toLowerCase().includes(q) ||
-        a.id.toLowerCase().includes(q) ||
-        (a.type ?? '').toLowerCase().includes(q) ||
-        (a.owner ?? '').toLowerCase().includes(q) ||
-        (a.runtime?.namespace ?? a.namespace ?? '').toLowerCase().includes(q) ||
-        (a.runtime?.framework ?? a.framework ?? '').toLowerCase().includes(q) ||
-        (a.responsibility?.owner_name ?? '').toLowerCase().includes(q) ||
-        (a.responsibility?.team ?? '').toLowerCase().includes(q) ||
-        (a.identity?.spiffe_id ?? '').toLowerCase().includes(q)
-      )
+      list = list.filter(a => matchAgentByQuery(a, parsedQuery))
     }
     return list
-  }, [agents, search, lifecycleFilter])
+  }, [agents, search, parsedQuery, lifecycleFilter])
 
   const lifecycleCounts = useMemo(() => Object.fromEntries(
     LIFECYCLE_OPTIONS.map((state) => [
@@ -984,6 +1020,44 @@ function GovernedTab({
           onChange={(e) => handleSearchChange(e.target.value)}
           style={{ flex: 1, minWidth: 220, maxWidth: 360 }}
         />
+        {parsedQuery.isStructured && (
+          <div
+            data-testid="active-selector-badge"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px',
+              borderRadius: 4,
+              background: 'rgba(0, 210, 255, 0.12)',
+              border: '1px solid var(--cyan)',
+              fontSize: 12,
+              color: 'var(--cyan)',
+            }}
+          >
+            <span>
+              <strong>Selector:</strong> {parsedQuery.clauses.map((c) => c.raw).join(' ')}
+            </span>
+            <button
+              type="button"
+              data-testid="clear-selector-button"
+              onClick={() => handleSearchChange('')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--cyan)',
+                cursor: 'pointer',
+                padding: '0 2px',
+                fontWeight: 'bold',
+                lineHeight: 1,
+              }}
+              title="Clear selector"
+              aria-label="Clear selector"
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div className="sl-filter-chips" role="group" aria-label="Filter agents by lifecycle state">
           {LIFECYCLE_OPTIONS.map((state) => (
             <button

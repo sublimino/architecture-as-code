@@ -835,5 +835,45 @@ describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
     expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
     expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Drawer Bot')
   })
+
+  it('populates search and displays active-selector-badge from ?selector= param', async () => {
+    const agent1 = makeAgent({ id: 'agent-planner', name: 'Trust Planner', identity: { spiffe_id: '', spiffe_status: 'linked', aliases: [], selectors: ['k8s:sa:planner'] } })
+    const agent2 = makeAgent({ id: 'agent-triage', name: 'Trust Triage' })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent1, agent2],
+      total: 2,
+    })
+
+    renderPage(['/agents?selector=k8s:sa:planner'])
+
+    expect(await screen.findByText('Trust Planner')).toBeInTheDocument()
+    expect(screen.getByTestId('active-selector-badge')).toBeInTheDocument()
+    expect(screen.getByTestId('active-selector-badge')).toHaveTextContent('k8s:sa:planner')
+
+    const row1 = screen.getByTestId('agent-row-agent-planner').closest('tbody')
+    const row2 = screen.getByTestId('agent-row-agent-triage').closest('tbody')
+    expect(row1).toHaveAttribute('aria-hidden', 'false')
+    expect(row2).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('populates search with prefix from ?id= param and clears on clear button click', async () => {
+    const agent1 = makeAgent({ id: 'UUID-23-1245-124', name: 'Target Agent' })
+    const agent2 = makeAgent({ id: 'other-agent', name: 'Other Agent' })
+
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent1, agent2],
+      total: 2,
+    })
+
+    renderPage(['/agents?id=UUID-23-1245-124'])
+
+    expect(await screen.findByText('Target Agent')).toBeInTheDocument()
+    expect(screen.getByTestId('active-selector-badge')).toHaveTextContent('id:UUID-23-1245-124')
+
+    await userEvent.click(screen.getByTestId('clear-selector-button'))
+    expect(screen.queryByTestId('active-selector-badge')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Search agents' })).toHaveValue('')
+  })
 })
 

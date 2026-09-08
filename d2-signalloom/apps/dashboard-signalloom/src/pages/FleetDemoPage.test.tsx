@@ -651,6 +651,17 @@ describe('the fleet roster', () => {
     expect(row).toHaveTextContent('LLM Inference')
   })
 
+  it('links agent name and workload ID to the agent dossier page', async () => {
+    await renderRoster()
+    const nameLink = screen.getByTestId('fleet-roster-link-agent-llm')
+    expect(nameLink).toHaveAttribute('href', '/agents/agent-llm?tab=overview')
+    expect(nameLink).toHaveTextContent('LLM Inference')
+
+    const idLink = screen.getByTestId('fleet-roster-id-link-agent-llm')
+    expect(idLink).toHaveAttribute('href', '/agents/agent-llm?tab=overview')
+    expect(idLink).toHaveTextContent('agent-llm')
+  })
+
   it('narrows to a search across name, workload ID, type and team', async () => {
     const user = await renderRoster()
     const search = screen.getByTestId('fleet-roster-search')

@@ -146,5 +146,13 @@ describe('DistanceLatencyPage', () => {
     expect(screen.getByTestId('topology-node-agent-cardvault')).toBeInTheDocument()
     expect(screen.getByText('Chaos Prober')).toBeInTheDocument()
     expect(screen.getByText('FrostDB High-Cardinality Columnar Stream & Real-Time CEL Governance')).toBeInTheDocument()
+
+    const spatialLink = screen.getByTestId('spatial-node-link-kagent-chaos-prober')
+    expect(spatialLink).toHaveAttribute('href', '/agents/kagent-chaos-prober?tab=overview')
+    expect(spatialLink).toHaveTextContent('Chaos Prober')
+
+    const frostLink = screen.getByTestId('frostdb-agent-link-kagent-chaos-prober')
+    expect(frostLink).toHaveAttribute('href', '/agents/kagent-chaos-prober?tab=overview')
+    expect(frostLink).toHaveTextContent('kagent-chaos-prober')
   })
 })

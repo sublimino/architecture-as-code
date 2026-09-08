@@ -285,3 +285,54 @@ describe('AgentTrustTopologyPage — URL deep-link parameter ingestion', () => {
   })
 })
 
+describe('AgentTrustTopologyPage — Inspector Agent Dossier Drilldown', () => {
+  beforeEach(() => {
+    isDemoMode.mockReturnValue(true)
+  })
+
+  it('renders View Agent Dossier link when an agent node is selected', async () => {
+    renderPage(<AgentTrustTopologyPage />, ['/agent-trust-topology?actor=planner'])
+    const link = await screen.findByTestId('inspector-agent-dossier-link')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/agents/planner?tab=overview')
+    expect(link).toHaveTextContent(/View Agent Dossier/i)
+  })
+
+  it('renders interactive selector pills and SPIFFE link in inspector', async () => {
+    renderPage(<AgentTrustTopologyPage />, ['/agent-trust-topology?actor=planner'])
+    const spiffeLink = await screen.findByTestId('inspector-spiffe-link')
+    expect(spiffeLink).toBeInTheDocument()
+    expect(spiffeLink.getAttribute('href')).toContain('/agents?search=spiffe%3Aspiffe%3A%2F%2Fsignalloom.demo')
+
+    const selectorPill = await screen.findByTestId('inspector-selector-k8s:sa:agent-trust-planner')
+    expect(selectorPill).toBeInTheDocument()
+    expect(selectorPill.getAttribute('href')).toContain('/agents?search=k8s%3Asa%3Aagent-trust-planner')
+  })
+
+  it('renders source and target agent dossier links when an edge between agents is inspected', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    // Default selected edge on identity plane is spire-planner (spire -> planner)
+    const targetLinkDefault = await screen.findByTestId('inspector-target-agent-link')
+    expect(targetLinkDefault).toHaveAttribute('href', '/agents/planner?tab=overview')
+
+    // Switch to authorization plane to inspect planner-triage (planner -> triage)
+    const authPlaneBtn = screen.getByRole('button', { name: /Authorization plane/i })
+    await user.click(authPlaneBtn)
+
+    const edgeBtn = await screen.findByRole('button', { name: /planner → triage/i })
+    await user.click(edgeBtn)
+
+    const sourceLink = await screen.findByTestId('inspector-source-agent-link')
+    expect(sourceLink).toBeInTheDocument()
+    expect(sourceLink).toHaveAttribute('href', '/agents/planner?tab=overview')
+
+    const targetLink = await screen.findByTestId('inspector-target-agent-link')
+    expect(targetLink).toBeInTheDocument()
+    expect(targetLink).toHaveAttribute('href', '/agents/triage?tab=overview')
+  })
+})
+
+
+

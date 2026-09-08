@@ -931,6 +931,87 @@ export default function AgentDetailPage() {
         ← Agents
       </button>
 
+      {/* ─── Active Target Instance Banner ───────────────────────────────────── */}
+      {(searchParams.get('instance') || searchParams.get('selector')) && (
+        <div
+          data-testid="active-target-instance-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 16px',
+            marginBottom: 16,
+            borderRadius: 6,
+            background: 'rgba(0, 210, 255, 0.08)',
+            border: '1px solid var(--cyan)',
+            color: 'var(--text)',
+            fontSize: 13,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: 'var(--cyan)',
+                boxShadow: '0 0 8px var(--cyan)',
+              }}
+            />
+            <div>
+              <span
+                style={{
+                  color: 'var(--muted)',
+                  fontSize: 11,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  fontWeight: 600,
+                  display: 'block',
+                  marginBottom: 2,
+                }}
+              >
+                Target Runtime Instance
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <code
+                  data-testid="target-instance-value"
+                  style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: 13 }}
+                >
+                  {searchParams.get('instance') || searchParams.get('selector')}
+                </code>
+                {agent.runtime?.pod_name && (
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    (Pod: {agent.runtime.pod_name})
+                  </span>
+                )}
+                {agent.runtime?.pod_uid && agent.runtime.pod_uid !== (searchParams.get('instance') || searchParams.get('selector')) && (
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    UID: <code>{agent.runtime.pod_uid}</code>
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            data-testid="clear-target-instance-btn"
+            onClick={() => {
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev)
+                next.delete('instance')
+                next.delete('selector')
+                return next
+              })
+            }}
+            className="btn btn-secondary"
+            style={{ fontSize: 11, padding: '4px 10px' }}
+          >
+            Clear Target Filter
+          </button>
+        </div>
+      )}
+
       {/* ─── Modals ──────────────────────────────────────────────────────────── */}
       {showTransition && (
         <RequestTransitionModal agent={agent} onClose={() => setShowTransition(false)} />

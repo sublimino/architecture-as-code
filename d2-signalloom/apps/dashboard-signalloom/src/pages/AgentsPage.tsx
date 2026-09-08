@@ -1,10 +1,11 @@
 // Filter interaction adapted from Beautiful UI Filter Table (MIT); see
 // THIRD_PARTY_NOTICES.md. Signal Loom owns data, tokens, and semantics.
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
+import { claimDiscoveredAgent, type AgentClaimRequest } from '../api/agentClaim'
 import type { AgentResponse, AgentListMeta, SourceHealthMap } from '../types/api'
 import StatusBadge from '../components/StatusBadge'
 import SignalBadge from '../components/SignalBadge'
@@ -266,6 +267,28 @@ function fmtRelativeMinutes(iso: string | null) {
   return fmtRelative(iso)
 }
 
+interface ClaimNotification {
+  kind: 'success' | 'error'
+  message: string
+}
+
+function buildClaimRequest(agent: AgentResponse): AgentClaimRequest {
+  const podName = agent.runtime?.pod_name || agent.name
+  const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
+  const serviceAccount = agent.runtime?.service_account || agent.service_account || podName
+
+  return {
+    pod_name: podName,
+    namespace,
+    spiffe_id: agent.identity?.spiffe_id || `spiffe://cluster.local/ns/${namespace}/sa/${serviceAccount}`,
+    harness: agent.runtime?.framework || agent.framework || agent.type || 'unknown',
+    model: agent.runtime?.model || agent.model_name || 'unknown',
+    declared_tools: [],
+    token_budget_limit: 100000,
+    agent_id: agent.id,
+  }
+}
+
 // ─── Theme Colors ────────────────────────────────────────────────────────────
 
 export const DONUT_COLORS = {
@@ -507,15 +530,18 @@ const LIFECYCLE_TOOLTIP: Record<string, string> = {
   revoked: 'Permanently revoked — terminal state; credentials refused.',
 }
 
-function AgentTableRow({ agent, shown, onSelect, onEdit }: {
+function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
   agent: AgentResponse
   shown: boolean
+  claiming: boolean
   onSelect: (agent: AgentResponse) => void
   onEdit: (agent: AgentResponse) => void
+  onClaim: (agent: AgentResponse) => void
 }) {
   const hasViolations = agent.compliance_summary.failing > 0
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
   const recordClassLabel = recordClass.charAt(0).toUpperCase() + recordClass.slice(1)
+  const canClaim = recordClass === 'discovered' || agent.is_registry_linked === false
 
   // 1. Agent column
   const agentName = agent.name || 'Unnamed agent'
@@ -535,8 +561,7 @@ function AgentTableRow({ agent, shown, onSelect, onEdit }: {
   const isContainmentRequested = agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked'
 
   // 5. Attention column (truthful language)
-  const isNotAssessed = (agent.assessment_summary?.status === 'not_assessed') ||
-    (agent.compliance_summary.total_controls === 0) ||
+  const isNotAssessed = (agent.compliance_summary.total_controls === 0) ||
     (agent.compliance_summary.posture_score === null && agent.compliance_summary.passing === 0 && agent.compliance_summary.failing === 0)
 
   // 6. Identity & Evidence column
@@ -789,6 +814,41 @@ function AgentTableRow({ agent, shown, onSelect, onEdit }: {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {canClaim && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  data-testid="agent-auto-claim-btn"
+                  data-agent-id={agent.id}
+                  disabled={claiming}
+                  aria-busy={claiming}
+                  aria-label={`${claiming ? 'Claiming' : 'Auto-Claim'} ${agentName} into governance`}
+                  title={`Enroll ${agentName} into Signal Loom governance`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onClaim(agent)
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  style={{ fontSize: 11, padding: '3px 8px', minWidth: 88 }}
+                >
+                  {claiming && (
+                    <svg
+                      data-testid={`agent-auto-claim-spinner-${agent.id}`}
+                      aria-hidden="true"
+                      width="11"
+                      height="11"
+                      viewBox="0 0 12 12"
+                      style={{ marginRight: 5, verticalAlign: '-1px' }}
+                    >
+                      <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeOpacity="0.3" />
+                      <path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="currentColor" strokeLinecap="round">
+                        <animateTransform attributeName="transform" type="rotate" from="0 6 6" to="360 6 6" dur="0.8s" repeatCount="indefinite" />
+                      </path>
+                    </svg>
+                  )}
+                  {claiming ? 'Claiming…' : 'Auto-Claim'}
+                </button>
+              )}
               <Link
                 to={`/agents/${agent.id}?tab=overview`}
                 onClick={(e) => e.stopPropagation()}
@@ -834,7 +894,9 @@ function GovernedTab({
   lifecycleFilter,
   sourceHealth,
   sourceHealthDetail,
+  claimingAgentIds,
   onFilterChange,
+  onClaim,
   onRetry,
   onReload,
 }: {
@@ -845,7 +907,9 @@ function GovernedTab({
   lifecycleFilter: string
   sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
   sourceHealthDetail?: SourceHealthMap | null
+  claimingAgentIds: ReadonlySet<string>
   onFilterChange: (state: string) => void
+  onClaim: (agent: AgentResponse) => void
   onRetry: () => void
   onReload: () => void
 }) {
@@ -1121,8 +1185,10 @@ function GovernedTab({
                   key={a.id}
                   agent={a}
                   shown={shown}
+                  claiming={claimingAgentIds.has(a.id)}
                   onSelect={handleSelectAgent}
                   onEdit={setEditingAgent}
+                  onClaim={onClaim}
                 />
               )
             })}
@@ -1228,6 +1294,10 @@ export default function AgentsPage() {
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsLoaded, setAgentsLoaded] = useState(false)
   const [agentsError, setAgentsError] = useState<string | null>(null)
+  const claimingIdsRef = useRef(new Set<string>())
+  const mutationRevisionRef = useRef(0)
+  const [claimingAgentIds, setClaimingAgentIds] = useState<ReadonlySet<string>>(new Set())
+  const [claimNotification, setClaimNotification] = useState<ClaimNotification | null>(null)
 
   const [lifecycleFilter, setLifecycleFilter] = useState('all')
 
@@ -1235,9 +1305,11 @@ export default function AgentsPage() {
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
 
   const loadAgents = useCallback(async () => {
+    const revisionAtStart = mutationRevisionRef.current
     try {
       const token = await getAccessTokenSilently()
       const data = await api.agents.list(token)
+      if (revisionAtStart !== mutationRevisionRef.current) return
       setAgents(data.agents || data.data || [])
       setMeta(data.meta || null)
       setSourceHealth(data.source_health || 'healthy')
@@ -1250,6 +1322,63 @@ export default function AgentsPage() {
       setSourceHealth('unavailable')
     } finally {
       setAgentsLoading(false)
+    }
+  }, [getAccessTokenSilently])
+
+  const handleAutoClaim = useCallback(async (agent: AgentResponse) => {
+    if (claimingIdsRef.current.has(agent.id)) return
+
+    claimingIdsRef.current.add(agent.id)
+    setClaimingAgentIds(new Set(claimingIdsRef.current))
+    setClaimNotification(null)
+
+    try {
+      const token = await getAccessTokenSilently()
+      const result = await claimDiscoveredAgent(token, agent.id, buildClaimRequest(agent))
+      if (result.status !== 'granted') {
+        throw new Error(`Auto-claim was ${result.status}.`)
+      }
+
+      mutationRevisionRef.current += 1
+      setAgents(current => current.map(item => item.id === agent.id
+        ? { ...item, record_class: 'resolved', is_registry_linked: true }
+        : item))
+      setMeta(current => current ? {
+        ...current,
+        discovered_count: Math.max(0, current.discovered_count - 1),
+        resolved_count: current.resolved_count + 1,
+      } : current)
+
+      let claimedAgent: AgentResponse
+      try {
+        claimedAgent = await api.agents.get(token, result.agent_id)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unknown refresh error'
+        setClaimNotification({
+          kind: 'error',
+          message: `${agent.name} was claimed, but refreshed governance evidence could not be loaded: ${detail}`,
+        })
+        return
+      }
+
+      const resolvedAgent: AgentResponse = {
+        ...claimedAgent,
+        record_class: 'resolved',
+        is_registry_linked: true,
+      }
+      setAgents(current => current.map(item => item.id === agent.id ? resolvedAgent : item))
+      setClaimNotification({
+        kind: 'success',
+        message: `${agent.name} enrolled into governance successfully.`,
+      })
+    } catch (error) {
+      setClaimNotification({
+        kind: 'error',
+        message: `Could not auto-claim ${agent.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      })
+    } finally {
+      claimingIdsRef.current.delete(agent.id)
+      setClaimingAgentIds(new Set(claimingIdsRef.current))
     }
   }, [getAccessTokenSilently])
 
@@ -1313,6 +1442,38 @@ export default function AgentsPage() {
 
   return (
     <div>
+      {claimNotification && (
+        <div
+          data-testid="agent-claim-toast"
+          role={claimNotification.kind === 'success' ? 'status' : 'alert'}
+          aria-live={claimNotification.kind === 'success' ? 'polite' : undefined}
+          aria-atomic="true"
+          className="card"
+          style={{
+            position: 'fixed',
+            top: 20,
+            right: 20,
+            zIndex: 1200,
+            maxWidth: 420,
+            padding: '12px 14px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12,
+            borderColor: claimNotification.kind === 'success' ? 'var(--teal)' : 'var(--error)',
+            color: claimNotification.kind === 'success' ? 'var(--teal)' : 'var(--error)',
+          }}
+        >
+          <span>{claimNotification.message}</span>
+          <button
+            type="button"
+            aria-label="Dismiss claim notification"
+            onClick={() => setClaimNotification(null)}
+            style={{ background: 'none', border: 0, color: 'inherit', cursor: 'pointer', padding: 0 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {/* Header & Subtitle */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
@@ -1398,7 +1559,9 @@ export default function AgentsPage() {
         lifecycleFilter={lifecycleFilter}
         sourceHealth={sourceHealth}
         sourceHealthDetail={sourceHealthDetail}
+        claimingAgentIds={claimingAgentIds}
         onFilterChange={setLifecycleFilter}
+        onClaim={handleAutoClaim}
         onRetry={loadAgents}
         onReload={loadAgents}
       />

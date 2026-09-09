@@ -25,10 +25,18 @@
 # genuinely meaningful, so staleness really was the whole defect.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/wait.sh
+source "${SCRIPT_DIR}/lib/wait.sh"
+
 namespace="${SIGNALLOOM_NAMESPACE:-fe-signalloom}"
 positive="${BAO_SPIRE_POSITIVE_JOB:-bao-spire-positive-proof}"
 negative="${BAO_SPIRE_NEGATIVE_JOB:-bao-spire-negative-proof}"
 timeout="${DEMO_WAIT_TIMEOUT:-10m}"
+case "$timeout" in
+  *m) timeout=$(( ${timeout%m} * 60 )) ;;
+  *s) timeout=${timeout%s} ;;
+esac
 # Tolerance for clock skew between this host and the API server that stamps
 # creationTimestamp. Minutes, against a staleness measured in days — large
 # enough that skew cannot cause a false failure, small enough that the 2d20h
@@ -76,8 +84,8 @@ if [[ "${BAO_PROOF_RECREATE:-1}" == 1 ]]; then
   recreate_proof_jobs
 fi
 
-kubectl -n "$namespace" wait "job/$positive" --for=condition=complete --timeout="$timeout"
-kubectl -n "$namespace" wait "job/$negative" --for=condition=complete --timeout="$timeout"
+wait_job "$positive" -n "$namespace" "$timeout"
+wait_job "$negative" -n "$namespace" --for=terminal "$timeout"
 
 assert_job_fresh "$positive"
 assert_job_fresh "$negative"

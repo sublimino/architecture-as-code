@@ -107,7 +107,11 @@ bao_up() {
   # bootstrap after reconciliation so a restarted server regains JWT auth.
   kubectl -n "$BAO_NAMESPACE" delete job openbao-spire-bootstrap --ignore-not-found --wait=true
   wait_kustomization "$BAO_NAMESPACE" infra-configs
-  wait_k8s_ready job openbao-spire-bootstrap -n "$BAO_NAMESPACE" --for condition=complete 600
+  if ! wait_job openbao-spire-bootstrap -n "$BAO_NAMESPACE" 600; then
+    printf 'job/openbao-spire-bootstrap failed or timed out. Logs:\n' >&2
+    get_job_logs openbao-spire-bootstrap -n "$BAO_NAMESPACE" >&2 || true
+    return 1
+  fi
   register_spire_proof_identity
   configure_openbao_jwt_validation
   # Publish the trust-anchor library as a ConfigMap so the spire-openbao-sync

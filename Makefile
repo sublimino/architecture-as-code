@@ -2684,7 +2684,7 @@ swarm-openbao-role: ## Configure the glob-bound JWT auth role for agent swarm in
 	@echo "--- Applying OpenBao agent generic role ---"
 	kubectl apply -f d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml -n inf-bao
 	@echo "--- Waiting for setup job ---"
-	kubectl wait --for=condition=complete job/openbao-agent-generic-role-setup -n inf-bao --timeout=60s || \
+	. scripts/lib/wait.sh && wait_job openbao-agent-generic-role-setup -n inf-bao 60 || \
 		echo "WARNING: Job not complete yet — check with: kubectl logs job/openbao-agent-generic-role-setup -n inf-bao"
 
 # ── Agent Swarm (Tier 1 + Tier 2) ──────────────────────────────────────

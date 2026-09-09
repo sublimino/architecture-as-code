@@ -331,7 +331,13 @@ demo_2() {
   log "waiting for agent job to complete..."
   wait_agent_job_terminal || {
     log "agent job output:"
-    kubectl -n "$NAMESPACE_AGENTS" logs job/supercred-agent-run --tail=50 2>/dev/null || true
+    local agent_pods
+    agent_pods="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
+    for p in $agent_pods; do
+      kubectl -n "$NAMESPACE_AGENTS" logs "$p" 2>/dev/null || true
+      kubectl -n "$NAMESPACE_AGENTS" logs "$p" --previous 2>/dev/null || true
+    done
+    kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
     fail "agent credential chain failed"
   }
 
@@ -575,7 +581,7 @@ $(printf '%s' "$role_delete_out" | indent)"
 
     # Fast break: as soon as the denial proof is captured, break immediately
     # rather than waiting 70+ seconds for all backoffLimit retries to exhaust.
-    if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[013]|role .* not found)' <<<"$agent_log"; then
+    if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[0-9]|role .* not found)' <<<"$agent_log"; then
       ok "credential denial captured from pod in $((SECONDS - started_at))s — access refused"
       break
     fi
@@ -614,7 +620,7 @@ $(printf '%s' "$agent_log" | indent)"
   log "agent output after revocation (full, verbatim):"
   printf '%s\n' "$agent_log" | indent
 
-  if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[013]|role .* not found)' <<<"$agent_log"; then
+  if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[0-9]|role .* not found)' <<<"$agent_log"; then
     log "───────────────────────────────────────────────────────────"
     log "REVOCATION & STUN PROOF ANALYSIS:"
     if grep -qF '[step-1]' <<<"$agent_log"; then

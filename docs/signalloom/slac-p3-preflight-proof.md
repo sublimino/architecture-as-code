@@ -8,7 +8,7 @@
 - **Evidence timezone:** UTC (`Z`)
 - **Runtime worktree:** `/home/andy/.cline/worktrees/a99e1/osramp-demo`
 - **Integration ref:** `refs/heads/integration/slac-v0.1.0`
-- **Final integration SHA:** `a2d125e75394d315eba5ab156e0d27731cf6b861`
+- **Rebase-target integration SHA:** `a2d125e75394d315eba5ab156e0d27731cf6b861`
 - **Evidence-source HEAD:** `b27e59380a1990e74ddf29d662d430363c7ecf51`
 - **Verdict:** **PASS, qualified** — cluster discovery is ready for `SLAC-P3-1`.
 

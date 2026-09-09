@@ -262,7 +262,7 @@ demo_1() {
   # Re-seed OpenBao secrets (handles stun revocation from previous run)
   log "seeding OpenBao supercred secrets"
   spire_pod=$(spire_pod)
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token sh -ec '
     cat >/tmp/policy.hcl <<POLICY
 path "kv/data/signalloom/cardvault-agent" { capabilities = ["read"] }
@@ -385,7 +385,7 @@ BAO_ROLE_PATH="auth/jwt/role/signalloom-cardvault-agent"
 # token or an unreachable pod all produced silence followed by "✓ step 4
 # complete — agent stunned, credentials revoked".
 bao_run() {
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
     "$@" 2>&1
 }
@@ -428,8 +428,12 @@ $(printf '%s' "$out" | indent)"
 
   verdict="$(BAO_KV_JSON="$out" python3 -c '
 import json, os, sys
+raw = os.environ.get("BAO_KV_JSON", "")
+idx = raw.find("{")
+if idx != -1:
+    raw = raw[idx:]
 try:
-    payload = json.loads(os.environ["BAO_KV_JSON"])
+    payload = json.loads(raw)
 except json.JSONDecodeError as exc:
     print(f"UNREADABLE {exc}")
     sys.exit(0)
@@ -690,7 +694,7 @@ demo_5() {
   # The policy was never deleted by anything at all, at any point.
   log "removing OpenBao credential material"
   bao_exec() {
-    kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+    kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
       env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token "$@" \
       >/dev/null 2>&1
   }

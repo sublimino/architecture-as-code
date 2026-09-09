@@ -4,10 +4,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
@@ -47,6 +50,9 @@ type Handlers struct {
 
 	// IdentityStore provides access to the persisted identity and delegation graph (SFDP-P3-2).
 	IdentityStore any
+
+	// FairService evaluates quantitative OpenFAIR risk (CRKC Phase 2).
+	FairService *fair.Service
 }
 
 // readyCheckTimeout bounds the /readyz connectivity check. It must stay under
@@ -82,6 +88,12 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /audit/webhook", h.handleAuditWebhook)
 	mux.HandleFunc("POST "+apiaudit.GKEWebhookPath, h.handleGKECloudLogging)
 	mux.HandleFunc("POST /audit/gke", h.handleGKECloudLogging)
+
+	// OpenFAIR quantitative risk routes (CRKC Phase 2)
+	mux.HandleFunc("GET /api/v1/risk/agents/{id}", h.handleGetAgentRisk)
+	mux.HandleFunc("GET /api/v1/risk/fleet", h.handleGetFleetRisk)
+	mux.HandleFunc("GET /v1/risk/agents/{id}", h.handleGetAgentRisk)
+	mux.HandleFunc("GET /v1/risk/fleet", h.handleGetFleetRisk)
 }
 
 func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
@@ -480,5 +492,174 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
+	if h.FairService == nil {
+		writeError(w, http.StatusServiceUnavailable, "fair service not initialized")
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "agent id is required")
+		return
+	}
+
+	opts := fair.Options{}
+	if trials := r.URL.Query().Get("trials"); trials != "" {
+		if n, err := strconv.Atoi(trials); err == nil && n > 0 {
+			opts.Trials = n
+		}
+	}
+	if seed := r.URL.Query().Get("seed"); seed != "" {
+		if s, err := strconv.ParseInt(seed, 10, 64); err == nil {
+			opts.Seed = s
+		}
+	}
+	if model := r.URL.Query().Get("model"); model != "" {
+		opts.Model = fair.MagnitudeModel(model)
+	}
+
+	ass, err := h.FairService.Assess(id, opts)
+	if err != nil {
+		if errors.Is(err, fair.ErrUnknownAgent) {
+			writeError(w, http.StatusNotFound, "agent not found")
+			return
+		}
+		slog.Error("risk assessment failed", "agent", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "risk assessment failed: "+err.Error())
+		return
+	}
+
+	tier := "monitored"
+	if ass.ALE > 50000 {
+		tier = "caged"
+	}
+
+	resp := map[string]any{
+		"agentId":  ass.AgentID,
+		"currency": "GBP",
+		"lef": map[string]float64{
+			"min":  ass.LEF.Min,
+			"mode": ass.LEF.Mode,
+			"max":  ass.LEF.Max,
+		},
+		"lossMagnitude": map[string]any{
+			"min":  map[string]any{"amount": ass.LM.Min, "currency": "GBP"},
+			"mode": map[string]any{"amount": ass.LM.Mode, "currency": "GBP"},
+			"max":  map[string]any{"amount": ass.LM.Max, "currency": "GBP"},
+		},
+		"exposure": map[string]any{
+			"ale":     map[string]any{"amount": ass.ALE, "currency": "GBP"},
+			"var95":   map[string]any{"amount": ass.PML, "currency": "GBP"},
+			"tvar":    map[string]any{"amount": ass.TVaR, "currency": "GBP"},
+			"carried": map[string]any{"amount": ass.Carried, "currency": "GBP"},
+		},
+		"ale":     ass.ALE,
+		"pml":     ass.PML,
+		"var95":   ass.PML,
+		"tvar":    ass.TVaR,
+		"carried": ass.Carried,
+		"tier":    tier,
+		"simulation": map[string]any{
+			"iterations":    ass.Trials,
+			"seed":          ass.Seed,
+			"riskLoad":      ass.RiskLoad,
+			"tailDominated": ass.TailDominated,
+			"guards": map[string]int{
+				"shapeClamped":        ass.Guards.ShapeClamped,
+				"midpointSubstituted": ass.Guards.MidpointSubstituted,
+				"gammaNonFinite":      ass.Guards.GammaNonFinite,
+				"poissonLoopCapped":   ass.Guards.PoissonLoopCapped,
+			},
+		},
+		"computedAt": time.Now().UTC().Format(time.RFC3339),
+		"source":     "riskctl",
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
+	if h.FairService == nil {
+		writeError(w, http.StatusServiceUnavailable, "fair service not initialized")
+		return
+	}
+
+	agentIDs := h.FairService.AgentIDs()
+	if len(agentIDs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"currency":   "GBP",
+			"agentCount": 0,
+			"exposure": map[string]any{
+				"ale":     map[string]any{"amount": 0.0, "currency": "GBP"},
+				"var95":   map[string]any{"amount": 0.0, "currency": "GBP"},
+				"tvar":    map[string]any{"amount": 0.0, "currency": "GBP"},
+				"carried": map[string]any{"amount": 0.0, "currency": "GBP"},
+			},
+			"topAgents":  []any{},
+			"computedAt": time.Now().UTC().Format(time.RFC3339),
+			"source":     "riskctl",
+		})
+		return
+	}
+
+	type topAgent struct {
+		AgentID string         `json:"agentId"`
+		ALE     map[string]any `json:"ale"`
+		aleVal  float64
+	}
+
+	var totalALE, totalPML, totalTVaR, totalCarried float64
+	var scoredAgents []topAgent
+
+	for _, id := range agentIDs {
+		ass, err := h.FairService.Assess(id, fair.Options{})
+		if err != nil {
+			continue
+		}
+		totalALE += ass.ALE
+		totalPML += ass.PML
+		totalTVaR += ass.TVaR
+		totalCarried += ass.Carried
+		scoredAgents = append(scoredAgents, topAgent{
+			AgentID: id,
+			ALE:     map[string]any{"amount": ass.ALE, "currency": "GBP"},
+			aleVal:  ass.ALE,
+		})
+	}
+
+	sort.Slice(scoredAgents, func(i, j int) bool {
+		return scoredAgents[i].aleVal > scoredAgents[j].aleVal
+	})
+
+	topLimit := 5
+	if len(scoredAgents) < topLimit {
+		topLimit = len(scoredAgents)
+	}
+	top := make([]map[string]any, topLimit)
+	for i := 0; i < topLimit; i++ {
+		top[i] = map[string]any{
+			"agentId": scoredAgents[i].AgentID,
+			"ale":     scoredAgents[i].ALE,
+		}
+	}
+
+	resp := map[string]any{
+		"currency":   "GBP",
+		"agentCount": len(agentIDs),
+		"exposure": map[string]any{
+			"ale":     map[string]any{"amount": totalALE, "currency": "GBP"},
+			"var95":   map[string]any{"amount": totalPML, "currency": "GBP"},
+			"tvar":    map[string]any{"amount": totalTVaR, "currency": "GBP"},
+			"carried": map[string]any{"amount": totalCarried, "currency": "GBP"},
+		},
+		"topAgents":  top,
+		"computedAt": time.Now().UTC().Format(time.RFC3339),
+		"source":     "riskctl",
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 

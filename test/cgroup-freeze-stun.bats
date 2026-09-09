@@ -75,6 +75,7 @@ setup_file() {
   export GONOSUMDB="*"
   export GOTOOLCHAIN="local"
   export CGO_ENABLED=0
+  unset GOROOT
   rm -f "${PROOF_JSON}" "${HARNESS_LOG}"
 
   if ! have_cluster; then

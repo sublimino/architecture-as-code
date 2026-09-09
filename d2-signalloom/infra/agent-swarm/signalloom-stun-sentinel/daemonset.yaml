@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/name: stun-sentinel
     signalloom.ai/agent: "true"
     signalloom.ai/role: "sentinel"
+    signalloom.ai/framework: "custom"
     signalloom.ai/harness: "go-ebpf"
     signalloom.ai/model: "deterministic"
     signalloom.ai/tenant: "controlplane"
@@ -22,6 +23,7 @@ spec:
         app.kubernetes.io/name: stun-sentinel
         signalloom.ai/agent: "true"
         signalloom.ai/role: "sentinel"
+        signalloom.ai/framework: "custom"
         signalloom.ai/harness: "go-ebpf"
         signalloom.ai/model: "deterministic"
         signalloom.ai/tenant: "controlplane"

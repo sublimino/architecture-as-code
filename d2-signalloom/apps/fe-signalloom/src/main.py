@@ -12,6 +12,7 @@ from api_compat import install_compatibility_api
 from demo_runner import install_demo_runner_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
+from risk import install_risk_api
 from signal_fusion import install_signal_fusion_api
 from db.connection import close_db_pool, get_pool, init_db_pool
 
@@ -32,6 +33,7 @@ install_onboarding_api(app)
 install_rbac_api(app)
 install_demo_runner_api(app)
 install_signal_fusion_api(app)
+install_risk_api(app)
 
 
 @app.get("/health")

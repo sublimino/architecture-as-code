@@ -79,6 +79,34 @@ async def get_actor(
     return await _proxy("GET", f"/api/v1/actors/{actor_id}")
 
 
+@router.get("/actors/{actor_id}/authorization")
+async def get_actor_authorization(
+    actor_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    action: str | None = None,
+) -> JSONResponse:
+    """Get authorization chain for an actor."""
+    params: dict[str, Any] = {}
+    if action:
+        params["action"] = action
+    return await _proxy("GET", f"/api/v1/actors/{actor_id}/authorization", params=params)
+
+
+@router.get("/authorization")
+async def query_authorization(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    actor_id: str | None = None,
+    action: str | None = None,
+) -> JSONResponse:
+    """Query authorization chains estate-wide or filtered."""
+    params: dict[str, Any] = {}
+    if actor_id:
+        params["actor_id"] = actor_id
+    if action:
+        params["action"] = action
+    return await _proxy("GET", "/api/v1/authorization", params=params)
+
+
 @router.post("/actors/{actor_id}/promote")
 async def promote_actor(
     actor_id: str,

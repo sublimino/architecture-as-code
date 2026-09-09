@@ -3,6 +3,7 @@ package fair
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -108,6 +109,43 @@ func NewFixtureSource(n int) *FixtureSource {
 		ObservationCount:      120,
 	}
 
+	// Pre-seed known cluster agents for live demonstration and telemetry evaluation
+	clusterAgents := []struct {
+		id    string
+		shape profileShape
+	}{
+		{"kagent-incident-responder", shapes[2]}, // routine
+		{"agent-sir-lancelot", shapes[1]},        // clean
+		{"kagent-chaos-prober", shapes[5]},       // noisy
+		{"kagent-commit-summariser", shapes[0]},  // pristine
+		{"kagent-compliance-checker", shapes[1]}, // clean
+		{"kagent-finops-optimizer", shapes[2]},   // routine
+		{"kagent-k8s-reader", shapes[0]},         // pristine
+		{"kagent-network-auditor", shapes[1]},    // clean
+		{"kagent-security-analyst", shapes[2]},   // routine
+		{"agent-olly-sentinel", shapes[1]},       // clean
+		{"agent-remediation", shapes[2]},         // routine
+		{"agent-inventory", shapes[0]},           // pristine
+		{"agent-triage", shapes[2]},              // routine
+		{"agent-sandbox", shapes[0]},             // pristine
+		{"agent-scanner", shapes[5]},             // noisy
+		{"agent-reporter", shapes[1]},            // clean
+	}
+	for _, ca := range clusterAgents {
+		s.agents[ca.id] = Telemetry{
+			AgentID:               ca.id,
+			RuntimeViolations:     ca.shape.runtimeViolations,
+			NetworkAnomalies:      ca.shape.networkAnomalies,
+			CredentialState:       ca.shape.credentialState,
+			CVECritical:           ca.shape.cveCritical,
+			CVEHigh:               ca.shape.cveHigh,
+			CVEMedium:             ca.shape.cveMedium,
+			Contained:             ca.shape.contained,
+			ObservationWindowDays: 90,
+			ObservationCount:      ca.shape.observationCount,
+		}
+	}
+
 	return s
 }
 
@@ -115,8 +153,35 @@ func NewFixtureSource(n int) *FixtureSource {
 func (s *FixtureSource) AgentTelemetry(id string) (Telemetry, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	t, ok := s.agents[id]
-	return t, ok
+
+	slug := id
+	if idx := strings.LastIndex(id, ":"); idx != -1 {
+		slug = id[idx+1:]
+	}
+
+	t, ok := s.agents[slug]
+	if ok {
+		t.AgentID = id
+		return t, true
+	}
+
+	// Dynamic fallback for any agent with conventional agent prefix
+	if strings.HasPrefix(slug, "kagent-") || strings.HasPrefix(slug, "agent-") {
+		return Telemetry{
+			AgentID:               id,
+			RuntimeViolations:     1,
+			NetworkAnomalies:      2,
+			CredentialState:       "healthy",
+			CVECritical:           0,
+			CVEHigh:               2,
+			CVEMedium:             6,
+			Contained:             false,
+			ObservationWindowDays: 90,
+			ObservationCount:      180,
+		}, true
+	}
+
+	return Telemetry{}, false
 }
 
 // AgentIDs implements TelemetrySource.

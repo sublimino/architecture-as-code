@@ -160,6 +160,7 @@ _placeholder_hits() {
     --include='*.yaml' --include='*.yml' --include='*.json' \
     --include='*.sh' --include='*.bats' --include='Makefile' \
     --exclude-dir=.git \
+    --exclude-dir=.cache \
     --exclude="$(basename "$BATS_TEST_FILENAME")" \
     "$root" 2>/dev/null | grep -vE '^[^:]+:[[:space:]]*#' || true
 }

@@ -3,6 +3,7 @@ export GOPATH="${GOPATH:-/tmp/gopath}"
 export GOCACHE="${GOCACHE:-/tmp/gocache}"
 export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
 export CGO_ENABLED=0
+unset GOROOT
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #

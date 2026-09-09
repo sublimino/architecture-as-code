@@ -656,6 +656,16 @@ demo-signalloom-autoclaim: ## Demonstrate agent discovery, auto-claim, complianc
 demo-signalloom-autoclaim-test: ## Run the BATS integration suite guarding in-cluster discovery and auto-claim.
 	bats test/signalloom-autoclaim.bats
 
+.PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
+bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
+	test/bench-cgroup-freezer.sh
+
+bench-tc-drop: ## Run traffic control packet drop latency benchmark.
+	test/bench-tc-drop.sh
+
+bench-redteam-stress: ## Run redteam stress benchmark.
+	test/bench-redteam-stress.sh
+
 
 ##@ Live demo population (all agents + mock data in one shot)
 

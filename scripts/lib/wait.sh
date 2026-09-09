@@ -59,8 +59,11 @@ _wait_log() { [ -n "${WAIT_QUIET:-}" ] || printf '%s\n' "$*" >&2; }
 _wait_stat() {
   local desc="$1" start="$2" deadline="$3" result="$4"
   local elapsed; elapsed=$(( SECONDS - start ))
-  local ratio; ratio="$(_wait_calc "(${deadline} <= 0) ? 0 : (${elapsed} * 100.0 / ${deadline})")"
-  ratio="${ratio%%.*}"
+  local ratio=0
+  if [ "${deadline:-0}" -gt 0 ] 2>/dev/null; then
+    ratio="$(_wait_calc "${elapsed} * 100.0 / ${deadline}")"
+    ratio="${ratio%%.*}"
+  fi
   local line; line="$(printf 'WAIT_STAT site="%s" elapsed=%ss deadline=%ss ratio=%s%% result=%s' \
     "${desc}" "${elapsed}" "${deadline}" "${ratio}" "${result}")"
   printf '%s\n' "${line}" >&2
@@ -197,6 +200,12 @@ wait_k8s_exists() {
 # errors instantly on a not-yet-created object.
 wait_k8s_ready() {
   local kind="${1:?kind required}"; local name="${2:?name required}"; shift 2
+  case "${kind}" in
+    job|Job|jobs|Jobs)
+      wait_job "${name}" "$@"
+      return $?
+      ;;
+  esac
   local ns_args="" cond="condition=ready" deadline=300
   while [ $# -gt 0 ]; do case "$1" in
     -n) ns_args="-n $2"; shift 2 ;;
@@ -272,3 +281,152 @@ wait_pods_ready() {
     [ -n \"\$out\" ] && ! printf '%s' \"\$out\" | grep -q false
   "
 }
+
+# wait_job <name> [-n ns] [--for complete|terminal|failed] [--fail-fast] [deadline_s]
+# Robust, evidenced waiting for a Kubernetes batch/v1 Job.
+#   Phase 1: existence check (exists job/${name}) using _wait_retry.
+#   Phase 2: terminal polling using _wait_retry:
+#     Checks .status.conditions[Complete]=True or Failed=True.
+#     If --fail-fast is set, also checks if container exit code is [1-9]
+#     (using .status.containerStatuses[*] mapped as name=exitCode).
+#   Phase 3: condition evaluation:
+#     If --for=complete (default): returns 0 if Complete=True and no non-zero exit;
+#     logs error and returns 1 if failed.
+#     If --for=terminal: returns 0 when terminal state reached.
+#     If --for=failed: returns 0 if Failed=True or non-zero exit; returns 1 if completed.
+# Emits structured _wait_stat lines.
+# shellcheck disable=SC2086
+wait_job() {
+  local name="${1:?job name required}"; shift
+  local ns_args="" for_cond="complete" fail_fast=0 deadline=300
+  while [ $# -gt 0 ]; do case "$1" in
+    -n|--namespace) ns_args="-n $2"; shift 2 ;;
+    -n=*|--namespace=*) ns_args="-n ${1#*=}"; shift ;;
+    --for=*)
+      for_cond="${1#--for=}"
+      for_cond="${for_cond#condition=}"
+      shift ;;
+    --for)
+      for_cond="${2#condition=}"
+      shift 2 ;;
+    --fail-fast)
+      fail_fast=1; shift ;;
+    *)
+      deadline="$1"; shift ;;
+  esac; done
+
+  case "${for_cond}" in
+    ready|complete) for_cond="complete" ;;
+    terminal)       for_cond="terminal" ;;
+    failed)         for_cond="failed" ;;
+    *)              for_cond="complete" ;;
+  esac
+
+  local scale="${WAIT_DEADLINE_SCALE:-1}"
+  local scaled; scaled="$(_wait_calc "${deadline} * ${scale}")"; scaled="${scaled%%.*}"
+  local start="${SECONDS}"
+
+  # Phase 1: existence check (half the budget).
+  local half; half="$(_wait_calc "${scaled} / 2")"; half="${half%%.*}"
+  [ -z "${half}" ] || [ "${half}" -le 0 ] && half=1
+  local exists_desc="exists job/${name}${ns_args:+ $ns_args}"
+  WAIT_DEADLINE_SCALE=1 _wait_retry "${half}" "${exists_desc}" \
+    "kubectl ${ns_args} get job ${name} >/dev/null 2>&1" || return 1
+
+  # Phase 2: terminal polling using _wait_retry.
+  local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
+  [ "${remaining}" -le 0 ] && remaining=1
+
+  local term_desc="terminal job/${name}${ns_args:+ $ns_args}"
+  local term_cmd
+  if [ "${fail_fast}" -eq 1 ]; then
+    term_cmd="
+      conds=\$(kubectl ${ns_args} get job ${name} -o 'jsonpath={range .status.conditions[*]}{.type}={.status}{\" \"}{end}' 2>/dev/null)
+      exits=\$(kubectl ${ns_args} get pods -l 'job-name=${name}' -o 'jsonpath={range .items[*].status.containerStatuses[*]}{.name}={.state.terminated.exitCode}{\" \"}{end}' 2>/dev/null)
+      printf '%s' \"\$conds\" | grep -qE '(Complete|Failed)=True' || printf '%s' \"\$exits\" | grep -qE '=[1-9]'
+    "
+  else
+    term_cmd="
+      conds=\$(kubectl ${ns_args} get job ${name} -o 'jsonpath={range .status.conditions[*]}{.type}={.status}{\" \"}{end}' 2>/dev/null)
+      printf '%s' \"\$conds\" | grep -qE '(Complete|Failed)=True'
+    "
+  fi
+
+  WAIT_DEADLINE_SCALE=1 _wait_retry "${remaining}" "${term_desc}" "${term_cmd}" || {
+    _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
+    return 1
+  }
+
+  # Phase 3: condition evaluation.
+  local conditions pod_exits
+  conditions="$(kubectl ${ns_args} get job "${name}" \
+    -o 'jsonpath={range .status.conditions[*]}{.type}={.status}{" "}{end}' 2>/dev/null || true)"
+  pod_exits="$(kubectl ${ns_args} get pods -l "job-name=${name}" \
+    -o 'jsonpath={range .items[*].status.containerStatuses[*]}{.name}={.state.terminated.exitCode}{" "}{end}' 2>/dev/null || true)"
+
+  local is_complete=0 is_failed=0 has_nonzero_exit=0
+  [[ "${conditions}" == *"Complete=True"* ]] && is_complete=1
+  [[ "${conditions}" == *"Failed=True"* ]] && is_failed=1
+  printf '%s' "${pod_exits}" | grep -qE '=[1-9]' && has_nonzero_exit=1
+
+  case "${for_cond}" in
+    complete)
+      if [ "${is_complete}" -eq 1 ] && [ "${has_nonzero_exit}" -eq 0 ]; then
+        _wait_log "✅ job/${name}${ns_args:+ $ns_args} — complete"
+        _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" ok
+        return 0
+      else
+        _wait_log "❌ job/${name}${ns_args:+ $ns_args} — failed (conditions: ${conditions:-none}, exits: ${pod_exits:-none})"
+        _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" failed
+        return 1
+      fi
+      ;;
+    terminal)
+      _wait_log "✅ job/${name}${ns_args:+ $ns_args} — terminal state reached"
+      _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" ok
+      return 0
+      ;;
+    failed)
+      if [ "${is_failed}" -eq 1 ] || [ "${has_nonzero_exit}" -eq 1 ]; then
+        _wait_log "✅ job/${name}${ns_args:+ $ns_args} — failed as expected"
+        _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" ok
+        return 0
+      else
+        _wait_log "❌ job/${name}${ns_args:+ $ns_args} — completed but expected failure"
+        _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" failed
+        return 1
+      fi
+      ;;
+  esac
+}
+
+# get_job_logs <name> [-n ns]
+# Discovers all pods matching job-name=<name> in the namespace.
+# Enforces multi-container targeting: for each pod, queries .spec.initContainers[*].name
+# and .spec.containers[*].name.
+# For every container name $c, runs:
+#   kubectl ${ns_args} logs "$p" -c "$c" 2>/dev/null || true
+#   kubectl ${ns_args} logs "$p" -c "$c" --previous 2>/dev/null || true
+# shellcheck disable=SC2086
+get_job_logs() {
+  local name="${1:?job name required}"; shift
+  local ns_args=""
+  while [ $# -gt 0 ]; do case "$1" in
+    -n|--namespace) ns_args="-n $2"; shift 2 ;;
+    -n=*|--namespace=*) ns_args="-n ${1#*=}"; shift ;;
+    *)  shift ;;
+  esac; done
+
+  local pods p init_containers containers c
+  pods="$(kubectl ${ns_args} get pods -l "job-name=${name}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
+  for p in ${pods}; do
+    init_containers="$(kubectl ${ns_args} get pod "${p}" -o jsonpath='{.spec.initContainers[*].name}' 2>/dev/null || true)"
+    containers="$(kubectl ${ns_args} get pod "${p}" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null || true)"
+    for c in ${init_containers} ${containers}; do
+      kubectl ${ns_args} logs "${p}" -c "${c}" 2>/dev/null || true
+      kubectl ${ns_args} logs "${p}" -c "${c}" --previous 2>/dev/null || true
+    done
+  done
+  return 0
+}
+

@@ -11,7 +11,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/wait.sh
+# shellcheck source=scripts/lib/wait.sh
 source "${SCRIPT_DIR}/lib/wait.sh"
 
 NAMESPACE_INFRA="inf-signalloom"
@@ -293,27 +293,6 @@ POLICY
 
 # ─── STEP 2: Credential Chain ───────────────────────────────────────────────
 
-wait_agent_job_terminal() {
-  # Fast detection: don't wait 300s or wait out backoffLimit retries.
-  # The credential chain takes ~4s to succeed. If any pod fails or exits
-  # non-zero, fail immediately so the instructor is not kept waiting.
-  _wait_retry 60 "terminal job/supercred-agent-run -n $NAMESPACE_AGENTS" \
-    "conditions=\$(kubectl -n '$NAMESPACE_AGENTS' get job supercred-agent-run -o jsonpath='{range .status.conditions[*]}{.type}={.status}{\" \"}{end}' 2>/dev/null); pod_exits=\$(kubectl -n '$NAMESPACE_AGENTS' get pods -l job-name=supercred-agent-run -o jsonpath='{range .items[*].status.containerStatuses[*]}{.state.terminated.exitCode}{\" \"}{end}' 2>/dev/null); [[ \"\$conditions\" == *'Complete=True'* || \"\$conditions\" == *'Failed=True'* || \"\$pod_exits\" =~ [1-9] ]]" \
-    || return 1
-
-  local conditions
-  conditions="$(kubectl -n "$NAMESPACE_AGENTS" get job supercred-agent-run \
-    -o jsonpath='{range .status.conditions[*]}{.type}={.status}{" "}{end}' 2>/dev/null)" || conditions=""
-  local pod_exits
-  pod_exits="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
-    -o jsonpath='{range .items[*].status.containerStatuses[*]}{.state.terminated.exitCode}{" "}{end}' 2>/dev/null)" || pod_exits=""
-
-  if [[ "$conditions" == *"Complete=True"* ]] && ! [[ "$pod_exits" =~ [1-9] ]]; then
-    return 0
-  fi
-  return 1
-}
-
 demo_2() {
   preflight_step1_deployed
   preflight_images
@@ -329,20 +308,15 @@ demo_2() {
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml
 
   log "waiting for agent job to complete..."
-  wait_agent_job_terminal || {
+  if ! wait_job supercred-agent-run -n "$NAMESPACE_AGENTS" --fail-fast 60; then
     log "agent job output:"
-    local agent_pods
-    agent_pods="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
-    for p in $agent_pods; do
-      kubectl -n "$NAMESPACE_AGENTS" logs "$p" 2>/dev/null || true
-      kubectl -n "$NAMESPACE_AGENTS" logs "$p" --previous 2>/dev/null || true
-    done
+    get_job_logs supercred-agent-run -n "$NAMESPACE_AGENTS" || true
     kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
     fail "agent credential chain failed"
-  }
+  fi
 
   log "agent job output:"
-  kubectl -n "$NAMESPACE_AGENTS" logs job/supercred-agent-run
+  get_job_logs supercred-agent-run -n "$NAMESPACE_AGENTS"
 
   kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=active signalloom.io/stunned=false signalloom.io/containment-mode=none --field-manager=flux-client-side-apply --overwrite
   ok "step 2 complete — credential chain verified, agent marked active"
@@ -566,6 +540,11 @@ $(printf '%s' "$role_delete_out" | indent)"
     local agent_pods
     agent_pods="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
       -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)" || agent_pods=""
+    local harvested_log
+    harvested_log="$(get_job_logs supercred-agent-run -n "$NAMESPACE_AGENTS" 2>/dev/null || true)"
+    if [ -n "$harvested_log" ]; then
+      [[ "$harvested_log" == *"[step-"* ]] && agent_log="$harvested_log"
+    fi
     for agent_pod in $agent_pods; do
       local current_log previous_log
       current_log="$(kubectl -n "$NAMESPACE_AGENTS" logs "$agent_pod" --all-containers --pod-running-timeout=1s 2>/dev/null)" \
@@ -605,6 +584,12 @@ $(printf '%s' "$role_delete_out" | indent)"
 
   # Clean up the failing verification job promptly
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
+  if [ -z "$agent_log" ]; then
+    local evidence_capture_log
+    evidence_capture_log="$(get_job_logs supercred-agent-run -n "$NAMESPACE_AGENTS" 2>/dev/null || true)"
+    [[ "$evidence_capture_log" == *"[step-"* ]] && agent_log="$evidence_capture_log"
+  fi
 
   if [ "$(job_condition Complete)" = "True" ] || grep -qF '[complete]' <<<"$agent_log"; then
     fail "agent job COMPLETED after the stun — credentials were NOT revoked.

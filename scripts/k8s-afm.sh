@@ -201,7 +201,7 @@ case "$cmd" in
     echo "==> Importing this cluster's RBAC (the CronJob will not run for up to 30m)..."
     kubectl -n "$NS" delete job afm-cluster-import-now --ignore-not-found >/dev/null 2>&1 || true
     if kubectl -n "$NS" create job afm-cluster-import-now --from=cronjob/afm-cluster-import >/dev/null 2>&1; then
-      if kubectl -n "$NS" wait --for=condition=complete job/afm-cluster-import-now --timeout=180s >/dev/null 2>&1; then
+      if wait_job afm-cluster-import-now -n "$NS" 180; then
         echo "  imported: cluster id=local"
       else
         # Not fatal on its own — the analysis wait below is the real gate, and
@@ -209,7 +209,7 @@ case "$cmd" in
         # than leaving the next reader to infer it from an empty cluster list.
         echo "  WARNING: the import Job did not complete in 180s. /afm/clusters will be empty"
         echo "           and the RBAC Analysis page will show 0 clusters. Logs:"
-        kubectl -n "$NS" logs job/afm-cluster-import-now --tail=20 2>&1 | sed 's/^/           /' || true
+        get_job_logs afm-cluster-import-now -n "$NS" 2>&1 | sed 's/^/           /' || true
       fi
     else
       echo "  WARNING: could not create the import Job from cronjob/afm-cluster-import."

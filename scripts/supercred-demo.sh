@@ -354,7 +354,7 @@ demo_3() {
 
   kubectl -n "$NAMESPACE_INFRA" port-forward svc/policy-engine 18081:8081 >/dev/null 2>&1 &
   local pf_pid=$!
-  trap 'kill $pf_pid 2>/dev/null || true' RETURN
+  trap 'kill "${pf_pid:-}" 2>/dev/null || true' RETURN
 
   wait_reachable http://localhost:18081/healthz 30 || fail "policy-engine port-forward not reachable"
 
@@ -363,7 +363,8 @@ demo_3() {
     -H 'Content-Type: application/json' \
     -d "{\"agent_id\":\"cardvault\",\"namespace\":\"$AGENT_POD_NAMESPACE\",\"pod_spec\":$pod_spec,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}") \
     || fail "policy-engine evaluate call failed"
-  kill $pf_pid 2>/dev/null || true
+  kill "$pf_pid" 2>/dev/null || true
+  trap - RETURN
 
   python3 -c "
 import json

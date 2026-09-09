@@ -8,15 +8,15 @@
 - **Evidence timezone:** UTC (`Z`)
 - **Runtime worktree:** `/home/andy/.cline/worktrees/a99e1/osramp-demo`
 - **Integration ref:** `refs/heads/integration/slac-v0.1.0`
-- **Integration SHA:** `d16d25ffae70abbb2269eee09ea513bf98e3af4e`
-- **Evidence-source HEAD:** `09f570f0c353ae612baf38070264e963b9873e76`
+- **Final integration SHA:** `a2d125e75394d315eba5ab156e0d27731cf6b861`
+- **Evidence-source HEAD:** `b27e59380a1990e74ddf29d662d430363c7ecf51`
 - **Verdict:** **PASS, qualified** — cluster discovery is ready for `SLAC-P3-1`.
 
 The qualification is repository-wide lint debt, not a Phase 3 discovery defect.
 The root Makefile defines no lint target and TypeScript typechecking passes. A
 supplemental `bun run lint` from
 `d2-signalloom/apps/dashboard-signalloom` exited 1 with 72 problems (66 errors,
-6 warnings). `git diff d16d25ffae70abbb2269eee09ea513bf98e3af4e..09f570f0c353ae612baf38070264e963b9873e76`
+6 warnings). `git diff a2d125e75394d315eba5ab156e0d27731cf6b861..b27e59380a1990e74ddf29d662d430363c7ecf51`
 contains only the NATS BATS correction, so none of those dashboard findings was
 introduced by this card.
 
@@ -38,9 +38,15 @@ The approved board checker reported `HEALTH: ✓ healthy`; `P3-PRE` was the only
 in-progress card, `P2-GOV` was done, and `P3-1`, `P3-2`, and `P3-GOV` remained
 in backlog. No sibling scope collision was active.
 
+During final verification, the integration ref advanced from the initial
+`d16d25ffae70abbb2269eee09ea513bf98e3af4e` to
+`a2d125e75394d315eba5ab156e0d27731cf6b861` through review-ledger-only commits.
+Those changes did not overlap this card. The two P3-PRE commits were rebased
+onto the current integration ref; the post-rebase ancestry check exited 0.
+
 The first full baseline run exposed a stale NATS test assumption: DETIK searched
 the `frontend` namespace although NATS runs in `backend`, and a substring count
-matched both `nats` Services. Commit `09f570f0c353ae612baf38070264e963b9873e76`
+matched both `nats` Services. Commit `b27e59380a1990e74ddf29d662d430363c7ecf51`
 repairs only that baseline test by selecting `backend` and querying the exact
 `service/nats`. The focused test and mandated full target then passed:
 

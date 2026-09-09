@@ -1750,7 +1750,7 @@ async def _audit_log(
     await executor.execute(
         """INSERT INTO audit_events (tenant_id, event_type, agent_id, agent_name, actor, detail)
            VALUES ($1, $2, $3, $4, $5, $6::jsonb)""",
-        tenant_id, event_type, agent_uuid, agent_name, actor, json.dumps(clean_detail),
+        tenant_id, event_type, agent_uuid, agent_name, actor, json.dumps(clean_detail, default=str),
     )
 
 
@@ -3767,7 +3767,7 @@ async def _execute_claim(
                 tenant_id,
                 agent_uuid,
                 body.spiffe_id,
-                json.dumps(origin_meta),
+                json.dumps(origin_meta, default=str),
             )
 
             ctrl_rows = await conn.fetch(

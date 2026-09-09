@@ -674,7 +674,19 @@ run_stage \
      test/swarm-fleet-acceptance.bats test/swarm-flux-deploy.bats \
      test/swarm-infra.bats test/triage-ci-worker.bats \
      test/workspace-identity-streaming.bats \
-     test/worktree-landlock-confinement.bats"
+     test/worktree-landlock-confinement.bats \
+     test/admission-node-guard.bats test/baoaudit-p2-preflight.bats \
+     test/baoaudit-preflight.bats test/cgroup-freeze-stun.bats \
+     test/cloudaudit-e2e.bats test/cloudaudit-negative-mutations.bats \
+     test/cloudaudit-p2-preflight.bats test/cloudaudit-preflight.bats \
+     test/crkc-adversarial-redteam.bats test/crkc-phase1-unified-stun.bats \
+     test/crkc-phase3-confinement-redteam.bats test/fair-api-parity.bats \
+     test/flux-drift-ignore.bats test/netebpf-adversarial.bats \
+     test/netebpf-p2-preflight.bats test/netebpf-preflight.bats \
+     test/policy-compiler.bats test/sfdp-p3-3-root-wiring.bats \
+     test/sfdp-p4-4-tamper-regression.bats test/signalloom-portforward.bats \
+     test/supercred-spire-preflight.bats test/tc-ebpf-drop.bats \
+     test/tetragon-telemetry-stream.bats test/wait-deadline.bats"
 
 # Stage 1h: bats registry coverage (BATS TAP)
 #

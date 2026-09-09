@@ -21,6 +21,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
@@ -186,6 +187,9 @@ func main() {
 		identityStore = identity.NewGraphResolverStore(identity.NewMemoryRepository())
 	}
 
+	fairFixtureSource := fair.NewFixtureSource(fair.DefaultFixtureCount)
+	fairService := fair.NewService(fairFixtureSource)
+
 	handlers := &api.Handlers{
 		Store:           signalStore,
 		Engine:          engine,
@@ -194,12 +198,13 @@ func main() {
 		AuditReceiver:   auditReceiver,
 		CollectorHealth: collectorRegistry.Health,
 		IdentityStore:   identityStore,
+		FairService:     fairService,
 	}
 
 	mux := http.NewServeMux()
 	handlers.RegisterRoutes(mux)
 
-	// --- CRKC-P1-4: Prometheus metrics for the Tetragon telemetry lane ---
+	// --- CRKC-P1-4: Prometheus metrics for the Tetragon telemetry lane & OpenFAIR risk ---
 	// Mounted directly on the mux rather than through api.Handlers.RegisterRoutes
 	// to keep this card's footprint in shared files to two additive blocks.
 	// Renders even before the collector starts (zeroed counters), so a scrape
@@ -208,6 +213,7 @@ func main() {
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
+		_, _ = io.WriteString(w, fairService.Metrics.Render())
 	})
 
 	srv := &http.Server{

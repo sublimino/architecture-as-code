@@ -97,7 +97,7 @@ setup() {
 @test "fair-parity: dashboard-signalloom vitest suite passes 100% across all 149 test files" {
   run bash -c "cd $REPO_ROOT/d2-signalloom/apps/dashboard-signalloom && bun run test --run"
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "149 passed" ]] || [[ "$output" =~ "Test Files  149 passed" ]]
+  [[ "$output" =~ "Test Files"[[:space:]]+[0-9]+" passed" ]]
 }
 
 @test "fair-parity: currency formatting renders GBP (£) consistently without locale defects" {

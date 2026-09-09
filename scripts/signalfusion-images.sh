@@ -46,7 +46,7 @@ PLATFORM="${SIGNALFUSION_PLATFORM:-$(demo_host_platform)}"
 # image-name|build-context|dockerfile (fields after image-name are repo-root
 # relative; dockerfile is optional and defaults to <context>/Dockerfile)
 DEMO_IMAGES=(
-  "signal-ingest:local|d2-signalloom/apps/signal-ingest|"
+  "signal-ingest:local|d2-signalloom/apps|d2-signalloom/apps/signal-ingest/Dockerfile"
 )
 
 # Backward-compat aliases: tests and callers may reference the old names.

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- Nono wrapper unit tests ---
@@ -274,6 +275,16 @@ func TestPostTask_ValidRequest(t *testing.T) {
 	}
 	if resp.Status != "pending" {
 		t.Errorf("expected pending, got %s", resp.Status)
+	}
+
+	// Wait for async execution to complete so git doesn't race with t.TempDir() cleanup.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		tk, err := store.Get(resp.TaskID)
+		if err == nil && tk.Status != "pending" && tk.Status != "running" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

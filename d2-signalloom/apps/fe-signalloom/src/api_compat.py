@@ -3771,17 +3771,18 @@ async def _execute_claim(
             )
 
             ctrl_rows = await conn.fetch(
-                "SELECT id, control_id FROM public.governance_controls WHERE tenant_id = $1 OR tenant_id = 'tenant-demo' ORDER BY control_id",
+                "SELECT id, name FROM public.governance_controls WHERE tenant_id = $1 OR tenant_id = 'tenant-demo' ORDER BY control_order",
                 tenant_id,
             )
             if not ctrl_rows:
                 ctrl_rows = [
-                    {"id": uuid.uuid5(uuid.NAMESPACE_DNS, f"ctrl-{i}"), "control_id": f"POL-SEC-0{i}"}
+                    {"id": uuid.uuid5(uuid.NAMESPACE_DNS, f"ctrl-{i}"), "name": f"POL-SEC-0{i}"}
                     for i in range(1, 7)
                 ]
             for idx, ctrl in enumerate(ctrl_rows):
                 status = "pending" if idx == len(ctrl_rows) - 1 else "pass"
-                evidence_ref = f"autoclaim:{body.pod_name}:{ctrl['control_id']}"
+                ctrl_code = ctrl.get("name") or ctrl.get("control_id") or str(ctrl["id"])
+                evidence_ref = f"autoclaim:{body.pod_name}:{ctrl_code}"
                 await conn.execute(
                     """INSERT INTO public.agent_compliance_results (
                         id, tenant_id, agent_id, control_id, status, assessed_at, evidence_ref

@@ -84,6 +84,11 @@ require-k8s() {
 setup_file() {
 	require-k8s namespace "${NS}"
 
+	local root
+	root="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
+	# shellcheck source=../../scripts/lib/wait.sh
+	source "${root}/scripts/lib/wait.sh"
+
 	local SEED_DIR="${BATS_TEST_DIRNAME}/../components/configs/base/seed"
 	kubectl -n "${NS}" create configmap olly-reseed \
 		--from-file=seed-logs.sh="${SEED_DIR}/seed-logs.sh" \
@@ -91,7 +96,7 @@ setup_file() {
 		--dry-run=client -o yaml | kubectl -n "${NS}" apply -f - >/dev/null
 	kubectl -n "${NS}" delete job olly-reseed --ignore-not-found >/dev/null 2>&1 || true
 	kubectl -n "${NS}" apply -f "${BATS_TEST_DIRNAME}/fixtures/reseed-job.yaml" >/dev/null
-	kubectl -n "${NS}" wait --for=condition=complete job/olly-reseed --timeout=180s >/dev/null
+	wait_job olly-reseed -n "${NS}" 180
 }
 
 # ---

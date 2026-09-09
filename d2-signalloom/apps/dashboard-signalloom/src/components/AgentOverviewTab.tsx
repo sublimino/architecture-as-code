@@ -1,9 +1,6 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
 import { colors } from '../styles/tokens'
-import StatusBadge from './StatusBadge'
-import CredentialStateNotice from './CredentialStateNotice'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -39,15 +36,31 @@ export interface AgentOverviewTabProps {
   agent: AgentResponse
   sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
   sourceHealthDetail?: SourceHealthMap | null
+  claiming?: boolean
+  claimError?: string | null
+  retryingClaimRefresh?: boolean
+  onClaim?: () => void
 }
 
 export default function AgentOverviewTab({
   agent,
   sourceHealth,
   sourceHealthDetail,
+  claiming = false,
+  claimError,
+  retryingClaimRefresh = false,
+  onClaim,
 }: AgentOverviewTabProps) {
   // 1. Record Class & Badges
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
+  const isUnclaimed = agent.is_registry_linked === false || recordClass === 'discovered'
+  const complianceSummary = agent.compliance_summary ?? {
+    total_controls: 0,
+    passing: 0,
+    failing: 0,
+    pending: 0,
+    posture_score: null,
+  }
 
   // 2. Runtime metadata
   const namespace = agent.runtime?.namespace || agent.namespace || 'default'
@@ -67,17 +80,17 @@ export default function AgentOverviewTab({
 
   // 4. Assessment & Attention metadata (Truthful language dictionary)
   const isNotAssessed = (agent.assessment_summary?.status === 'not_assessed') ||
-    (agent.compliance_summary.total_controls === 0) ||
-    (agent.compliance_summary.posture_score === null && agent.compliance_summary.passing === 0 && agent.compliance_summary.failing === 0)
+    (complianceSummary.total_controls === 0) ||
+    (complianceSummary.posture_score === null && complianceSummary.passing === 0 && complianceSummary.failing === 0)
 
-  const attentionLevel = agent.attention?.level || (agent.compliance_summary.failing > 0 ? 'critical' : 'none')
+  const attentionLevel = agent.attention?.level || (complianceSummary.failing > 0 ? 'critical' : 'none')
   const highestIssue = agent.attention?.highest_issue ||
-    (agent.compliance_summary.failing > 0
-      ? `${agent.compliance_summary.failing} failing control${agent.compliance_summary.failing > 1 ? 's' : ''} detected`
+    (complianceSummary.failing > 0
+      ? `${complianceSummary.failing} failing control${complianceSummary.failing > 1 ? 's' : ''} detected`
       : 'No verified issues')
 
-  const postureScorePct = agent.compliance_summary.posture_score !== null
-    ? Math.round(agent.compliance_summary.posture_score <= 1.0 ? agent.compliance_summary.posture_score * 100 : agent.compliance_summary.posture_score)
+  const postureScorePct = complianceSummary.posture_score !== null
+    ? Math.round(complianceSummary.posture_score <= 1.0 ? complianceSummary.posture_score * 100 : complianceSummary.posture_score)
     : null
 
   // 5. Identity & Telemetry (Truthful language dictionary)
@@ -103,6 +116,74 @@ export default function AgentOverviewTab({
 
   return (
     <div data-testid="dossier-panel-overview" role="tabpanel" id="dossier-tabpanel-overview" aria-labelledby="dossier-tab-overview" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div
+        className="card"
+        data-testid="overview-governance-enrolment"
+        style={{
+          minHeight: 88,
+          padding: '14px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 16,
+          flexWrap: 'wrap',
+          borderColor: claimError ? 'var(--error)' : isUnclaimed ? 'var(--amber)' : 'var(--teal)',
+          background: claimError
+            ? 'color-mix(in srgb, var(--error) 8%, var(--surface))'
+            : isUnclaimed
+            ? 'color-mix(in srgb, var(--amber) 8%, var(--surface))'
+            : 'color-mix(in srgb, var(--teal) 8%, var(--surface))',
+        }}
+      >
+        <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+          {isUnclaimed ? (
+            <>
+              <div data-testid="overview-unclaimed-banner" style={{ color: claimError ? 'var(--error)' : 'var(--amber)', fontWeight: 700, marginBottom: 4 }}>
+                Unclaimed Workload
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+                {claimError ?? 'Enroll this discovered workload to activate cryptographic identity, policy evaluation, and governance controls.'}
+              </div>
+            </>
+          ) : (
+            <>
+              <span data-testid="overview-enrolled-badge" className="tag" style={{ color: 'var(--teal)', background: 'rgba(16, 185, 129, 0.15)', fontWeight: 700 }}>
+                Enrolled in Governance
+              </span>
+              <div data-testid="overview-active-controls" style={{ color: 'var(--muted)', fontSize: 12, marginTop: 7 }}>
+                {complianceSummary.total_controls} active compliance controls
+              </div>
+            </>
+          )}
+        </div>
+        {isUnclaimed && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-testid="overview-claim-governance"
+            disabled={claiming || !onClaim}
+            aria-busy={claiming}
+            title="Enroll this workload to verify its SPIFFE identity and activate continuous compliance governance"
+            onClick={onClaim}
+            style={{ minWidth: 190, whiteSpace: 'nowrap' }}
+          >
+            {claiming && (
+              <svg data-testid="overview-claim-spinner" aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" style={{ marginRight: 6, verticalAlign: '-1px' }}>
+                <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeOpacity="0.3" />
+                <path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="currentColor" strokeLinecap="round">
+                  <animateTransform attributeName="transform" type="rotate" from="0 6 6" to="360 6 6" dur="0.8s" repeatCount="indefinite" />
+                </path>
+              </svg>
+            )}
+            {claiming
+              ? retryingClaimRefresh ? 'Refreshing…' : 'Claiming…'
+              : claimError
+              ? retryingClaimRefresh ? 'Retry Governance Refresh' : 'Retry Claim into Governance'
+              : 'Claim into Governance'}
+          </button>
+        )}
+      </div>
+
       {/* ─── 4 StatCards / Summary Grid ────────────────────────────────────────── */}
       <div style={{
         display: 'grid',
@@ -132,12 +213,12 @@ export default function AgentOverviewTab({
           </div>
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 12 }}>
             <span style={{ color: 'var(--muted)' }}>Controls: </span>
-            <span data-testid="overview-assessment-status" style={{ fontWeight: 600, color: isNotAssessed ? 'var(--muted)' : agent.compliance_summary.failing > 0 ? 'var(--error)' : 'var(--teal)' }}>
+            <span data-testid="overview-assessment-status" style={{ fontWeight: 600, color: isNotAssessed ? 'var(--muted)' : complianceSummary.failing > 0 ? 'var(--error)' : 'var(--teal)' }}>
               {isNotAssessed
                 ? 'Not assessed'
-                : agent.compliance_summary.failing > 0
-                ? `${agent.compliance_summary.failing} failing / ${agent.compliance_summary.total_controls} total`
-                : `${agent.compliance_summary.passing} / ${agent.compliance_summary.total_controls} passing`}
+                : complianceSummary.failing > 0
+                ? `${complianceSummary.failing} failing / ${complianceSummary.total_controls} total`
+                : `${complianceSummary.passing} / ${complianceSummary.total_controls} passing`}
             </span>
           </div>
         </div>

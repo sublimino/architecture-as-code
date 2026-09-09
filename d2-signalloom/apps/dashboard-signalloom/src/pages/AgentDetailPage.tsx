@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { claimDiscoveredAgent, type AgentClaimRequest } from '../api/agentClaim'
 import type {
   AgentResponse,
   AuditEventResponse,
@@ -47,6 +48,28 @@ function fmtRelativeMinutes(iso: string | null) {
   if (hours === 1) return '1 hour ago'
   if (hours < 24) return `${hours} hours ago`
   return fmtDate(iso)
+}
+
+function buildDossierClaimRequest(agent: AgentResponse): AgentClaimRequest {
+  const podName = agent.runtime?.pod_name || agent.name
+  const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
+  const serviceAccount = agent.runtime?.service_account || agent.service_account || podName
+
+  return {
+    pod_name: podName,
+    namespace,
+    spiffe_id: agent.identity?.spiffe_id || `spiffe://cluster.local/ns/${namespace}/sa/${serviceAccount}`,
+    harness: agent.runtime?.framework || agent.framework || agent.type || 'unknown',
+    model: agent.runtime?.model || agent.model_name || 'unknown',
+    declared_tools: [],
+    token_budget_limit: 250000,
+    agent_id: agent.id,
+  }
+}
+
+interface ClaimNotification {
+  kind: 'success' | 'error'
+  message: string
 }
 
 // ─── Timeline ────────────────────────────────────────────────────────────────
@@ -774,6 +797,16 @@ export default function AgentDetailPage() {
   const [showRevokeCredential, setShowRevokeCredential] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
+  const [claiming, setClaiming] = useState(false)
+  const [claimError, setClaimError] = useState<string | null>(null)
+  const [claimNotification, setClaimNotification] = useState<ClaimNotification | null>(null)
+  const [claimRefreshId, setClaimRefreshId] = useState<string | null>(null)
+  const claimInFlightRef = useRef(false)
+  const claimGenerationRef = useRef(0)
+  const skipNextLoadIdRef = useRef<string | null>(null)
+  const preserveNextClaimStateRef = useRef(false)
+  const searchParamsRef = useRef(searchParams)
+  searchParamsRef.current = searchParams
 
   // Tab State
   const tabParam = (searchParams.get('tab') as DossierTabId) || 'overview'
@@ -827,8 +860,26 @@ export default function AgentDetailPage() {
   }, [id, getAccessTokenSilently])
 
   useEffect(() => {
+    if (skipNextLoadIdRef.current === id) {
+      skipNextLoadIdRef.current = null
+      preserveNextClaimStateRef.current = true
+      return
+    }
     load()
-  }, [load])
+  }, [id, load])
+
+  useEffect(() => {
+    if (preserveNextClaimStateRef.current) {
+      preserveNextClaimStateRef.current = false
+      return
+    }
+    claimGenerationRef.current += 1
+    claimInFlightRef.current = false
+    setClaiming(false)
+    setClaimError(null)
+    setClaimNotification(null)
+    setClaimRefreshId(null)
+  }, [id])
 
   async function handleAcknowledge(violationId: string) {
     const token = await getAccessTokenSilently()
@@ -837,9 +888,9 @@ export default function AgentDetailPage() {
   }
 
   async function handleReassess(controlId: string) {
-    if (!id) return
+    if (!agent) return
     const token = await getAccessTokenSilently()
-    await api.agents.reassess(token, id, controlId)
+    await api.agents.reassess(token, agent.id, controlId)
     setComplianceResults(prev =>
       prev.map(r => r.control_id === controlId ? { ...r, status: 'reassessment_requested' } : r)
     )
@@ -862,6 +913,125 @@ export default function AgentDetailPage() {
       setScanning(false)
     }
   }, [getAccessTokenSilently, load])
+
+  const refreshClaimedDossier = useCallback(async (
+    token: string,
+    canonicalAgentId: string,
+    generation: number,
+    agentName: string,
+  ) => {
+    const refreshedAgent = await api.agents.get(token, canonicalAgentId)
+    if (generation !== claimGenerationRef.current) return
+    if (refreshedAgent.is_registry_linked !== true) {
+      throw new Error('Canonical dossier is not linked yet. Retry the governance refresh.')
+    }
+
+    const [auditData, violationsData, postureData, telemetryData] = await Promise.allSettled([
+      api.audit(token, { agent: refreshedAgent.id, limit: 50 }),
+      api.agents.violations(token, refreshedAgent.id),
+      api.compliance.posture(token),
+      typeof api.agents.telemetry === 'function'
+        ? api.agents.telemetry(token, refreshedAgent.id)
+        : Promise.resolve({ observations: [] }),
+    ])
+    if (generation !== claimGenerationRef.current) return
+
+    setAgent(refreshedAgent)
+    setAuditEvents(auditData.status === 'fulfilled' ? auditData.value.events : [])
+    setViolations(violationsData.status === 'fulfilled' ? violationsData.value.violations : [])
+    if (postureData.status === 'fulfilled') {
+      const match = postureData.value?.agents?.find(item =>
+        item.agent_id === canonicalAgentId || item.agent_id === refreshedAgent.id
+      )
+      setComplianceResults(match?.results ?? [])
+    } else {
+      // The canonical dossier already contains its compliance summary. A
+      // supplementary posture-list failure must not repeat a successful claim.
+      setComplianceResults([])
+    }
+    setTelemetryObservations(
+      telemetryData.status === 'fulfilled' ? telemetryData.value.observations || [] : [],
+    )
+    setClaimRefreshId(null)
+    setClaimError(null)
+    setClaimNotification({
+      kind: 'success',
+      message: `${agentName} enrolled into governance successfully.`,
+    })
+
+    if (id !== refreshedAgent.id) {
+      skipNextLoadIdRef.current = refreshedAgent.id
+      const query = searchParamsRef.current.toString()
+      navigate(
+        `/agents/${encodeURIComponent(refreshedAgent.id)}${query ? `?${query}` : ''}`,
+        { replace: true },
+      )
+    }
+  }, [id, navigate])
+
+  const handleClaim = useCallback(async () => {
+    if (!agent || claimInFlightRef.current || agent.is_registry_linked !== false) return
+
+    const generation = claimGenerationRef.current
+    const agentName = agent.name
+    claimInFlightRef.current = true
+    setClaiming(true)
+    setClaimError(null)
+    setClaimNotification(null)
+
+    try {
+      const token = await getAccessTokenSilently()
+      const result = await claimDiscoveredAgent(token, agent.id, buildDossierClaimRequest(agent))
+      if (generation !== claimGenerationRef.current) return
+      if (result.status !== 'granted') {
+        throw new Error(`Claim was ${result.status}.`)
+      }
+
+      setClaimRefreshId(result.agent_id)
+      try {
+        await refreshClaimedDossier(token, result.agent_id, generation, agentName)
+      } catch (error) {
+        if (generation !== claimGenerationRef.current) return
+        const detail = error instanceof Error ? error.message : 'Unknown refresh error'
+        const message = `Claim succeeded, but refreshed governance evidence could not be loaded: ${detail}`
+        setClaimError(message)
+        setClaimNotification({ kind: 'error', message })
+      }
+    } catch (error) {
+      if (generation !== claimGenerationRef.current) return
+      const message = `Could not claim ${agentName}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      setClaimError(message)
+      setClaimNotification({ kind: 'error', message })
+    } finally {
+      if (generation === claimGenerationRef.current) setClaiming(false)
+      claimInFlightRef.current = false
+    }
+  }, [agent, getAccessTokenSilently, refreshClaimedDossier])
+
+  const handleClaimRefresh = useCallback(async () => {
+    if (!agent || !claimRefreshId || claimInFlightRef.current) return
+
+    const generation = claimGenerationRef.current
+    claimInFlightRef.current = true
+    setClaiming(true)
+    setClaimError(null)
+    setClaimNotification(null)
+    try {
+      const token = await getAccessTokenSilently()
+      await refreshClaimedDossier(token, claimRefreshId, generation, agent.name)
+    } catch (error) {
+      if (generation !== claimGenerationRef.current) return
+      const detail = error instanceof Error ? error.message : 'Unknown refresh error'
+      const message = `Claim succeeded, but refreshed governance evidence could not be loaded: ${detail}`
+      setClaimError(message)
+      setClaimNotification({ kind: 'error', message })
+    } finally {
+      if (generation === claimGenerationRef.current) setClaiming(false)
+      claimInFlightRef.current = false
+    }
+  }, [agent, claimRefreshId, getAccessTokenSilently, refreshClaimedDossier])
+
+  const claimAction = claimRefreshId ? handleClaimRefresh : handleClaim
 
   // Merge audit events + violations into a single sorted timeline (pure & side-effect free)
   const timelineItems: TimelineItem[] = useMemo(() => {
@@ -908,6 +1078,39 @@ export default function AgentDetailPage() {
 
   return (
     <div style={{ maxWidth: 1040, margin: '0 auto' }}>
+      {claimNotification && (
+        <div
+          data-testid="dossier-claim-toast"
+          role={claimNotification.kind === 'success' ? 'status' : 'alert'}
+          aria-live={claimNotification.kind === 'success' ? 'polite' : 'assertive'}
+          aria-atomic="true"
+          className="card"
+          style={{
+            position: 'fixed',
+            top: 20,
+            right: 20,
+            zIndex: 1200,
+            maxWidth: 440,
+            padding: '12px 14px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12,
+            borderColor: claimNotification.kind === 'success' ? 'var(--teal)' : 'var(--error)',
+            color: claimNotification.kind === 'success' ? 'var(--teal)' : 'var(--error)',
+          }}
+        >
+          <span>{claimNotification.message}</span>
+          <button
+            type="button"
+            aria-label="Dismiss claim notification"
+            onClick={() => setClaimNotification(null)}
+            style={{ background: 'none', border: 0, color: 'inherit', cursor: 'pointer', padding: 0 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ─── Back Nav ────────────────────────────────────────────────────────── */}
       <button
         data-testid="dossier-back-btn"
@@ -1101,7 +1304,13 @@ export default function AgentDetailPage() {
 
       {/* ─── Tab Content Views ───────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
-        <AgentOverviewTab agent={agent} />
+        <AgentOverviewTab
+          agent={agent}
+          claiming={claiming}
+          claimError={claimError}
+          retryingClaimRefresh={claimRefreshId !== null}
+          onClaim={claimAction}
+        />
       )}
 
       {activeTab === 'identity' && (
@@ -1109,7 +1318,13 @@ export default function AgentDetailPage() {
       )}
 
       {activeTab === 'access' && (
-        <AgentAccessTab agent={agent} />
+        <AgentAccessTab
+          agent={agent}
+          claiming={claiming}
+          claimError={claimError}
+          retryingClaimRefresh={claimRefreshId !== null}
+          onClaim={claimAction}
+        />
       )}
 
       {activeTab === 'assessments' && (

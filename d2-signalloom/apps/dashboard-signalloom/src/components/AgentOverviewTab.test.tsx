@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import AgentOverviewTab, { type AgentOverviewTabProps } from './AgentOverviewTab'
+import AgentOverviewTab from './AgentOverviewTab'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
+import { claimableDossierAgentFixture, claimedDossierAgentFixture } from '../api/fakeData'
 
 function renderTab(ui: React.ReactElement) {
   return render(<MemoryRouter>{ui}</MemoryRouter>)
@@ -294,5 +296,88 @@ describe('AgentOverviewTab — Deep-Link Actions Integration', () => {
 
     const topologyLink = screen.getByTestId('overview-deeplink-topology')
     expect(topologyLink).toHaveAttribute('href', `/agent-trust-topology?actor=${encodeURIComponent(agent.id)}`)
+  })
+})
+
+describe('AgentOverviewTab — Governance Claim', () => {
+  it('shows the unclaimed banner, governance tooltip, and working claim action', async () => {
+    const onClaim = vi.fn()
+    renderTab(<AgentOverviewTab agent={claimableDossierAgentFixture} onClaim={onClaim} />)
+
+    expect(screen.getByTestId('overview-unclaimed-banner')).toHaveTextContent('Unclaimed Workload')
+    const button = screen.getByTestId('overview-claim-governance')
+    expect(button).toHaveTextContent('Claim into Governance')
+    expect(button).toHaveAttribute('title', expect.stringContaining('SPIFFE identity'))
+
+    await userEvent.click(button)
+    expect(onClaim).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables duplicate claims and displays an accessible in-flight spinner', () => {
+    renderTab(<AgentOverviewTab agent={claimableDossierAgentFixture} claiming onClaim={vi.fn()} />)
+
+    expect(screen.getByTestId('overview-claim-governance')).toBeDisabled()
+    expect(screen.getByTestId('overview-claim-governance')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByTestId('overview-claim-spinner')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-claim-governance')).toHaveTextContent('Claiming…')
+  })
+
+  it('keeps a retry action available after a transient claim failure', async () => {
+    const onClaim = vi.fn()
+    renderTab(
+      <AgentOverviewTab
+        agent={claimableDossierAgentFixture}
+        claimError="Could not claim workload: gateway unavailable"
+        onClaim={onClaim}
+      />,
+    )
+
+    expect(screen.getByText(/gateway unavailable/i)).toBeInTheDocument()
+    const retry = screen.getByRole('button', { name: 'Retry Claim into Governance' })
+    await userEvent.click(retry)
+    expect(onClaim).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers evidence refresh instead of repeating a successful claim', async () => {
+    const onClaim = vi.fn()
+    renderTab(
+      <AgentOverviewTab
+        agent={claimableDossierAgentFixture}
+        claimError="Claim succeeded, but governance evidence is stale"
+        retryingClaimRefresh
+        onClaim={onClaim}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry Governance Refresh' }))
+    expect(onClaim).toHaveBeenCalledTimes(1)
+  })
+
+  it('transitions to enrolled SPIFFE and six-control posture without changing banner footprint', () => {
+    const { rerender } = renderTab(<AgentOverviewTab agent={claimableDossierAgentFixture} onClaim={vi.fn()} />)
+    expect(screen.getByTestId('overview-governance-enrolment')).toHaveStyle({ minHeight: '88px' })
+
+    rerender(
+      <MemoryRouter>
+        <AgentOverviewTab agent={claimedDossierAgentFixture} onClaim={vi.fn()} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByTestId('overview-unclaimed-banner')).not.toBeInTheDocument()
+    expect(screen.getByTestId('overview-enrolled-badge')).toHaveTextContent('Enrolled in Governance')
+    expect(screen.getByTestId('overview-active-controls')).toHaveTextContent('6 active compliance controls')
+    expect(screen.getByTestId('overview-spiffe-id')).toHaveTextContent(claimedDossierAgentFixture.identity?.spiffe_id ?? '')
+    expect(screen.getByTestId('overview-posture-score')).toHaveTextContent('100%')
+    expect(screen.getByTestId('overview-governance-enrolment')).toHaveStyle({ minHeight: '88px' })
+  })
+
+  it('renders safely when a response omits its compliance summary', () => {
+    const agent = {
+      ...claimableDossierAgentFixture,
+      compliance_summary: null,
+    } as unknown as AgentResponse
+
+    renderTab(<AgentOverviewTab agent={agent} onClaim={vi.fn()} />)
+    expect(screen.getByTestId('overview-posture-score')).toHaveTextContent('Not assessed')
   })
 })

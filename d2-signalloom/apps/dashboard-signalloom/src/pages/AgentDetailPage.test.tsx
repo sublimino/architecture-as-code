@@ -11,14 +11,20 @@
  * - Activity timeline tab
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import AgentDetailPage from './AgentDetailPage'
 import { api } from '../api/client'
+import { claimDiscoveredAgent } from '../api/agentClaim'
 import type { AgentResponse } from '../types/api'
+import { claimableDossierAgentFixture, claimedDossierAgentFixture } from '../api/fakeData'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
+
+vi.mock('../api/agentClaim', () => ({ claimDiscoveredAgent: vi.fn() }))
+
+const claimDiscoveredAgentMock = claimDiscoveredAgent as ReturnType<typeof vi.fn>
 
 vi.mock('../auth/oidc', () => {
   const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
@@ -120,8 +126,14 @@ function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
 }
 
 function renderPage(initialEntry = '/agents/agent-abc-123') {
+  function LocationProbe() {
+    const location = useLocation()
+    return <output data-testid="location-pathname">{location.pathname}</output>
+  }
+
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
+      <LocationProbe />
       <Routes>
         <Route path="/agents/:id" element={<AgentDetailPage />} />
       </Routes>
@@ -154,6 +166,7 @@ beforeEach(() => {
     id: 'req-1', subject: 's', urgency: 'normal',
     submitted_at: '2026-06-11T00:00:00Z', clickup_task_id: 'CU-1',
   })
+  claimDiscoveredAgentMock.mockReset()
 })
 
 describe('AgentDetailPage — Dossier Route & 5-Tab Navigation', () => {
@@ -208,6 +221,162 @@ describe('AgentDetailPage — Dossier Route & 5-Tab Navigation', () => {
     expect(await screen.findByTestId('dossier-panel-assessments')).toBeInTheDocument()
     expect(screen.getByTestId('dossier-tab-assessments')).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByTestId('dossier-panel-overview')).not.toBeInTheDocument()
+  })
+})
+
+describe('AgentDetailPage — Dossier Governance Claim', () => {
+  const grantedClaim = {
+    claim_id: 'claim-kagent-k8s-reader-uuid',
+    status: 'granted' as const,
+    spiffe_svid_verified: true,
+    allocated_token_budget: 250000,
+    signal_session_url: '/agents/claim-kagent-k8s-reader-uuid',
+    ebpf_sentinel_bound: true,
+    agent_id: claimedDossierAgentFixture.id,
+  }
+
+  it('claims from Overview, refreshes canonical state, and confirms enrolment', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(claimableDossierAgentFixture)
+      .mockResolvedValueOnce(claimedDossierAgentFixture)
+    ;(api.compliance.posture as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ agents: [] })
+      .mockResolvedValueOnce({ agents: [{ agent_id: claimedDossierAgentFixture.id, results: [] }] })
+    claimDiscoveredAgentMock.mockResolvedValue(grantedClaim)
+
+    renderPage('/agents/discovered%3Akagent-k8s-reader?tab=overview')
+    await userEvent.click(await screen.findByTestId('overview-claim-governance'))
+
+    expect(claimDiscoveredAgentMock).toHaveBeenCalledWith(
+      'test-token',
+      claimableDossierAgentFixture.id,
+      expect.objectContaining({
+        pod_name: 'kagent-k8s-reader',
+        namespace: 'fe-signalloom-agents',
+        spiffe_id: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/kagent-k8s-reader',
+        harness: 'kagent',
+        model: 'anthropic-claude',
+        token_budget_limit: 250000,
+        agent_id: claimableDossierAgentFixture.id,
+      }),
+    )
+    expect(api.agents.get).toHaveBeenLastCalledWith('test-token', claimedDossierAgentFixture.id)
+    expect(await screen.findByTestId('overview-enrolled-badge')).toHaveTextContent('Enrolled in Governance')
+    expect(screen.getByTestId('overview-spiffe-id')).toHaveTextContent(claimedDossierAgentFixture.identity?.spiffe_id ?? '')
+    expect(screen.getByTestId('overview-active-controls')).toHaveTextContent('6 active compliance controls')
+    expect(screen.getByTestId('dossier-claim-toast')).toHaveAttribute('role', 'status')
+    expect(screen.getByTestId('dossier-claim-toast')).toHaveTextContent('enrolled into governance successfully')
+    expect(screen.getByTestId('location-pathname')).toHaveTextContent('/agents/tenant-demo%3Aagent-k8s-reader')
+    expect(api.agents.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps claim state synchronized across tabs without page-level loading', async () => {
+    let resolveClaim!: (value: typeof grantedClaim) => void
+    claimDiscoveredAgentMock.mockImplementation(() => new Promise(resolve => { resolveClaim = resolve }))
+    ;(api.agents.get as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(claimableDossierAgentFixture)
+      .mockResolvedValueOnce(claimedDossierAgentFixture)
+
+    renderPage('/agents/discovered%3Akagent-k8s-reader?tab=overview')
+    const claimButton = await screen.findByTestId('overview-claim-governance')
+    await userEvent.click(claimButton)
+    await userEvent.click(claimButton)
+    expect(claimDiscoveredAgentMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('overview-claim-spinner')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-detail-load-state')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('dossier-tab-access'))
+    expect(screen.getByTestId('access-claim-spinner')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-detail-load-state')).not.toBeInTheDocument()
+
+    await act(async () => resolveClaim(grantedClaim))
+    expect(await screen.findByTestId('access-enrolled-badge')).toHaveTextContent('Enrolled in Governance')
+    expect(screen.getByTestId('access-active-controls')).toHaveTextContent('6 active compliance controls')
+  })
+
+  it('replaces discovered activity evidence with the canonical claim audit', async () => {
+    const canonicalAuditEvent = {
+      id: 'audit-claim-granted',
+      timestamp: '2026-09-08T22:00:00Z',
+      event_type: 'agent.claimed',
+      agent_id: claimedDossierAgentFixture.id,
+      agent_name: claimedDossierAgentFixture.name,
+      actor: 'operator@signal-loom.ai',
+      detail: { claim_id: grantedClaim.claim_id },
+      authorizing_principal_id: 'operator@signal-loom.ai',
+      executing_actor_id: claimedDossierAgentFixture.id,
+      attribution_rationale: 'Operator claimed discovered workload into governance',
+    }
+    ;(api.agents.get as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(claimableDossierAgentFixture)
+      .mockResolvedValueOnce(claimedDossierAgentFixture)
+    ;(api.audit as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ events: [], total: 0, page: 1, limit: 50 })
+      .mockResolvedValueOnce({ events: [canonicalAuditEvent], total: 1, page: 1, limit: 50 })
+    claimDiscoveredAgentMock.mockResolvedValue(grantedClaim)
+
+    renderPage('/agents/discovered%3Akagent-k8s-reader?tab=overview')
+    await userEvent.click(await screen.findByTestId('overview-claim-governance'))
+    await screen.findByTestId('overview-enrolled-badge')
+    await userEvent.click(screen.getByTestId('dossier-tab-activity'))
+
+    expect(await screen.findByTestId('activity-event-audit-claim-granted')).toBeInTheDocument()
+    expect(api.audit).toHaveBeenLastCalledWith('test-token', {
+      agent: claimedDossierAgentFixture.id,
+      limit: 50,
+    })
+  })
+
+  it('surfaces a transient error then succeeds through the tab retry action', async () => {
+    claimDiscoveredAgentMock
+      .mockRejectedValueOnce(new Error('Claim service unavailable'))
+      .mockResolvedValueOnce(grantedClaim)
+    ;(api.agents.get as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(claimableDossierAgentFixture)
+      .mockResolvedValueOnce(claimedDossierAgentFixture)
+
+    renderPage('/agents/discovered%3Akagent-k8s-reader?tab=access')
+    await userEvent.click(await screen.findByTestId('access-claim-governance'))
+
+    expect(await screen.findByRole('button', { name: 'Retry Claim into Governance' })).toBeEnabled()
+    expect(screen.getByTestId('dossier-claim-toast')).toHaveAttribute('role', 'alert')
+    expect(screen.getByTestId('dossier-claim-toast')).toHaveTextContent('Claim service unavailable')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry Claim into Governance' }))
+    expect(await screen.findByTestId('access-enrolled-badge')).toBeInTheDocument()
+    expect(claimDiscoveredAgentMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a non-granted claim visibly unclaimed and retryable', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(claimableDossierAgentFixture)
+    claimDiscoveredAgentMock.mockResolvedValue({ ...grantedClaim, status: 'pending-review' })
+
+    renderPage('/agents/discovered%3Akagent-k8s-reader?tab=overview')
+    await userEvent.click(await screen.findByTestId('overview-claim-governance'))
+
+    expect(await screen.findByRole('button', { name: 'Retry Claim into Governance' })).toBeEnabled()
+    expect(screen.getByTestId('overview-unclaimed-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('dossier-claim-toast')).toHaveTextContent('Claim was pending-review')
+  })
+
+  it('reports canonical refresh failure without presenting stale enrolled state', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(claimableDossierAgentFixture)
+      .mockRejectedValueOnce(new Error('registry read unavailable'))
+      .mockResolvedValueOnce(claimedDossierAgentFixture)
+    claimDiscoveredAgentMock.mockResolvedValue(grantedClaim)
+
+    renderPage('/agents/discovered%3Akagent-k8s-reader?tab=overview')
+    await userEvent.click(await screen.findByTestId('overview-claim-governance'))
+
+    const retryRefresh = await screen.findByRole('button', { name: 'Retry Governance Refresh' })
+    expect(retryRefresh).toBeEnabled()
+    expect(screen.getByTestId('overview-unclaimed-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('dossier-claim-toast')).toHaveTextContent('refreshed governance evidence could not be loaded')
+
+    await userEvent.click(retryRefresh)
+    expect(await screen.findByTestId('overview-enrolled-badge')).toBeInTheDocument()
+    expect(claimDiscoveredAgentMock).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -708,4 +877,3 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
     expect(screen.getByTestId('target-instance-value')).toHaveTextContent('k8s:sa:sa-invoice-bot')
   })
 })
-

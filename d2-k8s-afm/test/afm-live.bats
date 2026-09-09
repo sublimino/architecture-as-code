@@ -2,6 +2,11 @@
 # Live integration tests for the AFM cluster-import pipeline.
 # Requires: `make demo-k8s-afm-up` (AFM deployed in fe-k8s-afm namespace).
 
+# Shared polling/wait primitives — deadline-bounded exponential backoff with
+# jitter and existence-first k8s semantics, instead of bare waits.
+# shellcheck source=../../scripts/lib/wait.sh
+source "${BATS_TEST_DIRNAME}/../../scripts/lib/wait.sh"
+
 NS="fe-k8s-afm"
 TEST_JOB="afm-import-bats-test"
 
@@ -108,7 +113,7 @@ teardown_file() {
   run kubectl -n "$NS" create job "$TEST_JOB" --from=cronjob/afm-cluster-import
   [ "$status" -eq 0 ]
 
-  run kubectl -n "$NS" wait --for=condition=complete "job/$TEST_JOB" --timeout=120s
+  run wait_job "$TEST_JOB" -n "$NS" 120
   [ "$status" -eq 0 ]
 
   run kubectl -n "$NS" logs "job/$TEST_JOB"

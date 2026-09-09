@@ -228,11 +228,11 @@ demo_1() {
   spire_pod=$(spire_pod)
   if [ -n "$spire_pod" ]; then
     local entry_id
-    entry_id=$(kubectl -n "$NAMESPACE_BAO" exec "$spire_pod" -- \
+    entry_id=$(kubectl -n "$NAMESPACE_BAO" exec "$spire_pod" -c spire-server -- \
       /opt/spire/bin/spire-server entry show -spiffeID "$SPIFFE_ID" 2>/dev/null \
       | grep "Entry ID" | awk '{print $NF}') || true
     if [ -n "$entry_id" ]; then
-      kubectl -n "$NAMESPACE_BAO" exec "$spire_pod" -- \
+      kubectl -n "$NAMESPACE_BAO" exec "$spire_pod" -c spire-server -- \
         /opt/spire/bin/spire-server entry delete -entryID "$entry_id" >/dev/null 2>&1 || true
     fi
   fi
@@ -259,26 +259,11 @@ demo_1() {
   wait_pods_ready "app.kubernetes.io/instance=cardvault" -n "$AGENT_POD_NAMESPACE" 60 \
     || fail "agent pod failed to become ready in $AGENT_POD_NAMESPACE"
 
-  # Re-seed OpenBao secrets (handles stun revocation from previous run)
-  log "seeding OpenBao supercred secrets"
-  spire_pod=$(spire_pod)
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token sh -ec '
-    cat >/tmp/policy.hcl <<POLICY
-path "kv/data/signalloom/cardvault-agent" { capabilities = ["read"] }
-POLICY
-    bao policy write signalloom-cardvault-agent /tmp/policy.hcl
-    bao write auth/jwt/role/signalloom-cardvault-agent \
-      role_type=jwt bound_audiences=openbao \
-      bound_subject='"$SPIFFE_ID"' \
-      user_claim=sub policies=signalloom-cardvault-agent
-    bao kv put kv/signalloom/cardvault-agent \
-      username=cardvault-svc-account password=supercred-demo-password-2026
-  '
+  seed_openbao_secrets
 
   # Register SPIRE entry
   log "registering SPIRE entry"
-  kubectl -n "$NAMESPACE_BAO" exec "$spire_pod" -- \
+  kubectl -n "$NAMESPACE_BAO" exec "$spire_pod" -c spire-server -- \
     /opt/spire/bin/spire-server entry create \
       -spiffeID "$SPIFFE_ID" \
       -parentID "$PARENT_ID" \
@@ -289,26 +274,56 @@ POLICY
   ok "step 1 complete — services deployed, secrets seeded, SPIRE registered"
 }
 
+seed_openbao_secrets() {
+  log "seeding OpenBao supercred secrets"
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token sh -ec '
+    cat >/tmp/policy.hcl <<POLICY
+path "kv/data/signalloom/cardvault-agent" { capabilities = ["read"] }
+POLICY
+    bao policy write signalloom-cardvault-agent /tmp/policy.hcl
+    bao write auth/jwt/role/signalloom-cardvault-agent \
+      role_type=jwt bound_audiences=openbao \
+      bound_subject="spiffe://signalloom.demo/ns/'"$NAMESPACE_AGENTS"'/sa/cardvault-agent" \
+      user_claim=sub policies=signalloom-cardvault-agent
+    bao kv put kv/signalloom/cardvault-agent \
+      username=cardvault-svc-account password=supercred-demo-password-2026
+  '
+}
+
 # ─── STEP 2: Credential Chain ───────────────────────────────────────────────
 
 wait_agent_job_terminal() {
-  # `kubectl wait --for=condition=complete` waits its whole deadline after a
-  # Job has already failed.  A failed credential chain is terminal evidence,
-  # not a reason to make the instructor wait five minutes for a timeout.
-  _wait_retry 300 "terminal job/supercred-agent-run -n $NAMESPACE_AGENTS" \
-    "conditions=\$(kubectl -n '$NAMESPACE_AGENTS' get job supercred-agent-run -o jsonpath='{range .status.conditions[*]}{.type}={.status}{\" \"}{end}' 2>/dev/null); [[ \"\$conditions\" == *'Complete=True'* || \"\$conditions\" == *'Failed=True'* ]]" \
+  # Fast detection: don't wait 300s or wait out backoffLimit retries.
+  # The credential chain takes ~4s to succeed. If any pod fails or exits
+  # non-zero, fail immediately so the instructor is not kept waiting.
+  _wait_retry 60 "terminal job/supercred-agent-run -n $NAMESPACE_AGENTS" \
+    "conditions=\$(kubectl -n '$NAMESPACE_AGENTS' get job supercred-agent-run -o jsonpath='{range .status.conditions[*]}{.type}={.status}{\" \"}{end}' 2>/dev/null); pod_exits=\$(kubectl -n '$NAMESPACE_AGENTS' get pods -l job-name=supercred-agent-run -o jsonpath='{range .items[*].status.containerStatuses[*]}{.state.terminated.exitCode}{\" \"}{end}' 2>/dev/null); [[ \"\$conditions\" == *'Complete=True'* || \"\$conditions\" == *'Failed=True'* || \"\$pod_exits\" =~ [1-9] ]]" \
     || return 1
 
   local conditions
   conditions="$(kubectl -n "$NAMESPACE_AGENTS" get job supercred-agent-run \
-    -o jsonpath='{range .status.conditions[*]}{.type}={.status}{" "}{end}')"
-  [[ "$conditions" == *"Complete=True"* ]]
+    -o jsonpath='{range .status.conditions[*]}{.type}={.status}{" "}{end}' 2>/dev/null)" || conditions=""
+  local pod_exits
+  pod_exits="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
+    -o jsonpath='{range .items[*].status.containerStatuses[*]}{.state.terminated.exitCode}{" "}{end}' 2>/dev/null)" || pod_exits=""
+
+  if [[ "$conditions" == *"Complete=True"* ]] && ! [[ "$pod_exits" =~ [1-9] ]]; then
+    return 0
+  fi
+  return 1
 }
 
 demo_2() {
   preflight_step1_deployed
   preflight_images
   log "step 2: running the agent's credential chain (SPIFFE → OpenBao → cardvault)"
+
+  # Ensure OpenBao credentials exist (if previously revoked by step 4 stun)
+  if ! bao_run bao read "$BAO_ROLE_PATH" >/dev/null 2>&1; then
+    log "OpenBao credentials missing (revoked by prior stun) — auto-re-seeding..."
+    seed_openbao_secrets
+  fi
 
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml

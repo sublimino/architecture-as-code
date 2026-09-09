@@ -157,6 +157,7 @@ setup() {
 @test "uptime check: NATS" {
   DEBUG_DETIK="true"
   DETIK_CASE_INSENSITIVE_PROPERTIES="true"
+  DETIK_CLIENT_NAMESPACE="backend"
 
   # `run verify ...` with no following status check asserted NOTHING: run
   # captures the exit code precisely so it cannot fail the test, so this passed
@@ -164,7 +165,7 @@ setup() {
   run verify "'status' is 'running' for pods named 'nats'"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
 
-  run verify "there is 1 service named 'nats'"
+  run kubectl --namespace backend get service nats
   [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 

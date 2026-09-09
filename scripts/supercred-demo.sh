@@ -544,29 +544,17 @@ $(printf '%s' "$role_delete_out" | indent)"
   log "verifying revocation end-to-end: re-running the agent's credential chain"
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml
+  log "agent verification job dispatched — polling pod for workload attestation & credential rejection..."
 
   # Capture the agent's output WHILE ITS POD STILL EXISTS.
   #
   # The Job controller deletes the pod the moment backoffLimit is exceeded
-  # (SuccessfulDelete then BackoffLimitExceeded, ~44s in on this cluster). The
-  # old code waited for the Job's terminal condition FIRST and only afterwards
-  # ran `kubectl logs job/supercred-agent-run --tail=5` — by then there was no
-  # pod left to read, so kubectl blocked, printed "error: timed out waiting for
-  # the condition" to stderr, and `2>/dev/null` swallowed that too. The demo
-  # printed NOTHING at the single moment it had something to prove, and "✓ step
-  # 4 complete — agent stunned, credentials revoked" rested on nothing but the
-  # Job having failed to succeed — which a missing image, an unschedulable pod
-  # or a deleted ServiceAccount produce just as readily as a revoked credential.
-  #
-  # Polling for the pod and reading its log in full is what makes the claim
-  # evidenced. --tail is deliberately absent: the whole chain is four lines and
-  # the failing one is not always the last.
+  # (SuccessfulDelete then BackoffLimitExceeded, ~44s in on this cluster).
+  # We poll for the pod and its logs immediately. As soon as the denial
+  # proof is captured, we break early rather than waiting out backoff retries.
   local agent_log="" agent_pod="" job_terminal=""
   local deadline="${SUPERCRED_STUN_EVIDENCE_TIMEOUT:-120}"
 
-  # Collect output while the Job is still alive. Waiting for its terminal
-  # condition first races the controller deleting its failed pod. A restarted
-  # container keeps the useful denial in `--previous`, so inspect both logs.
   local started_at=$SECONDS
   while :; do
     local agent_pods
@@ -585,15 +573,34 @@ $(printf '%s' "$role_delete_out" | indent)"
       [[ "$previous_log" == *"[step-"* ]] && agent_log="$previous_log"
     done
 
+    # Fast break: as soon as the denial proof is captured, break immediately
+    # rather than waiting 70+ seconds for all backoffLimit retries to exhaust.
+    if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[013]|role .* not found)' <<<"$agent_log"; then
+      ok "credential denial captured from pod in $((SECONDS - started_at))s — access refused"
+      break
+    fi
+
+    if grep -qF '[complete]' <<<"$agent_log"; then
+      break
+    fi
+
     job_terminal="$(kubectl -n "$NAMESPACE_AGENTS" get job supercred-agent-run \
       -o "jsonpath={.status.conditions[?(@.type=='Complete')].status}{.status.conditions[?(@.type=='Failed')].status}" \
       2>/dev/null)" || job_terminal=""
     [[ "$job_terminal" == *True* ]] && break
     [ $((SECONDS - started_at)) -ge "$deadline" ] && break
-    sleep 2
+
+    local elapsed=$((SECONDS - started_at))
+    if [ $((elapsed % 3)) -eq 0 ] && [ "$elapsed" -gt 0 ]; then
+      log "  … awaiting pod execution and denial response (${elapsed}s)..."
+    fi
+    sleep 1
   done
 
-  if [ "$(job_condition Complete)" = "True" ]; then
+  # Clean up the failing verification job promptly
+  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
+  if [ "$(job_condition Complete)" = "True" ] || grep -qF '[complete]' <<<"$agent_log"; then
     fail "agent job COMPLETED after the stun — credentials were NOT revoked.
        Agent output:
 $(printf '%s' "$agent_log" | indent)"

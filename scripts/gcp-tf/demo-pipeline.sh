@@ -1137,6 +1137,13 @@ run_stage \
   "stage7c-user-surface-gate.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/user-surface-gate.bats"
 
+# Stage 7d: In-cluster agent discovery and auto-claim integration
+run_stage \
+  "In-cluster agent discovery and auto-claim integration" \
+  "stage7d-autoclaim.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/signalloom-autoclaim.bats"
+
+
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════
 run_stage \
   "Dex and complete dashboard journey matrix" \

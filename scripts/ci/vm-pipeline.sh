@@ -1049,6 +1049,13 @@ run_stage \
   "stage7c-user-surface-gate.tap" \
   "cd ${WORK_DIR} && bats --tap test/user-surface-gate.bats"
 
+# Stage 7d: In-cluster agent discovery and auto-claim integration
+run_stage \
+  "In-cluster agent discovery and auto-claim integration" \
+  "stage7d-autoclaim.tap" \
+  "cd ${WORK_DIR} && bats --tap test/signalloom-autoclaim.bats"
+
+
 # Stage 8: Browser journey (Playwright → JUnit XML)
 run_stage \
   "Dex and complete dashboard journey matrix" \

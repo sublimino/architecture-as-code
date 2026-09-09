@@ -644,7 +644,7 @@ demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet clea
 	./scripts/signalloom-down.sh
 	./scripts/signalloom-runtime-test.sh
 
-.PHONY: demo-signalloom-agents-up demo-signalloom-agents-down demo-signalloom-agents-list demo-signalloom-autoclaim
+.PHONY: demo-signalloom-agents-up demo-signalloom-agents-down demo-signalloom-agents-list demo-signalloom-autoclaim demo-signalloom-autoclaim-test
 demo-signalloom-agents-up: ## Recreate the demo agent cohort (random Monty Python names; AGENTS=N, default 4).
 	N="$(AGENTS)"; ./scripts/signalloom-agents.sh up "$${N:-4}"
 demo-signalloom-agents-down: ## Delete the ephemeral demo agent cohort (keeps the Flux baseline agent).
@@ -653,6 +653,9 @@ demo-signalloom-agents-list: ## List agents currently in the fe-signalloom-agent
 	./scripts/signalloom-agents.sh list
 demo-signalloom-autoclaim: ## Demonstrate agent discovery, auto-claim, compliance posture, and audit evidence.
 	./scripts/demo-agent-autoclaim.sh
+demo-signalloom-autoclaim-test: ## Run the BATS integration suite guarding in-cluster discovery and auto-claim.
+	bats test/signalloom-autoclaim.bats
+
 
 ##@ Live demo population (all agents + mock data in one shot)
 

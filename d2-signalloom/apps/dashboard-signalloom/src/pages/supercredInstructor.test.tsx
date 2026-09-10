@@ -527,7 +527,10 @@ describe('the cluster is shared, so controls lock while a run is active', () => 
   it('re-enables the controls once the run reaches a terminal state', async () => {
     mockRunner({
       startResponse: runView({ status: 'running' }),
-      pollRuns: [runView({ status: 'succeeded', exit_code: 0, finished_at: '2026-08-02T10:01:00Z' })],
+      pollRuns: [
+        runView({ status: 'running' }),
+        runView({ status: 'succeeded', exit_code: 0, finished_at: '2026-08-02T10:01:00Z' }),
+      ],
     })
     await readyPanel()
     await userEvent.click(await screen.findByTestId('supercred-run-step-1'))

@@ -101,6 +101,8 @@ demo-reports*/
 # directory was first added without this line.
 demo-surfaces*/
 d2-signalloom/results.tap
+results.tap
+*.tap
 test/gcp-results/
 test/gcp-5x-results.md
 # supercred-e2e.sh writes one .state snapshot and .log per assertion point here

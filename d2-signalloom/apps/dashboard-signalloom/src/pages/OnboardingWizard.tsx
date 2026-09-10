@@ -261,12 +261,16 @@ export default function OnboardingWizard() {
 
   async function handleFinish() {
     wizard.reset()
-    // Clear server-side progress too — otherwise a later re-entry into the
-    // wizard (e.g. to add another provider) would resume mid-flow instead
-    // of starting clean, since reset() only clears local hook state now.
-    getAccessTokenSilently()
-      .then((token) => onboardingApi.putState(token, { selected_provider_ids: [], step_index: 0, provider_run_state: {} }))
-      .catch(() => undefined)
+    // Persist completion and reset wizard in-progress step state on backend
+    try {
+      const token = await getAccessTokenSilently()
+      await Promise.allSettled([
+        onboardingApi.putState(token, { selected_provider_ids: [], step_index: 0, provider_run_state: {} }),
+        onboardingApi.complete(token),
+      ])
+    } catch {
+      // Non-fatal if offline or failing closed
+    }
     // Must await before navigating — refreshOnboardingState() resolves
     // asynchronously, and ProtectedRoute reads needsOnboarding synchronously
     // on render. Navigating first would show it the stale value and bounce

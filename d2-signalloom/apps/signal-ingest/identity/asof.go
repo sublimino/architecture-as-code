@@ -31,8 +31,15 @@ func ResolveActorAsOf(ctx context.Context, repo Repository, actorID string, asOf
 		AsOf:              asOf,
 	}
 
-	// Determine principal ID from active delegation chain if present
-	if len(snapshot.DelegationsAsDelegate) > 0 {
+	// Resolve transitive delegation chain
+	path, cycleDetected, _ := repo.FindTransitiveDelegations(ctx, actorID, asOf, 8)
+	res.DelegationPath = path
+	res.CycleDetected = cycleDetected
+
+	// Determine principal ID from terminal hop of transitive delegation chain if present
+	if len(path) > 0 {
+		res.PrincipalID = path[len(path)-1].PrincipalActorID
+	} else if len(snapshot.DelegationsAsDelegate) > 0 {
 		res.PrincipalID = snapshot.DelegationsAsDelegate[0].PrincipalActorID
 	}
 
@@ -46,7 +53,7 @@ func ResolveActorAsOf(ctx context.Context, repo Repository, actorID string, asOf
 		UpdatedAt:       snapshot.Actor.UpdatedAt,
 		CorrelationKeys: make([]string, 0, len(snapshot.Aliases)),
 		Aliases:         make([]string, 0, len(snapshot.Aliases)),
-		EvidenceChain:   make([]model.EvidenceLink, 0, len(snapshot.Aliases)+len(snapshot.DelegationsAsDelegate)),
+		EvidenceChain:   make([]model.EvidenceLink, 0, len(snapshot.Aliases)+len(path)+len(snapshot.DelegationsAsDelegate)),
 	}
 
 	for _, a := range snapshot.Aliases {
@@ -63,14 +70,41 @@ func ResolveActorAsOf(ctx context.Context, repo Repository, actorID string, asOf
 		})
 	}
 
-	for _, d := range snapshot.DelegationsAsDelegate {
-		provActor.EvidenceChain = append(provActor.EvidenceChain, model.EvidenceLink{
-			ObservationID: fmt.Sprintf("delegation-%d", d.ID),
-			Layer:         model.LayerIdentityAuth,
-			Fidelity:      model.FidelityDefinitive,
-			Contribution:  fmt.Sprintf("acts-on-behalf-of %s (authz: %s)", d.PrincipalActorID, d.AuthzRef),
-			Timestamp:     d.ValidFrom,
-		})
+	if len(path) > 0 {
+		for idx, d := range path {
+			obsID := fmt.Sprintf("delegation-%d", d.ID)
+			contrib := fmt.Sprintf("acts-on-behalf-of %s (authz: %s)", d.PrincipalActorID, d.AuthzRef)
+			if idx > 0 {
+				obsID = fmt.Sprintf("delegation-hop-%d-%d", idx+1, d.ID)
+				contrib = fmt.Sprintf("acts-on-behalf-of %s (hop %d, authz: %s)", d.PrincipalActorID, idx+1, d.AuthzRef)
+			}
+			provActor.EvidenceChain = append(provActor.EvidenceChain, model.EvidenceLink{
+				ObservationID: obsID,
+				Layer:         model.LayerIdentityAuth,
+				Fidelity:      model.FidelityDefinitive,
+				Contribution:  contrib,
+				Timestamp:     d.ValidFrom,
+			})
+		}
+		if cycleDetected {
+			provActor.EvidenceChain = append(provActor.EvidenceChain, model.EvidenceLink{
+				ObservationID: "delegation-cycle-detected",
+				Layer:         model.LayerIdentityAuth,
+				Fidelity:      model.FidelityCircumstantial,
+				Contribution:  "warning: delegation cycle detected during transitive graph traversal",
+				Timestamp:     asOf,
+			})
+		}
+	} else {
+		for _, d := range snapshot.DelegationsAsDelegate {
+			provActor.EvidenceChain = append(provActor.EvidenceChain, model.EvidenceLink{
+				ObservationID: fmt.Sprintf("delegation-%d", d.ID),
+				Layer:         model.LayerIdentityAuth,
+				Fidelity:      model.FidelityDefinitive,
+				Contribution:  fmt.Sprintf("acts-on-behalf-of %s (authz: %s)", d.PrincipalActorID, d.AuthzRef),
+				Timestamp:     d.ValidFrom,
+			})
+		}
 	}
 
 	if len(provActor.EvidenceChain) > 0 {

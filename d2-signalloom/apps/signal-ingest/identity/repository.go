@@ -33,6 +33,7 @@ type Repository interface {
 	AddDelegation(ctx context.Context, delegation DelegationRecord) error
 	GetDelegationsForDelegateAsOf(ctx context.Context, delegateID string, asOf time.Time) ([]DelegationRecord, error)
 	GetDelegationsForPrincipalAsOf(ctx context.Context, principalID string, asOf time.Time) ([]DelegationRecord, error)
+	FindTransitiveDelegations(ctx context.Context, delegateID string, asOf time.Time, maxDepth int) ([]DelegationRecord, bool, error)
 
 	GetActiveGraphForActorAsOf(ctx context.Context, actorID string, asOf time.Time) (*ActorGraphSnapshot, error)
 }
@@ -389,3 +390,94 @@ func (r *PostgresRepository) GetActiveGraphForActorAsOf(ctx context.Context, act
 		AsOf:                   asOf,
 	}, nil
 }
+
+// FindTransitiveDelegations resolves arbitrary-depth delegation chains using a recursive CTE,
+// enforcing strict cycle detection and max-depth clamping. Returns the ordered delegation chain,
+// a boolean indicating whether a cycle was detected, and any query error.
+func (r *PostgresRepository) FindTransitiveDelegations(ctx context.Context, delegateID string, asOf time.Time, maxDepth int) ([]DelegationRecord, bool, error) {
+	if maxDepth <= 0 || maxDepth > 8 {
+		maxDepth = 8
+	}
+
+	const q = `
+		WITH RECURSIVE del_chain AS (
+			-- Anchor member
+			SELECT 
+				d.id, d.delegate_actor_id, d.principal_actor_id, d.authz_ref, 
+				d.valid_from, d.valid_to, d.metadata, d.created_at,
+				1 AS depth,
+				ARRAY[d.delegate_actor_id, d.principal_actor_id] AS path,
+				false AS is_cycle
+			FROM delegations d
+			WHERE d.delegate_actor_id = $1
+			  AND d.valid_from <= $2
+			  AND (d.valid_to IS NULL OR $2 < d.valid_to)
+
+			UNION ALL
+
+			-- Recursive member
+			SELECT 
+				d.id, d.delegate_actor_id, d.principal_actor_id, d.authz_ref, 
+				d.valid_from, d.valid_to, d.metadata, d.created_at,
+				c.depth + 1,
+				c.path || d.principal_actor_id,
+				d.principal_actor_id = ANY(c.path) AS is_cycle
+			FROM delegations d
+			JOIN del_chain c ON d.delegate_actor_id = c.principal_actor_id
+			WHERE d.valid_from <= $2
+			  AND (d.valid_to IS NULL OR $2 < d.valid_to)
+			  AND c.depth < $3
+			  AND NOT c.is_cycle
+		)
+		SELECT id, delegate_actor_id, principal_actor_id, authz_ref, valid_from, valid_to, metadata, created_at, is_cycle
+		FROM del_chain
+		ORDER BY depth ASC`
+
+	rows, err := r.db.QueryContext(ctx, q, delegateID, asOf, maxDepth)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to execute recursive delegation query: %w", err)
+	}
+	defer rows.Close()
+
+	var (
+		delegations   []DelegationRecord
+		cycleDetected bool
+	)
+
+	for rows.Next() {
+		var (
+			rec           DelegationRecord
+			encryptedMeta []byte
+			isCycle       bool
+		)
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.DelegateActorID,
+			&rec.PrincipalActorID,
+			&rec.AuthzRef,
+			&rec.ValidFrom,
+			&rec.ValidTo,
+			&encryptedMeta,
+			&rec.CreatedAt,
+			&isCycle,
+		); err != nil {
+			return nil, false, fmt.Errorf("scan recursive delegation row error: %w", err)
+		}
+		if len(encryptedMeta) > 0 {
+			metaBytes, err := r.encryptor.Decrypt(encryptedMeta)
+			if err == nil && len(metaBytes) > 0 && string(metaBytes) != "null" {
+				_ = json.Unmarshal(metaBytes, &rec.Metadata)
+			}
+		}
+		if isCycle {
+			cycleDetected = true
+		}
+		delegations = append(delegations, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("recursive delegations rows iteration error: %w", err)
+	}
+
+	return delegations, cycleDetected, nil
+}
+

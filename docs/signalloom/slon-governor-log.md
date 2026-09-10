@@ -62,6 +62,10 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | \`2026-09-10T09:20:32Z\` | \`supervisor\` | \`TICK_4_EXECUTED\` | Controller Tick #4 executed via \`CycleInput.ts\`. Task \`SLON-P1-1\` (\`5a2f9\`) reported successful completion with commit \`ad2fec79\`. |
 | \`2026-09-10T09:20:38Z\` | \`governor\` | \`INTEGRATION_MERGED\` | Governor merged commit \`ad2fec79\` into \`integration/slon-v0.1.0\` (9 files changed, +487/-48 lines; clean merge). |
 | \`2026-09-10T09:20:41Z\` | \`governor\` | \`TASK_ADVANCED_DONE\` | \`SLON-P1-1\` verified and moved to \`done\`. Vitest (157/157 suites, 3093 tests) and Pytest (79 tests) 100% pass. Evidence: \`docs/signalloom/slon-p1-1-evidence.md\`. |
+| \`2026-09-10T09:30:29Z\` | \`supervisor\` | \`TICK_5_EXECUTED\` | Controller Tick #5 executed via \`CycleInput.ts\`. Task \`SLON-P1-2\` (\`0ad83\`) completed with commit \`26eef1b9\`. Unblocked \`SLON-P1-3\` (\`1c4bb\`). |
+| \`2026-09-10T09:30:36Z\` | \`governor\` | \`INTEGRATION_MERGED\` | Governor merged commit \`26eef1b9\` into \`integration/slon-v0.1.0\` (9 files changed, +622/-334 lines; clean merge). |
+| \`2026-09-10T09:30:39Z\` | \`governor\` | \`TASK_ADVANCED_DONE\` | \`SLON-P1-2\` verified and moved to \`done\`. Vitest (156/156 suites, 3088 tests passed; Sidebar 84/84 passed), production build clean, and BATS registry check (7/7) passed. Evidence: \`docs/signalloom/slon-p1-2-evidence.md\`. |
+| \`2026-09-10T09:30:42Z\` | \`governor\` | \`DISPATCH_SLON_P1_3\` | Dispatched \`SLON-P1-3\` (\`1c4bb\`, First User Onboarding Wizard Flow) into \`in_progress\` in isolated worktree \`/home/andy/.cline/worktrees/1c4bb/osramp-demo\`. |
 
 ---
 
@@ -70,16 +74,16 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 - **Completed Cards**:
   - \`SLON-P1-PRE\` (\`0e83e\`, Pre-Flight Verification, Commit \`0e228c66\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-preflight-proof.md\`.
   - \`SLON-P1-1\` (\`5a2f9\`, Onboarding API Client Live Wiring, Commit \`ad2fec79\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-1-evidence.md\`. All mock fallbacks eliminated; PostgreSQL round-trip assertions passing.
+  - \`SLON-P1-2\` (\`0ad83\`, Dashboard Sidebar 3-Tier Hierarchy, Commit \`26eef1b9\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-2-evidence.md\`. Strict View/Control/Design categories, persistent Onboarding/Help anchors, distinct SVGs, and Playwright spec added.
 
 - **Active Cards in Progress**:
-  - **\`SLON-P1-2\` (\`0ad83\`)**: Reorder dashboard sidebar into 3-tier hierarchy.
-    - *Agent Directive*: Reorganize \`Sidebar.tsx\` into View (Overview, Signals, Topology, Mesh, Events, Explorer), Control (Agents, Quotas, Policies, Approvals, Tunnels), and Design (Architecture, Playbooks, Schemas, Settings).
-    - *Standards*: TypeScript, Bun only, Vitest assertions, scope-less conventional commits, machine errata tag \`<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->\`.
-    - *Status*: Actively working in \`/home/andy/.cline/worktrees/0ad83/osramp-demo\`.
+  - **\`SLON-P1-3\` (\`1c4bb\`)**: Implement first user onboarding wizard flow with persistent DB state.
+    - *Agent Directive*: Implement wizard flow in \`OnboardingWizard.tsx\` with live server state updates. Enforce persistent completion and skip paths surviving browser refresh and direct URL navigation to \`/onboarding\`. Add Playwright end-to-end spec in \`test/acceptance/onboarding.spec.ts\` and wire into \`SPEC-REGISTRY.tsv\`.
+    - *Standards*: TypeScript, Bun only, scope-less conventional commits, machine errata tag \`<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->\`.
+    - *Status*: Actively working in \`/home/andy/.cline/worktrees/1c4bb/osramp-demo\`.
 
 - **Upcoming Dependent Queue**:
-  - \`SLON-P1-3\` (\`1c4bb\`): Implement first user onboarding wizard flow with persistent DB state (waiting only on \`SLON-P1-2\` completion).
-  - \`SLON-P1-GOV\` (\`e80e2\`): Phase 1 Governor reconciliation, merge to integration branch, and gate verification.
+  - \`SLON-P1-GOV\` (\`e80e2\`): Phase 1 Governor reconciliation, merge to integration branch, and human gate verification (waiting on \`SLON-P1-3\` completion).
 
 ---
 

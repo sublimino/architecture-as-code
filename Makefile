@@ -1206,7 +1206,7 @@ test-sfdp-p4-4-tamper-regression: signing-keys ## Verify SFDP-P4-4 witness verif
 .PHONY: audit-anchor-test
 audit-anchor-test: ## Run the audit-anchor unit tests (no cluster required).
 	cd $(AUDIT_ANCHOR_SRC) && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-		$(AUDIT_ANCHOR_PY) -m pytest -q tests/test_audit_anchor_*.py
+		$(AUDIT_ANCHOR_PY) -m pytest -o addopts="" -q tests/test_audit_anchor_*.py
 
 .PHONY: olly-test
 olly-test: ## Run the olly-replica bats suite (enrichment loop end to end).

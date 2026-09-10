@@ -9,6 +9,7 @@ PUSH_LOCAL_IMAGE ?= ../scripts/push-local-image.sh
 
 ARCH := $(shell uname -m | sed 's/x86_64/amd64/')
 OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+export KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml
 
 .EXPORT_ALL_VARIABLES:
 

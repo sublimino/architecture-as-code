@@ -547,7 +547,7 @@ test-all-cluster: ## Run all live Kind cluster tests across all slices.
 
 test-all-browser: ## Run all Playwright browser acceptance tests across all slices.
 	@echo "=== [Browser 1/3] Standalone Harness Browser Specs ==="
-	PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh supercred-log-streaming-harness.spec.ts
+	$(MAKE) demo-signalloom-supercred-stream-harness
 	@echo "=== [Browser 2/3] Core & Feature Browser Specs ==="
 	ADOPT_GATEWAY_FORWARD=1 PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh smoke.spec.ts docs.spec.ts live-data.spec.ts kagent-agents.spec.ts signalloom-login.spec.ts cloudaudit-dashboard.spec.ts distance-latency.spec.ts agent-drilldown-and-selectors.spec.ts signal-loom-baoaudit.spec.ts signal-loom-netebpf.spec.ts who-authorized.spec.ts agent-activity-timeline.spec.ts signalloom-test-1.spec.ts
 	@echo "=== [Browser 3/3] AFM Browser Specs ==="

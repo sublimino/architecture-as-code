@@ -348,3 +348,11 @@ Preflight checks verified 100% PASS. Kind cluster connectivity, namespace pods, 
 **Evidence:** docs/signalloom/sfas-p1-1-evidence.md  
 
 Implemented recursive transitive delegation graph traversal in PostgreSQL via bounded recursive CTE and in MemoryRepository via cycle-safe visited-set traversal. Added composite indices in migration 002. Exposing multi-hop delegation paths in /api/v1/authorization. All unit, table, benchmark (6.5µs), and SP-1 never-merge tests pass 100%.
+
+#### Errata — SFAS-P1-2: Live Ingestion and Cryptographic Verification of Detached SPIFFE Telemetry
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Last Updated:** 2026-09-10T20:50:00Z  
+**Commit:** `27b11900`  
+**Evidence:** docs/signalloom/sfas-p1-2-evidence.md  
+
+Implemented detached cryptographic verification supporting ECDSA, Ed25519, and RSA signatures against pod SPIFFE X.509 SVID certificates within trust domain spiffe://signalloom.demo. Implemented SHA-256 rolling digest hash-chain validation across sequential session events. Built bounded FIFO ring buffer with drop-tail backpressure. Exposed Prometheus metrics on /metrics. Unit, falsification, and BATS tests pass 100%.

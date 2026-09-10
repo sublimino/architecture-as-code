@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealthMap, TelemetryObservationModel } from '../types/api'
 import { colors } from '../styles/tokens'
 import EmptyState from './EmptyState'
+import { getAgentWorkloadSecurityProfile } from './agents/ClaimModal'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -357,6 +358,7 @@ export default function AgentActivityTab({
 
   // Source health check
   const isSourceUnavailable = sourceHealth === 'unavailable' || sourceHealthDetail?.postgres_registry?.status === 'unavailable'
+  const secProfile = getAgentWorkloadSecurityProfile(agent)
 
   return (
     <div data-testid="dossier-panel-activity" role="tabpanel" id="dossier-tabpanel-activity" aria-labelledby="dossier-tab-activity">
@@ -437,6 +439,74 @@ export default function AgentActivityTab({
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
             {isSourceUnavailable ? 'Collector offline' : liveStreaming ? 'Push SSE enabled' : 'Polling fallback'}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── 1b. Comparative Workload Security & Telemetry Banner ─────────────── */}
+      <div
+        className="card"
+        data-testid="security-profile-telemetry-banner"
+        style={{
+          padding: '14px 18px',
+          marginBottom: 16,
+          background: secProfile.profile === 'nono-sandboxed'
+            ? 'linear-gradient(90deg, rgba(34, 197, 94, 0.08) 0%, rgba(22, 26, 35, 0.95) 100%)'
+            : 'linear-gradient(90deg, rgba(56, 189, 248, 0.08) 0%, rgba(22, 26, 35, 0.95) 100%)',
+          borderLeft: `3px solid ${secProfile.profile === 'nono-sandboxed' ? colors.tealLoom : colors.cyanLoom}`,
+          borderTop: '1px solid var(--border)',
+          borderRight: '1px solid var(--border)',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span
+              data-testid={secProfile.profile === 'nono-sandboxed' ? 'nono-verification-badge' : 'tetragon-flow-badge'}
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: secProfile.profile === 'nono-sandboxed' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                color: secProfile.profile === 'nono-sandboxed' ? colors.tealLoom : colors.cyanLoom,
+                border: `1px solid ${secProfile.profile === 'nono-sandboxed' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+              }}
+            >
+              {secProfile.label}
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+              {secProfile.profile === 'nono-sandboxed'
+                ? 'Cryptographically Verified Nono Audit Event Trails'
+                : 'Live Tetragon eBPF Kernel Flow Events'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+            {secProfile.profile === 'nono-sandboxed' ? (
+              <>
+                <span data-testid="nono-lsm-profile" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: colors.tealLoom }}>🛡️</span> Linux Landlock LSM Active
+                </span>
+                <span data-testid="nono-hash-chain-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: colors.tealLoom }}>⛓️</span> SHA-256 Hash Chained
+                </span>
+                <span data-testid="nono-signature-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: colors.irisViolet }}>🔏</span> Detached SVID Signed
+                </span>
+              </>
+            ) : (
+              <>
+                <span data-testid="tetragon-kernel-sensor" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: colors.cyanLoom }}>⚡</span> eBPF Kernel Sensor
+                </span>
+                <span data-testid="tetragon-tracepoints" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: colors.cyanLoom }}>📡</span> Tracepoints: sys_execve, sys_connect
+                </span>
+                <span data-testid="tetragon-flow-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: colors.tealLoom }}>🟢</span> Real-Time Flow Stream
+                </span>
+              </>
+            )}
           </div>
         </div>
       </div>

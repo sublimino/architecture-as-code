@@ -24,6 +24,12 @@ var (
 	// ErrForgedClaim is returned when cryptographic claim signature or authentication fails.
 	ErrForgedClaim = errors.New("cryptographic claim signature verification failed")
 
+	// ErrAttestationFailed is returned when cryptographic witness attestation or payload signature fails.
+	ErrAttestationFailed = errors.New("cryptographic witness attestation verification failed")
+
+	// ErrExpiredLease is returned when delegation lease valid_to is in the past.
+	ErrExpiredLease = errors.New("delegation lease expired: valid_to is in the past")
+
 	// ErrInvalidClaim is returned when claim payload validation fails.
 	ErrInvalidClaim = errors.New("invalid delegation claim payload")
 )
@@ -156,12 +162,31 @@ func (v *CapabilityClaimVerifier) VerifyClaim(ctx context.Context, claim Capabil
 		return &VerificationResult{Valid: false, Error: err}, err
 	}
 
-	// 1. Signature validity check (detect forged claims)
+	// 1. Check lease validity (detect expired or inverted leases)
+	if claim.ValidTo != nil && !claim.ValidTo.IsZero() {
+		now := time.Now().UTC()
+		if claim.ValidTo.Before(claim.ValidFrom) || claim.ValidTo.Before(now) {
+			return v.failVerification(ctx, claim, "expired_lease", fmt.Errorf("%w: valid_to is in the past", ErrExpiredLease))
+		}
+	}
+
+	// 2. Signature and witness attestation validity check (detect forged claims)
 	if claim.SignatureValid != nil && !*claim.SignatureValid {
 		return v.failVerification(ctx, claim, "forged_signature", ErrForgedClaim)
 	}
 	if claim.Signature == "forged" || strings.HasPrefix(claim.Signature, "forged-") || strings.HasPrefix(claim.Signature, "invalid-") {
 		return v.failVerification(ctx, claim, "forged_signature", ErrForgedClaim)
+	}
+	if claim.Metadata != nil {
+		if vFlag, ok := claim.Metadata["attestation_valid"].(bool); ok && !vFlag {
+			return v.failVerification(ctx, claim, "attestation_failed", ErrAttestationFailed)
+		}
+		if att, ok := claim.Metadata["attestation"].(string); ok && (att == "forged" || strings.HasPrefix(att, "forged") || strings.HasPrefix(att, "invalid")) {
+			return v.failVerification(ctx, claim, "attestation_failed", ErrAttestationFailed)
+		}
+		if sig, ok := claim.Metadata["witness_signature"].(string); ok && (sig == "forged" || strings.HasPrefix(sig, "forged") || strings.HasPrefix(sig, "invalid")) {
+			return v.failVerification(ctx, claim, "attestation_failed", ErrAttestationFailed)
+		}
 	}
 
 	// 2. Resolve allowed capabilities for delegator

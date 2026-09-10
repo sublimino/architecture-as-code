@@ -1413,3 +1413,652 @@ func AdversarialAllFixtures(baseTime time.Time) []model.Observation {
 func AgentNonoFixtures(baseTime time.Time) []model.Observation {
 	return agentnono.AgentNonoFixtures(baseTime)
 }
+
+// AdversarialCascadeImpersonationFixtures generates multi-agent delegation trees under impersonation attack.
+func AdversarialCascadeImpersonationFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		// ADV-CI-01: Unauthorized agent claims intermediate borrowed authority without edge
+		{
+			ID:             "adv-ci-001",
+			Timestamp:      baseTime.Add(1 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "signal-ingest-auth",
+			Confidence:     0.2,
+			ActorHint:      "untrusted-agent-alpha",
+			ActorID:        "untrusted-agent-alpha",
+			RawEvidenceRef: "vault://secret/adv-ci-001",
+			Description:    "Adversarial CI-01: Unauthorized agent claims borrowed authority for agent-cardvault",
+			Labels: map[string]string{
+				"action":              "vault:read_secret",
+				"acting_on_behalf_of": "agent-cardvault",
+				"signature":           "forged-signature-invalid",
+				"high_severity":       "true",
+				"delegation_status":   "unverified",
+			},
+		},
+		// ADV-CI-02: Two-tier borrowed authority escalation via spoofed service account
+		{
+			ID:             "adv-ci-002",
+			Timestamp:      baseTime.Add(2 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "k8s-apiserver",
+			Confidence:     0.25,
+			ActorHint:      "unauthorized-worker",
+			ActorID:        "unauthorized-worker",
+			RawEvidenceRef: "k8s://audit/adv-ci-002",
+			Description:    "Adversarial CI-02: Worker claims checkout-sa principal via spoofed header",
+			Labels: map[string]string{
+				"action":            "secret:read",
+				"impersonated_user": "system:serviceaccount:payments:checkout-sa",
+				"chain_status":      "incomplete",
+				"privileged":        "true",
+			},
+		},
+		// ADV-CI-03: Cascading hop forged intermediate: root human -> compromised gateway -> rogue executor
+		{
+			ID:             "adv-ci-003",
+			Timestamp:      baseTime.Add(3 * time.Minute),
+			Layer:          model.LayerEndpointHost,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "gateway-proxy",
+			Confidence:     0.3,
+			ActorHint:      "rogue-executor",
+			ActorID:        "rogue-executor",
+			RawEvidenceRef: "gateway://flow/adv-ci-003",
+			Description:    "Adversarial CI-03: Cascading hop with forged intermediate delegation claim",
+			Labels: map[string]string{
+				"action":           "network:alter_routing",
+				"delegation_basis": "untrusted",
+				"principal":        "alice@corp.com",
+				"intermediate_hop": "compromised-gateway",
+				"high_severity":    "true",
+			},
+		},
+		// ADV-CI-04: Privileged container execution with unverified Cosign signature
+		{
+			ID:             "adv-ci-004",
+			Timestamp:      baseTime.Add(4 * time.Minute),
+			Layer:          model.LayerEndpointHost,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "container-runtime",
+			Confidence:     0.2,
+			ActorHint:      "agent-unverified-runner",
+			ActorID:        "agent-unverified-runner",
+			RawEvidenceRef: "docker://exec/adv-ci-004",
+			Description:    "Adversarial CI-04: Privileged container action with missing Cosign signature",
+			Labels: map[string]string{
+				"action":          "tc:modify_filter",
+				"cosign_verified": "false",
+				"image_signature": "unverified",
+				"high_severity":   "true",
+			},
+		},
+		// ADV-CI-05: Multi-hop depth claim tampering exceeding depth ceiling
+		{
+			ID:              "adv-ci-005",
+			Timestamp:       baseTime.Add(5 * time.Minute),
+			Layer:           model.LayerIdentityAuth,
+			Fidelity:        model.FidelitySuggestive,
+			Source:          "delegation-router",
+			Confidence:      0.4,
+			ActorHint:       "deep-delegate-9",
+			ActorID:         "deep-delegate-9",
+			DelegationDepth: 9,
+			RawEvidenceRef:  "delegation://hop/adv-ci-005",
+			Description:     "Adversarial CI-05: Deep delegation chain claiming depth 9 exceeding ceiling 7",
+			Labels: map[string]string{
+				"delegation_depth": "9",
+				"action":           "credentials:access",
+				"high_severity":    "true",
+			},
+		},
+		// ADV-CI-06: Shadow identity claiming cluster-admin impersonation without SVID
+		{
+			ID:             "adv-ci-006",
+			Timestamp:      baseTime.Add(6 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "k8s-apiserver",
+			Confidence:     0.1,
+			ActorHint:      "shadow-infiltrator",
+			ActorID:        "shadow-infiltrator",
+			RawEvidenceRef: "k8s://audit/adv-ci-006",
+			Description:    "Adversarial CI-06: Shadow identity claiming cluster-admin impersonation",
+			Labels: map[string]string{
+				"action":            "k8s:impersonate_admin",
+				"impersonated_user": "system:admin",
+				"svid":              "none",
+				"high_severity":     "true",
+			},
+		},
+	}
+}
+
+// AdversarialCyclicDelegationFixtures generates cyclic multi-agent delegation loops.
+func AdversarialCyclicDelegationFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		// ADV-CD-01: Direct 2-hop cyclic loop (agent-cycle-a <-> agent-cycle-b)
+		{
+			ID:             "adv-cd-001a",
+			Timestamp:      baseTime.Add(1 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "identity-registry",
+			Confidence:     0.9,
+			ActorHint:      "agent-cycle-a",
+			ActorID:        "agent-cycle-a",
+			RawEvidenceRef: "del://loop/adv-cd-001a",
+			Description:    "Adversarial CD-01: Direct cycle hop A -> B",
+			Labels: map[string]string{
+				"delegate_id":  "agent-cycle-a",
+				"principal_id": "agent-cycle-b",
+				"action":       "delegate",
+			},
+		},
+		{
+			ID:             "adv-cd-001b",
+			Timestamp:      baseTime.Add(1*time.Minute + 10*time.Millisecond),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "identity-registry",
+			Confidence:     0.9,
+			ActorHint:      "agent-cycle-b",
+			ActorID:        "agent-cycle-b",
+			RawEvidenceRef: "del://loop/adv-cd-001b",
+			Description:    "Adversarial CD-01: Direct cycle hop B -> A",
+			Labels: map[string]string{
+				"delegate_id":  "agent-cycle-b",
+				"principal_id": "agent-cycle-a",
+				"action":       "delegate",
+			},
+		},
+		// ADV-CD-02: 3-hop cyclic loop (X -> Y -> Z -> X)
+		{
+			ID:             "adv-cd-002a",
+			Timestamp:      baseTime.Add(2 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "identity-registry",
+			Confidence:     0.88,
+			ActorHint:      "agent-loop-x",
+			ActorID:        "agent-loop-x",
+			RawEvidenceRef: "del://loop/adv-cd-002a",
+			Description:    "Adversarial CD-02: 3-hop loop hop X -> Y",
+			Labels: map[string]string{
+				"delegate_id":  "agent-loop-x",
+				"principal_id": "agent-loop-y",
+			},
+		},
+		{
+			ID:             "adv-cd-002b",
+			Timestamp:      baseTime.Add(2*time.Minute + 10*time.Millisecond),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "identity-registry",
+			Confidence:     0.88,
+			ActorHint:      "agent-loop-y",
+			ActorID:        "agent-loop-y",
+			RawEvidenceRef: "del://loop/adv-cd-002b",
+			Description:    "Adversarial CD-02: 3-hop loop hop Y -> Z",
+			Labels: map[string]string{
+				"delegate_id":  "agent-loop-y",
+				"principal_id": "agent-loop-z",
+			},
+		},
+		{
+			ID:             "adv-cd-002c",
+			Timestamp:      baseTime.Add(2*time.Minute + 20*time.Millisecond),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "identity-registry",
+			Confidence:     0.88,
+			ActorHint:      "agent-loop-z",
+			ActorID:        "agent-loop-z",
+			RawEvidenceRef: "del://loop/adv-cd-002c",
+			Description:    "Adversarial CD-02: 3-hop loop hop Z -> X",
+			Labels: map[string]string{
+				"delegate_id":  "agent-loop-z",
+				"principal_id": "agent-loop-x",
+			},
+		},
+		// ADV-CD-03: Self-delegation loop (agent-self-ref -> agent-self-ref)
+		{
+			ID:             "adv-cd-003",
+			Timestamp:      baseTime.Add(3 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "identity-registry",
+			Confidence:     0.85,
+			ActorHint:      "agent-self-ref",
+			ActorID:        "agent-self-ref",
+			RawEvidenceRef: "del://loop/adv-cd-003",
+			Description:    "Adversarial CD-03: Self-delegation reflexive cycle",
+			Labels: map[string]string{
+				"delegate_id":  "agent-self-ref",
+				"principal_id": "agent-self-ref",
+			},
+		},
+		// ADV-CD-04: Sub-agent loop within multi-agent orchestrator tree
+		{
+			ID:             "adv-cd-004a",
+			Timestamp:      baseTime.Add(4 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "orchestrator",
+			Confidence:     0.87,
+			ActorHint:      "agent-orch-sub1",
+			ActorID:        "agent-orch-sub1",
+			RawEvidenceRef: "del://loop/adv-cd-004a",
+			Description:    "Adversarial CD-04: Sub-agent loop sub1 -> sub2",
+			Labels: map[string]string{
+				"delegate_id":  "agent-orch-sub1",
+				"principal_id": "agent-orch-sub2",
+			},
+		},
+		{
+			ID:             "adv-cd-004b",
+			Timestamp:      baseTime.Add(4*time.Minute + 10*time.Millisecond),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "orchestrator",
+			Confidence:     0.87,
+			ActorHint:      "agent-orch-sub2",
+			ActorID:        "agent-orch-sub2",
+			RawEvidenceRef: "del://loop/adv-cd-004b",
+			Description:    "Adversarial CD-04: Sub-agent loop sub2 -> sub1",
+			Labels: map[string]string{
+				"delegate_id":  "agent-orch-sub2",
+				"principal_id": "agent-orch-sub1",
+			},
+		},
+		// ADV-CD-05: Cross-layer cycle between K8s and SPIFFE SVID
+		{
+			ID:             "adv-cd-005a",
+			Timestamp:      baseTime.Add(5 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "spire-server",
+			Confidence:     0.92,
+			ActorHint:      "spiffe://cluster.local/ns/prod/sa/agent-spiffe-a",
+			ActorID:        "spiffe://cluster.local/ns/prod/sa/agent-spiffe-a",
+			RawEvidenceRef: "del://loop/adv-cd-005a",
+			Description:    "Adversarial CD-05: Cross-layer cycle SPIFFE A -> K8s B",
+			Labels: map[string]string{
+				"delegate_id":  "spiffe://cluster.local/ns/prod/sa/agent-spiffe-a",
+				"principal_id": "system:serviceaccount:prod:agent-k8s-b",
+			},
+		},
+		{
+			ID:             "adv-cd-005b",
+			Timestamp:      baseTime.Add(5*time.Minute + 10*time.Millisecond),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "spire-server",
+			Confidence:     0.92,
+			ActorHint:      "system:serviceaccount:prod:agent-k8s-b",
+			ActorID:        "system:serviceaccount:prod:agent-k8s-b",
+			RawEvidenceRef: "del://loop/adv-cd-005b",
+			Description:    "Adversarial CD-05: Cross-layer cycle K8s B -> SPIFFE A",
+			Labels: map[string]string{
+				"delegate_id":  "system:serviceaccount:prod:agent-k8s-b",
+				"principal_id": "spiffe://cluster.local/ns/prod/sa/agent-spiffe-a",
+			},
+		},
+		// ADV-CD-06: 4-hop circular cascade attempting stack exhaustion
+		{
+			ID:             "adv-cd-006",
+			Timestamp:      baseTime.Add(6 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "identity-registry",
+			Confidence:     0.86,
+			ActorHint:      "agent-stack-hop4",
+			ActorID:        "agent-stack-hop4",
+			RawEvidenceRef: "del://loop/adv-cd-006",
+			Description:    "Adversarial CD-06: 4-hop loop closing back to hop1",
+			Labels: map[string]string{
+				"delegate_id":  "agent-stack-hop4",
+				"principal_id": "agent-stack-hop1",
+			},
+		},
+	}
+}
+
+// AdversarialSplitHumanCascadeFixtures generates overlapping cascades behind shared NAT IPs.
+func AdversarialSplitHumanCascadeFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		// ADV-SHC-01: Shared Corporate NAT 198.51.100.42 with 2 human operators
+		{
+			ID:             "adv-shc-001a",
+			Timestamp:      baseTime.Add(1 * time.Minute),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "saas-proxy",
+			Confidence:     0.75,
+			ActorHint:      "dev-lead@corp.com",
+			PrincipalID:    "dev-lead@corp.com",
+			ActorID:        "dev-lead@corp.com",
+			RawEvidenceRef: "saas://audit/adv-shc-001a",
+			Description:    "Adversarial SHC-01: Operator dev-lead dispatching dev swarm under shared NAT",
+			Labels: map[string]string{
+				"client_ip": "198.51.100.42",
+				"operator":  "dev-lead@corp.com",
+			},
+		},
+		{
+			ID:             "adv-shc-001b",
+			Timestamp:      baseTime.Add(1*time.Minute + 5*time.Second),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "saas-proxy",
+			Confidence:     0.75,
+			ActorHint:      "sre-oncall@corp.com",
+			PrincipalID:    "sre-oncall@corp.com",
+			ActorID:        "sre-oncall@corp.com",
+			RawEvidenceRef: "saas://audit/adv-shc-001b",
+			Description:    "Adversarial SHC-01: Operator sre-oncall dispatching SRE swarm under shared NAT",
+			Labels: map[string]string{
+				"client_ip": "198.51.100.42",
+				"operator":  "sre-oncall@corp.com",
+			},
+		},
+		// ADV-SHC-02: Multi-Region Egress NAT 203.0.113.10 with overlapping agent roles
+		{
+			ID:             "adv-shc-002a",
+			Timestamp:      baseTime.Add(2 * time.Minute),
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "egress-firewall",
+			Confidence:     0.7,
+			ActorHint:      "carol@corp.com",
+			PrincipalID:    "carol@corp.com",
+			ActorID:        "carol@corp.com",
+			RawEvidenceRef: "egress://flow/adv-shc-002a",
+			Description:    "Adversarial SHC-02: Carol pipeline deployer under NAT 203.0.113.10",
+			Labels: map[string]string{
+				"egress_ip": "203.0.113.10",
+				"role":      "deployer",
+			},
+		},
+		{
+			ID:             "adv-shc-002b",
+			Timestamp:      baseTime.Add(2*time.Minute + 5*time.Second),
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "egress-firewall",
+			Confidence:     0.7,
+			ActorHint:      "dave@corp.com",
+			PrincipalID:    "dave@corp.com",
+			ActorID:        "dave@corp.com",
+			RawEvidenceRef: "egress://flow/adv-shc-002b",
+			Description:    "Adversarial SHC-02: Dave pipeline deployer under NAT 203.0.113.10",
+			Labels: map[string]string{
+				"egress_ip": "203.0.113.10",
+				"role":      "deployer",
+			},
+		},
+		// ADV-SHC-03: Cloud Console Shared NAT 198.51.100.77 with autonomous triage agents
+		{
+			ID:             "adv-shc-003a",
+			Timestamp:      baseTime.Add(3 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-audit",
+			Confidence:     0.8,
+			ActorHint:      "admin-us@corp.com",
+			PrincipalID:    "admin-us@corp.com",
+			ActorID:        "admin-us@corp.com",
+			RawEvidenceRef: "gcp://audit/adv-shc-003a",
+			Description:    "Adversarial SHC-03: Cloud console session for admin-us under shared NAT",
+			Labels: map[string]string{
+				"caller_ip": "198.51.100.77",
+			},
+		},
+		{
+			ID:             "adv-shc-003b",
+			Timestamp:      baseTime.Add(3*time.Minute + 10*time.Second),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-audit",
+			Confidence:     0.8,
+			ActorHint:      "admin-eu@corp.com",
+			PrincipalID:    "admin-eu@corp.com",
+			ActorID:        "admin-eu@corp.com",
+			RawEvidenceRef: "gcp://audit/adv-shc-003b",
+			Description:    "Adversarial SHC-03: Cloud console session for admin-eu under shared NAT",
+			Labels: map[string]string{
+				"caller_ip": "198.51.100.77",
+			},
+		},
+		// ADV-SHC-04: Telemetry Egress Proxy 192.0.2.88 aggregating developer workflows
+		{
+			ID:             "adv-shc-004a",
+			Timestamp:      baseTime.Add(4 * time.Minute),
+			Layer:          model.LayerEndpointHost,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "dev-host",
+			Confidence:     0.7,
+			ActorHint:      "engineer-1@corp.com",
+			PrincipalID:    "engineer-1@corp.com",
+			ActorID:        "engineer-1@corp.com",
+			RawEvidenceRef: "host://session/adv-shc-004a",
+			Description:    "Adversarial SHC-04: Engineer-1 workstation session behind proxy 192.0.2.88",
+			Labels: map[string]string{
+				"proxy_ip": "192.0.2.88",
+			},
+		},
+		{
+			ID:             "adv-shc-004b",
+			Timestamp:      baseTime.Add(4*time.Minute + 15*time.Second),
+			Layer:          model.LayerEndpointHost,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "dev-host",
+			Confidence:     0.7,
+			ActorHint:      "engineer-2@corp.com",
+			PrincipalID:    "engineer-2@corp.com",
+			ActorID:        "engineer-2@corp.com",
+			RawEvidenceRef: "host://session/adv-shc-004b",
+			Description:    "Adversarial SHC-04: Engineer-2 workstation session behind proxy 192.0.2.88",
+			Labels: map[string]string{
+				"proxy_ip": "192.0.2.88",
+			},
+		},
+		// ADV-SHC-05: SaaS API gateway NAT sharing with distinct external OAuth clients
+		{
+			ID:             "adv-shc-005a",
+			Timestamp:      baseTime.Add(5 * time.Minute),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "oauth-server",
+			Confidence:     0.82,
+			ActorHint:      "oauth-client-alpha",
+			PrincipalID:    "oauth-client-alpha",
+			ActorID:        "oauth-client-alpha",
+			RawEvidenceRef: "oauth://token/adv-shc-005a",
+			Description:    "Adversarial SHC-05: OAuth client Alpha token exchange",
+			Labels: map[string]string{
+				"gateway_ip": "203.0.113.99",
+			},
+		},
+		{
+			ID:             "adv-shc-005b",
+			Timestamp:      baseTime.Add(5*time.Minute + 5*time.Second),
+			Layer:          model.LayerApplicationSaaS,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "oauth-server",
+			Confidence:     0.82,
+			ActorHint:      "oauth-client-beta",
+			PrincipalID:    "oauth-client-beta",
+			ActorID:        "oauth-client-beta",
+			RawEvidenceRef: "oauth://token/adv-shc-005b",
+			Description:    "Adversarial SHC-05: OAuth client Beta token exchange",
+			Labels: map[string]string{
+				"gateway_ip": "203.0.113.99",
+			},
+		},
+		// ADV-SHC-06: Multi-tenant CI/CD runner node NAT executing parallel pipelines
+		{
+			ID:             "adv-shc-006a",
+			Timestamp:      baseTime.Add(6 * time.Minute),
+			Layer:          model.LayerBehavioural,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "runner-agent",
+			Confidence:     0.78,
+			ActorHint:      "ci-runner-repo-a",
+			PrincipalID:    "ci-runner-repo-a",
+			ActorID:        "ci-runner-repo-a",
+			RawEvidenceRef: "ci://job/adv-shc-006a",
+			Description:    "Adversarial SHC-06: CI runner job for repo A",
+			Labels: map[string]string{
+				"node_ip": "198.51.100.200",
+			},
+		},
+		{
+			ID:             "adv-shc-006b",
+			Timestamp:      baseTime.Add(6*time.Minute + 10*time.Second),
+			Layer:          model.LayerBehavioural,
+			Fidelity:       model.FidelitySuggestive,
+			Source:         "runner-agent",
+			Confidence:     0.78,
+			ActorHint:      "ci-runner-repo-b",
+			PrincipalID:    "ci-runner-repo-b",
+			ActorID:        "ci-runner-repo-b",
+			RawEvidenceRef: "ci://job/adv-shc-006b",
+			Description:    "Adversarial SHC-06: CI runner job for repo B",
+			Labels: map[string]string{
+				"node_ip": "198.51.100.200",
+			},
+		},
+	}
+}
+
+// AdversarialStunBypassFixtures generates containment bypass probes attempting to reuse revoked or expired tokens.
+func AdversarialStunBypassFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		// ADV-SBP-01: Replay probe using expired delegation lease (valid_to in the past)
+		{
+			ID:             "adv-sbp-001",
+			Timestamp:      baseTime.Add(1 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "token-validator",
+			Confidence:     0.1,
+			ActorHint:      "expired-agent-token",
+			ActorID:        "expired-agent-token",
+			RawEvidenceRef: "auth://token/adv-sbp-001",
+			Description:    "Adversarial SBP-01: Replay probe with expired delegation lease",
+			Labels: map[string]string{
+				"action":            "credentials:access",
+				"delegation_status": "expired",
+				"valid_to":          baseTime.Add(-1 * time.Hour).Format(time.RFC3339),
+				"high_severity":     "true",
+			},
+		},
+		// ADV-SBP-02: Stunned agent attempting immediate network egress
+		{
+			ID:             "adv-sbp-002",
+			Timestamp:      baseTime.Add(2 * time.Minute),
+			Layer:          model.LayerNetworkEgress,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "stun-sentinel",
+			Confidence:     1.0,
+			ActorHint:      "contained-agent-gamma",
+			ActorID:        "contained-agent-gamma",
+			RawEvidenceRef: "stun://event/adv-sbp-002",
+			Description:    "Adversarial SBP-02: Contained agent attempting egress after stun containment",
+			Labels: map[string]string{
+				"containment":      "quarantined",
+				"action":           "network:route",
+				"violation_reason": "untrusted_delegation_attempt",
+				"high_severity":    "true",
+			},
+		},
+		// ADV-SBP-03: Downstream delegatee attempting action after upstream principal was stunned
+		{
+			ID:             "adv-sbp-003",
+			Timestamp:      baseTime.Add(3 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "identity-registry",
+			Confidence:     0.2,
+			ActorHint:      "downstream-leaf-agent",
+			ActorID:        "downstream-leaf-agent",
+			RawEvidenceRef: "del://revoked/adv-sbp-003",
+			Description:    "Adversarial SBP-03: Downstream delegatee invoking action on revoked chain",
+			Labels: map[string]string{
+				"action":          "secret:read",
+				"chain_status":    "revoked",
+				"upstream_status": "stunned",
+				"high_severity":   "true",
+			},
+		},
+		// ADV-SBP-04: Stunned agent attempting secondary alias reuse
+		{
+			ID:             "adv-sbp-004",
+			Timestamp:      baseTime.Add(4 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "spire-agent",
+			Confidence:     0.25,
+			ActorHint:      "alias-spoof-agent",
+			ActorID:        "alias-spoof-agent",
+			RawEvidenceRef: "spire://alias/adv-sbp-004",
+			Description:    "Adversarial SBP-04: Stunned agent attempting alias resurrection under secondary SVID",
+			Labels: map[string]string{
+				"action":           "vault:read_secret",
+				"original_actor":   "contained-agent-gamma",
+				"violation_reason": "shadow_identity",
+				"high_severity":    "true",
+			},
+		},
+		// ADV-SBP-05: Temporal spoofing probe with backdated timestamp
+		{
+			ID:             "adv-sbp-005",
+			Timestamp:      baseTime.Add(5 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "audit-logger",
+			Confidence:     0.15,
+			ActorHint:      "backdated-caller",
+			ActorID:        "backdated-caller",
+			RawEvidenceRef: "auth://spoof/adv-sbp-005",
+			Description:    "Adversarial SBP-05: Backdated timestamp query probe against revoked edge",
+			Labels: map[string]string{
+				"action":        "policy:modify",
+				"as_of":         baseTime.Add(-24 * time.Hour).Format(time.RFC3339),
+				"high_severity": "true",
+				"signature":     "invalid-timestamp-drift",
+			},
+		},
+		// ADV-SBP-06: Rapid delegation reissue attempt without operator unfreeze
+		{
+			ID:             "adv-sbp-006",
+			Timestamp:      baseTime.Add(6 * time.Minute),
+			Layer:          model.LayerIdentityAuth,
+			Fidelity:       model.FidelityCircumstantial,
+			Source:         "identity-registry",
+			Confidence:     0.2,
+			ActorHint:      "quarantined-resurrector",
+			ActorID:        "quarantined-resurrector",
+			RawEvidenceRef: "del://reissue/adv-sbp-006",
+			Description:    "Adversarial SBP-06: Rapid delegation reissue probe without unfreeze",
+			Labels: map[string]string{
+				"action":           "rbac:bind_cluster_admin",
+				"quarantine_state": "active",
+				"high_severity":    "true",
+			},
+		},
+	}
+}
+
+// AdversarialCascadeAllFixtures returns all cascade adversarial fixtures across the four attack classes.
+func AdversarialCascadeAllFixtures(baseTime time.Time) []model.Observation {
+	var all []model.Observation
+	all = append(all, AdversarialCascadeImpersonationFixtures(baseTime)...)
+	all = append(all, AdversarialCyclicDelegationFixtures(baseTime)...)
+	all = append(all, AdversarialSplitHumanCascadeFixtures(baseTime)...)
+	all = append(all, AdversarialStunBypassFixtures(baseTime)...)
+	return all
+}

@@ -96,10 +96,17 @@ func (h *Handlers) handleCreateDelegation(w http.ResponseWriter, r *http.Request
 			})
 			return
 		}
-		if errors.Is(err, identity.ErrForgedClaim) {
+		if errors.Is(err, identity.ErrForgedClaim) || errors.Is(err, identity.ErrAttestationFailed) {
 			writeJSON(w, http.StatusForbidden, map[string]any{
 				"error":     err.Error(),
-				"violation": "ForgedSignature",
+				"violation": "AttestationFailed",
+			})
+			return
+		}
+		if errors.Is(err, identity.ErrExpiredLease) {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":     err.Error(),
+				"violation": "ExpiredLease",
 			})
 			return
 		}

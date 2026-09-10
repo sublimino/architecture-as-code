@@ -1,0 +1,438 @@
+{
+  "schema_version": "v2",
+  "generated_at": "2026-09-10T22:10:13Z",
+  "total_injected": 24,
+  "total_caught": 24,
+  "total_missed": 0,
+  "resolution_ceiling": "24/24 caught",
+  "resolution_rate": 1,
+  "false_merges": 0,
+  "max_cycle_latency_us": 2,
+  "breakdown_by_class": {
+    "cascading-impersonation": {
+      "injected": 6,
+      "caught": 6,
+      "missed": 0,
+      "false_merges": 0,
+      "catch_rate": 1
+    },
+    "cyclic-delegation": {
+      "injected": 6,
+      "caught": 6,
+      "missed": 0,
+      "false_merges": 0,
+      "catch_rate": 1
+    },
+    "split-human-cascade": {
+      "injected": 6,
+      "caught": 6,
+      "missed": 0,
+      "false_merges": 0,
+      "catch_rate": 1
+    },
+    "stun-bypass": {
+      "injected": 6,
+      "caught": 6,
+      "missed": 0,
+      "false_merges": 0,
+      "catch_rate": 1
+    }
+  },
+  "ledger": [
+    {
+      "case_id": "ADV-CD-01",
+      "class": "cyclic-delegation",
+      "name": "Direct 2-Hop Cyclic Delegation Loop",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-cd-001a",
+        "actor-signal-ingest|observation|adv-cd-001b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": true,
+      "cycle_latency_us": 1,
+      "quarantine_triggered": false,
+      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CD-02",
+      "class": "cyclic-delegation",
+      "name": "Triangular 3-Hop Cyclic Delegation Loop",
+      "observation_count": 3,
+      "resolved_actor_count": 3,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-cd-002a",
+        "actor-signal-ingest|observation|adv-cd-002b",
+        "actor-signal-ingest|observation|adv-cd-002c"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": true,
+      "cycle_latency_us": 1,
+      "quarantine_triggered": false,
+      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=3, distinct_nodes=3, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CD-03",
+      "class": "cyclic-delegation",
+      "name": "Reflexive Self-Delegation Loop",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-cd-003"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": true,
+      "cycle_latency_us": 1,
+      "quarantine_triggered": false,
+      "details": "reflexive cycle caught at boundary in 1µs (\u003c5ms SLA): structural never-merge invariant violated: self-delegation agent-self-ref is forbidden"
+    },
+    {
+      "case_id": "ADV-CD-04",
+      "class": "cyclic-delegation",
+      "name": "Nested Sub-Agent Orchestration Loop",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-cd-004a",
+        "actor-signal-ingest|observation|adv-cd-004b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": true,
+      "cycle_latency_us": 2,
+      "quarantine_triggered": false,
+      "details": "cycle detected in 2µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CD-05",
+      "class": "cyclic-delegation",
+      "name": "Cross-Layer SPIFFE and ServiceAccount Cycle",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-cd-005a",
+        "actor-signal-ingest|observation|adv-cd-005b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": true,
+      "cycle_latency_us": 1,
+      "quarantine_triggered": false,
+      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CD-06",
+      "class": "cyclic-delegation",
+      "name": "4-Hop Deep Circular Exhaustion Loop",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-cd-006"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": true,
+      "cycle_latency_us": 1,
+      "quarantine_triggered": false,
+      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=4, distinct_nodes=4, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CI-01",
+      "class": "cascading-impersonation",
+      "name": "Unauthorized Intermediate Hop Impersonation",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-ci-001"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": true,
+      "details": "correctly detected impersonation attack; quarantine=true, actors=1, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CI-02",
+      "class": "cascading-impersonation",
+      "name": "Two-Tier Service Account Spoofing",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-ci-002"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": true,
+      "details": "correctly detected impersonation attack; quarantine=true, actors=1, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CI-03",
+      "class": "cascading-impersonation",
+      "name": "Cascading Intermediate Delegation Hop Forgery",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-ci-003"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": true,
+      "details": "correctly detected impersonation attack; quarantine=true, actors=1, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CI-04",
+      "class": "cascading-impersonation",
+      "name": "Privileged Container Action Without Cosign Signature",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-ci-004"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": true,
+      "details": "correctly detected impersonation attack; quarantine=true, actors=1, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CI-05",
+      "class": "cascading-impersonation",
+      "name": "Delegation Depth Ceiling Tampering",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-ci-005"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": true,
+      "details": "correctly detected impersonation attack; quarantine=true, actors=1, false-merge=0"
+    },
+    {
+      "case_id": "ADV-CI-06",
+      "class": "cascading-impersonation",
+      "name": "Shadow Identity Cluster-Admin Impersonation",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-ci-006"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": true,
+      "details": "correctly detected impersonation attack; quarantine=true, actors=1, false-merge=0"
+    },
+    {
+      "case_id": "ADV-SBP-01",
+      "class": "stun-bypass",
+      "name": "Expired Delegation Lease Replay Probe",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sbp-001"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "replayed/stunned token successfully intercepted and blocked from authorization"
+    },
+    {
+      "case_id": "ADV-SBP-02",
+      "class": "stun-bypass",
+      "name": "Stunned Agent Immediate Egress Probe",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sbp-002"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "replayed/stunned token successfully intercepted and blocked from authorization"
+    },
+    {
+      "case_id": "ADV-SBP-03",
+      "class": "stun-bypass",
+      "name": "Downstream Delegatee Action on Revoked Chain",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sbp-003"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "replayed/stunned token successfully intercepted and blocked from authorization"
+    },
+    {
+      "case_id": "ADV-SBP-04",
+      "class": "stun-bypass",
+      "name": "Stunned Agent Alias Resurrection Probe",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sbp-004"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "replayed/stunned token successfully intercepted and blocked from authorization"
+    },
+    {
+      "case_id": "ADV-SBP-05",
+      "class": "stun-bypass",
+      "name": "Temporal Spoofing Backdated Query Probe",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sbp-005"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "replayed/stunned token successfully intercepted and blocked from authorization"
+    },
+    {
+      "case_id": "ADV-SBP-06",
+      "class": "stun-bypass",
+      "name": "Rapid Delegation Reissue Probe Without Unfreeze",
+      "observation_count": 1,
+      "resolved_actor_count": 1,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-sbp-006"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "replayed/stunned token successfully intercepted and blocked from authorization"
+    },
+    {
+      "case_id": "ADV-SHC-01",
+      "class": "split-human-cascade",
+      "name": "Corporate Egress NAT Dual-Operator Separation",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-shc-001a",
+        "actor-signal-ingest|observation|adv-shc-001b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "correctly preserved 2 distinct operator cascades under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SHC-02",
+      "class": "split-human-cascade",
+      "name": "Multi-Region Egress NAT Overlapping Deployer Roles",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-shc-002a",
+        "actor-signal-ingest|observation|adv-shc-002b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "correctly preserved 2 distinct operator cascades under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SHC-03",
+      "class": "split-human-cascade",
+      "name": "Cloud Console Shared NAT Autonomous Triage",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-shc-003a",
+        "actor-signal-ingest|observation|adv-shc-003b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "correctly preserved 2 distinct operator cascades under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SHC-04",
+      "class": "split-human-cascade",
+      "name": "Telemetry Egress Proxy Aggregated Developer Workflows",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-shc-004a",
+        "actor-signal-ingest|observation|adv-shc-004b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "correctly preserved 2 distinct operator cascades under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SHC-05",
+      "class": "split-human-cascade",
+      "name": "SaaS API Gateway Shared NAT External OAuth Clients",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-shc-005a",
+        "actor-signal-ingest|observation|adv-shc-005b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "correctly preserved 2 distinct operator cascades under shared NAT IP"
+    },
+    {
+      "case_id": "ADV-SHC-06",
+      "class": "split-human-cascade",
+      "name": "Multi-Tenant CI/CD Runner Node Parallel Pipelines",
+      "observation_count": 2,
+      "resolved_actor_count": 2,
+      "resolved_actor_ids": [
+        "actor-signal-ingest|observation|adv-shc-006a",
+        "actor-signal-ingest|observation|adv-shc-006b"
+      ],
+      "status": "CAUGHT",
+      "false_merge": false,
+      "cycle_detected": false,
+      "cycle_latency_us": 0,
+      "quarantine_triggered": false,
+      "details": "correctly preserved 2 distinct operator cascades under shared NAT IP"
+    }
+  ]
+}

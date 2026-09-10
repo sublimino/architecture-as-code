@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-standard-baseline
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/instance: agent-standard-baseline
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: agent-standard-baseline
+    signalloom.ai/agent-type: demo
+    signalloom.ai/framework: custom
+    signalloom.ai/model: gpt-4o-mini
+    signalloom.ai/state: "active"
+    signalloom.io/agent: demo
+    signalloom.io/workload-profile: standard-baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: agent-standard-baseline
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signalloom-agent
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: signalloom
+        app.kubernetes.io/instance: agent-standard-baseline
+        signalloom.ai/agent: "true"
+        signalloom.ai/agent-name: agent-standard-baseline
+        signalloom.ai/agent-type: demo
+        signalloom.ai/framework: custom
+        signalloom.ai/model: gpt-4o-mini
+        signalloom.ai/state: "active"
+        signalloom.io/agent: demo
+        signalloom.io/workload-profile: standard-baseline
+      annotations:
+        signalloom.ai/agent-display-name: "Demo Agent (Standard Baseline)"
+        signalloom.ai/description: "Standard containerized agent runtime operating without Nono sandboxing."
+        signalloom.ai/model-full: "openai/gpt-4o-mini"
+        spiffe.io/spiffe-id: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-standard-baseline"
+        signalloom.io/workload-profile: "standard-baseline"
+    spec:
+      serviceAccountName: agent-standard-baseline
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: docker.io/bitnamilegacy/kubectl:1.31
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/scripts/entrypoint.sh"]
+          env:
+            - name: AGENT_ID
+              value: "agent-standard-baseline"
+            - name: AGENT_NAME
+              value: "Demo Agent (Standard Baseline)"
+            - name: WORKLOAD_PROFILE
+              value: "standard-baseline"
+            - name: SPIFFE_ID
+              value: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-standard-baseline"
+            - name: SPIFFE_SOCKET
+              value: "/run/spire/sockets/agent.sock"
+            - name: HEARTBEAT_INTERVAL
+              value: "10"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: entrypoint-script
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: spiffe-workload-api
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
+        - name: entrypoint-script
+          configMap:
+            name: agent-standard-baseline-config
+            defaultMode: 0755
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}

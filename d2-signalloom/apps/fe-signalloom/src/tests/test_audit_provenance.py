@@ -247,8 +247,6 @@ def test_the_writer_signatures_are_the_ones_this_file_assumes() -> None:
     ], f"_audit_log's signature moved: {parameters.get('_audit_log')}"
     assert parameters.get("_record_memory_audit") == [
         "tenant_id", "event_type", "agent_id", "agent_name", "actor", "detail",
-        "authorizing_principal_id", "executing_actor_id", "spiffe_id",
-        "attribution_rationale", "evidence_ref", "kernel_telemetry_ref",
     ], f"_record_memory_audit's signature moved: {parameters.get('_record_memory_audit')}"
 
 
@@ -731,9 +729,6 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "Seeds fixture observations for the demo estate. Demo-only endpoint "
         "that writes synthetic data; the observations themselves are the record."
     ),
-    ("api_compat.py", "release_agent_claim"): (
-        "Releases an in-memory claim record for the tenant without mutating durable state."
-    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate
@@ -955,9 +950,6 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
         "both paths rather than by removing the row, because an operator "
         "pressing the control is itself worth a record even when the platform "
         "does nothing with it."
-    ),
-    ("api_compat.py", "_execute_claim"): (
-        "Fixture path for agent claims when no database pool is available."
     ),
 }
 

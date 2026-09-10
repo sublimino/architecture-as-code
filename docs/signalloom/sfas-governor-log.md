@@ -54,4 +54,6 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | `2026-09-10T20:29:54Z` | `antigravity` | `TASK_P1_PRE_STARTED` | `SFAS-P1-PRE` (`aacd9`) started into `in_progress`. Supervise reports clean graph, 0 dirty, actively working. |
 | `2026-09-10T20:35:00Z` | `antigravity` | `PREFLIGHT_VERIFIED` | Kind cluster connectivity, namespace pods, live signal-ingest routes on port 28082, and Go test suites verified 100% PASS. Proof artifact written to `docs/signalloom/sfas-p1-preflight-proof.md`. |
 | `2026-09-10T20:36:30Z` | `antigravity` | `ERRATA_RECORDED` | Canonical Errata block for `SFAS-P1-PRE` committed with machine tag (`status=pass proceed=yes blocking_drift=no`) pointing to commit `6ac1c6fc`. `done-check` verified 100% PASS. |
+| `2026-09-10T20:38:00Z` | `antigravity` | `TASK_P1_PRE_DONE` | `SFAS-P1-PRE` (`aacd9`) advanced to `done` via `done-advance`. Review verdict recorded in `.kanban-review-ledger.json` (`pass`). `kanban doctor` reports 0 exceptions. |
+| `2026-09-10T20:39:28Z` | `antigravity` | `TASKS_PHASE1_STARTED` | Unblocked tasks `SFAS-P1-1` (`ec5db`, transitive delegation) and `SFAS-P1-2` (`b4dd5`, live SPIFFE telemetry) started into `in_progress` via `start-ready --apply`. |
 

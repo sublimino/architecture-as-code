@@ -239,3 +239,18 @@ setup() {
         false
     fi
 }
+
+# ---------------------------------------------------------------------------
+# kpai runtime harness
+# ---------------------------------------------------------------------------
+# Current: 76 passed.
+# Floor: 70.
+
+@test "kpai runtime harness executes at least 70 tests" {
+    local out rc=0
+    out="$(cd "$repo_root" && bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts 2>&1)" || rc=$?
+    if [ "$rc" -ne 0 ]; then echo "kpai tests failed (exit $rc)"; echo "$out" | tail -15; false; fi
+    local pass_count
+    pass_count="$(echo "$out" | grep -oE '[0-9]+ pass' | grep -oE '^[0-9]+')"
+    if [ -z "$pass_count" ] || [ "$pass_count" -lt 70 ]; then echo "FLOOR BREACH: kpai ran only ${pass_count:-0} passing tests (floor: 70)"; false; fi
+}

@@ -82,7 +82,7 @@ require_cluster() {
 # is the population these assertions are about.
 images_in_ns() {
   kubectl get pods -n "$1" -o json |
-    jq -r '.items[] | .spec.containers[].image'
+    jq -r '.items[] | select(.metadata.deletionTimestamp == null) | select((.metadata.name // "") | startswith("npcheck-") | not) | .spec.containers[].image'
 }
 
 # Strip a tag or digest, and normalise docker.io/library/foo -> foo.

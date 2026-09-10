@@ -1747,8 +1747,8 @@ async def _write(pool: Any) -> AsyncIterator[Any]:
 async def _audit_log(
     executor: Any,
     tenant_id: str,
-    event_type: str,
     agent_id: str | None,
+    event_type: str,
     agent_name: str | None,
     actor: str,
     detail: dict[str, Any],

@@ -313,6 +313,10 @@ netassert-runner-image: ## Build and load the pinned netassert v2.1.5 runner use
 signalloom-dashboard-image: ## Build, sign, and load the dashboard workload image.
 	./scripts/build-sign-dashboard.sh
 
+.PHONY: signalloom-docs-image
+signalloom-docs-image: ## Build, sign, and load the user documentation image.
+	./scripts/build-sign-docs.sh
+
 .PHONY: preload-foundation-images preload-snapshot
 preload-foundation-images: ## kind-load foundation base images already in host Docker (parallel); missing ones fall back to the pull-through mirror.
 	@echo "==> Preloading foundation base images present in host Docker (parallel)"
@@ -364,6 +368,7 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	# dashboard kind load literal: kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest \
 	./scripts/supervise-port-forward.sh ensure "$$PF_STATE"; \
 	./scripts/build-sign-dashboard.sh; \
+	./scripts/build-sign-docs.sh; \
 	# kind-load-verified.sh, not `kind load`: on a Docker daemon using the \
 	# containerd image store the loader exits 0 having transferred nothing, and \
 	# these two images are the ones it drops. The pods then sit in \

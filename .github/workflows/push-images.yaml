@@ -12,14 +12,22 @@ jobs:
           include:
             - image: images/archiver
               context: ./d2-osramp-apps/apps/archiver
+              workload: ""
             - image: images/listener
               context: ./d2-osramp-apps/apps/listener
+              workload: ""
             - image: images/processor
               context: ./d2-osramp-apps/apps/processor
+              workload: ""
             - image: signalloom/apps/fe-signalloom
               context: ./d2-signalloom/apps/fe-signalloom
+              workload: fe-signalloom
+            - image: signalloom/apps/docs-signalloom
+              context: ./d2-signalloom/apps/docs-signalloom
+              workload: docs-signalloom
             - image: signalloom/infra/fake-integration-proxy
               context: ./d2-signalloom/apps/fake-integration-proxy
+              workload: ""
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,16 +35,16 @@ jobs:
       id-token: write # for signing
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - name: Setup Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -44,9 +52,16 @@ jobs:
       - name: Prepare tags
         id: prep
         run: echo "VERSION=sha-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+      - name: Prepare source identity
+        id: source
+        if: matrix.workload != ''
+        shell: bash
+        run: |
+          source scripts/lib/source-id.sh
+          echo "source_id=$(source_id_for '${{ matrix.workload }}')" >> "$GITHUB_OUTPUT"
       - name: Generate images meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             ghcr.io/${{ github.repository }}/${{ matrix.image }}
@@ -54,7 +69,7 @@ jobs:
             type=raw,value=${{ steps.prep.outputs.VERSION }}
             type=raw,value=latest
       - name: Publish multi-arch image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         id: push
         with:
           sbom: true
@@ -62,6 +77,9 @@ jobs:
           push: true
           builder: ${{ steps.buildx.outputs.name }}
           context: ${{ matrix.context }}
+          build-args: |
+            SOURCE_ID=${{ steps.source.outputs.source_id }}
+            GIT_REF=${{ github.sha }}
           platforms: linux/amd64,linux/arm64/v8
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

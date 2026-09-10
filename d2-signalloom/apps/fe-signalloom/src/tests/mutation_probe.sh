@@ -16,6 +16,16 @@ MUT="${1:?mutation id required}"
 shift || true
 
 declare -A FILES=(
+  [claim_conflict_discloses_owner]="api_compat.py"
+  [onboarding_terminal_tenant_filter]="onboarding.py"
+  [onboarding_wizard_write_tenant_filter]="onboarding.py"
+  [audit_session_detail_tenant_filter]="audit_ingest.py"
+  [audit_session_memory_key]="audit_ingest.py"
+  [audit_session_list_memory_scope]="audit_ingest.py"
+  [audit_session_body_tenant_override]="audit_ingest.py"
+  [claim_conflict_tenant_scope]="api_compat.py"
+  [claim_detail_tenant_filter]="api_compat.py"
+  [claim_memory_cross_tenant_guard]="api_compat.py"
   [agent_by_id_tenant_filter]="api_compat.py"
   [agent_list_tenant_filter]="api_compat.py"
   [audit_tenant_filter]="api_compat.py"
@@ -35,6 +45,17 @@ declare -A FILES=(
 )
 
 declare -A FROM=(
+  [claim_conflict_discloses_owner]='
+                            f"Agent '"'"'{body.pod_name}'"'"' is already claimed by another tenant",'
+  [onboarding_terminal_tenant_filter]='WHERE tenant_id = $1 AND status <> $2'
+  [onboarding_wizard_write_tenant_filter]='WHERE tenant_id = $1"""'
+  [audit_session_detail_tenant_filter]='"SELECT * FROM public.signed_audit_sessions WHERE tenant_id = $1 AND session_id = $2;",'
+  [audit_session_memory_key]='key = f"{tenant_id}:{session_id}"'
+  [audit_session_list_memory_scope]='if key.startswith(f"{tenant_id}:"):'
+  [audit_session_body_tenant_override]='session_dict["tenant_id"] = tenant_id'
+  [claim_conflict_tenant_scope]='                      AND tenant_id != $3'
+  [claim_detail_tenant_filter]='                WHERE tenant_id = $1 AND claim_id = $2"""'
+  [claim_memory_cross_tenant_guard]='            if other_tenant != tenant_id:'
   [agent_by_id_tenant_filter]='"SELECT * FROM agent_registry WHERE id = $1 AND tenant_id = $2", agent_uuid, tenant_id,'
   [agent_list_tenant_filter]='"SELECT * FROM agent_registry WHERE tenant_id = $1 ORDER BY created_at", tenant_id,'
   [audit_tenant_filter]='    # Build dynamic WHERE clause
@@ -59,6 +80,17 @@ declare -A FROM=(
 )
 
 declare -A TO=(
+  [claim_conflict_discloses_owner]='
+                            f"Agent '"'"'{body.pod_name}'"'"' is already claimed by tenant '"'"'{other_tenant}'"'"'",'
+  [onboarding_terminal_tenant_filter]='WHERE $1 IS NOT NULL AND status <> $2'
+  [onboarding_wizard_write_tenant_filter]='WHERE $1 IS NOT NULL"""'
+  [audit_session_detail_tenant_filter]='"SELECT * FROM public.signed_audit_sessions WHERE $1 IS NOT NULL AND session_id = $2;",'
+  [audit_session_memory_key]='key = f"{session_id}"'
+  [audit_session_list_memory_scope]='if key is not None:'
+  [audit_session_body_tenant_override]='session_dict["tenant_id"] = session.tenant_id or tenant_id'
+  [claim_conflict_tenant_scope]='                      AND tenant_id = $3'
+  [claim_detail_tenant_filter]='                WHERE $1 IS NOT NULL AND claim_id = $2"""'
+  [claim_memory_cross_tenant_guard]='            if other_tenant == tenant_id:'
   [agent_by_id_tenant_filter]='"SELECT * FROM agent_registry WHERE id = $1 AND $2 IS NOT NULL", agent_uuid, tenant_id,'
   [agent_list_tenant_filter]='"SELECT * FROM agent_registry WHERE $1 IS NOT NULL ORDER BY created_at", tenant_id,'
   [audit_tenant_filter]='    # Build dynamic WHERE clause

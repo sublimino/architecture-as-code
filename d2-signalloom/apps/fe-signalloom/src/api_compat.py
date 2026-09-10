@@ -3741,10 +3741,17 @@ async def _execute_claim(
                 agent_uuid, body.pod_name, tenant_id,
             )
             if conflict_row is not None:
+                # The conflicting tenant's identifier is deliberately NOT in the
+                # message.  The caller has no relationship with that tenant --
+                # naming it turns a refusal into a cross-tenant disclosure, and
+                # a pod-name guessing loop into a tenant enumerator.  "Some
+                # other tenant holds this" is everything the caller needs to
+                # act on; who they are is the operator's business, and the
+                # conflict row is still available server-side for support.
                 raise APIError(
                     409,
                     "claim_conflict",
-                    f"Agent '{body.pod_name}' is already claimed by tenant '{conflict_row['tenant_id']}'",
+                    f"Agent '{body.pod_name}' is already claimed by another tenant",
                 )
 
             agent_name = body.pod_name
@@ -3878,10 +3885,13 @@ async def _execute_claim(
             if other_tenant != tenant_id:
                 for c in tclaims.values():
                     if (c.get("pod_name") == body.pod_name or c.get("agent_id") == agent_id) and c.get("status") == "granted" and c.get("released_at") is None:
+                        # See the database branch above: the owning tenant is
+                        # not named.  Both branches must agree, or the
+                        # disclosure simply moves to whichever one is live.
                         raise APIError(
                             409,
                             "claim_conflict",
-                            f"Agent '{body.pod_name}' is already claimed by tenant '{other_tenant}'",
+                            f"Agent '{body.pod_name}' is already claimed by another tenant",
                         )
 
     origin_verif = OriginVerificationMetadata(

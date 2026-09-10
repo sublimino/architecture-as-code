@@ -1,10 +1,10 @@
 # SFAS Shared Governor Log & Inter-Agent Coordination Ledger
 
-**Mission Identity**: `SFAS` — Signal Fusion Actor-Resolution Spine (2026-Q3)  
-**Parent Proposal**: `Proposal — Signal Fusion Actor-Resolution Spine (2026-Q3).md`  
+**Mission Identity**: `SFAS` — Signal Fusion Actor-Resolution Spine V2 (2026-Q3)  
+**Parent Proposal**: `Proposal — Signal Fusion Actor-Resolution Spine V2 (2026-Q3).md`  
 **Integration Branch**: `refs/heads/integration/sfas-v0.1.0`  
-**Approved Digest**: `a58c44d6a516dc1a6d2982e3ed9beaf34cb013fa855ac525b17ba9666df5c32c`  
-**Active Lease**: `pending-andy-signoff`  
+**Approved Digest**: `6a54fa37b08d259aa93c3f45b980d12a43d562eee2f01cc278e0b4b403eebc9d`  
+**Active Lease**: `ajm-auto-kanban-sfas-v2`  
 **Controller Version**: 2 (`CycleInput.ts` / `supervise`)  
 **Standard Engine**: Google Antigravity (`--agent antigravity`, `agy`)
 
@@ -21,11 +21,11 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
    - Only Governor agents execute in the dedicated Governor worktree and merge validated task commits into the integration branch.
 
 2. **Core Architectural Invariants**:
-   - **SP-1 (Deterministic-First Merge)**: Merging two identifiers into a single canonical `actor_id` strictly requires at least one deterministic identity edge (e.g. SPIFFE ID ↔ `system:serviceaccount:<ns>:<name>`). Probabilistic signals only raise confidence; they never merge.
-   - **SP-2 (Delegation Never-Merge)**: The delegation relationship (`acts-on-behalf-of`) is a distinct, queryable directed edge in PostgreSQL. It must NEVER collapse or alias delegator and delegatee into one actor.
+   - **SP-1 (Transitive Delegation Never-Merge)**: The delegation relationship (`acts-on-behalf-of`) is a distinct, directed edge connecting an executing delegatee agent to a delegating principal. A delegation edge must NEVER collapse, merge, or alias the delegator and delegatee into a single canonical actor. Transitive hops ($A \to B \to C$) retain separate identities while forming an unbroken chain.
+   - **SP-2 (Deterministic-First Merge)**: Merging two identity representations into a single `actor_id` strictly requires at least one deterministic identity edge. Probabilistic signals only raise confidence; they never merge.
    - **SP-3 (Write-Time Segment Attestation)**: Every FrostDB Parquet segment must be cryptographically attested at flush boundary using the local ed25519 workload key (`make workload-key`) via `go-witness`.
-   - **SP-4 (Zero False-Merge Release Gate)**: Hard release gate of `false-merge == 0` across all test suites. Adversarial resolution accuracy must be reported as a falsifiable ratio ($X/N$ caught).
-   - **SP-5 (Antigravity Engine Execution)**: All autonomous tasks execute under `--agent antigravity` with context-mode routing and algorithm verification.
+   - **SP-4 (Zero False-Merge Release Gate)**: Hard release gate of `false-merge == 0` across all test suites and multi-agent cascade attack scenarios. Falsifiable $X/N$ ceiling reported.
+   - **SP-5 (Closed-Loop Stun Revocation & Dossier Visibility)**: When an agent is stunned by `stun-sentinel`, `valid_to = now()` is immediately clamped on active delegation edges. Proof is visible in real time in Agent Dossier Tabs 2 and 5.
 
 3. **Tooling & Language Invariants**:
    - `bun` / `bunx` always. Never `npm` or `npx`.
@@ -43,7 +43,8 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 
 | Timestamp (UTC) | Agent / Actor | Event | Details / Outcome |
 | :--- | :--- | :--- | :--- |
-| `2026-09-10T20:07:00Z` | `council` | `PROPOSAL_SPECIFIED` | Authored canonical Kanban specifications (Shared Patterns SP-1..SP-5, Capability Plan, Work Decomposition 18 cards, Errata block) in `docs/Proposal — Signal Fusion Actor-Resolution Spine (2026-Q3).md`. |
-| `2026-09-10T20:07:15Z` | `council` | `PROPOSAL_VALIDATED` | `kanban-check.sh proposal-check` executed and verified 100% clean across all 5 sections. Contract SHA-256 computed: `a58c44d6a516dc1a6d2982e3ed9beaf34cb013fa855ac525b17ba9666df5c32c`. |
-| `2026-09-10T20:08:00Z` | `council` | `COUNCIL_REVIEW_PASS` | Council of Agents (Antigravity, KPAI, Gemini) reviewed work decomposition, capability mappings, and security invariants. Unanimous PASS. |
-| `2026-09-10T20:10:00Z` | `antigravity` | `PRESENTED_TO_PRINCIPAL` | Work decomposition and approved proposal digest presented to Andy for explicit sign-off per "Plan means stop" rule. |
+| `2026-09-10T20:15:00Z` | `andy` | `DEEP_REVIEW_REQUESTED` | Principal Andy requested deep review of proposal currency against completed platform slices (`SLON`, `SFAGENTS`, `CRKC`, `AUDIT`) and the newly updated Cascade proposal. |
+| `2026-09-10T20:16:00Z` | `council` | `PROPOSAL_V1_RETIRED` | V1 deprecated in Obsidian and repo. V1 delivered baseline primitives in SFDP (2026-09-05). |
+| `2026-09-10T20:16:30Z` | `council` | `PROPOSAL_V2_AUTHORED` | V2 authored under `/cp-project-proposal` standard, governing multi-agent cascade, live `agent-nono-evidenced` telemetry, Dossier embedding, and Stun Sentinel revocation. |
+| `2026-09-10T20:16:45Z` | `council` | `PROPOSAL_V2_VALIDATED` | `kanban-check.sh proposal-check` verified 100% PASS on all 5 sections. Contract SHA bound: `6a54fa37b08d259aa93c3f45b980d12a43d562eee2f01cc278e0b4b403eebc9d`. |
+| `2026-09-10T20:17:00Z` | `antigravity` | `BOARD_BUILD_DISPATCH` | Initiating `/ajm-auto-kanban` build: board scaffolding, card creation, graph verification, and loop arming. |

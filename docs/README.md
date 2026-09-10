@@ -112,6 +112,7 @@ These documents record engineering decisions and investigations. They do not con
 | Area | Location |
 | :--- | :--- |
 | Signal Loom design notes, audits, and proposals | [`signalloom/`](signalloom/) — 49 design and architecture records |
+| Signal Loom onboarding preflight proof | [`signalloom/slon-p1-preflight-proof.md`](signalloom/slon-p1-preflight-proof.md) |
 | Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |

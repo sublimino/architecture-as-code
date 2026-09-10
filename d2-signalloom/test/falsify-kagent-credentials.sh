@@ -42,14 +42,24 @@ restore_all() {
 }
 trap 'restore_all; rm -rf "$BACKUP_DIR"' EXIT INT TERM
 
-# Refuse to run against uncommitted work: a mutation harness that crashes on a
-# dirty tree destroys work that has no other copy.
-dirty="$(git status --porcelain -uno | grep -vE '(\.kanban-review-ledger\.json|^.. ("?docs/))' || true)"
-if [ -n "$dirty" ]; then
-  echo "REFUSING: working tree is dirty. Commit first — this harness edits files in place." >&2
-  echo "$dirty" >&2
-  exit 2
-fi
+# Refuse to run against uncommitted work in target files: a mutation harness
+# that crashes on a dirty file destroys work that has no other copy.
+TARGET_FILES=(
+  "scripts/kagent-credentials.sh"
+  "scripts/kagent-invoke.sh"
+  "d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
+  "d2-signalloom/infra/kagent/base/controller.yaml"
+  "scripts/olly-llm-secret.sh"
+  "scripts/olly-pdi-secret.sh"
+  "scripts/lib/env-file.sh"
+  "d2-signalloom/test/no-tracked-secrets.bats"
+)
+for target in "${TARGET_FILES[@]}"; do
+  if [ -n "$(git status --porcelain "$target")" ]; then
+    echo "REFUSING: target file $target is dirty. Commit first — this harness edits files in place." >&2
+    exit 2
+  fi
+done
 
 backup() {
   local rel="$1"

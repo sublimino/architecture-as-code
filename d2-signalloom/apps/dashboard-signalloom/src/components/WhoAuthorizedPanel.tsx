@@ -13,6 +13,7 @@ export interface WhoAuthorizedPanelProps {
   chain?: AuthorizationChain | null
   actorId?: string
   agentId?: string
+  actionId?: string
   onSelectActor?: (actorId: string) => void
   availableActors?: { id: string; name?: string }[]
   compact?: boolean
@@ -23,6 +24,7 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = memo(({
   chain: initialChain,
   actorId,
   agentId,
+  actionId,
   onSelectActor,
   availableActors = [],
   compact = false,
@@ -41,7 +43,7 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = memo(({
       return
     }
 
-    if (!targetId) return
+    if (!targetId && !actionId) return
 
     let isMounted = true
     const loadChain = async () => {
@@ -49,9 +51,29 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = memo(({
         setLoading(true)
         setError(null)
         const token = await getAccessTokenSilently()
-        const data = await weaveApi.getActorAuthorization(token, targetId)
+        let data: AuthorizationChain | null = null
+
+        if (actionId) {
+          try {
+            const resp = await weaveApi.getAuthorizationChains(token, { action_id: actionId })
+            if (resp && resp.chains && resp.chains.length > 0) {
+              data = resp.chains[0]
+            }
+          } catch {
+            // fallback
+          }
+        }
+
+        if (!data && targetId) {
+          data = await weaveApi.getActorAuthorization(token, targetId, actionId)
+        }
+
         if (isMounted) {
-          setActiveChain(data)
+          if (data) {
+            setActiveChain(data)
+          } else {
+            setError(actionId ? `No cryptographic authorization proof found for action ID: ${actionId}` : 'Failed to load authorization chain.')
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -68,7 +90,7 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = memo(({
     return () => {
       isMounted = false
     }
-  }, [initialChain, targetId, getAccessTokenSilently])
+  }, [initialChain, targetId, actionId, getAccessTokenSilently])
 
   const copyGitoid = (gitoid: string) => {
     navigator.clipboard?.writeText(gitoid).catch(() => {})

@@ -594,3 +594,85 @@ spec:
               - /metadata/labels/signalloom.ai~1state
               - /metadata/annotations/signalloom.ai~1stunned-at
               - /metadata/annotations/signalloom.ai~1stun-reason
+
+    # 11. agent-nono-evidenced (Demo Agent — Nono Landlock + SPIFFE Evidence)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-nono-evidenced
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "agent-nono-evidenced"
+          signalloom.io/agent: "demo"
+          signalloom.io/workload-profile: "nono-evidenced"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./agent-nono-evidenced
+        prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+
+    # 12. agent-standard-baseline (Demo Agent — Standard Baseline Container)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-standard-baseline
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "agent-standard-baseline"
+          signalloom.io/agent: "demo"
+          signalloom.io/workload-profile: "standard-baseline"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./agent-standard-baseline
+        prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason

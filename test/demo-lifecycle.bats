@@ -9,6 +9,14 @@ setup() {
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$KUBECTL_LOG"
 if [[ "$*" == *get* ]]; then
+  if [[ "$*" == *'conditions'* ]]; then
+    printf 'Complete=True\n'
+    exit 0
+  fi
+  if [[ "$*" == *'containerStatuses'* ]]; then
+    printf 'openbao-spire-bootstrap=0\n'
+    exit 0
+  fi
   case "${KUBECTL_STATE:-empty}" in
     empty) printf '{"items":[]}' ;;
     consumer) printf '{"items":[{"kind":"Kustomization","metadata":{"namespace":"fe-signalloom","name":"apps","labels":{"bao.controlplane.io/consumer":"fe-signalloom"}}}]}' ;;
@@ -237,7 +245,7 @@ SCRIPT
   grep -Fq 'entry create -spiffeID spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom' "$log"
   grep -Fq -- '-parentID spiffe://signalloom.demo/agent/kind -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom' "$log"
 	 grep -Fq 'delete job openbao-spire-bootstrap --ignore-not-found --wait=true' "$log"
-	 grep -Fq 'wait job/openbao-spire-bootstrap --for=condition=complete' "$log"
+	 grep -Fq 'get job openbao-spire-bootstrap' "$log"
 	 grep -Fq 'exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token bao write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$log"
 	 run grep -F 'jwt_validation_pubkeys=' "$log"
 	 [ "$status" -ne 0 ]

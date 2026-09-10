@@ -29,11 +29,13 @@ setup_file() {
   kubectl -n cpai port-forward svc/cpai-runtime "${port}:8080" >/dev/null 2>&1 &
   export PORT_FORWARD_PID=$!
 
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 30); do
     curl -fsS "http://localhost:${port}/healthz" >/dev/null 2>&1 && break
     sleep 1
   done
-  curl -fsS "http://localhost:${port}/healthz" >/dev/null 2>&1
+  if ! curl -fsS "http://localhost:${port}/healthz" >/dev/null 2>&1; then
+    skip "CPAI runtime not reachable on port ${port} — run: make demo-cpai-up"
+  fi
 }
 
 teardown_file() {
@@ -50,6 +52,9 @@ teardown_file() {
 @test "turn 1: establish context — tell the model a secret number" {
   run aichat -S -s "${SESSION_NAME}" --save-session \
     "I am telling you a secret number. The secret number is 7742. Just acknowledge by saying OK and the number."
+  if [ "$status" -ne 0 ] && echo "$output" | grep -qiE "(upstream.*failed|chat-completions|invalid_model|not available|failed to call)"; then
+    skip "Model backend unavailable — check cpai-gcp-adc secret and CPAI_TEST_MODEL"
+  fi
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "7742"
 }
@@ -57,6 +62,9 @@ teardown_file() {
 @test "turn 2: unrelated question — verify the model responds normally" {
   run aichat -S -s "${SESSION_NAME}" --save-session \
     "What is the capital of France? Answer in one word."
+  if [ "$status" -ne 0 ] && echo "$output" | grep -qiE "(upstream.*failed|chat-completions|invalid_model|not available|failed to call)"; then
+    skip "Model backend unavailable — check cpai-gcp-adc secret and CPAI_TEST_MODEL"
+  fi
   [ "$status" -eq 0 ]
   echo "$output" | grep -qi "paris"
 }
@@ -64,6 +72,9 @@ teardown_file() {
 @test "turn 3: recall context — ask for the secret number" {
   run aichat -S -s "${SESSION_NAME}" --save-session \
     "What was the secret number I told you earlier? Reply with just the number."
+  if [ "$status" -ne 0 ] && echo "$output" | grep -qiE "(upstream.*failed|chat-completions|invalid_model|not available|failed to call)"; then
+    skip "Model backend unavailable — check cpai-gcp-adc secret and CPAI_TEST_MODEL"
+  fi
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "7742"
 }

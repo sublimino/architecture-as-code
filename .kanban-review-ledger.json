@@ -1791,5 +1791,12 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Phase 4 Preflight verified: adversarial test runner baseline 18/18 ceiling in redteam_ceiling.json passes, collector fixture generators verified, witness keys readable, cluster endpoints live, and acceptance test runner configured. Preflight proof recorded in docs/signalloom/sfas-p4-preflight-proof.md."
+  },
+  "1189a": {
+    "task_id": "1189a",
+    "reviewed_at": "2026-09-10T22:11:30Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "reason": "Certified 24/24 cascade adversarial cases caught, false-merge == 0 preserved, commit 315e5109"
   }
 }

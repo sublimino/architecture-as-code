@@ -22,6 +22,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
@@ -188,6 +189,22 @@ func main() {
 		identityStore = identity.NewGraphResolverStore(identity.NewMemoryRepository())
 	}
 
+	eventBus := identity.NewInProcessEventBus()
+	stunClient := identity.NewMockStunSentinelClient()
+	stunListener := identity.NewStunEventListener(identityStore.Repository(), eventBus, stunClient)
+	stunListener.SetOnRevoke(func(actorID string, timestamp time.Time) {
+		for _, a := range engine.GetActors() {
+			if a.ID == actorID || a.CanonicalID == actorID {
+				a.Status = model.ActorRevoked
+				a.UpdatedAt = timestamp
+			}
+		}
+	})
+
+	delegationReaper := identity.NewDelegationReaper(identityStore.Repository(), eventBus, identity.DefaultReaperInterval)
+	delegationReaper.Start(ctx)
+	defer delegationReaper.Stop()
+
 	fairFixtureSource := fair.NewFixtureSource(fair.DefaultFixtureCount)
 	fairService := fair.NewService(fairFixtureSource)
 
@@ -200,6 +217,8 @@ func main() {
 		CollectorHealth: collectorRegistry.Health,
 		IdentityStore:   identityStore,
 		FairService:     fairService,
+		StunClient:      stunClient,
+		EventBus:        eventBus,
 	}
 
 	mux := http.NewServeMux()
@@ -223,6 +242,7 @@ func main() {
 		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
 		_, _ = io.WriteString(w, fairService.Metrics.Render())
 		_, _ = io.WriteString(w, agentNonoMetrics.Render())
+		_, _ = io.WriteString(w, correlation.DefaultQuarantineMetrics().Render())
 	})
 
 	srv := &http.Server{

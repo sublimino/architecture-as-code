@@ -232,6 +232,78 @@ func (m *MemoryRepository) ClampDelegation(ctx context.Context, delegateOrAuthzR
 	return nil
 }
 
+// RevokeActiveDelegations terminates all active delegation edges originating from or terminating at
+// actorID as well as transitive descendant delegations, setting valid_to to clampTime.
+// It also updates the actor status to 'revoked' in memory.
+func (m *MemoryRepository) RevokeActiveDelegations(ctx context.Context, actorID string, timestamp time.Time) error {
+	if timestamp.IsZero() {
+		timestamp = time.Now().UTC()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	affectedDelegates := make(map[string]bool)
+	affectedDelegates[actorID] = true
+
+	changed := true
+	for changed {
+		changed = false
+		for _, d := range m.delegations {
+			if affectedDelegates[d.PrincipalActorID] && !affectedDelegates[d.DelegateActorID] {
+				affectedDelegates[d.DelegateActorID] = true
+				changed = true
+			}
+		}
+	}
+
+	for i := range m.delegations {
+		d := &m.delegations[i]
+		if (affectedDelegates[d.DelegateActorID] || affectedDelegates[d.PrincipalActorID]) && d.IsActiveAt(timestamp) {
+			clamp := timestamp
+			if !clamp.After(d.ValidFrom) {
+				clamp = d.ValidFrom.Add(time.Microsecond)
+			}
+			d.ValidTo = &clamp
+			d.Status = "revoked"
+			if d.Metadata == nil {
+				d.Metadata = make(map[string]any)
+			}
+			d.Metadata["status"] = "revoked"
+		}
+	}
+
+	if act, ok := m.actors[actorID]; ok {
+		act.Status = "revoked"
+		act.UpdatedAt = timestamp
+		m.actors[actorID] = act
+	}
+
+	return nil
+}
+
+// SweepExpiredDelegations marks past time-bounded delegations as expired.
+func (m *MemoryRepository) SweepExpiredDelegations(ctx context.Context, now time.Time) (int64, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var count int64
+	for i := range m.delegations {
+		d := &m.delegations[i]
+		if d.ValidTo != nil && (d.ValidTo.Before(now) || d.ValidTo.Equal(now)) && (d.Status == "" || d.Status == "active") {
+			d.Status = "expired"
+			if d.Metadata == nil {
+				d.Metadata = make(map[string]any)
+			}
+			d.Metadata["status"] = "expired"
+			count++
+		}
+	}
+	return count, nil
+}
+
 // GetDelegationsForDelegateAsOf returns active delegations where actor is the delegate at asOf.
 func (m *MemoryRepository) GetDelegationsForDelegateAsOf(ctx context.Context, delegateID string, asOf time.Time) ([]DelegationRecord, error) {
 	m.mu.RLock()

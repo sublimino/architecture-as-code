@@ -28,6 +28,9 @@ type ResolverStore interface {
 	// GetDelegationsAsOf returns active acts-on-behalf-of delegations for delegateID at asOf.
 	GetDelegationsAsOf(ctx context.Context, delegateID string, asOf time.Time) ([]DelegationEdge, error)
 
+	// RevokeActiveDelegations clamps active delegations and updates actor status to revoked.
+	RevokeActiveDelegations(ctx context.Context, actorID string, timestamp time.Time) error
+
 	// Repository returns the underlying graph Repository.
 	Repository() Repository
 }
@@ -182,4 +185,9 @@ func (s *GraphResolverStore) GetDelegationsAsOf(ctx context.Context, delegateID 
 		return nil, ErrZeroTimestamp
 	}
 	return TraceDelegationChainAsOf(ctx, s.repo, delegateID, asOf, 10)
+}
+
+// RevokeActiveDelegations clamps active delegations and updates actor status to revoked.
+func (s *GraphResolverStore) RevokeActiveDelegations(ctx context.Context, actorID string, timestamp time.Time) error {
+	return s.repo.RevokeActiveDelegations(ctx, actorID, timestamp)
 }

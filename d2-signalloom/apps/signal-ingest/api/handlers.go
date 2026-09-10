@@ -55,6 +55,12 @@ type Handlers struct {
 
 	// FairService evaluates quantitative OpenFAIR risk (CRKC Phase 2).
 	FairService *fair.Service
+
+	// StunClient connects to Stun Sentinel daemon to issue containment drops.
+	StunClient any
+
+	// EventBus provides internal pub/sub event dispatching.
+	EventBus any
 }
 
 // readyCheckTimeout bounds the /readyz connectivity check. It must stay under
@@ -80,6 +86,7 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/actors/{id}/promote", h.handlePromoteActor)
 	mux.HandleFunc("POST /api/v1/delegations", h.handleCreateDelegation)
 	mux.HandleFunc("POST /api/v1/delegations/clamp", h.handleClampDelegation)
+	mux.HandleFunc("POST /api/v1/delegations/revoke", h.handleRevokeDelegations)
 	mux.HandleFunc("DELETE /api/v1/delegations", h.handleClampDelegation)
 	mux.HandleFunc("GET /api/v1/coverage", handleCoverage)
 	mux.HandleFunc("POST /api/v1/correlate", h.handleCorrelate)

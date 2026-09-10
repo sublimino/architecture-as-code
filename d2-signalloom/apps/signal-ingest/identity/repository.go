@@ -35,6 +35,8 @@ type Repository interface {
 	GetDelegationsForPrincipalAsOf(ctx context.Context, principalID string, asOf time.Time) ([]DelegationRecord, error)
 	FindTransitiveDelegations(ctx context.Context, delegateID string, asOf time.Time, maxDepth int) ([]DelegationRecord, bool, error)
 	ClampDelegation(ctx context.Context, delegateOrAuthzRef string, clampTime time.Time) error
+	RevokeActiveDelegations(ctx context.Context, actorID string, timestamp time.Time) error
+	SweepExpiredDelegations(ctx context.Context, now time.Time) (int64, error)
 
 	GetActiveGraphForActorAsOf(ctx context.Context, actorID string, asOf time.Time) (*ActorGraphSnapshot, error)
 }
@@ -313,6 +315,75 @@ func (r *PostgresRepository) ClampDelegation(ctx context.Context, delegateOrAuth
 		return fmt.Errorf("failed to clamp delegation: %w", err)
 	}
 	return nil
+}
+
+// RevokeActiveDelegations terminates all active delegation edges originating from or terminating at
+// actorID as well as transitive descendant delegations, setting valid_to to clampTime.
+// It also updates the actor status to 'revoked' in an atomic transaction.
+func (r *PostgresRepository) RevokeActiveDelegations(ctx context.Context, actorID string, timestamp time.Time) error {
+	if timestamp.IsZero() {
+		timestamp = time.Now().UTC()
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	const qTree = `
+		WITH RECURSIVE del_tree AS (
+			SELECT id, delegate_actor_id, principal_actor_id, valid_from
+			FROM delegations
+			WHERE (delegate_actor_id = $1 OR principal_actor_id = $1)
+			  AND valid_from <= $2
+			  AND (valid_to IS NULL OR valid_to > $2)
+			UNION
+			SELECT d.id, d.delegate_actor_id, d.principal_actor_id, d.valid_from
+			FROM delegations d
+			JOIN del_tree dt ON d.principal_actor_id = dt.delegate_actor_id
+			WHERE d.valid_from <= $2
+			  AND (d.valid_to IS NULL OR d.valid_to > $2)
+		)
+		UPDATE delegations
+		   SET valid_to = CASE 
+				WHEN valid_from < $2 THEN $2 
+				ELSE valid_from + interval '1 microsecond' 
+			END,
+			status = 'revoked'
+		 WHERE id IN (SELECT id FROM del_tree)`
+
+	if _, err := tx.ExecContext(ctx, qTree, actorID, timestamp); err != nil {
+		return fmt.Errorf("failed to revoke delegation tree: %w", err)
+	}
+
+	const qActor = `
+		UPDATE actors
+		   SET status = 'revoked', updated_at = $2
+		 WHERE actor_id = $1`
+
+	if _, err := tx.ExecContext(ctx, qActor, actorID, timestamp); err != nil {
+		return fmt.Errorf("failed to update actor status: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// SweepExpiredDelegations marks past time-bounded delegations as expired.
+func (r *PostgresRepository) SweepExpiredDelegations(ctx context.Context, now time.Time) (int64, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	const q = `
+		UPDATE delegations
+		   SET status = 'expired'
+		 WHERE valid_to IS NOT NULL
+		   AND valid_to <= $1
+		   AND (status IS NULL OR status = 'active')`
+	res, err := r.db.ExecContext(ctx, q, now)
+	if err != nil {
+		return 0, fmt.Errorf("failed to sweep expired delegations: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // GetDelegationsForDelegateAsOf returns active delegations where actor is the delegate.

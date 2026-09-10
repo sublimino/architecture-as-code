@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
+import { login, config } from './helpers'
+
+const BASE = config.base
 
 test.describe('Signal Loom OpenBao & SPIRE Identity Audit Streamer', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, { demoMode: true })
+  })
+
   test('renders IdentityAuditPanel on Weave page with active leases and out-of-role filtering', async ({ page }) => {
     // Navigate to Weave dashboard
-    await page.goto('/weave')
+    await page.goto(`${BASE}/weave`)
 
     // 1. Verify IdentityAuditPanel presence
     const panel = page.getByTestId('identity-audit-panel')

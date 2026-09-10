@@ -28,7 +28,7 @@ tags:
   - osramp
 aliases:
   - "#proposal-2026-q3-signal-loom-first-user-and-agent-onboarding"
-updated: 2026-09-10T09:19
+updated: 2026-09-10T09:21
 shortcode: SLON
 ---
 # Proposal — Signal Loom First User and Agent Onboarding (2026-Q3)
@@ -229,7 +229,7 @@ Nono is an optional capability. Workloads instrumented for Nono must run a pre-e
 | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :--- |
 | SLON-P1-PRE | Preflight verification of repo base, Kind cluster, Envoy Gateway, and fe-signalloom build | | Preflight proof recorded in `docs/signalloom/slon-p1-preflight-proof.md`; base confirmed | S | antigravity | pass | | | | |
 | SLON-P1-1 | Wire onboarding API client to live database endpoints and eliminate mock mode fallback | SLON-P1-PRE | Vitest and Pytest asserting database roundtrips; skip/complete status survives reload | M | antigravity | pass — delivered: ad2fec79d26dc3445efd50bc37351663c7e91867 (see Errata — SLON-P1-1) | | | | |
-| SLON-P1-2 | Reorder dashboard left-hand sidebar navigation into View, Control, Design categories | SLON-P1-PRE | Vitest component tests and Playwright navigation test asserting route links | M | antigravity | | | | | |
+| SLON-P1-2 | Reorder dashboard left-hand sidebar navigation into View, Control, Design categories | SLON-P1-PRE | Vitest component tests and Playwright navigation test asserting route links | M | antigravity | pass — delivered: 26eef1b933655d0f6eb3427283b645e3db0dfc26 (see Errata — SLON-P1-2) | | | | |
 | SLON-P1-3 | Implement first user onboarding wizard flow with persistent organization setup and consent | SLON-P1-1, SLON-P1-2 | Playwright e2e onboarding spec passes verifying wizard flow and dashboard redirect | M | antigravity | | | | | |
 | SLON-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, run user onboarding verification suite | SLON-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | | | | | |
 | SLON-P2-PRE | Preflight verification of agent claim API, SPIFFE provider, and Nono optionality probe | SLON-P1-GOV | Preflight proof recorded in `docs/signalloom/slon-p2-preflight-proof.md` | S | antigravity | | | | | |
@@ -289,5 +289,17 @@ Nono is an optional capability. Workloads instrumented for Nono must run a pre-e
 **Deviations:** None. All changes conform strictly to SP-1 and zero-mock persistence invariants.  
 **Notes:** Vitest (157/157 test files, 3,093 tests) and Pytest (79 tests) suites pass 100%. Evidence recorded in `docs/signalloom/slon-p1-1-evidence.md`.  
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLON-P1-2 Reorder dashboard left-hand sidebar navigation into View, Control, Design categories
+**Created:** 2026-09-10 09:21:40+01:00  
+**Last Updated:** 2026-09-10 09:21:40+01:00  
+**Status:** Completed  
+**Commit:** 26eef1b933655d0f6eb3427283b645e3db0dfc26  
+**Governor merge:** [pending Governor reconciliation]  
+**Decisions:** Restructured `Sidebar.tsx` into strict SP-2 3-tier hierarchy (View: Overview, Agents, Topology, Activity, FAIR Risk; Control: Policies, Containment, Approvals, Audit Trail; Design: Workspaces, Connectors, Fleet Config, Settings). Added persistent anchors for Onboarding (`/onboarding`) and Help & Support. Implemented distinct SVG iconography per destination without collision. Added Playwright acceptance test suite `test/acceptance/navigation.spec.ts` and registered in `SPEC-REGISTRY.tsv`.  
+**Deviations:** None. All changes conform strictly to SP-2 and WCAG 2.5.3 accessibility invariants.  
+**Notes:** Vitest (156/156 test files, 3,088 tests passed; `Sidebar.test.tsx` 84/84 passed), production build (`✓ built in 5.75s`), and BATS spec registry test (7/7 passed) all 100% clean. Evidence recorded in `docs/signalloom/slon-p1-2-evidence.md`.  
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 
 

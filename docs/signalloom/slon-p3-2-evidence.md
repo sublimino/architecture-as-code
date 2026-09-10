@@ -380,6 +380,15 @@ as `XFAIL` on every run, so the finding is visible rather than filed away — an
 because `strict=True` makes an unexpected pass a failure, the suite goes red the
 moment somebody fixes it, forcing the marker to be removed alongside the fix.
 
+#### 5.2.1 Resolution by Programme Governor (Integration Branch)
+
+Following the recommendation above, the Programme Governor applied the fix to `integration/slon-v0.1.0`:
+1. `claim_agent_by_id` now enforces `principal: Annotated[Principal, Depends(authenticated_principal)]`.
+2. `tenant_id` field removed from `AgentClaimByIdRequest`.
+3. `test_unauthenticated_claim_by_id_is_refused` strict `xfail` marker removed; passes cleanly with status 401.
+4. `BODY_TENANT_FIELDS_OPEN_FINDINGS` updated to `set()`.
+5. Pytest adversarial suite: **90 passed, 0 xfailed, 0 failed** in 1.15s.
+
 **How it was found.** Not by the probe list — by ISC-14.1, the body-model sweep
 added in response to advisor review. ISC-14's original route walk inspects path
 and query parameters only, so a tenant-named field on a *request body* was

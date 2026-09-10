@@ -361,7 +361,6 @@ class AgentListResponse(BaseModel):
 class AgentClaimByIdRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    tenant_id: str | None = None
     pod_name: str | None = None
     namespace: str | None = None
     spiffe_id: str | None = None
@@ -4172,17 +4171,12 @@ async def release_agent_claim(
 @router.post("/agents/{agent_id}/claim", response_model=AgentClaimResponse, responses=ERROR_RESPONSES)
 async def claim_agent_by_id(
     agent_id: str,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     body: AgentClaimByIdRequest | None = None,
-    authorization: Annotated[str | None, Header()] = None,
 ) -> AgentClaimResponse:
     """One-click claim of a discovered agent by ID into Signal Loom governance."""
-    if authorization is not None:
-        principal = authenticated_principal(authorization)
-        tenant_id = principal.tenant
-        actor = principal.actor
-    else:
-        tenant_id = (body and body.tenant_id) or "tenant-demo"
-        actor = "operator"
+    tenant_id = principal.tenant
+    actor = principal.actor
 
     try:
         agent_res = await get_agent(agent_id=agent_id, tenant_id=tenant_id)

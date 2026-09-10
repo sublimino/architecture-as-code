@@ -311,13 +311,54 @@ export const WEAVE_ROUTES: Match[] = [
   },
   {
     method: 'GET',
-    test: re(/^\/signals\/authorization/),
-    data: () => ({
-      chains: Object.values(authorizationChains),
-      total: Object.keys(authorizationChains).length,
-      complete_count: Object.values(authorizationChains).filter((c) => c.complete).length,
-      kpi_fraction: 1.0,
-    }),
+    test: re(/^\/(?:api\/v1\/)?(?:signals\/)?authorization/),
+    data: (path: string) => {
+      const url = new URL(path, 'http://localhost')
+      const actionId = url.searchParams.get('action_id') || url.searchParams.get('action')
+      const actorId = url.searchParams.get('actor_id')
+      if (actionId) {
+        const found = authorizationChains[actionId] || Object.values(authorizationChains).find(c => c.action === actionId || c.action.includes(actionId) || c.actorId === actionId)
+        if (found) {
+          return {
+            chains: [found],
+            total: 1,
+            complete_count: found.complete ? 1 : 0,
+            kpi_fraction: 1.0,
+          }
+        }
+        // Synthesize dynamic 7-hop chain for this actionId
+        const dynamicChain: AuthorizationChain = {
+          action: actionId,
+          agentIdentity: actorId || 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/sa-order-agent',
+          actsOnBehalfOf: '[kagent-planner -> data-pipeline-agent, data-pipeline-agent -> order-executor] (authz: k8s-impersonation-policy)',
+          principal: 'secops@signal-loom.ai',
+          decision: 'authorized:evaluated',
+          confidence: 0.98,
+          evidenceRefs: [
+            `frostdb:seg-0x${actionId.replace(/[^a-f0-9]/gi, '').slice(0, 8) || '4a9b8f'}`,
+            `webhook:audit-log-0x${actionId.replace(/[^a-f0-9]/gi, '').slice(0, 8) || '88f2'}`,
+            'opa://decisions/2026-09-10/001',
+            'hubble://flows/2026-09-10/net-001',
+          ],
+          attestationGitoid: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          complete: true,
+          actorId: actorId || 'actor-dynamic',
+          canonicalId: actorId || 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/sa-order-agent',
+        }
+        return {
+          chains: [dynamicChain],
+          total: 1,
+          complete_count: 1,
+          kpi_fraction: 1.0,
+        }
+      }
+      return {
+        chains: Object.values(authorizationChains),
+        total: Object.keys(authorizationChains).length,
+        complete_count: Object.values(authorizationChains).filter((c) => c.complete).length,
+        kpi_fraction: 1.0,
+      }
+    },
   },
   { method: 'POST', test: re(/^\/signals\/actors\/[^/]+\/promote$/), data: () => ({ status: 'promoted' }) },
   { method: 'GET', test: re(/^\/signals\/coverage$/), data: () => coverage },

@@ -8,6 +8,7 @@
  * fakeData.ts via fakeWeaveData.ts's WEAVE_ROUTES export.
  */
 import { req } from './client'
+import type { DelegationRecord } from '../types/identity'
 
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
@@ -95,6 +96,11 @@ export interface AuthorizationChain {
   canonicalId?: string
   aliases?: string[]
   evidenceChain?: EvidenceLink[]
+  delegationChain?: DelegationRecord[]
+  cycleDetected?: boolean
+  cycle_detected?: boolean
+  has_cycle?: boolean
+  cycle_nodes?: string[]
   timestamp?: string
 }
 
@@ -154,10 +160,11 @@ export const weaveApi = {
   getActorAuthorization: (token: string, id: string, action?: string) =>
     req<AuthorizationChain>(`/signals/actors/${id}/authorization${action ? `?action=${encodeURIComponent(action)}` : ''}`, token),
 
-  getAuthorizationChains: async (token: string, params?: { actor_id?: string; action?: string }) => {
+  getAuthorizationChains: async (token: string, params?: { actor_id?: string; action?: string; action_id?: string }) => {
     const q = new URLSearchParams()
     if (params?.actor_id) q.set('actor_id', params.actor_id)
     if (params?.action) q.set('action', params.action)
+    if (params?.action_id) q.set('action_id', params.action_id)
     const qs = q.toString()
     return req<AuthorizationQueryResponse>(`/signals/authorization${qs ? `?${qs}` : ''}`, token)
   },

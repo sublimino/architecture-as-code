@@ -29,6 +29,56 @@ const mockCompleteChain: AuthorizationChain = {
   attestationGitoid: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
   complete: true,
   actorId: 'actor-shadow-llm-001',
+  delegationChain: [
+    {
+      id: 1,
+      delegate_actor_id: 'security-admin@controlplane.io',
+      principal_actor_id: 'security-admin@controlplane.io',
+      authz_ref: 'sso:saml:operator-claim',
+      valid_from: '2026-08-15T00:00:00Z',
+      role: 'Human Principal',
+      containment_evidenced: true,
+    },
+    {
+      id: 2,
+      delegate_actor_id: 'agent-planner-service',
+      principal_actor_id: 'security-admin@controlplane.io',
+      authz_ref: 'k8s-rbac:planner-role-binding',
+      valid_from: '2026-08-15T01:00:00Z',
+      role: 'Planner / Orchestrator',
+      containment_evidenced: true,
+      nono_containment: true,
+      spiffe_svid: 'spiffe://cluster.local/ns/fe-signalloom/sa/planner-sa',
+    },
+    {
+      id: 3,
+      delegate_actor_id: 'pipeline-data-bridge',
+      principal_actor_id: 'agent-planner-service',
+      authz_ref: 'jwt:openbao-scoped-delegation-token',
+      valid_from: '2026-08-15T01:30:00Z',
+      role: 'Pipeline Agent',
+      containment_evidenced: true,
+      nono_containment: true,
+      spiffe_svid: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/pipeline-bridge-sa',
+    },
+    {
+      id: 4,
+      delegate_actor_id: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa',
+      principal_actor_id: 'pipeline-data-bridge',
+      authz_ref: 'k8s-impersonation-policy:secret-access',
+      valid_from: '2026-08-15T02:00:00Z',
+      valid_to: null,
+      role: 'Executing Agent',
+      containment_evidenced: true,
+      nono_containment: true,
+      spiffe_svid: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-cardvault-sa',
+    },
+  ],
+}
+
+const mockCycleChain: AuthorizationChain = {
+  ...mockCompleteChain,
+  cycleDetected: true,
 }
 
 const mockIncompleteChain: AuthorizationChain = {
@@ -110,11 +160,11 @@ describe('WhoAuthorizedPanel', () => {
   })
 
   it('renders copy GitOID button and handles click', () => {
-    // Mock navigator.clipboard
-    Object.assign(navigator, {
-      clipboard: {
-        writeText: vi.fn().mockImplementation(() => Promise.resolve()),
-      },
+    const writeTextMock = vi.fn().mockImplementation(() => Promise.resolve())
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeTextMock },
+      configurable: true,
+      writable: true,
     })
 
     render(<WhoAuthorizedPanel chain={mockCompleteChain} />)
@@ -122,6 +172,14 @@ describe('WhoAuthorizedPanel', () => {
     expect(copyBtn).toBeInTheDocument()
     fireEvent.click(copyBtn)
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(mockCompleteChain.attestationGitoid)
+  })
+
+  it('renders Rekor attestation explorer link', () => {
+    render(<WhoAuthorizedPanel chain={mockCompleteChain} />)
+    const link = screen.getByTestId('rekor-explorer-link')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', expect.stringContaining(mockCompleteChain.attestationGitoid))
+    expect(link).toHaveAttribute('target', '_blank')
   })
 
   it('renders actor selector when available actors are provided', () => {
@@ -150,5 +208,62 @@ describe('WhoAuthorizedPanel', () => {
     const link = screen.getByTestId('hop-agent-identity-link')
     expect(link).toHaveAttribute('href', '/agents/agent-cardvault?tab=overview')
   })
-})
 
+  it('renders stepped multi-node delegation path with hierarchy chips', () => {
+    render(<WhoAuthorizedPanel chain={mockCompleteChain} />)
+    expect(screen.getByTestId('delegation-stepped-path')).toBeInTheDocument()
+
+    // 4 delegation hops rendered
+    expect(screen.getByTestId('delegation-node-0')).toBeInTheDocument()
+    expect(screen.getByTestId('delegation-node-1')).toBeInTheDocument()
+    expect(screen.getByTestId('delegation-node-2')).toBeInTheDocument()
+    expect(screen.getByTestId('delegation-node-3')).toBeInTheDocument()
+
+    // Roles and steps verified
+    expect(screen.getByTestId('delegation-node-step-0')).toHaveTextContent('Hop 1 / 4')
+    expect(screen.getByTestId('delegation-node-step-3')).toHaveTextContent('Hop 4 / 4')
+
+    // Landlock containment chip on nono-evidenced nodes
+    expect(screen.getByTestId('delegation-node-landlock-1')).toHaveTextContent('Landlock Enforced')
+    expect(screen.getByTestId('delegation-node-landlock-3')).toHaveTextContent('Landlock Enforced')
+  })
+
+  it('opens interactive drill-down modal on node click and closes on dismiss', () => {
+    render(<WhoAuthorizedPanel chain={mockCompleteChain} />)
+    const node1 = screen.getByTestId('delegation-node-1')
+
+    // Click node 1 (Planner)
+    fireEvent.click(node1)
+    expect(screen.getByTestId('delegation-drilldown-modal-1')).toBeInTheDocument()
+    expect(screen.getByTestId('modal-actor-id-1')).toHaveTextContent('agent-planner-service')
+    expect(screen.getByTestId('modal-spiffe-id-1')).toHaveTextContent('spiffe://cluster.local/ns/fe-signalloom/sa/planner-sa')
+    expect(screen.getByTestId('modal-authz-ref-1')).toHaveTextContent('k8s-rbac:planner-role-binding')
+    expect(screen.getByTestId('modal-containment-1')).toHaveTextContent('Verified active via agent-nono-evidenced')
+
+    // Close modal via close button
+    const closeBtn = screen.getByTestId('close-modal-1')
+    fireEvent.click(closeBtn)
+    expect(screen.queryByTestId('delegation-drilldown-modal-1')).not.toBeInTheDocument()
+  })
+
+  it('supports keyboard navigation (Enter key) on delegation nodes', () => {
+    render(<WhoAuthorizedPanel chain={mockCompleteChain} />)
+    const node2 = screen.getByTestId('delegation-node-2')
+
+    // Press Enter to open
+    fireEvent.keyDown(node2, { key: 'Enter', code: 'Enter' })
+    expect(screen.getByTestId('delegation-drilldown-modal-2')).toBeInTheDocument()
+
+    // Press Escape to close
+    fireEvent.keyDown(node2, { key: 'Escape', code: 'Escape' })
+    expect(screen.queryByTestId('delegation-drilldown-modal-2')).not.toBeInTheDocument()
+  })
+
+  it('renders prominent CycleDetectedWarning when cycleDetected is true', () => {
+    render(<WhoAuthorizedPanel chain={mockCycleChain} />)
+    const alert = screen.getByTestId('cycle-detected-warning')
+    expect(alert).toBeInTheDocument()
+    expect(screen.getByTestId('cycle-detected-badge')).toHaveTextContent('CYCLE BLOCKED')
+    expect(screen.getByTestId('cycle-detected-message')).toHaveTextContent(/circular delegation cycle detected/i)
+  })
+})

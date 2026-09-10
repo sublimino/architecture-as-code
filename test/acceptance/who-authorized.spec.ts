@@ -117,4 +117,27 @@ test.describe("Weave Who-Authorized Authorization Chain Query", () => {
       }
     }
   });
+
+  test("Agent Dossier Tab 2 (Identity & SPIFFE) embeds 7-hop attested authorization chain and stepped delegator hierarchy", async ({ page }) => {
+    await page.goto(`${BASE}/agents/agent-cardvault?tab=identity`);
+    await expect(page.getByTestId("dossier-panel-identity")).toBeVisible();
+
+    // Verify WhoAuthorizedPanel embedded in Tab 2
+    const panel = page.getByTestId("who-authorized-panel");
+    await expect(panel).toBeVisible();
+
+    // Verify 7-hop chain in Tab 2
+    await expect(page.getByTestId("hop-action")).toBeVisible();
+    await expect(page.getByTestId("hop-agent-identity")).toBeVisible();
+    await expect(page.getByTestId("hop-acts-on-behalf-of")).toBeVisible();
+    await expect(page.getByTestId("hop-principal")).toBeVisible();
+    await expect(page.getByTestId("hop-decision")).toBeVisible();
+    await expect(page.getByTestId("hop-confidence")).toBeVisible();
+    await expect(page.getByTestId("hop-attestation-gitoid")).toBeVisible();
+    await expect(page.getByTestId("chain-completeness-badge")).toBeVisible();
+
+    // Verify stepped multi-node delegator hierarchy
+    await expect(page.getByTestId("delegation-stepped-path")).toBeVisible();
+    await expect(page.getByTestId("delegation-node-0")).toBeVisible();
+  });
 });

@@ -28,7 +28,9 @@ setup() {
 
 # Prints "<resourceset> <declared-index> <actual-index>" per cosign patch.
 _index_report() {
-  python3 - "$repo_root" "$overlay" <<'PY'
+  local py
+  py="$(python3 -c "import yaml" >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
+  "$py" - "$repo_root" "$overlay" <<'PY'
 import re, sys, yaml, pathlib
 
 repo, overlay = sys.argv[1], sys.argv[2]

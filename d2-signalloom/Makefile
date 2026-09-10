@@ -1,6 +1,17 @@
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml
+GOCACHE ?= /tmp/gocache
+GOMODCACHE ?= /tmp/gomodcache
+CGO_ENABLED ?= 0
+HELM_CACHE_HOME ?= /tmp/helm/cache
+HELM_CONFIG_HOME ?= /tmp/helm/config
+HELM_DATA_HOME ?= /tmp/helm/data
+UV_CONFIG_FILE ?= /dev/null
+UV_CACHE_DIR ?= /tmp/uv-cache
+export KUBECONFIG GOCACHE GOMODCACHE CGO_ENABLED HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME UV_CONFIG_FILE UV_CACHE_DIR
+
 .PHONY: test test-netassert bootstrap-drift bao-test-config netassert-config-drift
 test: ## Validate the D2 topology, dependency components, and Discovery Portal package.
 	./test/validate-topology.sh

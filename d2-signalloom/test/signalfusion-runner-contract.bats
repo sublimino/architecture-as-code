@@ -62,6 +62,7 @@
 
 setup() {
 	repo_root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+	PYTHON="$(python3 -c "import yaml" >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
 	d2="$repo_root/d2-signalloom"
 	runner_deploy="$d2/apps/supercred-demo-runner/base/deployment.yaml"
 	runner_dockerfile="$d2/apps/supercred-demo-runner/Dockerfile"
@@ -319,7 +320,7 @@ signalfusion_default_script() {
 	#
 	# A route here would put the demo control plane on the internet beside the
 	# dashboard, bypassing the nginx block that forwards the bearer.
-	run python3 - "$d2" <<-'PY'
+	run "$PYTHON" - "$d2" <<-'PY'
 		import pathlib, sys, yaml
 
 		d2 = pathlib.Path(sys.argv[1])
@@ -406,7 +407,7 @@ signalfusion_default_script() {
 	sa="$(awk '/^[[:space:]]*serviceAccountName:/ { print $2; exit }' "$runner_deploy")"
 	[ -n "$sa" ]
 
-	run python3 - "$d2" "$sa" <<-'PY'
+	run "$PYTHON" - "$d2" "$sa" <<-'PY'
 		import pathlib, sys, yaml
 
 		d2, sa = pathlib.Path(sys.argv[1]), sys.argv[2]

@@ -30,9 +30,15 @@ EVIDENCE_DIR="${EVIDENCE_DIR:-docs/signalloom/evidence}"
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 CONTEXT="${CONTEXT:-d2-signalloom/apps/dashboard-signalloom}"
 
-SBOM_FILE="${EVIDENCE_DIR}/${WORKLOAD}.sbom.spdx.json"
-PROVENANCE_FILE="${EVIDENCE_DIR}/${WORKLOAD}.provenance.slsa.json"
-DIGEST_FILE="${EVIDENCE_DIR}/${WORKLOAD}.digest.txt"
+if [ "${WORKLOAD}" = "dashboard-signalloom" ]; then
+  SBOM_FILE="${EVIDENCE_DIR}/dashboard-signalloom.sbom.spdx.json"
+  PROVENANCE_FILE="${EVIDENCE_DIR}/dashboard-signalloom.provenance.slsa.json"
+  DIGEST_FILE="${EVIDENCE_DIR}/dashboard-signalloom.digest.txt"
+else
+  SBOM_FILE="${EVIDENCE_DIR}/${WORKLOAD}.sbom.spdx.json"
+  PROVENANCE_FILE="${EVIDENCE_DIR}/${WORKLOAD}.provenance.slsa.json"
+  DIGEST_FILE="${EVIDENCE_DIR}/${WORKLOAD}.digest.txt"
+fi
 
 test -f "${COSIGN_KEY}" || { echo "${COSIGN_KEY} not found; run 'make signing-keys' first"; exit 1; }
 test -d "${CONTEXT}" || { echo "${WORKLOAD} build context not found: ${CONTEXT}"; exit 1; }

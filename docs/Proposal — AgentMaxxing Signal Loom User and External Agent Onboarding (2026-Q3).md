@@ -35,7 +35,10 @@ shortcode: AMXO
 | Reviewer & Date | To be assigned |
 | Approver & Date | To be assigned |
 
-## Press Release
+## Future-State Press Release
+
+The following press release describes the intended state after acceptance. It
+does not describe the current implementation.
 
 **Signal Loom today onboarded AgentMaxxing Incorporated's first attributable
 operator and first externally hosted Linux agent, producing integrity-checked
@@ -83,17 +86,41 @@ extends safely beyond Kubernetes.
 
 ### In Scope Activities
 
-| Deliverable | Acceptance criteria | Validation method |
+| Deliverable | Atomic acceptance criterion | Validation method |
 | :--- | :--- | :--- |
-| Attributable user provisioning | One individually identified AgentMaxxing operator signs in; shared credentials are rejected; access removal prevents a later sign-in. | Identity-provider audit, browser test, and removal test. |
-| External agent registration | One external Linux agent record is tenant-bound before host enrollment; duplicate identity claims are rejected. | API contract and tenant-isolation tests. |
-| Nono runtime profile | The agent starts only through the approved nono 0.73.0 profile; unapproved filesystem access and network destinations are denied. | Seeded positive and negative execution probes. |
-| External-host enrollment | One-time enrollment produces an audit-only host identity bound to one tenant and one agent. | Enrollment, replay, and unenrollment tests. |
-| Finalized-session ingestion | Signal Loom idempotently accepts a finalized session only after its audit chain verifies. | Valid, duplicate, incomplete, and tampered-session tests. |
-| Process metadata sensor | Signal Loom records process health, CPU, memory usage, exit status, and restart count without reading process memory. | Host fixture and API integration tests. |
-| Bounded disk-artifact hashing | The sensor hashes only regular files created or changed inside approved writable roots. | Filesystem boundary test matrix. |
-| Evidence presentation | The agent timeline displays evidence source, timestamp, integrity state, and collection limit. | Browser assertions against seeded evidence. |
-| Operator documentation | The documentation describes onboarding, evidence boundaries, removal, and recovery. | Astro build and documentation BATS tests. |
+| Operator sign-in | One individually identified AgentMaxxing operator can sign in. | Identity-provider audit and browser sign-in test. |
+| Shared identity rejection | A shared operator identity cannot complete onboarding. | Negative identity-policy test. |
+| Operator removal | Removing the operator prevents a later sign-in. | Identity-removal integration test. |
+| Agent registration | One external Linux agent record is tenant-bound before enrollment. | API contract test. |
+| Duplicate agent claim | A duplicate external-agent identity claim is rejected. | Conflict and tenant-isolation test. |
+| Nono runtime | systemd starts the agent only through the approved nono 0.73.0 profile. | Service command-line and executable-digest test. |
+| Filesystem confinement | The nono profile denies one unapproved filesystem access. | Seeded filesystem-denial probe. |
+| Network confinement | The nono profile denies one unapproved network destination. | Seeded network-denial probe. |
+| Host credential scope | Enrollment produces an audit-only host credential. | Authorization-policy test. |
+| Host binding | The enrolled host identity binds to one tenant-bound agent. | Enrollment API integration test. |
+| Enrollment replay | Reusing the one-time enrollment token is rejected. | Token-replay test. |
+| Host revocation | Revoking host enrollment prevents a later upload. | Revocation integration test. |
+| Valid session ingestion | One finalized session is accepted after audit-chain verification. | Valid-session integration test. |
+| Duplicate session ingestion | Replaying an accepted session creates no duplicate evidence. | Idempotency integration test. |
+| Incomplete session rejection | An incomplete nono session is rejected. | Negative ingestion test. |
+| Tampered session rejection | A nono session with a broken audit chain is rejected. | Tamper fixture test. |
+| Process health | The host sensor records the process health state. | Host-sensor fixture test. |
+| CPU metadata | The host sensor records bounded CPU usage metadata. | Host-sensor fixture test. |
+| Memory metadata | The host sensor records usage totals without reading memory contents. | Host-sensor privacy test. |
+| Exit metadata | The host sensor records the process exit status. | Controlled-exit fixture test. |
+| Restart metadata | The host sensor records the systemd restart count. | Controlled-restart fixture test. |
+| Eligible artifact hash | One changed regular file beneath an approved writable root receives a digest. | Positive filesystem fixture. |
+| Symbolic-link rejection | A symbolic-link path produces no artifact digest. | Symbolic-link escape fixture. |
+| Hard-link rejection | A file with multiple hard links produces no artifact digest. | Hard-link escape fixture. |
+| Mount-crossing rejection | A path crossing the approved mount produces no artifact digest. | Bind-mount escape fixture. |
+| Non-regular rejection | A non-regular file produces no artifact digest. | Device, socket, pipe, and directory fixtures. |
+| Replacement-race rejection | A file changed during hashing produces no accepted digest. | Concurrent-replacement fixture. |
+| Evidence source | Each displayed evidence item names its collection source. | Browser assertion against seeded evidence. |
+| Evidence timestamp | Each displayed evidence item includes its observed timestamp. | Browser assertion against seeded evidence. |
+| Integrity state | Each displayed evidence item shows its integrity result. | Browser assertion against seeded evidence. |
+| Collection limit | Each displayed evidence item states its observation limit. | Browser assertion against seeded evidence. |
+| Operator documentation | The external-agent page builds without diagnostics. | Astro check and build. |
+| Evidence diagram | The external-agent evidence flow renders as an SVG. | Browser rendering assertion. |
 
 ### Evidence Contract
 
@@ -106,14 +133,20 @@ The additional host sensor can hash an individual disk artifact only when the
 artifact:
 
 1. was created or changed during the bounded observation window;
-2. remains beneath an approved writable root;
-3. is a regular file on the approved mount;
-4. has one hard link;
-5. retains the same device and inode before and after hashing; and
-6. remains within configured size and rate limits.
+2. opens descriptor-relative from a pinned approved-root descriptor;
+3. opens through `openat2()` using `RESOLVE_BENEATH`,
+   `RESOLVE_NO_SYMLINKS`, and `RESOLVE_NO_XDEV`;
+4. is a regular file on the approved mount;
+5. has one hard link;
+6. remains within configured size and rate limits; and
+7. retains the same inode, mount ID, link count, size, and mutation timestamps
+   before and after hashing.
 
-Signal Loom must reject symbolic links, hard-link escapes, mount crossings,
-non-regular files, and replacement races.
+The sensor must hash only through the validated descriptor. It must use `fstat`
+and `statx(STATX_MNT_ID)` before reading. It must repeat identity and mutation
+checks after reading, before accepting the digest. Signal Loom must reject
+symbolic links, hard-link escapes, mount crossings, non-regular files, and
+replacement races without first reading an escaped target.
 
 ### Privacy Boundary
 
@@ -161,7 +194,7 @@ unchanged, or compliant.
 | Tenant authorization | Derive tenant scope from authenticated identity. | Cross-tenant agent claim returns a denial. |
 | Host enrollment | Single-use token producing an audit-only credential. | Enrollment-token replay is rejected. |
 | Ingestion | Verify host binding and finalized audit-chain integrity. | Tampered or incomplete session is rejected. |
-| Filesystem | Pin the approved root and refuse unsafe file identities. | Symlink, hard-link, mount, and race fixtures are rejected. |
+| Filesystem | Use descriptor-relative `openat2()` beneath a pinned root; hash only the validated descriptor. | Symlink, hard-link, bind-mount, non-regular, and replacement fixtures are rejected before escaped bytes are read. |
 | Network | Allow only named destinations through the nono proxy. | One unapproved destination is blocked. |
 | Supply chain | Pin and verify the nono binary and host-sensor artifact. | Unapproved digest prevents service startup. |
 | Removal | Revoke operator and host identities independently. | Removed host cannot upload another session. |
@@ -207,13 +240,19 @@ gates close.
 - The registered agent starts only through the approved nono profile.
 - Signal Loom receives one verified session without manual import.
 - Process metadata appears on the correct tenant-bound agent timeline.
-- Changed disk-artifact hashes pass every filesystem boundary check.
+- A changed regular file inside the approved root receives a digest.
+- A symbolic-link path produces no digest.
+- A multiply linked file produces no digest.
+- A path crossing a bind mount produces no digest.
+- A non-regular file produces no digest.
+- A file replaced during hashing produces no accepted digest.
 - One filesystem denial appears as denied evidence.
 - One unapproved network destination is blocked.
 - Memory and streamed data appear as unobserved.
 - Revoking host enrollment prevents a later upload.
 - Removing the operator prevents a later sign-in.
-- The external-agent guide builds and renders its evidence diagram.
+- The external-agent guide builds without diagnostics.
+- The external-agent evidence diagram renders as an SVG.
 
 ## Decision Log
 

@@ -54,6 +54,47 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 
 	actor := h.Engine.GetActor(id)
 	if actor == nil {
+		if repo := h.resolveRepository(); repo != nil {
+			now := time.Now().UTC()
+			if snap, err := repo.GetActiveGraphForActorAsOf(r.Context(), id, now); err == nil && snap != nil {
+				actor = &model.ProvisionalActor{
+					ID:         snap.Actor.ActorID,
+					Status:     snap.Actor.Status,
+					Confidence: 0.85,
+					CreatedAt:  snap.Actor.CreatedAt,
+					UpdatedAt:  snap.Actor.UpdatedAt,
+				}
+				for _, al := range snap.Aliases {
+					actor.Aliases = append(actor.Aliases, al.AliasValue)
+				}
+				for _, d := range snap.DelegationsAsDelegate {
+					actor.Delegations = append(actor.Delegations, model.CorrelationEdge{
+						ID:       fmt.Sprintf("del-%d", d.ID),
+						Type:     model.EdgeActsOnBehalfOf,
+						Fidelity: model.FidelityDefinitive,
+						From:     model.TypedIdentifier{Scheme: "actor", Value: d.DelegateActorID},
+						To:       model.TypedIdentifier{Scheme: "actor", Value: d.PrincipalActorID},
+						Provenance: model.EdgeProvenance{
+							Source:        "identity_graph",
+							Rule:          "delegation_claim",
+							Authenticated: true,
+							Accepted:      true,
+							Timestamp:     d.ValidFrom,
+						},
+					})
+				}
+			} else if act, err := repo.GetActor(r.Context(), id); err == nil && act != nil {
+				actor = &model.ProvisionalActor{
+					ID:         act.ActorID,
+					Status:     act.Status,
+					Confidence: 0.85,
+					CreatedAt:  act.CreatedAt,
+					UpdatedAt:  act.UpdatedAt,
+				}
+			}
+		}
+	}
+	if actor == nil {
 		writeError(w, http.StatusNotFound, "actor not found")
 		return
 	}
@@ -165,8 +206,7 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 	var delegationChain []identity.DelegationRecord
 	cycleDetected := false
 
-	if h.IdentityStore != nil {
-		if repo, ok := h.IdentityStore.(identity.Repository); ok {
+	if repo := h.resolveRepository(); repo != nil {
 			now := time.Now().UTC()
 			if actor.ResolvedAt != nil && !actor.ResolvedAt.IsZero() {
 				now = *actor.ResolvedAt
@@ -222,7 +262,6 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 				}
 			}
 		}
-	}
 
 	// If actsOnBehalfOf is still empty, derive from principalID or evidence links
 	if actsOnBehalfOf == "" && principal != "" && !isSelfIdentity(principal, actor) {

@@ -31,10 +31,19 @@ import jwt
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
+
+try:
+    from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
+except ImportError:
+    try:
+        from .agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
+    except ImportError:
+        sync_claim_delegation_to_spine = None  # type: ignore
+        clamp_claim_delegation_in_spine = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -363,14 +372,23 @@ class AgentListResponse(BaseModel):
 class AgentClaimRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    pod_name: str
+    pod_name: str | None = None
     namespace: str = "fe-signalloom-agents"
-    spiffe_id: str
+    spiffe_id: str | None = None
     harness: str = "claude-code"
     model: str = "claude-3-5-sonnet"
     declared_tools: list[str] = Field(default_factory=list)
     token_budget_limit: int = 100000
     agent_id: str | None = None
+    operator_id: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    containment_claims: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_claim_identity(self) -> AgentClaimRequest:
+        if not self.pod_name and not self.agent_id and not self.operator_id:
+            raise ValueError("At least one of pod_name, agent_id, or operator_id is required")
+        return self
 
 
 class AgentClaimResponse(BaseModel):
@@ -3917,6 +3935,23 @@ async def _execute_claim(
             spiffe_id=body.spiffe_id,
         )
 
+    if sync_claim_delegation_to_spine is not None:
+        operator_actor = body.operator_id or principal_actor
+        await sync_claim_delegation_to_spine(
+            agent_id=agent_id,
+            operator_id=operator_actor,
+            claim_id=claim_id,
+            capabilities=body.capabilities,
+            containment_claims=body.containment_claims,
+            metadata={
+                "pod_name": body.pod_name,
+                "namespace": body.namespace,
+                "model": body.model,
+                "harness": body.harness,
+                "token_budget": allocated_budget,
+            },
+        )
+
     return AgentClaimResponse(
         claim_id=claim_id,
         status="granted",
@@ -4023,6 +4058,7 @@ async def release_agent_claim(
 ) -> dict[str, str]:
     """Release or revoke an active agent claim."""
     await _require_pool("Releasing an agent claim")
+    agent_id = None
     with _STORE_LOCK:
         claims = _CLAIMS.get(tenant_id, {})
         claim = claims.get(claim_id)
@@ -4030,6 +4066,11 @@ async def release_agent_claim(
             raise APIError(404, "not_found", f"Claim '{claim_id}' not found")
         claim["released_at"] = _now_iso()
         claim["status"] = "denied"
+        agent_id = claim.get("agent_id")
+
+    if agent_id and clamp_claim_delegation_in_spine is not None:
+        await clamp_claim_delegation_in_spine(agent_id=agent_id, claim_id=claim_id)
+
     return {"status": "released", "claim_id": claim_id}
 
 
@@ -4044,23 +4085,34 @@ async def claim_agent_by_id(
     await _require_pool("Claiming an agent by ID")
     try:
         agent_res = await get_agent(agent_id=agent_id, tenant_id=principal.tenant)
+        agent_name = agent_res.name
+        agent_ns = agent_res.namespace or "fe-signalloom-agents"
+        agent_model = agent_res.model_name or "claude-3-5-sonnet"
+        agent_uuid_str = agent_res.id
     except APIError as exc:
-        if exc.status_code == 404:
-            raise APIError(404, "not_found", f"Discovered agent '{agent_id}' not found") from None
-        raise
+        if exc.status_code == 404 and body is not None:
+            agent_name = body.pod_name or f"agent-{agent_id[:8]}"
+            agent_ns = body.namespace or "fe-signalloom-agents"
+            agent_model = body.model or "claude-3-5-sonnet"
+            agent_uuid_str = agent_id
+        else:
+            raise
 
     if body is None:
         body = AgentClaimRequest(
-            pod_name=agent_res.name,
-            namespace=agent_res.namespace or "fe-signalloom-agents",
-            spiffe_id=f"spiffe://cluster.local/ns/{agent_res.namespace or 'fe-signalloom-agents'}/sa/{agent_res.name}",
+            pod_name=agent_name,
+            namespace=agent_ns,
+            spiffe_id=f"spiffe://cluster.local/ns/{agent_ns}/sa/{agent_name}",
             harness="claude-code",
-            model=agent_res.model_name or "claude-3-5-sonnet",
+            model=agent_model,
             declared_tools=[],
             token_budget_limit=100000,
-            agent_id=agent_res.id,
+            agent_id=agent_uuid_str,
         )
-    return await _execute_claim(principal.tenant, principal.actor, body, agent_id_override=agent_res.id)
+    elif not body.pod_name:
+        body.pod_name = agent_name
+
+    return await _execute_claim(principal.tenant, principal.actor, body, agent_id_override=agent_uuid_str)
 
 
 @router.get("/agents/{agent_id}", response_model=AgentResponse, responses=ERROR_RESPONSES)

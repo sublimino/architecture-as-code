@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import csv
 import enum
 import hashlib
+import io
 import itertools
 import json
 import logging
@@ -5683,6 +5685,59 @@ async def audit(
             )
         )
     return AuditListResponse(events=events, total=total, page=page, limit=limit, source_health="healthy")
+
+
+@router.get("/audit/events.csv", response_class=Response, responses=ERROR_RESPONSES)
+async def audit_events_csv(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = None,
+    agent: str | None = None,
+    type: str | None = None,
+) -> Response:
+    """Export audit events as CSV with CSV formula injection protection."""
+    audit_res = await audit(
+        tenant_id=tenant_id,
+        page=1,
+        limit=10000,
+        from_=from_,
+        to=to,
+        agent=agent,
+        type=type,
+    )
+
+    def _sanitize_cell(val: Any) -> str:
+        s = "" if val is None else str(val)
+        if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+            return "'" + s
+        return s
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow([
+        "id", "timestamp", "event_type", "agent_id", "agent_name",
+        "actor", "authorizing_principal_id", "executing_actor_id",
+        "spiffe_id", "attribution_rationale"
+    ])
+    for ev in audit_res.events:
+        writer.writerow([
+            _sanitize_cell(ev.id),
+            _sanitize_cell(ev.timestamp),
+            _sanitize_cell(ev.event_type),
+            _sanitize_cell(ev.agent_id),
+            _sanitize_cell(ev.agent_name),
+            _sanitize_cell(ev.actor),
+            _sanitize_cell(ev.authorizing_principal_id),
+            _sanitize_cell(ev.executing_actor_id),
+            _sanitize_cell(ev.spiffe_id),
+            _sanitize_cell(ev.attribution_rationale),
+        ])
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="audit-events.csv"'},
+    )
 
 
 async def _iter_audit_stream(

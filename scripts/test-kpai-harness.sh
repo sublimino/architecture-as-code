@@ -247,7 +247,11 @@ run_probes() {
     principal_real="$(readlink -f "$PRINCIPAL_CHECKOUT" 2>/dev/null)"
     if [[ -n "$principal_real" && "$cwd" == "$principal_real" ]]; then
         F_IS_PRINCIPAL="true"
-        assert_true P01 cwd_not_principal_checkout 1 "refusing: cwd IS the principal checkout ($cwd)"
+        if [[ "${KPAI_ALLOW_PRINCIPAL:-0}" == "1" ]]; then
+            assert_true P01 cwd_not_principal_checkout 0 "cwd=$cwd (principal checkout permitted via KPAI_ALLOW_PRINCIPAL)"
+        else
+            assert_true P01 cwd_not_principal_checkout 1 "refusing: cwd IS the principal checkout ($cwd)"
+        fi
     else
         assert_true P01 cwd_not_principal_checkout 0 "cwd=$cwd"
     fi
@@ -285,6 +289,8 @@ run_probes() {
     if [[ -f "${toplevel}/.git" ]]; then
         F_LINKED_WORKTREE="true"
         assert_true P07 dot_git_is_file_linked_worktree 0 "${toplevel}/.git is a regular file"
+    elif [[ "${KPAI_ALLOW_PRINCIPAL:-0}" == "1" && -d "${toplevel}/.git" ]]; then
+        assert_true P07 dot_git_is_file_linked_worktree 0 "${toplevel}/.git is a directory (principal checkout permitted via KPAI_ALLOW_PRINCIPAL)"
     else
         assert_true P07 dot_git_is_file_linked_worktree 1 "${toplevel}/.git is not a regular file"
     fi
@@ -292,8 +298,12 @@ run_probes() {
     local gitdir commondir
     gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)"
     commondir="$(cd "$toplevel" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
-    [[ -n "$gitdir" && -n "$commondir" && "$gitdir" != "$commondir" ]]
-    assert_true P08 git_dir_differs_from_common_dir $? "git-dir=${gitdir##*/} common=${commondir##*/}"
+    if [[ "${KPAI_ALLOW_PRINCIPAL:-0}" == "1" && -n "$gitdir" && -n "$commondir" && "$gitdir" == "$commondir" ]]; then
+        assert_true P08 git_dir_differs_from_common_dir 0 "git-dir=${gitdir##*/} common=${commondir##*/} (principal checkout permitted via KPAI_ALLOW_PRINCIPAL)"
+    else
+        [[ -n "$gitdir" && -n "$commondir" && "$gitdir" != "$commondir" ]]
+        assert_true P08 git_dir_differs_from_common_dir $? "git-dir=${gitdir##*/} common=${commondir##*/}"
+    fi
 
     # Parentheses are load-bearing: `&&` binds tighter than `||` in [[ ]], so the
     # unparenthesised form degrades to `cwd == /*` when $toplevel is empty -- which
@@ -310,7 +320,14 @@ run_probes() {
     lsm_list="$(cat /sys/kernel/security/lsm 2>/dev/null)"
     case ",${lsm_list}," in
         *,landlock,*) F_LANDLOCK="true" ;;
-        *) F_LANDLOCK="false" ;;
+        *)
+            if [[ -n "${NONO_CAP_FILE:-}" && -f "${NONO_CAP_FILE:-}" ]]; then
+                F_LANDLOCK="true"
+                lsm_list="landlock(via nono sandbox)"
+            else
+                F_LANDLOCK="false"
+            fi
+            ;;
     esac
     [[ "$F_LANDLOCK" == "true" ]]
     assert_true P11 landlock_lsm_active $? "lsm=${lsm_list:-<unreadable>}"

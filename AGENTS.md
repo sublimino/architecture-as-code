@@ -31,7 +31,7 @@ each slice owns its namespaces, images, tests, and lifecycle.
 
 | Slice | Purpose | Deploy | AGENTS.md |
 |-------|---------|--------|-----------|
-| `d2-signalloom/` | Signal Loom agent governance platform (dashboard, API, identity, infra) | `make demo-signalloom-up` | `d2-signalloom/AGENTS.md` |
+| `d2-signalloom/` | Signal Loom agent governance platform (dashboard, docs, API, identity, infra) | `make demo-signalloom-up` | `d2-signalloom/AGENTS.md` |
 | `d2-osramp-apps/` | OSRAMP application services (archiver, listener, processor) | `make demo-osramp-up` | `d2-osramp-apps/AGENTS.md` |
 | `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `make demo-k8s-afm-up` | `d2-k8s-afm/AGENTS.md` |
 | `d2-osramp-fleet/` | Flux fleet definitions (clusters, tenants, ResourceSets) | `make up` (foundation) | `d2-osramp-fleet/AGENTS.md` |
@@ -41,12 +41,15 @@ each slice owns its namespaces, images, tests, and lifecycle.
 | `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | `olly-replica/README.md` |
 | `d2-kagent` (D5) | CNCF Kagent AI Agent framework (CRDs, declarative swarm, SPIFFE/OpenBao) | `make swarm-kagent-up` && `make demo-kagent-up` | `docs/kagent-d5.md` |
 
-Two services deploy outside the `-up` target of their slice:
+One optional service deploys outside the Signal Loom `-up` target:
 
 | Service | Deploy | Consumed by |
 |---------|--------|-------------|
-| Fleet Manager | `make demo-signalloom-fleet-up` (direct apply, not via Flux) | `/fleet` in dashboard, through nginx `/fleet-api/` |
 | `afm-platform` | `make demo-k8s-afm-up` (opt-in service) | `/rbac-analysis` and `/rbac-explorer`, plus nginx prefixes and API httpx call |
+
+`make demo-signalloom-up` deploys Fleet Manager through Flux. The target
+`make demo-signalloom-fleet-up` is a direct-apply test escape hatch. Do not use
+that target as the normal deployment path.
 
 The command `make demo-k8s-afm-up` builds its image from `$KUBESEC_AFM_ROOT`. The
 default path is the sibling of the repository root, `<repo>/../kubesec-afm`
@@ -82,7 +85,7 @@ make demo-agent-trust-up    # SPIFFE agent trust (requires inf-bao first)
 make demo-cpai-up           # CPAI runtime
 make swarm-kagent-up        # Kagent CRDs and Control Plane (D5)
 make demo-kagent-up         # Kagent Declarative Agents (D5)
-make demo-signalloom-fleet-up  # Fleet Manager (not in demo-signalloom-up)
+make demo-signalloom-fleet-up  # Fleet Manager direct-apply test escape hatch
 
 # 3. Check health
 make healthcheck            # check foundation readiness
@@ -112,12 +115,14 @@ warning events, Flux state, node metrics, and image-pull failures. Read
 
 ### Per-Slice Lifecycle Pattern
 
-Every slice follows this pattern:
+Most demonstration slices follow this pattern:
 ```bash
 make demo-<slice>-up        # Deploy
 make demo-<slice>-test      # Static + readiness checks
 make demo-<slice>-down      # Remove (keeps foundation)
 ```
+
+Foundation slices and Kagent use the explicit commands in the slice table.
 
 ## Shared Testing Commands
 
@@ -221,7 +226,7 @@ for the deployment checklist.
 
 ```
 osramp-demo/
-├── Makefile                 # 232 documented targets — `make help`
+├── Makefile                 # Run `make help` to list documented targets
 ├── AGENTS.md                # This file (shared foundation)
 ├── docs/README.md           # Documentation index — start here for anything else
 ├── d2-signalloom/DESIGN.md   # Visual design guide (dashboard SPA)
@@ -230,6 +235,7 @@ osramp-demo/
 ├── .cache/zot/              # Persistent Zot OCI cache (gitignored)
 │
 ├── d2-signalloom/           # Signal Loom slice → d2-signalloom/AGENTS.md
+│   └── apps/docs-signalloom/ # User documentation service at /docs
 ├── d2-osramp-apps/          # OSRAMP apps slice → d2-osramp-apps/AGENTS.md
 ├── d2-k8s-afm/              # KubeSec-AFM slice → d2-k8s-afm/AGENTS.md
 ├── d2-osramp-fleet/         # Flux fleet → d2-osramp-fleet/AGENTS.md

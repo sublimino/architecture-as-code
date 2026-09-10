@@ -675,6 +675,7 @@ run_stage \
      test/swarm-infra.bats test/triage-ci-worker.bats \
      test/workspace-identity-streaming.bats \
      test/worktree-landlock-confinement.bats \
+     test/wait-job.bats \
      test/admission-node-guard.bats test/baoaudit-p2-preflight.bats \
      test/baoaudit-preflight.bats test/cgroup-freeze-stun.bats \
      test/cloudaudit-e2e.bats test/cloudaudit-negative-mutations.bats \
@@ -1114,7 +1115,7 @@ run_stage \
   "stage8b-smoke.txt" \
   "cd ${WORK_DIR} && \
    PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
-   ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts"
+    ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts docs.spec.ts"
 
 # Write stage results JSON
 printf '%s\n' "${stage_results[@]}" | jq -s '.' > "${REPORT_DIR}/stages.json"

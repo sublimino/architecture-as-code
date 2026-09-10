@@ -52,10 +52,21 @@ const oidcConfig = {
 // the documented react-oidc-context SPA pattern — the library does not redirect
 // on its own, and relying on a route guard fails when a loading gate keeps the
 // guard unmounted. Mounted alongside the app so it always runs.
+const PUBLIC_PATHS = ['/redeem-invite', '/signup']
+
+export function isPublicRoute(pathname: string): boolean {
+  const clean = pathname.split('?')[0].split('#')[0].replace(/\/+$/, '') || '/'
+  return PUBLIC_PATHS.some((p) => clean === p || clean.startsWith(`${p}/`))
+}
+
 function AutoSignIn({ children }: Props) {
   const auth = useAuth()
   const triggered = useRef(false)
   useEffect(() => {
+    if (isPublicRoute(window.location.pathname)) {
+      return
+    }
+
     if (
       !triggered.current &&
       !hasAuthParams() &&

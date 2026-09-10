@@ -58,6 +58,7 @@ function run(args: string[]): RunResult {
   const proc = Bun.spawnSync({
     cmd: ["bash", SCRIPT_PATH, ...args],
     cwd: REPO_ROOT,
+    env: { ...process.env, KPAI_ALLOW_PRINCIPAL: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });

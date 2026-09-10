@@ -21,6 +21,14 @@ setup() {
   [[ "$output" == *"sectionName: https"* ]]
 }
 
+@test "Gateway routes share the dashboard hostname" {
+  for name in signalloom-dashboard signalloom-dex signalloom-api signalloom-docs; do
+    run yq -e "select(.kind == \"HTTPRoute\" and .metadata.name == \"$name\") | .spec.hostnames[0] == \"dashboard.\${CLUSTER_DOMAIN}\"" "$routes"
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+  done
+}
+
 @test "Gateway route package includes dashboard workload and gateway-only policies" {
   run kubectl kustomize "$repo_root/d2-signalloom/apps/fe-signalloom/local"
   [ "$status" -eq 0 ]

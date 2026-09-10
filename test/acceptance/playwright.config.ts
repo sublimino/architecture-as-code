@@ -9,7 +9,10 @@ const gatewayAddress = process.env.GATEWAY_ADDRESS ?? "127.0.0.1";
 // /opt/google/chrome/chrome and fail every project with EACCES before a single
 // assertion runs. PW_CHANNEL=chromium falls back to Playwright's bundled build,
 // which is enough for functional E2E; leave it unset to keep real Chrome.
-const CHANNEL = process.env.PW_CHANNEL ?? "chrome"
+const CHANNEL =
+  process.env.PW_CHANNEL === "chromium"
+    ? undefined
+    : (process.env.PW_CHANNEL ?? "chrome");
 
 export default defineConfig({
   testDir: ".",
@@ -44,7 +47,12 @@ export default defineConfig({
     // re-declares `launchOptions` REPLACES this rather than extending it. Do not
     // add a project-level `launchOptions` without repeating this argument.
     launchOptions: {
-      args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
+      args: [
+        `--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`,
+        "--use-gl=disabled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+      ],
     },
   },
   projects: [
@@ -230,7 +238,7 @@ export default defineConfig({
       // this project's contract. A spec that matches NO project is silently
       // skipped by Playwright — exit 0, no warning — so leaving it out would
       // reproduce the very blindness it was written to close.
-      testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts/,
+      testMatch: /smoke\.spec\.ts|docs\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         channel: CHANNEL,

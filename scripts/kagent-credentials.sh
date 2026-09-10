@@ -296,8 +296,8 @@ bao write auth/jwt/role/signalloom-agent-${agent} \\
   bound_audiences=openbao \\
   bound_subject=spiffe://${td}/${sp} \\
   user_claim=sub \\
-  token_ttl=15m \\
-  token_max_ttl=1h \\
+  token_ttl=5m \\
+  token_max_ttl=5m \\
   policies=signalloom-agent-${agent} >/dev/null
 echo 'seeded ${agent}'
 "

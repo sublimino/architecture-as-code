@@ -7,6 +7,8 @@ spec:
     - name: cluster
       namespace: ingress
       sectionName: https
+  hostnames:
+    - dashboard.${CLUSTER_DOMAIN}
   rules:
     - matches:
         - path:
@@ -25,6 +27,8 @@ spec:
     - name: cluster
       namespace: ingress
       sectionName: https
+  hostnames:
+    - dashboard.${CLUSTER_DOMAIN}
   rules:
     - matches:
         - path:
@@ -44,6 +48,8 @@ spec:
     - name: cluster
       namespace: ingress
       sectionName: https
+  hostnames:
+    - dashboard.${CLUSTER_DOMAIN}
   rules:
     - matches:
         - path:
@@ -52,3 +58,23 @@ spec:
       backendRefs:
         - name: fe-signalloom-api
           port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: signalloom-docs
+spec:
+  parentRefs:
+    - name: cluster
+      namespace: ingress
+      sectionName: https
+  hostnames:
+    - dashboard.${CLUSTER_DOMAIN}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /docs
+      backendRefs:
+        - name: docs-signalloom
+          port: 8080

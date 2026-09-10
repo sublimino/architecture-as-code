@@ -90,31 +90,31 @@ make test-signal-ingest
 
 ### Spec: Work Decomposition
 
-| Logical ID | Card Title | Phase | Assigned Agent | Size | Ceiling | Dependencies | Result / Metric Target |
-| --- |---|---|---|:---:|:---:|---|---|
-| P1-PRE | Phase 1 Pre-Flight & Baseline Audit | Phase 1 | `@agent-architect` | **S** | 0h 45m | None | **BLOCKED:** baseline suites and Phase 1 specifications are not dispatch-safe; see `docs/signalloom/sfagents-p1-preflight.md` at `255cdff4ac153de58c5f5d625bb4454d5e09b36f` |
-| P1-1 | Remediate Synthetic Events in Audit GET | Phase 1 | `@agent-backend` | **M** | 1h 30m | `SFAGENTS-P1-PRE` | pass — delivered: f3e806f79b7aafd8de75fcc64aa0fdadbb47a9b3 (see Errata — SFAGENTS-P1-1) |
-| P1-2 | Remediate Unknown Agent Detail Fallback | Phase 1 | `@agent-backend` | **M** | 1h 30m | `SFAGENTS-P1-PRE` | pass — delivered: 9034bacaf7a61d9c877865ee68cc75bd786fa1d8 (see Errata — SFAGENTS-P1-2) |
-| P1-3 | Error Handling & Scale Normalization | Phase 1 | `@agent-backend` | **M** | 1h 30m | `SFAGENTS-P1-1`, `SFAGENTS-P1-2` | `source_health` header emitted; posture scale normalized to 0.0-1.0 |
-| P1-4 | Enriched Inventory API Endpoint (`/api/agents`) | Phase 1 | `@agent-backend` | **L** | 2h 30m | `SFAGENTS-P1-3` | Discovery payload preserves namespace, SA, node, pod_uid, state |
-| P1-5 | Action Capabilities API (`/api/capabilities`) | Phase 1 | `@agent-backend` | **S** | 1h 00m | `SFAGENTS-P1-4` | Returns server-authorized capabilities per tenant & workload |
-| P1-6 | Operational Inventory Table & StatCards | Phase 1 | `@agent-frontend` | **L** | 3h 00m | `SFAGENTS-P1-4` | Redesigned 7-column table & 4 StatCards matching design spec |
-| P1-7 | Quick Evidence Side Drawer UI | Phase 1 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P1-6` | pass — delivered: dab53ffc4a16d7e26d1663ca812a911463bb02ce (see Errata — SFAGENTS-P1-7) |
-| P1-GOV | Phase 1 Governor Certification | Phase 1 | `@agent-architect` | **S** | 1h 00m | `SFAGENTS-P1-1`..`07` | pass — delivered: checkpoint/sfagents-p1-certified (see Errata — SFAGENTS-P1-GOV) |
-| P2-PRE | Phase 2 Pre-Flight & Gateway Check | Phase 2 | `@agent-architect` | **S** | 0h 45m | `SFAGENTS-P1-GOV` | Phase 1 integration verified; Phase 2 gateway ready |
-| P2-1 | Dossier Route & Tab 1 (Overview) | Phase 2 | `@agent-frontend` | **L** | 2h 30m | `SFAGENTS-P2-PRE` | `/agents/:id` route renders Tab 1 Overview summary grid |
-| P2-2 | Tab 2 (Identity) & SPIFFE Integration | Phase 2 | `@agent-security` | **L** | 3h 00m | `SFAGENTS-P2-1` | SPIFFE SVID mapping, cert expiry, & delegation chain rendered |
-| P2-3 | Tab 3 (Access & Containment Integration) | Phase 2 | `@agent-backend` | **L** | 3h 00m | `SFAGENTS-P2-1` | Independent containment tracks (cgroup, TC, SPIFFE CRL) rendered |
-| P2-4 | Tab 4 (Assessments & Control Ratios) | Phase 2 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P2-1` | Assessed control ratios & AI Act Article 9 breakdown rendered |
-| P2-5 | Tab 5 (Activity & Attributable Timeline) | Phase 2 | `@agent-backend` | **L** | 2h 30m | `SFAGENTS-P2-1` | Real-time SSE audit stream & attributable event timeline |
-| P2-6 | URL Deep-Link Engine & Secondary Filters | Phase 2 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P2-1`..`05` | 100% deep-linkable URL parameters (`?tab=identity&filter=...`) |
-| P2-GOV | Phase 2 Governor Certification | Phase 2 | `@agent-architect` | **S** | 1h 00m | `SFAGENTS-P2-1`..`06` | Merged Phase 2 into integration branch with 100% green tests |
-| P3-PRE | Phase 3 Pre-Flight & Telemetry Baseline | Phase 3 | `@agent-architect` | **S** | 0h 45m | `SFAGENTS-P2-GOV` | Telemetry pre-flight check for FrostDB & eBPF sentinel |
-| P3-1 | FrostDB Telemetry Correlation Integration | Phase 3 | `@agent-backend` | **L** | 3h 00m | `SFAGENTS-P3-PRE`, `SFAGENTS-P2-5` | FrostDB columnar signal store pushdown queries wired |
-| P3-2 | eBPF Sentinel & Stun Containment Feedback | Phase 3 | `@agent-security` | **L** | 2h 30m | `SFAGENTS-P3-PRE`, `SFAGENTS-P2-3` | eBPF Sentinel observation ACKs feeding containment tracks |
-| P3-3 | Vitest & BATS Acceptance Test Suite | Phase 3 | `@agent-security` | **L** | 3h 30m | `SFAGENTS-P3-1`, `SFAGENTS-P3-2` | All 15 acceptance criteria & zero-defect assertions green |
-| P3-4 | Live Authenticated Origin Verification | Phase 3 | `@agent-architect` | **M** | 1h 30m | `SFAGENTS-P3-3` | Live JWT-authenticated origin & proxy contract verified |
-| P3-GOV | Final Mission Governor Certification | Phase 3 | `@agent-architect` | **M** | 1h 30m | `SFAGENTS-P3-1`..`04` | Final programme sign-off & integration merge completed |
+| Logical ID | Card Title | Phase | Assigned Agent | Size | Ceiling | Dependencies | Result / Metric Target | Est. Cost | Tokens | Elapsed | AI URI |
+| --- | --- | --- | --- | :---: | :---: | --- | --- | :-------- | :----- | :------ | :--- |
+| P1-PRE | Phase 1 Pre-Flight & Baseline Audit | Phase 1 | `@agent-architect` | **S** | 0h 45m | None | **BLOCKED:** baseline suites and Phase 1 specifications are not dispatch-safe; see `docs/signalloom/sfagents-p1-preflight.md` at `255cdff4ac153de58c5f5d625bb4454d5e09b36f` | $0.00 | in 22.4M; out 96.2k; reason 45.7k; cache 17.3M | 1h07m41s | cpai://open?id=ses_f8846b0dcffeQbX4ryD7zVTxiF&dir=/home/andy/.cline/worktrees/ec6d4/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-1 | Remediate Synthetic Events in Audit GET | Phase 1 | `@agent-backend` | **M** | 1h 30m | `SFAGENTS-P1-PRE` | pass — delivered: f3e806f79b7aafd8de75fcc64aa0fdadbb47a9b3 (see Errata — SFAGENTS-P1-1) | $0.00 | in 53.7M; out 155.9k; reason 77.8k; cache 32.1M | 2h08m22s | cpai://open?id=ses_f87f1dd17ffe2wWt9amlO0qiqM&dir=/home/andy/.cline/worktrees/33007/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-2 | Remediate Unknown Agent Detail Fallback | Phase 1 | `@agent-backend` | **M** | 1h 30m | `SFAGENTS-P1-PRE` | pass — delivered: 9034bacaf7a61d9c877865ee68cc75bd786fa1d8 (see Errata — SFAGENTS-P1-2) | $0.00 | in 24.6M; out 58.0k; reason 31.3k; cache 10.6M | 53m29s | cpai://open?id=ses_f87f1d65fffesM31Ut7qn7rD9F&dir=/home/andy/.cline/worktrees/1cfc5/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-3 | Error Handling & Scale Normalization | Phase 1 | `@agent-backend` | **M** | 1h 30m | `SFAGENTS-P1-1`, `SFAGENTS-P1-2` | `source_health` header emitted; posture scale normalized to 0.0-1.0 | $0.00 | N/A — no session | N/A | agy://open?id=817e6&dir=/home/andy/.cline/worktrees/817e6/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-4 | Enriched Inventory API Endpoint (`/api/agents`) | Phase 1 | `@agent-backend` | **L** | 2h 30m | `SFAGENTS-P1-3` | Discovery payload preserves namespace, SA, node, pod_uid, state | $0.00 | N/A — no session | N/A | agy://open?id=b5526&dir=/home/andy/.cline/worktrees/b5526/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-5 | Action Capabilities API (`/api/capabilities`) | Phase 1 | `@agent-backend` | **S** | 1h 00m | `SFAGENTS-P1-4` | Returns server-authorized capabilities per tenant & workload | $0.00 | N/A — no session | N/A | agy://open?id=6b8ae&dir=/home/andy/.cline/worktrees/6b8ae/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-6 | Operational Inventory Table & StatCards | Phase 1 | `@agent-frontend` | **L** | 3h 00m | `SFAGENTS-P1-4` | Redesigned 7-column table & 4 StatCards matching design spec | $0.00 | N/A — no session | N/A | agy://open?id=50fa8&dir=/home/andy/.cline/worktrees/50fa8/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-7 | Quick Evidence Side Drawer UI | Phase 1 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P1-6` | pass — delivered: dab53ffc4a16d7e26d1663ca812a911463bb02ce (see Errata — SFAGENTS-P1-7) | $0.00 | N/A — subscription | 44s | agy://open?id=4d950&dir=/home/andy/.cline/worktrees/4d950/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-GOV | Phase 1 Governor Certification | Phase 1 | `@agent-architect` | **S** | 1h 00m | `SFAGENTS-P1-1`..`07` | pass — delivered: checkpoint/sfagents-p1-certified (see Errata — SFAGENTS-P1-GOV) | $0.00 | N/A — subscription | 5m46s | agy://open?id=fabc5&dir=/home/andy/.cline/worktrees/fabc5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-PRE | Phase 2 Pre-Flight & Gateway Check | Phase 2 | `@agent-architect` | **S** | 0h 45m | `SFAGENTS-P1-GOV` | Phase 1 integration verified; Phase 2 gateway ready | $0.00 | N/A — no session | N/A | agy://open?id=65cf7&dir=/home/andy/.cline/worktrees/65cf7/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-1 | Dossier Route & Tab 1 (Overview) | Phase 2 | `@agent-frontend` | **L** | 2h 30m | `SFAGENTS-P2-PRE` | `/agents/:id` route renders Tab 1 Overview summary grid | $0.00 | N/A — no session | N/A | agy://open?id=0eeda&dir=/home/andy/.cline/worktrees/0eeda/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-2 | Tab 2 (Identity) & SPIFFE Integration | Phase 2 | `@agent-security` | **L** | 3h 00m | `SFAGENTS-P2-1` | SPIFFE SVID mapping, cert expiry, & delegation chain rendered | $0.00 | N/A — no session | N/A | agy://open?id=72dc5&dir=/home/andy/.cline/worktrees/72dc5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-3 | Tab 3 (Access & Containment Integration) | Phase 2 | `@agent-backend` | **L** | 3h 00m | `SFAGENTS-P2-1` | Independent containment tracks (cgroup, TC, SPIFFE CRL) rendered | $0.00 | N/A — no session | N/A | agy://open?id=8477c&dir=/home/andy/.cline/worktrees/8477c/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-4 | Tab 4 (Assessments & Control Ratios) | Phase 2 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P2-1` | Assessed control ratios & AI Act Article 9 breakdown rendered | $0.00 | N/A — no session | N/A | agy://open?id=a76e5&dir=/home/andy/.cline/worktrees/a76e5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-5 | Tab 5 (Activity & Attributable Timeline) | Phase 2 | `@agent-backend` | **L** | 2h 30m | `SFAGENTS-P2-1` | Real-time SSE audit stream & attributable event timeline | $0.00 | N/A — no session | N/A | agy://open?id=9826c&dir=/home/andy/.cline/worktrees/9826c/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-6 | URL Deep-Link Engine & Secondary Filters | Phase 2 | `@agent-frontend` | **M** | 2h 00m | `SFAGENTS-P2-1`..`05` | 100% deep-linkable URL parameters (`?tab=identity&filter=...`) | $0.00 | N/A — no session | N/A | agy://open?id=ce658&dir=/home/andy/.cline/worktrees/ce658/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-GOV | Phase 2 Governor Certification | Phase 2 | `@agent-architect` | **S** | 1h 00m | `SFAGENTS-P2-1`..`06` | Merged Phase 2 into integration branch with 100% green tests | $0.00 | N/A — no session | N/A | agy://open?id=58ee0&dir=/home/andy/.cline/worktrees/58ee0/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P3-PRE | Phase 3 Pre-Flight & Telemetry Baseline | Phase 3 | `@agent-architect` | **S** | 0h 45m | `SFAGENTS-P2-GOV` | Telemetry pre-flight check for FrostDB & eBPF sentinel | $0.00 | N/A — no session | N/A | agy://open?id=0c512&dir=/home/andy/.cline/worktrees/0c512/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P3-1 | FrostDB Telemetry Correlation Integration | Phase 3 | `@agent-backend` | **L** | 3h 00m | `SFAGENTS-P3-PRE`, `SFAGENTS-P2-5` | FrostDB columnar signal store pushdown queries wired | $0.00 | N/A — subscription | 1h19m | agy://open?id=1b125&dir=/home/andy/.cline/worktrees/1b125/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P3-2 | eBPF Sentinel & Stun Containment Feedback | Phase 3 | `@agent-security` | **L** | 2h 30m | `SFAGENTS-P3-PRE`, `SFAGENTS-P2-3` | eBPF Sentinel observation ACKs feeding containment tracks | $0.00 | N/A — no session | N/A | agy://open?id=816d5&dir=/home/andy/.cline/worktrees/816d5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P3-3 | Vitest & BATS Acceptance Test Suite | Phase 3 | `@agent-security` | **L** | 3h 30m | `SFAGENTS-P3-1`, `SFAGENTS-P3-2` | All 15 acceptance criteria & zero-defect assertions green | $0.00 | N/A — no session | N/A | agy://open?id=724a5&dir=/home/andy/.cline/worktrees/724a5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P3-4 | Live Authenticated Origin Verification | Phase 3 | `@agent-architect` | **M** | 1h 30m | `SFAGENTS-P3-3` | Live JWT-authenticated origin & proxy contract verified | $0.00 | N/A — no session | N/A | agy://open?id=c6ec2&dir=/home/andy/.cline/worktrees/c6ec2/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P3-GOV | Final Mission Governor Certification | Phase 3 | `@agent-architect` | **M** | 1h 30m | `SFAGENTS-P3-1`..`04` | Final programme sign-off & integration merge completed | $0.00 | N/A — no session | N/A | agy://open?id=2c66c&dir=/home/andy/.cline/worktrees/2c66c/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 
 ---
 
@@ -175,7 +175,21 @@ make test-signal-ingest
 **Governor merge:** completed into integration/sfagents-v0.1.0  
 **Decisions:** All Phase 1 deliverables (P1-PRE baseline audit, P1-1 read-only audit GET, P1-2 404 agent detail fallback, P1-3 scale & error normalization, P1-4 enriched inventory API, P1-5 capabilities API, P1-6 operational inventory table, P1-7 quick evidence side drawer UI) integrated cleanly into integration/sfagents-v0.1.0 at commit dab53ffc. Tagged checkpoint/sfagents-p1-certified. All 22 BATS tests, 51 Pytest tests, 38 Vitest tests pass 100%. TypeScript typecheck and ESLint exit 0.  
 **Deviations:** None.  
-**Notes:** Phase 1 certified and ready for Phase 2 dispatch.  
+**Notes:** Phase 1 certified and ready for Phase 2 dispatch.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P1-PRE | $0.00 | in 22.4M; out 96.2k; reason 45.7k; cache 17.3M | 1h07m41s | cpai://open?id=ses_f8846b0dcffeQbX4ryD7zVTxiF&dir=/home/andy/.cline/worktrees/ec6d4/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-1 | $0.00 | in 53.7M; out 155.9k; reason 77.8k; cache 32.1M | 2h08m22s | cpai://open?id=ses_f87f1dd17ffe2wWt9amlO0qiqM&dir=/home/andy/.cline/worktrees/33007/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-2 | $0.00 | in 24.6M; out 58.0k; reason 31.3k; cache 10.6M | 53m29s | cpai://open?id=ses_f87f1d65fffesM31Ut7qn7rD9F&dir=/home/andy/.cline/worktrees/1cfc5/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-3 | $0.00 | N/A — no session | N/A | agy://open?id=817e6&dir=/home/andy/.cline/worktrees/817e6/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-4 | $0.00 | N/A — no session | N/A | agy://open?id=b5526&dir=/home/andy/.cline/worktrees/b5526/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-5 | $0.00 | N/A — no session | N/A | agy://open?id=6b8ae&dir=/home/andy/.cline/worktrees/6b8ae/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-6 | $0.00 | N/A — no session | N/A | agy://open?id=50fa8&dir=/home/andy/.cline/worktrees/50fa8/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-7 | $0.00 | N/A — subscription | 44s | agy://open?id=4d950&dir=/home/andy/.cline/worktrees/4d950/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P1-GOV | $0.00 | N/A — subscription | 5m46s | agy://open?id=fabc5&dir=/home/andy/.cline/worktrees/fabc5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+  
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 #### Errata — SFAGENTS-P3-1 FrostDB Telemetry Correlation Integration

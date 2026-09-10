@@ -45,11 +45,11 @@ export default function ProviderConfigureStep({
         {provider.wizard_config.help_text}{' '}
         {provider.wizard_config.docs_link.startsWith('/') ? (
           <Link to={provider.wizard_config.docs_link}>View setup docs</Link>
-        ) : (
+        ) : /^https?:\/\//i.test(provider.wizard_config.docs_link) ? (
           <a href={provider.wizard_config.docs_link} target="_blank" rel="noreferrer">
             View setup docs
           </a>
-        )}
+        ) : null}
       </p>
 
       {provider.wizard_config.permissions.length > 0 && (

@@ -15,7 +15,7 @@ vulnerabilities from their supply chains. Security scanners output many CVE find
 Most findings cannot be exploited in context.
 
 OSRAMP provides:
-- SBOMs for every image.
+- SBOM attestations for images published by the image workflow.
 - Signed attestations for each pipeline step.
 - OpenVEX documents to record triage decisions once and share them across teams.
 - Policy gates that permit promotion based on verified evidence.
@@ -145,6 +145,7 @@ Local mode keeps this model intact without GitHub:
 | `d2-infra/` | Infrastructure directory: cluster add-ons (cert-manager, Envoy Gateway, monitoring stack). |
 | `d2-osramp-fleet/` | Platform directory: cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), and Terraform bootstrap (`terraform/`). |
 | `d2-signalloom/` | Signal Loom slice: dashboard SPA, FastAPI backend, and identity plane (`infra/inf-bao`: OpenBao and SPIRE). See [d2-signalloom/AGENTS.md](d2-signalloom/AGENTS.md). |
+| `d2-signalloom/apps/docs-signalloom/` | User documentation service: Astro Starlight site served from a separate container at `/docs`. |
 | `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy (A2A identity, OpenBao JWT roles, NetworkPolicies). See [d2-agent-trust/AGENTS.md](d2-agent-trust/AGENTS.md). |
 | `olly-replica/` | Olly Sentinel replica tenant: data plane manifests, contracts, seed data, and eval harness. See [olly-replica/README.md](olly-replica/README.md). |
 | `docs/system-map/` | Interactive system map. 28 services with control, data, and identity paths. Run `python3 -m http.server 8901 -d docs/system-map` to view. |
@@ -172,7 +173,7 @@ Local mode keeps this model intact without GitHub:
 | cosign + openssl | signing artifacts and generating the witness key |
 | jq + bats-core | scripts and the end-to-end test suite |
 | syft, grype, govulncheck, vexctl, witness, crane | the VEX triage demo and attested evidence |
-| Go 1.23 | the interactive console (`make console`) |
+| Go 1.24.5 | the interactive console (`make console`) |
 | nono + claude CLI (optional, Linux) | the Phase 4 agent demo only |
 
 You do not install these by hand: `./scripts/setup.sh` installs everything except Docker (and the optional agent tools) at pinned versions, skipping whatever is already present. On Windows, run everything from WSL2 or Git Bash; the Makefiles assume a POSIX shell.
@@ -339,9 +340,9 @@ The CI pipeline runs in GitHub Actions. Monorepo root workflows include:
 | Workflow | Trigger | Description |
 | --- | --- | --- |
 | `e2e-local` | Manual (`workflow_dispatch`) | Runs foundation setup, attested tests, and the VEX demo in a CI Kind cluster. |
-| `push-artifacts` | Push to `main` | Packages fleet, infra, and apps manifests as OCI artifacts with Cosign signatures. |
-| `push-images` | Push to `d2-osramp-apps/apps/` | Builds multi-arch container images with SBOMs and provenance. |
-| `release-artifacts` | Tag `v*` | Publishes versioned artifacts and updates the `latest-stable` pointer. |
+| `push-artifacts` | Manual (`workflow_dispatch`) | Packages fleet, infra, and apps manifests as OCI artifacts with Cosign signatures. |
+| `push-images` | Manual (`workflow_dispatch`) | Builds multi-arch container images with SBOMs and provenance. |
+| `release-artifacts` | Manual (`workflow_dispatch`) | Publishes versioned artifacts and updates the `latest-stable` pointer. |
 | `reusable-witness-step` | `workflow_call` | Runs commands under `witness run` to record signed evidence. |
 
 ## Current State and Roadmap

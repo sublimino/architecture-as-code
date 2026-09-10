@@ -1,0 +1,66 @@
+---
+title: Stun or unstun an agent
+description: Suspend an agent, inspect evidence, and restore the demonstration workload.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Stunning is a containment action. It can freeze a process, isolate network
+traffic, and revoke credentials. Use it only on an authorised demonstration
+agent.
+
+<Mermaid
+  label="Agent stun and recovery sequence"
+  diagram={`sequenceDiagram
+    actor Operator
+    participant UI as Signal Loom
+    participant API
+    participant Agent
+    Operator->>UI: Select Stun Agent
+    UI->>API: POST /api/agents/{id}/stun
+    API->>Agent: Apply containment
+    Agent-->>API: Report stunned evidence
+    Operator->>Agent: Apply authorised active labels
+    Agent-->>API: Report unstun evidence`}
+/>
+
+## Stun an agent
+
+:::caution
+The current endpoint requires authentication only. The capability response says
+that containment is superadmin-only, but the endpoint does not enforce that
+claim. Do not expose this demonstration endpoint as a production control.
+:::
+
+1. Open the **SuperCredential** page.
+2. Find the target demonstration agent.
+3. Select **Stun Agent**.
+4. Confirm the action.
+5. Check the agent state.
+6. Check the evidence timeline.
+
+The current control calls `POST /api/agents/{id}/stun`.
+
+## Unstun an agent
+
+The dashboard does not have a generic unstun control. A cluster administrator
+can restore the demonstration Pod labels:
+
+```bash
+kubectl label pod -n fe-signalloom-agents <pod-name> \
+  signalloom.ai/state=active \
+  signalloom.io/stunned=false \
+  signalloom.io/containment-mode=none \
+  --field-manager=flux-client-side-apply --overwrite
+```
+
+The stun sentinel then releases probes, removes traffic filters, unfreezes the
+cgroup, and records an `unstun` event.
+
+## Check recovery
+
+1. Check that the Pod becomes ready.
+2. Check that agent traffic resumes.
+3. Check that the audit stream contains an `unstun` event.
+
+The generic authenticated unstun API and dashboard control are roadmap items.

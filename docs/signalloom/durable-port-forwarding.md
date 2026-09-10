@@ -42,7 +42,9 @@ To eliminate broken developer and browser connections, Signal Loom provides a pe
 
 ## 2. Unit Configuration
 
-The canonical service unit definition is tracked in the repository at [`d2-signalloom/infra/systemd/signalloom-portforward.service`](file:///home/andy/src/.worktrees/38c06/osramp-demo/d2-signalloom/infra/systemd/signalloom-portforward.service) and installed into `~/.config/systemd/user/signalloom-portforward.service`:
+The canonical service unit definition is tracked at
+[`d2-signalloom/infra/systemd/signalloom-portforward.service`](../../d2-signalloom/infra/systemd/signalloom-portforward.service).
+The installer copies it to `~/.config/systemd/user/signalloom-portforward.service`.
 
 ```ini
 [Unit]
@@ -81,7 +83,8 @@ WantedBy=default.target
 
 ## 3. Lifecycle Management
 
-The [`scripts/manage-portforward-service.sh`](file:///home/andy/src/.worktrees/38c06/osramp-demo/scripts/manage-portforward-service.sh) script provides comprehensive lifecycle control:
+The [`scripts/manage-portforward-service.sh`](../../scripts/manage-portforward-service.sh)
+script provides the lifecycle commands:
 
 | Command | Action |
 |---|---|
@@ -133,13 +136,16 @@ systemctl --user daemon-reload && systemctl --user restart signalloom-portforwar
 
 ## 5. Automated Verification & Resilience Testing
 
-The automated test suite [`scripts/verify-portforward-service.sh`](file:///home/andy/src/.worktrees/38c06/osramp-demo/scripts/verify-portforward-service.sh) validates the service against simulated failures:
+The automated test suite
+[`scripts/verify-portforward-service.sh`](../../scripts/verify-portforward-service.sh)
+validates the service against simulated failures:
 
 1. **Active State Verification**: Asserts `systemctl --user is-active signalloom-portforward.service` is `active (running)`.
 2. **HTTP Baseline Probe**: Validates `curl -I http://localhost:5173` returns `HTTP 200 OK`.
 3. **Pod Deletion Chaos Test**: Simulates pod failure by forcefully deleting the active `dashboard-signalloom` pod.
 4. **Auto-Recovery Measurement**: Tracks recovery latency until the new pod is running and `http://localhost:5173` resumes returning HTTP 200 (typical latency: ~3.5–4.5s).
-5. **Evidence Artifact Generation**: Writes structured JSON proof to [`docs/signalloom/evidence/portforward-service-proof.json`](file:///home/andy/src/.worktrees/38c06/osramp-demo/docs/signalloom/evidence/portforward-service-proof.json).
+5. **Evidence Artifact Generation**: Writes structured JSON proof to
+   [`docs/signalloom/evidence/portforward-service-proof.json`](evidence/portforward-service-proof.json).
 
 Run verification with:
 ```bash

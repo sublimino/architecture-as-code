@@ -28,9 +28,38 @@ setup() {
 }
 
 teardown() {
-  # Clean up any test pods created in tests
-  kubectl -n "${NS}" delete pod test-agent-valid test-agent-stunned test-agent-ephemeral --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  # Clean up ephemeral pods and test rolebindings per test
+  kubectl -n "${NS}" delete pod test-agent-valid test-agent-ephemeral --ignore-not-found --wait=false >/dev/null 2>&1 || true
   kubectl -n "${NS}" delete rolebinding test-swarm-gov-rb --ignore-not-found >/dev/null 2>&1 || true
+}
+
+teardown_file() {
+  kubectl -n "fe-signalloom-agents" delete pod test-agent-valid test-agent-stunned test-agent-ephemeral --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl -n "fe-signalloom-agents" delete rolebinding test-swarm-gov-rb --ignore-not-found >/dev/null 2>&1 || true
+}
+
+ensure_stunned_pod() {
+  if ! kubectl get pod test-agent-stunned -n "${NS}" >/dev/null 2>&1; then
+    kubectl apply -n "${NS}" -f - <<'POD_EOF' >/dev/null 2>&1
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-agent-stunned
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/framework: "custom"
+    signalloom.ai/state: "stunned"
+spec:
+  containers:
+    - name: agent
+      image: ghcr.io/stefanprodan/podinfo:6.7.1
+POD_EOF
+  else
+    kubectl patch pod test-agent-stunned -n "${NS}" \
+      --type=merge \
+      -p '{"metadata":{"labels":{"signalloom.ai/state":"stunned"}}}' >/dev/null 2>&1 || true
+  fi
 }
 
 # Helper to assert a subject exists and is refused via auth can-i
@@ -182,24 +211,7 @@ POD_EOF
 }
 
 @test "cel-policy: unauthorized removal of signalloom.ai/state=stunned is rejected (HTTP 403 / Forbidden)" {
-  # Ensure test stunned pod exists
-  kubectl get pod test-agent-stunned -n "${NS}" >/dev/null 2>&1 || {
-    kubectl apply -n "${NS}" -f - <<'POD_EOF'
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-agent-stunned
-  namespace: fe-signalloom-agents
-  labels:
-    signalloom.ai/agent: "true"
-    signalloom.ai/framework: "custom"
-    signalloom.ai/state: "stunned"
-spec:
-  containers:
-    - name: agent
-      image: ghcr.io/stefanprodan/podinfo:6.7.1
-POD_EOF
-  }
+  ensure_stunned_pod
 
   # Attempt removal of stunned label as unauthorized service account
   run kubectl patch pod test-agent-stunned -n "${NS}" \
@@ -216,6 +228,8 @@ POD_EOF
 }
 
 @test "cel-policy: unauthorized mutation of signalloom.ai/state=stunned to idle is rejected" {
+  ensure_stunned_pod
+
   run kubectl patch pod test-agent-stunned -n "${NS}" \
     --as="system:serviceaccount:fe-signalloom:supercred-demo-runner" \
     --type=merge \
@@ -227,6 +241,8 @@ POD_EOF
 }
 
 @test "cel-policy: unprivileged metadata updates preserving signalloom.ai/state=stunned succeed" {
+  ensure_stunned_pod
+
   run kubectl patch pod test-agent-stunned -n "${NS}" \
     --as="system:serviceaccount:fe-signalloom:supercred-demo-runner" \
     --type=merge \
@@ -237,6 +253,8 @@ POD_EOF
 }
 
 @test "cel-policy: authorized un-stunning by Swarm Governor succeeds" {
+  ensure_stunned_pod
+
   # Bind supercred-demo-runner role to swarm-governor temporarily for test
   kubectl create rolebinding test-swarm-gov-rb \
     --role=supercred-demo-runner \
@@ -259,6 +277,8 @@ POD_EOF
 }
 
 @test "cel-policy: authorized un-stunning by cluster admin succeeds" {
+  ensure_stunned_pod
+
   run kubectl patch pod test-agent-stunned -n "${NS}" \
     --type=merge \
     -p '{"metadata":{"labels":{"signalloom.ai/state":"idle"}}}'

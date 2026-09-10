@@ -14,17 +14,8 @@ is the single source of truth for test locations. The CI check
 [`test/acceptance-spec-coverage.bats`](test/acceptance-spec-coverage.bats) verifies
 the registry against `playwright.config.ts`, the `Makefile`, and `scripts/ci/vm-pipeline.sh`.
 
-Current spec assignments (from `SPEC-REGISTRY.tsv`):
-
-| Location | Specs |
-| --- | --- |
-| CI stage 8 | `signalloom-test-1.spec.ts` |
-| CI stage 8b | `smoke.spec.ts`, `live-data.spec.ts` |
-| `make demo-signalloom-supercred-two-window` | `supercred-two-window.spec.ts` |
-| `make demo-signalloom-supercred-stream` | `supercred-log-streaming.spec.ts` |
-| `make demo-signalloom-supercred-stream-harness` | `supercred-log-streaming-harness.spec.ts` |
-| `make acceptance-test` only | `afm-frontend`, `afm-integration`, `credential-lifecycle`, `rbac-analysis`, `rbac-explorer`, `signalloom-login`, `supercred-evidence-lifecycle`, `supercred-ui-lifecycle` |
-| Unwired (matches no project) | `cluster.spec.ts`, `dashboard-journey.spec.ts`, `supercred-live-pages.spec.ts`, `supercred-page.spec.ts` |
+Read `SPEC-REGISTRY.tsv` for current spec assignments. Do not copy its rows into
+this guide. The coverage check makes registry drift fail CI; copied prose cannot.
 
 Playwright gives no warning when no project claims a spec. It reports a lower total and exits 0.
 Always link new specs to a Playwright project.

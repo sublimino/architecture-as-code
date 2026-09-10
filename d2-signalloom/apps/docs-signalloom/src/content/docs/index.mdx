@@ -1,0 +1,53 @@
+---
+title: Signal Loom documentation
+description: Start here to deploy, evaluate, and operate Signal Loom.
+template: splash
+hero:
+  title: Govern agents through evidence
+  tagline: Use verified workflows to onboard agents, control risk, and inspect governance evidence.
+  actions:
+    - text: Start the platform
+      link: /docs/start/quick-start/
+      icon: right-arrow
+      variant: primary
+    - text: Onboard an agent
+      link: /docs/start/first-agent/
+      icon: add-document
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+import Mermaid from "../../components/Mermaid.astro";
+
+Signal Loom is an agent governance demonstration platform. It combines identity,
+credentials, policy evidence, agent inventory, and containment demonstrations.
+
+<CardGrid>
+  <Card title="Evaluate the platform" icon="open-book">
+    Follow the [quick start](/docs/start/quick-start/) and inspect the current limits.
+  </Card>
+  <Card title="Operate an agent" icon="setting">
+    [Register an agent](/docs/start/first-agent/) before you test lifecycle controls.
+  </Card>
+  <Card title="Run a demonstration" icon="rocket">
+    Use the [superadmin guide](/docs/demos/superadmin/) for repeatable demo phases.
+  </Card>
+  <Card title="Choose your workflow" icon="user">
+    Start from the role guide that matches your responsibility.
+  </Card>
+</CardGrid>
+
+<Mermaid
+  label="Signal Loom evidence flow"
+  diagram={`flowchart LR
+    A[Agent identity] --> B[Policy evaluation]
+    B --> C[Credential decision]
+    C --> D[Runtime action]
+    D --> E[Audit evidence]
+    E --> B`}
+/>
+
+## Before you continue
+
+This site distinguishes current behaviour from planned behaviour. Read
+[Current limits and roadmap](/docs/reference/roadmap/) before you use a demo as
+evidence of production authorization enforcement.

@@ -81,6 +81,9 @@ func (f *cgroupFreezer) resolvePodCgroup(podUID string) (string, error) {
 		return nil
 	})
 	if err != nil {
+		if f.dryRun {
+			return filepath.Join(f.cgroupRoot, "kubepods.slice", "kubepods-burstable-pod"+strings.ReplaceAll(podUID, "-", "_")+".slice"), nil
+		}
 		return "", fmt.Errorf("search cgroups under %s: %w", f.cgroupRoot, err)
 	}
 	if cgroupPath == "" {

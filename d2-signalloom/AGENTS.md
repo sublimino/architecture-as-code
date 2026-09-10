@@ -8,6 +8,7 @@ a FastAPI backend, Dex OIDC, OpenBao with SPIRE, and integration proxies.
 | Component | Technology | Path |
 |---|---|---|
 | Dashboard SPA | React 18, Vite, TypeScript, nginx | `apps/dashboard-signalloom/` |
+| User documentation | Astro Starlight, Mermaid, nginx | `apps/docs-signalloom/` |
 | API backend | Python FastAPI | `apps/fe-signalloom/src/` |
 | Integration services | Go and Python proxy | `apps/fake-integration-proxy/` |
 | Identity | Dex OIDC (local static user) | `infra/inf-signalloom/base/dex.yaml` |
@@ -62,6 +63,7 @@ kubectl -n ingress port-forward svc/envoy-ingress-cluster-* 18443:443
 | `/rbac-explorer` | RBAC Explorer | AFM | ✓ |
 | `/supercred` | SuperCred Demo | fake-integration-proxy | |
 | `/settings` | Settings | API | |
+| `/docs` | User documentation | Static docs container | |
 
 Utility routes: `/onboarding` (wizard) and `/redeem-invite` (user signup).
 
@@ -145,9 +147,14 @@ Read `docs/signalloom/audit-trail.md` for full implementation details.
 
 ### Diagnose Backend Service Connections
 
-Some backend services deploy outside `make demo-signalloom-up`:
-- Fleet Manager requires: `make demo-signalloom-fleet-up`
-- KubeSec-AFM requires: `make demo-k8s-afm-up`
+KubeSec-AFM deploys outside `make demo-signalloom-up`:
+
+```bash
+make demo-k8s-afm-up
+```
+
+Fleet Manager now deploys through the Signal Loom Flux path. Use
+`make demo-signalloom-fleet-up` only as a direct-apply test escape hatch.
 
 If a backend service is missing, test the connection from inside the dashboard pod:
 

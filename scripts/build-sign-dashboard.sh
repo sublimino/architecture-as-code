@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib/wait.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
+WORKLOAD="${WORKLOAD:-dashboard-signalloom}"
 IMAGE_REF="${IMAGE_REF:-zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest}"
 LOCAL_REF="${LOCAL_REF:-localhost:5001/acme/images/signalloom/apps/dashboard-signalloom:latest}"
 # shellcheck source=scripts/lib/keys.sh
@@ -29,12 +30,12 @@ EVIDENCE_DIR="${EVIDENCE_DIR:-docs/signalloom/evidence}"
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 CONTEXT="${CONTEXT:-d2-signalloom/apps/dashboard-signalloom}"
 
-SBOM_FILE="${EVIDENCE_DIR}/dashboard-signalloom.sbom.spdx.json"
-PROVENANCE_FILE="${EVIDENCE_DIR}/dashboard-signalloom.provenance.slsa.json"
-DIGEST_FILE="${EVIDENCE_DIR}/dashboard-signalloom.digest.txt"
+SBOM_FILE="${EVIDENCE_DIR}/${WORKLOAD}.sbom.spdx.json"
+PROVENANCE_FILE="${EVIDENCE_DIR}/${WORKLOAD}.provenance.slsa.json"
+DIGEST_FILE="${EVIDENCE_DIR}/${WORKLOAD}.digest.txt"
 
 test -f "${COSIGN_KEY}" || { echo "${COSIGN_KEY} not found; run 'make signing-keys' first"; exit 1; }
-test -d "${CONTEXT}" || { echo "dashboard build context not found: ${CONTEXT}"; exit 1; }
+test -d "${CONTEXT}" || { echo "${WORKLOAD} build context not found: ${CONTEXT}"; exit 1; }
 BUILD_FLAGS=()
 if [ "${DASHBOARD_NO_CACHE:-0}" = "1" ]; then
   BUILD_FLAGS+=(--no-cache)
@@ -52,8 +53,8 @@ mkdir -p "${EVIDENCE_DIR}"
 rm -f "${SBOM_FILE}" "${PROVENANCE_FILE}" "${DIGEST_FILE}"
 
 TMP_DIR="$(mktemp -d)"
-OCI_TAR="${TMP_DIR}/dashboard-signalloom.oci.tar"
-OCI_DIR="${TMP_DIR}/dashboard-signalloom.oci"
+OCI_TAR="${TMP_DIR}/${WORKLOAD}.oci.tar"
+OCI_DIR="${TMP_DIR}/${WORKLOAD}.oci"
 PORT_FORWARD_PID=""
 
 # Keep the source identity aligned with .dockerignore. Its use immediately
@@ -68,9 +69,13 @@ PORT_FORWARD_PID=""
 # up-to-date deployment gets muted, which is worse than no guard.
 # shellcheck source=scripts/lib/source-id.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/source-id.sh"
-SOURCE_ID="$(source_id_for dashboard-signalloom)"
+if [ "${WORKLOAD}" = "dashboard-signalloom" ]; then
+  SOURCE_ID="$(source_id_for dashboard-signalloom)"
+else
+  SOURCE_ID="$(source_id_for "${WORKLOAD}")"
+fi
 GIT_REF="$(source_id_git_ref)"
-test -n "${SOURCE_ID}" || { echo "dashboard source fingerprint is empty"; exit 1; }
+test -n "${SOURCE_ID}" || { echo "${WORKLOAD} source fingerprint is empty"; exit 1; }
 
 cleanup() {
   if [ -n "${PORT_FORWARD_PID}" ]; then
@@ -202,7 +207,7 @@ COSIGN_PASSWORD="" cosign sign --yes \
 echo "loading ${IMAGE_REF} into kind cluster ${CLUSTER_NAME}"
 kind load docker-image --name "${CLUSTER_NAME}" "${IMAGE_REF}"
 
-echo "dashboard supply-chain evidence ready"
+echo "${WORKLOAD} supply-chain evidence ready"
 echo "  image: ${IMAGE_REF}"
 echo "  local registry digest: ${LOCAL_DIGEST_REF}"
 echo "  sbom: ${SBOM_FILE}"

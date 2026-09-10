@@ -18,6 +18,7 @@ It is reconciled on the cluster fleet by Flux as the cluster admin, so access is
 | `cert-manager` | cert-manager controller plus a self-signed cluster issuer and a wildcard cluster certificate. A production deployment would swap the issuer for ACME with a DNS01 solver. |
 | `ingress` | Envoy Gateway with a cluster-wide Gateway (HTTP redirected to HTTPS, TLS from the cluster certificate). |
 | `monitoring` | kube-prometheus-stack (Prometheus and Grafana with the Flux dashboards) and metrics-server. Monitors opt in with the `osramp.acme.co/scrape: Enabled` label. |
+| `trivy-system` | Trivy Operator vulnerability reports and monitoring integration. |
 
 ## Directory structure
 

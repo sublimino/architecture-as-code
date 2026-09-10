@@ -69,7 +69,7 @@ flowchart TB
 | Document | What it covers |
 | :--- | :--- |
 | [`../README.md`](../README.md) | OSRAMP, the four-level maturity model, team ownership, ingestion flow, and demo commands |
-| [`../AGENTS.md`](../AGENTS.md) | Shared foundation, eight slices, lifecycle targets, and recurring pitfalls |
+| [`../AGENTS.md`](../AGENTS.md) | Shared foundation, delivery slices, lifecycle targets, and recurring pitfalls |
 | [`system-map/`](system-map/) | Interactive isometric map of platform services and communication paths |
 | [`../terraform/CONTRACT.md`](../terraform/CONTRACT.md) | Invariants and contracts between Terraform roots |
 
@@ -83,6 +83,7 @@ Start locally. The local workflow requires Docker.
 | [`../TESTING.md`](../TESTING.md) | Test suites and execution instructions |
 | [`../HUMAN_VALIDATION.md`](../HUMAN_VALIDATION.md) | Human verification logs from browser reviews |
 | [`deploying-a-backend-service.md`](deploying-a-backend-service.md) | Deployment checklist: four separate layers that can each break page routing |
+| [`../d2-signalloom/apps/docs-signalloom/README.md`](../d2-signalloom/apps/docs-signalloom/README.md) | User documentation service build and `/docs` delivery contract |
 
 Deploy to GCP after local testing. The GCP workflow incurs costs and requires cloud credentials.
 
@@ -101,7 +102,7 @@ Deploy to GCP after local testing. The GCP workflow incurs costs and requires cl
 | :--- | :--- |
 | [`cluster-debugging.md`](cluster-debugging.md) | Field debugging notes for local stack. Section 8 details misleading probes. |
 | [`resilient-waits.md`](resilient-waits.md) | Wait helpers in `scripts/lib/wait.sh` and pitfalls of bare `sleep` commands |
-| [`gcp-demo/OPERATIONS.md#traps`](gcp-demo/OPERATIONS.md#traps) | Commands that return incorrect status codes |
+| [`gcp-demo/OPERATIONS.md#operational-pitfalls`](gcp-demo/OPERATIONS.md#operational-pitfalls) | Commands that return incorrect status codes |
 | [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | Post-mortem reports and diagnostic measurements for five August 2026 incidents |
 | [`local-lifecycle-errata.md`](local-lifecycle-errata.md) | Errata and fixes for local lifecycle scripts |
 
@@ -111,13 +112,20 @@ These documents record engineering decisions and investigations. They do not con
 
 | Area | Location |
 | :--- | :--- |
-| Signal Loom design notes, audits, and proposals | [`signalloom/`](signalloom/) — 49 design and architecture records |
+| Signal Loom design notes, audits, and proposals | [`signalloom/`](signalloom/) |
 | Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |
 | Platform appraisal (mid-2026) | [`appraisal/`](appraisal/) |
 | Agent trust proposal and completion audit | [`agent-trust-project-proposal.md`](agent-trust-project-proposal.md), [`agent-trust-completion-audit.md`](agent-trust-completion-audit.md) |
 | Frequently asked questions | [`FAQ.md`](FAQ.md) |
+| Documentation audit | [`DOCUMENTATION-AUDIT.md`](DOCUMENTATION-AUDIT.md) |
+| Documentation language rules | [`documentation-style.md`](documentation-style.md) |
+| KPAI and Antigravity review | [`COLLABORATOR-REVIEW.md`](COLLABORATOR-REVIEW.md) |
+| Documentation delivery checklist | [`DOCUMENTATION-DELIVERY-CHECKLIST.md`](DOCUMENTATION-DELIVERY-CHECKLIST.md) |
+| First-user onboarding analysis | [`FIRST-USER-ONBOARDING-PROPOSAL.md`](FIRST-USER-ONBOARDING-PROPOSAL.md) |
+| First user and agent project proposal | [`Proposal — Signal Loom First User and Agent Onboarding (2026-Q3).md`](Proposal%20%E2%80%94%20Signal%20Loom%20First%20User%20and%20Agent%20Onboarding%20%282026-Q3%29.md) |
+| AgentMaxxing external agent proposal | [`Proposal — AgentMaxxing Signal Loom User and External Agent Onboarding (2026-Q3).md`](Proposal%20%E2%80%94%20AgentMaxxing%20Signal%20Loom%20User%20and%20External%20Agent%20Onboarding%20%282026-Q3%29.md) |
 
 Note: `MEMORY/WORK/` contains historical session records.
 These files document previous work sessions and do not describe current repository state.

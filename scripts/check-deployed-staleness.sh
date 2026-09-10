@@ -109,6 +109,7 @@ KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 WORKLOAD_TOPOLOGY=(
 	"supercred-demo-runner|fe-signalloom|runner"
 	"dashboard-signalloom|fe-signalloom|dashboard"
+	"docs-signalloom|fe-signalloom|docs"
 	"fe-signalloom|fe-signalloom|discovery-portal"
 )
 

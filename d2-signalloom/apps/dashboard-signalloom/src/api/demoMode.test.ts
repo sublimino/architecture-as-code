@@ -386,7 +386,9 @@ describe('demo mode', () => {
     const payload = { checks: [], summary: { totalChecks: 0 } }
     requestMock.mockResolvedValueOnce({ data: payload })
 
-    await expect(api.compliancePolicy.scan('live-token', body)).resolves.toBe(payload)
+    const result = await api.compliancePolicy.scan('live-token', body)
+    expect(result.checks).toEqual([])
+    expect(result.summary.totalChecks).toBe(0)
     expect(requestMock).toHaveBeenCalledWith(expect.objectContaining({
       url: '/api/compliance/policy/scan',
       method: 'POST',

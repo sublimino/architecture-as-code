@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>osramp-demo · Component & Package Flow Map</title>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/layout-base@2.0.1/layout-base.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cose-base@2.2.0/cose-base.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@2.2.0/cytoscape-fcose.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d; --txt:#e6edf3; --mut:#8b949e;
+    --ingest:#58a6ff; --identity:#39c5cf; --containment:#f85149; --governance:#e3b341;
+    --supplychain:#bc8cff; --factory:#56d364; --agentic:#a5a5ff; --ui:#ff9bce; --infra:#6e7681;
+    --hl:#f0f6fc;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  #app{display:grid;grid-template-columns:320px 1fr 380px;height:100vh}
+  .col{height:100vh;overflow:auto}
+  #left{background:var(--panel);border-right:1px solid var(--line);padding:14px}
+  #right{background:var(--panel);border-left:1px solid var(--line);padding:16px}
+  #cy{width:100%;height:100vh;background:radial-gradient(circle at 50% 30%,#12182200,#0d1117)}
+  h1{font-size:15px;margin:0 0 2px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:12px}
+  .cat{margin:14px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut)}
+  .flow{display:block;width:100%;text-align:left;background:var(--panel2);border:1px solid var(--line);
+    color:var(--txt);border-radius:8px;padding:8px 10px;margin:5px 0;cursor:pointer;font-size:13px;transition:.12s}
+  .flow:hover{border-color:var(--ingest);transform:translateX(2px)}
+  .flow.active{border-color:var(--hl);background:#243149;box-shadow:0 0 0 1px var(--hl) inset}
+  .flow small{display:block;color:var(--mut);font-size:11px;margin-top:2px}
+  .toolbar{display:flex;gap:8px;margin:10px 0}
+  .btn{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:7px;
+    padding:7px;cursor:pointer;font-size:12px}
+  .btn:hover{border-color:var(--ingest)}
+  input#search{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--txt);
+    border-radius:7px;padding:8px 10px;margin-top:6px;font-size:13px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:12px;font-size:11px;color:var(--mut)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  #right h2{font-size:14px;margin:0 0 2px}
+  #right .flowsum{color:var(--mut);font-size:12px;margin-bottom:12px}
+  .step{border-left:2px solid var(--line);padding:0 0 12px 14px;margin-left:6px;position:relative}
+  .step:last-child{padding-bottom:0}
+  .step .n{position:absolute;left:-11px;top:0;width:20px;height:20px;border-radius:50%;
+    background:var(--ingest);color:#04121f;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .step .hop{font-weight:600;font-size:12.5px}
+  .step .hop b{color:var(--hl)}
+  .step .verb{color:var(--mut);font-size:11px;margin:2px 0}
+  .step .passes{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#cdd9e5;
+    background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:4px;white-space:pre-wrap;word-break:break-word}
+  .caveats{margin-top:16px;border:1px solid #6a4a00;background:#211a05;border-radius:8px;padding:10px 12px}
+  .caveats h3{margin:0 0 6px;font-size:12px;color:var(--governance)}
+  .caveats li{font-size:12px;color:#e8d9a8;margin:4px 0}
+  .empty{color:var(--mut);font-size:13px;margin-top:20px}
+  code{font-family:ui-monospace,Menlo,monospace;background:#0b0f14;border:1px solid var(--line);border-radius:4px;padding:0 4px}
+  a{color:var(--ingest)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="left" class="col">
+    <h1>osramp-demo — Flow Map</h1>
+    <div class="sub">Click a workflow to highlight how data moves between packages &amp; components. Every arrow is annotated with what's actually passed. Derived from the code, 2026-09.</div>
+    <input id="search" placeholder="filter components…" />
+    <div class="toolbar">
+      <button class="btn" id="resetBtn">Reset view</button>
+      <button class="btn" id="allBtn">Show all edges</button>
+    </div>
+    <div id="flowlist"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div id="cy" class="col"></div>
+  <div id="right" class="col">
+    <div id="detail"><div class="empty">Select a workflow on the left to trace it.<br/><br/>Nodes are grouped by subsystem (see legend). <b>signal-ingest</b> is expanded into its Go packages. Dashed / greyed items are present in the repo but not wired into a live path.</div></div>
+  </div>
+</div>
+
+<script id="data" type="application/json">
+{
+  "groups": {
+    "ingest":"Signal ingestion","identity":"Identity & secrets","containment":"Containment / kill",
+    "governance":"Governance & risk","supplychain":"Supply chain & GitOps","factory":"Software factory",
+    "agentic":"Agentic runtime","ui":"UI / auth","infra":"Infrastructure"
+  },
+  "nodes": [
+    {"id":"signal-ingest","label":"signal-ingest · Signal Fusion service","group":"ingest","compound":true},
+    {"id":"si-api","label":"api · HTTP handlers","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-audit-webhook","label":"api/audit · K8s webhook","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-model","label":"model · Observation","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-correlation","label":"correlation · Resolve / CEL","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-identity","label":"identity · Postgres graph","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-store","label":"store · FrostDB / Parquet","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-registry","label":"collectors registry · sink","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-baoaudit","label":"collectors/baoaudit","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-spirea","label":"collectors/spirea","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-gcpaudit","label":"collectors/gcpaudit","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-kagent","label":"collectors/kagent","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-workspacesaas","label":"collectors/workspacesaas","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-netebpf","label":"collectors/netebpf · egress","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-ebpf","label":"collectors/ebpf · Tetragon lane","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-audit-writer","label":"audit · writer (Postgres/Nop)","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-transform","label":"transform · redactor/scrubber (unwired)","group":"ingest","parent":"signal-ingest","muted":true},
+
+    {"id":"dashboard-signalloom","label":"dashboard-signalloom · UI","group":"ui"},
+    {"id":"fe-signalloom","label":"fe-signalloom · claim API","group":"ui"},
+    {"id":"docs-signalloom","label":"docs-signalloom","group":"ui","muted":true},
+    {"id":"workspace-connector","label":"workspace-connector","group":"ingest"},
+    {"id":"supercred-demo-runner","label":"supercred-demo-runner · demo job","group":"ingest"},
+    {"id":"fake-integration-proxy","label":"fake-integration-proxy","group":"ingest","muted":true},
+
+    {"id":"signalloom-stun-sentinel","label":"signalloom-stun-sentinel · pod reconciler","group":"containment"},
+    {"id":"stun-sentinel","label":"stun-sentinel · Tier-0 freeze API","group":"containment"},
+    {"id":"node-capability-guard","label":"node-capability-guard · admission","group":"containment"},
+    {"id":"nono-containment-probe","label":"nono-containment-probe","group":"containment","muted":true},
+    {"id":"fleet-manager","label":"fleet-manager · topology / cascade","group":"containment"},
+    {"id":"fleet-agents","label":"fleet-agents · fleet.yaml DAG","group":"containment"},
+
+    {"id":"policy-engine","label":"policy-engine · FAIR risk","group":"governance"},
+    {"id":"prod-deploy-gate","label":"prod-deploy-gate · HITL HMAC gate","group":"governance"},
+    {"id":"netassert-controller","label":"netassert-controller","group":"governance"},
+    {"id":"netassert-runner","label":"netassert-run · Job","group":"governance"},
+    {"id":"d2-k8s-afm","label":"d2-k8s-afm · KubeSec-AFM","group":"governance","muted":true},
+
+    {"id":"cardvault","label":"cardvault · credential broker","group":"identity"},
+    {"id":"cardvault-agent","label":"cardvault-agent","group":"identity"},
+    {"id":"d2-agent-trust","label":"d2-agent-trust · SPIFFE contracts","group":"identity"},
+    {"id":"spire","label":"SPIRE server","group":"identity"},
+    {"id":"spire-agent","label":"spire-agent · Workload API","group":"identity"},
+    {"id":"openbao","label":"OpenBao","group":"identity"},
+    {"id":"coin","label":"COIN · token issuer","group":"agentic"},
+    {"id":"plainid","label":"PlainID · Rego PDP","group":"agentic"},
+    {"id":"eems","label":"EEMS · PIP","group":"agentic"},
+
+    {"id":"swarm-governor","label":"swarm-governor · A2A","group":"agentic"},
+    {"id":"kagent","label":"kagent · A2A specialist agents","group":"agentic"},
+    {"id":"olly-sentinel","label":"olly-sentinel · ADK agent","group":"agentic"},
+    {"id":"olly-authz","label":"olly-authz · OBO / PDP","group":"agentic"},
+    {"id":"llm-guard","label":"llm-guard · prompt defence","group":"agentic"},
+    {"id":"elk-search-mcp","label":"elk-search-mcp · MCP tool","group":"agentic"},
+    {"id":"tenant-app","label":"tenant-app","group":"agentic"},
+    {"id":"orbit","label":"Orbit · A2A remediation","group":"agentic"},
+    {"id":"zulip-chat-agent","label":"zulip-chat-agent","group":"agentic","muted":true},
+    {"id":"eval-harness","label":"eval-harness · (not built)","group":"agentic","muted":true},
+    {"id":"security-sandbox","label":"security-sandbox","group":"agentic","muted":true},
+
+    {"id":"factory-appraiser","label":"factory-appraiser","group":"factory"},
+    {"id":"prompt-commit-summarizer","label":"prompt-commit-summarizer · LLM","group":"factory"},
+    {"id":"triage-ci-worker","label":"triage-ci-worker · deterministic","group":"factory"},
+    {"id":"cpai-engineer","label":"cpai-engineer · nono sandbox coder","group":"factory"},
+    {"id":"hosted-daytona-coder","label":"hosted-daytona-coder","group":"factory"},
+    {"id":"github","label":"GitHub · PR / checks","group":"factory"},
+    {"id":"knative","label":"Knative · eventing","group":"factory","muted":true},
+
+    {"id":"flux","label":"Flux · GitOps","group":"supplychain"},
+    {"id":"zot","label":"Zot · OCI registry","group":"supplychain"},
+    {"id":"witness-cosign","label":"Witness + cosign","group":"supplychain"},
+    {"id":"archivista","label":"Archivista","group":"supplychain"},
+    {"id":"rekor","label":"Rekor · (optional)","group":"supplychain","muted":true},
+    {"id":"crane","label":"crane · OCI push","group":"supplychain"},
+    {"id":"github-actions","label":"GitHub Actions","group":"supplychain"},
+    {"id":"d2-osramp-fleet","label":"d2-osramp-fleet · manifests","group":"supplychain"},
+
+    {"id":"k8s-apiserver","label":"Kubernetes API server","group":"infra"},
+    {"id":"kind-cluster","label":"Kind cluster","group":"infra"},
+    {"id":"dex","label":"Dex · OIDC","group":"ui"},
+    {"id":"gcp","label":"Google Cloud · audit","group":"infra"},
+    {"id":"cilium","label":"Cilium / Hubble","group":"infra"},
+    {"id":"postgres","label":"Postgres","group":"infra"},
+    {"id":"agents-ns","label":"fe-signalloom-agents ns","group":"infra"},
+    {"id":"zulip-slack","label":"Slack / Zulip","group":"ui"}
+  ],
+  "flows": [
+    {"id":"k8saudit-who-authorized","cat":"Signal ingestion","label":"K8s audit → who-authorized query",
+     "summary":"API-server audit webhook events become identity Observations, resolved into actors with SA→SPIFFE + delegation edges, then queried.",
+     "steps":[
+      {"from":"k8s-apiserver","to":"signal-ingest","verb":"POST audit webhook","passes":"POST /api/v1/audit/webhook — audit.k8s.io/v1 K8sEventList JSON"},
+      {"from":"si-api","to":"si-audit-webhook","verb":"route + convert","passes":"handleAuditWebhook → AuditReceiver.HandleAuditWebhook → convertToObservation; MapSAToSPIFFE(system:serviceaccount:<ns>:<name> → spiffe://cluster.local/ns/<ns>/sa/<name>)"},
+      {"from":"si-audit-webhook","to":"si-model","verb":"build observation","passes":"*model.Observation{Layer:LayerIdentityAuth, ActorHint=actingPrincipal, ImpersonatedUser, DelegationEdge:*EvidenceLink}"},
+      {"from":"si-audit-webhook","to":"si-registry","verb":"buffer + drain","passes":"non-blocking chan *Observation → IngestionSink.IngestObservation(ctx,obs)"},
+      {"from":"si-registry","to":"si-store","verb":"append","passes":"StoreSink → store.Append(ctx, []model.Observation)"},
+      {"from":"si-correlation","to":"si-store","verb":"read + resolve","passes":"Engine.Correlate: Resolve(Observation)→Actor; makeEdge(EdgeDeterministicSameEntity, key=authenticated_identity)"},
+      {"from":"si-correlation","to":"si-identity","verb":"persist graph","passes":"PostgresRepository.CreateActor / AddAlias(spiffe://…) / AddDelegation(DelegationRecord)"},
+      {"from":"si-api","to":"si-identity","verb":"build chain","passes":"BuildAuthorizationChain → GetDelegationsForDelegateAsOf(ctx,actorID,asOf) → AuthorizationChainResponse{Agent,Principal,ActsOnBehalfOf,EvidenceChain}"}
+     ],
+     "caveats":["Correlation is decoupled from ingest via the store — the engine reads the store on Correlate/Rebuild, not per-append.","In main.go the query-side identity graph and the correlation engine's resolver-store are wired independently — a real seam, not a straight pipe."]},
+
+    {"id":"sentinel-egress-frostdb","cat":"Signal ingestion","label":"Sentinel network egress → FrostDB",
+     "summary":"The STUN Sentinel emits enriched socket-flow events; netebpf checks sequence gaps, converts to network_egress Observations, and appends.",
+     "steps":[
+      {"from":"signalloom-stun-sentinel","to":"si-netebpf","verb":"stream flow","passes":"InboundFlowEvent JSON {seq_num, src/dst ip+port, cgroup_id, pod_*, service_account, spiffe_id, classification}"},
+      {"from":"si-netebpf","to":"si-netebpf","verb":"sequence-gap check","passes":"LiveNetworkEgressCollector.ProcessFlowEvent: lastSeqByNode gap → createGapObservation"},
+      {"from":"si-netebpf","to":"si-model","verb":"convert","passes":"flowToObservation(ev) → *model.Observation{Layer:LayerNetworkEgress, labels[spiffe_id]}"},
+      {"from":"si-netebpf","to":"si-registry","verb":"emit","passes":"IngestionSink.IngestObservation(ctx, *Observation)"},
+      {"from":"si-registry","to":"si-store","verb":"append","passes":"store.Append(ctx, []Observation) — Parquet schemaDef when SIGNAL_STORE=frostdb"}
+     ],
+     "caveats":["The concrete Sentinel→netebpf transport was not located as an explicit route; ProcessFlowEvent is the ingestion entry point, transport is JSON InboundFlowEvent (inferred)."]},
+
+    {"id":"bao-spire-sa-spiffe-join","cat":"Signal ingestion","label":"OpenBao + SPIRE → SA→SPIFFE join",
+     "summary":"OpenBao audit-device events and SPIRE SVID issuance both land as identity Observations carrying the SA→SPIFFE mapping, correlated by identity CEL rules.",
+     "steps":[
+      {"from":"openbao","to":"si-baoaudit","verb":"audit stream","passes":"OpenBaoAuditEvent JSON (unixgram/tmpfs tail) → AuditReceiver.IngestRawBytes → ringBuffer"},
+      {"from":"si-baoaudit","to":"si-model","verb":"convert","passes":"*Observation{Layer:LayerIdentityAuth, labels[spiffe_id, role, accessor, operation, path]}"},
+      {"from":"spire","to":"si-spirea","verb":"SVID issuance","passes":"SVIDIssuanceEvent JSON {spiffe_id, svid_type X509|JWT, ttl}"},
+      {"from":"si-spirea","to":"si-model","verb":"convert","passes":"*Observation{Layer:LayerIdentityAuth, ActorHint=spiffe_id} — the SA→SPIFFE anchor"},
+      {"from":"si-baoaudit","to":"si-registry","verb":"emit","passes":"IngestionSink.IngestObservation"},
+      {"from":"si-spirea","to":"si-registry","verb":"emit","passes":"IngestionSink.IngestObservation"},
+      {"from":"si-registry","to":"si-store","verb":"append","passes":"store.Append(ctx, []Observation)"},
+      {"from":"si-correlation","to":"si-identity","verb":"persist join","passes":"IdentityAuditRules() CEL: identity_authorization × other layers, same actor_hint → AddAlias / AddDelegation"}
+     ],"caveats":[]},
+
+    {"id":"gcpaudit-correlation","cat":"Signal ingestion","label":"gcpaudit cloud audit → correlation",
+     "summary":"GCP cloud-audit records are pulled/converted to Observations and appended; the correlation engine consumes them.",
+     "steps":[
+      {"from":"gcp","to":"si-gcpaudit","verb":"pull audit","passes":"PubSub pull / canned JSON → gcpaudit.Collector (COLLECTOR_GCPAUDIT_MODE), principalSubject"},
+      {"from":"si-gcpaudit","to":"si-model","verb":"convert","passes":"*Observation (Layer:LayerCloudControlPlane)"},
+      {"from":"si-gcpaudit","to":"si-registry","verb":"emit","passes":"IngestionSink.IngestObservation"},
+      {"from":"si-registry","to":"si-store","verb":"append","passes":"store.Append(ctx, []Observation)"},
+      {"from":"si-correlation","to":"si-store","verb":"consume","passes":"Engine.Correlate; IdentityAuditRules correlate cloud_control_plane × identity_authorization"}
+     ],"caveats":["The exact Layer constant for gcpaudit wasn't captured in the read window; LayerCloudControlPlane is the grounded expectation."]},
+
+    {"id":"kagent-toollog-resolver","cat":"Signal ingestion","label":"KAgent tool-log → resolver",
+     "summary":"KAgent OTel/A2A spans resolve to identity Observations naming the agent SPIFFE identity + tool, with an on-behalf-of edge tagged proven vs inferred.",
+     "steps":[
+      {"from":"kagent","to":"si-kagent","verb":"telemetry span","passes":"TelemetrySpan (OTel: namespace, agent-name, tool.name; A2A contextId, caller_id, auth_type)"},
+      {"from":"si-kagent","to":"si-kagent","verb":"resolve","passes":"Resolver.Resolve(span)→ResolutionResult; spiffe://<td>/ns/<ns>/sa/<sa>; delegation proven|inferred|none"},
+      {"from":"si-kagent","to":"si-model","verb":"build obs + edge","passes":"*Observation{Layer:LayerIdentityAuth, ActorHint=spiffeID} + *EvidenceLink{Contribution: obo:delegation:proven|inferred}"},
+      {"from":"si-kagent","to":"si-registry","verb":"emit","passes":"IngestionSink.IngestObservation"},
+      {"from":"si-registry","to":"si-store","verb":"append","passes":"store.Append(ctx, []Observation)"}
+     ],"caveats":[]},
+
+    {"id":"workspace-m365-saas","cat":"Signal ingestion","label":"Workspace / M365 → application_saas",
+     "summary":"workspace-connector polls Workspace/M365, transforms to canonical Observations, and POSTs them to signal-ingest.",
+     "steps":[
+      {"from":"workspace-connector","to":"workspace-connector","verb":"poll + normalise","passes":"POST /api/v1/workspace/poll → NormalisedSaaSEvent (transform imports signal-ingest/model)"},
+      {"from":"workspace-connector","to":"si-workspacesaas","verb":"to observation","passes":"NormalisedSaaSEvent.ToObservation() → *Observation{Layer:LayerApplicationSaaS | LayerIdentityAuth for logins}"},
+      {"from":"workspace-connector","to":"signal-ingest","verb":"POST obs","passes":"POST http://signal-ingest/api/v1/observations — model.Observation JSON"},
+      {"from":"si-api","to":"si-store","verb":"ingest + append","passes":"handleIngestObservations → validate → store.Append"}
+     ],
+     "caveats":["Two live shapes: (a) workspace-connector POSTs Observations to /api/v1/observations; (b) in-process workspacesaas.Collector (fixture/live) emits straight to the sink."]},
+
+    {"id":"actor-resolution-promotion","cat":"Signal ingestion","label":"Actor resolution + promotion",
+     "summary":"The correlation engine merges observations into a provisional actor; POST promote elevates it while the highest-stakes event is audited.",
+     "steps":[
+      {"from":"si-correlation","to":"si-correlation","verb":"resolve / merge","passes":"Resolve(Observation)→Actor replacing correlationKey(); makeEdge(EdgeDeterministicSameEntity | EdgeCannotLink)"},
+      {"from":"si-correlation","to":"si-identity","verb":"publish snapshot","passes":"resolver.Publish(ctx, model.ResolverSnapshot); UpsertObservation; EdgeRetracted gate"},
+      {"from":"si-api","to":"si-correlation","verb":"promote","passes":"POST /api/v1/actors/{id}/promote → Engine.PromoteActor(id) (ErrAlreadyPromoted → 409)"},
+      {"from":"si-api","to":"si-audit-writer","verb":"audit write","passes":"Audit.WriteAuditEvent(audit.Event{EventType:EventActorPromoted, ActorID, Detail})"},
+      {"from":"si-audit-writer","to":"postgres","verb":"persist","passes":"PostgresWriter → audit_events row (DATABASE_URL); NopWriter when unset"}
+     ],
+     "caveats":["Promotion is the highest-stakes event; audit falls back to a NopWriter (discards) when DATABASE_URL is unset — verify Postgres is wired in any real deployment."]},
+
+    {"id":"dashboard-who-authorized","cat":"Signal ingestion","label":"Dashboard: 'who authorized this action?'",
+     "summary":"The dashboard/front-end calls the signal-ingest authorization API, which builds the end-to-end chain over the graph + store.",
+     "steps":[
+      {"from":"dashboard-signalloom","to":"si-api","verb":"query authz","passes":"GET /api/v1/actors/{id}/authorization → handleQueryAuthorization"},
+      {"from":"si-api","to":"si-correlation","verb":"get actor","passes":"Engine.GetActor(id) → *ProvisionalActor (Aliases, Delegations, EvidenceChain)"},
+      {"from":"si-api","to":"si-identity","verb":"resolve delegations","passes":"BuildAuthorizationChain → GetDelegationsForDelegateAsOf(ctx,id,asOf) as-of action timestamp"},
+      {"from":"si-api","to":"si-store","verb":"evidence backfill","passes":"Store.QueryRange(ctx, Query{Limit}) for the principal"},
+      {"from":"si-api","to":"dashboard-signalloom","verb":"return chain","passes":"AuthorizationChainResponse{AgentIdentity, PrincipalIdentity, ActsOnBehalfOf, ActionAuthorized, EvidenceChain[]}"}
+     ],
+     "caveats":["Front-end fetch call-sites are buried in node_modules; the contract is asserted from the server route + AuthorizationChainResponse (ground truth)."]},
+
+    {"id":"fleet-discovery-auto-claim","cat":"Fleet & containment","label":"Fleet discovery & agent auto-claim",
+     "summary":"Agents self-enrol by acquiring a SPIFFE identity and auto-claiming to the Signal Loom claim API; fleet-manager serves the derived topology.",
+     "steps":[
+      {"from":"cardvault-agent","to":"spire-agent","verb":"fetch identity","passes":"JWT-SVID for spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent (aud: openbao)"},
+      {"from":"cardvault-agent","to":"openbao","verb":"exchange","passes":"POST /v1/auth/jwt/login {role, jwt} → client_token (policy: signalloom-cardvault-agent)"},
+      {"from":"cardvault-agent","to":"fe-signalloom","verb":"auto-claim","passes":"POST /api/v1/agents/claim {spiffeID, token} → {status:claimed, agent_id}"},
+      {"from":"fleet-agents","to":"fleet-manager","verb":"declare topology","passes":"fleet.yaml agent DAG (5 agents) with dependency edges"},
+      {"from":"fleet-manager","to":"dashboard-signalloom","verb":"serve topology","passes":"GET /api/v1/fleet/topology → TopologyResponse{agents, edges, aggregateRisk, cascadeHistory}"}
+     ],
+     "caveats":["fleet-manager topology comes from fleet.yaml, not from live agent claims — cardvault-agent claims to fe-signalloom, not to fleet-manager."]},
+
+    {"id":"stun-containment-kill","cat":"Fleet & containment","label":"Detection → stun / containment / revoke",
+     "summary":"A compromised pod is labelled stunned; the in-kernel sentinel freezes its cgroup and severs the network; admission bars unprotected agent pods.",
+     "steps":[
+      {"from":"signal-ingest","to":"signal-ingest","verb":"correlate detection","passes":"Tetragon runtime telemetry + 5-layer signals → provisional actor evidence chain (audit-only, no enforcement)"},
+      {"from":"fleet-manager","to":"fleet-manager","verb":"compute cascade","passes":"POST /api/v1/fleet/stun/{agentId} → DAG cascade + RecoveryOrder (agent-monitor excluded)"},
+      {"from":"agents-ns","to":"signalloom-stun-sentinel","verb":"label pod stunned","passes":"pod label signalloom.ai/state=stunned observed by the DaemonSet reconciler"},
+      {"from":"signalloom-stun-sentinel","to":"kind-cluster","verb":"freeze + sever","passes":"cgroup-v2 freezer write + tc matchall drop on host veth (ingress+egress), liveness preserved"},
+      {"from":"stun-sentinel","to":"kind-cluster","verb":"tier-0 freeze","passes":"POST /freeze {podUID} → cgroup.freeze; /unfreeze requires STUN_RESUME_TOKEN (constant-time)"},
+      {"from":"node-capability-guard","to":"k8s-apiserver","verb":"admission gate","passes":"ValidatingWebhook /validate denies signalloom.ai/agent=true pods lacking node cgroup-v2|landlock capability"},
+      {"from":"signalloom-stun-sentinel","to":"openbao","verb":"revoke (semantic)","passes":"stunned ⇒ credentials treated revoked; short-TTL 5m batch tokens expire without renewal"}
+     ],
+     "caveats":["fleet-manager's FleetClient is a noop — POST /fleet/stun only computes the cascade; it does NOT call the sentinels.","The two stun apps are NOT wired to each other: stun-sentinel (HTTP freeze API) vs signalloom-stun-sentinel (label reconciler).","stun→revocation is semantic (tokens expire), not a live OpenBao revoke call in the traced code."]},
+
+    {"id":"policy-engine-fair-risk","cat":"Fleet & containment","label":"Policy-engine FAIR risk scoring",
+     "summary":"A pod securityContext is scanned against versioned frameworks; each failing control is priced with a deterministic Monte-Carlo FAIR simulation in real currency.",
+     "steps":[
+      {"from":"dashboard-signalloom","to":"policy-engine","verb":"scan","passes":"POST /api/v1/compliance/scan {securityContext, frameworks[], policyVersion}"},
+      {"from":"policy-engine","to":"policy-engine","verb":"load frameworks","passes":"frameworks.Load(root, fwID, ver) → CEL checks for nist-800-53 / eu-ai-act with RiskTriple + FreqTriple"},
+      {"from":"policy-engine","to":"policy-engine","verb":"simulate risk","passes":"fair.Simulate(loss, freq, seed) → RiskResult{ALE, VaR95, TVaR, Carried} priced via money.Money"},
+      {"from":"policy-engine","to":"prod-deploy-gate","verb":"risk verdict","passes":"scan result rows (Check, pass/fail, ALE, VaR95, Exposure)"},
+      {"from":"policy-engine","to":"dashboard-signalloom","verb":"summary","passes":"GET /api/v1/compliance/summary + /frameworks → aggregate ALE/exposure JSON"}
+     ],
+     "caveats":["The policy-engine→prod-deploy-gate link is by intent (gate on risk) — no direct code call was found from policy-engine to the gate."]},
+
+    {"id":"cardvault-single-owner-identity","cat":"Fleet & containment","label":"Cardvault single-owner identity chain",
+     "summary":"One SPIFFE identity is exchanged at OpenBao for a scoped token that unlocks KV-stored basic-auth creds — the only way to read cardvault.",
+     "steps":[
+      {"from":"cardvault-agent","to":"spire-agent","verb":"acquire SVID","passes":"JWT-SVID for spiffe://…/sa/cardvault-agent (aud: openbao)"},
+      {"from":"cardvault-agent","to":"openbao","verb":"login","passes":"POST /v1/auth/jwt/login {role: signalloom-cardvault-agent, jwt} → client_token"},
+      {"from":"cardvault-agent","to":"openbao","verb":"read KV","passes":"GET kv/data/… (X-Vault-Token) → {username, password}"},
+      {"from":"cardvault-agent","to":"cardvault","verb":"access cards","passes":"GET /api/v1/cards (HTTP Basic) → []Card{cardholder, pan_masked, expiry}"}
+     ],"caveats":[]},
+
+    {"id":"agent-trust-spiffe-registration","cat":"Fleet & containment","label":"Agent-trust SPIFFE registration",
+     "summary":"d2-agent-trust declares per-tenant SPIFFE registration entries + matching OpenBao JWT roles binding each agent to exact selectors, subject and audience.",
+     "steps":[
+      {"from":"d2-agent-trust","to":"spire","verb":"register entries","passes":"spire-registrations.v1.json: spiffe://signalloom.demo/…/tenant/{acme,northstar} with k8s:ns/k8s:sa selectors"},
+      {"from":"spire","to":"spire-agent","verb":"issue SVID","passes":"JWT-SVID via node Workload API socket (fail-closed: exactly one SVID)"},
+      {"from":"d2-agent-trust","to":"openbao","verb":"bind role","passes":"auth/jwt/role/agent-trust-{planner,triage}: bound_subject=<spiffeID>, bound_audiences=openbao-supercredential, ttl=5m, batch"},
+      {"from":"spire-agent","to":"kagent","verb":"workload identity","passes":"a2a/agent-card.json securityScheme spiffe: JWT-SVID validated via exact OpenBao role"}
+     ],"caveats":["d2-agent-trust is a Python contracts module — registrations/roles are declarative contracts applied via existing admin paths."]},
+
+    {"id":"netassert-boundary-proof","cat":"Fleet & containment","label":"NetworkPolicy / netassert boundary proof",
+     "summary":"One privileged controller is the only identity that can launch the fixed netassert Job, which asserts actual pod-to-pod reachability under default-deny.",
+     "steps":[
+      {"from":"dashboard-signalloom","to":"netassert-controller","verb":"scan now","passes":"POST /scan → 202 {job: netassert-run, status: started}"},
+      {"from":"netassert-controller","to":"k8s-apiserver","verb":"create job","passes":"jobs:create of the fixed netassert-run Job (SA netassert-runner) using the controller's own SA token — sole holder of jobs:create"},
+      {"from":"netassert-runner","to":"cilium","verb":"assert reachability","passes":"netassert TAP results (----NETASSERT-TAP-RESULTS----) proving default-deny NetworkPolicy"},
+      {"from":"netassert-controller","to":"dashboard-signalloom","verb":"report","passes":"parsed TAP pass/fail surfaced on NetworkTestsPage"}
+     ],"caveats":[]},
+
+    {"id":"swarm-governor-a2a","cat":"Fleet & containment","label":"Swarm governor A2A coordination",
+     "summary":"swarm-governor discovers specialist agents via their A2A Agent Cards over JSON-RPC and dispatches sub-tasks under a shared token budget.",
+     "steps":[
+      {"from":"dashboard-signalloom","to":"swarm-governor","verb":"submit task","passes":"POST /tasks/submit {description, requirements[], input, agent_urls[]}"},
+      {"from":"swarm-governor","to":"kagent","verb":"discover","passes":"GET /.well-known/agent-card.json → a2a.AgentCard{name, capabilities[], url}"},
+      {"from":"swarm-governor","to":"kagent","verb":"dispatch","passes":"DispatchPlan → a2a.Task{id, description, requirements} within MAX_TOKEN_BUDGET (250000)"}
+     ],"caveats":[]},
+
+    {"id":"demo-up-down-lifecycle","cat":"Demo lifecycle","label":"Demo up / down lifecycle",
+     "summary":"make up builds the shared Kind+Zot+Flux foundation and only advertises opt-in demos; each demo-*-up reconciles a bounded slice.",
+     "steps":[
+      {"from":"kind-cluster","to":"zot","verb":"create + registry","passes":"Kind cluster + host-backed Zot OCI cache (make cluster; make registry)"},
+      {"from":"kind-cluster","to":"witness-cosign","verb":"mint local keys","passes":"cosign key-pair + ed25519 witness.pem + signing-config.json (make signing-keys)"},
+      {"from":"d2-osramp-fleet","to":"zot","verb":"push foundation","passes":"cosign-signed foundation OCI artifacts (make push-local-foundation)"},
+      {"from":"flux","to":"zot","verb":"bootstrap sync","passes":"Flux OCIRepository pinned to cosign.pub, reconciling from in-cluster registry"},
+      {"from":"flux","to":"kind-cluster","verb":"reconcile foundation","passes":"HelmRelease/Kustomization → Ready (make wait; make healthcheck)"},
+      {"from":"kind-cluster","to":"dex","verb":"serve OIDC","passes":"Dex OIDC issuer with public origin/callback URIs"},
+      {"from":"flux","to":"signal-ingest","verb":"opt-in demo-signalloom-up","passes":"reconciled signalloom-apps slice (supercred + signalfusion images loaded, verified)"},
+      {"from":"kind-cluster","to":"kind-cluster","verb":"teardown","passes":"kind delete cluster + local build state (make down / teardown)"}
+     ],
+     "caveats":["make up builds ONLY the foundation and starts NO demo — demos are explicitly opt-in via demo-signalloom-up / demo-olly-up / demo-bao-up / demo-cpai-up."]},
+
+    {"id":"ci-supply-chain-lane","cat":"Supply chain & CI","label":"CI / supply-chain lane",
+     "summary":"Source builds an OCI image pushed to Zot, cosign-signs it, wraps build steps in witness run producing DSSE uploaded to Archivista; Flux reconciles the signed artifacts.",
+     "steps":[
+      {"from":"github-actions","to":"zot","verb":"build + push image","passes":"OCI image pushed via crane (localhost:5001)"},
+      {"from":"crane","to":"zot","verb":"resolve digest","passes":"OCI image digest (crane digest --insecure)"},
+      {"from":"witness-cosign","to":"zot","verb":"cosign sign","passes":"cosign signature over image digest (key-only, no tlog upload)"},
+      {"from":"github-actions","to":"witness-cosign","verb":"witness run step","passes":"DSSE in-toto attestation signed with ed25519 witness.pem (reusable-witness-step.yaml)"},
+      {"from":"witness-cosign","to":"archivista","verb":"upload evidence","passes":"DSSE envelope with gitoid subject (--enable-archivista)"},
+      {"from":"archivista","to":"rekor","verb":"anchor (optional)","passes":"transparency log entry / attestation store record"},
+      {"from":"prod-deploy-gate","to":"zot","verb":"verify before deploy","passes":"cosign signature + Kyverno signature-verification admission (e2e admission demo)"},
+      {"from":"flux","to":"kind-cluster","verb":"deploy verified","passes":"reconciled HelmRelease/Kustomization from signed OCIRepository"}
+     ],
+     "caveats":["Local/demo path signs key-only (Rekor/Fulcio disabled in signing-config) — Rekor is optional/out-of-band.","Pre-deploy signature verification is Kyverno + cosign admission, not prod-deploy-gate (which is a HITL HMAC approval gate)."]},
+
+    {"id":"ai-software-factory","cat":"Software factory","label":"AI-governed software factory",
+     "summary":"A commit diff is summarized by an LLM, appraised+validated, CI failures triaged deterministically, and coding tasks run in a sandboxed coder.",
+     "steps":[
+      {"from":"github","to":"prompt-commit-summarizer","verb":"POST diff","passes":"CloudEvent {diff} over HTTP (Knative function)"},
+      {"from":"prompt-commit-summarizer","to":"github","verb":"return message","passes":"JSON {commit_message, confidence} from LLM call"},
+      {"from":"github","to":"factory-appraiser","verb":"POST appraise","passes":"CloudEvent → /api/v1/factory/appraise"},
+      {"from":"factory-appraiser","to":"factory-appraiser","verb":"appraise + validate","passes":"appraiser.Appraise + validator escalation JSON {appraisal, escalation}"},
+      {"from":"github","to":"triage-ci-worker","verb":"POST failed check_run","passes":"CloudEvent check_run payload with build logs"},
+      {"from":"triage-ci-worker","to":"github","verb":"post labels + comment","passes":"triageResponse {real_failures, flaky_failures, labels} via gh CLI (deterministic, no LLM)"},
+      {"from":"triage-ci-worker","to":"cpai-engineer","verb":"dispatch coding task","passes":"TaskRequest {repo, branch, instruction, token_budget} → POST /tasks"},
+      {"from":"cpai-engineer","to":"cpai-engineer","verb":"code in nono sandbox","passes":"TaskResponse {task_id, status, commits[], tokens_used} (Landlock-confined)"},
+      {"from":"cpai-engineer","to":"prod-deploy-gate","verb":"request approval","passes":"GateRequest → 30m HMAC-signed approval token"},
+      {"from":"prod-deploy-gate","to":"zulip-slack","verb":"dispatch approval card","passes":"interactive HITL card; resumes only on valid HMAC (/gate/approve)"}
+     ],
+     "caveats":["triage-ci-worker is deterministic (no LLM); its dispatch to cpai-engineer/hosted-daytona-coder is orchestrated at the factory level, not a hardcoded HTTP call."]},
+
+    {"id":"olly-agentic-runtime","cat":"Agentic runtime","label":"Olly agentic runtime (OBO authz)",
+     "summary":"The Olly sentinel agent screens prompts through llm-guard, mints an OBO token via olly-authz, and carries it on every MCP + A2A call, narrowing on each hop.",
+     "steps":[
+      {"from":"tenant-app","to":"olly-sentinel","verb":"invoke agent","passes":"SRE on-call query (Google ADK runtime)"},
+      {"from":"olly-sentinel","to":"llm-guard","verb":"prompt defence","passes":"prompt/output scan (PromptInjection, MaliciousURLs, redaction)"},
+      {"from":"olly-sentinel","to":"olly-authz","verb":"mint OBO token","passes":"COIN H2M→M2M on-behalf-of; PlainID Rego eval calling EEMS as PIP; single authz_ctx_id"},
+      {"from":"olly-authz","to":"coin","verb":"issue M2M","passes":"COIN M2M bearer token anchored by authz_ctx_id"},
+      {"from":"olly-sentinel","to":"elk-search-mcp","verb":"MCP tool call","passes":"elk_search_logs MCP call with bearer token (token+scope verified by MCP server)"},
+      {"from":"olly-sentinel","to":"orbit","verb":"A2A hop","passes":"same token as X-AuthZ-CTX header on Olly→Orbit call"},
+      {"from":"orbit","to":"orbit","verb":"narrow grant","passes":"re-validated token narrowed by local grant (restart_service 3→1, never widened)"}
+     ],
+     "caveats":["COIN / PlainID / EEMS / Orbit are modelled/stubbed in the olly-authz service, not separate external systems in this replica."]},
+
+    {"id":"dashboard-auth-serve","cat":"Demo lifecycle","label":"Dashboard auth + serve",
+     "summary":"Dex issues an OIDC token to the dashboard SPA, which calls the signal-ingest API through the nginx /api proxy under that identity.",
+     "steps":[
+      {"from":"dex","to":"dashboard-signalloom","verb":"OIDC login","passes":"OIDC id_token / bearer (Dex issuer + callback URIs)"},
+      {"from":"dashboard-signalloom","to":"signal-ingest","verb":"call API","passes":"authenticated REST (GET actors / POST observations) via nginx /api proxy"},
+      {"from":"signal-ingest","to":"dashboard-signalloom","verb":"serve correlated data","passes":"correlated actors + evidence chains + FAIR risk JSON"}
+     ],"caveats":[]},
+
+    {"id":"supercred-credential-stream","cat":"Demo lifecycle","label":"SuperCred credential streaming demo",
+     "summary":"The supercred-demo-runner job drives a three-act Signal Fusion demo, POSTing observations and requesting a scoped credential.",
+     "steps":[
+      {"from":"supercred-demo-runner","to":"signal-ingest","verb":"POST observations","passes":"5-layer signal observations across 3 acts (data plane, same namespace)"},
+      {"from":"supercred-demo-runner","to":"policy-engine","verb":"risk decision","passes":"POST via API-server proxy to svc/policy-engine:8081 (FAIR risk verdict)"},
+      {"from":"cardvault-agent","to":"cardvault","verb":"request credential","passes":"SPIRE/OpenBao-brokered scoped credential (agent-cardvault)"},
+      {"from":"signal-ingest","to":"signal-ingest","verb":"correlate + actors","passes":"CEL-correlated provisional actors with evidence chains + audit rows"}
+     ],"caveats":["supercred-demo-runner has no main.go — it is a Job (Dockerfile + manifests); its policy-engine call rides the API-server proxy, not a direct pod-to-pod path."]}
+  ]
+}
+</script>
+
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const GROUPS = DATA.groups;
+const COLOR = {ingest:'#58a6ff',identity:'#39c5cf',containment:'#f85149',governance:'#e3b341',
+  supplychain:'#bc8cff',factory:'#56d364',agentic:'#a5a5ff',ui:'#ff9bce',infra:'#6e7681'};
+
+// ---- build elements ----
+const els = [];
+for (const n of DATA.nodes){
+  els.push({data:{id:n.id,label:n.label,group:n.group,parent:n.parent||undefined,
+    isParent:!!n.compound, muted:!!n.muted}});
+}
+let ei=0;
+for (const f of DATA.flows){
+  f.steps.forEach((s,i)=>{
+    if(s.from===s.to) return; // self-steps shown in panel only
+    els.push({data:{id:'e'+(ei++),source:s.from,target:s.to,flow:f.id,seq:i+1,
+      verb:s.verb,cat:f.cat,color:COLOR[DATA.nodes.find(n=>n.id===f.steps[0].from)?.group]||'#58a6ff'}});
+  });
+}
+const catColor = {'Signal ingestion':'#58a6ff','Fleet & containment':'#f85149','Supply chain & CI':'#bc8cff',
+  'Demo lifecycle':'#39c5cf','Software factory':'#56d364','Agentic runtime':'#a5a5ff'};
+
+const cy = cytoscape({
+  container:document.getElementById('cy'),
+  elements:els,
+  wheelSensitivity:0.2,
+  style:[
+    {selector:'node',style:{'background-color':ele=>COLOR[ele.data('group')]||'#6e7681',
+      'label':'data(label)','color':'#e6edf3','font-size':'9px','text-wrap':'wrap','text-max-width':'120px',
+      'text-valign':'bottom','text-margin-y':3,'width':16,'height':16,'border-width':1,'border-color':'#0d1117',
+      'opacity':1}},
+    {selector:'node[?muted]',style:{'opacity':0.4,'background-opacity':0.5}},
+    {selector:'node[?isParent]',style:{'background-opacity':0.06,'background-color':'#58a6ff',
+      'border-width':1,'border-color':'#30363d','shape':'round-rectangle','text-valign':'top','font-size':'11px',
+      'color':'#8b949e','padding':'10px'}},
+    {selector:'edge',style:{'width':1,'line-color':'#30363d','target-arrow-color':'#30363d',
+      'target-arrow-shape':'triangle','curve-style':'bezier','opacity':0.12,'arrow-scale':0.7}},
+    {selector:'edge.hl',style:{'width':2.5,'line-color':'data(color)','target-arrow-color':'data(color)',
+      'opacity':1,'label':'data(seq)','font-size':'10px','color':'#04121f','text-background-color':'data(color)',
+      'text-background-opacity':1,'text-background-padding':'2px','arrow-scale':1}},
+    {selector:'node.dim',style:{'opacity':0.12}},
+    {selector:'node.part',style:{'opacity':1,'border-width':2,'border-color':'#f0f6fc'}},
+    {selector:'node.part[?isParent]',style:{'opacity':1,'border-color':'#f0f6fc'}}
+  ],
+  layout:{name:'fcose',quality:'default',animate:false,randomize:true,nodeSeparation:80,
+    idealEdgeLength:70,nodeRepulsion:9000,packComponents:true}
+});
+
+// ---- flow menu ----
+const cats = [...new Set(DATA.flows.map(f=>f.cat))];
+const fl = document.getElementById('flowlist');
+for(const c of cats){
+  const h=document.createElement('div');h.className='cat';h.textContent=c;fl.appendChild(h);
+  for(const f of DATA.flows.filter(x=>x.cat===c)){
+    const b=document.createElement('button');b.className='flow';b.dataset.id=f.id;
+    b.innerHTML=`${f.label}<small>${f.steps.length} hops · ${f.caveats.length?'⚠ '+f.caveats.length+' caveat(s)':'clean'}</small>`;
+    b.onclick=()=>selectFlow(f.id);fl.appendChild(b);
+  }
+}
+// ---- legend ----
+const lg=document.getElementById('legend');
+for(const g in GROUPS){const s=document.createElement('span');
+  s.innerHTML=`<span class="dot" style="background:${COLOR[g]}"></span>${GROUPS[g]}`;lg.appendChild(s);}
+
+// ---- interactions ----
+function clearHL(){cy.elements().removeClass('hl dim part');
+  document.querySelectorAll('.flow').forEach(b=>b.classList.remove('active'));}
+function selectFlow(id){
+  clearHL();
+  const f=DATA.flows.find(x=>x.id===id);
+  document.querySelector(`.flow[data-id="${id}"]`)?.classList.add('active');
+  const edges=cy.edges(`[flow = "${id}"]`).addClass('hl');
+  const parts=new Set();
+  f.steps.forEach(s=>{parts.add(s.from);parts.add(s.to);});
+  cy.nodes().addClass('dim');
+  parts.forEach(pid=>{const n=cy.getElementById(pid);n.removeClass('dim').addClass('part');
+    if(n.data('parent')){cy.getElementById(n.data('parent')).removeClass('dim');}});
+  // also un-dim parents of participating children handled above
+  if(edges.length) cy.animate({fit:{eles:edges.union(edges.connectedNodes()),padding:60}},{duration:350});
+  renderDetail(f);
+}
+function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function nodeLabel(id){return DATA.nodes.find(n=>n.id===id)?.label||id;}
+function renderDetail(f){
+  let h=`<h2>${esc(f.label)}</h2><div class="flowsum">${esc(f.summary)}</div>`;
+  f.steps.forEach((s,i)=>{
+    h+=`<div class="step"><div class="n">${i+1}</div>
+      <div class="hop"><b>${esc(nodeLabel(s.from))}</b> → <b>${esc(nodeLabel(s.to))}</b></div>
+      <div class="verb">${esc(s.verb)}</div>
+      <div class="passes">${esc(s.passes)}</div></div>`;
+  });
+  if(f.caveats.length){
+    h+=`<div class="caveats"><h3>⚠ Wiring caveats (as-built honesty)</h3><ul>`;
+    f.caveats.forEach(c=>h+=`<li>${esc(c)}</li>`);
+    h+=`</ul></div>`;
+  }
+  document.getElementById('detail').innerHTML=h;
+}
+document.getElementById('resetBtn').onclick=()=>{clearHL();
+  document.getElementById('detail').innerHTML='<div class="empty">Select a workflow on the left to trace it.</div>';
+  cy.animate({fit:{padding:40}},{duration:350});};
+document.getElementById('allBtn').onclick=()=>{clearHL();cy.edges().style('opacity',0.25);};
+document.getElementById('search').oninput=e=>{
+  const q=e.target.value.toLowerCase().trim();
+  cy.nodes().forEach(n=>{if(n.data('isParent'))return;
+    n.style('opacity', !q ? (n.data('muted')?0.4:1) : (n.data('label').toLowerCase().includes(q)?1:0.1));});
+};
+cy.on('tap','node',evt=>{
+  const id=evt.target.id();
+  // find flows touching this node, select the first
+  const f=DATA.flows.find(fl=>fl.steps.some(s=>s.from===id||s.to===id));
+  if(f) selectFlow(f.id);
+});
+</script>
+</body>
+</html>

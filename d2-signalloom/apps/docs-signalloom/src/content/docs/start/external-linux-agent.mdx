@@ -1,0 +1,121 @@
+---
+title: Onboard an external Linux agent
+description: Planned onboarding path for a Linux process governed through nono evidence.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+This integration is **planned**. The current Signal Loom demo does not ingest
+nono audit sessions from an external host.
+
+Use this page as the implementation contract for the first AgentMaxxing Inc.
+design-partner onboarding. Do not use it as an operational procedure yet.
+
+## Target workload
+
+The first workload has these properties:
+
+- It runs as a Linux process outside Kubernetes.
+- It reads data from an approved filesystem location.
+- It synthesizes data in memory or on disk.
+- It sends a result to an approved network destination.
+- Signal Loom must not collect file contents, memory contents, or payload contents.
+
+The integration records metadata for observable actions. It hashes artifacts
+only when they exist on disk.
+
+## Proposed evidence path
+
+<Mermaid
+  label="AgentMaxxing external-agent evidence path"
+  diagram={`flowchart LR
+    U[AgentMaxxing operator] --> S[systemd service]
+    S --> N[nono supervisor]
+    N --> A[Agent process]
+    A --> F[Approved filesystem paths]
+    A --> P[nono network proxy]
+    N --> L[Integrity-protected audit session]
+    H[Host sensor] --> M[Process and disk metadata]
+    L --> I[Signal Loom nono ingestion API]
+    M --> I
+    I --> E[Agent evidence timeline]`}
+/>
+
+Run the agent through a dedicated nono profile. Use systemd to restart the
+supervised process and expose one stable service identity. Enroll nono with a
+Signal Loom audit endpoint before starting the service.
+
+## Evidence available from nono
+
+The proposed integration targets nono 0.73.0.
+
+| Evidence | Native nono support | Constraint |
+| --- | --- | --- |
+| Command, timestamps, duration, and exit code | Yes | Audit is enabled by default. |
+| Main executable SHA-256 digest | Yes | Supervised runs hash only the launched executable. |
+| Audit event integrity | Yes | The append-only event stream is hash-chained. |
+| Writable filesystem state | Yes | `--audit-integrity` records pre/post Merkle roots for tracked writable paths. |
+| Network request metadata | Yes | The nono network proxy must be active. |
+| Successful input-file digest | No | Nono does not automatically hash each file read. |
+| Individual disk-write digest | Additional sensor work | Hash created or changed files inside tracked writable paths. |
+| Streamed payload digest | No | The agent must expose this; the first integration does not require it. |
+| In-memory synthesized data | No | Memory inspection is out of scope. |
+
+Do not interpret a filesystem Merkle root as a list of per-file digests. The
+host sensor must calculate an individual digest when Signal Loom needs one.
+
+## Required Signal Loom work
+
+1. Create an AgentMaxxing tenant and an attributable operator account.
+2. Register one external Linux agent record before host enrollment.
+3. Define one nono profile with explicit read, write, and network grants.
+4. Implement the nono audit-control-plane enrollment contract.
+5. Bind the enrolled host identity to one tenant and one agent.
+6. Ingest finalized nono audit sessions idempotently.
+7. Verify the nono audit chain before accepting session evidence.
+8. Collect process health, CPU, memory, exit, and restart metadata.
+9. Hash created or changed files only inside approved writable paths.
+10. Reject symbolic links, hard-link escapes, mount crossings, and non-regular files.
+11. Verify file identity before and after hashing to detect replacement races.
+12. Reject file contents, memory contents, and payload contents.
+13. Display source, timestamp, integrity state, and collection limits.
+14. Test account removal, host unenrollment, and replay rejection.
+
+## Security boundary
+
+Use a one-time enrollment token. The resulting host identity must be audit-only.
+It must not read tenant data or invoke agent lifecycle mutations.
+
+Bind each event to these fields:
+
+- tenant identifier
+- Signal Loom agent identifier
+- nono session identifier
+- Linux host identifier
+- nono profile digest
+- main executable digest when available
+- event timestamp and source
+- audit-chain verification result
+
+Allowlist filesystem roots and network destinations. Keep credentials outside
+the sandbox by using nono's brokered credential support. Set size and rate
+limits before calculating disk-artifact hashes. Open only regular files beneath
+a pinned approved root. Do not follow symbolic links or cross mount boundaries.
+Reject files with multiple hard links. Verify the device and inode before and
+after hashing, and discard the digest if either value changes.
+
+## Completion evidence
+
+The integration is ready for AgentMaxxing onboarding only when:
+
+- a newly provisioned operator signs in with an individual identity;
+- the registered external agent starts only through the approved nono profile;
+- Signal Loom receives one verified nono session without manual import;
+- process and disk metadata appear on the correct agent timeline;
+- one seeded filesystem denial appears as denied evidence;
+- one unapproved network destination is blocked;
+- in-memory and streamed data are explicitly shown as unobserved;
+- removing the host enrollment prevents later audit uploads.
+
+Until these checks pass, use the [current first-agent guide](../first-agent/) only
+for the implemented demonstration workflow.

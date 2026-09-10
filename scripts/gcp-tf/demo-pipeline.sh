@@ -1180,7 +1180,7 @@ run_stage \
   "stage8b-smoke.txt" \
   "cd ${WORK_DIR} && \
    PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
-   ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts"
+    ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts docs.spec.ts"
 
 # ═══ Tier 5: the user surface, over the origin a human actually opens. ══════
 #

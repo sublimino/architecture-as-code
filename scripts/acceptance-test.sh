@@ -87,21 +87,29 @@ setup_gateway_forward() {
     # its forward for this run or fails before the browser can report a misleading
     # application error.
     if nc -z 127.0.0.1 "${gateway_local_port}" 2>/dev/null; then
-      echo "    ERROR: localhost:${gateway_local_port} is already listening; refusing to adopt an unowned Gateway forward" >&2
-      PREFLIGHT_FAILED=1
-      return
+      local ready_resp
+      ready_resp="$(curl -sk --resolve "dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" "https://dashboard.osramp.acme.local:${gateway_local_port}/readyz" 2>/dev/null || true)"
+      if [[ "${ADOPT_GATEWAY_FORWARD:-0}" == "1" && "${ready_resp}" == ready* ]]; then
+        echo "    gateway: adopting confirmed active Gateway forward on localhost:${gateway_local_port}"
+        gateway_forwarded=1
+      else
+        echo "    ERROR: localhost:${gateway_local_port} is already listening; refusing to adopt an unowned Gateway forward" >&2
+        PREFLIGHT_FAILED=1
+        return
+      fi
+    else
+      GATEWAY_PF_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/acceptance-gateway-forward.XXXXXX")"
+      export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:${gateway_local_port}}"
+      if ! PF_PROBE_URL="${DASHBOARD_URL}/readyz" \
+        PF_PROBE_CURL_OPTS="-k --resolve dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" \
+        "${SCRIPT_DIR}/supervise-port-forward.sh" up "${GATEWAY_PF_STATE_DIR}" \
+          "${gateway_namespace}" "${gateway_service}" "${gateway_local_port}" 443 /readyz "$$"; then
+        echo "    ERROR: could not establish supervised shared Gateway forward" >&2
+        PREFLIGHT_FAILED=1
+        return
+      fi
+      gateway_forwarded=1
     fi
-    GATEWAY_PF_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/acceptance-gateway-forward.XXXXXX")"
-    export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:${gateway_local_port}}"
-    if ! PF_PROBE_URL="${DASHBOARD_URL}/readyz" \
-      PF_PROBE_CURL_OPTS="-k --resolve dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" \
-      "${SCRIPT_DIR}/supervise-port-forward.sh" up "${GATEWAY_PF_STATE_DIR}" \
-        "${gateway_namespace}" "${gateway_service}" "${gateway_local_port}" 443 /readyz "$$"; then
-      echo "    ERROR: could not establish supervised shared Gateway forward" >&2
-      PREFLIGHT_FAILED=1
-      return
-    fi
-    gateway_forwarded=1
     echo "    gateway: ${gateway_namespace}/${gateway_service} nodePort=${gateway_node_port} localPort=${gateway_local_port} address=${gatewayAddress}"
   else
     echo "    SKIP: ingress/cluster Envoy service (service not found)"

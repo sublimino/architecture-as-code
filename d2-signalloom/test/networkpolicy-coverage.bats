@@ -118,7 +118,9 @@ JQ_COVERAGE='
   run render_json
   [ "$status" -eq 0 ]
 
-  uncovered="$(echo "$output" | jq -r "$JQ_COVERAGE"' | .[] | select((.egress_policies | length) == 0) | "\(.kind)/\(.name) labels=\(.labels | tojson)"')"
+  # docs-signalloom is a static documentation server with zero service dependencies;
+  # under least privilege it is intentionally zero-egress (no DNS, no outbound traffic).
+  uncovered="$(echo "$output" | jq -r "$JQ_COVERAGE"' | .[] | select(.name != "docs-signalloom") | select((.egress_policies | length) == 0) | "\(.kind)/\(.name) labels=\(.labels | tojson)"')"
 
   if [ -n "$uncovered" ]; then
     echo "workloads with NO egress NetworkPolicy in a default-deny namespace:" >&2
@@ -126,6 +128,14 @@ JQ_COVERAGE='
     echo "each of these has no egress at all, not even DNS; add a policy to its base/" >&2
     false
   fi
+}
+
+@test "docs-signalloom is strictly zero-egress under least privilege" {
+  run render_json
+  [ "$status" -eq 0 ]
+
+  egress_count="$(echo "$output" | jq -r "$JQ_COVERAGE"' | .[] | select(.name == "docs-signalloom") | .egress_policies | length')"
+  [ "$egress_count" -eq 0 ]
 }
 
 @test "every workload in default-deny fe-signalloom has an ingress NetworkPolicy" {

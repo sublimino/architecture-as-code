@@ -10,7 +10,7 @@ HELM_CONFIG_HOME ?= /tmp/helm/config
 HELM_DATA_HOME ?= /tmp/helm/data
 UV_CONFIG_FILE ?= /dev/null
 UV_CACHE_DIR ?= /tmp/uv-cache
-BATS_JOBS ?= 4
+BATS_JOBS ?= 1
 export KUBECONFIG GOCACHE GOMODCACHE CGO_ENABLED HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME UV_CONFIG_FILE UV_CACHE_DIR BATS_JOBS
 
 .PHONY: test test-netassert bootstrap-drift bao-test-config netassert-config-drift
@@ -61,8 +61,8 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	@# test/bats-registry-coverage.bats.
 	@if command -v bats >/dev/null 2>&1; then \
 		BATS_PARALLEL_OPT=""; \
-		if command -v parallel >/dev/null 2>&1; then \
-			BATS_PARALLEL_OPT="--jobs $${BATS_JOBS:-8} --no-parallelize-within-files"; \
+		if [ "$${BATS_JOBS:-1}" -gt 1 ] 2>/dev/null && command -v parallel >/dev/null 2>&1; then \
+			BATS_PARALLEL_OPT="--jobs $${BATS_JOBS} --no-parallelize-within-files"; \
 		fi; \
 		bats $$BATS_PARALLEL_OPT $$(ls test/*.bats | grep -vxF -f <(printf '%s\n' $(EXCLUDED_BATS))); \
 	fi

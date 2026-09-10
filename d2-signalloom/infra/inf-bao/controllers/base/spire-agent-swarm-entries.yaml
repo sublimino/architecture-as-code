@@ -85,6 +85,8 @@ data:
       kagent-compliance-checker
       kagent-finops-optimizer
       kagent-chaos-prober
+      agent-nono-evidenced
+      agent-standard-baseline
     )
 
     # One derivation of the server call, so nothing below can disagree about

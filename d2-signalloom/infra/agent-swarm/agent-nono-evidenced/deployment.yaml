@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-nono-evidenced
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/instance: agent-nono-evidenced
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: agent-nono-evidenced
+    signalloom.ai/agent-type: demo
+    signalloom.ai/framework: custom
+    signalloom.ai/model: claude-sonnet-4
+    signalloom.ai/state: "active"
+    signalloom.io/agent: demo
+    signalloom.io/workload-profile: nono-evidenced
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: agent-nono-evidenced
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signalloom-agent
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: signalloom
+        app.kubernetes.io/instance: agent-nono-evidenced
+        signalloom.ai/agent: "true"
+        signalloom.ai/agent-name: agent-nono-evidenced
+        signalloom.ai/agent-type: demo
+        signalloom.ai/framework: custom
+        signalloom.ai/model: claude-sonnet-4
+        signalloom.ai/state: "active"
+        signalloom.io/agent: demo
+        signalloom.io/workload-profile: nono-evidenced
+      annotations:
+        signalloom.ai/agent-display-name: "Demo Agent (Nono Evidenced)"
+        signalloom.ai/description: "Autonomous demo agent configured with optional Linux Landlock sandboxing and hash-chained SPIFFE audit logging."
+        signalloom.ai/model-full: "anthropic/claude-sonnet-4"
+        spiffe.io/spiffe-id: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+        signalloom.io/workload-profile: "nono-evidenced"
+    spec:
+      serviceAccountName: agent-nono-evidenced
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: docker.io/bitnamilegacy/kubectl:1.31
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/scripts/entrypoint.sh"]
+          env:
+            - name: AGENT_ID
+              value: "agent-nono-evidenced"
+            - name: AGENT_NAME
+              value: "Demo Agent (Nono Evidenced)"
+            - name: WORKLOAD_PROFILE
+              value: "nono-evidenced"
+            - name: SPIFFE_ID
+              value: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+            - name: SPIFFE_SOCKET
+              value: "/run/spire/sockets/agent.sock"
+            - name: HEARTBEAT_INTERVAL
+              value: "10"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: entrypoint-script
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+            - name: audit-log
+              mountPath: /var/log/audit
+      volumes:
+        - name: spiffe-workload-api
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
+        - name: entrypoint-script
+          configMap:
+            name: agent-nono-evidenced-config
+            defaultMode: 0755
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: audit-log
+          emptyDir: {}

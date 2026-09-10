@@ -119,9 +119,9 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 
 - **Phase 2 Pipeline**:
 1. `SLON-P2-PRE` (`355e8`): Preflight verification of SPIFFE provider, OpenBao JWT roles, and Nono capability probe. [DONE]
-2. `SLON-P2-1` (`c1ce1`): Deploy `agent-nono-evidenced` and `agent-standard-baseline` into `fe-signalloom-agents`. [ACTIVE]
-3. `SLON-P2-2` (`254f7`): Implement `probe-nono-capability.sh` dynamic detection and signed audit session telemetry ingest. [BLOCKED on P2-1]
-4. `SLON-P2-3` (`46bb8`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry. [BLOCKED on P2-1, P2-2]
+2. `SLON-P2-1` (`c1ce1`): Deploy `agent-nono-evidenced` and `agent-standard-baseline` into `fe-signalloom-agents`. [DONE]
+3. `SLON-P2-2` (`254f7`): Implement `probe-nono-capability.sh` dynamic detection and signed audit session telemetry ingest. [ACTIVE]
+4. `SLON-P2-3` (`46bb8`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry. [BLOCKED on P2-2]
 5. `SLON-P2-4` (`0d0c9`): Implement `make demo-signalloom-smoke` target for < 90s dual-agent verification. [ACTIVE]
 6. `SLON-P2-GOV` (`c0fa6`): Phase 2 Governor reconciliation, ingress restart claim persistence assertion, and merge. [PENDING]
 

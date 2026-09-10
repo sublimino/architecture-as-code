@@ -107,12 +107,16 @@ export interface ConnectorTestResult {
   needs_rotation: boolean
 }
 
-// GET /onboarding/status, POST /onboarding/skip response
-// (routers/onboarding.py, US-ENHC-011 closeout). `skipped_at` is the
-// server-side "explicit skip" flag — cross-device, same as the wizard's
-// in-progress step state below (Slice 1a, 86cajpvar QA item g).
+export type OnboardingStatusType = 'pending' | 'completed' | 'skipped'
+
+// GET /onboarding/status, POST /onboarding/skip, POST /onboarding/complete response
+// (routers/onboarding.py). Server-side authoritative onboarding status:
+// `skipped_at` and `completed_at` are persisted ISO timestamps, and `status`
+// is the terminal or active onboarding state ('pending' | 'completed' | 'skipped').
 export interface OnboardingStatus {
+  status: OnboardingStatusType | string
   skipped_at: string | null
+  completed_at: string | null
 }
 
 // GET/PUT /onboarding/state (routers/onboarding.py, Slice 1a). Server-side

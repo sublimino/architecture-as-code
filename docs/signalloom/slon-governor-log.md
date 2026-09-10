@@ -58,6 +58,10 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | \`2026-09-10T09:12:37Z\` | \`governor\` | \`PREFLIGHT_CERTIFIED\` | \`SLON-P1-PRE\` errata normalized with canonical machine tag. Task moved from \`review\` to \`done\`. |
 | \`2026-09-10T09:13:00Z\` | \`governor\` | \`DISPATCH_PHASE_1_IMPL\` | Dispatched \`SLON-P1-1\` (\`5a2f9\`, Onboarding API Client) and \`SLON-P1-2\` (\`0ad83\`, Sidebar Navigation Hierarchy) into \`in_progress\` concurrently. |
 | \`2026-09-10T09:15:23Z\` | \`supervisor\` | \`TICK_3_EXECUTED\` | Controller Tick #3 executed via \`CycleInput.ts\`. Both \`SLON-P1-1\` and \`SLON-P1-2\` confirmed actively and healthily working. Quota healthy (\`cdx:0%/cld:0%/agy:30%\`). Graph clean. |
+| \`2026-09-10T09:16:30Z\` | \`antigravity (council)\` | \`COUNCIL_REVIEW_RECORDED\` | Council of Agents (Antigravity, KPAI, Gemini) verified preflight proof deliverable at \`docs/signalloom/slon-p1-preflight-proof.md\` and dual-persisted PASS verdict in review ledger. Proactive support active for \`SLON-P1-1\` and \`SLON-P1-2\`. |
+| \`2026-09-10T09:20:32Z\` | \`supervisor\` | \`TICK_4_EXECUTED\` | Controller Tick #4 executed via \`CycleInput.ts\`. Task \`SLON-P1-1\` (\`5a2f9\`) reported successful completion with commit \`ad2fec79\`. |
+| \`2026-09-10T09:20:38Z\` | \`governor\` | \`INTEGRATION_MERGED\` | Governor merged commit \`ad2fec79\` into \`integration/slon-v0.1.0\` (9 files changed, +487/-48 lines; clean merge). |
+| \`2026-09-10T09:20:41Z\` | \`governor\` | \`TASK_ADVANCED_DONE\` | \`SLON-P1-1\` verified and moved to \`done\`. Vitest (157/157 suites, 3093 tests) and Pytest (79 tests) 100% pass. Evidence: \`docs/signalloom/slon-p1-1-evidence.md\`. |
 
 ---
 
@@ -65,17 +69,16 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 
 - **Completed Cards**:
   - \`SLON-P1-PRE\` (\`0e83e\`, Pre-Flight Verification, Commit \`0e228c66\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-preflight-proof.md\`.
+  - \`SLON-P1-1\` (\`5a2f9\`, Onboarding API Client Live Wiring, Commit \`ad2fec79\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-1-evidence.md\`. All mock fallbacks eliminated; PostgreSQL round-trip assertions passing.
 
 - **Active Cards in Progress**:
-  - **\`SLON-P1-1\` (\`5a2f9\`)**: Wire onboarding API client to live database endpoints.
-    - *Agent Directive*: Eliminate mock mode fallback (\`REACT_APP_MOCK_ONBOARDING\`, local storage bypasses). Connect \`onboardingClient.ts\` to live endpoints (\`/api/v1/onboarding/status\`, \`/api/v1/onboarding/complete\`). Assert DB state roundtrips and survives page refresh.
-    - *Standards*: TypeScript, Bun only, scope-less conventional commits, machine errata tag \`<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->\`.
   - **\`SLON-P1-2\` (\`0ad83\`)**: Reorder dashboard sidebar into 3-tier hierarchy.
     - *Agent Directive*: Reorganize \`Sidebar.tsx\` into View (Overview, Signals, Topology, Mesh, Events, Explorer), Control (Agents, Quotas, Policies, Approvals, Tunnels), and Design (Architecture, Playbooks, Schemas, Settings).
     - *Standards*: TypeScript, Bun only, Vitest assertions, scope-less conventional commits, machine errata tag \`<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->\`.
+    - *Status*: Actively working in \`/home/andy/.cline/worktrees/0ad83/osramp-demo\`.
 
 - **Upcoming Dependent Queue**:
-  - \`SLON-P1-3\` (\`1c4bb\`): Implement first user onboarding wizard flow with persistent DB state (waiting on \`SLON-P1-1\` & \`SLON-P1-2\`).
+  - \`SLON-P1-3\` (\`1c4bb\`): Implement first user onboarding wizard flow with persistent DB state (waiting only on \`SLON-P1-2\` completion).
   - \`SLON-P1-GOV\` (\`e80e2\`): Phase 1 Governor reconciliation, merge to integration branch, and gate verification.
 
 ---

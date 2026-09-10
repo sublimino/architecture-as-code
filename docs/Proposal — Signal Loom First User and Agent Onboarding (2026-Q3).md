@@ -28,7 +28,7 @@ tags:
   - osramp
 aliases:
   - "#proposal-2026-q3-signal-loom-first-user-and-agent-onboarding"
-updated: 2026-09-10T09:12
+updated: 2026-09-10T09:19
 shortcode: SLON
 ---
 # Proposal — Signal Loom First User and Agent Onboarding (2026-Q3)
@@ -228,7 +228,7 @@ Nono is an optional capability. Workloads instrumented for Nono must run a pre-e
 | ID | Title | Depends on | Tests / evidence | Size | Agent | Result | Est. Cost | Tokens | Elapsed | AI URI |
 | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :--- |
 | SLON-P1-PRE | Preflight verification of repo base, Kind cluster, Envoy Gateway, and fe-signalloom build | | Preflight proof recorded in `docs/signalloom/slon-p1-preflight-proof.md`; base confirmed | S | antigravity | pass | | | | |
-| SLON-P1-1 | Wire onboarding API client to live database endpoints and eliminate mock mode fallback | SLON-P1-PRE | Vitest and Pytest asserting database roundtrips; skip/complete status survives reload | M | antigravity | | | | | |
+| SLON-P1-1 | Wire onboarding API client to live database endpoints and eliminate mock mode fallback | SLON-P1-PRE | Vitest and Pytest asserting database roundtrips; skip/complete status survives reload | M | antigravity | pass — delivered: ad2fec79d26dc3445efd50bc37351663c7e91867 (see Errata — SLON-P1-1) | | | | |
 | SLON-P1-2 | Reorder dashboard left-hand sidebar navigation into View, Control, Design categories | SLON-P1-PRE | Vitest component tests and Playwright navigation test asserting route links | M | antigravity | | | | | |
 | SLON-P1-3 | Implement first user onboarding wizard flow with persistent organization setup and consent | SLON-P1-1, SLON-P1-2 | Playwright e2e onboarding spec passes verifying wizard flow and dashboard redirect | M | antigravity | | | | | |
 | SLON-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, run user onboarding verification suite | SLON-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | | | | | |
@@ -278,4 +278,16 @@ Nono is an optional capability. Workloads instrumented for Nono must run a pre-e
 - Backend `fe-signalloom` API contracts and migration tests pass 56/56 tests (`scripts/signalloom-api-test.sh contract`).
 - Unlinked external worktree symlinks to preserve nono sandbox isolation in isolated build environment.
 - Documented preflight proof in `docs/signalloom/slon-p1-preflight-proof.md` and indexed in `docs/README.md`.
+
+#### Errata — SLON-P1-1 Wire onboarding API client to live database endpoints and eliminate mock mode fallback
+**Created:** 2026-09-10 09:19:10+01:00  
+**Last Updated:** 2026-09-10 09:19:10+01:00  
+**Status:** Completed  
+**Commit:** ad2fec79d26dc3445efd50bc37351663c7e91867  
+**Governor merge:** [pending Governor reconciliation]  
+**Decisions:** Hardened `onboardingClient.ts` with structured `OnboardingApiError` and full endpoint coverage (`getStatus`, `skip`, `complete`, `getState`, `putState`). Updated `App.tsx` and `OnboardingWizard.tsx` to ensure authoritative server status resolution and eliminate mock fallbacks. Extended `test_onboarding.py` with comprehensive persistence, anti-IDOR, and lifecycle test assertions.  
+**Deviations:** None. All changes conform strictly to SP-1 and zero-mock persistence invariants.  
+**Notes:** Vitest (157/157 test files, 3,093 tests) and Pytest (79 tests) suites pass 100%. Evidence recorded in `docs/signalloom/slon-p1-1-evidence.md`.  
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

@@ -18,22 +18,26 @@ import (
 // end-to-end authorization chain query over the resolved identity graph
 // and attested evidence.
 type AuthorizationChainResponse struct {
-	Action            string               `json:"action"`
-	AgentIdentity     string               `json:"agentIdentity"`
-	ActsOnBehalfOf    string               `json:"actsOnBehalfOf"`
-	Principal         string               `json:"principal"`
-	Decision          string               `json:"decision"`
-	Confidence        float64              `json:"confidence"`
-	EvidenceRefs      []string             `json:"evidenceRefs"`
-	AttestationGitoid string               `json:"attestationGitoid"`
-	Complete          bool                 `json:"complete"`
-	ActorID           string               `json:"actorId,omitempty"`
+	Action            string                      `json:"action"`
+	AgentIdentity     string                      `json:"agentIdentity"`
+	ActsOnBehalfOf    string                      `json:"actsOnBehalfOf"`
+	Principal         string                      `json:"principal"`
+	Decision          string                      `json:"decision"`
+	Confidence        float64                     `json:"confidence"`
+	EvidenceRefs      []string                    `json:"evidenceRefs"`
+	AttestationGitoid string                      `json:"attestationGitoid"`
+	Complete          bool                        `json:"complete"`
+	ActorID           string                      `json:"actorId,omitempty"`
 	CanonicalID       string                      `json:"canonicalId,omitempty"`
 	Aliases           []string                    `json:"aliases,omitempty"`
 	EvidenceChain     []model.EvidenceLink        `json:"evidenceChain,omitempty"`
 	DelegationChain   []identity.DelegationRecord `json:"delegationChain,omitempty"`
 	CycleDetected     bool                        `json:"cycleDetected,omitempty"`
 	Timestamp         *time.Time                  `json:"timestamp,omitempty"`
+	Status            model.ActorStatus           `json:"status,omitempty"`
+	QuarantineDetails *model.QuarantineRecord     `json:"quarantine_details,omitempty"`
+	ViolationReason   string                      `json:"violation_reason,omitempty"`
+	Error             string                      `json:"error,omitempty"`
 }
 
 // AuthorizationQueryResponse wraps estate-wide authorization chain queries.
@@ -114,6 +118,17 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 		cloned.ResolvedAt = &queryTime
 		actor = &cloned
 	}
+	if actor == nil && h.Engine != nil {
+		if qRec, isQ := h.Engine.IsActorQuarantined(id); isQ {
+			actor = &model.ProvisionalActor{
+				ID:                id,
+				Status:            model.ActorQuarantined,
+				QuarantineDetails: qRec,
+				CreatedAt:         qRec.AttemptedAt,
+				UpdatedAt:         qRec.QuarantinedAt,
+			}
+		}
+	}
 	if actor == nil {
 		writeError(w, http.StatusNotFound, "actor not found")
 		return
@@ -123,6 +138,11 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 	chain := h.BuildAuthorizationChain(r.Context(), actor, actionHint)
 	if chain.Decision == "REVOKED" || strings.HasPrefix(chain.Decision, "REVOKED") || actor.Status == "revoked" {
 		w.Header().Set("X-Authorization-Status", "REVOKED")
+		writeJSON(w, http.StatusForbidden, chain)
+		return
+	}
+	if actor.Status == model.ActorQuarantined || chain.QuarantineDetails != nil {
+		chain.Error = fmt.Sprintf("actor execution quarantined: unverified delegation chain (%s)", chain.ViolationReason)
 		writeJSON(w, http.StatusForbidden, chain)
 		return
 	}
@@ -197,6 +217,17 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 			cloned.ResolvedAt = &queryTime
 			actor = &cloned
 		}
+		if actor == nil && h.Engine != nil {
+			if qRec, isQ := h.Engine.IsActorQuarantined(actorID); isQ {
+				actor = &model.ProvisionalActor{
+					ID:                actorID,
+					Status:            model.ActorQuarantined,
+					QuarantineDetails: qRec,
+					CreatedAt:         qRec.AttemptedAt,
+					UpdatedAt:         qRec.QuarantinedAt,
+				}
+			}
+		}
 		if actor == nil {
 			writeError(w, http.StatusNotFound, "actor not found")
 			return
@@ -205,6 +236,11 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 		chain := h.BuildAuthorizationChain(ctx, actor, actionHint)
 		if chain.Decision == "REVOKED" || strings.HasPrefix(chain.Decision, "REVOKED") || actor.Status == "revoked" {
 			w.Header().Set("X-Authorization-Status", "REVOKED")
+			writeJSON(w, http.StatusForbidden, chain)
+			return
+		}
+		if actor.Status == model.ActorQuarantined || chain.QuarantineDetails != nil {
+			chain.Error = fmt.Sprintf("actor execution quarantined: unverified delegation chain (%s)", chain.ViolationReason)
 			writeJSON(w, http.StatusForbidden, chain)
 			return
 		}
@@ -219,6 +255,11 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 			for _, ev := range a.EvidenceChain {
 				if ev.ObservationID == action || strings.Contains(strings.ToLower(ev.Contribution), strings.ToLower(action)) {
 					chain := h.BuildAuthorizationChain(ctx, a, action)
+					if a.Status == model.ActorQuarantined || chain.QuarantineDetails != nil {
+						chain.Error = fmt.Sprintf("actor execution quarantined: unverified delegation chain (%s)", chain.ViolationReason)
+						writeJSON(w, http.StatusForbidden, chain)
+						return
+					}
 					writeJSON(w, http.StatusOK, chain)
 					return
 				}
@@ -230,6 +271,24 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 
 	// Estate-wide authorization chains query
 	actors := h.Engine.GetActors()
+	seenActorIDs := make(map[string]bool)
+	for _, a := range actors {
+		seenActorIDs[a.ID] = true
+	}
+	if h.Engine != nil {
+		for qActorID, qRec := range h.Engine.GetQuarantinedActors() {
+			if !seenActorIDs[qActorID] {
+				actors = append(actors, &model.ProvisionalActor{
+					ID:                qActorID,
+					Status:            model.ActorQuarantined,
+					QuarantineDetails: qRec,
+					CreatedAt:         qRec.AttemptedAt,
+					UpdatedAt:         qRec.QuarantinedAt,
+				})
+				seenActorIDs[qActorID] = true
+			}
+		}
+	}
 	chains := make([]AuthorizationChainResponse, 0, len(actors))
 	completeCount := 0
 
@@ -460,9 +519,29 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 		}
 	}
 
-	// 5. Decision
+	// 5. Decision & Quarantine evaluation
+	var qRec *model.QuarantineRecord
+	if actor.QuarantineDetails != nil {
+		qRec = actor.QuarantineDetails
+	} else if h.Engine != nil {
+		if q, isQ := h.Engine.IsActorQuarantined(actor.ID); isQ {
+			qRec = q
+		} else if q, isQ := h.Engine.IsActorQuarantined(actor.CanonicalID); isQ {
+			qRec = q
+		} else {
+			for _, al := range actor.Aliases {
+				if q, isQ := h.Engine.IsActorQuarantined(al); isQ {
+					qRec = q
+					break
+				}
+			}
+		}
+	}
+
 	decision := string(actor.Status)
-	if actor.Status == "revoked" || actor.Status == model.ActorRevoked {
+	if qRec != nil || actor.Status == model.ActorQuarantined {
+		decision = "denied:quarantined"
+	} else if actor.Status == "revoked" || actor.Status == model.ActorRevoked {
 		decision = "REVOKED"
 		if actsOnBehalfOf == "" || strings.HasSuffix(actsOnBehalfOf, principal) {
 			actsOnBehalfOf = fmt.Sprintf("%s delegation revoked (valid_to clamped)", agentIdentity)
@@ -510,12 +589,18 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 	// Compute or retrieve cryptographic GitOID (SHA256 Git blob hash) over the evidence chain and authorization record.
 	attestationGitoid := deriveAttestationGitoid(actor.ID, agentIdentity, principal, decision, confidence, evidenceRefs)
 
-	// Completeness predicate: all 7 hops must be non-empty, confidence > 0, and not revoked.
+	// Completeness predicate: all 7 hops must be non-empty, authorized, and confidence > 0.
 	complete := (decision != "REVOKED" && !strings.HasPrefix(decision, "REVOKED")) &&
+		decision != "denied:quarantined" &&
+		qRec == nil &&
+		actor.Status != model.ActorQuarantined &&
 		agentIdentity != "" &&
 		actsOnBehalfOf != "" &&
 		principal != "" &&
 		decision != "" &&
+		decision != "denied:quarantined" &&
+		qRec == nil &&
+		actor.Status != model.ActorQuarantined &&
 		confidence > 0 &&
 		len(evidenceRefs) > 0 &&
 		attestationGitoid != ""
@@ -527,6 +612,11 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 	} else if !actor.CreatedAt.IsZero() {
 		t := actor.CreatedAt
 		ts = &t
+	}
+
+	vReason := ""
+	if qRec != nil {
+		vReason = string(qRec.ViolationReason)
 	}
 
 	return AuthorizationChainResponse{
@@ -546,6 +636,9 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 		DelegationChain:   delegationChain,
 		CycleDetected:     cycleDetected,
 		Timestamp:         ts,
+		Status:            actor.Status,
+		QuarantineDetails: qRec,
+		ViolationReason:   vReason,
 	}
 }
 

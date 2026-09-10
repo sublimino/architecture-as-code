@@ -242,6 +242,7 @@ func main() {
 		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
 		_, _ = io.WriteString(w, fairService.Metrics.Render())
 		_, _ = io.WriteString(w, agentNonoMetrics.Render())
+		_, _ = io.WriteString(w, correlation.DefaultQuarantineMetrics().Render())
 	})
 
 	srv := &http.Server{

@@ -326,6 +326,10 @@ func cloneActor(a *model.ProvisionalActor) *model.ProvisionalActor {
 		v := *a.AgentRegistryID
 		c.AgentRegistryID = &v
 	}
+	if a.QuarantineDetails != nil {
+		v := *a.QuarantineDetails
+		c.QuarantineDetails = &v
+	}
 	return &c
 }
 func cloneSnapshot(s model.ResolverSnapshot) model.ResolverSnapshot {

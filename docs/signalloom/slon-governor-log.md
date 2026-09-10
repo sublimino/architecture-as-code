@@ -109,6 +109,11 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | `2026-09-10T11:54:30Z` | `SLON-P3-PRE` | `PREFLIGHT_FAIL_REPORTED` | Identified missing docs portal on `integration/slon-v0.1.0` (present only on unmerged `feat/signal-loop-and-bootstrap-refactor`). Authored 4 companion analysis documents; recorded blocker errata (commit `376e64d5`). |
 | `2026-09-10T11:57:00Z` | `governor` | `SCOPED_SUBTREE_ADOPTED` | Governor executed Option 1 (Scoped subtree adoption): checked out documentation portal slice (`d2-signalloom/apps/docs-signalloom/**`), manifests, routes, policies, scripts, and tests into `integration/slon-v0.1.0` (commit `a8e8c929`). Verified 9/9 BATS and clean 14-page Astro build. |
 | `2026-09-10T11:58:17Z` | `governor` | `PHASE_3_PREFLIGHT_CERTIFIED` | Preflight verified and certified PASS in `docs/signalloom/slon-p3-preflight-proof.md` (commit `fec54087`). Errata updated. Card moved from `review` to `done`. Phase 3 unblocked. |
+| `2026-09-10T12:00:00Z` | `governor` | `DISPATCH_PHASE_3_IMPL` | Dispatched `SLON-P3-1` (`6fd81`) and `SLON-P3-2` (`82aa3`) concurrently in isolated worktrees. |
+| `2026-09-10T12:26:00Z` | `governor` | `SLON_P3_1_MERGED` | Merged `SLON-P3-1` (`e4afe5f0`) into `integration/slon-v0.1.0`. Authored 4 new documentation guides, verified 18-page Astro build and 9/9 BATS platform tests. |
+| `2026-09-10T12:45:00Z` | `governor` | `SLON_P3_2_MERGED` | Merged `SLON-P3-2` (`12bee7e3`) into `integration/slon-v0.1.0` (merge commit `1f38b489`). Delivered 90 adversarial Pytest assertions, 16 BATS probes, patched F-1, and pinned F-2 under strict xfail. |
+| `2026-09-10T13:03:26Z` | `governor` | `FINDING_F2_RESOLVED` | Resolved F-2 on `integration/slon-v0.1.0` in commit `a22fb91a`: enforced authentication dependency and removed `tenant_id` on `claim_agent_by_id`. Pytest 90/90 passed green. |
+| `2026-09-10T13:10:00Z` | `governor` | `FINAL_MISSION_CERTIFIED` | Executed `SLON-P3-GOV` (`5ab6e`). Verified all test gates: smoke test (< 12s), vitest (3,118 passed), backend tests (193 passed), docs build (18 pages). Certified SLON v0.1.0. |
 
 ---
 
@@ -137,11 +142,22 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 
 ## 5. Active Phase Status: Phase 3 (Documentation Portal & Adversarial Verification)
 
-- **Phase 3 Status**:
-  - `SLON-P3-PRE` (`b5c28`, Preflight Verification, Commit `fec54087`): **`done`** (certified). Preflight identified missing documentation portal on integration branch; Governor resolved via scoped subtree adoption (commit `a8e8c929`), verified 9/9 docs BATS and clean 14-page Astro build, and certified PASS in `docs/signalloom/slon-p3-preflight-proof.md` (commit `fec54087`). Phase 3 unblocked.
-  - `SLON-P3-1` (`6fd81`, Author User & Dual-Agent Onboarding Guides): `backlog` / ready for dispatch.
-  - `SLON-P3-2` (`82aa3`, Adversarial Tenant Isolation & Nono Confinement Verification): `backlog` / ready for dispatch.
-  - `SLON-P3-GOV` (`5ab6e`, Phase 3 Governor Reconciliation & Final Certification): `backlog` (awaits P3-1, P3-2).
+- **Completed Phase 3 Implementation Cards**:
+  - `SLON-P3-PRE` (`b5c28`, Preflight Verification, Commit `fec54087`): **`done`** (certified). Preflight verified and certified PASS in `docs/signalloom/slon-p3-preflight-proof.md`.
+  - `SLON-P3-1` (`6fd81`, Author User & Dual-Agent Onboarding Guides, Commit `e4afe5f0`): **`done`**. Authored comprehensive onboarding guides, verified 18-page Astro build and 9/9 docs platform tests.
+  - `SLON-P3-2` (`82aa3`, Adversarial Tenant Isolation & Claim Tampering Rejection, Commit `12bee7e3`): **`done`**. 90 Pytest adversarial tests, 16 BATS probes, F-1 patched, and F-2 resolved in commit `a22fb91a`.
+  - `SLON-P3-GOV` (`5ab6e`, Final Programme Governor Reconciliation & Mission Quality Certification): **`done`** (certified). Reconciled all deliverables, executed full test matrix (100% pass), authored final mission report `docs/signalloom/slon-final-mission-report.md`. Phase 3 and SLON Mission 100% complete and certified.
+
+---
+
+## 6. Mission Certification & Closure Ledger
+
+| Milestone | Target | Commit / Ref | Status |
+| :--- | :--- | :--- | :--- |
+| Phase 1 Closure | User Onboarding & Architecture | `d1811f87` | **CLOSED / CERTIFIED** |
+| Phase 2 Closure | Dual Demo Agents & Isolated Smoke | `f76b9bd2` | **CLOSED / CERTIFIED** |
+| Phase 3 Closure | Docs Portal & Adversarial Verification | `a22fb91a` | **CLOSED / CERTIFIED** |
+| Final SLON Release | v0.1.0 Production Readiness | `refs/heads/integration/slon-v0.1.0` | **CERTIFIED READY** |
 
 ---
 

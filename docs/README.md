@@ -115,6 +115,7 @@ These documents record engineering decisions and investigations. They do not con
 | Signal Loom onboarding preflight proof | [`signalloom/slon-p1-preflight-proof.md`](signalloom/slon-p1-preflight-proof.md) |
 | Signal Loom Phase 1 Governor certification report | [`signalloom/slon-p1-governor-report.md`](signalloom/slon-p1-governor-report.md) |
 | Signal Loom Phase 1 technical design & architecture | [`signalloom/slon-p1-technical-design.md`](signalloom/slon-p1-technical-design.md) |
+| Signal Loom Phase 2 preflight verification proof | [`signalloom/slon-p2-preflight-proof.md`](signalloom/slon-p2-preflight-proof.md) |
 | Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |

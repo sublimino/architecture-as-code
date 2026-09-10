@@ -77,6 +77,7 @@ signal-loom-baoaudit.spec.ts	suite-only	Drives Weave dashboard to verify OpenBao
 signal-loom-netebpf.spec.ts	suite-only	Drives Weave dashboard to verify live eBPF Sentinel status bar, provider breakdown badges, and fail-closed telemetry gap alert banner. Requires demo-signalloom-up.
 signalloom-login.spec.ts	suite-only	Three of its four tests re-prove Dex login/logout, which stage 8 already covers via signalloom-test-1.spec.ts's Dex contracts; the fourth needs AFM. Cheap, and the best candidate for the next stage — but adding it today buys duplicate coverage rather than new coverage.
 signalloom-test-1.spec.ts	ci:stage8
+smoke-onboarding-agents.spec.ts	make:demo-signalloom-smoke	Dedicated rapid demo smoke suite (<90s) for live partner walk-throughs verifying user onboarding wizard and dual-agent claim/telemetry flows. Requires running demo cluster with dashboard-signalloom.
 smoke.spec.ts	ci:stage8b
 supercred-evidence-lifecycle.spec.ts	suite-only	Its project sets a 30-minute test timeout. CI_STAGE_TIMEOUT_SECONDS is 900, so a passing run would be killed mid-flight and reported as a stage failure. It also drives instructor phases that mutate one shared cluster, which is why its project sets retries:0.
 supercred-live-pages.spec.ts	unwired	Needs the SuperCred demo to have been driven first, and needs the storageState the setup project writes. Adding it to the `smoke` project would silently run it unauthenticated — playwright.config.ts documents exactly that trap. It needs its own project with dependencies:["setup"].

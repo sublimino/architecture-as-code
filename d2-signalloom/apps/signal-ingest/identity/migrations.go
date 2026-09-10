@@ -17,9 +17,12 @@ var Migration002DelegationIndices string
 //go:embed migrations/003_idempotent_seeding.sql
 var Migration003IdempotentSeeding string
 
+//go:embed migrations/004_delegation_revocation.sql
+var Migration004DelegationRevocation string
+
 // MigrationSQL returns the concatenated migration SQL scripts for external inspection or testing.
 func MigrationSQL() string {
-	return Migration001IdentityGraph + "\n" + Migration002DelegationIndices + "\n" + Migration003IdempotentSeeding
+	return Migration001IdentityGraph + "\n" + Migration002DelegationIndices + "\n" + Migration003IdempotentSeeding + "\n" + Migration004DelegationRevocation
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -45,6 +48,10 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 
 	if _, err := tx.ExecContext(ctx, Migration003IdempotentSeeding); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 003: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, Migration004DelegationRevocation); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 004: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

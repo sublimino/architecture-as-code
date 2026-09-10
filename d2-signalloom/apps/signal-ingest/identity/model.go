@@ -49,6 +49,7 @@ type DelegationRecord struct {
 	AuthzRef         string         `json:"authz_ref"`
 	ValidFrom        time.Time      `json:"valid_from"`
 	ValidTo          *time.Time     `json:"valid_to,omitempty"` // nil means open-ended / still active
+	Status           string         `json:"status,omitempty"`   // "active", "revoked", "expired"
 	Metadata         map[string]any `json:"metadata,omitempty"`
 	CreatedAt        time.Time      `json:"created_at"`
 }
@@ -72,6 +73,7 @@ type DelegationEdge struct {
 	AuthzRef         string     `json:"authz_ref"`
 	ValidFrom        time.Time  `json:"valid_from"`
 	ValidTo          *time.Time `json:"valid_to,omitempty"`
+	Status           string     `json:"status,omitempty"`
 	Depth            int        `json:"depth"`
 }
 

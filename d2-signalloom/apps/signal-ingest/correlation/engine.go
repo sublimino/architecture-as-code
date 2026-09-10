@@ -18,13 +18,14 @@ import (
 
 // Engine performs deterministic full-epoch identity resolution.
 type Engine struct {
-	mu       sync.RWMutex
-	store    store.SignalStore
-	resolver ResolverStore
-	rules    []compiledRule
-	options  ResolverOptions
-	verifier ProducerVerifier
-	snapshot model.ResolverSnapshot
+	mu         sync.RWMutex
+	store      store.SignalStore
+	resolver   ResolverStore
+	rules      []compiledRule
+	options    ResolverOptions
+	verifier   ProducerVerifier
+	snapshot   model.ResolverSnapshot
+	quarantine *QuarantineEngine
 }
 
 type compiledRule struct {
@@ -89,7 +90,8 @@ func newEngine(s store.SignalStore, resolver ResolverStore, rules []Rule, option
 	if err != nil {
 		return nil, fmt.Errorf("load resolver snapshot: %w", err)
 	}
-	return &Engine{store: s, resolver: resolver, rules: compiled, options: options.defaults(), verifier: verifier, snapshot: cloneSnapshot(snapshot)}, nil
+	quarantine := NewQuarantineEngine(QuarantineEngineOptions{Store: s})
+	return &Engine{store: s, resolver: resolver, rules: compiled, options: options.defaults(), verifier: verifier, snapshot: cloneSnapshot(snapshot), quarantine: quarantine}, nil
 }
 
 func (e *Engine) verifiedIdentifiers(ctx context.Context, o model.Observation) ([]model.TypedIdentifier, error) {
@@ -442,6 +444,20 @@ func (e *Engine) buildSnapshot(ctx context.Context, input []model.Observation, p
 				actor.UpdatedAt = prior.UpdatedAt
 			}
 		}
+		if e.quarantine != nil {
+			if qRec, isQ := e.quarantine.IsActorQuarantined(actor.ID); isQ {
+				actor.Status = model.ActorQuarantined
+				actor.QuarantineDetails = qRec
+			} else {
+				for _, al := range actor.Aliases {
+					if qRec, isQ := e.quarantine.IsActorQuarantined(al); isQ {
+						actor.Status = model.ActorQuarantined
+						actor.QuarantineDetails = qRec
+						break
+					}
+				}
+			}
+		}
 		resolved := actor.UpdatedAt
 		actor.ResolvedAt = &resolved
 		for _, key := range actor.CorrelationKeys {
@@ -497,6 +513,9 @@ func (e *Engine) buildSnapshot(ctx context.Context, input []model.Observation, p
 func (e *Engine) Resolve(obs model.Observation) (*model.ProvisionalActor, error) {
 	if obs.ID == "" && len(contractIdentifiers(obs)) == 0 && obs.Source == "" {
 		return nil, ErrUnresolvableObservation
+	}
+	if e.quarantine != nil {
+		_, _ = e.quarantine.EvaluateObservation(context.Background(), obs)
 	}
 	if obs.ID == "" {
 		obs.ID = "anonymous-" + observationIdentifier(obs.Source+"|"+obs.ActorHint).String()
@@ -573,11 +592,81 @@ func (e *Engine) GetActor(id string) *model.ProvisionalActor {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	for _, a := range e.snapshot.Actors {
-		if a.ID == id {
+		if a.ID == id || a.CanonicalID == id {
 			return cloneActor(a)
+		}
+		for _, al := range a.Aliases {
+			if al == id {
+				return cloneActor(a)
+			}
 		}
 	}
 	return nil
+}
+
+// QuarantineEngine returns the active quarantine evaluator.
+func (e *Engine) QuarantineEngine() *QuarantineEngine {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.quarantine
+}
+
+// SetQuarantineEngine configures a custom QuarantineEngine.
+func (e *Engine) SetQuarantineEngine(q *QuarantineEngine) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.quarantine = q
+}
+
+// IsActorQuarantined returns true if the actor has been placed in containment.
+func (e *Engine) IsActorQuarantined(actorID string) (*model.QuarantineRecord, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.quarantine == nil {
+		return nil, false
+	}
+	return e.quarantine.IsActorQuarantined(actorID)
+}
+
+// GetQuarantinedActors returns all currently quarantined actors.
+func (e *Engine) GetQuarantinedActors() map[string]*model.QuarantineRecord {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.quarantine == nil {
+		return make(map[string]*model.QuarantineRecord)
+	}
+	return e.quarantine.GetQuarantinedActors()
+}
+
+// QuarantineActor triggers explicit containment and quarantine status on an actor.
+func (e *Engine) QuarantineActor(ctx context.Context, actorID string, rec model.QuarantineRecord) (*model.QuarantineRecord, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.quarantine == nil {
+		e.quarantine = NewQuarantineEngine(QuarantineEngineOptions{Store: e.store})
+	}
+	res, err := e.quarantine.QuarantineActor(ctx, actorID, rec)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range e.snapshot.Actors {
+		if a.ID == actorID || a.CanonicalID == actorID {
+			a.Status = model.ActorQuarantined
+			a.QuarantineDetails = res
+		}
+	}
+	return res, nil
+}
+
+// EvaluateObservationContainment assesses an observation for automated containment.
+func (e *Engine) EvaluateObservationContainment(ctx context.Context, obs model.Observation) (*model.QuarantineRecord, error) {
+	e.mu.RLock()
+	q := e.quarantine
+	e.mu.RUnlock()
+	if q == nil {
+		return nil, nil
+	}
+	return q.EvaluateObservation(ctx, obs)
 }
 
 var ErrAlreadyPromoted = fmt.Errorf("actor already promoted")

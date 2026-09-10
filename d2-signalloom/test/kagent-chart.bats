@@ -32,6 +32,9 @@ setup() {
   KAGENT_DIR="${REPO_ROOT}/d2-signalloom/infra/kagent"
   CHART="oci://ghcr.io/kagent-dev/kagent/helm/kagent"
   CHART_VERSION="0.9.9"
+  export HELM_CACHE_HOME="${HELM_CACHE_HOME:-/tmp/helm-cache}"
+  export HELM_CONFIG_HOME="${HELM_CONFIG_HOME:-/tmp/helm-config}"
+  mkdir -p "$HELM_CACHE_HOME" "$HELM_CONFIG_HOME"
 }
 
 render() {

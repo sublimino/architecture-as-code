@@ -319,7 +319,7 @@ print(\"OK\")
 
 @test "tetragon mock: standalone module builds" {
   cd "$MOCK_DIR"
-  run go build ./...
+  run go build -o /dev/null .
   [ "$status" -eq 0 ]
 }
 
@@ -391,4 +391,8 @@ print('OK')
     run grep -q "$token" "$doc"
     [ "$status" -eq 0 ]
   done
+}
+
+teardown_file() {
+  git -C "$REPO_ROOT" checkout -- docs/signalloom/evidence/tetragon-stream-proof.json test/mocks/mocks 2>/dev/null || true
 }

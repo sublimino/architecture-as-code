@@ -598,9 +598,6 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 		actsOnBehalfOf != "" &&
 		principal != "" &&
 		decision != "" &&
-		decision != "denied:quarantined" &&
-		qRec == nil &&
-		actor.Status != model.ActorQuarantined &&
 		confidence > 0 &&
 		len(evidenceRefs) > 0 &&
 		attestationGitoid != ""

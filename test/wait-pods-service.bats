@@ -11,11 +11,16 @@ setup() {
   export MOCK_ENDPOINTS=""
   export MOCK_SERVICE_EXISTS=1
   export MOCK_WAIT_RC=0
+  export MOCK_GET_DELAY=0
 
   cat >"$test_bin/kubectl" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$COMMAND_LOG"
 args="$*"
+
+if [[ "$args" == *"get pod ready"* ]] && [ "${MOCK_GET_DELAY:-0}" != 0 ]; then
+  sleep "$MOCK_GET_DELAY"
+fi
 
 if [[ "$args" == *"get service"* ]]; then
   [ "${MOCK_SERVICE_EXISTS:-1}" = 1 ]
@@ -56,6 +61,14 @@ STUB
 @test "wait_pods_ready accepts multiple ready pods" {
   export MOCK_READY=$'pod-a|true,\npod-b|true,'
   run wait_pods_ready app=demo 1
+  [ "$status" -eq 0 ]
+}
+
+@test "wait_pods_ready rejects an unready init container" {
+  export MOCK_READY='pod-a|false,true,'
+  run wait_pods_ready app=demo 1
+  [ "$status" -eq 1 ]
+  run bash -c 'grep -q "status.initContainerStatuses" "$1"' _ "$COMMAND_LOG"
   [ "$status" -eq 0 ]
 }
 
@@ -128,6 +141,14 @@ STUB
   run wait_k8s_ready pod ready -n demo 1
   [ "$status" -eq 0 ]
   run bash -c 'grep -q -- "--timeout=1s" "$1"' _ "$COMMAND_LOG"
+  [ "$status" -eq 0 ]
+}
+
+@test "wait_k8s_ready starts no second phase after budget exhaustion" {
+  export MOCK_GET_DELAY=1
+  run wait_k8s_ready pod ready -n demo 1
+  [ "$status" -eq 1 ]
+  run bash -c '! grep -q " wait " "$1"' _ "$COMMAND_LOG"
   [ "$status" -eq 0 ]
 }
 

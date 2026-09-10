@@ -295,6 +295,19 @@ func TestModeMatrix_AllCollectorsMatrix(t *testing.T) {
 			expectedObs: len(CloudControlPlaneFixtures(time.Now().UTC())),
 		},
 		{
+			name: "agentnono",
+			makeOff: func(sink IngestionSink) Collector {
+				return NewAgentNonoCollector(ModeOff, sink)
+			},
+			makeFixture: func(sink IngestionSink) Collector {
+				return NewAgentNonoCollector(ModeFixture, sink)
+			},
+			makeLive: func(sink IngestionSink) Collector {
+				return NewAgentNonoCollector(ModeLive, sink)
+			},
+			expectedObs: len(AgentNonoFixtures(time.Now().UTC())),
+		},
+		{
 			name: "fixtures",
 			makeOff: func(sink IngestionSink) Collector {
 				return NewFixtureCollector(ModeOff, sink)

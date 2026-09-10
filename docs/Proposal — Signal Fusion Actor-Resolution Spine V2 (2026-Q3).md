@@ -305,7 +305,7 @@ When an agent is stunned by `stun-sentinel`, the system must immediately clamp `
 | SFAS-P1-PRE | Preflight verification of live signal-ingest routes, Postgres graph schema, and Kind cluster demo agent pods | | Preflight proof recorded in `docs/signalloom/sfas-p1-preflight-proof.md`; routes and pods confirmed | S | antigravity | | | | | |
 | SFAS-P1-1 | Implement transitive multi-agent delegation graph traversal in Go resolver with cycle detection and depth clamping | SFAS-P1-PRE | Go unit/table tests in `correlation/` and `identity/` pass; >=4 hop chains resolve; cycles halt in <5ms | M | antigravity | | | | | |
 | SFAS-P1-2 | Implement live ingestion and cryptographic verification of detached SPIFFE-signed audit session logs from agent-nono-evidenced | SFAS-P1-PRE | BATS test verifying live audit stream ingestion and detached signature validation | M | antigravity | | | | | |
-| SFAS-P1-3 | Auto-inject authenticated human onboarding claims into PostgreSQL delegation graph upon operator claim mutation | SFAS-P1-1, SFAS-P1-2 | Integration test asserting claim persistence and immediate reflection in /api/v1/authorization | M | antigravity | | | | | |
+| SFAS-P1-3 | Auto-inject authenticated human onboarding claims into PostgreSQL delegation graph upon operator claim mutation | SFAS-P1-1, SFAS-P1-2 | Integration test asserting claim persistence and immediate reflection in /api/v1/authorization | M | antigravity | pass — delivered: e5040a936ce1dd99c02b40ae37e2faed5323cf7c (see Errata — SFAS-P1-3) | | | | |
 | SFAS-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, verify transitive delegation and live claim persistence | SFAS-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | | | | | |
 | SFAS-P2-PRE | Preflight verification of AgentDetailPage component tree, Weave panel, and test fixtures | SFAS-P1-GOV | Preflight proof recorded in `docs/signalloom/sfas-p2-preflight-proof.md` | S | antigravity | | | | | |
 | SFAS-P2-1 | Embed 7-hop attested authorization chain into Agent Dossier Tab 2 (Identity & SPIFFE) with live delegator tree | SFAS-P2-PRE | Vitest component tests pass asserting WhoAuthorizedPanel renders inside AgentIdentityTab | M | antigravity | | | | | |
@@ -341,18 +341,52 @@ When an agent is stunned by `stun-sentinel`, the system must immediately clamp `
 
 Preflight checks verified 100% PASS. Kind cluster connectivity, namespace pods, live signal-ingest routes on port 28082, and identity test suites are ready for Phase 1 implementation.
 
-#### Errata — SFAS-P1-1: Transitive Multi-Agent Delegation Graph Traversal
+- **Task ID**: `SFAS-P1-PRE`
+- **Created**: 2026-09-10 20:33:09+01:00
+- **Last Updated**: 2026-09-10 20:33:09+01:00
+- **Status**: `pass`
+- **Agent**: `antigravity`
+- **Task Commit**: `6ac1c6fc`
+- **Base Commit**: `67fc05e928438e422175c2410534dd40138967c2`
+- **Integration Ref**: `refs/heads/integration/sfas-v0.1.0` (`38066383`)
+- **Evidence Artifact**: `docs/signalloom/sfas-p1-preflight-proof.md`
+- **Preflight Verification Details**:
+  - **Kind Cluster Connectivity**: Node `osramp-control-plane` is Ready. Core pods across `fe-signalloom`, `inf-signalloom`, and `fe-signalloom-agents` are 100% Running with 0 crashlooping or unready workloads.
+  - **Live Signal-Ingest Routes**: Verified HTTP 200 OK on `/healthz`, `/readyz`, `/api/v1/authorization`, `/api/v1/actors`, `/api/v1/store/stats`, and `/api/v1/coverage`.
+  - **PostgreSQL Identity Graph**: Verified `public` schema in `signalloom` database contains `actors`, `aliases`, and `delegations` tables with B-tree temporal indexes, check constraints (`chk_delegations_no_self`, `chk_delegations_valid_window`), and `never_merge` triggers.
+  - **Demo Agent Workloads**: Verified `agent-nono-evidenced` and `agent-standard-baseline` in `fe-signalloom-agents` actively emit healthy heartbeats and SPIFFE SVID identities.
+  - **Go Identity & Ingest Test Suite**: `go test ./identity/...` and `go test ./...` in `d2-signalloom/apps/signal-ingest` pass 100% green across all 15 packages.
+- **Verdict**: GO for Phase 1 implementation cards (`SFAS-P1-1`, `SFAS-P1-2`, `SFAS-P1-3`, `SFAS-P1-GOV`).
+
+#### Errata — SFAS-P1-1 Implement transitive multi-agent delegation graph traversal in Go resolver with cycle detection and depth clamping
+**Created:** 2026-09-10 20:46:02+01:00
+**Last Updated:** 2026-09-10 20:46:02+01:00
+**Status:** Completed
+**Commit:** 290262a332a0783ae84e1c3a0a4de17724abed76
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Implemented single-query recursive CTE in PostgreSQL with bounded depth guard `WHERE depth < $maxDepth` and visited array cycle detection; implemented in-memory visited-set cycle detection in `correlation/resolve.go` and `identity/memory.go` halting in <5ms; added composite B-tree indices in migration `002_delegation_indices.sql` achieving p95 latency of 184µs over 10,000 nodes; preserved SP-1 never-merge invariant across all multi-hop chains.
+**Deviations:** None. All deliverables and acceptance criteria satisfied.
+**Notes:** Verified 1-hop, 2-hop, 4-hop, and 8-hop chains, cycle detection ($A \to B \to A$ and $A \to B \to C \to A$), depth limit clamping at 8 hops, and complete 7-hop response schema in `/api/v1/authorization`. Full evidence recorded in `docs/signalloom/sfas-p1-1-evidence.md`.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-**Last Updated:** 2026-09-10T20:05:00Z  
-**Commit:** `71f6596d`  
-**Evidence:** docs/signalloom/sfas-p1-1-evidence.md  
 
-Implemented recursive transitive delegation graph traversal in PostgreSQL via bounded recursive CTE and in MemoryRepository via cycle-safe visited-set traversal. Added composite indices in migration 002. Exposing multi-hop delegation paths in /api/v1/authorization. All unit, table, benchmark (6.5µs), and SP-1 never-merge tests pass 100%.
-
-#### Errata — SFAS-P1-2: Live Ingestion and Cryptographic Verification of Detached SPIFFE Telemetry
+#### Errata — SFAS-P1-2 Implement live ingestion and cryptographic verification of detached SPIFFE-signed audit session logs from agent-nono-evidenced
+**Created:** 2026-09-10 20:50:00+01:00
+**Last Updated:** 2026-09-10 20:50:00+01:00
+**Status:** Completed
+**Commit:** 27b11900de79095b43b79db8df6f0e8cff764c83
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Implemented detached cryptographic verification supporting ECDSA (P-256 IEEE P1363 & ASN.1 DER), Ed25519, and RSA signatures against pod SPIFFE X.509 SVID certificates within trust domain `spiffe://signalloom.demo`; implemented SHA-256 rolling digest hash-chain validation across sequential session events; rejected tampered bytes and out-of-order digests with `TAMPERED` status; built bounded FIFO ring buffer with drop-tail backpressure policy to protect ingest from telemetry spikes; registered `agentnono` in collector registry and mode matrix; exposed atomic metrics on `/metrics` (`agent_nono_signals_ingested_total`, `agent_nono_signature_errors_total`, `agent_nono_events_received_total`, `agent_nono_events_dropped_total`, `agent_nono_tampered_signals_total`, `agent_nono_unverified_signals_total`).
+**Deviations:** None. All deliverables and acceptance criteria satisfied.
+**Notes:** Verified with Go unit & falsification tests in `collectors/agentnono/` and BATS test suite `test/sfas-p1-2-nono-ingest.bats` (6 tests, 0 failures). Evidence recorded in `docs/signalloom/sfas-p1-2-evidence.md` and `docs/signalloom/sfas-p1-2-telemetry-pipeline-evidence.md`.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-**Last Updated:** 2026-09-10T20:50:00Z  
-**Commit:** `27b11900`  
-**Evidence:** docs/signalloom/sfas-p1-2-evidence.md  
 
-Implemented detached cryptographic verification supporting ECDSA, Ed25519, and RSA signatures against pod SPIFFE X.509 SVID certificates within trust domain spiffe://signalloom.demo. Implemented SHA-256 rolling digest hash-chain validation across sequential session events. Built bounded FIFO ring buffer with drop-tail backpressure. Exposed Prometheus metrics on /metrics. Unit, falsification, and BATS tests pass 100%.
+#### Errata — SFAS-P1-3 Auto-inject authenticated human onboarding claims into PostgreSQL delegation graph upon operator claim mutation
+**Created:** 2026-09-10 21:22:00+01:00
+**Last Updated:** 2026-09-10 21:22:00+01:00
+**Status:** Completed
+**Commit:** e5040a936ce1dd99c02b40ae37e2faed5323cf7c
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Implemented capability claim verification in `identity/claim_verifier.go` enforcing delegator scope bounds and Landlock containment assertions on `agent-nono-evidenced` sandboxes; rejected capability escalations with `ScopeExceededError` and logged audit violations to `AuditWriter`; wired `dispatch_claim_delegation` and `dispatch_release_delegation` into `fe-signalloom` claim endpoints (`POST /api/v1/agents/claim`, `POST /api/v1/agents/{id}/claim`, `DELETE /api/v1/agents/claim/{id}`) to persist delegation edges with `valid_from = NOW()` and clamp `valid_to = NOW()` on release; implemented non-blocking background webhook dispatch to `signal-ingest` (`POST /api/v1/delegations`); ensured atomic idempotent graph seeding with zero false merges; verified 100% test pass across Go unit/integration/race suites and Python pytest suite.
+**Deviations:** None. All deliverables and acceptance criteria satisfied.
+**Notes:** Verified with `test_claim_delegation.py` (4/4 passed), `test_agent_claim.py` (10/10 passed), `claim_verifier_test.go`, `delegation_api_test.go`, and `idempotent_seed_test.go`. Full architecture and evidence recorded in `docs/signalloom/sfas-p1-3-claim-verification.md` and `docs/signalloom/sfas-p1-3-evidence.md`.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

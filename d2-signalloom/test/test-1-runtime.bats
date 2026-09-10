@@ -2,7 +2,8 @@
 
 setup() {
   command -v kubectl >/dev/null
-  TEST_POD_PREFIX="signalloom-test-1-${BATS_TEST_NUMBER:-0}"
+  export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+  TEST_POD_PREFIX="signalloom-test-1-${BATS_TEST_NUMBER:-0}-$RANDOM-$$"
 }
 
 teardown() {
@@ -81,6 +82,8 @@ sys.exit(1)'
 @test "TEST-1 NetworkPolicy blocks unauthorised persistence access" {
   image="$(kubectl -n fe-signalloom get deployment fe-signalloom \
     -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  kubectl -n fe-signalloom delete pod "${TEST_POD_PREFIX}-unauthorised" \
+    --ignore-not-found --wait=false >/dev/null 2>&1 || true
   run kubectl -n fe-signalloom run "${TEST_POD_PREFIX}-unauthorised" \
     --restart=Never --image="$image" --image-pull-policy=IfNotPresent --command -- \
     python -c 'import socket,sys

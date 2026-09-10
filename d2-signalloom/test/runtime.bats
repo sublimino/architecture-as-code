@@ -14,6 +14,9 @@ DETIK_CLIENT_NAME="kubectl"
 DETIK_CLIENT_NAMESPACE="fe-signalloom"
 
 teardown() {
+  if [ -n "${pod:-}" ]; then
+    kubectl -n default delete pod "$pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  fi
   kubectl -n default delete pod "signalloom-network-denial-${BATS_TEST_NUMBER:-0}" \
     --ignore-not-found --wait=false >/dev/null 2>&1 || true
   if [ -n "${GATEWAY_FORWARD_PID:-}" ]; then
@@ -78,7 +81,8 @@ teardown() {
 @test "Gateway-only policies deny direct dashboard and API connections" {
   image="$(kubectl -n fe-signalloom get deployment fe-signalloom \
     -o jsonpath='{.spec.template.spec.containers[0].image}')"
-  pod="signalloom-network-denial-${BATS_TEST_NUMBER:-0}"
+  pod="signalloom-network-denial-${BATS_TEST_NUMBER:-0}-$RANDOM-$$"
+  kubectl -n default delete pod "$pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   run kubectl -n default run "$pod" --restart=Never --image="$image" \
     --image-pull-policy=IfNotPresent --command -- \
     python -c 'import socket,sys

@@ -66,24 +66,26 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | \`2026-09-10T09:30:36Z\` | \`governor\` | \`INTEGRATION_MERGED\` | Governor merged commit \`26eef1b9\` into \`integration/slon-v0.1.0\` (9 files changed, +622/-334 lines; clean merge). |
 | \`2026-09-10T09:30:39Z\` | \`governor\` | \`TASK_ADVANCED_DONE\` | \`SLON-P1-2\` verified and moved to \`done\`. Vitest (156/156 suites, 3088 tests passed; Sidebar 84/84 passed), production build clean, and BATS registry check (7/7) passed. Evidence: \`docs/signalloom/slon-p1-2-evidence.md\`. |
 | \`2026-09-10T09:30:42Z\` | \`governor\` | \`DISPATCH_SLON_P1_3\` | Dispatched \`SLON-P1-3\` (\`1c4bb\`, First User Onboarding Wizard Flow) into \`in_progress\` in isolated worktree \`/home/andy/.cline/worktrees/1c4bb/osramp-demo\`. |
+| \`2026-09-10T09:40:18Z\` | \`supervisor\` | \`TICK_6_EXECUTED\` | Controller Tick #6 executed via \`CycleInput.ts\`. Task \`SLON-P1-3\` (\`1c4bb\`) completed with commit \`8b28a25d\`. Vitest (158/158 suites, 3107 tests), Vite build, and BATS registry check 100% clean. |
+| \`2026-09-10T09:41:10Z\` | \`governor\` | \`INTEGRATION_MERGED\` | Governor merged commit \`8b28a25d\` into \`integration/slon-v0.1.0\` (commit \`fb110daa\`). Resolved merge overlaps in \`App.tsx\`, \`SPEC-REGISTRY.tsv\`, and \`playwright.config.ts\`. Verified with BATS acceptance spec suite (7/7 passed). |
+| \`2026-09-10T09:41:14Z\` | \`governor\` | \`TASK_ADVANCED_DONE\` | \`SLON-P1-3\` verified and moved to \`done\`. Evidence: \`docs/signalloom/slon-p1-3-evidence.md\`. All Phase 1 implementation cards now completed. |
+| \`2026-09-10T09:41:37Z\` | \`governor\` | \`DISPATCH_PHASE_1_GOV\` | Dispatched \`SLON-P1-GOV\` (\`e80e2\`, Phase 1 Governor Reconciliation & Certification) into \`in_progress\` in dedicated worktree. |
 
 ---
 
 ## 3. Active Phase Status: Phase 1 (User Journey & Architecture)
 
-- **Completed Cards**:
+- **Completed Implementation Cards**:
   - \`SLON-P1-PRE\` (\`0e83e\`, Pre-Flight Verification, Commit \`0e228c66\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-preflight-proof.md\`.
   - \`SLON-P1-1\` (\`5a2f9\`, Onboarding API Client Live Wiring, Commit \`ad2fec79\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-1-evidence.md\`. All mock fallbacks eliminated; PostgreSQL round-trip assertions passing.
   - \`SLON-P1-2\` (\`0ad83\`, Dashboard Sidebar 3-Tier Hierarchy, Commit \`26eef1b9\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-2-evidence.md\`. Strict View/Control/Design categories, persistent Onboarding/Help anchors, distinct SVGs, and Playwright spec added.
+  - \`SLON-P1-3\` (\`1c4bb\`, First User Onboarding Wizard Flow, Commit \`8b28a25d\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-3-evidence.md\`. 3-step wizard flow, celebratory completion, live DB persistence, and Playwright acceptance test suite added.
 
-- **Active Cards in Progress**:
-  - **\`SLON-P1-3\` (\`1c4bb\`)**: Implement first user onboarding wizard flow with persistent DB state.
-    - *Agent Directive*: Implement wizard flow in \`OnboardingWizard.tsx\` with live server state updates. Enforce persistent completion and skip paths surviving browser refresh and direct URL navigation to \`/onboarding\`. Add Playwright end-to-end spec in \`test/acceptance/onboarding.spec.ts\` and wire into \`SPEC-REGISTRY.tsv\`.
-    - *Standards*: TypeScript, Bun only, scope-less conventional commits, machine errata tag \`<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->\`.
-    - *Status*: Actively working in \`/home/andy/.cline/worktrees/1c4bb/osramp-demo\`.
-
-- **Upcoming Dependent Queue**:
-  - \`SLON-P1-GOV\` (\`e80e2\`): Phase 1 Governor reconciliation, merge to integration branch, and human gate verification (waiting on \`SLON-P1-3\` completion).
+- **Active Governor Card**:
+  - **\`SLON-P1-GOV\` (\`e80e2\`)**: Phase 1 Governor reconciliation, integration merge certification, and human gate verification.
+    - *Role*: Final Phase 1 certification. Runs full verification suite across all Phase 1 deliverables, asserts zero regressions, generates Phase 1 certification report (`docs/signalloom/slon-p1-governor-certification.md`), and records qualified errata block.
+    - *Status*: `in_progress` in worktree `/home/andy/.cline/worktrees/e80e2/osramp-demo`.
+    - *Human Gate Protocol*: In accordance with the Governor Human Gate rule, this card will pause in `review` for operator confirmation before completing Phase 1 and unblocking Phase 2.
 
 ---
 

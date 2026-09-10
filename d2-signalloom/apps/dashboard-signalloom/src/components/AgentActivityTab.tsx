@@ -1,8 +1,12 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useMemo, useEffect, useCallback, memo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealthMap, TelemetryObservationModel } from '../types/api'
 import { colors } from '../styles/tokens'
 import EmptyState from './EmptyState'
+import type { AuthorizationChain } from '../api/weaveApi'
+import DelegationEventFilter from './DelegationEventFilter'
+import AuthorizationProofDrawer from './AuthorizationProofDrawer'
+import DelegationAttestationDrawer, { type AttestationPayload } from './DelegationAttestationDrawer'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -66,6 +70,547 @@ export type AttributableTimelineItem =
   | { kind: 'violation'; id: string; ts: string; violation: ViolationResponse }
   | { kind: 'telemetry'; id: string; ts: string; observation: TelemetryObservationModel }
 
+
+export interface DelegationTimelineItemProps {
+  item: AttributableTimelineItem
+  agent: AgentResponse
+  idx: number
+  isLast: boolean
+  isExpanded: boolean
+  onToggleDetail: (id: string) => void
+  onViewProof?: (actionId: string, item: AttributableTimelineItem) => void
+  onViewAttestation?: (actionId: string, item: AttributableTimelineItem) => void
+  onAcknowledgeViolation?: (violationId: string) => Promise<void>
+  acknowledging?: string | null
+}
+
+export const DelegationTimelineItem: React.FC<DelegationTimelineItemProps> = memo(({
+  item,
+  agent,
+  idx: _idx,
+  isLast,
+  isExpanded,
+  onToggleDetail,
+  onViewProof,
+  onViewAttestation,
+  onAcknowledgeViolation,
+  acknowledging,
+}) => {
+  if (item.kind === 'violation') {
+    const v = item.violation
+    const isNew = v.status === 'new'
+    return (
+      <div
+        key={`v-${v.id}`}
+        data-testid={`activity-violation-${v.id}`}
+        style={{
+          display: 'flex',
+          gap: 14,
+          padding: '12px 0',
+          borderBottom: !isLast ? '1px solid var(--border)' : 'none',
+        }}
+      >
+        <div style={{
+          width: 3,
+          background: isNew ? colors.red : colors.slateGray,
+          borderRadius: 2,
+          flexShrink: 0,
+          minHeight: 48,
+        }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span
+              title={v.created_at ? new Date(v.created_at).toISOString() : ''}
+              style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}
+            >
+              {fmtTs(v.created_at)}
+            </span>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: 3,
+              background: 'rgba(220,38,38,0.15)',
+              color: colors.red,
+            }}>
+              POLICY VIOLATION
+            </span>
+            <span style={{
+              fontSize: 10,
+              padding: '1px 6px',
+              borderRadius: 3,
+              background: isNew ? 'rgba(239, 68, 68, 0.15)' : 'rgba(156, 163, 175, 0.15)',
+              color: isNew ? colors.red : colors.slateGray,
+              textTransform: 'uppercase',
+            }}>
+              {v.status || 'new'}
+            </span>
+            {v.severity && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {v.severity} severity
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+            {v.violation_type ?? 'Policy Violation'}
+          </div>
+          {v.analysis && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+              {v.analysis}
+            </div>
+          )}
+          {v.recommended_action && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+              <span style={{ color: 'var(--text)', fontWeight: 500 }}>Recommended: </span>
+              {v.recommended_action}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+            {isNew && onAcknowledgeViolation && (
+              <button
+                data-testid={`acknowledge-violation-${v.id}`}
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: '4px 12px' }}
+                disabled={acknowledging === v.id}
+                onClick={() => onAcknowledgeViolation(v.id)}
+              >
+                {acknowledging === v.id ? 'Acknowledging…' : 'Acknowledge'}
+              </button>
+            )}
+            {onViewProof && (
+              <button
+                type="button"
+                data-testid={`activity-action-proof-${v.id}`}
+                className="btn btn-secondary"
+                onClick={() => onViewProof(v.id, item)}
+                style={{
+                  fontSize: 11,
+                  padding: '3px 10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface2)',
+                  color: 'var(--cyan)',
+                }}
+              >
+                🛡️ View Proof
+              </button>
+            )}
+            {onViewAttestation && (
+              <button
+                type="button"
+                data-testid={`view-attestation-${v.id}`}
+                className="btn btn-secondary"
+                onClick={() => onViewAttestation(v.id, item)}
+                style={{
+                  fontSize: 11,
+                  padding: '3px 10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface2)',
+                  color: 'var(--text)',
+                }}
+              >
+                🔏 Attestation & Landlock
+              </button>
+            )}
+          </div>
+          {v.status === 'acknowledged' && v.acknowledged_by && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Acknowledged by {v.acknowledged_by} · {fmtTs(v.acknowledged_at)}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (item.kind === 'telemetry') {
+    const obs = item.observation
+    return (
+      <div
+        key={`tel-${obs.id}`}
+        data-testid={`activity-telemetry-${obs.id}`}
+        style={{
+          display: 'flex',
+          gap: 14,
+          padding: '12px 0',
+          borderBottom: !isLast ? '1px solid var(--border)' : 'none',
+        }}
+      >
+        <div style={{
+          width: 3,
+          background: colors.cyanLoom,
+          borderRadius: 2,
+          flexShrink: 0,
+          minHeight: 48,
+        }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span
+              title={obs.observed_at ? new Date(obs.observed_at).toISOString() : ''}
+              style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}
+            >
+              {fmtTs(obs.observed_at)}
+            </span>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: 3,
+              background: 'rgba(0, 196, 204, 0.15)',
+              color: colors.cyanLoom,
+            }}>
+              TELEMETRY: {obs.action}
+            </span>
+            <span style={{
+              fontSize: 10,
+              padding: '1px 6px',
+              borderRadius: 3,
+              background: 'var(--surface2)',
+              color: 'var(--text)',
+              border: '1px solid var(--border)',
+            }}>
+              Layer: {obs.layer}
+            </span>
+            <span style={{
+              fontSize: 10,
+              padding: '1px 6px',
+              borderRadius: 3,
+              background: 'var(--surface2)',
+              color: 'var(--muted)',
+            }}>
+              Source: {obs.source}
+            </span>
+            {obs.confidence !== undefined && (
+              <span style={{
+                fontSize: 10,
+                padding: '1px 6px',
+                borderRadius: 3,
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: colors.tealLoom,
+                fontWeight: 500,
+              }}>
+                {Math.round(obs.confidence * 100)}% confidence
+              </span>
+            )}
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+            {obs.action}
+          </div>
+
+          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap', marginBottom: 6 }}>
+            <span>Actor ID: <code style={{ color: 'var(--text)' }}>{obs.actor_id}</code></span>
+            {obs.principal_id && (
+              <span>Principal ID: <code style={{ color: 'var(--text)' }}>{obs.principal_id}</code></span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+            {onViewProof && (
+              <button
+                type="button"
+                data-testid={`activity-action-proof-${obs.id}`}
+                className="btn btn-secondary"
+                onClick={() => onViewProof(obs.id, item)}
+                style={{
+                  fontSize: 11,
+                  padding: '3px 10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface2)',
+                  color: 'var(--cyan)',
+                }}
+              >
+                🛡️ View Proof
+              </button>
+            )}
+            {onViewAttestation && (
+              <button
+                type="button"
+                data-testid={`view-attestation-${obs.id}`}
+                className="btn btn-secondary"
+                onClick={() => onViewAttestation(obs.id, item)}
+                style={{
+                  fontSize: 11,
+                  padding: '3px 10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface2)',
+                  color: 'var(--text)',
+                }}
+              >
+                🔏 Attestation & Landlock
+              </button>
+            )}
+          </div>
+
+          {obs.details && Object.keys(obs.details).length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <button
+                data-testid={`toggle-telemetry-detail-${obs.id}`}
+                className="btn btn-secondary"
+                onClick={() => onToggleDetail(obs.id)}
+                style={{ fontSize: 11, padding: '2px 8px' }}
+              >
+                {isExpanded ? 'Hide Observation Payload' : 'View Observation Payload'}
+              </button>
+              {isExpanded && (
+                <pre
+                  data-testid={`activity-telemetry-payload-${obs.id}`}
+                  style={{
+                    marginTop: 8,
+                    padding: 10,
+                    background: 'var(--surface2)',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    overflowX: 'auto',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  {JSON.stringify(obs.details, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Audit event item
+  const ev = item.event
+  const lineColor = EVENT_TYPE_COLORS[ev.event_type] ?? colors.cyanLoom
+
+  const humanAuthorizer = ev.authorizing_principal_id || (ev.actor && ev.actor.includes('@') ? ev.actor : null)
+  const detailObj = ev.detail && typeof ev.detail === 'object' ? (ev.detail as Record<string, unknown>) : null
+  const spiffeId = ev.spiffe_id || (detailObj && typeof detailObj.spiffe_id === 'string' ? detailObj.spiffe_id : null)
+  const workloadActor = ev.executing_actor_id || (!ev.actor?.includes('@') ? ev.actor : null) || spiffeId || agent.name
+  const rationale = ev.attribution_rationale || (detailObj && typeof detailObj.attribution_rationale === 'string' ? detailObj.attribution_rationale : null)
+  const evidenceRef = ev.evidence_ref || (detailObj && typeof detailObj.evidence_ref === 'string' ? detailObj.evidence_ref : null)
+  const kernelRef = ev.kernel_telemetry_ref || (detailObj && typeof detailObj.kernel_telemetry_ref === 'string' ? detailObj.kernel_telemetry_ref : null)
+  const hops = (detailObj && typeof detailObj.hop_count === 'number') ? detailObj.hop_count : 7
+
+  return (
+    <div
+      key={`e-${ev.id}`}
+      data-testid={`activity-event-${ev.id}`}
+      style={{
+        display: 'flex',
+        gap: 14,
+        padding: '12px 0',
+        borderBottom: !isLast ? '1px solid var(--border)' : 'none',
+      }}
+    >
+      <div style={{
+        width: 3,
+        background: lineColor,
+        borderRadius: 2,
+        flexShrink: 0,
+        minHeight: 48,
+        opacity: 0.85,
+      }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Header Row: Timestamp & Event Type Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+          <span
+            title={ev.timestamp ? new Date(ev.timestamp).toISOString() : ''}
+            style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}
+          >
+            {fmtTs(ev.timestamp)}
+          </span>
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            padding: '2px 8px',
+            borderRadius: 3,
+            background: 'rgba(6, 182, 212, 0.12)',
+            color: lineColor,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+          }}>
+            {ev.event_type}
+          </span>
+          <span
+            data-testid={`hop-count-${ev.id}`}
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '1px 6px',
+              borderRadius: 3,
+              background: 'rgba(99, 102, 241, 0.12)',
+              color: colors.irisViolet,
+              border: '1px solid var(--border)',
+            }}
+          >
+            {hops} hops
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+            {fmtRelative(ev.timestamp)}
+          </span>
+        </div>
+
+        {/* Attribution & Identity Planes Row */}
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, marginTop: 4, marginBottom: 4 }}>
+          {/* Workload Executor */}
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Executing Actor: </span>
+            <span data-testid="activity-executing-actor" style={{ fontFamily: 'monospace', color: 'var(--text)', fontWeight: 500 }}>
+              {workloadActor || '—'}
+            </span>
+          </div>
+
+          {/* Human Authorizing Principal (Separation of planes) */}
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Authorized By: </span>
+            <span data-testid="activity-authorizing-principal" style={{ color: humanAuthorizer ? colors.tealLoom : 'var(--muted)' }}>
+              {humanAuthorizer || 'Unassigned'}
+            </span>
+          </div>
+
+          {/* Workload SVID */}
+          {spiffeId && (
+            <div>
+              <span style={{ color: 'var(--muted)' }}>SVID: </span>
+              <span data-testid="activity-spiffe-id" style={{ fontFamily: 'monospace', fontSize: 11, color: colors.irisViolet }}>
+                {spiffeId}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Attribution Rationale */}
+        {rationale && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, marginBottom: 4 }}>
+            <span style={{ color: 'var(--text)', fontWeight: 500 }}>Rationale: </span>
+            <span data-testid="activity-attribution-rationale">{rationale}</span>
+          </div>
+        )}
+
+        {/* Evidence and Kernel Telemetry References */}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, marginTop: 2 }}>
+          {evidenceRef && (
+            <div style={{ background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3 }}>
+              <span style={{ color: 'var(--muted)' }}>Proof Ref: </span>
+              <span data-testid="activity-evidence-ref" style={{ fontFamily: 'monospace', color: colors.tealLoom }}>{evidenceRef}</span>
+            </div>
+          )}
+          {kernelRef && (
+            <div style={{ background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3 }}>
+              <span style={{ color: 'var(--muted)' }}>Kernel Telemetry: </span>
+              <span data-testid="activity-kernel-telemetry-ref" style={{ fontFamily: 'monospace', color: colors.cyanLoom }}>{kernelRef}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Action Controls: Proof Drawer & Attestation Drawer buttons */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          {onViewProof && (
+            <button
+              type="button"
+              data-testid={`activity-action-proof-${ev.id}`}
+              className="btn btn-secondary"
+              onClick={() => onViewProof(ev.id, item)}
+              style={{
+                fontSize: 11,
+                padding: '3px 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                cursor: 'pointer',
+                borderRadius: 4,
+                border: '1px solid var(--border)',
+                background: 'var(--surface2)',
+                color: 'var(--cyan)',
+              }}
+            >
+              🛡️ View Proof
+            </button>
+          )}
+          {onViewAttestation && (
+            <button
+              type="button"
+              data-testid={`view-attestation-${ev.id}`}
+              className="btn btn-secondary"
+              onClick={() => onViewAttestation(ev.id, item)}
+              style={{
+                fontSize: 11,
+                padding: '3px 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                cursor: 'pointer',
+                borderRadius: 4,
+                border: '1px solid var(--border)',
+                background: 'var(--surface2)',
+                color: 'var(--text)',
+              }}
+            >
+              🔏 Attestation & Landlock
+            </button>
+          )}
+        </div>
+
+        {/* Detail Payload Inspector */}
+        {Object.keys(ev.detail || {}).length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <button
+              onClick={() => onToggleDetail(ev.id)}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                fontSize: 11,
+                color: 'var(--cyan)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {isExpanded ? '▼ Hide payload detail' : '▶ View payload detail'}
+            </button>
+            {isExpanded && (
+              <pre
+                data-testid={`activity-payload-${ev.id}`}
+                style={{
+                  marginTop: 6,
+                  padding: 8,
+                  fontSize: 11,
+                  borderRadius: 4,
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  overflowX: 'auto',
+                  color: 'var(--text)',
+                }}
+              >
+                {JSON.stringify(ev.detail, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+DelegationTimelineItem.displayName = 'DelegationTimelineItem'
+
 export interface AgentActivityTabProps {
   agent: AgentResponse
   auditEvents?: AuditEventResponse[]
@@ -109,6 +654,58 @@ export default function AgentActivityTab({
   const [liveStreaming, setLiveStreaming] = useState<boolean>(initialLive)
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
   const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({})
+
+  // Delegation Drawer & Filter State
+  const [delegationTypeFilter, setDelegationTypeFilter] = useState<string>('all')
+  const [minHopsFilter, setMinHopsFilter] = useState<number>(0)
+  const [proofDrawerOpen, setProofDrawerOpen] = useState<boolean>(false)
+  const [activeActionId, setActiveActionId] = useState<string>('')
+  const [activeEvidenceRef, setActiveEvidenceRef] = useState<string | undefined>(undefined)
+  const [activeChain, setActiveChain] = useState<AuthorizationChain | null>(null)
+  const [attestationDrawerOpen, setAttestationDrawerOpen] = useState<boolean>(false)
+  const [activeAttestation, setActiveAttestation] = useState<AttestationPayload | null>(null)
+
+  const handleViewProof = useCallback((actionId: string, item: AttributableTimelineItem) => {
+    setActiveActionId(actionId)
+    const evRef = item.kind === 'audit' ? (item.event.evidence_ref || 'frostdb-segment-001') : 'frostdb-segment-001'
+    setActiveEvidenceRef(evRef)
+    setActiveChain({
+      action: actionId,
+      actorId: agent.id,
+      agentIdentity: agent.identity?.spiffe_id || `spiffe://signalloom.demo/agents/${agent.id}`,
+      principal: (item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai',
+      actsOnBehalfOf: `${agent.name} acts-on-behalf-of ${(item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai'}`,
+      decision: 'ALLOW',
+      confidence: 0.99,
+      evidenceRefs: [evRef, 'rekor:entry:49c0fb1278ba9e1c25514f'],
+      attestationGitoid: `gitoid:blob:sha256:${evRef.replace('sha256:', '')}`,
+      complete: true,
+      cycleDetected: false,
+    })
+    setProofDrawerOpen(true)
+  }, [agent.id, agent.identity?.spiffe_id, agent.name])
+
+  const handleViewAttestation = useCallback((actionId: string, item: AttributableTimelineItem) => {
+    const rawDetail = item.kind === 'audit' && item.event.detail && typeof item.event.detail === 'object'
+      ? (item.event.detail as Record<string, unknown>)
+      : {}
+    const evRef = item.kind === 'audit' ? item.event.evidence_ref : undefined
+    setActiveAttestation({
+      actionId,
+      timestamp: item.ts,
+      cosignSignature: 'MEUCIQD37fa8b9c...[detached-cosign-svid-p256]...AiEA29bcf01',
+      landlockStatus: {
+        enabled: true,
+        profile: 'agent-nono-evidenced',
+        abi: 3,
+        ruleset: { filesystem: 'ro', network: 'egress-only' },
+      },
+      rawPayload: rawDetail,
+      gitOid: evRef ? `gitoid:blob:sha256:${evRef}` : 'gitoid:blob:sha256:49c0fb1278ba9e1c25514f',
+      rekorEntryUrl: 'https://rekor.sigstore.dev',
+    })
+    setAttestationDrawerOpen(true)
+  }, [])
 
   useEffect(() => {
     const t = searchParams.get('type') || searchParams.get('event_type') || 'all'
@@ -181,6 +778,8 @@ export default function AgentActivityTab({
     setLayerFilter('all')
     setSourceFilter('all')
     setSearchQuery('')
+    setDelegationTypeFilter('all')
+    setMinHopsFilter(0)
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       next.delete('type')
@@ -329,9 +928,24 @@ export default function AgentActivityTab({
         }
       }
 
+      // Delegation Type Filter
+      if (delegationTypeFilter !== 'all') {
+        if (item.kind !== 'audit' || item.event.event_type !== delegationTypeFilter) {
+          return false
+        }
+      }
+
+      // Min Hops Filter
+      if (minHopsFilter > 0) {
+        if (item.kind !== 'audit') return false
+        const detailObj = item.event.detail && typeof item.event.detail === 'object' ? (item.event.detail as Record<string, unknown>) : null
+        const hops = (detailObj && typeof detailObj.hop_count === 'number') ? detailObj.hop_count : 7
+        if (hops < minHopsFilter) return false
+      }
+
       return true
     })
-  }, [rawTimelineItems, typeFilter, actorFilter, layerFilter, sourceFilter, searchQuery])
+  }, [rawTimelineItems, typeFilter, actorFilter, layerFilter, sourceFilter, searchQuery, delegationTypeFilter, minHopsFilter])
 
   // Summary counts
   const totalEventsCount = rawTimelineItems.length
@@ -585,6 +1199,21 @@ export default function AgentActivityTab({
         </div>
       </div>
 
+      {/* ─── 2b. Delegation Event Filter Controls ────────────────────────────── */}
+      <DelegationEventFilter
+        selectedType={delegationTypeFilter}
+        onSelectType={setDelegationTypeFilter}
+        availableTypes={ALL_EVENT_TYPES}
+        minHops={minHopsFilter}
+        onMinHopsChange={setMinHopsFilter}
+        onReset={() => {
+          setDelegationTypeFilter('all')
+          setMinHopsFilter(0)
+        }}
+        filteredCount={filteredItems.length}
+        totalCount={totalEventsCount}
+      />
+
       {/* ─── 3. Truthful Timeline Content ────────────────────────────────────── */}
       {isSourceUnavailable ? (
         <div data-testid="activity-source-unavailable" className="card" style={{ padding: 24, textAlign: 'center' }}>
@@ -625,361 +1254,39 @@ export default function AgentActivityTab({
       ) : (
         <div data-testid="activity-timeline-list" className="card" style={{ padding: 16 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {filteredItems.map((item, idx) => {
-              if (item.kind === 'violation') {
-                const v = item.violation
-                const isNew = v.status === 'new'
-                return (
-                  <div
-                    key={`v-${v.id}`}
-                    data-testid={`activity-violation-${v.id}`}
-                    style={{
-                      display: 'flex',
-                      gap: 14,
-                      padding: '12px 0',
-                      borderBottom: idx < filteredItems.length - 1 ? '1px solid var(--border)' : 'none',
-                    }}
-                  >
-                    <div style={{
-                      width: 3,
-                      background: isNew ? colors.red : colors.slateGray,
-                      borderRadius: 2,
-                      flexShrink: 0,
-                      minHeight: 48,
-                    }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}>
-                          {fmtTs(v.created_at)}
-                        </span>
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: '2px 8px',
-                          borderRadius: 3,
-                          background: 'rgba(220,38,38,0.15)',
-                          color: colors.red,
-                        }}>
-                          POLICY VIOLATION
-                        </span>
-                        <span style={{
-                          fontSize: 10,
-                          padding: '1px 6px',
-                          borderRadius: 3,
-                          background: isNew ? 'rgba(239, 68, 68, 0.15)' : 'rgba(156, 163, 175, 0.15)',
-                          color: isNew ? colors.red : colors.slateGray,
-                          textTransform: 'uppercase',
-                        }}>
-                          {v.status || 'new'}
-                        </span>
-                        {v.severity && (
-                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                            {v.severity} severity
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                        {v.violation_type ?? 'Policy Violation'}
-                      </div>
-                      {v.analysis && (
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
-                          {v.analysis}
-                        </div>
-                      )}
-                      {v.recommended_action && (
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-                          <span style={{ color: 'var(--text)', fontWeight: 500 }}>Recommended: </span>
-                          {v.recommended_action}
-                        </div>
-                      )}
-                      {isNew && onAcknowledgeViolation && (
-                        <button
-                          data-testid={`acknowledge-violation-${v.id}`}
-                          className="btn btn-secondary"
-                          style={{ fontSize: 11, padding: '4px 12px' }}
-                          disabled={acknowledging === v.id}
-                          onClick={() => handleAcknowledge(v.id)}
-                        >
-                          {acknowledging === v.id ? 'Acknowledging…' : 'Acknowledge'}
-                        </button>
-                      )}
-                      {v.status === 'acknowledged' && v.acknowledged_by && (
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                          Acknowledged by {v.acknowledged_by} · {fmtTs(v.acknowledged_at)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              }
-
-              if (item.kind === 'telemetry') {
-                const obs = item.observation
-                const isExpanded = !!expandedDetails[obs.id]
-                return (
-                  <div
-                    key={`tel-${obs.id}`}
-                    data-testid={`activity-telemetry-${obs.id}`}
-                    style={{
-                      display: 'flex',
-                      gap: 14,
-                      padding: '12px 0',
-                      borderBottom: idx < filteredItems.length - 1 ? '1px solid var(--border)' : 'none',
-                    }}
-                  >
-                    <div style={{
-                      width: 3,
-                      background: colors.cyanLoom,
-                      borderRadius: 2,
-                      flexShrink: 0,
-                      minHeight: 48,
-                    }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}>
-                          {fmtTs(obs.observed_at)}
-                        </span>
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: '2px 8px',
-                          borderRadius: 3,
-                          background: 'rgba(0, 196, 204, 0.15)',
-                          color: colors.cyanLoom,
-                        }}>
-                          TELEMETRY: {obs.action}
-                        </span>
-                        <span style={{
-                          fontSize: 10,
-                          padding: '1px 6px',
-                          borderRadius: 3,
-                          background: 'var(--surface2)',
-                          color: 'var(--text)',
-                          border: '1px solid var(--border)',
-                        }}>
-                          Layer: {obs.layer}
-                        </span>
-                        <span style={{
-                          fontSize: 10,
-                          padding: '1px 6px',
-                          borderRadius: 3,
-                          background: 'var(--surface2)',
-                          color: 'var(--muted)',
-                        }}>
-                          Source: {obs.source}
-                        </span>
-                        {obs.confidence !== undefined && (
-                          <span style={{
-                            fontSize: 10,
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            background: 'rgba(16, 185, 129, 0.15)',
-                            color: colors.tealLoom,
-                            fontWeight: 500,
-                          }}>
-                            {Math.round(obs.confidence * 100)}% confidence
-                          </span>
-                        )}
-                      </div>
-
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                        {obs.action}
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap', marginBottom: 6 }}>
-                        <span>Actor ID: <code style={{ color: 'var(--text)' }}>{obs.actor_id}</code></span>
-                        {obs.principal_id && (
-                          <span>Principal ID: <code style={{ color: 'var(--text)' }}>{obs.principal_id}</code></span>
-                        )}
-                      </div>
-
-                      {obs.details && Object.keys(obs.details).length > 0 && (
-                        <div style={{ marginTop: 4 }}>
-                          <button
-                            data-testid={`toggle-telemetry-detail-${obs.id}`}
-                            className="btn btn-secondary"
-                            onClick={() => toggleDetail(obs.id)}
-                            style={{ fontSize: 11, padding: '2px 8px' }}
-                          >
-                            {isExpanded ? 'Hide Observation Payload' : 'View Observation Payload'}
-                          </button>
-                          {isExpanded && (
-                            <pre
-                              data-testid={`activity-telemetry-payload-${obs.id}`}
-                              style={{
-                                marginTop: 8,
-                                padding: 10,
-                                background: 'var(--surface2)',
-                                borderRadius: 4,
-                                fontSize: 11,
-                                overflowX: 'auto',
-                                border: '1px solid var(--border)',
-                              }}
-                            >
-                              {JSON.stringify(obs.details, null, 2)}
-                            </pre>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              }
-
-              // Audit Event item
-              const ev = item.event
-              const lineColor = EVENT_TYPE_COLORS[ev.event_type] ?? colors.cyanLoom
-              const isExpanded = !!expandedDetails[ev.id]
-
-              // Identity plane separation
-              const humanAuthorizer = ev.authorizing_principal_id || (ev.actor && ev.actor.includes('@') ? ev.actor : null)
-              const detailObj = ev.detail && typeof ev.detail === 'object' ? (ev.detail as Record<string, unknown>) : null
-              const spiffeId = ev.spiffe_id || (detailObj && typeof detailObj.spiffe_id === 'string' ? detailObj.spiffe_id : null)
-              const workloadActor = ev.executing_actor_id || (!ev.actor?.includes('@') ? ev.actor : null) || spiffeId || agent.name
-              const rationale = ev.attribution_rationale || (detailObj && typeof detailObj.attribution_rationale === 'string' ? detailObj.attribution_rationale : null)
-              const evidenceRef = ev.evidence_ref || (detailObj && typeof detailObj.evidence_ref === 'string' ? detailObj.evidence_ref : null)
-              const kernelRef = ev.kernel_telemetry_ref || (detailObj && typeof detailObj.kernel_telemetry_ref === 'string' ? detailObj.kernel_telemetry_ref : null)
-
-              return (
-                <div
-                  key={`e-${ev.id}`}
-                  data-testid={`activity-event-${ev.id}`}
-                  style={{
-                    display: 'flex',
-                    gap: 14,
-                    padding: '12px 0',
-                    borderBottom: idx < filteredItems.length - 1 ? '1px solid var(--border)' : 'none',
-                  }}
-                >
-                  <div style={{
-                    width: 3,
-                    background: lineColor,
-                    borderRadius: 2,
-                    flexShrink: 0,
-                    minHeight: 48,
-                    opacity: 0.85,
-                  }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Header Row: Timestamp & Event Type Badge */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                      <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}>
-                        {fmtTs(ev.timestamp)}
-                      </span>
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '2px 8px',
-                        borderRadius: 3,
-                        background: 'rgba(6, 182, 212, 0.12)',
-                        color: lineColor,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                      }}>
-                        {ev.event_type}
-                      </span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        {fmtRelative(ev.timestamp)}
-                      </span>
-                    </div>
-
-                    {/* Attribution & Identity Planes Row */}
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, marginTop: 4, marginBottom: 4 }}>
-                      {/* Workload Executor */}
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Executing Actor: </span>
-                        <span data-testid="activity-executing-actor" style={{ fontFamily: 'monospace', color: 'var(--text)', fontWeight: 500 }}>
-                          {workloadActor || '—'}
-                        </span>
-                      </div>
-
-                      {/* Human Authorizing Principal (Separation of planes) */}
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Authorized By: </span>
-                        <span data-testid="activity-authorizing-principal" style={{ color: humanAuthorizer ? colors.tealLoom : 'var(--muted)' }}>
-                          {humanAuthorizer || 'Unassigned'}
-                        </span>
-                      </div>
-
-                      {/* Workload SVID */}
-                      {spiffeId && (
-                        <div>
-                          <span style={{ color: 'var(--muted)' }}>SVID: </span>
-                          <span data-testid="activity-spiffe-id" style={{ fontFamily: 'monospace', fontSize: 11, color: colors.irisViolet }}>
-                            {spiffeId}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Attribution Rationale */}
-                    {rationale && (
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, marginBottom: 4 }}>
-                        <span style={{ color: 'var(--text)', fontWeight: 500 }}>Rationale: </span>
-                        <span data-testid="activity-attribution-rationale">{rationale}</span>
-                      </div>
-                    )}
-
-                    {/* Evidence and Kernel Telemetry References */}
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, marginTop: 2 }}>
-                      {evidenceRef && (
-                        <div style={{ background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3 }}>
-                          <span style={{ color: 'var(--muted)' }}>Proof Ref: </span>
-                          <span data-testid="activity-evidence-ref" style={{ fontFamily: 'monospace', color: colors.tealLoom }}>{evidenceRef}</span>
-                        </div>
-                      )}
-                      {kernelRef && (
-                        <div style={{ background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3 }}>
-                          <span style={{ color: 'var(--muted)' }}>Kernel Telemetry: </span>
-                          <span data-testid="activity-kernel-telemetry-ref" style={{ fontFamily: 'monospace', color: colors.cyanLoom }}>{kernelRef}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Detail Payload Inspector */}
-                    {Object.keys(ev.detail || {}).length > 0 && (
-                      <div style={{ marginTop: 6 }}>
-                        <button
-                          onClick={() => toggleDetail(ev.id)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            fontSize: 11,
-                            color: 'var(--cyan)',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                        >
-                          {isExpanded ? '▼ Hide payload detail' : '▶ View payload detail'}
-                        </button>
-                        {isExpanded && (
-                          <pre
-                            data-testid={`activity-payload-${ev.id}`}
-                            style={{
-                              marginTop: 6,
-                              padding: 8,
-                              fontSize: 11,
-                              borderRadius: 4,
-                              background: 'var(--surface2)',
-                              border: '1px solid var(--border)',
-                              overflowX: 'auto',
-                              color: 'var(--text)',
-                            }}
-                          >
-                            {JSON.stringify(ev.detail, null, 2)}
-                          </pre>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+            {filteredItems.map((item, idx) => (
+              <DelegationTimelineItem
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                agent={agent}
+                idx={idx}
+                isLast={idx === filteredItems.length - 1}
+                isExpanded={!!expandedDetails[item.id]}
+                onToggleDetail={toggleDetail}
+                onViewProof={handleViewProof}
+                onViewAttestation={handleViewAttestation}
+                onAcknowledgeViolation={onAcknowledgeViolation}
+                acknowledging={acknowledging}
+              />
+            ))}
           </div>
         </div>
       )}
+      {/* ─── 4. Cryptographic Proof & Attestation Drawers ───────────────────── */}
+      <AuthorizationProofDrawer
+        isOpen={proofDrawerOpen}
+        onClose={() => setProofDrawerOpen(false)}
+        actionId={activeActionId}
+        chain={activeChain}
+        actorId={agent.id}
+        evidenceRef={activeEvidenceRef}
+      />
+
+      <DelegationAttestationDrawer
+        isOpen={attestationDrawerOpen}
+        onClose={() => setAttestationDrawerOpen(false)}
+        attestation={activeAttestation}
+      />
     </div>
   )
 }

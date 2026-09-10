@@ -77,7 +77,7 @@ cp "$GUARD" "$SNAPSHOT/guard.py"
 # machine without uv still works.
 pytest_cmd() {
   if command -v uv >/dev/null 2>&1; then
-    printf 'uv run --no-config --python 3.12 --with pytest --with pytest-asyncio --quiet python -m pytest'
+    printf 'env UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=%s uv run --no-config --python 3.12 --with pytest --with pytest-asyncio --quiet python -m pytest' "${UV_CACHE_DIR:-/tmp/uv-cache}"
   else
     printf 'python3 -m pytest'
   fi

@@ -69,6 +69,7 @@ dashboard-journey.spec.ts	unwired	Targets the Estate 95 win95 console at http://
 distance-latency.spec.ts	suite-only	Drives Distance & Latency page against live API. Requires running demo cluster.
 kagent-agents.spec.ts	suite-only	Drives the /agents page against the live Kagent declarative swarm; requires the kagent slice (make demo-kagent-up).
 live-data.spec.ts	ci:stage8b	Walks every data-driven route with demo fixtures DISABLED and fails on any 4xx/5xx from an API call. Runs in stage8b beside smoke.spec.ts because both are `smoke`-project specs that log themselves in; stage8b passes both filenames, since acceptance-test.sh forwards "$@" to playwright as a filename filter and a spec not named there never runs.
+navigation.spec.ts	suite-only	Drives the 3-tier sidebar navigation hierarchy (View, Control, Design), persistent utility anchors, active highlighting, keyboard shortcuts, and rail collapse. Requires demo-signalloom-up.
 rbac-analysis.spec.ts	suite-only	Behind guards.afmDeployed(). One test, SKIP without the k8s-afm slice.
 rbac-explorer.spec.ts	suite-only	Behind guards.afmDeployed(). Ten tests, all SKIP without the k8s-afm slice.
 signal-loom-baoaudit.spec.ts	suite-only	Drives Weave dashboard to verify OpenBao cryptographic identity audit stream panel, SVID lease tracking, and out-of-role vault access filtering.

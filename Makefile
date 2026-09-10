@@ -544,7 +544,8 @@ test-all: ## Run every single test across all slices and verification stages in 
 	@echo "=== Stage 9/10: Test Count Floor Circuit Breakers ==="
 	bats test/test-count-floor.bats
 	@echo "=== Stage 10/10: Browser Acceptance Tests ==="
-	ADOPT_GATEWAY_FORWARD=1 PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-browsers ./scripts/acceptance-test.sh smoke.spec.ts docs.spec.ts live-data.spec.ts
+	ADOPT_GATEWAY_FORWARD=1 PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh smoke.spec.ts docs.spec.ts live-data.spec.ts kagent-agents.spec.ts signalloom-login.spec.ts cloudaudit-dashboard.spec.ts distance-latency.spec.ts agent-drilldown-and-selectors.spec.ts signal-loom-baoaudit.spec.ts signal-loom-netebpf.spec.ts who-authorized.spec.ts agent-activity-timeline.spec.ts
+	PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh signalloom-test-1.spec.ts supercred-log-streaming-harness.spec.ts
 	@echo "=== COMPLETE: All 10 verification stages passed successfully! ==="
 
 # ─── Signal Fusion / Weave unit tests ───────────────────────────────────────

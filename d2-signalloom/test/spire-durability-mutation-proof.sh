@@ -396,8 +396,8 @@ note "4 further mutations against $(basename "$JOBS_SUITE")"
 check "map-typed role fields reverted to k=v operands (the 400)" \
 	"not passed as k=v operands" \
 	mutate "$GENERIC" \
-'      "bound_claims": {"sub": "spiffe://signalloom.demo/ns/*/sa/*"},' \
-'      bound_claims={"sub":"spiffe://signalloom.demo/ns/*/sa/*"}'
+'      "bound_claims": {"sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*"},' \
+'      bound_claims={"sub":"spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*"}'
 
 check "the role write loses its stdin payload" \
 	"feeds its payload from stdin" \

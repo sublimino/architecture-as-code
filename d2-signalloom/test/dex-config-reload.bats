@@ -25,13 +25,14 @@ setup() {
   root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   dex_manifest="$root/d2-signalloom/infra/inf-signalloom/base/dex.yaml"
   dex_ui_manifest="$root/d2-signalloom/infra/inf-signalloom/base/dex-ui.yaml"
+  PYTHON="$(python3 -c "import yaml" >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
 }
 
 # sha256 of the Secret's config.yaml exactly as authored, before Flux
 # substitution. Deliberately pre-substitution: this hash's job is to catch
 # hand-edits, and it must be computable from the repo alone with no cluster.
 config_sha() {
-  python3 -c "
+  "$PYTHON" -c "
 import yaml, hashlib, sys
 for d in yaml.safe_load_all(open(sys.argv[1])):
     if d and d.get('kind') == 'Secret' and d['metadata']['name'] == 'dex-local-auth':
@@ -44,7 +45,7 @@ for d in yaml.safe_load_all(open(sys.argv[1])):
 # keys so it is stable. Scoped to templates because Dex parses those once at
 # boot; styles.css is served per-request off disk and needs no restart.
 ui_sha() {
-  python3 -c "
+  "$PYTHON" -c "
 import yaml, hashlib, json, sys
 for d in yaml.safe_load_all(open(sys.argv[1])):
     if d and d.get('kind') == 'ConfigMap' and d['metadata']['name'] == 'dex-ui':
@@ -59,7 +60,7 @@ else:
 }
 
 annotation() {
-  python3 -c "
+  "$PYTHON" -c "
 import yaml, sys
 for d in yaml.safe_load_all(open(sys.argv[1])):
     if d and d.get('kind') == 'Deployment' and d['metadata']['name'] == 'dex':

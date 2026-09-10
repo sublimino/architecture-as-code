@@ -99,10 +99,16 @@ Bind each event to these fields:
 
 Allowlist filesystem roots and network destinations. Keep credentials outside
 the sandbox by using nono's brokered credential support. Set size and rate
-limits before calculating disk-artifact hashes. Open only regular files beneath
-a pinned approved root. Do not follow symbolic links or cross mount boundaries.
-Reject files with multiple hard links. Verify the device and inode before and
-after hashing, and discard the digest if either value changes.
+limits before calculating disk-artifact hashes.
+
+Pin an approved root directory descriptor. Open candidate files descriptor-
+relative through `openat2()`. Require `RESOLVE_BENEATH`,
+`RESOLVE_NO_SYMLINKS`, and `RESOLVE_NO_XDEV`. Hash only through the returned
+descriptor. Before reading, use `fstat` and `statx(STATX_MNT_ID)` to verify a
+regular file on the approved mount with one hard link. After reading, recheck
+the inode, mount ID, link count, size, and mutation timestamps. Discard the
+digest if any value changes. These controls must reject an escaped target
+before the sensor reads its bytes.
 
 ## Completion evidence
 

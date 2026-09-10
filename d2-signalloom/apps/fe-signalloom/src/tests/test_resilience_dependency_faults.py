@@ -1008,11 +1008,6 @@ _UNGATED_MUTATIONS = {
     # ``_require_pool`` does -- so in a fixture deployment this endpoint 503s
     # where every other mutation degrades to the in-memory twin.
     "policy_compliance_scan",
-    # Agent claim routes that operate on in-memory and agent discovery records
-    "claim_agent",
-    "autoclaim_discovered",
-    "release_agent_claim",
-    "claim_agent_by_id",
 }
 
 

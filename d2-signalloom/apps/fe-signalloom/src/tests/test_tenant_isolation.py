@@ -583,16 +583,11 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/signals/observations"),
     ("GET", "/api/signals/actors"),
     ("GET", "/api/signals/actors/{actor_id}"),
-    ("GET", "/api/signals/actors/{actor_id}/authorization"),
-    ("GET", "/api/signals/authorization"),
     ("GET", "/api/signals/coverage"),
     ("GET", "/api/signals/store/stats"),
     ("POST", "/api/signals/actors/{actor_id}/promote"),
     ("POST", "/api/signals/correlate"),
     ("POST", "/api/signals/collectors/seed"),
-    # Risk calculation proxy routes to signal-ingest
-    ("GET", "/api/v1/risk/agents/{agent_id:path}"),
-    ("GET", "/api/v1/risk/fleet"),
 ]
 
 

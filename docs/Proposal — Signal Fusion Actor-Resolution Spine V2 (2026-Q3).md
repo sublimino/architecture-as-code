@@ -308,7 +308,7 @@ When an agent is stunned by `stun-sentinel`, the system must immediately clamp `
 | SFAS-P1-3 | Auto-inject authenticated human onboarding claims into PostgreSQL delegation graph upon operator claim mutation | SFAS-P1-1, SFAS-P1-2 | Integration test asserting claim persistence and immediate reflection in /api/v1/authorization | M | antigravity | pass — delivered: e5040a936ce1dd99c02b40ae37e2faed5323cf7c (see Errata — SFAS-P1-3) | $0.00 | N/A — subscription | 32m00s | agy://open?id=56aea&dir=/home/andy/.cline/worktrees/56aea/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, verify transitive delegation and live claim persistence | SFAS-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | pass — certified: cf20fb9eead23c291cb63f0976cecfbbcc866f6c (see Errata — SFAS-P1-GOV) | $0.00 | N/A — no session | N/A | agy://open?id=e2ac5&dir=/home/andy/.cline/worktrees/e2ac5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P2-PRE | Preflight verification of AgentDetailPage component tree, Weave panel, and test fixtures | SFAS-P1-GOV | Preflight proof recorded in `docs/signalloom/sfas-p2-preflight-proof.md` | S | antigravity | pass — preflight verified (see Errata — SFAS-P2-PRE) | $0.00 | N/A — subscription | 4m12s | agy://open?id=1dcdf&dir=/home/andy/.cline/worktrees/1dcdf/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P2-1 | Embed 7-hop attested authorization chain into Agent Dossier Tab 2 (Identity & SPIFFE) with live delegator tree | SFAS-P2-PRE | Vitest component tests pass asserting WhoAuthorizedPanel renders inside AgentIdentityTab | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=e187b&dir=/home/andy/.cline/worktrees/e187b/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| SFAS-P2-1 | Embed 7-hop attested authorization chain into Agent Dossier Tab 2 (Identity & SPIFFE) with live delegator tree | SFAS-P2-PRE | Vitest component tests pass asserting WhoAuthorizedPanel renders inside AgentIdentityTab | M | antigravity | pass — delivered: 0158589921d22c9312f7703f8af1d99c144b2d52 (see Errata — SFAS-P2-1) | $0.00 | N/A — no session | N/A | agy://open?id=e187b&dir=/home/andy/.cline/worktrees/e187b/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P2-2 | Wire timeline audit events in Agent Dossier Tab 5 (Activity) to launch interactive cryptographic authorization proof drawer | SFAS-P2-1 | Vitest and Playwright tests asserting clicking timeline event opens 7-hop proof drawer | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=89c11&dir=/home/andy/.cline/worktrees/89c11/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P2-GOV | Phase 2 Governor reconciliation: merge Phase 2 deliverables, verify Dossier identity and activity proof drill-downs | SFAS-P2-2 | 100% Phase 2 tests pass; Playwright acceptance green; Governor certification recorded | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=f24f5&dir=/home/andy/.cline/worktrees/f24f5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P3-PRE | Preflight verification of Stun Sentinel cgroup controller, eBPF classifier hooks, and event bus | SFAS-P2-GOV | Preflight proof recorded in `docs/signalloom/sfas-p3-preflight-proof.md` | S | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=b25d6&dir=/home/andy/.cline/worktrees/b25d6/osramp-demo&host=fortuna&model=gemini-3.7-flash |
@@ -433,4 +433,19 @@ Preflight checks for Phase 2 verified 100% PASS. Integration branch carries cert
 - **Verdict**: GO for Phase 2 implementation cards (`SFAS-P2-1`, `SFAS-P2-2`, `SFAS-P2-GOV`).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-
+#### Errata — SFAS-P2-1 Embed 7-hop attested authorization chain into Agent Dossier Tab 2 (Identity & SPIFFE) with live delegator tree
+**Created:** 2026-09-10 21:45:05+01:00
+**Last Updated:** 2026-09-10 21:45:05+01:00
+**Status:** Completed
+**Commit:** 0158589921d22c9312f7703f8af1d99c144b2d52
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- Embedded `WhoAuthorizedPanel` directly into `AgentIdentityTab.tsx` bound to the active agent ID (`actorId={agent.id}`), rendering between Panel 1 (Selectors) and Panel 2 (Delegation Chain) to provide an immediate operational view of the 7-hop authority spine.
+- Refactored `WhoAuthorizedPanel.tsx` from a single-hop text display to support both unstructured summaries and a structured multi-node stepped delegation hierarchy (`DelegationChainNode.tsx`) displaying upstream delegators (e.g. Human Principal -> Planner -> Pipeline -> Executing Agent).
+- Created `DelegationChainNode.tsx` with interactive keyboard-accessible drill-down modals (`role="button"`, `aria-haspopup="dialog"`), validity time window displays ($[valid\_from, valid\_to)$), SPIFFE SVID indicators, and Landlock kernel sandbox containment chips for `agent-nono-evidenced` workloads.
+- Created `CycleDetectedWarning.tsx` rendering high-visibility adversarial cycle alerts (`role="alert"`, `CYCLE BLOCKED` badge) when the resolver detects circular delegation.
+- Added typed TypeScript models in `d2-signalloom/apps/dashboard-signalloom/src/types/identity.ts` (`TransitiveDelegationChain`, `DelegationRecord`, `DelegationNodeData`, `CycleDetectionInfo`).
+- Maintained 100% backward compatibility across all 158 Vitest test files (3,107 passed, 1 skipped), `make test-dashboard-weave` (79 passed), and Playwright acceptance suites (`test/acceptance/who-authorized.spec.ts`).
+**Deviations:** None. All deliverables and contracts fulfilled.
+**Notes:** SFAS-P2-2 can now consume the embedded `WhoAuthorizedPanel` and `DelegationChainNode` components or extend the timeline proof drawer in Tab 5.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

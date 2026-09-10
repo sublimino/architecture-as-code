@@ -126,6 +126,7 @@ export function useAppContext() {
  * the same word they just clicked.
  */
 const EXTRA_ROUTE_LABELS: Record<string, string> = {
+  '/overview': 'Overview',
   '/agents/:id': 'Agent',
   '/discovery/accounts/:accountId': 'Account',
   '/compliance/:frameworkId': 'Framework',
@@ -375,6 +376,7 @@ export default function App() {
                 <Route path="/signup" element={<Navigate to="/redeem-invite" replace />} />
 
                 <Route path="/" element={<Navigate to="/agents" replace />} />
+                <Route path="/overview" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
                 <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
                 <Route path="/agents/:id" element={<ProtectedRoute><AgentDetailPage /></ProtectedRoute>} />
                 <Route path="/discovery" element={<ProtectedRoute><DiscoveryPage /></ProtectedRoute>} />

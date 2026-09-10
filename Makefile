@@ -591,7 +591,7 @@ test-tetragon: ## Run the Tetragon telemetry collector Go unit suites (offline, 
 
 test-tetragon-stream: ## Run the offline Tetragon end-to-end stream harness and write the evidence artifact.
 	./scripts/test-tetragon-stream.sh 1000
-	@git checkout -- docs/signalloom/evidence/tetragon-stream-proof.json test/mocks/mocks 2>/dev/null || true
+	@git checkout -- docs/signalloom/evidence/tetragon-stream-proof.json 2>/dev/null || true
 
 test-tetragon-bats: ## Run the Tetragon enforcement-decoupling + telemetry BATS suite (no cluster required).
 	bats test/tetragon-telemetry-stream.bats

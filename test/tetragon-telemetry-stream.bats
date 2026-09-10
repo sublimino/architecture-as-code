@@ -394,5 +394,5 @@ print('OK')
 }
 
 teardown_file() {
-  git -C "$REPO_ROOT" checkout -- docs/signalloom/evidence/tetragon-stream-proof.json test/mocks/mocks 2>/dev/null || true
+  git -C "$REPO_ROOT" checkout -- docs/signalloom/evidence/tetragon-stream-proof.json 2>/dev/null || true
 }

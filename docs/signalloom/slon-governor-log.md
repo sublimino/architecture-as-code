@@ -95,6 +95,14 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | `2026-09-10T09:50:21Z` | `supervisor` | `TICK_7_EXECUTED` | Controller Tick #7 executed via `CycleInput.ts`. `SLON-P1-GOV` (`e80e2`) actively running reconciliation and certification suites. Quota healthy (`cdx:0%/cld:0%/agy:30%`). Graph clean. |
 | `2026-09-10T09:51:30Z` | `governor` | `PHASE_1_CERTIFIED` | Phase 1 Governor reconciliation complete. 100% test pass across Vitest (3,110 tests), Pytest (1,146 tests), and BATS spec registry (7/7 tests). Certified evidence in `docs/signalloom/slon-p1-governor-report.md`. |
 | `2026-09-10T10:05:00Z` | `governor` | `GATE_PAUSE_AWAITING_OPERATOR` | Doctor validated 100% clean (zero exceptions). Task `SLON-P1-GOV` paused at Governor Human Gate in `review` awaiting operator confirmation to advance to `done`. |\n
+| `2026-09-10T10:47:14Z` | `governor` | `PHASE_2_PREFLIGHT_CERTIFIED` | Preflight verification proof for Phase 2 certified (`73eb775d`), fast-forward merged to `integration/slon-v0.1.0`. `SLON-P2-PRE` moved to `done`. |
+| `2026-09-10T10:48:00Z` | `governor` | `DISPATCH_PHASE_2_IMPL` | Dispatched `SLON-P2-1` (`c1ce1`), `SLON-P2-2` (`254f7`), `SLON-P2-4` (`0d0c9`) into `in_progress` concurrently across isolated worktrees. |
+| `2026-09-10T10:55:00Z` | `governor` | `SLON_P2_1_MERGED` | Merged `SLON-P2-1` (`ff9825b7`) into `integration/slon-v0.1.0` (merge commit `d16d2143`). Deployed dual demo agents `agent-nono-evidenced` and `agent-standard-baseline` in `fe-signalloom-agents`. |
+| `2026-09-10T11:05:00Z` | `governor` | `SLON_P2_4_MERGED` | Merged `SLON-P2-4` (`bb22ae81`) into `integration/slon-v0.1.0` (merge commit `2fc6e9f3`). Added isolated demo smoke test suite (`scripts/demo-signalloom-smoke.sh`, `make demo-signalloom-smoke`). |
+| `2026-09-10T11:08:00Z` | `governor` | `SLON_P2_2_MERGED` | Merged `SLON-P2-2` (`ef8cea46`) into `integration/slon-v0.1.0` (merge commit `f78ea8f3`). Implemented dynamic Nono optionality detection and signed audit session telemetry ingest. |
+| `2026-09-10T11:10:00Z` | `governor` | `DISPATCH_SLON_P2_3` | Dispatched `SLON-P2-3` (`46bb8`, Operator Dual-Agent Claim Flow). Actively running in `/home/andy/src/.worktrees/46bb8/osramp-demo`. |
+| `2026-09-10T11:12:10Z` | `governor` | `BOARD_ADVANCE_CONFIRMED` | Automated `kanban-check.sh done-advance` advanced `SLON-P2-1`, `SLON-P2-4`, and `SLON-P2-2` to `done` (advanced=9, failed=0). Doctor validated 100% clean with zero exceptions. |
+
 ---
 
 ## 3. Active Phase Status: Phase 1 (User Journey & Architecture)
@@ -110,19 +118,21 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 
 ## 4. Active Phase Status: Phase 2 (Dual Demo Agents & Isolated Smoke Test)
 
-- **Completed Preflight Card**:
+- **Completed Implementation Cards**:
   - `SLON-P2-PRE` (`355e8`, Preflight Verification, Commit `73eb775d`): **`done`**. Preflight verification proof recorded in `docs/signalloom/slon-p2-preflight-proof.md`.
+  - `SLON-P2-1` (`c1ce1`, Dual Demo Agents: `agent-nono-evidenced` + `agent-standard-baseline`, Commit `ff9825b7`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-1-evidence.md`. Both workloads active in `fe-signalloom-agents`.
+  - `SLON-P2-4` (`0d0c9`, Isolated Demo Smoke Test Target `make demo-signalloom-smoke`, Commit `bb22ae81`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-4-evidence.md`. Clean pass in 13.9s.
+  - `SLON-P2-2` (`254f7`, Dynamic Nono Detection & Telemetry Ingest, Commit `ef8cea46`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-2-evidence.md`. Migration `035_signed_audit_sessions.sql` and capability probe script.
 
-- **Active Implementation Cards**:
-  - `SLON-P2-1` (`c1ce1`, Dual Demo Agents: `agent-nono-evidenced` + `agent-standard-baseline`): **`in_progress`** in worktree `/home/andy/.cline/worktrees/c1ce1/osramp-demo`.
-  - `SLON-P2-4` (`0d0c9`, Isolated Demo Smoke Test Target `make demo-signalloom-smoke`): **`in_progress`** in worktree `/home/andy/.cline/worktrees/0d0c9/osramp-demo`.
+- **Active Cards in Progress**:
+  - `SLON-P2-3` (`46bb8`, Operator Dual-Agent Claim Flow): **`in_progress`** in worktree `/home/andy/src/.worktrees/46bb8/osramp-demo`.
 
 - **Phase 2 Pipeline**:
 1. `SLON-P2-PRE` (`355e8`): Preflight verification of SPIFFE provider, OpenBao JWT roles, and Nono capability probe. [DONE]
 2. `SLON-P2-1` (`c1ce1`): Deploy `agent-nono-evidenced` and `agent-standard-baseline` into `fe-signalloom-agents`. [DONE]
-3. `SLON-P2-2` (`254f7`): Implement `probe-nono-capability.sh` dynamic detection and signed audit session telemetry ingest. [ACTIVE]
-4. `SLON-P2-3` (`46bb8`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry. [BLOCKED on P2-2]
-5. `SLON-P2-4` (`0d0c9`): Implement `make demo-signalloom-smoke` target for < 90s dual-agent verification. [ACTIVE]
+3. `SLON-P2-4` (`0d0c9`): Implement `make demo-signalloom-smoke` target for < 90s dual-agent verification. [DONE]
+4. `SLON-P2-2` (`254f7`): Implement `probe-nono-capability.sh` dynamic detection and signed audit session telemetry ingest. [DONE]
+5. `SLON-P2-3` (`46bb8`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry. [ACTIVE]
 6. `SLON-P2-GOV` (`c0fa6`): Phase 2 Governor reconciliation, ingress restart claim persistence assertion, and merge. [PENDING]
 
 ---

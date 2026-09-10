@@ -311,7 +311,7 @@ When an agent is stunned by `stun-sentinel`, the system must immediately clamp `
 | SFAS-P2-1 | Embed 7-hop attested authorization chain into Agent Dossier Tab 2 (Identity & SPIFFE) with live delegator tree | SFAS-P2-PRE | Vitest component tests pass asserting WhoAuthorizedPanel renders inside AgentIdentityTab | M | antigravity | pass — delivered: 0158589921d22c9312f7703f8af1d99c144b2d52 (see Errata — SFAS-P2-1) | $0.00 | N/A — no session | N/A | agy://open?id=e187b&dir=/home/andy/.cline/worktrees/e187b/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P2-2 | Wire timeline audit events in Agent Dossier Tab 5 (Activity) to launch interactive cryptographic authorization proof drawer | SFAS-P2-1 | Vitest and Playwright tests asserting clicking timeline event opens 7-hop proof drawer | M | antigravity | pass — delivered: d48f201f391d21b6377eecfd045f8eaa22beb906 (see Errata — SFAS-P2-2) | $0.00 | N/A — no session | N/A | agy://open?id=89c11&dir=/home/andy/.cline/worktrees/89c11/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P2-GOV | Phase 2 Governor reconciliation: merge Phase 2 deliverables, verify Dossier identity and activity proof drill-downs | SFAS-P2-2 | 100% Phase 2 tests pass; Playwright acceptance green; Governor certification recorded | M | antigravity | pass — certified: 7fdd1cafb61e05a8972b9f0e1f063053c53953be (see Errata — SFAS-P2-GOV) | $0.00 | N/A — no session | N/A | agy://open?id=f24f5&dir=/home/andy/.cline/worktrees/f24f5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P3-PRE | Preflight verification of Stun Sentinel cgroup controller, eBPF classifier hooks, and event bus | SFAS-P2-GOV | Preflight proof recorded in `docs/signalloom/sfas-p3-preflight-proof.md` | S | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=b25d6&dir=/home/andy/.cline/worktrees/b25d6/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| SFAS-P3-PRE | Preflight verification of Stun Sentinel cgroup controller, eBPF classifier hooks, and event bus | SFAS-P2-GOV | Preflight proof recorded in `docs/signalloom/sfas-p3-preflight-proof.md` | S | antigravity | pass — preflight verified: 10560544ef6a5bf264cbe1f58c213e247d7cea3a (see Errata — SFAS-P3-PRE) | $0.00 | N/A — subscription | 4m15s | agy://open?id=b25d6&dir=/home/andy/.cline/worktrees/b25d6/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P3-1 | Invalidate active temporal delegation edges (valid_to = now()) upon receiving swarm.sentinel.stun_triggered events | SFAS-P3-PRE | Go integration test asserting edge clamping and subsequent authorization query returns REVOKED in <50ms | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=46522&dir=/home/andy/.cline/worktrees/46522/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P3-2 | Implement automated containment trigger and alert dispatch when an agent executes actions under an unverified delegation chain | SFAS-P3-1 | Integration test asserting unverified action emits containment alert to Stun Sentinel | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=7db86&dir=/home/andy/.cline/worktrees/7db86/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | SFAS-P3-GOV | Phase 3 Governor reconciliation: merge Phase 3 deliverables, verify real-time stun revocation and containment severing | SFAS-P3-2 | 100% Phase 3 tests pass; stun revocation latency verified; Governor certification recorded | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=628e8&dir=/home/andy/.cline/worktrees/628e8/osramp-demo&host=fortuna&model=gemini-3.7-flash |
@@ -478,3 +478,35 @@ Preflight checks for Phase 2 verified 100% PASS. Integration branch carries cert
 **Deviations:** None. All deliverables and acceptance criteria satisfied.
 **Notes:** Verified with `bun test`, `make test-dashboard-weave`, and `bats test/acceptance-spec-coverage.bats`. Evidence and verification proofs recorded in `docs/signalloom/sfas-p2-gov-acceptance-evidence.md` and `docs/signalloom/sfas-p2-governor-proof.md`.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SFAS-P3-PRE: Preflight Verification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-10 22:15:00+01:00
+**Last Updated:** 2026-09-10 22:15:00+01:00
+**Status:** Completed
+**Commit:** `10560544ef6a5bf264cbe1f58c213e247d7cea3a`
+**Base Commit:** `7fdd1cafb61e05a8972b9f0e1f063053c53953be`
+**Integration Ref:** `refs/heads/integration/sfas-v0.1.0` (`7fdd1cafb61e05a8972b9f0e1f063053c53953be`)
+**Integration Tag:** `refs/tags/integration/sfas-v0.1.0-p2`
+**Evidence:** docs/signalloom/sfas-p3-preflight-proof.md
+
+Preflight checks for Phase 3 verified 100% PASS. Base tree carries certified Phase 2 deliverables at tip (`7fdd1caf`). Stun Sentinel cgroup v2 freeze controller, eBPF traffic classifier hooks (`tc_drop.bpf.o`), static hermetic binaries (`stun-tcctl`, `stun-sentinel`), and Signal Ingest test suites verified ready for temporal delegation invalidation and automated containment triggers.
+
+- **Task ID**: `SFAS-P3-PRE`
+- **Created**: 2026-09-10 22:15:00+01:00
+- **Last Updated**: 2026-09-10 22:15:00+01:00
+- **Status**: `pass`
+- **Agent**: `antigravity`
+- **Task Commit**: `10560544ef6a5bf264cbe1f58c213e247d7cea3a`
+- **Base Commit**: `7fdd1cafb61e05a8972b9f0e1f063053c53953be`
+- **Integration Ref**: `refs/heads/integration/sfas-v0.1.0` (`7fdd1cafb61e05a8972b9f0e1f063053c53953be`)
+- **Evidence Artifact**: `docs/signalloom/sfas-p3-preflight-proof.md`
+- **Preflight Verification Details**:
+  - **Integration Branch Ancestry**: Verified `integration/sfas-v0.1.0` tip carries all Phase 2 certified deliverables with tag `refs/tags/integration/sfas-v0.1.0-p2` (`7fdd1cafb61e05a8972b9f0e1f063053c53953be`).
+  - **Stun Sentinel Cgroup Controller**: Validated cgroup v2 freezer interface (`/sys/fs/cgroup/cgroup.freeze`), container PID lookup, and freeze state machine transitions.
+  - **eBPF TC Classifier Hooks**: Verified `tc_drop.bpf.o` BPF map layout (`tc_drop_map`), qdisc attachment routines, and egress drop logic.
+  - **Hermetic CLI Compilation**: Hermetic static compilation of `cmd/stun-tcctl` and `cmd/stun-sentinel` with `CGO_ENABLED=0` and Go 1.24 verified clean.
+  - **Test Suite Surface Verification**: 100% pass across Stun Sentinel package tests (`pkg/cgroup`, `pkg/tc`, `pkg/telemetry`) and Signal Ingest test suite (`make test-signal-ingest`).
+- **Verdict**: GO for Phase 3 implementation cards (`SFAS-P3-1`, `SFAS-P3-2`, `SFAS-P3-GOV`).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

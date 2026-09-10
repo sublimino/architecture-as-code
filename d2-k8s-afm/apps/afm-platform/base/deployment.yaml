@@ -49,9 +49,9 @@ spec:
             # not a fix — the pool scales with host cores, not with the limit.
             - name: KUBESEC_MAX_WORKERS
               value: "1"
-            # Open CORS for potential cross-D2 access from Signal Loom.
+            # Restrict CORS to Signal Loom cluster domain and localhost origins.
             - name: KUBESEC_CORS_ALLOW_ORIGIN_REGEX
-              value: ".*"
+              value: "^https?://(localhost|127\\.0\\.0\\.1|.*\\.osramp\\.acme\\.local)(:[0-9]+)?$"
           readinessProbe:
             httpGet:
               path: /health

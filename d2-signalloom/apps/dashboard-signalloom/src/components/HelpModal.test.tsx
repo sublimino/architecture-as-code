@@ -85,6 +85,15 @@ const FAQ_QUESTIONS = [
 ]
 
 describe('HelpModal content', () => {
+  it('opens the user documentation from the Documentation tab', () => {
+    renderModal()
+
+    const documentation = screen.getByRole('link', { name: 'Documentation (opens in new tab)' })
+    expect(documentation).toHaveAttribute('href', '/docs/')
+    expect(documentation).toHaveAttribute('target', '_blank')
+    expect(documentation).toHaveAttribute('rel', 'noreferrer')
+  })
+
   it('renders every FAQ section heading', () => {
     renderModal()
     for (const title of FAQ_SECTION_TITLES) {

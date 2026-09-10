@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from api_compat import APIError
+from api_compat import APIError, authenticated_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ async def _proxy(method: str, path: str, **kwargs: Any) -> JSONResponse:
 @router.get("/v1/risk/agents/{agent_id:path}")
 async def get_agent_risk(
     agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
     request: Request,
     trials: int | None = Query(default=None),
     seed: int | None = Query(default=None),
@@ -75,6 +76,7 @@ async def get_agent_risk(
 @router.get("/api/v1/risk/fleet")
 @router.get("/v1/risk/fleet")
 async def get_fleet_risk(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
     request: Request,
 ) -> JSONResponse:
     """Get quantitative OpenFAIR risk rollup across the agent fleet."""

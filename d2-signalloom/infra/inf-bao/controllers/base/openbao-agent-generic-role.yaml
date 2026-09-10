@@ -32,7 +32,7 @@ data:
     # Path shape: secret/data/agents/<spiffe-id>/*
     # The SPIFFE ID contains slashes which OpenBao handles as nested path
     # segments — this is intentional and matches the secret tree layout.
-    path "secret/data/agents/{{identity.entity.aliases.auth_jwt.metadata.sub}}/*" {
+    path "kv/data/agents/{{identity.entity.aliases.auth_jwt.metadata.sub}}/*" {
       capabilities = ["read", "list"]
     }
     POLICY
@@ -61,12 +61,12 @@ data:
     {
       "role_type": "jwt",
       "bound_audiences": "openbao-supercredential",
-      "bound_claims": {"sub": "spiffe://signalloom.demo/ns/*/sa/*"},
+      "bound_claims": {"sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*"},
       "claim_mappings": {"sub": "sub"},
       "user_claim": "sub",
       "token_policies": "signalloom-agent-templated",
-      "token_ttl": "30m",
-      "token_max_ttl": "1h"
+      "token_ttl": "5m",
+      "token_max_ttl": "5m"
     }
     ROLE
 

@@ -594,18 +594,28 @@ export const api = {
   },
 
   compliancePolicy: {
-    frameworks: (token: string, signal?: AbortSignal) =>
-      req<FrameworkSummary[]>('/compliance/policy/frameworks', token, { signal }),
+    frameworks: async (token: string, signal?: AbortSignal) => {
+      const res = await req<FrameworkSummary[]>('/compliance/policy/frameworks', token, { signal })
+      return Array.isArray(res) ? res.map((fw) => normalizeFrameworkSummary(fw)) : []
+    },
 
-    summary: (token: string, signal?: AbortSignal) =>
-      req<PostureSummary>('/compliance/policy/summary', token, { signal }),
+    summary: async (token: string, signal?: AbortSignal) => {
+      const res = await req<PostureSummary>('/compliance/policy/summary', token, { signal })
+      return normalizePostureSummary(res)
+    },
 
-    scan: (token: string, body: ComplianceScanRequest, signal?: AbortSignal) =>
-      req<{ checks: ComplianceCheck[]; summary: PostureSummary }>(
+    scan: async (token: string, body: ComplianceScanRequest, signal?: AbortSignal) => {
+      const res = await req<{ checks: ComplianceCheck[]; summary: PostureSummary }>(
         '/compliance/policy/scan',
         token,
         { method: 'POST', data: body, signal },
-      ),
+      )
+      const docCurrency = res?.summary?.currency ?? 'GBP'
+      return {
+        checks: normalizeComplianceChecks(res?.checks, docCurrency),
+        summary: normalizePostureSummary(res?.summary),
+      }
+    },
   },
 
   consent: {

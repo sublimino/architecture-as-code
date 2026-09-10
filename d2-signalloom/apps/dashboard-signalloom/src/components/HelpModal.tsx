@@ -120,7 +120,7 @@ const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         q: 'Where are my auth tokens stored?',
-        a: 'Access tokens are stored in memory only (never in localStorage or sessionStorage). This prevents token theft via XSS. Tokens are refreshed automatically via PKCE on page load.',
+        a: 'OIDC session tokens are stored in origin-scoped localStorage so active dashboard tabs share authentication. High-privilege credentials like API secret keys and agent identity tokens are held strictly in transient React component state and never written to web storage.',
       },
       {
         q: 'How do I rotate my API key?',
@@ -252,6 +252,24 @@ export default function HelpModal() {
                 {tab === 'faq' ? 'FAQ' : 'Contact Support'}
               </button>
             ))}
+            <a
+              href="/docs/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Documentation (opens in new tab)"
+              style={{
+                padding: '8px 18px',
+                color: 'var(--muted)',
+                fontSize: 13,
+                fontWeight: 400,
+                textDecoration: 'none',
+                borderBottom: '2px solid transparent',
+                marginBottom: -1,
+                transition: 'color 0.15s',
+              }}
+            >
+              Documentation ↗
+            </a>
           </div>
         </div>
 

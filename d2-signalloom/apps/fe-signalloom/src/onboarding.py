@@ -176,6 +176,9 @@ async def _terminal_transition(
     evidence that the transition ever happened. Losing it leaves the product
     asserting a completion it cannot evidence.
     """
+    if column not in ("skipped_at", "completed_at"):
+        raise APIError(500, "internal_error", f"Invalid onboarding transition column: {column}")
+
     tenant_id = principal.tenant
     pool = await _get_pool()
     now = datetime.now(timezone.utc)

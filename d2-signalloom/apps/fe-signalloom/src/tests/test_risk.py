@@ -13,6 +13,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from api_compat import authenticated_tenant
 from db.connection import set_pool_for_testing
 from main import app
 
@@ -20,6 +21,13 @@ from main import app
 @pytest.fixture(autouse=True)
 def _no_pool():
     set_pool_for_testing(None)
+
+
+@pytest.fixture(autouse=True)
+def _auth_override():
+    app.dependency_overrides[authenticated_tenant] = lambda: "tenant-demo"
+    yield
+    app.dependency_overrides.pop(authenticated_tenant, None)
 
 
 @pytest.fixture()
@@ -104,3 +112,27 @@ class TestRiskProxyBehavior:
             resp = client.get("/api/v1/risk/agents/kagent-incident-responder")
             assert resp.status_code == 502
             assert resp.json()["error"]["code"] == "upstream_unavailable"
+
+
+class TestRiskAuthentication:
+    """Risk endpoints enforce Bearer authentication and tenant isolation."""
+
+    def test_unauthenticated_agent_risk_returns_401(self, client: TestClient):
+        app.dependency_overrides.pop(authenticated_tenant, None)
+        try:
+            resp = client.get("/api/v1/risk/agents/kagent-incident-responder")
+            assert resp.status_code == 401
+            resp_alias = client.get("/v1/risk/agents/kagent-incident-responder")
+            assert resp_alias.status_code == 401
+        finally:
+            app.dependency_overrides[authenticated_tenant] = lambda: "tenant-demo"
+
+    def test_unauthenticated_fleet_risk_returns_401(self, client: TestClient):
+        app.dependency_overrides.pop(authenticated_tenant, None)
+        try:
+            resp = client.get("/api/v1/risk/fleet")
+            assert resp.status_code == 401
+            resp_alias = client.get("/v1/risk/fleet")
+            assert resp_alias.status_code == 401
+        finally:
+            app.dependency_overrides[authenticated_tenant] = lambda: "tenant-demo"

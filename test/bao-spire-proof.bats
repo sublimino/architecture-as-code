@@ -36,46 +36,75 @@ setup() {
 set -euo pipefail
 
 args="$*"
-case "$args" in
-  *'delete job'*)
-    echo "DELETE" >>"$BAO_PROOF_CALL_LOG"
-    ;;
-  *'wait job/bao-spire-positive-proof'*)
-    echo "WAIT_POSITIVE" >>"$BAO_PROOF_CALL_LOG"
-    [[ "${BAO_PROOF_SCENARIO:-pass}" != positive-incomplete ]]
-    ;;
-  *'wait job/bao-spire-negative-proof --for=condition=complete'*)
-    echo "WAIT_NEGATIVE" >>"$BAO_PROOF_CALL_LOG"
-    [[ "${BAO_PROOF_SCENARIO:-pass}" != negative-incomplete ]]
-    ;;
-  *'get job'*)
-    echo "GET_TIMESTAMP" >>"$BAO_PROOF_CALL_LOG"
-    # A Job created long before this run is exactly the observed defect.
-    if [[ "${BAO_PROOF_SCENARIO:-pass}" == stale-job ]]; then
-      printf '2026-08-20T00:00:00Z'
-    else
-      date -u +%Y-%m-%dT%H:%M:%SZ | tr -d '\n'
-    fi
-    ;;
-  *'logs job/bao-spire-positive-proof'*)
-    if [[ "${BAO_PROOF_SCENARIO:-pass}" == positive-marker-missing ]]; then
-      printf 'positive job completed without its marker\n'
-    else
-      printf 'bounded Bao/SPIRE proof passed\n'
-    fi
-    ;;
-  *'logs job/bao-spire-negative-proof -c jwt-svid'*)
+
+if [[ "$args" == *'delete'* && "$args" == *'job'* ]]; then
+  echo "DELETE" >>"$BAO_PROOF_CALL_LOG"
+  exit 0
+fi
+
+if [[ "$args" == *'logs'* ]]; then
+  if [[ "$args" == *'negative'* ]]; then
     if [[ "${BAO_PROOF_SCENARIO:-pass}" == negative-marker-missing ]]; then
       printf 'authentication unexpectedly succeeded\n'
     else
       printf 'denied as expected\n'
     fi
-    ;;
-  *)
-    printf 'unexpected kubectl invocation: %s\n' "$args" >&2
-    exit 64
-    ;;
-esac
+    exit 0
+  fi
+  if [[ "$args" == *'positive'* ]]; then
+    if [[ "${BAO_PROOF_SCENARIO:-pass}" == positive-marker-missing ]]; then
+      printf 'positive job completed without its marker\n'
+    else
+      printf 'bounded Bao/SPIRE proof passed\n'
+    fi
+    exit 0
+  fi
+fi
+
+if [[ "$args" == *'creationTimestamp'* ]]; then
+  echo "GET_TIMESTAMP" >>"$BAO_PROOF_CALL_LOG"
+  if [[ "${BAO_PROOF_SCENARIO:-pass}" == stale-job ]]; then
+    printf '2026-08-20T00:00:00Z'
+  else
+    date -u +%Y-%m-%dT%H:%M:%SZ | tr -d '\n'
+  fi
+  exit 0
+fi
+
+if [[ "$args" == *'positive'* ]]; then
+  echo "WAIT_POSITIVE" >>"$BAO_PROOF_CALL_LOG"
+  if [[ "${BAO_PROOF_SCENARIO:-pass}" == positive-incomplete ]]; then
+    exit 1
+  fi
+  if [[ "$args" == *'conditions'* ]]; then
+    printf 'Complete=True\n'
+    exit 0
+  fi
+  if [[ "$args" == *'containerStatuses'* ]]; then
+    printf 'bao-spire-positive-proof=0\n'
+    exit 0
+  fi
+  exit 0
+fi
+
+if [[ "$args" == *'negative'* ]]; then
+  echo "WAIT_NEGATIVE" >>"$BAO_PROOF_CALL_LOG"
+  if [[ "${BAO_PROOF_SCENARIO:-pass}" == negative-incomplete ]]; then
+    exit 1
+  fi
+  if [[ "$args" == *'conditions'* ]]; then
+    printf 'Complete=True\n'
+    exit 0
+  fi
+  if [[ "$args" == *'containerStatuses'* ]]; then
+    printf 'bao-spire-negative-proof=1\n'
+    exit 0
+  fi
+  exit 0
+fi
+
+printf 'unexpected kubectl invocation: %s\n' "$args" >&2
+exit 64
 SCRIPT
   chmod +x "$bin/kubectl"
 

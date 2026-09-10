@@ -332,3 +332,11 @@ When an agent is stunned by `stun-sentinel`, the system must immediately clamp `
 - **Lease**: ajm-auto-kanban-sfas-v2
 - **Shared Governor Log**: `docs/signalloom/sfas-governor-log.md`
 - **Inter-Agent Directive**: All task agents must execute under `--agent antigravity` in isolated worktrees created from `--base-ref refs/heads/integration/sfas-v0.1.0`. Strict adherence to SP-1 (transitive delegation never-merge), SP-2 (deterministic-first merge), SP-3 (write-time segment attestation), SP-4 (false-merge == 0 release gate), and SP-5 (closed-loop stun revocation) is required. All task completions, deviations, and blockers must be communicated through the shared governor log and recorded in this errata ledger.
+
+#### Errata — SFAS-P1-PRE: Preflight Verification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Last Updated:** 2026-09-10T19:35:00Z  
+**Commit:** `6ac1c6fc`  
+**Evidence:** docs/signalloom/sfas-p1-preflight-proof.md  
+
+Preflight checks verified 100% PASS. Kind cluster connectivity, namespace pods, live signal-ingest routes on port 28082, and identity test suites are ready for Phase 1 implementation.

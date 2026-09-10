@@ -50,6 +50,18 @@ test.describe("SLON-P3-1 documentation pages render", () => {
       // that the file compiled.
       const navLink = page.locator(`a[href$="/${page_.slug}/"]`).first();
       await expect(navLink).toHaveCount(1);
+
+      // Mermaid.astro emits <pre class="mermaid"> and swaps it for an <svg>
+      // client-side. Asserting the container exists is shape validation — it
+      // is present whether or not mermaid ran, so it would pass with the
+      // diagram script removed entirely. Assert the rendered <svg> instead,
+      // and require non-zero dimensions so a collapsed render fails too.
+      const svg = page.locator(".mermaid svg, svg[id^='mermaid']").first();
+      await expect(svg).toBeVisible({ timeout: 15_000 });
+      const box = await svg.boundingBox();
+      expect(box, `mermaid svg has no box on ${page_.slug}`).not.toBeNull();
+      expect(box!.width, `mermaid svg collapsed on ${page_.slug}`).toBeGreaterThan(0);
+      expect(box!.height, `mermaid svg collapsed on ${page_.slug}`).toBeGreaterThan(0);
     });
   }
 

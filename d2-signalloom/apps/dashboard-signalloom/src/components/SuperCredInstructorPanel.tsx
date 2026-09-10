@@ -334,6 +334,30 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
             runId, offsetRef.current, await getAccessTokenSilently(), LOG_WAIT_SECONDS,
           )
           if (stopped) return
+          if (chunk.eof) {
+            // When EOF is reached, the backend has finished the run.
+            // Synchronously fetch and apply the terminal status alongside this final chunk,
+            // avoiding a transient frame where lines are rendered while activeRun is still 'running'.
+            try {
+              const run = await fetchDemoRun(runId, await getAccessTokenSilently())
+              if (!stopped) {
+                applyLogChunk(chunk)
+                if (!isRunActive(run)) {
+                  if (run.step_id === '4' && run.status === 'succeeded') {
+                    await finishRun(run)
+                    if (!stopped) setActiveRun(run)
+                  } else {
+                    setActiveRun(run)
+                    await finishRun(run)
+                  }
+                  return
+                }
+              }
+            } catch {
+              // fallback to regular handling below
+            }
+          }
+
           // Progress means bytes that actually reached the screen. A read can
           // fail to make progress two ways and both must be paced: an empty
           // chunk (a runner that ignored `wait` and answered at once, since an
@@ -360,7 +384,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
     return () => {
       stopped = true
     }
-  }, [running, runId, applyLogChunk, getAccessTokenSilently])
+  }, [running, runId, applyLogChunk, finishRun, getAccessTokenSilently])
 
   /**
    * Follow the log over SSE — only when this browser has explicitly asked for it.

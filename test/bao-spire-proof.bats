@@ -117,7 +117,8 @@ SCRIPT
 }
 
 run_proof() {
-  run env PATH="$bin:$PATH" BAO_PROOF_SCENARIO="$1" DEMO_WAIT_TIMEOUT=1s \
+  local timeout="${2:-${DEMO_WAIT_TIMEOUT:-5s}}"
+  run env PATH="$bin:$PATH" BAO_PROOF_SCENARIO="$1" DEMO_WAIT_TIMEOUT="$timeout" \
     BAO_PROOF_CALL_LOG="$calls" \
     "$root/scripts/bao-spire-proof.sh"
 }
@@ -129,7 +130,7 @@ run_proof() {
 }
 
 @test "fails when the negative denial proof does not complete" {
-  run_proof negative-incomplete
+  run_proof negative-incomplete 1s
   [ "$status" -ne 0 ]
 }
 

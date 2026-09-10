@@ -127,8 +127,17 @@ export function useAppContext() {
  */
 const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/agents/:id': 'Agent',
+  '/discovery': 'Discovery',
   '/discovery/accounts/:accountId': 'Account',
+  '/compliance': 'Compliance',
+  '/compliance/policies': 'Policy Compliance',
+  '/compliance/posture': 'Agent Posture',
+  '/compliance/risk': 'Risk Exposure',
   '/compliance/:frameworkId': 'Framework',
+  '/agent-trust-topology': 'Agent Trust Topology',
+  '/weave': 'The Weave',
+  '/federated-services': 'Federated Services',
+  '/collusion-access': 'Collusion & Access',
   '/fleet/audience': 'Fleet Demo',
   '/onboarding': 'Setup',
   '/help/connectors/:provider': 'Connector Help',
@@ -375,27 +384,36 @@ export default function App() {
                 <Route path="/signup" element={<Navigate to="/redeem-invite" replace />} />
 
                 <Route path="/" element={<Navigate to="/agents" replace />} />
-                <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
-                <Route path="/agents/:id" element={<ProtectedRoute><AgentDetailPage /></ProtectedRoute>} />
+                <Route path="/overview" element={<ProtectedRoute><DiscoveryPage /></ProtectedRoute>} />
                 <Route path="/discovery" element={<ProtectedRoute><DiscoveryPage /></ProtectedRoute>} />
                 <Route path="/discovery/accounts/:accountId" element={<ProtectedRoute><DiscoveryAccountDetailPage /></ProtectedRoute>} />
-                <Route path="/compliance" element={<ProtectedRoute><CompliancePage /></ProtectedRoute>} />
-                <Route path="/compliance/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />
-                <Route path="/compliance/posture" element={<ProtectedRoute><AgentPosturePage /></ProtectedRoute>} />
+                <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
+                <Route path="/agents/:id" element={<ProtectedRoute><AgentDetailPage /></ProtectedRoute>} />
+                <Route path="/topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
+                <Route path="/agent-trust-topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
+                <Route path="/activity" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
+                <Route path="/weave" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
+                <Route path="/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/compliance/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
+                <Route path="/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />
+                <Route path="/compliance/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />
+                <Route path="/containment" element={<ProtectedRoute><CompliancePage /></ProtectedRoute>} />
+                <Route path="/compliance" element={<ProtectedRoute><CompliancePage /></ProtectedRoute>} />
+                <Route path="/compliance/posture" element={<ProtectedRoute><AgentPosturePage /></ProtectedRoute>} />
                 <Route path="/compliance/:frameworkId" element={<ProtectedRoute><FrameworkDetailPage /></ProtectedRoute>} />
+                <Route path="/approvals" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
+                <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
                 <Route path="/audit" element={<ProtectedRoute><AuditTrailPage /></ProtectedRoute>} />
+                <Route path="/workspaces" element={<ProtectedRoute><DiscoveryPage /></ProtectedRoute>} />
+                <Route path="/connectors" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
+                <Route path="/federated-services" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
                 <Route path="/cryptography" element={<ProtectedRoute><CryptographyPage /></ProtectedRoute>} />
                 <Route path="/credential-inventory" element={<ProtectedRoute><CredentialInventoryPage /></ProtectedRoute>} />
-                <Route path="/federated-services" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
-                <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
                 <Route path="/rbac-analysis" element={<ProtectedRoute><RbacAnalysisPage /></ProtectedRoute>} />
                 <Route path="/rbac-explorer" element={<ProtectedRoute><RbacExplorerPage /></ProtectedRoute>} />
-                <Route path="/weave" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
                 <Route path="/signal-fusion" element={<ProtectedRoute><SignalFusionPage /></ProtectedRoute>} />
                 <Route path="/distance-latency" element={<ProtectedRoute><DistanceLatencyPage /></ProtectedRoute>} />
                 <Route path="/signal-store" element={<ProtectedRoute><SignalStorePage /></ProtectedRoute>} />
-                <Route path="/agent-trust-topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/onboarding" element={<ProtectedRoute exemptFromOnboardingGate><OnboardingWizardPage /></ProtectedRoute>} />
                 <Route path="/help/connectors/:provider" element={<ProtectedRoute exemptFromOnboardingGate><ConnectorHelpPage /></ProtectedRoute>} />

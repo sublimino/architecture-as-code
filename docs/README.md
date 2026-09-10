@@ -124,6 +124,10 @@ These documents record engineering decisions and investigations. They do not con
 | Signal Loom Phase 2-3 technical design & comparative telemetry | [`signalloom/slon-p2-3-technical-design.md`](signalloom/slon-p2-3-technical-design.md) |
 | Signal Loom Phase 2-3 comparative telemetry architecture | [`signalloom/slon-p2-3-comparative-telemetry-architecture.md`](signalloom/slon-p2-3-comparative-telemetry-architecture.md) |
 | Signal Loom Phase 2-3 dual agent claim workflow | [`signalloom/slon-p2-3-dual-agent-claim-workflow.md`](signalloom/slon-p2-3-dual-agent-claim-workflow.md) |
+| Signal Loom Phase 3 preflight verification proof | [`signalloom/slon-p3-preflight-proof.md`](signalloom/slon-p3-preflight-proof.md) |
+| Signal Loom Phase 3 docs portal provenance & gap analysis | [`signalloom/slon-p3-docs-portal-provenance.md`](signalloom/slon-p3-docs-portal-provenance.md) |
+| Signal Loom Phase 3 specification tightening | [`signalloom/slon-p3-spec-tightening.md`](signalloom/slon-p3-spec-tightening.md) |
+| Signal Loom Phase 3 preflight verification record | [`signalloom/slon-p3-preflight-verification-record.md`](signalloom/slon-p3-preflight-verification-record.md) |
 | Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |

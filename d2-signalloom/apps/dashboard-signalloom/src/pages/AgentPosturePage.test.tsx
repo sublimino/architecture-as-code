@@ -168,8 +168,7 @@ describe('AgentPosturePage — framework coverage', () => {
     'FINOS AI Governance Framework',
   ])('offers %s in the framework filter', async (framework) => {
     renderPage()
-    await screen.findByText('Checks Passed')
-    expect(screen.getByRole('option', { name: framework })).toBeInTheDocument()
+    expect(await screen.findByRole('option', { name: framework })).toBeInTheDocument()
   })
 
   it.each([

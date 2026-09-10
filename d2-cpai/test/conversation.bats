@@ -13,6 +13,9 @@ CPAI_PORT="${CPAI_PORT_FORWARD_PORT:-18080}"
 SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
 
 setup_file() {
+  if ! command -v aichat >/dev/null 2>&1; then skip "aichat is not installed"; fi
+  if ! kubectl get ns cpai >/dev/null 2>&1; then skip "cpai namespace is not present — run: make demo-cpai-up"; fi
+
   export AICHAT_CONFIG_DIR
   AICHAT_CONFIG_DIR="$(mktemp -d)"
 

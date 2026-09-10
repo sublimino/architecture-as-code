@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { SyncStore } from '../src/store/sync-store';
 import { AdapterRegistry } from '../src/adapters/registry';
+import { CpaiAdapter } from '../src/adapters/cpai';
 import { SessionSummarizer } from '../src/summarizer/summarizer';
 import { AppTokenTracker } from '../src/summarizer/app-token-tracker';
 import { TranscriptFormatter } from '../src/summarizer/transcript-formatter';
@@ -36,6 +37,33 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     expect(names).toContain('omp');
     expect(names).toContain('hermes');
     expect(names).toContain('happy');
+  });
+
+  it('verifies CpaiAdapter parseSession parses a valid session without ReferenceError and returns proper SessionMetadata', async () => {
+    const adapter = new CpaiAdapter();
+    const testSessionFile = path.join(tmpDir, 'session-cpai-demo.jsonl');
+    await fs.mkdir(tmpDir, { recursive: true });
+    await fs.writeFile(
+      testSessionFile,
+      [
+        JSON.stringify({ session_name: 'CPAI Hardening Verification', timestamp: new Date().toISOString(), summary: 'Testing CpaiAdapter parseSession' }),
+        JSON.stringify({ role: 'user', content: 'verify session parsing' }),
+        JSON.stringify({ role: 'assistant', content: 'session parsed successfully' })
+      ].join('\n'),
+      'utf-8'
+    );
+
+    const session = await adapter.parseSession(testSessionFile, 'dev-box', 'dev-host');
+    expect(session).not.toBeNull();
+    expect(session?.id).toBe('cpai-session-cpai-demo');
+    expect(session?.harness).toBe('cpai');
+    expect(session?.deviceId).toBe('dev-box');
+    expect(session?.hostname).toBe('dev-host');
+    expect(session?.title).toBe('CPAI Hardening Verification');
+    expect(session?.summary).toBe('Testing CpaiAdapter parseSession');
+    expect(session?.cwd).toBe(process.env.HOME || '/');
+    expect(session?.url).toBe('cpai://session/session-cpai-demo');
+    expect(session?.rawLogPath).toBe(testSessionFile);
   });
 
   it('saves and retrieves sessions from partitioned sync store with zero conflict', async () => {

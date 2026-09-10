@@ -240,6 +240,8 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+        - protocol: TCP
+          port: 8084
 ---
 # The prompt-commit-summarizer and triage-ci-worker need
 # HTTPS egress to external LLM endpoints and GitHub API.

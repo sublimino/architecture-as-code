@@ -239,7 +239,7 @@ class FakeKubernetes:
             raise not_found(url, "pod not found")
         raise not_found(url, "unhandled route")
 
-    def patch_json(self, url, token, context, patch):
+    def patch_json(self, url, token, context, patch, field_manager=None, **kwargs):
         self.patched_urls.append(url)
         return {}
 

@@ -2,7 +2,41 @@
 
 setup() {
   root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
-  wait_lib="$root/scripts/lib/wait.sh"
+  wait_lib="${WAIT_LIB_OVERRIDE:-$root/scripts/lib/wait.sh}"
+}
+
+@test "WAIT zero deadline does not execute the probe" {
+  marker="$BATS_TEST_TMPDIR/probe-ran"
+  run env MARKER="$marker" bash -c 'source "$1"; _wait_retry 0 "zero probe" "touch \"$MARKER\""' _ "$wait_lib"
+
+  [ "$status" -eq 1 ]
+  [ ! -e "$marker" ]
+}
+
+@test "WAIT timeout diagnostics run exactly once and preserve failure" {
+  callback_log="$BATS_TEST_TMPDIR/callback.log"
+  run env WAIT_SLEEP=0.01 WAIT_BACKOFF=1 WAIT_JITTER=0 WAIT_ATTEMPT_TIMEOUT=0.1 \
+    CALLBACK_LOG="$callback_log" bash -c '
+      source "$1"
+      diagnostics() { printf "%s\n" "$*" >> "$CALLBACK_LOG"; return 7; }
+      WAIT_TIMEOUT_DIAGNOSTICS_CALLBACK=diagnostics _wait_retry 1 "callback probe" false
+    ' _ "$wait_lib"
+
+  [ "$status" -eq 1 ]
+  [ "$(wc -l < "$callback_log")" -eq 1 ]
+  [[ "$(<"$callback_log")" == callback\ probe* ]]
+}
+
+@test "WAIT successful probes never invoke timeout diagnostics" {
+  callback_log="$BATS_TEST_TMPDIR/callback.log"
+  run env CALLBACK_LOG="$callback_log" bash -c '
+    source "$1"
+    diagnostics() { printf "called\n" >> "$CALLBACK_LOG"; }
+    WAIT_TIMEOUT_DIAGNOSTICS_CALLBACK=diagnostics _wait_retry 1 "successful probe" true
+  ' _ "$wait_lib"
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$callback_log" ]
 }
 
 @test "WAIT hard deadline bounds an oversized backoff sleep" {

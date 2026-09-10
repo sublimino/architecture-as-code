@@ -45,7 +45,7 @@ func testServer(t *testing.T) *httptest.Server {
 
 // ── Health ─────────────────────────────────────────────────────────────────
 
-func TestHealthEndpoint(t *testing.T) {
+func TestAcceptanceHealthEndpoint(t *testing.T) {
 	ts := testServer(t)
 	defer ts.Close()
 

@@ -42,6 +42,11 @@
 #                         (WAIT_STAT site=… elapsed=… deadline=… ratio=…). Sort
 #                         that file by ratio after a run for a deterministic,
 #                         ranked list of exactly which deadlines to raise.
+#   WAIT_TIMEOUT_DIAGNOSTICS_CALLBACK
+#                         optional function or executable invoked once after a
+#                         hard timeout as: callback description elapsed deadline
+#                         last_rc. Its status never changes the wait result.
+#   WAIT_FAIL_FAST_RC     internal sentinel used by policy-aware probes.
 #
 # All verbs return 0 on success, 1 on deadline-exceeded.
 
@@ -71,6 +76,21 @@ _wait_stat() {
   return 0
 }
 
+# _wait_timeout_diagnostics <desc> <start_seconds> <deadline_s> <last_rc>
+# Runs once in a guarded subshell. A callback may perform synchronous diagnostic
+# collection after the polling deadline; its exit status cannot replace timeout.
+_wait_timeout_diagnostics() {
+  local callback="${WAIT_TIMEOUT_DIAGNOSTICS_CALLBACK:-}"
+  [ -n "${callback}" ] || return 0
+  [ -z "${WAIT_TIMEOUT_DIAGNOSTICS_ACTIVE:-}" ] || return 0
+  local desc="$1" start="$2" deadline="$3" last_rc="$4"
+  local elapsed=$(( SECONDS - start ))
+  (
+    export WAIT_TIMEOUT_DIAGNOSTICS_ACTIVE=1
+    "${callback}" "${desc}" "${elapsed}" "${deadline}" "${last_rc}" || true
+  )
+}
+
 # --- core retry engine ------------------------------------------------------
 # _wait_retry <deadline_s> <description> <command...>
 # Retries <command> until it exits 0 or the wall-clock deadline elapses.
@@ -94,7 +114,7 @@ _wait_retry() {
   local soft; soft="$(_wait_calc "${dl_int} * ${WAIT_SOFT_RATIO:-0.6}")"; soft="${soft%%.*}"
   local cmd="$*"
 
-  local attempt=0 rc cur_sleep remaining attempt_timeout_now soft_warned=
+  local attempt=0 rc=1 cur_sleep remaining attempt_timeout_now soft_warned=
   # Progress heartbeat: first at WAIT_HEARTBEAT_START seconds, then spaced out by
   # WAIT_HEARTBEAT_FACTOR each time (exponential) so a long wait shows it is alive
   # without spamming — e.g. ~5s, 10s, 20s, 40s, 80s. Respects WAIT_QUIET; set
@@ -105,12 +125,16 @@ _wait_retry() {
 
   _wait_log "⏳ ${desc} (deadline ${dl_int}s, soft ${soft}s, backoff ${backoff}, jitter ${jitter})"
   while :; do
-    if [ "${attempt}" -gt 0 ] && [ "${SECONDS}" -ge "${end}" ]; then
+    if [ "${SECONDS}" -ge "${end}" ]; then
       _wait_log "❌ ${desc} — deadline ${dl_int}s exceeded after ${attempt} attempt(s)"
       _wait_stat "${desc}" "${start}" "${dl_int}" timeout
+      _wait_timeout_diagnostics "${desc}" "${start}" "${dl_int}" "${rc}"
       return 1
     fi
     remaining=$((end - SECONDS))
+    if [ "${remaining}" -le 0 ]; then
+      continue
+    fi
     attempt_timeout_now="${attempt_timeout}"
     if [ "${remaining}" -gt 0 ] && [ "$(_wait_calc "(${attempt_timeout} > ${remaining}) ? 1 : 0")" -eq 1 ]; then
       attempt_timeout_now="${remaining}"
@@ -131,10 +155,16 @@ _wait_retry() {
       _wait_stat "${desc}" "${start}" "${dl_int}" ok
       return 0
     fi
+    if [ -n "${WAIT_FAIL_FAST_RC:-}" ] && [ "${rc}" -eq "${WAIT_FAIL_FAST_RC}" ]; then
+      _wait_log "❌ ${desc} — terminal failure after $((attempt + 1)) attempt(s)"
+      _wait_stat "${desc}" "${start}" "${dl_int}" failed
+      return 1
+    fi
 
     if [ "${SECONDS}" -ge "${end}" ]; then
       _wait_log "❌ ${desc} — deadline ${dl_int}s exceeded after $((attempt + 1)) attempt(s)"
       _wait_stat "${desc}" "${start}" "${dl_int}" timeout
+      _wait_timeout_diagnostics "${desc}" "${start}" "${dl_int}" "${rc}"
       return 1
     fi
     # Soft-deadline: warn ONCE past the soft threshold (bypasses WAIT_QUIET —
@@ -218,17 +248,40 @@ wait_k8s_ready() {
 
   # Phase 1: existence (half the budget).
   local half; half="$(_wait_calc "${scaled} / 2")"; half="${half%%.*}"
+  if [ "${half}" -le 0 ]; then
+    if [ "${scaled}" -le 0 ]; then
+      _wait_log "❌ ready ${kind}/${name} ${ns_args} — no deadline budget available"
+      _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" timeout
+      _wait_timeout_diagnostics "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" 1
+      return 1
+    fi
+    half="${scaled}"
+  fi
   WAIT_DEADLINE_SCALE=1 _wait_retry "${half}" "exists ${kind}/${name} ${ns_args}" \
     "kubectl ${ns_args} get ${kind} ${name} >/dev/null 2>&1" || return 1
 
   # Phase 2: readiness within whatever budget remains.
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
-  [ "${remaining}" -lt 15 ] && remaining=15
+  if [ "${remaining}" -le 0 ]; then
+    _wait_log "❌ ready ${kind}/${name} ${ns_args} — deadline ${scaled}s exhausted before readiness check"
+    _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" timeout
+    _wait_timeout_diagnostics "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" 1
+    return 1
+  fi
   _wait_log "⏳ ready ${kind}/${name} ${ns_args} (--for=${cond}, ${remaining}s left)"
-  if kubectl ${ns_args} wait "${kind}/${name}" "--for=${cond}" "--timeout=${remaining}s"; then
+  local rc
+  if command -v timeout >/dev/null 2>&1; then
+    if timeout "${remaining}" kubectl ${ns_args} wait "${kind}/${name}" "--for=${cond}" "--timeout=${remaining}s"; then rc=0; else rc=$?; fi
+  elif kubectl ${ns_args} wait "${kind}/${name}" "--for=${cond}" "--timeout=${remaining}s"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  if [ "${rc}" -eq 0 ]; then
     _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" ok
   else
     _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" timeout
+    [ "$(( SECONDS - start ))" -ge "${scaled}" ] && _wait_timeout_diagnostics "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" "${rc}"
     return 1
   fi
 }
@@ -245,15 +298,38 @@ wait_rollout() {
   local scaled; scaled="$(_wait_calc "${deadline} * ${scale}")"; scaled="${scaled%%.*}"
   local start="${SECONDS}"
   local half; half="$(_wait_calc "${scaled} / 2")"; half="${half%%.*}"
+  if [ "${half}" -le 0 ]; then
+    if [ "${scaled}" -le 0 ]; then
+      _wait_log "❌ rollout deploy/${name} ${ns_args} — no deadline budget available"
+      _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" timeout
+      _wait_timeout_diagnostics "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" 1
+      return 1
+    fi
+    half="${scaled}"
+  fi
   WAIT_DEADLINE_SCALE=1 _wait_retry "${half}" "exists deploy/${name} ${ns_args}" \
     "kubectl ${ns_args} get deploy ${name} >/dev/null 2>&1" || return 1
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
-  [ "${remaining}" -lt 15 ] && remaining=15
+  if [ "${remaining}" -le 0 ]; then
+    _wait_log "❌ rollout deploy/${name} ${ns_args} — deadline ${scaled}s exhausted before rollout check"
+    _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" timeout
+    _wait_timeout_diagnostics "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" 1
+    return 1
+  fi
   _wait_log "⏳ rollout deploy/${name} ${ns_args} (${remaining}s left)"
-  if kubectl ${ns_args} rollout status "deploy/${name}" "--timeout=${remaining}s"; then
+  local rc
+  if command -v timeout >/dev/null 2>&1; then
+    if timeout "${remaining}" kubectl ${ns_args} rollout status "deploy/${name}" "--timeout=${remaining}s"; then rc=0; else rc=$?; fi
+  elif kubectl ${ns_args} rollout status "deploy/${name}" "--timeout=${remaining}s"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  if [ "${rc}" -eq 0 ]; then
     _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" ok
   else
     _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" timeout
+    [ "$(( SECONDS - start ))" -ge "${scaled}" ] && _wait_timeout_diagnostics "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" "${rc}"
     return 1
   fi
 }
@@ -265,20 +341,119 @@ wait_flux_ready() {
   wait_k8s_ready "${kind}" "${name}" "$@" --for "condition=ready"
 }
 
-# wait_pods_ready <selector> [-n ns] [deadline_s]  — all matching pods Ready.
-# Correct "all containers actually ready" semantics (kwaitpod-ready): requires
-# at least one matching pod AND none not-ready.
+# wait_pods_ready <selector> [-n ns] [--for all-ready|any-ready]
+#                 [--fail-fast] [deadline_s]
+# Default semantics remain all-ready: at least one matching pod, every matching
+# pod has container statuses, and no container is unready.
 wait_pods_ready() {
   local selector="${1:?selector required}"; shift
+  local ns_args="" deadline=300 for_cond="all-ready" fail_fast=0
+  while [ $# -gt 0 ]; do case "$1" in
+    -n|--namespace) ns_args="-n $2"; shift 2 ;;
+    -n=*|--namespace=*) ns_args="-n ${1#*=}"; shift ;;
+    --for=*) for_cond="${1#--for=}"; shift ;;
+    --for) for_cond="$2"; shift 2 ;;
+    --fail-fast) fail_fast=1; shift ;;
+    *) deadline="$1"; shift ;;
+  esac; done
+  case "${for_cond}" in
+    ready|all|all-ready) for_cond="all-ready" ;;
+    any|any-ready) for_cond="any-ready" ;;
+    *) _wait_log "❌ pods ready ${selector} ${ns_args} — unsupported policy: ${for_cond}"; return 1 ;;
+  esac
+
+  local probe="
+    if [ '${fail_fast}' -eq 1 ]; then
+      states=\$(kubectl ${ns_args} get pods -l '${selector}' \
+        -o 'jsonpath={range .items[*]}{.status.phase}{\"|\"}{.spec.restartPolicy}{\"|\"}{range .status.initContainerStatuses[*]}{.state.terminated.exitCode}{\",\"}{.state.waiting.reason}{\",\"}{end}{range .status.containerStatuses[*]}{.state.terminated.exitCode}{\",\"}{.state.waiting.reason}{\",\"}{end}{\"\n\"}{end}' 2>/dev/null) || exit 1
+      terminal=0
+      while IFS='|' read -r phase restart_policy container_states; do
+        [ \"\$phase\" = 'Failed' ] && terminal=1
+        IFS=',' read -r -a fields <<< \"\$container_states\"
+        for ((i=0; i<\${#fields[@]}; i+=2)); do
+          exit_code=\${fields[\$i]:-}
+          reason=\${fields[\$((i + 1))]:-}
+          if [ \"\$restart_policy\" = 'Never' ] && [[ \"\$exit_code\" =~ ^[0-9]+$ ]] && [ \"\$exit_code\" -ne 0 ]; then
+            terminal=1
+          fi
+          [ \"\$reason\" = 'InvalidImageName' ] && terminal=1
+        done
+      done <<< \"\$states\"
+      [ \"\$terminal\" -eq 1 ] && exit 42
+    fi
+
+    out=\$(kubectl ${ns_args} get pods -l '${selector}' \
+      -o 'jsonpath={range .items[*]}{.metadata.name}{\"|\"}{range .status.containerStatuses[*]}{.ready}{\",\"}{end}{\"\n\"}{end}' 2>/dev/null) || exit 1
+    found=0
+    bad=0
+    ready=0
+    while IFS='|' read -r pod statuses; do
+      [ -n \"\$pod\" ] || continue
+      found=1
+      if [ -n \"\$statuses\" ] && ! printf '%s' \"\$statuses\" | grep -q false; then
+        ready=1
+      else
+        bad=1
+      fi
+    done <<< \"\$out\"
+    if [ '${for_cond}' = 'any-ready' ]; then
+      [ \"\$ready\" -eq 1 ]
+    else
+      [ \"\$found\" -eq 1 ] && [ \"\$bad\" -eq 0 ]
+    fi
+  "
+  local desc="pods ready ${selector} ${ns_args}"
+  [ "${for_cond}" = "any-ready" ] && desc="${desc} (any-ready)"
+  [ "${fail_fast}" -eq 1 ] && desc="${desc} (fail-fast)"
+  WAIT_FAIL_FAST_RC=42 _wait_retry "${deadline}" "${desc}" "${probe}"
+}
+
+# wait_service_backends <service> [-n ns] [deadline_s]
+# Existence-first, then requires at least one non-terminating EndpointSlice
+# endpoint whose Ready condition is true or absent (unknown).
+wait_service_backends() {
+  local name="${1:?service name required}"; shift
   local ns_args="" deadline=300
   while [ $# -gt 0 ]; do case "$1" in
-    -n) ns_args="-n $2"; shift 2 ;;
-    *)  deadline="$1"; shift ;;
+    -n|--namespace) ns_args="-n $2"; shift 2 ;;
+    -n=*|--namespace=*) ns_args="-n ${1#*=}"; shift ;;
+    *) deadline="$1"; shift ;;
   esac; done
-  _wait_retry "${deadline}" "pods ready ${selector} ${ns_args}" "
-    out=\$(kubectl ${ns_args} get pods -l '${selector}' \
-      -o 'jsonpath={range .items[*]}{.status.containerStatuses[*].ready}{\"\n\"}{end}' 2>/dev/null)
-    [ -n \"\$out\" ] && ! printf '%s' \"\$out\" | grep -q false
+
+  local scale="${WAIT_DEADLINE_SCALE:-1}"
+  local scaled; scaled="$(_wait_calc "${deadline} * ${scale}")"; scaled="${scaled%%.*}"
+  local start="${SECONDS}"
+  if [ "${scaled}" -le 0 ]; then
+    _wait_log "❌ service/${name}${ns_args:+ $ns_args} — no deadline budget available"
+    _wait_stat "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
+    _wait_timeout_diagnostics "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
+    return 1
+  fi
+
+  local half; half="$(_wait_calc "${scaled} / 2")"; half="${half%%.*}"
+  [ "${half}" -le 0 ] && half="${scaled}"
+  WAIT_DEADLINE_SCALE=1 _wait_retry "${half}" "exists service/${name}${ns_args:+ $ns_args}" \
+    "kubectl ${ns_args} get service ${name} >/dev/null 2>&1" || return 1
+
+  local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
+  if [ "${remaining}" -le 0 ]; then
+    _wait_log "❌ service/${name}${ns_args:+ $ns_args} — deadline exhausted before backend check"
+    _wait_stat "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
+    _wait_timeout_diagnostics "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
+    return 1
+  fi
+
+  WAIT_DEADLINE_SCALE=1 _wait_retry "${remaining}" "ready backends service/${name}${ns_args:+ $ns_args}" "
+    out=\$(kubectl ${ns_args} get endpointslices.discovery.k8s.io \
+      -l 'kubernetes.io/service-name=${name}' \
+      -o 'jsonpath={range .items[*].endpoints[*]}{.addresses[0]}{\"|\"}{.conditions.ready}{\"|\"}{.conditions.terminating}{\"\n\"}{end}' 2>/dev/null) || exit 1
+    ready=0
+    while IFS='|' read -r address condition terminating; do
+      if [ -n \"\$address\" ] && [ \"\$condition\" != 'false' ] && [ \"\$terminating\" != 'true' ]; then
+        ready=1
+      fi
+    done <<< \"\$out\"
+    [ \"\$ready\" -eq 1 ]
   "
 }
 
@@ -328,14 +503,28 @@ wait_job() {
 
   # Phase 1: existence check (half the budget).
   local half; half="$(_wait_calc "${scaled} / 2")"; half="${half%%.*}"
-  [ -z "${half}" ] || [ "${half}" -le 0 ] && half=1
+  if [ -z "${half}" ] || [ "${half}" -le 0 ]; then
+    if [ "${scaled}" -gt 0 ]; then
+      half="${scaled}"
+    else
+      _wait_log "❌ exists job/${name}${ns_args:+ $ns_args} — no deadline budget available"
+      _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
+      _wait_timeout_diagnostics "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
+      return 1
+    fi
+  fi
   local exists_desc="exists job/${name}${ns_args:+ $ns_args}"
   WAIT_DEADLINE_SCALE=1 _wait_retry "${half}" "${exists_desc}" \
     "kubectl ${ns_args} get job ${name} >/dev/null 2>&1" || return 1
 
   # Phase 2: terminal polling using _wait_retry.
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
-  [ "${remaining}" -le 0 ] && remaining=1
+  if [ "${remaining}" -le 0 ]; then
+    _wait_log "❌ terminal job/${name}${ns_args:+ $ns_args} — deadline ${scaled}s exhausted before terminal check"
+    _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
+    _wait_timeout_diagnostics "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
+    return 1
+  fi
 
   local term_desc="terminal job/${name}${ns_args:+ $ns_args}"
   local term_cmd

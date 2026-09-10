@@ -2,7 +2,7 @@
 
 setup() {
   root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
-  wait_lib="$root/scripts/lib/wait.sh"
+  wait_lib="${WAIT_LIB_OVERRIDE:-$root/scripts/lib/wait.sh}"
 
   test_bin="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$test_bin"

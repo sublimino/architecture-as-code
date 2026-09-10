@@ -13,23 +13,18 @@ SHELL = /usr/bin/env bash -o pipefail
 CLUSTER_NAME ?= osramp
 
 KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml
-export KUBECONFIG
 GOCACHE ?= /tmp/gocache
-export GOCACHE
 GOMODCACHE ?= /tmp/gomodcache
-export GOMODCACHE
 CGO_ENABLED ?= 0
-export CGO_ENABLED
 HELM_CACHE_HOME ?= /tmp/helm/cache
-export HELM_CACHE_HOME
 HELM_CONFIG_HOME ?= /tmp/helm/config
-export HELM_CONFIG_HOME
 HELM_DATA_HOME ?= /tmp/helm/data
-export HELM_DATA_HOME
 UV_CONFIG_FILE ?= /dev/null
-export UV_CONFIG_FILE
 UV_CACHE_DIR ?= /tmp/uv-cache
-export UV_CACHE_DIR
+PW_CHANNEL ?= chromium
+PLAYWRIGHT_BROWSERS_PATH ?= /tmp/ms-playwright
+DOCKER_CONFIG ?= /tmp/docker
+export KUBECONFIG GOCACHE GOMODCACHE CGO_ENABLED HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME UV_CONFIG_FILE UV_CACHE_DIR PW_CHANNEL PLAYWRIGHT_BROWSERS_PATH DOCKER_CONFIG
 
 # Signing keys live in the MAIN worktree and are shared by every linked one.
 #
@@ -191,17 +186,18 @@ registry: ## Deploy the in-cluster zot registry.
 
 .PHONY: wait-lib-sync
 WAIT_LIB_SOURCE ?= $(HOME)/.andy_sync/includes/wait.sh
+WAIT_LIB_DEST ?= scripts/lib/wait.sh
 wait-lib-sync: ## Re-vendor scripts/lib/wait.sh from the ~/.andy_sync source of truth.
 	@test -f "$(WAIT_LIB_SOURCE)" || { echo "source of truth not found: $(WAIT_LIB_SOURCE)" >&2; exit 1; }
-	@{ \
+	@tmp="$(WAIT_LIB_DEST).tmp"; trap 'rm -f "$$tmp"' EXIT; { \
 	  printf '%s\n' \
 	    '# shellcheck shell=bash' \
 	    '# wait.sh — VENDORED COPY, DO NOT EDIT HERE.' \
 	    '# Source of truth: ~/.andy_sync/includes/wait.sh   Re-vendor: make wait-lib-sync' \
 	    '#'; \
 	  tail -n +2 "$(WAIT_LIB_SOURCE)"; \
-	} > scripts/lib/wait.sh
-	@echo "re-vendored scripts/lib/wait.sh from $(WAIT_LIB_SOURCE)"
+	} > "$$tmp"; mv "$$tmp" "$(WAIT_LIB_DEST)"; trap - EXIT
+	@echo "re-vendored $(WAIT_LIB_DEST) from $(WAIT_LIB_SOURCE)"
 
 ##@ Supply chain
 
@@ -469,37 +465,39 @@ test: ## Run the end-to-end bats suite against the running cluster.
 	# wrapper fails a run in which nothing actually executed.
 	./scripts/assert-bats-ran-something.sh $(MAKE) -C d2-osramp-apps test
 
-.PHONY: test-all
-test-all: ## Run every single test across all slices and verification stages in a single unified command.
-	@echo "=== Stage 1/10: Meta & Test Registries ==="
-	bats test/acceptance-spec-coverage.bats
-	bats d2-signalloom/test/bats-registry-coverage.bats
-	@echo "=== Stage 2/10: Go Unit Tests ==="
-	$(MAKE) test-signal-ingest
+.PHONY: test-all test-all-estate test-all-offline test-all-cluster test-all-browser
+
+test-all-estate: test-all-offline test-all-cluster test-all-browser ## Run every single test across the entire estate (offline, cluster, and browser).
+	@echo "=== COMPLETE: All estate test suites (offline, cluster, browser) passed successfully! ==="
+
+test-all: test-all-estate ## Alias for test-all-estate.
+
+test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI, static BATS/config/registry).
+	@echo "=== [Offline 1/5] All Go Unit Tests (29 modules via dynamic discovery loop) ==="
+	@modules=$$(find . -type d \( -name ".cache" -o -name "node_modules" \) -prune -o -type f -name "go.mod" -exec dirname {} \; | sort -u); \
+	for d in $$modules; do \
+		echo "--- Running go test in $$d ---"; \
+		(cd "$$d" && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...) || exit 1; \
+	done
 	$(MAKE) test-signal-ingest-frostdb
-	$(MAKE) test-tetragon
-	cd tools/riskctl && go test ./...
-	cd tools/demo-console && go test ./...
-	cd d2-signalloom/apps/cardvault && go test ./...
-	cd d2-signalloom/apps/cardvault-agent && go test ./...
-	cd d2-signalloom/apps/cpai-engineer && go test ./...
-	cd d2-signalloom/apps/fleet-manager && go test ./...
-	cd d2-signalloom/apps/policy-engine && go test ./...
-	cd d2-signalloom/apps/signalloom-stun-sentinel && go test ./...
-	cd d2-signalloom/apps/triage-ci-worker && go test ./...
-	cd d2-signalloom/proof-helper && go test ./...
-	cd d2-signalloom/test/dex-templates && go test ./...
-	@echo "=== Stage 3/10: Frontend Unit & Integration Tests ==="
+	@echo "=== [Offline 2/5] Frontend Vitest Suites (162 files across dashboard, design-system, harness-dash) ==="
 	$(MAKE) test-dashboard-weave
 	cd d2-signalloom/apps/dashboard-signalloom && bun run test -- --run
-	@echo "=== Stage 4/10: Python Unit & Invariant Suites ==="
+	cd d2-signalloom/design-system-demo && bun run test
+	cd tools/harness-dash && bun test
+	@echo "=== [Offline 3/5] Python Unit & Invariant Suites ==="
 	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests -q --disable-warnings
 	UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} bash d2-signalloom/test/audit-guard-reintroduction-proof.sh
 	$(MAKE) -C d2-agent-trust test
 	$(MAKE) -C olly-replica authz-test
-	@echo "=== Stage 5/10: KPAI & Swarm Unit Tests ==="
+	cd olly-replica/apps/sentinel && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with-requirements requirements.txt python -m pytest tests -q
+	$(MAKE) -C d2-signalloom/apps/netassert-controller test
+	cd d2-signalloom/apps/fake-integration-proxy && python3 -m unittest discover -s test
+	@echo "=== [Offline 4/5] KPAI Probe & Contract Tests (76 tests) ==="
 	bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts
-	@echo "=== Stage 6/10: Static Config, Manifests & Guards ==="
+	@echo "=== [Offline 5/5] Static Config, Manifests, Registries & Guards ==="
+	bats test/acceptance-spec-coverage.bats
+	bats d2-signalloom/test/bats-registry-coverage.bats
 	$(MAKE) demo-signalloom-test-config
 	$(MAKE) demo-kagent-test-config
 	$(MAKE) demo-cpai-test-config
@@ -529,24 +527,35 @@ test-all: ## Run every single test across all slices and verification stages in 
 	$(MAKE) test-signalfusion-bats
 	$(MAKE) test-tetragon-bats
 	$(MAKE) test-tetragon-stream
-	@echo "=== Stage 7/10: API Contract & Integration Tests ==="
+	bats d2-signalloom/test/olly-secret-argv.bats
 	./scripts/signalloom-api-test.sh contract
 	./scripts/signalloom-api-test.sh integration
-	@echo "=== Stage 8/10: Live Cluster Slices & Runtime Tests ==="
+	bats test/test-count-floor.bats
+	@echo "=== [Offline] All offline test suites passed successfully! ==="
+
+test-all-cluster: ## Run all live Kind cluster tests across all slices.
+	@echo "=== [Cluster] Live Kind Cluster Slices & Runtime Tests ==="
 	$(MAKE) test
 	$(MAKE) demo-signalloom-runtime-test
+	bats d2-k8s-afm/test/afm-smoke.bats
+	$(MAKE) demo-cpai-test
+	$(MAKE) demo-cpai-conversation
 	$(MAKE) demo-agent-trust-test
 	$(MAKE) demo-agent-trust-network-test
 	$(MAKE) demo-bao-test
-	$(MAKE) demo-cpai-test
-	$(MAKE) demo-cpai-conversation
 	$(MAKE) demo-kagent-test
-	@echo "=== Stage 9/10: Test Count Floor Circuit Breakers ==="
-	bats test/test-count-floor.bats
-	@echo "=== Stage 10/10: Browser Acceptance Tests ==="
-	ADOPT_GATEWAY_FORWARD=1 PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh smoke.spec.ts docs.spec.ts live-data.spec.ts kagent-agents.spec.ts signalloom-login.spec.ts cloudaudit-dashboard.spec.ts distance-latency.spec.ts agent-drilldown-and-selectors.spec.ts signal-loom-baoaudit.spec.ts signal-loom-netebpf.spec.ts who-authorized.spec.ts agent-activity-timeline.spec.ts
-	PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh signalloom-test-1.spec.ts supercred-log-streaming-harness.spec.ts
-	@echo "=== COMPLETE: All 10 verification stages passed successfully! ==="
+	$(MAKE) demo-olly-test
+	$(MAKE) test-tetragon-stream
+	@echo "=== [Cluster] All cluster test suites passed successfully! ==="
+
+test-all-browser: ## Run all Playwright browser acceptance tests across all slices.
+	@echo "=== [Browser 1/3] Standalone Harness Browser Specs ==="
+	PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh supercred-log-streaming-harness.spec.ts
+	@echo "=== [Browser 2/3] Core & Feature Browser Specs ==="
+	ADOPT_GATEWAY_FORWARD=1 PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh smoke.spec.ts docs.spec.ts live-data.spec.ts kagent-agents.spec.ts signalloom-login.spec.ts cloudaudit-dashboard.spec.ts distance-latency.spec.ts agent-drilldown-and-selectors.spec.ts signal-loom-baoaudit.spec.ts signal-loom-netebpf.spec.ts who-authorized.spec.ts agent-activity-timeline.spec.ts signalloom-test-1.spec.ts
+	@echo "=== [Browser 3/3] AFM Browser Specs ==="
+	ADOPT_GATEWAY_FORWARD=1 PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright ./scripts/acceptance-test.sh afm-frontend.spec.ts afm-integration.spec.ts rbac-analysis.spec.ts rbac-explorer.spec.ts
+	@echo "=== [Browser] All browser acceptance tests passed successfully! ==="
 
 # ─── Signal Fusion / Weave unit tests ───────────────────────────────────────
 # All targets below run offline — no cluster, no network, no API key.

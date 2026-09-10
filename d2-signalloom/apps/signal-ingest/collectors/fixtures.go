@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/baoaudit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/gcpaudit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
@@ -34,6 +35,7 @@ func SeedAll(baseTime time.Time) []model.Observation {
 	obs = append(obs, SPIREIssuanceFixtures(baseTime)...)
 	obs = append(obs, KAgentFixtures(baseTime)...)
 	obs = append(obs, WorkspaceSaaSFixtures(baseTime)...)
+	obs = append(obs, AgentNonoFixtures(baseTime)...)
 	return obs
 }
 
@@ -1407,5 +1409,7 @@ func AdversarialAllFixtures(baseTime time.Time) []model.Observation {
 	all = append(all, AdversarialShadowAgentFixtures(baseTime)...)
 	return all
 }
-
-
+// AgentNonoFixtures generates Landlock-confined, SPIFFE-signed audit session observations.
+func AgentNonoFixtures(baseTime time.Time) []model.Observation {
+	return agentnono.AgentNonoFixtures(baseTime)
+}

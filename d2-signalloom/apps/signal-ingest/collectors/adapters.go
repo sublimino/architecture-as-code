@@ -12,6 +12,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/netebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/spirea"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/workspacesaas"
 )
 
@@ -503,4 +504,68 @@ func (c *WorkspaceSaaSCollector) Stop() {
 		c.col.Stop()
 	}
 }
+// AgentNonoCollector adapts the agentnono package to the Collector interface.
+type AgentNonoCollector struct {
+	mode     Mode
+	sink     IngestionSink
+	col      *agentnono.Collector
+	healthFn func(ctx context.Context) error
+	startFn  func(ctx context.Context) error
+}
 
+// NewAgentNonoCollector creates an AgentNonoCollector.
+func NewAgentNonoCollector(mode Mode, sink IngestionSink) *AgentNonoCollector {
+	return &AgentNonoCollector{mode: mode, sink: sink}
+}
+
+func (c *AgentNonoCollector) Name() string { return "agentnono" }
+func (c *AgentNonoCollector) Mode() Mode   { return c.mode }
+
+func (c *AgentNonoCollector) SetHealthFunc(fn func(ctx context.Context) error) { c.healthFn = fn }
+func (c *AgentNonoCollector) SetStartFunc(fn func(ctx context.Context) error)  { c.startFn = fn }
+func (c *AgentNonoCollector) RawCollector() *agentnono.Collector               { return c.col }
+
+func (c *AgentNonoCollector) Start(ctx context.Context) error {
+	if c.startFn != nil {
+		return c.startFn(ctx)
+	}
+	switch c.mode {
+	case ModeOff:
+		return nil
+	case ModeFixture:
+		if c.sink != nil {
+			for _, obs := range agentnono.AgentNonoFixtures(time.Now().UTC()) {
+				o := obs
+				if err := c.sink.IngestObservation(ctx, &o); err != nil {
+					return fmt.Errorf("agentnono fixture ingestion failed: %w", err)
+				}
+			}
+		}
+		return nil
+	case ModeLive:
+		if c.col == nil {
+			filePath := resolveEnvPath("COLLECTOR_AGENTNONO_FILE_PATH", "AGENTNONO_FILE_PATH", "AGENTNONO_SESSION_LOG")
+			c.col = agentnono.NewCollector(string(c.mode), c.sink, agentnono.CollectorConfig{
+				FilePath: filePath,
+			})
+		}
+		return c.col.Start(ctx)
+	}
+	return nil
+}
+
+func (c *AgentNonoCollector) Health(ctx context.Context) error {
+	if c.healthFn != nil {
+		return c.healthFn(ctx)
+	}
+	if c.col != nil {
+		return c.col.Health(ctx)
+	}
+	return nil
+}
+
+func (c *AgentNonoCollector) Stop() {
+	if c.col != nil {
+		c.col.Stop()
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/baoaudit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/gcpaudit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/kagent"
@@ -50,6 +51,7 @@ var CollectorTwinVerifiers = map[string]CollectorTwinVerifier{
 	"kagent":         verifyKAgentTwins,
 	"workspacesaas":  verifyWorkspaceSaaSTwins,
 	"fixtures":       verifyFixturesTwins,
+	"agentnono":       verifyAgentNonoTwins,
 }
 
 // RegistryCoverageReport holds the aggregate verification result across all registered collectors.
@@ -908,6 +910,140 @@ func TestCollectorFalsification_Fixtures(t *testing.T) {
 	}
 	if !exec.DistinctnessPassed {
 		t.Errorf("Fixtures distinctness test failed: %v", exec.ExecutionLog)
+	}
+}
+
+
+// --- AgentNono Verifier ---
+func verifyAgentNonoTwins(ctx context.Context) (*TwinSuiteExecution, error) {
+	exec := &TwinSuiteExecution{
+		CollectorName: "agentnono",
+		TotalCases:    3,
+	}
+	baseTime := time.Now().UTC()
+	kp, err := agentnono.GenerateTestKeypair("spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced")
+	if err != nil {
+		return nil, fmt.Errorf("generate keypair: %w", err)
+	}
+
+	// 1. Accept Twin: valid signed session events
+	exec.AcceptTwinRun = true
+	sinkAccept := &trackingSink{}
+	colAccept := agentnono.NewCollector("live", sinkAccept, agentnono.CollectorConfig{
+		TrustDomain:    agentnono.DefaultTrustDomain,
+		TrustBundlePEM: []byte(kp.CACertPEM),
+	})
+	if err := colAccept.Start(ctx); err != nil {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("AcceptTwin Start error: %v", err))
+		return exec, nil
+	}
+	signedEvents, err := agentnono.GenerateSignedSession(kp, "sess-accept-001", 2, baseTime)
+	if err != nil {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("GenerateSignedSession error: %v", err))
+		colAccept.Stop()
+		return exec, nil
+	}
+	for _, ev := range signedEvents {
+		_ = colAccept.IngestEvent(ctx, ev)
+	}
+	time.Sleep(150 * time.Millisecond)
+	colAccept.Stop()
+
+	if sinkAccept.Count() != 2 {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("AcceptTwin expected 2 observations, got %d", sinkAccept.Count()))
+		return exec, nil
+	}
+	obs := sinkAccept.Observations()[0]
+	if obs.Layer != model.LayerEndpointHost || obs.Source != "agent-nono-evidenced" || obs.Labels["verification_status"] != string(agentnono.StatusVerified) {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("AcceptTwin invalid observation: %+v", obs))
+		return exec, nil
+	}
+	exec.AcceptTwinPassed = true
+
+	// 2. Reject / Tampered Twin: tampered payload rejected / marked TAMPERED
+	exec.RejectTwinRun = true
+	sinkReject := &trackingSink{}
+	colReject := agentnono.NewCollector("live", sinkReject, agentnono.CollectorConfig{
+		TrustDomain:    agentnono.DefaultTrustDomain,
+		TrustBundlePEM: []byte(kp.CACertPEM),
+	})
+	if err := colReject.Start(ctx); err != nil {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("RejectTwin Start error: %v", err))
+		return exec, nil
+	}
+	tamperedEvents, err := agentnono.GenerateTamperedSession(kp, "sess-tamper-001", baseTime)
+	if err != nil {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("GenerateTamperedSession error: %v", err))
+		colReject.Stop()
+		return exec, nil
+	}
+	for _, ev := range tamperedEvents {
+		_ = colReject.IngestEvent(ctx, ev)
+	}
+	time.Sleep(150 * time.Millisecond)
+	colReject.Stop()
+
+	hasTampered := false
+	for _, o := range sinkReject.Observations() {
+		if o.Labels["verification_status"] == string(agentnono.StatusTampered) {
+			hasTampered = true
+			break
+		}
+	}
+	if !hasTampered {
+		exec.ExecutionLog = append(exec.ExecutionLog, "RejectTwin failed: tampered event was not flagged as TAMPERED")
+		return exec, nil
+	}
+	exec.RejectTwinPassed = true
+
+	// 3. Mock-vs-Live Distinctness
+	exec.DistinctnessRun = true
+	sinkFixture := &trackingSink{}
+	colFixture := NewAgentNonoCollector(ModeFixture, sinkFixture)
+	if err := colFixture.Start(ctx); err != nil {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("Fixture start failed: %v", err))
+		return exec, nil
+	}
+	time.Sleep(150 * time.Millisecond)
+	colFixture.Stop()
+
+	sinkLive := &trackingSink{}
+	colLive := NewAgentNonoCollector(ModeLive, sinkLive)
+	if err := colLive.Start(ctx); err != nil {
+		exec.ExecutionLog = append(exec.ExecutionLog, fmt.Sprintf("Live start failed: %v", err))
+		return exec, nil
+	}
+	if sinkLive.Count() != 0 {
+		exec.ExecutionLog = append(exec.ExecutionLog, "Live mode immediately had observations")
+		colLive.Stop()
+		return exec, nil
+	}
+	_ = colLive.RawCollector().IngestEvent(ctx, signedEvents[0])
+	time.Sleep(150 * time.Millisecond)
+	colLive.Stop()
+
+	if sinkFixture.Count() == 0 || sinkLive.Count() == 0 {
+		exec.ExecutionLog = append(exec.ExecutionLog, "Distinctness failed: missing observations")
+		return exec, nil
+	}
+	exec.DistinctnessPassed = true
+
+	return exec, nil
+}
+
+func TestCollectorFalsification_AgentNono(t *testing.T) {
+	exec, err := verifyAgentNonoTwins(context.Background())
+	if err != nil {
+		t.Fatalf("AgentNono twin suite execution error: %v", err)
+	}
+	if !exec.AcceptTwinPassed {
+		t.Errorf("AgentNono accept twin failed: %v", exec.ExecutionLog)
+	}
+	if !exec.RejectTwinPassed {
+		t.Errorf("AgentNono reject/under-report twin failed: %v", exec.ExecutionLog)
+	}
+	if !exec.DistinctnessPassed {
+		t.Errorf("AgentNono distinctness test failed: %v", exec.ExecutionLog)
 	}
 }
 

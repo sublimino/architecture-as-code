@@ -90,6 +90,7 @@ SOURCE_ID_MARKER_PATH="${SOURCE_ID_MARKER_PATH:-/etc/osramp-build-id}"
 source_id_context() {
 	case "$1" in
 	dashboard-signalloom) printf 'd2-signalloom/apps/dashboard-signalloom' ;;
+	docs-signalloom) printf 'd2-signalloom/apps/docs-signalloom' ;;
 	fe-signalloom) printf 'd2-signalloom/apps/fe-signalloom' ;;
 	supercred-demo-runner) printf '.' ;;
 	*) return 1 ;;
@@ -100,6 +101,7 @@ source_id_context() {
 source_id_dockerfile() {
 	case "$1" in
 	dashboard-signalloom) printf 'd2-signalloom/apps/dashboard-signalloom/Dockerfile' ;;
+	docs-signalloom) printf 'd2-signalloom/apps/docs-signalloom/Dockerfile' ;;
 	fe-signalloom) printf 'd2-signalloom/apps/fe-signalloom/Dockerfile' ;;
 	supercred-demo-runner) printf 'd2-signalloom/apps/supercred-demo-runner/Dockerfile' ;;
 	*) return 1 ;;
@@ -107,7 +109,7 @@ source_id_dockerfile() {
 }
 
 source_id_workloads() {
-	printf 'dashboard-signalloom\nfe-signalloom\nsupercred-demo-runner\n'
+	printf 'dashboard-signalloom\ndocs-signalloom\nfe-signalloom\nsupercred-demo-runner\n'
 }
 
 # Every context-relative path a Dockerfile COPYs in, plus the Dockerfile itself.
@@ -197,6 +199,23 @@ source_id_for() {
 			--exclude='./node_modules' \
 			--exclude='./dist' \
 			--exclude='./coverage' \
+			-cf - -C "${root}/${context}" . | sha256sum | awk '{print $1}')"
+		;;
+	docs-signalloom)
+		# Hash the complete docs build context. The excludes mirror its
+		# .dockerignore so generated output cannot create false runtime drift.
+		id="$(tar \
+			--sort=name \
+			--mtime='UTC 1970-01-01' \
+			--owner=0 \
+			--group=0 \
+			--numeric-owner \
+			--exclude-vcs \
+			--exclude='./node_modules' \
+			--exclude='./dist' \
+			--exclude='./.astro' \
+			--exclude='./test-results' \
+			--exclude='./playwright-report' \
 			-cf - -C "${root}/${context}" . | sha256sum | awk '{print $1}')"
 		;;
 	fe-signalloom)

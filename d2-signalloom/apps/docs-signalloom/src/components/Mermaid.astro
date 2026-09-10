@@ -1,0 +1,20 @@
+---
+interface Props {
+  diagram: string;
+  label: string;
+}
+
+const { diagram, label } = Astro.props;
+---
+
+<pre class="mermaid" role="img" aria-label={label}>{diagram}</pre>
+
+<script>
+  import mermaid from "mermaid";
+
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "strict",
+    theme: "neutral"
+  });
+</script>

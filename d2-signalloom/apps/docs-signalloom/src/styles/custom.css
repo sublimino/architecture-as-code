@@ -1,0 +1,28 @@
+:root,
+[data-theme="dark"] {
+  --sl-color-accent-low: #2c1b06;
+  --sl-color-accent: #fbb15b;
+  --sl-color-accent-high: #fedec2;
+  --sl-color-bg: #0f1117;
+  --sl-color-bg-nav: #13161c;
+  --sl-color-bg-sidebar: #13161c;
+}
+
+[data-theme="light"] {
+  --sl-color-accent-low: #fef3c7;
+  --sl-color-accent: #b45309;
+  --sl-color-accent-high: #78350f;
+}
+
+.sl-markdown-content code {
+  overflow-wrap: anywhere;
+}
+
+.mermaid {
+  margin-block: 1.5rem;
+  overflow-x: auto;
+  padding: 1rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.5rem;
+  background: var(--sl-color-bg-nav);
+}

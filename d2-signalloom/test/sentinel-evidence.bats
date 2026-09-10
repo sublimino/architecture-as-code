@@ -102,7 +102,7 @@ cluster_up() {
   [ -x "$SENTINEL_BIN" ] || bash -c "cd '${SENTINEL_DIR}' && go build -o '${SENTINEL_BIN}' ."
 
   local log_file="${BATS_TEST_TMPDIR}/sentinel-health-8081.log"
-  local health_port=18083
+  local health_port=18183
   "${SENTINEL_BIN}" --dry-run --health-addr="127.0.0.1:${health_port}" > "$log_file" 2>&1 &
   SENTINEL_PID=$!
 
@@ -143,7 +143,7 @@ cluster_up() {
 @test "sentinel: /readyz and /health aliases return HTTP 200 OK" {
   [ -x "$SENTINEL_BIN" ] || bash -c "cd '${SENTINEL_DIR}' && go build -o '${SENTINEL_BIN}' ."
 
-  local health_port=18084
+  local health_port=18184
   "${SENTINEL_BIN}" --dry-run --health-addr="127.0.0.1:${health_port}" > /dev/null 2>&1 &
   SENTINEL_PID=$!
 
@@ -167,7 +167,7 @@ cluster_up() {
 @test "sentinel: health endpoint rejects POST requests with 405 Method Not Allowed" {
   [ -x "$SENTINEL_BIN" ] || bash -c "cd '${SENTINEL_DIR}' && go build -o '${SENTINEL_BIN}' ."
 
-  local health_port=18085
+  local health_port=18185
   "${SENTINEL_BIN}" --dry-run --health-addr="127.0.0.1:${health_port}" > /dev/null 2>&1 &
   SENTINEL_PID=$!
 
@@ -191,7 +191,7 @@ cluster_up() {
   [ -x "$SENTINEL_BIN" ] || bash -c "cd '${SENTINEL_DIR}' && go build -o '${SENTINEL_BIN}' ."
 
   local log_file="${BATS_TEST_TMPDIR}/sentinel-audit.log"
-  local health_port=18086
+  local health_port=18186
   "${SENTINEL_BIN}" --dry-run --health-addr="127.0.0.1:${health_port}" > "$log_file" 2>&1 &
   SENTINEL_PID=$!
 

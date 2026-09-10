@@ -118,6 +118,8 @@ These documents record engineering decisions and investigations. They do not con
 | Signal Loom Phase 2 preflight verification proof | [`signalloom/slon-p2-preflight-proof.md`](signalloom/slon-p2-preflight-proof.md) |
 | Signal Loom Phase 2-1 dual agent deployment evidence | [`signalloom/slon-p2-1-evidence.md`](signalloom/slon-p2-1-evidence.md) |
 | Signal Loom Phase 2-1 technical design & workload architecture | [`signalloom/slon-p2-1-technical-design.md`](signalloom/slon-p2-1-technical-design.md) |
+| Signal Loom Phase 2-2 dynamic Nono capability & signed audit evidence | [`signalloom/slon-p2-2-evidence.md`](signalloom/slon-p2-2-evidence.md) |
+| Signal Loom Phase 2-2 technical design & signed audit architecture | [`signalloom/slon-p2-2-technical-design.md`](signalloom/slon-p2-2-technical-design.md) |
 | Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |

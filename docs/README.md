@@ -128,6 +128,7 @@ These documents record engineering decisions and investigations. They do not con
 | Signal Loom Phase 3 docs portal provenance & gap analysis | [`signalloom/slon-p3-docs-portal-provenance.md`](signalloom/slon-p3-docs-portal-provenance.md) |
 | Signal Loom Phase 3 specification tightening | [`signalloom/slon-p3-spec-tightening.md`](signalloom/slon-p3-spec-tightening.md) |
 | Signal Loom Phase 3 preflight verification record | [`signalloom/slon-p3-preflight-verification-record.md`](signalloom/slon-p3-preflight-verification-record.md) |
+| Signal Loom Phase 3-1 documentation portal evidence | [`signalloom/slon-p3-1-evidence.md`](signalloom/slon-p3-1-evidence.md) |
 | Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |

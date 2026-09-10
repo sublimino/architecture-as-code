@@ -250,6 +250,30 @@ export default defineConfig({
         video: "off",
       },
     },
+    {
+      // The static documentation portal. Its own project because it is the one
+      // suite here that must NOT touch the cluster.
+      //
+      // It carries no `dependencies: ["setup"]` and no storageState on purpose:
+      // /docs is unauthenticated static HTML, so a Dex auth dependency would
+      // make a docs render failure indistinguishable from an auth failure, and
+      // would couple an offline check to a live OIDC provider.
+      //
+      // It also does not use the gateway. docs/signalloom/
+      // slon-p3-docs-portal-provenance.md §4 records that every Flux source in
+      // the demo cluster is an OCIRepository with no git revision, and that the
+      // running docs image was published from a different branch — so a probe
+      // of https://dashboard.osramp.acme.local/docs is evidence about the
+      // deployed artifact, never about the checked-out tree. docs.spec.ts
+      // therefore drives a locally served build via DOCS_BASE_URL.
+      name: "docs",
+      testMatch: /docs\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
   ],
   // The junit reporter is added only when CI asks for it by setting
   // PLAYWRIGHT_JUNIT_OUTPUT_FILE, so local runs keep the list + html output

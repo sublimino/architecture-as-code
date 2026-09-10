@@ -1,0 +1,188 @@
+---
+title: Nono optionality and Landlock confinement
+description: Understand the pre-execution Nono probe, the confined path, the unconfined fallback, and how to force each one.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Find out whether your agent workload is running confined, and prove it either
+way. Nono is an **optional** capability in Signal Loom. A workload instrumented
+for Nono probes for the capability before it executes, then takes one of two
+paths. Neither path is a failure. This guide shows you how to read which path
+was taken, and how to force the other one for a demonstration.
+
+## The design decision
+
+An instrumented workload must never crash, and must never block pod scheduling,
+because the confinement capability is absent from its substrate. Kernel
+Landlock support, and the `nono` binary itself, vary across nodes, images, and
+managed Kubernetes offerings. A hard dependency would make the agent fleet
+undeployable on the majority of them.
+
+So Signal Loom treats the absence of confinement as a **fact to record**, not an
+error to raise. The workload logs a structured warning, states plainly that it
+is running unconfined, and carries on.
+
+## The probe
+
+The probe runs once, before the workload executes. It makes two checks.
+
+1. **Binary availability.** The probe runs `command -v nono`. If that fails, it
+   falls back to an explicitly configured `NONO_BIN` path if one is executable.
+2. **Landlock LSM support.** The probe reads `/sys/kernel/security/lsm` and
+   looks for `landlock`. If that file is not readable, it asks the `nono` binary
+   itself. If that is inconclusive, it checks the kernel release for 5.13 or
+   later with unprivileged user namespaces enabled.
+
+Both checks must succeed. If either fails, the probe returns the fallback
+verdict.
+
+<Mermaid
+  label="Nono capability probe and fallback decision"
+  diagram={`flowchart TD
+    A[Workload starts] --> B{NONO_FORCE_FALLBACK set?}
+    B -- yes --> F[Fallback verdict]
+    B -- no --> C{nono binary on PATH or NONO_BIN executable?}
+    C -- no --> F
+    C -- yes --> D{Landlock LSM available?}
+    D -- no --> F
+    D -- yes --> E[Detected verdict]
+    E --> G[exec nono run --audit-out]
+    G --> H[Hash-chained audit session]
+    H --> I[SPIFFE detached signature]
+    I --> J[POST to backend audit ingest]
+    F --> K[Structured warning telemetry]
+    K --> L[Execute unconfined]
+    L --> M[Heartbeats continue, pod stays scheduled]`}
+/>
+
+## Read the verdict
+
+The probe always prints one structured JSON line. Read it from the pod log.
+
+```bash
+kubectl -n fe-signalloom-agents logs deploy/agent-nono-evidenced | grep nono_probe
+```
+
+When the capability is present, the line reports:
+
+```json
+{"event":"nono_probe","status":"detected","nono_capability_available":true,"sandboxing":"landlock","evidence_signing":"spiffe","landlock_abi_version":1}
+```
+
+When the capability is absent, the line reports:
+
+```json
+{"event":"nono_probe","status":"fallback","nono_capability_available":false,"warning":"Nono binary or Landlock LSM not available on container substrate; executing unconfined without crashing or blocking pod scheduling","fallback":"unconfined"}
+```
+
+The `nono_capability_available` field is the one to key on. It is a boolean, it
+is always present, and it also appears on every subsequent heartbeat record, so
+you can read the posture from telemetry long after the pod started.
+
+## The confined path
+
+When the probe returns `detected`, the workload replaces itself with:
+
+```text
+nono run --audit-out /var/log/nono/session.log <command>
+```
+
+Confinement is Linux Landlock: the kernel restricts the filesystem paths the
+process may reach, enforced by the LSM rather than by the application.
+
+The audit session is **hash-chained**. Each record embeds the hash of its
+predecessor, so editing any earlier record breaks every later link. A root hash
+is computed over the chain and signed as a **detached** signature using the
+workload's SPIFFE SVID key, obtained from the SPIFFE Workload API socket at
+`/run/spire/sockets/agent.sock`.
+
+The signed session is posted to the backend audit ingest endpoint. The backend
+verifies the chain and the signature before it persists anything, and rejects a
+broken chain or a forged signature with **HTTP 400**.
+
+## The unconfined fallback
+
+When the probe returns `fallback`, the workload:
+
+1. Logs the structured warning shown above.
+2. Executes the same command with no confinement wrapper.
+3. Continues its heartbeat loop with `nono_capability_available` set to `false`.
+
+The pod stays `1/1 Running`. Nothing crashes, nothing is rescheduled, and the
+agent remains claimable and visible in the inventory exactly as before. What
+changes is the *evidence*: there is no Landlock enforcement and no hash-chained
+audit session, so the only runtime record is what eBPF flow tracing observes.
+
+:::caution
+An unconfined fallback is a real reduction in assurance, not a cosmetic one. Do
+not present a fallback run as evidence of kernel-enforced confinement. Read the
+probe verdict before you make a claim about the workload's posture.
+:::
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NONO_FORCE_FALLBACK` | `0` | Set to `1` or `true` to force the fallback path regardless of what is installed. |
+| `NONO_BIN` | unset | Absolute path to a `nono` binary that is not on `PATH`. |
+| `NONO_AUDIT_OUT` | `/var/log/nono/session.log` | Where the confined path writes the audit session. |
+| `SPIFFE_SOCKET` | `/run/spire/sockets/agent.sock` | SPIFFE Workload API socket used for detached signing. |
+| `SPIFFE_ID` | `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced` | Expected workload identity. |
+| `BACKEND_AUDIT_URL` | the in-cluster `fe-signalloom` audit sessions endpoint | Where signed sessions are posted. |
+| `HEARTBEAT_INTERVAL` | `10` | Seconds between heartbeat records. |
+
+`NONO_FORCE_FALLBACK` exists so the fallback path can be demonstrated and tested
+on a node where the capability *is* available. It is the supported way to show
+both postures on one cluster.
+
+## Demonstrate both paths
+
+Run the probe directly to see the verdict without changing any workload.
+
+1. Check the verdict on the current substrate:
+
+```bash
+d2-signalloom/apps/fe-signalloom-agents/probe-nono-capability.sh --dry-run
+```
+
+2. Check the forced fallback verdict:
+
+```bash
+NONO_FORCE_FALLBACK=1 \
+  d2-signalloom/apps/fe-signalloom-agents/probe-nono-capability.sh --dry-run
+```
+
+3. Compare the two JSON lines. Only `status`, `nono_capability_available`, and
+   the presence of the warning differ.
+
+The automated equivalent is the offline suite:
+
+```bash
+bats test/signalloom/nono-optionality-fallback.bats
+```
+
+It asserts the detected path, the forced-fallback path, unconfined execution
+without a crash, and the backend's rejection of tampered chains and forged
+signatures.
+
+## Troubleshoot the probe
+
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| The verdict is `fallback` and you expected `detected`. | The `nono` binary is absent from the container image. | Check with `kubectl -n fe-signalloom-agents exec deploy/agent-nono-evidenced -- command -v nono`. |
+| The verdict is `fallback` and the binary is present. | The kernel does not expose Landlock, or the LSM file is unreadable in the container. | Read `/sys/kernel/security/lsm` on the node and check that it lists `landlock`. |
+| The verdict is `fallback` on every workload. | `NONO_FORCE_FALLBACK` is set in the environment. | Check the deployment environment and the ConfigMap for that variable. |
+| No `nono_probe` line appears in the log. | The pod restarted and the log was rotated past the start-up line. | Read the heartbeat records instead; each carries `nono_capability_available`. |
+| The audit ingest returns HTTP 400. | The hash chain is broken or the signature does not verify. | This is the intended rejection. Check that the session was not edited after signing. |
+| The SPIFFE socket warning appears at start-up. | The SPIRE agent is not running, or the socket is not mounted. | Check the SPIRE agent on the node and the pod's `spiffe-workload-api` volume mount. |
+| The pod crashloops after enabling Nono. | The confined workload needs a filesystem path Landlock denies. | Read the audit session for the denied path. Confinement is enforced by the kernel; the workload cannot negotiate it. |
+
+## Where to go next
+
+- [Claim the two demonstration agents](/docs/agents/dual-agent-onboarding/) to
+  see both postures side by side in the dashboard.
+- [Run the demonstration](/docs/operations/demo-walkthrough/) for the scripted
+  partner walk-through.
+- [Current limits and roadmap](/docs/reference/roadmap/) separates verified
+  behaviour from planned behaviour.

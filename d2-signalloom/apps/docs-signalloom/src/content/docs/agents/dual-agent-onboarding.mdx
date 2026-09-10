@@ -1,0 +1,175 @@
+---
+title: Claim the two demonstration agents
+description: Claim agent-nono-evidenced and agent-standard-baseline, then read the comparative telemetry that separates them.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Claim both demonstration agents and compare them. Signal Loom deploys two demo
+workloads that differ in exactly one respect: one is instrumented for optional
+Nono confinement and signed audit evidence, the other is a plain container. Both
+carry a SPIFFE identity, both report heartbeats, and both appear in the same
+inventory. Claiming both, side by side, is the fastest way to see what
+confinement evidence adds.
+
+## The two agents
+
+| Property | `agent-nono-evidenced` | `agent-standard-baseline` |
+| --- | --- | --- |
+| Display name | Demo Agent (Nono Evidenced) | Demo Agent (Standard Baseline) |
+| Namespace | `fe-signalloom-agents` | `fe-signalloom-agents` |
+| Label `signalloom.io/workload-profile` | `nono-evidenced` | `standard-baseline` |
+| Label `signalloom.ai/framework` | `custom` | `custom` |
+| Label `signalloom.ai/model` | `claude-sonnet-4` | `gpt-4o-mini` |
+| SPIFFE ID | `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced` | `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-standard-baseline` |
+| Confinement | Optional Landlock, probed at start | None |
+| Evidence | Hash-chained audit session, SPIFFE detached signing | Runtime telemetry only |
+
+The `signalloom.io/workload-profile` label is what the dashboard reads to decide
+which security profile badge to show on the agent row.
+
+:::note
+`agent-nono-evidenced` is *instrumented* for Nono. It is not guaranteed to be
+*running under* Nono. The workload probes for the capability at start and falls
+back cleanly when the capability is absent. Read
+[Nono optionality](/docs/security/nono-optionality/) to find out which of the two
+happened on your cluster.
+:::
+
+## Before you start
+
+You need:
+
+- A completed [first-user onboarding](/docs/onboarding/user-journey/).
+- Both demo agents running. Check with:
+
+```bash
+kubectl -n fe-signalloom-agents get pods -l signalloom.ai/agent=true
+```
+
+Each of `agent-nono-evidenced` and `agent-standard-baseline` reports `1/1
+Running`.
+
+## What claiming does
+
+A claim binds a discovered workload to your tenant. Until a workload is claimed,
+it is visible inventory. After it is claimed, it belongs to one tenant, and no
+other tenant can claim it.
+
+<Mermaid
+  label="Dual-agent discovery and claim sequence"
+  diagram={`sequenceDiagram
+    actor Operator
+    participant UI as Dashboard
+    participant API as Signal Loom API
+    participant DB as PostgreSQL
+    participant Agent as Demo agent pod
+    Agent->>API: Heartbeat with SPIFFE identity
+    API->>DB: Record discovered workload
+    Operator->>UI: Open Agents page
+    UI->>API: GET /api/v1/agents
+    API-->>UI: Inventory including both demo agents
+    Operator->>UI: Select Claim on agent-nono-evidenced
+    UI->>API: POST /api/v1/agents/{agentId}/claim
+    API->>DB: Check cross-tenant conflict
+    DB-->>API: No conflicting granted claim
+    API->>DB: INSERT into public.agent_claims
+    API-->>UI: Claim granted
+    Operator->>UI: Repeat for agent-standard-baseline
+    Operator->>UI: Open Activity tab
+    UI->>API: GET /api/v1/agents/{agentId}/telemetry
+    API-->>UI: Comparative telemetry`}
+/>
+
+## Claim the Nono-evidenced agent
+
+1. Open the **Agents** page.
+2. Find the row for `agent-nono-evidenced`.
+3. Check that the row shows the **Nono Sandboxed** security profile badge.
+4. Select **Claim** on that row.
+5. Check the claim dialogue.
+
+The dialogue auto-populates the SPIFFE ID, the harness and framework, the model
+parameters, and the token budget limit from the workload's own labels and
+annotations. Change the token budget if you want a different limit.
+
+6. Confirm the claim.
+7. Check that the row reports the agent as claimed by your tenant.
+
+## Claim the baseline agent
+
+1. Find the row for `agent-standard-baseline`.
+2. Check that the row shows the **Standard Container** security profile badge.
+3. Select **Claim** on that row.
+4. Confirm the claim.
+5. Check that the row reports the agent as claimed by your tenant.
+
+You can also claim from the agent detail page. Open the agent, then use the
+claim control in the header dossier.
+
+## Read the comparative telemetry
+
+1. Open either claimed agent.
+2. Select the **Activity** tab.
+3. Read the comparative telemetry banner at the top of the tab.
+
+The banner contrasts two different kinds of evidence:
+
+- **Landlock LSM confinement with a SHA-256 hash-chained audit verifier.** This
+  is what `agent-nono-evidenced` contributes when the Nono capability is
+  present. The hash chain makes the audit session tamper-evident: altering an
+  earlier record breaks every later link.
+- **Linux kernel eBPF flow tracepoints.** This is what Tetragon observes for
+  every workload, confined or not, including `agent-standard-baseline`.
+
+The distinction is the point of the demonstration. eBPF tracepoints tell you what
+a workload *did*. The hash-chained audit session tells you what a workload
+*could* do and proves the record has not been edited since.
+
+## The claim API
+
+The dashboard drives these endpoints. Use them directly when you script a
+demonstration.
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/api/v1/agents/{agent_id}/claim` | `POST` | Claim a specific discovered workload. |
+| `/api/v1/agents/claim` | `POST` | Claim by pod name when you do not have the agent identifier. |
+| `/api/v1/agents/claims` | `GET` | List the claims held by your tenant. |
+| `/api/v1/agents/claim/{claim_id}` | `GET` | Read one claim record. |
+| `/api/v1/agents/claim/{claim_id}` | `DELETE` | Release a claim. |
+| `/api/v1/agents/{agent_id}/telemetry` | `GET` | Read the agent's telemetry for the Activity tab. |
+
+Claims persist in `public.agent_claims` in PostgreSQL. They survive a pod
+restart.
+
+## Tenant isolation
+
+A workload can be claimed by one tenant at a time. If a workload already carries
+a granted, unreleased claim held by a different tenant, the API refuses the new
+claim with **HTTP 409** and the error code `claim_conflict`. The message names
+the tenant that holds the existing claim.
+
+Release the existing claim before you re-claim a workload for a different
+tenant. Use `DELETE /api/v1/agents/claim/{claim_id}`.
+
+## Troubleshoot claiming
+
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| Neither demo agent appears in the inventory. | The agent pods are not running, or their discovery labels are absent. | Run `kubectl -n fe-signalloom-agents get pods -l signalloom.ai/agent=true` and check both pods report `1/1 Running`. |
+| Only one demo agent appears. | One of the two Kustomizations did not reconcile. | Check both deployments exist in `fe-signalloom-agents`. |
+| The claim returns HTTP 409. | Another tenant holds a granted claim on that workload. | Read the tenant named in the error. Release the existing claim with `DELETE /api/v1/agents/claim/{claim_id}`, then claim again. |
+| The claim returns HTTP 401. | The session token expired. | Sign in again and repeat the claim. |
+| The security profile badge is missing. | The pod is missing its `signalloom.io/workload-profile` label. | Check the label with `kubectl -n fe-signalloom-agents get pod <name> --show-labels`. |
+| The Activity tab shows no comparative banner. | The agent is not claimed, so no telemetry is scoped to your tenant. | Claim the agent first, then reopen the Activity tab. |
+| The claim disappears after a restart. | The claim did not reach PostgreSQL. | Check that the `postgresql` pod in `inf-signalloom` reports `1/1 Running`, then re-claim. |
+
+## Where to go next
+
+- [Nono optionality and Landlock confinement](/docs/security/nono-optionality/)
+  explains which of the two evidence paths your cluster actually took.
+- [Run the demonstration](/docs/operations/demo-walkthrough/) drives this whole
+  flow in under ninety seconds.
+- [Stun or unstun an agent](/docs/operate/stun-agent/) shows the containment
+  control you consented to during onboarding.

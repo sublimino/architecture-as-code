@@ -502,5 +502,69 @@ describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => 
     expect(screen.getByTestId('activity-total-events')).toHaveTextContent('2')
     expect(screen.getByTestId('activity-card-total-events')).toHaveTextContent('2 telemetry')
   })
+
+  it('renders comparative telemetry banner with Nono cryptographic audit trails for nono-sandboxed agent', () => {
+    const nonoAgent = createMockAgent({
+      id: 'agent-nono-evidenced',
+      name: 'agent-nono-evidenced',
+      runtime: {
+        cluster_id: 'osramp',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'agent-nono-evidenced-fccfbb-xp8v7',
+        pod_uid: 'uid-nono-123',
+        service_account: 'agent-nono-evidenced',
+        framework: 'nono-sandboxed',
+        model: 'anthropic/claude-sonnet-4',
+        execution_mode: 'landlock-lsm',
+      },
+    })
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={nonoAgent}
+        auditEvents={[]}
+        violations={[]}
+        telemetryObservations={[]}
+      />
+    )
+
+    expect(screen.getByTestId('security-profile-telemetry-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('nono-verification-badge')).toHaveTextContent('Nono Sandboxed')
+    expect(screen.getByTestId('nono-lsm-profile')).toHaveTextContent('Linux Landlock LSM Active')
+    expect(screen.getByTestId('nono-hash-chain-status')).toHaveTextContent('SHA-256 Hash Chained')
+    expect(screen.getByTestId('nono-signature-status')).toHaveTextContent('Detached SVID Signed')
+  })
+
+  it('renders comparative telemetry banner with Tetragon eBPF flow stream for standard baseline agent', () => {
+    const standardAgent = createMockAgent({
+      id: 'agent-standard-baseline',
+      name: 'agent-standard-baseline',
+      runtime: {
+        cluster_id: 'osramp',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'agent-standard-baseline-6699c8bdb5-bxpwp',
+        pod_uid: 'uid-std-456',
+        service_account: 'agent-standard-baseline',
+        framework: 'standard-container',
+        model: 'openai/gpt-4o-mini',
+        execution_mode: 'container',
+      },
+    })
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={standardAgent}
+        auditEvents={[]}
+        violations={[]}
+        telemetryObservations={[]}
+      />
+    )
+
+    expect(screen.getByTestId('security-profile-telemetry-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('tetragon-flow-badge')).toHaveTextContent('Standard Container')
+    expect(screen.getByTestId('tetragon-kernel-sensor')).toHaveTextContent('eBPF Kernel Sensor')
+    expect(screen.getByTestId('tetragon-tracepoints')).toHaveTextContent('Tracepoints: sys_execve, sys_connect')
+    expect(screen.getByTestId('tetragon-flow-status')).toHaveTextContent('Real-Time Flow Stream')
+  })
 })
 

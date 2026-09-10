@@ -340,3 +340,11 @@ When an agent is stunned by `stun-sentinel`, the system must immediately clamp `
 **Evidence:** docs/signalloom/sfas-p1-preflight-proof.md  
 
 Preflight checks verified 100% PASS. Kind cluster connectivity, namespace pods, live signal-ingest routes on port 28082, and identity test suites are ready for Phase 1 implementation.
+
+#### Errata — SFAS-P1-1: Transitive Multi-Agent Delegation Graph Traversal
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Last Updated:** 2026-09-10T20:05:00Z  
+**Commit:** `71f6596d`  
+**Evidence:** docs/signalloom/sfas-p1-1-evidence.md  
+
+Implemented recursive transitive delegation graph traversal in PostgreSQL via bounded recursive CTE and in MemoryRepository via cycle-safe visited-set traversal. Added composite indices in migration 002. Exposing multi-hop delegation paths in /api/v1/authorization. All unit, table, benchmark (6.5µs), and SP-1 never-merge tests pass 100%.

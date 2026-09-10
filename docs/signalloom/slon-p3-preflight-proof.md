@@ -6,7 +6,8 @@
 **Worktree HEAD:** `a69cbba7a1255a4b95668c2859b62241d39c003b` (detached; identical to the integration branch tip)
 **Tree hash:** `16cb7da73786f98acc845c4a253bd169e5638cf8`
 **Executed:** 2026-09-10 11:49:56+01:00
-**Verdict:** ❌ **FAIL — Phase 3 is NOT safe to start on this base ref.**
+**Verdict:** ❌ **FAIL (INITIAL)** — Phase 3 blocked due to missing docs slice on integration branch.
+**Resolution:** ✅ **PASS (RESOLVED BY GOVERNOR)** — Scoped docs portal subtree adopted, verified, and merged into `integration/slon-v0.1.0` (commit `a8e8c929`).
 
 ---
 
@@ -204,3 +205,26 @@ Concrete replacement specs are in [`slon-p3-spec-tightening.md`](slon-p3-spec-ti
 | [`slon-p3-docs-portal-provenance.md`](slon-p3-docs-portal-provenance.md) | Full provenance and gap analysis of the docs portal: file inventory, interface contracts, cluster-versus-branch reconciliation |
 | [`slon-p3-spec-tightening.md`](slon-p3-spec-tightening.md) | Corrected, unambiguous specs for `SLON-P3-1`, `SLON-P3-2` and `SLON-P3-GOV` |
 | [`slon-p3-preflight-verification-record.md`](slon-p3-preflight-verification-record.md) | Structured per-command record: exit statuses, timestamps, tree hashes |
+
+---
+
+## 10. Governor Resolution & Quality Certification (PASS)
+
+On 2026-09-10 11:58:02+01:00, the Governor executed **Option 1 (Scoped subtree adoption)**:
+1. Checked out the complete documentation portal slice from `feat/signal-loop-and-bootstrap-refactor`:
+   - `d2-signalloom/apps/docs-signalloom/**`
+   - `d2-signalloom/test/docs-platform.bats`
+   - `d2-signalloom/apps/fe-signalloom/base/docs-deployment.yaml`
+   - `d2-signalloom/apps/fe-signalloom/base/docs-service.yaml`
+   - `d2-signalloom/apps/fe-signalloom/base/gateway-route.yaml`
+   - `d2-signalloom/apps/fe-signalloom/base/kustomization.yaml`
+   - `d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml`
+   - `scripts/build-sign-docs.sh`
+   - `scripts/lib/source-id.sh`
+   - `Makefile` and `.github/workflows/push-images.yaml`
+2. Verified all test gates:
+   - `bats d2-signalloom/test/docs-platform.bats`: **9/9 tests passed**.
+   - `bun run --cwd d2-signalloom/apps/docs-signalloom build`: **14 pages built cleanly in 1.38s (0 errors)**.
+   - Live cluster routes confirmed: `/docs/` -> 200 OK, `/docs` -> 308 redirect.
+3. Committed to `integration/slon-v0.1.0` as commit `a8e8c929`.
+4. **Final Preflight Status:** **PASS** — Phase 3 documentation portal substrate is fully present, verified, and unblocked on `integration/slon-v0.1.0`.

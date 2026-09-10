@@ -120,6 +120,10 @@ These documents record engineering decisions and investigations. They do not con
 | Signal Loom Phase 2-1 technical design & workload architecture | [`signalloom/slon-p2-1-technical-design.md`](signalloom/slon-p2-1-technical-design.md) |
 | Signal Loom Phase 2-2 dynamic Nono capability & signed audit evidence | [`signalloom/slon-p2-2-evidence.md`](signalloom/slon-p2-2-evidence.md) |
 | Signal Loom Phase 2-2 technical design & signed audit architecture | [`signalloom/slon-p2-2-technical-design.md`](signalloom/slon-p2-2-technical-design.md) |
+| Signal Loom Phase 2-3 dual agent claim evidence | [`signalloom/slon-p2-3-evidence.md`](signalloom/slon-p2-3-evidence.md) |
+| Signal Loom Phase 2-3 technical design & comparative telemetry | [`signalloom/slon-p2-3-technical-design.md`](signalloom/slon-p2-3-technical-design.md) |
+| Signal Loom Phase 2-3 comparative telemetry architecture | [`signalloom/slon-p2-3-comparative-telemetry-architecture.md`](signalloom/slon-p2-3-comparative-telemetry-architecture.md) |
+| Signal Loom Phase 2-3 dual agent claim workflow | [`signalloom/slon-p2-3-dual-agent-claim-workflow.md`](signalloom/slon-p2-3-dual-agent-claim-workflow.md) |
 | Terraform build notes, chunks F1 to K | [`../terraform/notes/README.md`](../terraform/notes/README.md) — index of historical notes |
 | Terraform module reference | `../terraform/modules/*/README.md` |
 | Policy as versioned code | [`policy-as-versioned-code/`](policy-as-versioned-code/) |

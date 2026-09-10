@@ -14,22 +14,29 @@ import { MemoryRouter } from 'react-router-dom'
 import axe from 'axe-core'
 import AgentsPage from './AgentsPage'
 import { api } from '../api/client'
+import { claimDiscoveredAgent } from '../api/agentClaim'
+import { weaveApi } from '../api/weaveApi'
 import type { AgentResponse, AgentListResponse } from '../types/api'
 import { fakeWeaveData } from '../api/fakeWeaveData'
 import { clearSignalSummaryCache } from '../hooks/useSignalSummary'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
-const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
+if (!('mocked' in vi)) {
+  ;(vi as any).mocked = (fn: any) => fn
+}
+
+const mockGetAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
 vi.mock('../auth/oidc', () => ({
-  useAuth0: () => ({ getAccessTokenSilently }),
+  useAuth0: () => ({ getAccessTokenSilently: mockGetAccessTokenSilently }),
 }))
 
-const claimApiMock = vi.hoisted(() => ({
+vi.mock('../api/agentClaim', () => ({
   claimDiscoveredAgent: vi.fn(),
+  submitClaim: vi.fn(),
+  releaseClaim: vi.fn(),
+  listClaims: vi.fn().mockResolvedValue([]),
 }))
-
-vi.mock('../api/agentClaim', () => claimApiMock)
 
 vi.mock('../api/client', () => ({
   api: {
@@ -51,18 +58,22 @@ vi.mock('../api/client', () => ({
   },
 }))
 
-const mockWeaveApi = vi.hoisted(() => ({
-  getObservations: vi.fn(),
-  getActors: vi.fn(),
-  getCoverage: vi.fn(),
-  getActor: vi.fn(),
-  promoteActor: vi.fn(),
-  runCorrelation: vi.fn(),
+vi.mock('../api/weaveApi', () => ({
+  weaveApi: {
+    getObservations: vi.fn(),
+    getActors: vi.fn(),
+    getCoverage: vi.fn(),
+    getActor: vi.fn(),
+    promoteActor: vi.fn(),
+    runCorrelation: vi.fn(),
+  },
 }))
 
-vi.mock('../api/weaveApi', () => ({
-  weaveApi: mockWeaveApi,
-}))
+const mockWeaveApi = weaveApi as any
+const claimDiscoveredAgentMock = claimDiscoveredAgent as any
+const claimApiMock = {
+  claimDiscoveredAgent: claimDiscoveredAgentMock,
+}
 
 function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {

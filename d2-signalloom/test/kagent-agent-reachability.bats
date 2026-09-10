@@ -100,7 +100,7 @@ cluster_up() {
 
   out="$(kubectl run "npcheck-pos-$$" -n "$KAGENT_NS" --rm -i --restart=Never \
     --image=busybox:1.36 --timeout=120s -- \
-    sh -c "nc -zv -w5 ${agent}.${AGENT_NS} 8080 >/dev/null 2>&1 && echo REACHABLE || echo BLOCKED" 2>/dev/null)"
+    sh -c "for i in 1 2 3 4 5; do nc -zv -w3 ${agent}.${AGENT_NS} 8080 >/dev/null 2>&1 && { echo REACHABLE; exit 0; }; sleep 1; done; echo BLOCKED" 2>/dev/null)"
 
   [[ "$out" == *REACHABLE* ]] || {
     echo "the kagent controller cannot reach ${agent}.${AGENT_NS}:8080."

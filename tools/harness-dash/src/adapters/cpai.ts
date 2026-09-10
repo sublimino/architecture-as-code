@@ -49,6 +49,7 @@ export class CpaiAdapter extends BaseHarnessAdapter {
       const subordinateActivities: SubordinateActivity[] = [];
       let summary = 'CPAI conversation and agent workflow';
       let lastActivityDate = stat.mtime;
+      let cwd = process.env.HOME || '/';
 
       for (const line of lastLines) {
         try {
@@ -81,7 +82,7 @@ export class CpaiAdapter extends BaseHarnessAdapter {
         createdAt: stat.birthtime.toISOString(),
         updatedAt: stat.mtime.toISOString(),
         lastActivityAt: lastActivityDate.toISOString(),
-        cwd: process.env.HOME || '/',
+        cwd,
         modelsUsed: ['claude-3-7-sonnet', 'deepseek-r1'],
         tokenUsage: {
           inputTokens: 28000,

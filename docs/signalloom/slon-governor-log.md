@@ -1,0 +1,103 @@
+# SLON Shared Governor Log & Inter-Agent Coordination Ledger
+
+**Mission Identity**: \`SLON\` — Signal Loom First User and Agent Onboarding (2026-Q3)  
+**Parent Proposal**: \`Proposal — Signal Loom Agent Security Platform (2026-Q3)\`  
+**Integration Branch**: \`refs/heads/integration/slon-v0.1.0\` (Anchored at \`47359d52\`)  
+**Governor Worktree**: \`/home/andy/src/.worktrees/osramp-demo/slon-v0.1.0/governor\`  
+**Approved Digest**: \`b7c63415e969e05fef5c120eae990a07ade802ace9b618ba5ff992788af9ae71\`  
+**Active Lease**: \`ajm-auto-kanban-slon-a6a426045e5f\`  
+**Controller Version**: 2 (\`CycleInput.ts\` / \`supervise\`)  
+**Standard Engine**: Google Antigravity (\`--agent antigravity\`, \`agy\`)
+
+---
+
+## 1. Operating Charter & Inter-Agent Invariants
+
+All participating autonomous agents (Pre-Flight, Implementation, Governor, Reviewer, and Supervisor) operating on the \`SLON\` delivery board must strictly adhere to the following shared coordination rules:
+
+1. **Isolation & Worktree Discipline**:
+   - Implementation and Pre-Flight agents execute strictly inside their task-specific runtime worktrees spawned from \`--base-ref refs/heads/integration/slon-v0.1.0\`.
+   - Never edit, copy from, or mutate sibling worktrees.
+   - Never commit directly to the principal checkout root (\`/home/andy/src/cp/osramp-demo\`).
+   - Only Governor agents (\`SLON-P1-GOV\`, \`SLON-P2-GOV\`, \`SLON-P3-GOV\`) execute in the dedicated Governor worktree (\`/home/andy/src/.worktrees/osramp-demo/slon-v0.1.0/governor\`) and merge validated task commits into the integration branch.
+
+2. **Dual Demo Agent Fleet Mandate**:
+   - Phase 2 deploys two in-cluster demo agent workloads into \`fe-signalloom-agents\`:
+     - **\`agent-nono-evidenced\`**: Equipped with optional Linux Landlock filesystem and network confinement (\`ABI >= 1\`) and \`nono audit\` session recording, signed against its SPIFFE SVID (\`spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced\`). Workload entrypoint executes \`probe-nono-capability.sh\`: if Nono or Landlock is unavailable, emit structured telemetry (\`nono_capability_available: false\`) and gracefully execute unconfined without crashing or restart loops.
+     - **\`agent-standard-baseline\`**: Standard containerized agent workload operating without Nono, verifying baseline claim, SPIFFE identity issuance, and standard telemetry flow side-by-side.
+
+3. **Tooling & Language Invariants**:
+   - \`bun\` / \`bunx\` always. Never \`npm\` or \`npx\`.
+   - TypeScript and Python 3.12 only.
+   - Commit messages must follow scope-less Conventional Commits (\`feat: ...\`, \`fix: ...\`, \`chore: ...\`).
+
+4. **Evidence & Communication Standard**:
+   - Every completed card must record a qualified Errata block in the Obsidian proposal (\`Proposal — Signal Loom First User and Agent Onboarding (2026-Q3).md\`) under \`### Spec: Errata\`.
+   - Card reviews and Governor certifications must be recorded in \`.kanban-review-ledger.json\`.
+   - Significant milestone transitions, dependency handoffs, or blocker escalations must be appended to this shared log.
+
+---
+
+## 2. Shared Event Log & Dispatch Timeline
+
+| Timestamp (UTC) | Agent / Actor | Event | Details / Outcome |
+| :--- | :--- | :--- | :--- |
+| \`2026-09-10T08:56:00Z\` | \`antigravity\` | \`PROPOSAL_UPDATED\` | Proposal updated in Obsidian with dual demo agents (\`agent-nono-evidenced\` + \`agent-standard-baseline\`) and dynamic Nono optionality probe invariant (SP-5). Verified via \`proposal-extract.py sections\`. |
+| \`2026-09-10T08:59:46Z\` | \`andy\` | \`PRINCIPAL_SIGNOFF\` | Explicit sign-off received from principal Andy to proceed with proposal execution and Auto Kanban board authoring. |
+| \`2026-09-10T09:01:08Z\` | \`governor\` | \`WORKTREE_INITIALIZED\` | Dedicated Governor worktree initialized at \`/home/andy/src/.worktrees/osramp-demo/slon-v0.1.0/governor\` tracking \`integration/slon-v0.1.0\` (\`47359d52\`). |
+| \`2026-09-10T09:05:15Z\` | \`antigravity\` | \`BOARD_SCAFFOLDED\` | 15 council-grade card specifications compiled and validated against Band S/M specificity floors. All 15 tasks created on Kanban board. |
+| \`2026-09-10T09:05:36Z\` | \`governor\` | \`GRAPH_VALIDATED\` | \`link-check\` executed and verified. Dependency graph satisfies all 6 structural rules (R1–R6) with 0 CRITICAL, 0 FAIL, 0 WARN. |
+| \`2026-09-10T09:06:11Z\` | \`antigravity\` | \`MISSION_AUTO_APPROVED\` | \`MissionState.ts auto\` executed. Approved digest \`b7c63415e969e05fef5c120eae990a07ade802ace9b618ba5ff992788af9ae71\` bound. Max running capacity bound to 7 slots. |
+| \`2026-09-10T09:06:22Z\` | \`governor\` | \`LEASE_ACTIVATED\` | Lease \`ajm-auto-kanban-slon-a6a426045e5f\` armed and activated. Mission status set to \`active\`. |
+| \`2026-09-10T09:06:25Z\` | \`supervisor\` | \`CRON_SCHEDULED\` | 5-minute recurring background supervisor cron scheduled via \`schedule\` tool (\`task-467\`). |
+| \`2026-09-10T09:06:39Z\` | \`supervisor\` | \`TICK_1_EXECUTED\` | First controller cycle executed via \`CycleInput.ts\`. Task \`SLON-P1-PRE\` (\`0e83e\`) started and transitioned from backlog to \`in_progress\`. Backlog: 14, in-progress: 1, review: 0. |
+| \`2026-09-10T09:08:30Z\` | \`governor\` | \`INTER_AGENT_BROADCAST\` | Shared Governor Log initialized. Broadcasted active mission guidelines and dual demo agent specifications to all participating agents. |
+| \`2026-09-10T09:10:12Z\` | \`supervisor\` | \`TICK_2_EXECUTED\` | Controller Tick #2 executed. Task \`SLON-P1-PRE\` (\`0e83e\`) actively running. AI quota healthy (\`cdx:0%/cld:0%/agy:30%\`). |
+| \`2026-09-10T09:11:06Z\` | \`SLON-P1-PRE\` | \`PREFLIGHT_DELIVERED\` | Preflight verification passed (56/56 API tests, clean Vite build, Envoy HTTP/HTTPS routing verified). Committed \`0e228c66\` (\`docs/signalloom/slon-p1-preflight-proof.md\`). |
+| \`2026-09-10T09:12:10Z\` | \`governor\` | \`INTEGRATION_FF_MERGED\` | \`integration/slon-v0.1.0\` fast-forward merged \`0e228c66\` in Governor worktree. All future worktree spawns inherit preflight evidence. |
+| \`2026-09-10T09:12:37Z\` | \`governor\` | \`PREFLIGHT_CERTIFIED\` | \`SLON-P1-PRE\` errata normalized with canonical machine tag. Task moved from \`review\` to \`done\`. |
+| \`2026-09-10T09:13:00Z\` | \`governor\` | \`DISPATCH_PHASE_1_IMPL\` | Dispatched \`SLON-P1-1\` (\`5a2f9\`, Onboarding API Client) and \`SLON-P1-2\` (\`0ad83\`, Sidebar Navigation Hierarchy) into \`in_progress\` concurrently. |
+
+---
+
+## 3. Active Phase Status: Phase 1 (User Journey & Architecture)
+
+- **Completed Cards**:
+  - \`SLON-P1-PRE\` (\`0e83e\`, Pre-Flight Verification, Commit \`0e228c66\`): **`done`**. Deliverable verified at \`docs/signalloom/slon-p1-preflight-proof.md\`.
+
+- **Active Cards in Progress**:
+  - **\`SLON-P1-1\` (\`5a2f9\`)**: Wire onboarding API client to live database endpoints.
+    - *Agent Directive*: Eliminate mock mode fallback (\`REACT_APP_MOCK_ONBOARDING\`, local storage bypasses). Connect \`onboardingClient.ts\` to live endpoints (\`/api/v1/onboarding/status\`, \`/api/v1/onboarding/complete\`). Assert DB state roundtrips and survives page refresh.
+    - *Standards*: TypeScript, Bun only, scope-less conventional commits, machine errata tag \`<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->\`.
+  - **\`SLON-P1-2\` (\`0ad83\`)**: Reorder dashboard sidebar into 3-tier hierarchy.
+    - *Agent Directive*: Reorganize \`Sidebar.tsx\` into View (Overview, Signals, Topology, Mesh, Events, Explorer), Control (Agents, Quotas, Policies, Approvals, Tunnels), and Design (Architecture, Playbooks, Schemas, Settings).
+    - *Standards*: TypeScript, Bun only, Vitest assertions, scope-less conventional commits, machine errata tag \`<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->\`.
+
+- **Upcoming Dependent Queue**:
+  - \`SLON-P1-3\` (\`1c4bb\`): Implement first user onboarding wizard flow with persistent DB state (waiting on \`SLON-P1-1\` & \`SLON-P1-2\`).
+  - \`SLON-P1-GOV\` (\`e80e2\`): Phase 1 Governor reconciliation, merge to integration branch, and gate verification.
+
+---
+
+## 4. Phase 2 Preview: Dual Demo Agents & Isolated Smoke Test
+
+When Phase 1 Governor reaches \`Done\`, Phase 2 will execute the following sequence:
+1. \`SLON-P2-PRE\` (\`355e8\`): Preflight verification of SPIFFE provider, OpenBao JWT roles, and Nono capability probe.
+2. \`SLON-P2-1\` (\`c1ce1\`): Deploy \`agent-nono-evidenced\` and \`agent-standard-baseline\` into \`fe-signalloom-agents\`.
+3. \`SLON-P2-2\` (\`254f7\`): Implement \`probe-nono-capability.sh\` dynamic detection and signed audit session telemetry ingest.
+4. \`SLON-P2-3\` (\`46bb8\`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry.
+5. \`SLON-P2-4\` (\`0d0c9\`): Implement \`make demo-signalloom-smoke\` target for < 90s dual-agent verification.
+6. \`SLON-P2-GOV\` (\`c0fa6\`): Phase 2 Governor reconciliation, ingress restart claim persistence assertion, and merge.
+
+---
+
+## 5. Communications & Attention Signals
+
+Any agent encountering an unexpected blocker, test failure, or environment discrepancy must:
+1. Stop and report if triggering any hard stop conditions (DB corruption, kernel incompatibility, unresolvable merge conflict).
+2. Append a qualified failure errata block with \`status=fail\` to the proposal Appendix Spec: Errata.
+3. Post an alert entry in this table below.
+
+| Alert ID | Reporting Task | Severity | Condition / Blocker | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| *None* | *None* | *Normal* | *Board operating within nominal parameters. Phase 1 implementation underway.* | *Active* |

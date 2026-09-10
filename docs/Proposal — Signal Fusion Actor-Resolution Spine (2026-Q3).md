@@ -250,3 +250,79 @@ Funded now as Signal Loom platform / partner investment: the spine advances the 
 * Hidden alias: an identifier type present in one feeder, absent from the deterministic map — measure whether it is left fragmented (correct) or wrongly merged (fail).
 * Split human: one real person behind two identities sharing a NAT source IP — must NOT collapse on IP coincidence alone.
 * Shadow agent: an agent action with no SVID and no registration — must surface as unresolved, not silently attributed.
+
+### Spec: Shared Patterns
+
+#### SP-1: Deterministic-First Identity Resolution & Corroboration Cap
+Merging two identifiers into a single `actor_id` strictly requires at least one deterministic identity edge (e.g. SPIFFE ID ↔ `system:serviceaccount:<ns>:<name>`). Probabilistic or heuristic signals (shared IP, temporal coincidence, user-agent) may only elevate the confidence score of an already-established deterministic edge; they must never trigger an entity merge on their own.
+
+#### SP-2: Delegation As First-Class Never-Merged Invariant
+The delegation relationship (`acts-on-behalf-of`) is a distinct, queryable directed edge in PostgreSQL that connects an executing agent actor to a delegating principal (human or service). A delegation edge must NEVER collapse, merge, or alias the delegator and delegatee into a single canonical actor.
+
+#### SP-3: Write-Time Parquet Segment Attestation Boundary
+Every FrostDB Parquet segment must be cryptographically attested at flush boundary using the local ed25519 workload key (`make workload-key`) via `go-witness`. Persisting or querying un-attested segments in production mode is prohibited, and any byte-level divergence must trigger an immediate verifiable verification failure (`exit 2`).
+
+#### SP-4: Zero False-Merge Release Gate & Published Falsifiable Ceiling
+The system enforces a non-negotiable `false-merge == 0` release gate across all regression and adversarial test suites. Under adversarial evaluation, resolution accuracy must be reported as an exact, falsifiable ratio ($X/N$ caught), never as an ungrounded percentage or heuristic claim.
+
+#### SP-5: Antigravity Engine Execution & Worktree Isolation
+All autonomous tasks execute under the Antigravity engine (`agy`) with context-mode routing and algorithm verification. Every task must be developed in an isolated git worktree branching from `--base-ref refs/heads/integration/sfas-v0.1.0`. Governor cards require human operator review before merging into the integration branch tip.
+
+### Spec: Capability Plan
+
+| Logical ID | Role | Skills Required | Size Band | Ceiling (Min) | Agent Model | Task Summary |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `SFAS-P1-PRE` | preflight | #cap-golang · #cap-architecture · #cap-testing-pyramid | S | 30 | antigravity | Preflight verification of Go toolchain, signal-ingest build, Postgres migrations, and FrostDB environment. |
+| `SFAS-P1-1` | implementation | #cap-golang · #cap-architecture · #cap-testing-pyramid | M | 60 | antigravity | Implement deterministic-first, fidelity-gated canonical actor-resolution engine replacing correlationKey. |
+| `SFAS-P1-2` | implementation | #cap-golang · #cap-kubernetes-api-programming · #cap-testing-pyramid | M | 60 | antigravity | Implement PostgreSQL identity, alias, and delegation graph store with time-valid edges and strict acts-on-behalf-of never-merge. |
+| `SFAS-P1-3` | implementation | #cap-golang · #cap-architecture · #cap-testing-pyramid | M | 60 | antigravity | Wire resolver engine to query identity graph as-of event timestamp with deterministic priority. |
+| `SFAS-P1-GOV` | governor | #cap-architecture · #cap-golang · #cap-testing-pyramid | M | 60 | antigravity | Phase 1 Governor reconciliation: merge Phase 1 deliverables, verify graph migrations and resolution suite. |
+| `SFAS-P2-PRE` | preflight | #cap-golang · #cap-build-provenance · #cap-supply-chain-security | S | 30 | antigravity | Preflight verification of local ed25519 workload key, go-witness SDK, Archivista client, and audit_anchor Merkle checkpointing. |
+| `SFAS-P2-1` | implementation | #cap-golang · #cap-build-provenance · #cap-supply-chain-security | M | 60 | antigravity | Implement write-time FrostDB Parquet segment attestor at flush boundary using local workload key. |
+| `SFAS-P2-2` | implementation | #cap-golang · #cap-build-provenance · #cap-supply-chain-security | M | 60 | antigravity | Implement rolling Merkle checkpoint over segment digests (audit_anchor) with Archivista publishing. |
+| `SFAS-P2-GOV` | governor | #cap-architecture · #cap-build-provenance · #cap-supply-chain-security | M | 60 | antigravity | Phase 2 Governor reconciliation: merge Phase 2 deliverables, verify segment attestation round-trip and tamper detection. |
+| `SFAS-P3-PRE` | preflight | #cap-golang · #cap-frontend · #cap-testing-pyramid | S | 30 | antigravity | Preflight verification of signal-ingest HTTP routes, Swagger/OpenAPI spec, and fe-signalloom Vite dashboard integration. |
+| `SFAS-P3-1` | implementation | #cap-golang · #cap-architecture · #cap-testing-pyramid | M | 60 | antigravity | Implement single-query /api/v1/authorization endpoint returning full attested 7-hop chain. |
+| `SFAS-P3-2` | implementation | #cap-frontend · #cap-architecture · #cap-testing-pyramid | M | 60 | antigravity | Implement Who Authorized This Action interactive dashboard panel with complete chain visualization. |
+| `SFAS-P3-GOV` | governor | #cap-architecture · #cap-frontend · #cap-testing-pyramid | M | 60 | antigravity | Phase 3 Governor reconciliation: merge Phase 3 deliverables, verify end-to-end API chain completeness on demo estate. |
+| `SFAS-P4-PRE` | preflight | #cap-red-team · #cap-threat-modelling · #cap-testing-pyramid | S | 30 | antigravity | Preflight verification of adversarial test runner, fixture generators, and red-team harness. |
+| `SFAS-P4-1` | implementation | #cap-red-team · #cap-threat-modelling · #cap-golang | M | 60 | antigravity | Construct adversarial fixture suite (hidden aliases, split human across NAT, shadow un-attested agent). |
+| `SFAS-P4-2` | implementation | #cap-red-team · #cap-threat-modelling · #cap-golang | M | 60 | antigravity | Execute adversarial resolution attack suite, enforce hard false-merge == 0 release gate, and publish falsifiable X/N resolution ceiling. |
+| `SFAS-P4-3` | implementation | #cap-golang · #cap-architecture · #cap-testing-pyramid | M | 60 | antigravity | Implement FrostDB query volume benchmark harness and enforce p95 regression ceiling under sustained observation load. |
+| `SFAS-P4-GOV` | governor | #cap-architecture · #cap-project-management · #cap-testing-pyramid | M | 60 | antigravity | Final Programme Governor certification: reconcile all 4 phases, run complete multi-suite verification, and sign off mission. |
+
+### Spec: Work Decomposition
+
+| ID | Title | Depends on | Tests / evidence | Size | Agent | Result | Est. Cost | Tokens | Elapsed | AI URI |
+| :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :--- |
+| SFAS-P1-PRE | Preflight verification of Go toolchain, signal-ingest build, Postgres migrations, and FrostDB environment | | Preflight proof recorded in `docs/signalloom/sfas-p1-preflight-proof.md`; Go test clean | S | antigravity | | | | | |
+| SFAS-P1-1 | Implement deterministic-first, fidelity-gated canonical actor-resolution engine replacing correlationKey | SFAS-P1-PRE | Go unit/table tests in `correlation/` pass; deterministic join verified across SPIFFE, SA, email, OAuth | M | antigravity | | | | | |
+| SFAS-P1-2 | Implement PostgreSQL identity, alias, and delegation graph store with time-valid edges and strict acts-on-behalf-of never-merge | SFAS-P1-PRE | Migration tests and Postgres roundtrip tests in `identity/` pass; never-merge invariant verified | M | antigravity | | | | | |
+| SFAS-P1-3 | Wire resolver engine to query identity graph as-of event timestamp with deterministic priority | SFAS-P1-1, SFAS-P1-2 | Equivalence and integration tests asserting as-of historical resolution and deterministic priority | M | antigravity | | | | | |
+| SFAS-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, verify graph migrations and resolution suite | SFAS-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | | | | | |
+| SFAS-P2-PRE | Preflight verification of local ed25519 workload key, go-witness SDK, Archivista client, and audit_anchor Merkle checkpointing | SFAS-P1-GOV | Preflight proof recorded in `docs/signalloom/sfas-p2-preflight-proof.md` | S | antigravity | | | | | |
+| SFAS-P2-1 | Implement write-time FrostDB Parquet segment attestor at flush boundary using local workload key | SFAS-P2-PRE | Segment attestor tests in `store/` pass; witness verify roundtrip succeeds on flush | M | antigravity | | | | | |
+| SFAS-P2-2 | Implement rolling Merkle checkpoint over segment digests (audit_anchor) with Archivista publishing | SFAS-P2-1 | Merkle tree checkpointing tests pass; corrupted segment digest rejected by checkpoint verifier | M | antigravity | | | | | |
+| SFAS-P2-GOV | Phase 2 Governor reconciliation: merge Phase 2 deliverables, verify segment attestation round-trip and tamper detection | SFAS-P2-2 | make attested-test ATTESTED_TEST_SOURCE=segments passes; Governor certification recorded | M | antigravity | | | | | |
+| SFAS-P3-PRE | Preflight verification of signal-ingest HTTP routes, Swagger/OpenAPI spec, and fe-signalloom Vite dashboard integration | SFAS-P2-GOV | Preflight proof recorded in `docs/signalloom/sfas-p3-preflight-proof.md` | S | antigravity | | | | | |
+| SFAS-P3-1 | Implement single-query /api/v1/authorization endpoint returning full attested 7-hop chain | SFAS-P3-PRE | Go API integration tests pass asserting complete 7-hop chain and attestation gitoid | M | antigravity | | | | | |
+| SFAS-P3-2 | Implement Who Authorized This Action interactive dashboard panel with complete chain visualization | SFAS-P3-1 | Vitest dashboard component tests and Playwright spec pass asserting chain rendering | M | antigravity | | | | | |
+| SFAS-P3-GOV | Phase 3 Governor reconciliation: merge Phase 3 deliverables, verify end-to-end API chain completeness on demo estate | SFAS-P3-2 | 100% Phase 3 tests pass; >=90% chain completeness proven live; Governor certification recorded | M | antigravity | | | | | |
+| SFAS-P4-PRE | Preflight verification of adversarial test runner, fixture generators, and red-team harness | SFAS-P3-GOV | Preflight proof recorded in `docs/signalloom/sfas-p4-preflight-proof.md` | S | antigravity | | | | | |
+| SFAS-P4-1 | Construct adversarial fixture suite (hidden aliases, split human across NAT, shadow un-attested agent) | SFAS-P4-PRE | Fixture integrity tests pass; test cases validate against schema | M | antigravity | | | | | |
+| SFAS-P4-2 | Execute adversarial resolution attack suite, enforce hard false-merge == 0 release gate, and publish falsifiable X/N resolution ceiling | SFAS-P4-1 | Adversarial test suite passes; false-merge == 0; redteam_ceiling.json artifact generated | M | antigravity | | | | | |
+| SFAS-P4-3 | Implement FrostDB query volume benchmark harness and enforce p95 regression ceiling under sustained observation load | SFAS-P4-PRE | Volume benchmark test passes; p95 latency under 10ms threshold verified | M | antigravity | | | | | |
+| SFAS-P4-GOV | Final Programme Governor certification: reconcile all 4 phases, run complete multi-suite verification, and sign off mission | SFAS-P4-2, SFAS-P4-3 | 100% test pass across all 4 acceptance commands; final mission certification report recorded | M | antigravity | | | | | |
+
+### Spec: Errata
+
+*(Append-only record of completed cards, deviations, and governor certifications)*
+
+#### Governor Dispatch — SFAS-GOV-INIT
+- **Timestamp**: 2026-09-10T20:10:00Z
+- **Actor**: Governor (Mission Initialization)
+- **Status**: active
+- **Digest**: `a58c44d6a516dc1a6d2982e3ed9beaf34cb013fa855ac525b17ba9666df5c32c`
+- **Lease**: ajm-auto-kanban-sfas-init
+- **Shared Governor Log**: `docs/signalloom/sfas-governor-log.md`
+- **Inter-Agent Directive**: All task agents must execute under `--agent antigravity` in isolated worktrees created from `--base-ref refs/heads/integration/sfas-v0.1.0`. Strict adherence to SP-1 (deterministic-first merge), SP-2 (`acts-on-behalf-of` never-merge), SP-3 (write-time segment attestation), and SP-4 (`false-merge == 0` release gate) is required. All task completions, deviations, and blockers must be communicated through the shared governor log and recorded in this errata ledger.

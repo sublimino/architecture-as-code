@@ -494,8 +494,8 @@ test-all: ## Run every single test across all slices and verification stages in 
 	cd d2-signalloom/apps/dashboard-signalloom && bun run test -- --run
 	@echo "=== Stage 4/10: Python Unit & Invariant Suites ==="
 	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests -q --disable-warnings
-	bash d2-signalloom/apps/fe-signalloom/test/audit-guard-reintroduction-proof.sh
-	python3 -m unittest discover -s d2-agent-trust/tests -p "*_test.py"
+	UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} bash d2-signalloom/test/audit-guard-reintroduction-proof.sh
+	$(MAKE) -C d2-agent-trust test
 	$(MAKE) -C olly-replica authz-test
 	@echo "=== Stage 5/10: KPAI & Swarm Unit Tests ==="
 	bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts

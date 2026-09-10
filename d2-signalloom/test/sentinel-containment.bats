@@ -9,6 +9,10 @@
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
+  export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export CGO_ENABLED="${CGO_ENABLED:-0}"
   SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel"
   DAEMONSET_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml"
   RBAC_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac.yaml"
@@ -233,9 +237,12 @@ cluster_up() {
   cluster_up || skip "no cluster"
   local ready desired
   desired="$(kubectl get daemonset stun-sentinel -n "$AGENT_NS" -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || true)"
-  ready="$(kubectl get daemonset stun-sentinel -n "$AGENT_NS" -o jsonpath='{.status.numberReady}' 2>/dev/null || true)"
-
   [ -n "$desired" ] || skip "stun-sentinel DaemonSet not deployed"
+
+  # Allow in-flight rollout or transient reconciliations up to 10s
+  kubectl rollout status daemonset/stun-sentinel -n "$AGENT_NS" --timeout=10s >/dev/null 2>&1 || true
+
+  ready="$(kubectl get daemonset stun-sentinel -n "$AGENT_NS" -o jsonpath='{.status.numberReady}' 2>/dev/null || true)"
   [ "$ready" = "$desired" ]
 }
 

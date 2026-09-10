@@ -74,3 +74,19 @@ setup() {
   [ "$elapsed" -le 2 ]
   [[ "$output" == *'deadline 1s exceeded'* ]]
 }
+
+@test "WAIT negative deadline does not execute the probe" {
+  marker="$BATS_TEST_TMPDIR/neg-probe-ran"
+  run env MARKER="$marker" bash -c 'source "$1"; _wait_retry -1 "neg probe" "touch \"$MARKER\""' _ "$wait_lib"
+
+  [ "$status" -eq 1 ]
+  [ ! -e "$marker" ]
+}
+
+@test "WAIT zero deadline scale terminates immediately without executing probe" {
+  marker="$BATS_TEST_TMPDIR/zero-scale-probe-ran"
+  run env MARKER="$marker" WAIT_DEADLINE_SCALE=0 bash -c 'source "$1"; _wait_retry 10 "scale zero probe" "touch \"$MARKER\""' _ "$wait_lib"
+
+  [ "$status" -eq 1 ]
+  [ ! -e "$marker" ]
+}

@@ -97,7 +97,7 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
           width: 680,
           maxWidth: "94vw",
           height: "100%",
-          background: "var(--surface1, #121824)",
+          background: "var(--surface, #121824)",
           borderLeft: "1px solid var(--border)",
           boxShadow: "-8px 0 24px rgba(0, 0, 0, 0.4)",
           display: "flex",
@@ -152,7 +152,7 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
               border: "none",
               fontSize: 20,
               cursor: "pointer",
-              color: "var(--text-muted)",
+              color: "var(--muted)",
               padding: "4px 8px",
               borderRadius: 4,
             }}
@@ -176,13 +176,13 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
               fontSize: 12,
             }}
           >
-            <div style={{ fontWeight: 600, color: "var(--text-muted)", marginBottom: 2 }}>
+            <div style={{ fontWeight: 600, color: "var(--muted)", marginBottom: 2 }}>
               Evidence & Verification References
             </div>
 
             {/* FrostDB Segment Digest */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>FrostDB Digest:</span>
+              <span style={{ color: "var(--muted)", fontSize: 11 }}>FrostDB Digest:</span>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <code style={{ fontSize: 11, color: "var(--text)" }}>{frostDbDigest}</code>
                 <button
@@ -206,7 +206,7 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
 
             {/* Webhook Audit Record */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>Audit Webhook:</span>
+              <span style={{ color: "var(--muted)", fontSize: 11 }}>Audit Webhook:</span>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <code style={{ fontSize: 11, color: "var(--text)" }}>{webhookRecord}</code>
                 <button
@@ -231,7 +231,7 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
             {/* Evidence Ref */}
             {evidenceRef && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <span style={{ color: "var(--text-muted)", fontSize: 11 }}>Evidence Ref:</span>
+                <span style={{ color: "var(--muted)", fontSize: 11 }}>Evidence Ref:</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <code style={{ fontSize: 11, color: "var(--cyan)" }}>{evidenceRef}</code>
                   <button

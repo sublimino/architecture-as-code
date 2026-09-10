@@ -90,7 +90,7 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
           width: 540,
           maxWidth: "92vw",
           height: "100%",
-          background: "var(--surface1, #121824)",
+          background: "var(--surface, #121824)",
           borderLeft: "1px solid var(--border)",
           boxShadow: "-8px 0 24px rgba(0, 0, 0, 0.4)",
           display: "flex",
@@ -142,7 +142,7 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
               border: "none",
               fontSize: 20,
               cursor: "pointer",
-              color: "var(--text-muted)",
+              color: "var(--muted)",
               padding: "4px 8px",
               borderRadius: 4,
             }}
@@ -155,7 +155,7 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 18 }}>
           {/* Cosign Signature Block */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
               Cosign Detached Signature (ECDSA P-256):
             </label>
             <pre
@@ -180,7 +180,7 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
 
           {/* Landlock Status Payload */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
               Kernel Sandbox Status (Landlock Containment):
             </label>
             <pre
@@ -204,7 +204,7 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
           {/* GitOID & Rekor */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
             <div>
-              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>GitOID: </span>
+              <span style={{ color: "var(--muted)", fontWeight: 600 }}>GitOID: </span>
               <span data-testid="attestation-gitoid" style={{ fontFamily: "monospace", color: "var(--cyan)" }}>
                 {gitOid}
               </span>
@@ -224,7 +224,7 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
 
           {/* Raw JSON Payload Drill-Down */}
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
               Raw Audit & Attestation Payload:
             </label>
             <pre

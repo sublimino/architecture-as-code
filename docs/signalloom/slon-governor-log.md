@@ -102,6 +102,9 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | `2026-09-10T11:08:00Z` | `governor` | `SLON_P2_2_MERGED` | Merged `SLON-P2-2` (`ef8cea46`) into `integration/slon-v0.1.0` (merge commit `f78ea8f3`). Implemented dynamic Nono optionality detection and signed audit session telemetry ingest. |
 | `2026-09-10T11:10:00Z` | `governor` | `DISPATCH_SLON_P2_3` | Dispatched `SLON-P2-3` (`46bb8`, Operator Dual-Agent Claim Flow). Actively running in `/home/andy/src/.worktrees/46bb8/osramp-demo`. |
 | `2026-09-10T11:12:10Z` | `governor` | `BOARD_ADVANCE_CONFIRMED` | Automated `kanban-check.sh done-advance` advanced `SLON-P2-1`, `SLON-P2-4`, and `SLON-P2-2` to `done` (advanced=9, failed=0). Doctor validated 100% clean with zero exceptions. |
+| `2026-09-10T11:28:00Z` | `governor` | `SLON_P2_3_MERGED` | Merged `SLON-P2-3` (`a10a77c3`) into `integration/slon-v0.1.0` (merge commit `8df0c196`). Delivered ClaimModal, backend claim endpoints, migration 036_agent_claims.sql, workload security badges, and side-by-side comparative telemetry. Card moved to `done`. |
+| `2026-09-10T11:37:00Z` | `governor` | `DISPATCH_PHASE_2_GOV` | Dispatched `SLON-P2-GOV` (`c0fa6`, Phase 2 Governor Reconciliation & Certification) in dedicated worktree. Verified all automated test gates: smoke test (< 12s), API tests (56/56), dual agents BATS (7/7), Nono fallback BATS (10/10), vitest (43/43), dashboard build (clean), ingress rollout DB persistence. |
+| `2026-09-10T11:40:00Z` | `governor` | `PHASE_2_CERTIFIED` | Phase 2 Governor reconciliation certified (commit `f76b9bd2`). Evidence recorded in `docs/signalloom/slon-p2-governor-report.md`. Phase 2 100% complete and closed. Ready for Phase 3 dispatch. |
 
 ---
 
@@ -121,23 +124,24 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 - **Completed Implementation Cards**:
   - `SLON-P2-PRE` (`355e8`, Preflight Verification, Commit `73eb775d`): **`done`**. Preflight verification proof recorded in `docs/signalloom/slon-p2-preflight-proof.md`.
   - `SLON-P2-1` (`c1ce1`, Dual Demo Agents: `agent-nono-evidenced` + `agent-standard-baseline`, Commit `ff9825b7`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-1-evidence.md`. Both workloads active in `fe-signalloom-agents`.
-  - `SLON-P2-4` (`0d0c9`, Isolated Demo Smoke Test Target `make demo-signalloom-smoke`, Commit `bb22ae81`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-4-evidence.md`. Clean pass in 13.9s.
+  - `SLON-P2-4` (`0d0c9`, Isolated Demo Smoke Test Target `make demo-signalloom-smoke`, Commit `bb22ae81`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-4-evidence.md`. Clean pass in 11.2s.
   - `SLON-P2-2` (`254f7`, Dynamic Nono Detection & Telemetry Ingest, Commit `ef8cea46`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-2-evidence.md`. Migration `035_signed_audit_sessions.sql` and capability probe script.
-
-- **Active Cards in Progress**:
-  - `SLON-P2-3` (`46bb8`, Operator Dual-Agent Claim Flow): **`in_progress`** in worktree `/home/andy/src/.worktrees/46bb8/osramp-demo`.
-
-- **Phase 2 Pipeline**:
-1. `SLON-P2-PRE` (`355e8`): Preflight verification of SPIFFE provider, OpenBao JWT roles, and Nono capability probe. [DONE]
-2. `SLON-P2-1` (`c1ce1`): Deploy `agent-nono-evidenced` and `agent-standard-baseline` into `fe-signalloom-agents`. [DONE]
-3. `SLON-P2-4` (`0d0c9`): Implement `make demo-signalloom-smoke` target for < 90s dual-agent verification. [DONE]
-4. `SLON-P2-2` (`254f7`): Implement `probe-nono-capability.sh` dynamic detection and signed audit session telemetry ingest. [DONE]
-5. `SLON-P2-3` (`46bb8`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry. [ACTIVE]
-6. `SLON-P2-GOV` (`c0fa6`): Phase 2 Governor reconciliation, ingress restart claim persistence assertion, and merge. [PENDING]
+  - `SLON-P2-3` (`46bb8`, Operator Dual-Agent Claim Flow, Commit `a10a77c3`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-3-evidence.md`. ClaimModal, claim endpoints, migration `036_agent_claims.sql`, comparative telemetry streaming.
+  - `SLON-P2-GOV` (`c0fa6`, Phase 2 Governor Reconciliation & Quality Certification, Commit `f76b9bd2`): **`done`**. Deliverable verified at `docs/signalloom/slon-p2-governor-report.md`. Full test suites passing, claim persistence across pod restarts verified. Phase 2 certified and closed.
 
 ---
 
-## 5. Communications & Attention Signals
+## 5. Active Phase Status: Phase 3 (Documentation Portal & Adversarial Verification)
+
+- **Phase 3 Pipeline**:
+1. `SLON-P3-PRE` (`b5c28`): Preflight verification of Astro documentation build substrate, Starlight routing, and network policy audit tools. [PENDING]
+2. `SLON-P3-1` (`6fd81`): Author Signal Loom first user and agent onboarding guides in `d2-signalloom/apps/docs-signalloom`. [PENDING]
+3. `SLON-P3-2` (`82aa3`): Implement adversarial tenant isolation and nono confinement verification test suites. [PENDING]
+4. `SLON-P3-GOV` (`5ab6e`): Phase 3 Governor reconciliation, documentation deployment verification, and final quality certification report. [PENDING]
+
+---
+
+## 6. Communications & Attention Signals
 
 Any agent encountering an unexpected blocker, test failure, or environment discrepancy must:
 1. Stop and report if triggering any hard stop conditions (DB corruption, kernel incompatibility, unresolvable merge conflict).

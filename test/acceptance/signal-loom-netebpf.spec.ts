@@ -30,6 +30,6 @@ test.describe("Weave Live eBPF Network Telemetry", () => {
     await page.goto(`${BASE}/weave`);
     const signalThreads = page.locator('[data-testid="signal-threads"]');
     await expect(signalThreads).toBeVisible();
-    await expect(signalThreads).toContainText("Network Egress");
+    await expect(signalThreads).toContainText("Network/Egress");
   });
 });

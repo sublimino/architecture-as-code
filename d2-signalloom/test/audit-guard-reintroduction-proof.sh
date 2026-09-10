@@ -35,6 +35,9 @@ set -eo pipefail   # deliberately NOT -u: the shell snapshot's grep wrapper
                    # references $ZSH_VERSION unguarded, and nounset makes every
                    # grep call in this script fatal.
 
+export UV_CONFIG_FILE="${UV_CONFIG_FILE:-/dev/null}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
+
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SRC="$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src"
 GUARD="$SRC/tests/test_audit_provenance.py"
@@ -74,7 +77,7 @@ cp "$GUARD" "$SNAPSHOT/guard.py"
 # machine without uv still works.
 pytest_cmd() {
   if command -v uv >/dev/null 2>&1; then
-    printf 'uv run --python 3.12 --with pytest --with pytest-asyncio --quiet python -m pytest'
+    printf 'uv run --no-config --python 3.12 --with pytest --with pytest-asyncio --quiet python -m pytest'
   else
     printf 'python3 -m pytest'
   fi
@@ -128,10 +131,9 @@ assert_pytest_can_run() {
   # Requiring a clean green baseline collapses every one of those cases: if the
   # guard cannot pass on an unmodified tree, nothing below it means anything,
   # whatever the reason.
-  local out rc
+  local out rc=0
   out="$( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
-            $(pytest_cmd) -o addopts= -q "$GUARD" 2>&1 )"
-  rc=$?
+            $(pytest_cmd) -o addopts= -q "$GUARD" 2>&1 )" || rc=$?
   if [ "$rc" -ne 0 ]; then
     printf 'FATAL: the guard does not pass on an UNMODIFIED tree (pytest exit %s).\n' "$rc"
     printf 'Every case below would report "GUARD DID NOT FIRE" and mean nothing,\n'

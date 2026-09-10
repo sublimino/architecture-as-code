@@ -264,3 +264,49 @@ func (m *MemoryRepository) GetActiveGraphForActorAsOf(ctx context.Context, actor
 		AsOf:                   asOf,
 	}, nil
 }
+
+// FindTransitiveDelegations resolves arbitrary-depth delegation chains in memory,
+// enforcing strict cycle detection and max-depth clamping.
+func (m *MemoryRepository) FindTransitiveDelegations(ctx context.Context, delegateID string, asOf time.Time, maxDepth int) ([]DelegationRecord, bool, error) {
+	if maxDepth <= 0 || maxDepth > 8 {
+		maxDepth = 8
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var (
+		path          []DelegationRecord
+		visited       = make(map[string]bool)
+		currentID     = delegateID
+		cycleDetected = false
+	)
+	visited[currentID] = true
+
+	for depth := 1; depth <= maxDepth; depth++ {
+		var nextDel *DelegationRecord
+		for _, d := range m.delegations {
+			if d.DelegateActorID == currentID && d.IsActiveAt(asOf) {
+				cp := d
+				nextDel = &cp
+				break
+			}
+		}
+		if nextDel == nil {
+			break
+		}
+
+		if visited[nextDel.PrincipalActorID] {
+			cycleDetected = true
+			path = append(path, *nextDel)
+			break
+		}
+
+		path = append(path, *nextDel)
+		visited[nextDel.PrincipalActorID] = true
+		currentID = nextDel.PrincipalActorID
+	}
+
+	return path, cycleDetected, nil
+}
+

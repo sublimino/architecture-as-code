@@ -28,10 +28,12 @@ type AuthorizationChainResponse struct {
 	AttestationGitoid string               `json:"attestationGitoid"`
 	Complete          bool                 `json:"complete"`
 	ActorID           string               `json:"actorId,omitempty"`
-	CanonicalID       string               `json:"canonicalId,omitempty"`
-	Aliases           []string             `json:"aliases,omitempty"`
-	EvidenceChain     []model.EvidenceLink `json:"evidenceChain,omitempty"`
-	Timestamp         *time.Time           `json:"timestamp,omitempty"`
+	CanonicalID       string                      `json:"canonicalId,omitempty"`
+	Aliases           []string                    `json:"aliases,omitempty"`
+	EvidenceChain     []model.EvidenceLink        `json:"evidenceChain,omitempty"`
+	DelegationChain   []identity.DelegationRecord `json:"delegationChain,omitempty"`
+	CycleDetected     bool                        `json:"cycleDetected,omitempty"`
+	Timestamp         *time.Time                  `json:"timestamp,omitempty"`
 }
 
 // AuthorizationQueryResponse wraps estate-wide authorization chain queries.
@@ -160,20 +162,33 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 	}
 
 	// Check IdentityStore repository if available
+	var delegationChain []identity.DelegationRecord
+	cycleDetected := false
+
 	if h.IdentityStore != nil {
 		if repo, ok := h.IdentityStore.(identity.Repository); ok {
 			now := time.Now().UTC()
 			if actor.ResolvedAt != nil && !actor.ResolvedAt.IsZero() {
 				now = *actor.ResolvedAt
 			}
-			delegations, err := repo.GetDelegationsForDelegateAsOf(ctx, actor.ID, now)
-			if err == nil && len(delegations) > 0 {
-				del := delegations[0]
-				if isSelfIdentity(principal, actor) {
-					principal = del.PrincipalActorID
+			dels, isCycle, err := repo.FindTransitiveDelegations(ctx, actor.ID, now, 8)
+			if err == nil && len(dels) > 0 {
+				delegationChain = dels
+				cycleDetected = isCycle
+				terminalPrincipal := dels[len(dels)-1].PrincipalActorID
+				if isSelfIdentity(principal, actor) || len(dels) > 1 {
+					principal = terminalPrincipal
 				}
 				if actsOnBehalfOf == "" {
-					actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", del.DelegateActorID, del.PrincipalActorID, del.AuthzRef)
+					if len(dels) == 1 {
+						actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", dels[0].DelegateActorID, dels[0].PrincipalActorID, dels[0].AuthzRef)
+					} else {
+						var hops []string
+						for _, d := range dels {
+							hops = append(hops, fmt.Sprintf("%s -> %s", d.DelegateActorID, d.PrincipalActorID))
+						}
+						actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s via chain [%s]", agentIdentity, terminalPrincipal, strings.Join(hops, ", "))
+					}
 				}
 			}
 			// Also check by canonical ID and aliases
@@ -183,14 +198,24 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 					if candidate == "" {
 						continue
 					}
-					aliasDels, err := repo.GetDelegationsForDelegateAsOf(ctx, candidate, now)
+					aliasDels, isCycle, err := repo.FindTransitiveDelegations(ctx, candidate, now, 8)
 					if err == nil && len(aliasDels) > 0 {
-						del := aliasDels[0]
-						if isSelfIdentity(principal, actor) {
-							principal = del.PrincipalActorID
+						delegationChain = aliasDels
+						cycleDetected = isCycle
+						terminalPrincipal := aliasDels[len(aliasDels)-1].PrincipalActorID
+						if isSelfIdentity(principal, actor) || len(aliasDels) > 1 {
+							principal = terminalPrincipal
 						}
 						if actsOnBehalfOf == "" {
-							actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", del.DelegateActorID, del.PrincipalActorID, del.AuthzRef)
+							if len(aliasDels) == 1 {
+								actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", aliasDels[0].DelegateActorID, aliasDels[0].PrincipalActorID, aliasDels[0].AuthzRef)
+							} else {
+								var hops []string
+								for _, d := range aliasDels {
+									hops = append(hops, fmt.Sprintf("%s -> %s", d.DelegateActorID, d.PrincipalActorID))
+								}
+								actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s via chain [%s]", agentIdentity, terminalPrincipal, strings.Join(hops, ", "))
+							}
 						}
 						break
 					}
@@ -354,6 +379,8 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 		CanonicalID:       actor.CanonicalID,
 		Aliases:           actor.Aliases,
 		EvidenceChain:     actor.EvidenceChain,
+		DelegationChain:   delegationChain,
+		CycleDetected:     cycleDetected,
 		Timestamp:         ts,
 	}
 }

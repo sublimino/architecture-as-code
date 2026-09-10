@@ -11,9 +11,12 @@ import (
 //go:embed migrations/001_identity_graph.sql
 var Migration001IdentityGraph string
 
+//go:embed migrations/002_delegation_indices.sql
+var Migration002DelegationIndices string
+
 // MigrationSQL returns the concatenated migration SQL scripts for external inspection or testing.
 func MigrationSQL() string {
-	return Migration001IdentityGraph
+	return Migration001IdentityGraph + "\n" + Migration002DelegationIndices
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -31,6 +34,10 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 
 	if _, err := tx.ExecContext(ctx, Migration001IdentityGraph); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 001: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, Migration002DelegationIndices); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 002: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

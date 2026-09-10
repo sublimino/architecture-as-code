@@ -99,6 +99,8 @@ type AsOfResolution struct {
 	MatchedAlias      *AliasRecord            `json:"matched_alias,omitempty"`
 	ActiveAliases     []AliasRecord           `json:"active_aliases"`
 	ActiveDelegations []DelegationRecord      `json:"active_delegations"`
+	DelegationPath    []DelegationRecord      `json:"delegation_path,omitempty"`
+	CycleDetected     bool                    `json:"cycle_detected,omitempty"`
 	ProvisionalActor  *model.ProvisionalActor `json:"provisional_actor"`
 	AsOf              time.Time               `json:"as_of"`
 }

@@ -104,13 +104,17 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
   - `SLON-P1-1` (`5a2f9`, Onboarding API Client Live Wiring, Commit `ad2fec79`): **`done`**. Deliverable verified at `docs/signalloom/slon-p1-1-evidence.md`. All mock fallbacks eliminated; PostgreSQL round-trip assertions passing.
   - `SLON-P1-2` (`0ad83`, Dashboard Sidebar 3-Tier Hierarchy, Commit `26eef1b9`): **`done`**. Deliverable verified at `docs/signalloom/slon-p1-2-evidence.md`. Strict View/Control/Design categories, persistent Onboarding/Help anchors, distinct SVGs, and Playwright spec added.
   - `SLON-P1-3` (`1c4bb`, First User Onboarding Wizard Flow, Commit `8b28a25d`): **`done`**. Deliverable verified at `docs/signalloom/slon-p1-3-evidence.md`. 3-step wizard flow, celebratory completion, live DB persistence, and Playwright acceptance test suite added.
-  - `SLON-P1-GOV` (`e80e2`, Phase 1 Governor Reconciliation & Certification): **`certified`**. All deliverables integrated into `integration/slon-v0.1.0`. Evidence: `docs/signalloom/slon-p1-governor-report.md`. Ready for operator confirmation in `review`.
+  - `SLON-P1-GOV` (`e80e2`, Phase 1 Governor Reconciliation & Certification): **`done`**. All deliverables integrated into `integration/slon-v0.1.0`. Evidence: `docs/signalloom/slon-p1-governor-report.md`. Phase 1 fully closed.
 
 ---
 
-## 4. Phase 2 Preview: Dual Demo Agents & Isolated Smoke Test
+## 4. Active Phase Status: Phase 2 (Dual Demo Agents & Isolated Smoke Test)
 
-1. \`SLON-P2-PRE\` (\`355e8\`): Preflight verification of SPIFFE provider, OpenBao JWT roles, and Nono capability probe.
+- **Active Implementation / Preflight Card**:
+  - `SLON-P2-PRE` (`355e8`, Preflight Verification): **`in_progress`** in worktree `/home/andy/.cline/worktrees/355e8/osramp-demo` (PID 3976291, Google Antigravity).
+
+- **Phase 2 Pipeline**:
+1. `SLON-P2-PRE` (`355e8`): Preflight verification of SPIFFE provider, OpenBao JWT roles, and Nono capability probe. [ACTIVE]
 2. \`SLON-P2-1\` (\`c1ce1\`): Deploy \`agent-nono-evidenced\` and \`agent-standard-baseline\` into \`fe-signalloom-agents\`.
 3. \`SLON-P2-2\` (\`254f7\`): Implement \`probe-nono-capability.sh\` dynamic detection and signed audit session telemetry ingest.
 4. \`SLON-P2-3\` (\`46bb8\`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry.

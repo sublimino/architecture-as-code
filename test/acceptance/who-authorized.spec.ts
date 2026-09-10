@@ -119,7 +119,7 @@ test.describe("Weave Who-Authorized Authorization Chain Query", () => {
   });
 
   test("Agent Dossier Tab 2 (Identity & SPIFFE) embeds 7-hop attested authorization chain and stepped delegator hierarchy", async ({ page }) => {
-    await page.goto(`${BASE}/agents/agent-cardvault?tab=identity`);
+    await page.goto(`${BASE}/agents/agent-triage?tab=identity`);
     await expect(page.getByTestId("dossier-panel-identity")).toBeVisible();
 
     // Verify WhoAuthorizedPanel embedded in Tab 2

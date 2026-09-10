@@ -27,6 +27,8 @@ func TestMigrationSQL_SyntaxAndStructure(t *testing.T) {
 		"chk_delegations_no_self",
 		"chk_delegations_valid_window",
 		"idx_delegations_transitive_traversal",
+		"idx_aliases_idempotent_seed",
+		"idx_delegations_idempotent_seed",
 	}
 
 	for _, snippet := range requiredSnippets {

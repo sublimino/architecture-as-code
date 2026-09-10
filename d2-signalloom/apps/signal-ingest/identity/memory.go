@@ -108,6 +108,13 @@ func (m *MemoryRepository) AddAlias(ctx context.Context, alias AliasRecord) erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Idempotent check: if identical alias exists at valid_from, do not duplicate
+	for _, a := range m.aliases {
+		if a.ActorID == alias.ActorID && a.AliasType == alias.AliasType && a.AliasValue == alias.AliasValue && a.ValidFrom.Equal(alias.ValidFrom) {
+			return nil
+		}
+	}
+
 	// Structural Never-Merge Check: Reject if alias equates actor with any of its delegation partners
 	for _, d := range m.delegations {
 		if d.DelegateActorID == alias.ActorID && d.PrincipalActorID == alias.AliasValue {
@@ -185,6 +192,13 @@ func (m *MemoryRepository) AddDelegation(ctx context.Context, delegation Delegat
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Idempotent check: if identical delegation exists at valid_from, do not duplicate
+	for _, d := range m.delegations {
+		if d.DelegateActorID == delegation.DelegateActorID && d.PrincipalActorID == delegation.PrincipalActorID && d.ValidFrom.Equal(delegation.ValidFrom) {
+			return nil
+		}
+	}
+
 	// Structural Never-Merge Check: Reject if there is already an alias equating delegate and principal
 	for _, a := range m.aliases {
 		if (a.ActorID == delegation.DelegateActorID && a.AliasValue == delegation.PrincipalActorID) ||
@@ -195,6 +209,26 @@ func (m *MemoryRepository) AddDelegation(ctx context.Context, delegation Delegat
 	}
 
 	m.delegations = append(m.delegations, delegation)
+	return nil
+}
+
+// ClampDelegation terminates any active delegation matching delegateOrAuthzRef by clamping valid_to = clampTime.
+func (m *MemoryRepository) ClampDelegation(ctx context.Context, delegateOrAuthzRef string, clampTime time.Time) error {
+	if clampTime.IsZero() {
+		clampTime = time.Now().UTC()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i := range m.delegations {
+		d := &m.delegations[i]
+		if d.AuthzRef == delegateOrAuthzRef || d.DelegateActorID == delegateOrAuthzRef {
+			if d.ValidTo == nil || d.ValidTo.After(clampTime) {
+				t := clampTime
+				d.ValidTo = &t
+			}
+		}
+	}
 	return nil
 }
 

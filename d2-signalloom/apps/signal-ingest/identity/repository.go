@@ -34,6 +34,7 @@ type Repository interface {
 	GetDelegationsForDelegateAsOf(ctx context.Context, delegateID string, asOf time.Time) ([]DelegationRecord, error)
 	GetDelegationsForPrincipalAsOf(ctx context.Context, principalID string, asOf time.Time) ([]DelegationRecord, error)
 	FindTransitiveDelegations(ctx context.Context, delegateID string, asOf time.Time, maxDepth int) ([]DelegationRecord, bool, error)
+	ClampDelegation(ctx context.Context, delegateOrAuthzRef string, clampTime time.Time) error
 
 	GetActiveGraphForActorAsOf(ctx context.Context, actorID string, asOf time.Time) (*ActorGraphSnapshot, error)
 }
@@ -158,6 +159,7 @@ func (r *PostgresRepository) AddAlias(ctx context.Context, alias AliasRecord) er
 	const q = `
 		INSERT INTO aliases (actor_id, alias_type, alias_value, alias_value_hash, edge_fidelity, valid_from, valid_to, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (actor_id, alias_type, alias_value, valid_from) DO NOTHING
 		RETURNING id`
 
 	err := r.db.QueryRowContext(ctx, q,
@@ -171,6 +173,9 @@ func (r *PostgresRepository) AddAlias(ctx context.Context, alias AliasRecord) er
 		alias.CreatedAt,
 	).Scan(&alias.ID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
 		return fmt.Errorf("failed to add alias: %w", err)
 	}
 	return nil
@@ -272,6 +277,7 @@ func (r *PostgresRepository) AddDelegation(ctx context.Context, delegation Deleg
 	const q = `
 		INSERT INTO delegations (delegate_actor_id, principal_actor_id, authz_ref, valid_from, valid_to, metadata, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (delegate_actor_id, principal_actor_id, valid_from) DO NOTHING
 		RETURNING id`
 
 	err = r.db.QueryRowContext(ctx, q,
@@ -284,7 +290,27 @@ func (r *PostgresRepository) AddDelegation(ctx context.Context, delegation Deleg
 		delegation.CreatedAt,
 	).Scan(&delegation.ID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
 		return fmt.Errorf("failed to add delegation: %w", err)
+	}
+	return nil
+}
+
+// ClampDelegation terminates any active delegation matching delegateOrAuthzRef by clamping valid_to = clampTime.
+func (r *PostgresRepository) ClampDelegation(ctx context.Context, delegateOrAuthzRef string, clampTime time.Time) error {
+	if clampTime.IsZero() {
+		clampTime = time.Now().UTC()
+	}
+	const q = `
+		UPDATE delegations
+		   SET valid_to = $2
+		 WHERE (authz_ref = $1 OR delegate_actor_id = $1)
+		   AND (valid_to IS NULL OR valid_to > $2)`
+	_, err := r.db.ExecContext(ctx, q, delegateOrAuthzRef, clampTime)
+	if err != nil {
+		return fmt.Errorf("failed to clamp delegation: %w", err)
 	}
 	return nil
 }

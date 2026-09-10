@@ -245,7 +245,9 @@ export default function App() {
       const connectedCount = connectors.filter((c) => c.status === 'connected').length
       setTotalProviderCount(providers.length)
       setConnectedProviderCount(connectedCount)
-      setNeedsOnboarding(connectedCount === 0 && !onboardingStatus.skipped_at)
+      const isCompleted = onboardingStatus.status === 'completed' || Boolean(onboardingStatus.completed_at)
+      const isSkipped = onboardingStatus.status === 'skipped' || Boolean(onboardingStatus.skipped_at)
+      setNeedsOnboarding(connectedCount === 0 && !isCompleted && !isSkipped)
     } catch {
       setNeedsOnboarding(false)
     }

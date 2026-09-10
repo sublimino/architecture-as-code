@@ -38,7 +38,7 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import asyncpg
 from fastapi import APIRouter, Depends
@@ -80,7 +80,7 @@ router = APIRouter(prefix="/api", tags=["onboarding"])
 class OnboardingStatusResponse(BaseModel):
     skipped_at: str | None = None
     completed_at: str | None = None
-    status: str = "pending"
+    status: Literal["pending", "completed", "skipped"] = "pending"
 
 
 class ProviderRunState(BaseModel):

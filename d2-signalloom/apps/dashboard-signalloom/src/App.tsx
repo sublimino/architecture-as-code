@@ -126,6 +126,7 @@ export function useAppContext() {
  * the same word they just clicked.
  */
 const EXTRA_ROUTE_LABELS: Record<string, string> = {
+  '/overview': 'Overview',
   '/agents/:id': 'Agent',
   '/discovery': 'Discovery',
   '/discovery/accounts/:accountId': 'Account',

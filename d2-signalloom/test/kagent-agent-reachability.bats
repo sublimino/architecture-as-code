@@ -36,6 +36,11 @@ setup() {
   command -v yq >/dev/null || skip "yq is required"
 }
 
+teardown() {
+  kubectl delete pod "npcheck-pos-$$" -n "$KAGENT_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete pod "npcheck-neg-$$" -n default --ignore-not-found --wait=false >/dev/null 2>&1 || true
+}
+
 cluster_up() {
   kubectl get ns "$AGENT_NS" >/dev/null 2>&1
 }

@@ -9,6 +9,7 @@ const (
 	ActorProvisional ActorStatus = "provisional"
 	ActorActionable  ActorStatus = "actionable"
 	ActorPromoted    ActorStatus = "promoted"
+	ActorQuarantined ActorStatus = "quarantined"
 )
 
 // Actor is an alias for ProvisionalActor representing a resolved or provisional actor entity.
@@ -38,6 +39,9 @@ type ProvisionalActor struct {
 	DeclinedEdges []CorrelationEdge `json:"declined_edges,omitempty"`
 	Delegations   []CorrelationEdge `json:"delegations,omitempty"`
 	Lineage       []ActorLineage    `json:"lineage,omitempty"`
+
+	// Additive containment and quarantine fields (SFAS-P3-2).
+	QuarantineDetails *QuarantineRecord `json:"quarantine_details,omitempty"`
 }
 
 // EvidenceLink records one observation's contribution to an actor hypothesis.

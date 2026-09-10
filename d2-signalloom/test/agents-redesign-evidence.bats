@@ -18,32 +18,32 @@ setup() {
 }
 
 @test "sfagents-p1-3: migration 033 quarantine is idempotent and non-destructive" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_migrations.py"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_migrations.py"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-3: GET /api/audit is side-effect-free and idempotent under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_audit_get_is_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_audit_get_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-3: GET /api/agents/{id} returns 404 for unknown agent IDs without synthesizing" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_detail_returns_404_for_unknown_agent'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_detail_returns_404_for_unknown_agent'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-3: GET /api/health/crypto fails closed with 503 on collector outage" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_source_health_crypto_prover_fails_closed_with_503'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_source_health_crypto_prover_fails_closed_with_503'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-3: source_health headers and metadata are emitted on collector endpoints" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_source_health_header_and_metadata_emitted_on_agents_get'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_source_health_header_and_metadata_emitted_on_agents_get'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-3: posture score scale normalization is strictly 0.0-1.0 or None" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_posture_scale_normalized_zero_controls_is_none'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_posture_scale_normalized_zero_controls_is_none'"
   [ "$status" -eq 0 ]
 }
 
@@ -53,37 +53,37 @@ setup() {
 }
 
 @test "sfagents-p1-4: GET /api/agents preserves discovery metadata (namespace, SA, node, pod_uid, framework, phase)" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_preserves_discovery_fields'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_enriched_inventory_preserves_discovery_fields'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-4: GET /api/agents server-side search, namespace, framework, and attention filters" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_server_side_search_and_filters'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_enriched_inventory_server_side_search_and_filters'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-4: GET /api/agents pagination and meta metrics breakdown" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_pagination_and_meta'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_enriched_inventory_pagination_and_meta'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-4: GET /api/agents is strictly side-effect free (zero writes)" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_enriched_inventory_get_is_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_enriched_inventory_get_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-5: GET /api/capabilities returns server-authorized capabilities per tenant and role" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_capabilities_for_operator_user or test_capabilities_for_superadmin_user'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_capabilities_for_operator_user or test_capabilities_for_superadmin_user'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-5: GET /api/capabilities supports workload-scoped capabilities and returns 404 for unknown agents" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_capabilities_workload_scoped or test_capabilities_returns_404'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_capabilities_workload_scoped or test_capabilities_returns_404'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-5: GET /api/capabilities is strictly side-effect free (zero SQL writes)" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_capabilities_get_is_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_capabilities_get_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
@@ -103,7 +103,7 @@ setup() {
 }
 
 @test "sfagents-p1-6: backend operational inventory response envelope models pass contract" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_operational_inventory_response_envelope_and_models'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_operational_inventory_response_envelope_and_models'"
   [ "$status" -eq 0 ]
 }
 
@@ -118,12 +118,12 @@ setup() {
 }
 
 @test "sfagents-p1-7: backend AgentResponse models with drawer telemetry and metadata pass contract" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_response_model_with_drawer_telemetry_and_metadata'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_response_model_with_drawer_telemetry_and_metadata'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p1-7: GET /api/agents/{id} detail endpoint is strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_detail_get_is_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_detail_get_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
@@ -153,12 +153,12 @@ setup() {
 }
 
 @test "sfagents-p2-1: GET /api/agents/{id} detail endpoint preserves all Tab 1 metadata structures" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_detail_preserves_all_tab1_metadata'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_dossier_detail_preserves_all_tab1_metadata'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-1: GET /api/agents/{unknown_id} returns HTTP 404 without synthesizing fake records" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_unknown_id_fails_closed_with_404'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_dossier_unknown_id_fails_closed_with_404'"
   [ "$status" -eq 0 ]
 }
 
@@ -188,12 +188,12 @@ setup() {
 }
 
 @test "sfagents-p2-2: GET /api/agents/{id} returns enriched Tab 2 IdentityMetadata structures in Pytest" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_identity_spiffe_metadata_enrichment or test_dossier_identity_separation_of_planes'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_dossier_identity_spiffe_metadata_enrichment or test_dossier_identity_separation_of_planes'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-2: GET /api/agents/{id} identity queries are strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_dossier_identity_get_is_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_dossier_identity_get_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
@@ -220,12 +220,12 @@ setup() {
 }
 
 @test "sfagents-p2-3: backend GET /api/capabilities and containment tracks pass Pytest contract" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab3_access_containment_tracks_models_and_telemetry or test_tab3_capabilities_workload_scoped_rbac_and_invariants'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_tab3_access_containment_tracks_models_and_telemetry or test_tab3_capabilities_workload_scoped_rbac_and_invariants'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-3: backend GET /api/capabilities is strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab3_capabilities_is_strictly_side_effect_free_under_rfc9110'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_tab3_capabilities_is_strictly_side_effect_free_under_rfc9110'"
   [ "$status" -eq 0 ]
 }
 
@@ -245,22 +245,22 @@ setup() {
 }
 
 @test "sfagents-p2-4: GET /api/compliance/posture is strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_compliance_posture_is_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_tab4_compliance_posture_is_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-4: GET /api/compliance/frameworks returns EU AI Act and Article 9 controls" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_compliance_frameworks_returns_article9'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_tab4_compliance_frameworks_returns_article9'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-4: POST /api/agents/{id}/compliance/{control_id}/reassess records audit truthfully" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_compliance_reassess_records_audit_honestly'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_tab4_compliance_reassess_records_audit_honestly'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-4: GET /api/agents/{id} detail endpoint preserves assessment_summary structure" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_tab4_agent_detail_preserves_assessment_summary'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_tab4_agent_detail_preserves_assessment_summary'"
   [ "$status" -eq 0 ]
 }
 
@@ -285,22 +285,22 @@ setup() {
 }
 
 @test "sfagents-p2-5: GET /api/agents/{id}/audit/stream fails closed with 404 for unknown agents" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_audit_stream_returns_404_for_unknown_agent'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_audit_stream_returns_404_for_unknown_agent'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-5: GET /api/agents/{id}/audit/stream returns SSE stream for valid agent" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_audit_stream_for_valid_agent'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_audit_stream_for_valid_agent'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-5: GET /api/audit preserves attributable identity plane metadata" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_audit_events_contain_attributable_identity_plane_metadata'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_audit_events_contain_attributable_identity_plane_metadata'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-5: GET /api/audit/stream is strictly side-effect free (zero SQL writes)" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_audit_stream_is_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_audit_stream_is_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
@@ -310,12 +310,12 @@ setup() {
 }
 
 @test "sfagents-p2-6: Secondary filters on /api/agents (lifecycle_state, spiffe_id) filter server-side in Pytest" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agents_filter_by_lifecycle_state_and_spiffe_id'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_get_agents_filter_by_lifecycle_state_and_spiffe_id'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p2-6: Secondary filters on /api/agents are strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agents_deep_link_filters_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_get_agents_deep_link_filters_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
@@ -325,17 +325,17 @@ setup() {
 }
 
 @test "sfagents-p3-1: GET /api/agents/{id}/telemetry supports pushdown filters (layer, source, limit)" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_telemetry_pushdown_filters'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_telemetry_pushdown_filters'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p3-1: GET /api/agents/{id}/telemetry is strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_telemetry_endpoint_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_telemetry_endpoint_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p3-1: GET /api/agents/{id}/telemetry fails closed with 404 for unknown agent" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_telemetry_unknown_agent_404'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_telemetry_unknown_agent_404'"
   [ "$status" -eq 0 ]
 }
 
@@ -345,17 +345,17 @@ setup() {
 }
 
 @test "sfagents-p3-2: GET /api/agents/{id} returns Sentinel kernel telemetry with ACK and containment probe state" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_agent_sentinel_containment_feedback_model'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_agent_sentinel_containment_feedback_model'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p3-2: POST /api/agents/{id}/stun returns Sentinel ACK feedback and probe state" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_post_agent_stun_returns_sentinel_containment_feedback'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_post_agent_stun_returns_sentinel_containment_feedback'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p3-2: GET /api/agents/{id} kernel telemetry endpoint is strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_detail_returns_sentinel_telemetry_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_get_agent_detail_returns_sentinel_telemetry_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
@@ -365,22 +365,22 @@ setup() {
 }
 
 @test "sfagents-p3-4: GET /api/agents/{id} returns origin and origin_verification side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_detail_returns_origin_and_verification_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_get_agent_detail_returns_origin_and_verification_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p3-4: GET /api/agents/{id}/origin-verification returns OriginVerificationMetadata in Pytest" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_origin_verification_endpoint_for_db_agent'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_get_agent_origin_verification_endpoint_for_db_agent'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p3-4: GET /api/agents/{id}/origin-verification fails closed with 404 for unknown agent" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_origin_verification_404_for_unknown_agent'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_get_agent_origin_verification_404_for_unknown_agent'"
   [ "$status" -eq 0 ]
 }
 
 @test "sfagents-p3-4: GET /api/agents/{id}/origin-verification is strictly side-effect free under RFC 9110" {
-  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_api_compat.py -k 'test_get_agent_origin_verification_strictly_side_effect_free'"
+  run bash -c "cd '${SRC_DIR}' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=/tmp/uv-cache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -o addopts="" tests/test_api_compat.py -k 'test_get_agent_origin_verification_strictly_side_effect_free'"
   [ "$status" -eq 0 ]
 }
 

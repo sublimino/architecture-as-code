@@ -880,9 +880,10 @@ BODY_TENANT_FIELDS_KNOWN_OVERWRITTEN = {
 # test_unauthenticated_claim_by_id_is_refused below.  Listed separately from the
 # set above on purpose: an "examined" allowlist that quietly absorbed a live
 # vulnerability would be worse than no allowlist at all.
-BODY_TENANT_FIELDS_OPEN_FINDINGS = {
-    ("AgentClaimByIdRequest", "tenant_id"),
-}
+# All previously open findings (F-2: AgentClaimByIdRequest.tenant_id) resolved.
+# Any newly discovered tenant-named body field not in the known-overwritten
+# set must be investigated and resolved immediately.
+BODY_TENANT_FIELDS_OPEN_FINDINGS: set[tuple[str, str]] = set()
 
 
 def test_every_tenant_named_body_field_is_proven_overwritten():
@@ -954,15 +955,6 @@ def test_every_tenant_named_body_field_is_proven_overwritten():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FINDING F-2, OPEN — unauthenticated claim-by-id. Escalated under the card's "
-        "STOP condition; deliberately NOT patched by SLON-P3-2. When this is fixed the "
-        "test XPASSes, strict=True turns that into a failure, and whoever fixed it must "
-        "remove this marker. That is the intended forcing function."
-    ),
-)
 def test_unauthenticated_claim_by_id_is_refused(client):
     """F-2 — ``POST /api/{v1/,}agents/{agent_id}/claim`` has no authentication gate.
 

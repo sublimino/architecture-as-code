@@ -105,6 +105,10 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | `2026-09-10T11:28:00Z` | `governor` | `SLON_P2_3_MERGED` | Merged `SLON-P2-3` (`a10a77c3`) into `integration/slon-v0.1.0` (merge commit `8df0c196`). Delivered ClaimModal, backend claim endpoints, migration 036_agent_claims.sql, workload security badges, and side-by-side comparative telemetry. Card moved to `done`. |
 | `2026-09-10T11:37:00Z` | `governor` | `DISPATCH_PHASE_2_GOV` | Dispatched `SLON-P2-GOV` (`c0fa6`, Phase 2 Governor Reconciliation & Certification) in dedicated worktree. Verified all automated test gates: smoke test (< 12s), API tests (56/56), dual agents BATS (7/7), Nono fallback BATS (10/10), vitest (43/43), dashboard build (clean), ingress rollout DB persistence. |
 | `2026-09-10T11:40:00Z` | `governor` | `PHASE_2_CERTIFIED` | Phase 2 Governor reconciliation certified (commit `f76b9bd2`). Evidence recorded in `docs/signalloom/slon-p2-governor-report.md`. Phase 2 100% complete and closed. Ready for Phase 3 dispatch. |
+| `2026-09-10T11:45:00Z` | `governor` | `DISPATCH_PHASE_3_PRE` | Dispatched `SLON-P3-PRE` (`b5c28`, Preflight Verification) in isolated worktree `/home/andy/.cline/worktrees/b5c28/osramp-demo`. |
+| `2026-09-10T11:54:30Z` | `SLON-P3-PRE` | `PREFLIGHT_FAIL_REPORTED` | Identified missing docs portal on `integration/slon-v0.1.0` (present only on unmerged `feat/signal-loop-and-bootstrap-refactor`). Authored 4 companion analysis documents; recorded blocker errata (commit `376e64d5`). |
+| `2026-09-10T11:57:00Z` | `governor` | `SCOPED_SUBTREE_ADOPTED` | Governor executed Option 1 (Scoped subtree adoption): checked out documentation portal slice (`d2-signalloom/apps/docs-signalloom/**`), manifests, routes, policies, scripts, and tests into `integration/slon-v0.1.0` (commit `a8e8c929`). Verified 9/9 BATS and clean 14-page Astro build. |
+| `2026-09-10T11:58:17Z` | `governor` | `PHASE_3_PREFLIGHT_CERTIFIED` | Preflight verified and certified PASS in `docs/signalloom/slon-p3-preflight-proof.md` (commit `fec54087`). Errata updated. Card moved from `review` to `done`. Phase 3 unblocked. |
 
 ---
 
@@ -133,11 +137,11 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 
 ## 5. Active Phase Status: Phase 3 (Documentation Portal & Adversarial Verification)
 
-- **Phase 3 Pipeline**:
-1. `SLON-P3-PRE` (`b5c28`): Preflight verification of Astro documentation build substrate, Starlight routing, and network policy audit tools. [PENDING]
-2. `SLON-P3-1` (`6fd81`): Author Signal Loom first user and agent onboarding guides in `d2-signalloom/apps/docs-signalloom`. [PENDING]
-3. `SLON-P3-2` (`82aa3`): Implement adversarial tenant isolation and nono confinement verification test suites. [PENDING]
-4. `SLON-P3-GOV` (`5ab6e`): Phase 3 Governor reconciliation, documentation deployment verification, and final quality certification report. [PENDING]
+- **Phase 3 Status**:
+  - `SLON-P3-PRE` (`b5c28`, Preflight Verification, Commit `fec54087`): **`done`** (certified). Preflight identified missing documentation portal on integration branch; Governor resolved via scoped subtree adoption (commit `a8e8c929`), verified 9/9 docs BATS and clean 14-page Astro build, and certified PASS in `docs/signalloom/slon-p3-preflight-proof.md` (commit `fec54087`). Phase 3 unblocked.
+  - `SLON-P3-1` (`6fd81`, Author User & Dual-Agent Onboarding Guides): `backlog` / ready for dispatch.
+  - `SLON-P3-2` (`82aa3`, Adversarial Tenant Isolation & Nono Confinement Verification): `backlog` / ready for dispatch.
+  - `SLON-P3-GOV` (`5ab6e`, Phase 3 Governor Reconciliation & Final Certification): `backlog` (awaits P3-1, P3-2).
 
 ---
 

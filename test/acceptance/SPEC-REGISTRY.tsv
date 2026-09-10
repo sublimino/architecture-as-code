@@ -72,6 +72,7 @@ kagent-agents.spec.ts	suite-only	Drives the /agents page against the live Kagent
 live-data.spec.ts	ci:stage8b	Walks every data-driven route with demo fixtures DISABLED and fails on any 4xx/5xx from an API call. Runs in stage8b beside smoke.spec.ts because both are `smoke`-project specs that log themselves in; stage8b passes both filenames, since acceptance-test.sh forwards "$@" to playwright as a filename filter and a spec not named there never runs.
 rbac-analysis.spec.ts	suite-only	Behind guards.afmDeployed(). One test, SKIP without the k8s-afm slice.
 rbac-explorer.spec.ts	suite-only	Behind guards.afmDeployed(). Ten tests, all SKIP without the k8s-afm slice.
+sfas-dossier-authorization.spec.ts	suite-only	Asserts 7-hop complete authorization chain, completeness badge, and instant proof drawer drill-down in Agent Dossier Tabs 2 and 5 against live demo cluster.
 signal-loom-baoaudit.spec.ts	suite-only	Drives Weave dashboard to verify OpenBao cryptographic identity audit stream panel, SVID lease tracking, and out-of-role vault access filtering.
 signal-loom-netebpf.spec.ts	suite-only	Drives Weave dashboard to verify live eBPF Sentinel status bar, provider breakdown badges, and fail-closed telemetry gap alert banner. Requires demo-signalloom-up.
 signalloom-login.spec.ts	suite-only	Three of its four tests re-prove Dex login/logout, which stage 8 already covers via signalloom-test-1.spec.ts's Dex contracts; the fourth needs AFM. Cheap, and the best candidate for the next stage — but adding it today buys duplicate coverage rather than new coverage.

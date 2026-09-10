@@ -2278,6 +2278,7 @@ async def _ensure_tenant_settings(executor: Any, tenant_id: str) -> asyncpg.Reco
 # In-memory fixture stores (kept for graceful fallback when DB unavailable)
 # ---------------------------------------------------------------------------
 
+NHI_ACTOR = "nhi-service"
 _STORE_LOCK = threading.Lock()
 _AGENTS: dict[str, dict[str, dict[str, Any]]] = {}
 _AGENT_CREDENTIALS: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -6257,7 +6258,7 @@ async def dismiss_nhi_account(
                WHERE id = $1 AND tenant_id = $2""",
             a_uuid, tenant_id, principal.actor,
         )
-        await _audit_log(conn, tenant_id, "nhi.dismissed", None, None, principal.actor, {"account_id": account_id})
+        await _audit_log(conn, tenant_id, "nhi.dismissed", None, None, NHI_ACTOR, {"account_id": account_id})
     return {"account_id": account_id, "status": "dismissed"}
 
 

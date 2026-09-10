@@ -213,6 +213,69 @@ The suite asserts on HTTP status, on exact `<h1>` text, and on the presence of t
 for each new slug — so a 404 shell, an empty render, and an unwired sidebar entry each fail
 distinctly.
 
+### The regression this nearly shipped
+
+The first version of the `docs` Playwright project was unconditional. `scripts/acceptance-test.sh`
+runs `bunx playwright test` with **no `--project`**, so `make acceptance-test` would have claimed
+the docs project and failed 5/5 against a preview server nobody started — a lane that was green
+before this card, red after it, for a reason unrelated to any assertion.
+
+Unlike every other project in that config, the docs project's precondition is not a running
+cluster and is therefore not satisfied by `make demo-signalloom-up`. The project is now gated on
+`DOCS_BASE_URL`, and `make docs-render-check` is the target that supplies it. Both directions are
+proven:
+
+```text
+$ bunx playwright test --list                             # no DOCS_BASE_URL
+Total: 125 tests in 27 files          ← docs project absent, 0 [docs] entries
+
+$ DOCS_BASE_URL=... bunx playwright test --list
+Total: 130 tests in 28 files          ← docs project present, 5 [docs] entries
+```
+
+`docs.spec.ts` is claimed by exactly one project, and the `docs` project claims no other spec
+(`bunx playwright test --list --project=docs` lists `docs.spec.ts` only).
+
+### The whole target, end to end
+
+```text
+$ make docs-render-check
+==> [1/4] Building the documentation portal
+[build] 18 page(s) built in 1.21s
+==> [2/4] Auditing internal links in the build
+link-audit: self-test passed — a non-resolvable link is detected.
+link-audit: base=/docs pages=18 internal_links_checked=491
+link-audit: 0 unresolved internal links.
+==> [3/4] Serving dist on 127.0.0.1:4325
+    ✓ preview server ready
+==> [4/4] Rendering the docs pages in Chromium
+  5 passed (1.9s)
+✅ Documentation portal built, link-audited and render-checked.
+MAKE_EXIT=0
+```
+
+### The Mermaid assertion is a render check, not a shape check
+
+`Mermaid.astro` emits `<pre class="mermaid">` and swaps it for an `<svg>` client-side. Asserting
+the container exists would pass with the diagram script deleted. The spec asserts the rendered
+`<svg>` with non-zero dimensions instead. Falsified against a page that has no diagram:
+
+```text
+nono-optionality (HAS diagram)     mermaid_svg_count=1 box=598x1669
+reference/glossary (NO diagram)    mermaid_svg_count=0 box=null
+```
+
+### The coverage guard is not vacuous either
+
+Removing the `docs.spec.ts` row from `SPEC-REGISTRY.tsv` and re-running:
+
+```text
+not ok 2 every spec on disk has exactly one registry row, and every row has a spec
+GUARD_WITHOUT_ROW=1
+```
+
+Row restored; guard back to 7/7.
+
 ### Environment note
 
 `PW_CHANNEL=chromium` is required in this sandboxed shell. Real branded Chrome at
@@ -248,6 +311,14 @@ PASS  /api/v1/agents/{agent_id}/telemetry
 Source of truth for each: `d2-signalloom/apps/fe-signalloom/src/api_compat.py` route decorators
 (lines 3992–4205) and `d2-signalloom/apps/dashboard-signalloom/src/api/agentClaim.ts`.
 
+The search that produced this used `--include='*.py' --include='*.ts' --include='*.tsx'
+--include='*.go' --include='*.sh' --include='*.yaml' --include='*.conf'`, which excludes `*.mdx`
+and therefore cannot match the prose against itself. Re-run with the docs tree explicitly filtered
+out, each endpoint still lands 17–108 times in route-registration and client code.
+
+`security/nono-optionality` is the page making normative security claims, and prose is the layer
+no test asserts. Each was re-read against source rather than against a test name:
+
 Other load-bearing facts and where they were read from:
 
 | Claim in the docs | Verified against |
@@ -260,6 +331,10 @@ Other load-bearing facts and where they were read from:
 | Fallback warning text and `nono_capability_available:false` | same script, `probe_nono_capability()` fallback branch |
 | `NONO_FORCE_FALLBACK`, `NONO_BIN`, `NONO_AUDIT_OUT`, `SPIFFE_SOCKET`, `HEARTBEAT_INTERVAL` defaults | same script, configuration defaults block |
 | Smoke suite is three stages with a 90s SLA on ports 30754 / 15556 / 18000 | `scripts/demo-signalloom-smoke.sh` |
+| Confined path execs `nono run --audit-out <path>` | `probe-nono-capability.sh:216`, the literal `exec` line |
+| Backend rejects a broken chain with HTTP 400 | `audit_ingest.py:328-336`, `APIError(400, "hash_chain_verification_failed")` |
+| Backend rejects a forged signature with HTTP 400 | `audit_ingest.py:338-345`, `APIError(400, "signature_verification_failed")` |
+| Verification precedes persistence | `audit_ingest.py` — both checks raise before the step commented `# 3. Persistence` |
 
 ---
 
@@ -272,6 +347,20 @@ Other load-bearing facts and where they were read from:
 | No push to any remote, no pull request | none issued |
 | No cluster mutation | read-only `kubectl get` only |
 | No invented API endpoint | §7, 0 orphans |
+| No previously-green lane broken | `make acceptance-test` claims 125 tests / 27 files, unchanged from before this card |
+
+### Declared scope additions
+
+Two things were added that the card did not name, both because a stated acceptance criterion
+could not otherwise be met honestly:
+
+1. **`public/favicon.svg`** — creates a new directory in the docs app. Without it, "zero broken
+   internal links" is only reachable by teaching the auditor to skip assets, which is a vacuous
+   pass. §4 has the finding. The Dockerfile's `COPY . .` carries `public/` into the image and the
+   file appears in `dist/favicon.svg`, so the deployed artifact is fixed too, not just the local
+   build.
+2. **`scripts/docs-render-check.sh` + `make docs-render-check`** — required to keep the browser
+   check runnable without breaking `make acceptance-test`. See §6.
 
 ---
 

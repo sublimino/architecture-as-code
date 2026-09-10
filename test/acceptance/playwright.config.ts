@@ -250,9 +250,21 @@ export default defineConfig({
         video: "off",
       },
     },
-    {
-      // The static documentation portal. Its own project because it is the one
-      // suite here that must NOT touch the cluster.
+    // The static documentation portal. Opt-in on DOCS_BASE_URL, and that gate
+    // is load-bearing rather than stylistic: scripts/acceptance-test.sh runs
+    // `bunx playwright test` with no --project, so an unconditional docs
+    // project would be claimed by `make acceptance-test` and fail 5/5 against
+    // a preview server nobody started. Its precondition is a built dist being
+    // served, which `make demo-signalloom-up` does not provide, so unlike every
+    // other project here it cannot ride the cluster lane. `make
+    // docs-render-check` sets DOCS_BASE_URL, builds, serves and runs it.
+    //
+    // The spec-coverage guard reads this file as text, so the testMatch below
+    // is visible to it whether or not the ternary includes the project — the
+    // spec reads as wired, which it is whenever it is meant to run.
+    ...(process.env.DOCS_BASE_URL ? [{
+      // Its own project because it is the one suite here that must NOT touch
+      // the cluster.
       //
       // It carries no `dependencies: ["setup"]` and no storageState on purpose:
       // /docs is unauthenticated static HTML, so a Dex auth dependency would
@@ -273,7 +285,7 @@ export default defineConfig({
         channel: CHANNEL,
         video: "off",
       },
-    },
+    }] : []),
   ],
   // The junit reporter is added only when CI asks for it by setting
   // PLAYWRIGHT_JUNIT_OUTPUT_FILE, so local runs keep the list + html output

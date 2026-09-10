@@ -50,17 +50,25 @@ export const test = base.extend({
       diagnostics.push({ kind: "pageerror", message: error.stack ?? error.message });
     });
     page.on("requestfailed", (request) => {
-      diagnostics.push({
-        kind: "requestfailed",
-        message: `${request.method()} ${request.url()} — ${request.failure()?.errorText ?? "unknown error"}`,
-      });
+      try {
+        diagnostics.push({
+          kind: "requestfailed",
+          message: `${request.method()} ${request.url()} — ${request.failure()?.errorText ?? "unknown error"}`,
+        });
+      } catch {
+        /* connection closed */
+      }
     });
     page.on("response", (response) => {
-      if (response.status() >= 400) {
-        diagnostics.push({
-          kind: "http-error",
-          message: `${response.status()} ${response.request().method()} ${response.url()}`,
-        });
+      try {
+        if (response.status() >= 400) {
+          diagnostics.push({
+            kind: "http-error",
+            message: `${response.status()} ${response.request().method()} ${response.url()}`,
+          });
+        }
+      } catch {
+        /* connection closed */
       }
     });
 

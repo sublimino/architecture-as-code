@@ -1,0 +1,138 @@
+---
+title: Onboard as a first user
+description: Complete the three-step Signal Loom onboarding wizard, from first sign-in to the Overview page.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Complete this guide the first time you sign in to Signal Loom. It takes you from
+the Dex sign-in page, through the three-step onboarding wizard, to the Overview
+page. Allow about five minutes.
+
+## Before you start
+
+You need:
+
+- A Signal Loom URL and a Dex account that can sign in to it.
+- The name you want to give your organisation. Signal Loom records this as the
+  tenant identity.
+- The identity provider details you want to link, if you plan to link one now.
+
+:::note
+You can skip the wizard and complete it later. Signal Loom records the skip on
+the server, so the wizard does not reappear on the next sign-in.
+:::
+
+## What onboarding records
+
+Onboarding writes to the server, not to the browser. The dashboard holds no
+authoritative onboarding state in module memory or in local storage. Every
+status check resolves through the API, and every transition is an explicit
+mutation.
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/api/onboarding/status` | `GET` | Report whether this operator has completed or skipped onboarding. |
+| `/api/onboarding/state` | `GET` | Read the saved wizard answers. |
+| `/api/onboarding/state` | `PUT` | Save the wizard answers for the current step. |
+| `/api/onboarding/complete` | `POST` | Mark onboarding complete and release the operator to the dashboard. |
+| `/api/onboarding/skip` | `POST` | Mark onboarding skipped and release the operator to the dashboard. |
+
+Because the record is server-side, your progress survives a browser reload, a
+new tab, and a different machine.
+
+<Mermaid
+  label="First user onboarding flow"
+  diagram={`flowchart TD
+    A[Sign in through Dex] --> B{GET /api/onboarding/status}
+    B -- completed or skipped --> H[Overview page]
+    B -- not started --> C[Step 1 Tenant identity]
+    C --> D[Step 2 Identity provider linkage]
+    D --> E[Step 3 Containment policy consent]
+    C -. PUT /api/onboarding/state .-> S[(Server record)]
+    D -. PUT /api/onboarding/state .-> S
+    E -. PUT /api/onboarding/state .-> S
+    E --> F[POST /api/onboarding/complete]
+    F --> G[Completion screen]
+    G --> H
+    C -. POST /api/onboarding/skip .-> H`}
+/>
+
+## Sign in
+
+1. Open the Signal Loom URL in a browser.
+2. Check that the browser redirects you to the Dex sign-in page.
+3. Enter your Dex credentials.
+4. Check that the browser returns to Signal Loom.
+
+If you have not onboarded, Signal Loom sends you to `/onboarding` instead of the
+Overview page. This redirect is the expected result.
+
+## Step 1 — Tenant identity
+
+Give your organisation its name in Signal Loom.
+
+1. Enter the organisation name.
+2. Enter the remaining tenant identity fields the step requests.
+3. Select **Continue**.
+
+The step validates your entries before it advances. If a required field is
+empty or malformed, a validation banner appears at the top of the step and the
+wizard does not advance. Correct the named field and select **Continue** again.
+
+## Step 2 — Identity provider linkage
+
+Record how your operators will sign in.
+
+1. Enter the identity provider details.
+2. Select the connection test control to probe the identity provider.
+3. Check the probe result.
+4. Select **Continue**.
+
+The connection test is a probe, not a gate. A failed probe tells you the details
+are wrong or the provider is unreachable; it does not prevent you from
+continuing.
+
+## Step 3 — Containment policy consent
+
+Record your consent to the containment policy.
+
+Containment actions can freeze a process, isolate network traffic, and revoke
+credentials. Read the consent text before you accept it.
+
+1. Read the containment policy consent text.
+2. Accept the consent.
+3. Select the control that completes onboarding.
+
+Signal Loom calls `POST /api/onboarding/complete` and shows the completion
+screen.
+
+## Check the result
+
+1. Check that the completion screen appears.
+2. Continue to the Overview page.
+3. Reload the browser.
+4. Check that Signal Loom keeps you on the Overview page and does not show the
+   wizard again.
+
+The reload is the important check. It proves the record is on the server rather
+than in the browser session.
+
+## Where to go next
+
+- [Onboard your first agent](/docs/start/first-agent/) to register a workload.
+- [Claim a demo agent](/docs/agents/dual-agent-onboarding/) to compare a
+  Nono-evidenced workload with a baseline workload.
+- [Read the current limits](/docs/reference/roadmap/) before you treat a
+  demonstration as evidence of production enforcement.
+
+## Troubleshoot onboarding
+
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| The browser stays on the Dex sign-in page. | The Dex deployment is not ready, or the callback URL does not match. | Check that the `dex` deployment reports `1/1` in the `inf-signalloom` namespace. |
+| Signal Loom shows the wizard again after a reload. | The completion mutation did not reach the server. | Open the browser network log, repeat the final step, and check that `POST /api/onboarding/complete` returns a success status. |
+| The wizard shows a validation banner and does not advance. | A required field is empty or malformed. | Read the field named in the banner, correct it, and select **Continue** again. |
+| The identity provider connection test fails. | The provider details are wrong, or the provider is unreachable from the cluster. | Correct the details. If they are correct, continue anyway and link the provider after onboarding. |
+| Signal Loom sends you to `/onboarding` on every sign-in. | `GET /api/onboarding/status` cannot reach the backend. | Check that the `fe-signalloom` deployment reports `1/1` and that the dashboard can reach `/api`. |
+| You skipped onboarding and want to complete it. | The skip is recorded on the server. | Open `/onboarding` directly. The wizard loads your saved answers from `GET /api/onboarding/state`. |

@@ -143,14 +143,17 @@ start_forwards() {
   kubectl -n "$FE_NS" port-forward svc/signal-ingest "${INGEST_LOCAL_PORT}:8082" \
     >"$BATS_TEST_TMPDIR/ingest-pf.log" 2>&1 &
   INGEST_PID=$!
-  wait_tcp 127.0.0.1 "$DEX_LOCAL_PORT" 30
-  wait_tcp 127.0.0.1 "$PORTAL_LOCAL_PORT" 30
-  wait_tcp 127.0.0.1 "$INGEST_LOCAL_PORT" 30
+  wait_tcp 127.0.0.1 "$DEX_LOCAL_PORT" 30 || { cat "$BATS_TEST_TMPDIR/dex-pf.log" >&2; return 1; }
+  wait_tcp 127.0.0.1 "$PORTAL_LOCAL_PORT" 30 || { cat "$BATS_TEST_TMPDIR/portal-pf.log" >&2; return 1; }
+  wait_tcp 127.0.0.1 "$INGEST_LOCAL_PORT" 30 || { cat "$BATS_TEST_TMPDIR/ingest-pf.log" >&2; return 1; }
 }
 
 teardown() {
   for pid in "${DEX_PID:-}" "${PORTAL_PID:-}" "${INGEST_PID:-}"; do
-    [ -n "$pid" ] && kill "$pid" >/dev/null 2>&1
+    if [ -n "$pid" ]; then
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" 2>/dev/null || true
+    fi
   done
   unset DEX_PID PORTAL_PID INGEST_PID
   return 0

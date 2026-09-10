@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+export PATH="$HOME/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TEST_DIR="${REPO_ROOT}/test/acceptance"
@@ -116,7 +118,7 @@ else
 fi
 
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${REPO_ROOT}/.cache/ms-playwright}"
-export PW_CHANNEL="${PW_CHANNEL:-chromium}"
+export PW_CHANNEL="${PW_CHANNEL:-chrome}"
 export DASHBOARD_URL="https://dashboard.osramp.acme.local:${GATEWAY_PORT}"
 export GATEWAY_ADDRESS="127.0.0.1"
 export SIGNALLOOM_API_URL="http://127.0.0.1:18000"

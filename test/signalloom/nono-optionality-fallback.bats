@@ -13,6 +13,7 @@
 # 9. In-cluster pod health and telemetry verification in fe-signalloom-agents.
 
 setup_file() {
+  export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   export REPO_ROOT
   export PROBE_SCRIPT="$REPO_ROOT/d2-signalloom/apps/fe-signalloom-agents/probe-nono-capability.sh"
@@ -66,25 +67,25 @@ setup_file() {
 }
 
 @test "6. Backend audit session ingest accepts and verifies valid hash-chained session" {
-  run python3 -m pytest "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_ingest_valid_signed_audit_session" -q
+  run python3 -m pytest -p no:libtmux "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_ingest_valid_signed_audit_session" -q
   [ "$status" -eq 0 ]
   [[ "$output" =~ "passed" ]]
 }
 
 @test "7. Backend audit session ingest rejects broken or tampered hash chains with HTTP 400" {
-  run python3 -m pytest "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_ingest_rejects_broken_hash_chain or test_ingest_rejects_mismatched_root_hash" -q
+  run python3 -m pytest -p no:libtmux "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_ingest_rejects_broken_hash_chain or test_ingest_rejects_mismatched_root_hash" -q
   [ "$status" -eq 0 ]
   [[ "$output" =~ "passed" ]]
 }
 
 @test "8. Backend audit session ingest rejects invalid or forged signatures with HTTP 400" {
-  run python3 -m pytest "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_ingest_rejects_invalid_signature" -q
+  run python3 -m pytest -p no:libtmux "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_ingest_rejects_invalid_signature" -q
   [ "$status" -eq 0 ]
   [[ "$output" =~ "passed" ]]
 }
 
 @test "9. Standalone session verify probe endpoint validates session without persistence" {
-  run python3 -m pytest "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_verify_probe_endpoint" -q
+  run python3 -m pytest -p no:libtmux "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py" -k "test_verify_probe_endpoint" -q
   [ "$status" -eq 0 ]
   [[ "$output" =~ "passed" ]]
 }

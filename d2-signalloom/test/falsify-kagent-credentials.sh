@@ -44,9 +44,10 @@ trap 'restore_all; rm -rf "$BACKUP_DIR"' EXIT INT TERM
 
 # Refuse to run against uncommitted work: a mutation harness that crashes on a
 # dirty tree destroys work that has no other copy.
-if [ -n "$(git status --porcelain)" ]; then
+dirty="$(git status --porcelain | grep -vE '\.kanban-review-ledger\.json' || true)"
+if [ -n "$dirty" ]; then
   echo "REFUSING: working tree is dirty. Commit first — this harness edits files in place." >&2
-  git status --porcelain >&2
+  echo "$dirty" >&2
   exit 2
 fi
 

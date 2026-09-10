@@ -143,6 +143,7 @@ export async function startLogSampler(
       };
 
       read();
+      w[`${key}__read`] = read;
       w[`${key}__timer`] = window.setInterval(read, intervalMs);
     },
     { testId, intervalMs, key: SAMPLES_KEY },
@@ -153,6 +154,11 @@ export async function startLogSampler(
 export async function readLogSamples(page: Page): Promise<LogSample[]> {
   return page.evaluate((key: string) => {
     const w = window as unknown as Record<string, unknown>;
+    const read = w[`${key}__read`];
+    if (typeof read === "function") {
+      (read as () => void)();
+      delete w[`${key}__read`];
+    }
     const timer = w[`${key}__timer`];
     if (typeof timer === "number") {
       window.clearInterval(timer);
@@ -229,6 +235,8 @@ export async function resetLogSampler(page: Page): Promise<void> {
   await page.evaluate((key: string) => {
     const w = window as unknown as Record<string, unknown>;
     delete w[key];
+    delete w[`${key}__read`];
+    delete w[`${key}__timer`];
   }, SAMPLES_KEY);
 }
 

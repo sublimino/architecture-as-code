@@ -214,7 +214,7 @@ for task_id, s in sessions.items():
         reviewed = task_id in ledger and ledger[task_id].get('verdict') == 'APPROVED'
         
         if lines < min_lines and not reviewed and task_id != proof_task_id:
-            failed.append((task_id, s.get('agentId', 'unknown'), state, lines))
+            failed.append((task_id, s.get('agentId') or 'unknown', state, lines))
 
 if failed:
     print(f'FAIL: {len(failed)} task(s) completed with 0 output lines and no verified review/proof:')
@@ -302,7 +302,7 @@ for task_id, s in sessions.items():
         reviewed = task_id in ledger and ledger[task_id].get('verdict') == 'APPROVED'
         
         if dur < min_sec and not reviewed and task_id != proof_task_id:
-            failed.append((task_id, s.get('agentId', 'unknown'), dur, s.get('reviewReason', 'exit')))
+            failed.append((task_id, s.get('agentId') or 'unknown', dur, s.get('reviewReason') or 'exit'))
 
 if failed:
     print(f'FAIL: {len(failed)} task(s) finished suspiciously fast (< {min_sec}s):')

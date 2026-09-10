@@ -199,7 +199,7 @@ setup() {
 
     if [ "$rc" -ne 0 ]; then
         echo "make -C d2-signalloom test failed (exit $rc)"
-        echo "$out" | tail -25
+        echo "$out" | grep -B 2 -A 10 -E "^not ok" || echo "$out" | tail -25
         false
     fi
 

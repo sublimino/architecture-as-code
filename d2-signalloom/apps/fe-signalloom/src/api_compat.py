@@ -3716,7 +3716,7 @@ async def _execute_claim(
         agent_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{body.pod_name}")
     agent_id = str(agent_uuid)
 
-    pool = await _get_pool()
+    pool = await _require_pool("Claiming an agent")
     if pool is not None:
         async with _write(pool) as conn:
             agent_name = body.pod_name
@@ -3935,6 +3935,7 @@ async def claim_agent(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> AgentClaimResponse:
     """Claim an agent pod into Signal Loom governance."""
+    await _require_pool("Claiming an agent")
     return await _execute_claim(principal.tenant, principal.actor, body)
 
 
@@ -3944,6 +3945,7 @@ async def autoclaim_discovered(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> AutoclaimDiscoveredResponse:
     """Reconcile and batch auto-claim all unlinked discovered workloads in the cluster."""
+    await _require_pool("Autoclaiming discovered workloads")
     raw_discovered = await _fetch_discovered_agents()
     claimed_records: list[ClaimRecord] = []
     tenant_id = principal.tenant
@@ -4020,6 +4022,7 @@ async def release_agent_claim(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> dict[str, str]:
     """Release or revoke an active agent claim."""
+    await _require_pool("Releasing an agent claim")
     with _STORE_LOCK:
         claims = _CLAIMS.get(tenant_id, {})
         claim = claims.get(claim_id)
@@ -4038,6 +4041,7 @@ async def claim_agent_by_id(
     body: AgentClaimRequest | None = None,
 ) -> AgentClaimResponse:
     """One-click claim of a discovered agent by ID into Signal Loom governance."""
+    await _require_pool("Claiming an agent by ID")
     try:
         agent_res = await get_agent(agent_id=agent_id, tenant_id=principal.tenant)
     except APIError as exc:

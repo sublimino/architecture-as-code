@@ -195,18 +195,18 @@ setup() {
 
 @test "d2-signalloom bats executed at least 200 tests" {
     local out
-    out="$(make -C "$repo_root/d2-signalloom" test 2>&1 | tail -3)"
-    local rc=${PIPESTATUS[0]}
+    out="$(make -C "$repo_root/d2-signalloom" test 2>&1)"
+    local rc=$?
 
     if [ "$rc" -ne 0 ]; then
         echo "make -C d2-signalloom test failed (exit $rc)"
-        echo "$out"
+        echo "$out" | tail -3
         false
     fi
 
     # Count "ok N" lines in the TAP output from the make run.
     local total
-    total="$(make -C "$repo_root/d2-signalloom" test 2>&1 | grep -cE '^ok ')"
+    total="$(echo "$out" | grep -cE '^ok ')"
 
     if [ "$total" -lt 200 ]; then
         echo "FLOOR BREACH: bats ran only $total tests (floor: 200)"

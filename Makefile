@@ -656,6 +656,10 @@ demo-signalloom-autoclaim: ## Demonstrate agent discovery, auto-claim, complianc
 demo-signalloom-autoclaim-test: ## Run the BATS integration suite guarding in-cluster discovery and auto-claim.
 	bats test/signalloom-autoclaim.bats
 
+.PHONY: demo-signalloom-smoke
+demo-signalloom-smoke: ## Rapid demo smoke test suite (<90s): cluster health, onboarding wizard, dual-agent claim & telemetry verification.
+	./scripts/demo-signalloom-smoke.sh smoke-onboarding-agents.spec.ts
+
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
 	test/bench-cgroup-freezer.sh

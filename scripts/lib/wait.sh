@@ -125,19 +125,18 @@ _wait_retry() {
 
   _wait_log "⏳ ${desc} (deadline ${dl_int}s, soft ${soft}s, backoff ${backoff}, jitter ${jitter})"
   while :; do
-    if [ "${SECONDS}" -ge "${end}" ]; then
+    if [ "${dl_int}" -le 0 ] || { [ "${attempt}" -gt 0 ] && [ "${SECONDS}" -ge "${end}" ]; }; then
       _wait_log "❌ ${desc} — deadline ${dl_int}s exceeded after ${attempt} attempt(s)"
       _wait_stat "${desc}" "${start}" "${dl_int}" timeout
       _wait_timeout_diagnostics "${desc}" "${start}" "${dl_int}" "${rc}"
       return 1
     fi
     remaining=$((end - SECONDS))
-    if [ "${remaining}" -le 0 ]; then
-      continue
-    fi
     attempt_timeout_now="${attempt_timeout}"
     if [ "${remaining}" -gt 0 ] && [ "$(_wait_calc "(${attempt_timeout} > ${remaining}) ? 1 : 0")" -eq 1 ]; then
       attempt_timeout_now="${remaining}"
+    elif [ "${remaining}" -le 0 ] && [ "$(_wait_calc "(${attempt_timeout} > 1) ? 1 : 0")" -eq 1 ]; then
+      attempt_timeout_now=1
     fi
     if [ -n "${have_timeout}" ]; then
       if timeout "${attempt_timeout_now}" bash -c "${cmd}"; then
@@ -263,10 +262,14 @@ wait_k8s_ready() {
   # Phase 2: readiness within whatever budget remains.
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
   if [ "${remaining}" -le 0 ]; then
-    _wait_log "❌ ready ${kind}/${name} ${ns_args} — deadline ${scaled}s exhausted before readiness check"
-    _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" timeout
-    _wait_timeout_diagnostics "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" 1
-    return 1
+    if [ "${scaled}" -gt 0 ] && [ "$(( SECONDS - start ))" -le "${scaled}" ]; then
+      remaining=1
+    else
+      _wait_log "❌ ready ${kind}/${name} ${ns_args} — deadline ${scaled}s exhausted before readiness check"
+      _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" timeout
+      _wait_timeout_diagnostics "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" 1
+      return 1
+    fi
   fi
   _wait_log "⏳ ready ${kind}/${name} ${ns_args} (--for=${cond}, ${remaining}s left)"
   local rc
@@ -311,10 +314,14 @@ wait_rollout() {
     "kubectl ${ns_args} get deploy ${name} >/dev/null 2>&1" || return 1
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
   if [ "${remaining}" -le 0 ]; then
-    _wait_log "❌ rollout deploy/${name} ${ns_args} — deadline ${scaled}s exhausted before rollout check"
-    _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" timeout
-    _wait_timeout_diagnostics "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" 1
-    return 1
+    if [ "${scaled}" -gt 0 ] && [ "$(( SECONDS - start ))" -le "${scaled}" ]; then
+      remaining=1
+    else
+      _wait_log "❌ rollout deploy/${name} ${ns_args} — deadline ${scaled}s exhausted before rollout check"
+      _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" timeout
+      _wait_timeout_diagnostics "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" 1
+      return 1
+    fi
   fi
   _wait_log "⏳ rollout deploy/${name} ${ns_args} (${remaining}s left)"
   local rc
@@ -437,10 +444,14 @@ wait_service_backends() {
 
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
   if [ "${remaining}" -le 0 ]; then
-    _wait_log "❌ service/${name}${ns_args:+ $ns_args} — deadline exhausted before backend check"
-    _wait_stat "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
-    _wait_timeout_diagnostics "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
-    return 1
+    if [ "${scaled}" -gt 0 ] && [ "$(( SECONDS - start ))" -le "${scaled}" ]; then
+      remaining=1
+    else
+      _wait_log "❌ service/${name}${ns_args:+ $ns_args} — deadline exhausted before backend check"
+      _wait_stat "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
+      _wait_timeout_diagnostics "service/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
+      return 1
+    fi
   fi
 
   WAIT_DEADLINE_SCALE=1 _wait_retry "${remaining}" "ready backends service/${name}${ns_args:+ $ns_args}" "
@@ -520,10 +531,14 @@ wait_job() {
   # Phase 2: terminal polling using _wait_retry.
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
   if [ "${remaining}" -le 0 ]; then
-    _wait_log "❌ terminal job/${name}${ns_args:+ $ns_args} — deadline ${scaled}s exhausted before terminal check"
-    _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
-    _wait_timeout_diagnostics "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
-    return 1
+    if [ "${scaled}" -gt 0 ] && [ "$(( SECONDS - start ))" -le "${scaled}" ]; then
+      remaining=1
+    else
+      _wait_log "❌ terminal job/${name}${ns_args:+ $ns_args} — deadline ${scaled}s exhausted before terminal check"
+      _wait_stat "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" timeout
+      _wait_timeout_diagnostics "job/${name}${ns_args:+ $ns_args}" "${start}" "${scaled}" 1
+      return 1
+    fi
   fi
 
   local term_desc="terminal job/${name}${ns_args:+ $ns_args}"

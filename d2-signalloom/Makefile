@@ -59,7 +59,11 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	@# success. The exclusion list is verified as actually applied by
 	@# test/bats-registry-coverage.bats.
 	@if command -v bats >/dev/null 2>&1; then \
-		bats $$(ls test/*.bats | grep -vxF -f <(printf '%s\n' $(EXCLUDED_BATS))); \
+		BATS_PARALLEL_OPT=""; \
+		if command -v parallel >/dev/null 2>&1; then \
+			BATS_PARALLEL_OPT="--jobs $${BATS_JOBS:-8} --no-parallelize-within-files"; \
+		fi; \
+		bats $$BATS_PARALLEL_OPT $$(ls test/*.bats | grep -vxF -f <(printf '%s\n' $(EXCLUDED_BATS))); \
 	fi
 	@# The falsification half of test/spire-server-durability.bats. That suite
 	@# asserts spire-server's CA is on a PVC and its Deployment is Recreate;

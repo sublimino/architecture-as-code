@@ -48,3 +48,8 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 | `2026-09-10T20:16:30Z` | `council` | `PROPOSAL_V2_AUTHORED` | V2 authored under `/cp-project-proposal` standard, governing multi-agent cascade, live `agent-nono-evidenced` telemetry, Dossier embedding, and Stun Sentinel revocation. |
 | `2026-09-10T20:16:45Z` | `council` | `PROPOSAL_V2_VALIDATED` | `kanban-check.sh proposal-check` verified 100% PASS on all 5 sections. Contract SHA bound: `6a54fa37b08d259aa93c3f45b980d12a43d562eee2f01cc278e0b4b403eebc9d`. |
 | `2026-09-10T20:17:00Z` | `antigravity` | `BOARD_BUILD_DISPATCH` | Initiating `/ajm-auto-kanban` build: board scaffolding, card creation, graph verification, and loop arming. |
+| `2026-09-10T20:27:00Z` | `antigravity` | `BOARD_CARDS_CREATED` | All 17 delivery cards compiled and persisted to Kanban board with council-grade specifications satisfying all Band S and Band M floors. |
+| `2026-09-10T20:27:38Z` | `antigravity` | `GRAPH_DAG_VERIFIED` | `link-check` confirmed 0 criticals, 0 failures, 0 warnings across all 6 DAG rules (R1–R6). Governor-to-impl edges fully wired. |
+| `2026-09-10T20:28:09Z` | `antigravity` | `MISSION_STATE_APPROVED` | `MissionState.ts` prepared and approved capsule (digest `a6a8ca18104160775d9bb396501e04084246ac721bc81329ed657c44a5b384f7`). |
+| `2026-09-10T20:29:54Z` | `antigravity` | `TASK_P1_PRE_STARTED` | `SFAS-P1-PRE` (`aacd9`) started into `in_progress`. Supervise reports clean graph, 0 dirty, actively working. |
+

@@ -1,0 +1,24 @@
+apiVersion: signalloom.controlplane.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: agent-standard-baseline
+  labels:
+    signalloom.ai/fleet: demo
+    signalloom.ai/team: governance
+    signalloom.io/agent: demo
+    signalloom.io/workload-profile: standard-baseline
+spec:
+  type: demo-agent
+  team: governance
+  trustProfile: medium
+  riskClass: low
+  gracePeriod: 0h
+  dependencies: []
+  namespace: fe-signalloom-agents
+  spiffe:
+    trustDomain: signalloom.demo
+    path: /ns/fe-signalloom-agents/sa/agent-standard-baseline
+  openbao:
+    authMount: jwt/agents
+    kvPath: secret/data/agents/agent-standard-baseline
+    policies: [agent-governance-read]

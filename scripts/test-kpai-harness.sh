@@ -313,7 +313,7 @@ run_probes() {
 
     # --- Sandbox posture --------------------------------------------------
     F_NO_NEW_PRIVS="$(awk '/^NoNewPrivs:/ {print $2}' /proc/self/status 2>/dev/null)"
-    [[ -n "$F_NO_NEW_PRIVS" ]]
+    [[ "$F_NO_NEW_PRIVS" == "1" ]]
     assert_true P10 no_new_privs_readable $? "NoNewPrivs=${F_NO_NEW_PRIVS:-<unreadable>}"
 
     local lsm_list

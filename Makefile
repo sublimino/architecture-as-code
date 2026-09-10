@@ -491,7 +491,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	$(MAKE) -C d2-signalloom/apps/netassert-controller test
 	cd d2-signalloom/apps/fake-integration-proxy && python3 -m unittest discover -s test
 	@echo "=== [Offline 4/5] KPAI Probe & Contract Tests (76 tests) ==="
-	bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts
+	$(MAKE) test-kpai
 	@echo "=== [Offline 5/5] Static Config, Manifests, Registries & Guards ==="
 	bats test/acceptance-spec-coverage.bats
 	bats d2-signalloom/test/bats-registry-coverage.bats
@@ -597,6 +597,10 @@ test-signalfusion-bats: ## Run Signal Fusion structural BATS tests (no cluster r
 	bats test/signalfusion-demo.bats
 
 test-signal-fusion: test-signal-ingest test-dashboard-weave test-signalfusion-bats ## Run all Signal Fusion / Weave test suites.
+
+.PHONY: test-kpai
+test-kpai: ## Run KPAI runtime harness probe tests and contract validation.
+	bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts
 
 ##@ Composable demo lifecycle
 

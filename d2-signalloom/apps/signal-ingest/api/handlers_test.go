@@ -17,17 +17,25 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
-func newTestHandlers(t *testing.T) (*Handlers, *http.ServeMux) {
-	t.Helper()
+func newTestHandlers(t testing.TB) (*Handlers, *http.ServeMux) {
+	if t != nil {
+		t.Helper()
+	}
 	return newTestHandlersWithAudit(t, audit.NewFakeWriter())
 }
 
-func newTestHandlersWithAudit(t *testing.T, aw audit.AuditWriter) (*Handlers, *http.ServeMux) {
-	t.Helper()
+func newTestHandlersWithAudit(t testing.TB, aw audit.AuditWriter) (*Handlers, *http.ServeMux) {
+	if t != nil {
+		t.Helper()
+	}
 	s := store.NewMemoryStore()
 	e, err := correlation.NewEngine(s)
 	if err != nil {
-		t.Fatal(err)
+		if t != nil {
+			t.Fatal(err)
+		} else {
+			panic(err)
+		}
 	}
 	h := &Handlers{Store: s, Engine: e, Audit: aw}
 	mux := http.NewServeMux()

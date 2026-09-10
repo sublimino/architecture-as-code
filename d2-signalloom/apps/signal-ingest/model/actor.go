@@ -9,6 +9,7 @@ const (
 	ActorProvisional ActorStatus = "provisional"
 	ActorActionable  ActorStatus = "actionable"
 	ActorPromoted    ActorStatus = "promoted"
+	ActorRevoked     ActorStatus = "revoked"
 )
 
 // Actor is an alias for ProvisionalActor representing a resolved or provisional actor entity.

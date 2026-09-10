@@ -52,17 +52,32 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	queryTime := time.Now().UTC()
+	if asOfStr := r.URL.Query().Get("as_of"); asOfStr != "" {
+		if t, err := time.Parse(time.RFC3339, asOfStr); err == nil {
+			queryTime = t.UTC()
+		} else if t, err := time.Parse(time.RFC3339Nano, asOfStr); err == nil {
+			queryTime = t.UTC()
+		}
+	} else if asOfStr := r.URL.Query().Get("asOf"); asOfStr != "" {
+		if t, err := time.Parse(time.RFC3339, asOfStr); err == nil {
+			queryTime = t.UTC()
+		} else if t, err := time.Parse(time.RFC3339Nano, asOfStr); err == nil {
+			queryTime = t.UTC()
+		}
+	}
+
 	actor := h.Engine.GetActor(id)
 	if actor == nil {
 		if repo := h.resolveRepository(); repo != nil {
-			now := time.Now().UTC()
-			if snap, err := repo.GetActiveGraphForActorAsOf(r.Context(), id, now); err == nil && snap != nil {
+			if snap, err := repo.GetActiveGraphForActorAsOf(r.Context(), id, queryTime); err == nil && snap != nil {
 				actor = &model.ProvisionalActor{
 					ID:         snap.Actor.ActorID,
 					Status:     snap.Actor.Status,
 					Confidence: 0.85,
 					CreatedAt:  snap.Actor.CreatedAt,
 					UpdatedAt:  snap.Actor.UpdatedAt,
+					ResolvedAt: &queryTime,
 				}
 				for _, al := range snap.Aliases {
 					actor.Aliases = append(actor.Aliases, al.AliasValue)
@@ -90,9 +105,14 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 					Confidence: 0.85,
 					CreatedAt:  act.CreatedAt,
 					UpdatedAt:  act.UpdatedAt,
+					ResolvedAt: &queryTime,
 				}
 			}
 		}
+	} else {
+		cloned := *actor
+		cloned.ResolvedAt = &queryTime
+		actor = &cloned
 	}
 	if actor == nil {
 		writeError(w, http.StatusNotFound, "actor not found")
@@ -101,6 +121,11 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 
 	actionHint := r.URL.Query().Get("action")
 	chain := h.BuildAuthorizationChain(r.Context(), actor, actionHint)
+	if chain.Decision == "REVOKED" || strings.HasPrefix(chain.Decision, "REVOKED") || actor.Status == "revoked" {
+		w.Header().Set("X-Authorization-Status", "REVOKED")
+		writeJSON(w, http.StatusForbidden, chain)
+		return
+	}
 	writeJSON(w, http.StatusOK, chain)
 }
 
@@ -108,15 +133,81 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	queryTime := time.Now().UTC()
+	if asOfStr := r.URL.Query().Get("as_of"); asOfStr != "" {
+		if t, err := time.Parse(time.RFC3339, asOfStr); err == nil {
+			queryTime = t.UTC()
+		} else if t, err := time.Parse(time.RFC3339Nano, asOfStr); err == nil {
+			queryTime = t.UTC()
+		}
+	} else if asOfStr := r.URL.Query().Get("asOf"); asOfStr != "" {
+		if t, err := time.Parse(time.RFC3339, asOfStr); err == nil {
+			queryTime = t.UTC()
+		} else if t, err := time.Parse(time.RFC3339Nano, asOfStr); err == nil {
+			queryTime = t.UTC()
+		}
+	}
+
 	// If filtered by actor_id
 	if actorID := r.URL.Query().Get("actor_id"); actorID != "" {
 		actor := h.Engine.GetActor(actorID)
+		if actor == nil {
+			if repo := h.resolveRepository(); repo != nil {
+				if snap, err := repo.GetActiveGraphForActorAsOf(ctx, actorID, queryTime); err == nil && snap != nil {
+					actor = &model.ProvisionalActor{
+						ID:         snap.Actor.ActorID,
+						Status:     snap.Actor.Status,
+						Confidence: 0.85,
+						CreatedAt:  snap.Actor.CreatedAt,
+						UpdatedAt:  snap.Actor.UpdatedAt,
+						ResolvedAt: &queryTime,
+					}
+					for _, al := range snap.Aliases {
+						actor.Aliases = append(actor.Aliases, al.AliasValue)
+					}
+					for _, d := range snap.DelegationsAsDelegate {
+						actor.Delegations = append(actor.Delegations, model.CorrelationEdge{
+							ID:       fmt.Sprintf("del-%d", d.ID),
+							Type:     model.EdgeActsOnBehalfOf,
+							Fidelity: model.FidelityDefinitive,
+							From:     model.TypedIdentifier{Scheme: "actor", Value: d.DelegateActorID},
+							To:       model.TypedIdentifier{Scheme: "actor", Value: d.PrincipalActorID},
+							Provenance: model.EdgeProvenance{
+								Source:        "identity_graph",
+								Rule:          "delegation_claim",
+								Authenticated: true,
+								Accepted:      true,
+								Timestamp:     d.ValidFrom,
+							},
+						})
+					}
+				} else if act, err := repo.GetActor(ctx, actorID); err == nil && act != nil {
+					actor = &model.ProvisionalActor{
+						ID:         act.ActorID,
+						Status:     act.Status,
+						Confidence: 0.85,
+						CreatedAt:  act.CreatedAt,
+						UpdatedAt:  act.UpdatedAt,
+						ResolvedAt: &queryTime,
+					}
+				}
+			}
+		} else {
+			cloned := *actor
+			cloned.ResolvedAt = &queryTime
+			actor = &cloned
+		}
 		if actor == nil {
 			writeError(w, http.StatusNotFound, "actor not found")
 			return
 		}
 		actionHint := r.URL.Query().Get("action")
 		chain := h.BuildAuthorizationChain(ctx, actor, actionHint)
+		if chain.Decision == "REVOKED" || strings.HasPrefix(chain.Decision, "REVOKED") || actor.Status == "revoked" {
+			w.Header().Set("X-Authorization-Status", "REVOKED")
+			writeJSON(w, http.StatusForbidden, chain)
+			return
+		}
 		writeJSON(w, http.StatusOK, chain)
 		return
 	}
@@ -169,6 +260,14 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.ProvisionalActor, actionHint string) AuthorizationChainResponse {
 	if actor == nil {
 		return AuthorizationChainResponse{}
+	}
+
+	if repo := h.resolveRepository(); repo != nil {
+		if actRec, err := repo.GetActor(ctx, actor.ID); err == nil && actRec != nil {
+			if actRec.Status == "revoked" || actRec.Status == model.ActorRevoked {
+				actor.Status = model.ActorRevoked
+			}
+		}
 	}
 
 	// 1. Agent Identity
@@ -261,10 +360,30 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 					}
 				}
 			}
+
+			// If no active delegations found at 'now', check if actor or its aliases had delegations that were revoked
+			if len(delegationChain) == 0 && actor.Status != "revoked" {
+				candidates := append([]string{actor.ID, actor.CanonicalID}, actor.Aliases...)
+				for _, cand := range candidates {
+					if cand == "" {
+						continue
+					}
+					if actRec, err := repo.GetActor(ctx, cand); err == nil && actRec != nil && (actRec.Status == "revoked" || actRec.Status == model.ActorRevoked) {
+						actor.Status = "revoked"
+						break
+					}
+					if pastDels, err := repo.GetDelegationsForDelegateAsOf(ctx, cand, now.Add(-24*time.Hour)); err == nil && len(pastDels) > 0 {
+						actor.Status = "revoked"
+						break
+					}
+				}
+			}
 		}
 
-	// If actsOnBehalfOf is still empty, derive from principalID or evidence links
-	if actsOnBehalfOf == "" && principal != "" && !isSelfIdentity(principal, actor) {
+	// If actsOnBehalfOf is still empty and not revoked, derive from principalID or evidence links
+	if actor.Status == "revoked" || actor.Status == model.ActorRevoked {
+		actsOnBehalfOf = fmt.Sprintf("%s delegation revoked (valid_to clamped)", agentIdentity)
+	} else if actsOnBehalfOf == "" && principal != "" && !isSelfIdentity(principal, actor) {
 		actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s", agentIdentity, principal)
 	}
 
@@ -343,7 +462,12 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 
 	// 5. Decision
 	decision := string(actor.Status)
-	if actor.Status == model.ActorPromoted {
+	if actor.Status == "revoked" || actor.Status == model.ActorRevoked {
+		decision = "REVOKED"
+		if actsOnBehalfOf == "" || strings.HasSuffix(actsOnBehalfOf, principal) {
+			actsOnBehalfOf = fmt.Sprintf("%s delegation revoked (valid_to clamped)", agentIdentity)
+		}
+	} else if actor.Status == model.ActorPromoted {
 		decision = "authorized:promoted"
 	} else if actor.Status == model.ActorActionable {
 		decision = "authorized:actionable"
@@ -386,8 +510,9 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 	// Compute or retrieve cryptographic GitOID (SHA256 Git blob hash) over the evidence chain and authorization record.
 	attestationGitoid := deriveAttestationGitoid(actor.ID, agentIdentity, principal, decision, confidence, evidenceRefs)
 
-	// Completeness predicate: all 7 hops must be non-empty and confidence > 0.
-	complete := agentIdentity != "" &&
+	// Completeness predicate: all 7 hops must be non-empty, confidence > 0, and not revoked.
+	complete := (decision != "REVOKED" && !strings.HasPrefix(decision, "REVOKED")) &&
+		agentIdentity != "" &&
 		actsOnBehalfOf != "" &&
 		principal != "" &&
 		decision != "" &&

@@ -17,7 +17,9 @@ test.describe("Agent Activity Timeline Guarantee", () => {
 
   test("kagent-security-analyst detail page always renders activity events", async ({ page }) => {
     await page.goto(`${BASE}/agents/kagent-security-analyst?tab=activity`);
-    await expect(page.locator("h2").filter({ hasText: "Activity Timeline" }).first()).toBeVisible();
+    const panel = page.getByRole("tabpanel", { name: /Activity/i });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Recorded Events")).toBeVisible();
 
     // Verify timeline items exist (no "No events recorded" empty state)
     await expect(page.locator("text=No events recorded")).not.toBeVisible();
@@ -25,7 +27,9 @@ test.describe("Agent Activity Timeline Guarantee", () => {
 
   test("navigates to kagent-chaos-prober and verifies activity timeline events", async ({ page }) => {
     await page.goto(`${BASE}/agents/kagent-chaos-prober?tab=activity`);
-    await expect(page.locator("h2").filter({ hasText: "Activity Timeline" }).first()).toBeVisible();
+    const panel = page.getByRole("tabpanel", { name: /Activity/i });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Recorded Events")).toBeVisible();
     await expect(page.locator("text=No events recorded")).not.toBeVisible();
   });
 });

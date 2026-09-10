@@ -834,11 +834,13 @@ def test_no_route_accepts_a_caller_supplied_tenant(client):
     when it should.
     """
     offenders = []
+    inspected = 0
     for route in app.routes:
         path = getattr(route, "path", "")
         endpoint = getattr(route, "endpoint", None)
         if not path.startswith(GUARDED_PREFIXES) or endpoint is None:
             continue
+        inspected += 1
 
         if re.search(r"\{[^}]*tenant[^}]*\}", path, re.I):
             offenders.append((path, "path parameter"))
@@ -855,6 +857,146 @@ def test_no_route_accepts_a_caller_supplied_tenant(client):
             offenders.append((path, f"handler parameter {name!r}"))
 
     assert offenders == [], f"routes accept a caller-supplied tenant: {offenders}"
+
+    # A filter that matches nothing passes vacuously.  These four prefixes cover
+    # onboarding, claim and audit ingest; if a refactor moves them, this fails
+    # rather than quietly sweeping an empty set.
+    assert inspected >= 15, f"the route sweep only inspected {inspected} routes — the filter has drifted"
+
+
+# Tenant-named fields on request bodies, which ISC-14's signature walk cannot
+# see.  Each one is a field a client CAN set, so each needs a named reason it is
+# harmless.  A new one fails this test rather than escaping it.
+BODY_TENANT_FIELDS_KNOWN_OVERWRITTEN = {
+    # audit_ingest.py:349 -- session_dict["tenant_id"] = tenant_id, from the
+    # dependency.  Proven overwritten by
+    # test_audit_session_body_cannot_choose_its_own_tenant, which is falsified
+    # by mutation ``audit_session_body_tenant_override``.
+    ("SignedAuditSession", "tenant_id"),
+}
+
+# NOT overwritten.  Open, unfixed, escalated -- see finding F-2 in
+# docs/signalloom/slon-p3-2-evidence.md and
+# test_unauthenticated_claim_by_id_is_refused below.  Listed separately from the
+# set above on purpose: an "examined" allowlist that quietly absorbed a live
+# vulnerability would be worse than no allowlist at all.
+BODY_TENANT_FIELDS_OPEN_FINDINGS = {
+    ("AgentClaimByIdRequest", "tenant_id"),
+}
+
+
+def test_every_tenant_named_body_field_is_proven_overwritten():
+    """ISC-14.1 -- the half the route-signature walk cannot see.
+
+    ``test_no_route_accepts_a_caller_supplied_tenant`` inspects path and query
+    parameters.  A request *body* is a pydantic model, and a tenant-named field
+    on one is just as caller-supplied -- ``SignedAuditSession.tenant_id``
+    already is one, and it defaults to ``"tenant-demo"``.
+
+    So the honest claim is not "no route accepts a caller-supplied tenant".  It
+    is: no path or query parameter accepts one, and every body field that does
+    is overwritten server-side and has a test proving it.  This test pins that
+    second half, so a new tenant-named body field cannot arrive unexamined --
+    overwriting depends on statement ordering a refactor can silently invert.
+    """
+    import typing
+
+    from pydantic import BaseModel
+
+    # Request bodies only.  Scanning every BaseModel in module scope also
+    # collects *response* models -- AgentResponse.tenant_id, and so on -- which
+    # are server output, not something a caller can set.  Eleven of those turned
+    # up on the first run and would have to be allowlisted, which is how an
+    # allowlist stops meaning anything.  The route table says which models are
+    # actually parsed from a request.
+    body_models: set[type] = set()
+    for route in app.routes:
+        endpoint = getattr(route, "endpoint", None)
+        if endpoint is None or not getattr(route, "path", "").startswith(GUARDED_PREFIXES):
+            continue
+        try:
+            # eval_str=True is mandatory: every handler module starts with
+            # ``from __future__ import annotations``, so without it every
+            # annotation is a *string* and `issubclass` below never matches --
+            # the sweep finds nothing and reports a clean bill of health.
+            signature = inspect.signature(endpoint, eval_str=True)
+        except (TypeError, ValueError, NameError):
+            continue
+        for parameter in signature.parameters.values():
+            annotation = parameter.annotation
+            # Depends() arrives as Annotated[str, Depends(...)]; unwrapping
+            # yields str, so dependencies drop out on their own.
+            if typing.get_origin(annotation) is not None:
+                args = typing.get_args(annotation)
+                annotation = args[0] if args else annotation
+            if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+                body_models.add(annotation)
+
+    assert body_models, "no request-body models found — the route walk has drifted"
+
+    found = set()
+    for model in body_models:
+        for field in getattr(model, "model_fields", {}):
+            if "tenant" in field.lower():
+                found.add((model.__name__, field))
+
+    accounted = BODY_TENANT_FIELDS_KNOWN_OVERWRITTEN | BODY_TENANT_FIELDS_OPEN_FINDINGS
+    unexamined = found - accounted
+    assert unexamined == set(), (
+        f"request-body models carry tenant-named fields that are neither proven "
+        f"overwritten nor recorded as open findings: {sorted(unexamined)}"
+    )
+    # Neither list may outlive the field it describes: a stale entry vouches for
+    # a model that no longer exists, and a stale *finding* entry would keep an
+    # already-fixed vulnerability on the books.
+    assert accounted <= found, (
+        f"the allowlists name fields that no longer exist: {sorted(accounted - found)}"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "FINDING F-2, OPEN — unauthenticated claim-by-id. Escalated under the card's "
+        "STOP condition; deliberately NOT patched by SLON-P3-2. When this is fixed the "
+        "test XPASSes, strict=True turns that into a failure, and whoever fixed it must "
+        "remove this marker. That is the intended forcing function."
+    ),
+)
+def test_unauthenticated_claim_by_id_is_refused(client):
+    """F-2 — ``POST /api/{v1/,}agents/{agent_id}/claim`` has no authentication gate.
+
+    ``claim_agent_by_id`` (api_compat.py:4173) reads the header itself instead
+    of depending on ``authenticated_principal``, and the absent-header branch
+    does not refuse::
+
+        if authorization is not None:
+            principal = authenticated_principal(authorization)
+            tenant_id = principal.tenant
+            actor = principal.actor
+        else:
+            tenant_id = (body and body.tenant_id) or "tenant-demo"
+            actor = "operator"
+
+    An anonymous caller therefore names the tenant in the request body and the
+    claim is executed as that tenant.  Reproduced: both route aliases return
+    ``200 granted``, a row lands in ``_CLAIMS[victim-tenant]``, and an
+    ``agent.created`` audit event is written with ``actor="operator"`` -- a
+    fabricated identity in the evidence trail this product exists to produce.
+
+    Every other route on these surfaces takes the tenant from
+    ``Depends(authenticated_tenant)``, which is why the rest of this file passes
+    and this one does not: the defect is that this handler is the one place that
+    reimplements the check by hand.
+    """
+    agent_id = str(uuid.uuid4())
+    response = client.post(
+        f"/api/v1/agents/{agent_id}/claim",
+        json={"tenant_id": TENANT_A, "pod_name": "victim-workload"},
+    )
+    assert response.status_code == 401, (
+        f"an unauthenticated caller reached the claim path: {response.status_code}"
+    )
 
 
 def test_forged_tenant_claim_in_the_token_is_ignored(client, onboarding_db):
@@ -1518,6 +1660,73 @@ def test_no_adversarial_response_leaks_implementation_detail(client):
                 f"{response.request.method} {response.request.url.path} "
                 f"returned {response.status_code} and leaked {marker!r}"
             )
+
+
+def test_no_response_to_one_tenant_names_another_tenants_data(client):
+    """ISC-46.1 -- the anti-criterion that would have caught F-1.
+
+    ``test_no_adversarial_response_leaks_implementation_detail`` scans for stack
+    traces, SQL and filesystem paths.  A tenant identifier is none of those: it
+    is ordinary application data being shown to the wrong reader.  That test was
+    green for the entire life of the claim-conflict disclosure this card fixed.
+
+    So this one asserts the property directly -- nothing tenant A owns appears
+    in any response served to tenant B -- across every refusal a hostile caller
+    can provoke.  Falsified by mutation ``claim_conflict_discloses_owner``.
+    """
+    pod = f"alice-secret-{uuid.uuid4().hex[:8]}"
+    granted = client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
+    assert granted.status_code == 200, granted.text
+    alice_claim_id = granted.json()["claim_id"]
+    alice_agent_id = granted.json()["agent_id"]
+
+    session = valid_session()
+    assert client.post("/api/audit/sessions", headers=bearer(ALICE), json=session).status_code == 201
+
+    # Everything tenant A owns.  Tenant B must not learn any of it, from any
+    # response, at any status code.
+    alice_secrets = {
+        "tenant identifier": TENANT_A,
+        "claim id": alice_claim_id,
+        "agent id": alice_agent_id,
+        "audit session id": session["session_id"],
+        "audit root hash": session["root_hash"],
+    }
+
+    # Each probe is paired with the values Bob supplied in that very request.
+    # A 404 that echoes back the identifier you asked about is not a
+    # disclosure -- it is your own input coming home -- and asserting otherwise
+    # would fail correct code.  What matters is anything Bob did NOT supply.
+    probes = [
+        (client.post("/api/agents/claim", headers=bearer(BOB), json=_claim_body(pod)), {pod}),
+        (client.get(f"/api/agents/claim/{alice_claim_id}", headers=bearer(BOB)), {alice_claim_id}),
+        (client.get("/api/agents/claims", headers=bearer(BOB)), set()),
+        (client.get(f"/api/audit/sessions/{session['session_id']}", headers=bearer(BOB)),
+         {session["session_id"]}),
+        (client.get("/api/audit/sessions", headers=bearer(BOB)), set()),
+        (client.get("/api/onboarding/status", headers=bearer(BOB)), set()),
+        (client.get("/api/onboarding/state", headers=bearer(BOB)), set()),
+    ]
+
+    for response, supplied_by_bob in probes:
+        for label, secret in alice_secrets.items():
+            if secret in supplied_by_bob:
+                continue
+            assert secret not in response.text, (
+                f"{response.request.method} {response.request.url.path} returned "
+                f"{response.status_code} to tenant B and disclosed tenant A's {label}: "
+                f"{response.text[:200]}"
+            )
+
+    # Assert the conflict actually happened.  Otherwise this test would pass
+    # against a service that simply refuses tenant B everything, which discloses
+    # nothing and is also not the property under test.
+    assert probes[0][0].status_code == 409, "the contested claim did not actually conflict"
+
+    # And the by-id probes must genuinely have been refused -- a 200 that
+    # happened to omit these particular strings would slip through above.
+    assert probes[1][0].status_code == 404
+    assert probes[3][0].status_code == 404
 
 
 def test_the_suite_makes_no_external_network_connection(client):

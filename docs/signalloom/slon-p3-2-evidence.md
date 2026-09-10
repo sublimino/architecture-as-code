@@ -12,28 +12,42 @@
 ## 1. Summary
 
 Two adversarial suites were authored and run against the onboarding, agent-claim
-and Nono audit-ingest surfaces. **87 pytest assertions and 16 BATS probes pass.**
-One boundary defect was found and fixed under the card's mitigation clause; four
-further observations are recorded without code change.
+and Nono audit-ingest surfaces. **89 pytest assertions and 16 BATS probes pass,
+plus one strict `xfail` pinning an open vulnerability.**
 
-The card's declared STOP condition — *"severe vulnerability allowing cross-tenant
-data leakage or unauthenticated admin elevation"* — **was not met.** No path was
-found by which one tenant reads or writes another tenant's data, and no
-unauthenticated path reaches a mutation. The one defect found (F-1) is a
-low-severity metadata disclosure in a refusal message, well below that bar, and
-it is fixed.
+> ## ⛔ The card's STOP condition is met — F-2
+>
+> `POST /api/v1/agents/{agent_id}/claim` and `POST /api/agents/{agent_id}/claim`
+> accept **no `Authorization` header at all** and take the tenant from the
+> **request body**. An anonymous caller executes a governance claim as any tenant
+> they name, and the audit trail records it against a fabricated actor,
+> `"operator"`. Reproduced end to end; see §5.2.
+>
+> This is unauthenticated privilege exercise on a write path, which the card
+> names as a hard blocker: *"severe vulnerability allowing cross-tenant data
+> leakage or unauthenticated admin elevation."* Per the card's protocol it has
+> **deliberately not been patched** — it is escalated for a decision, because the
+> `"tenant-demo"` default and the hardcoded `actor="operator"` read like an
+> intentional demo affordance, and whether to remove it is a product call rather
+> than a test-card call.
+
+A second, lower-severity defect (F-1) was found **and fixed** under the card's
+mitigation clause. Four further observations are recorded without code change.
 
 | Deliverable | Path | Object hash |
 |---|---|---|
-| pytest suite | `d2-signalloom/apps/fe-signalloom/src/tests/test_adversarial_onboarding.py` | `70bdae74a5389b36e56abfbfb9e0a6a53471ce7f` |
+| pytest suite | `d2-signalloom/apps/fe-signalloom/src/tests/test_adversarial_onboarding.py` | `855e853a4caef9b72ed52ad58eb1da8165915a5c` |
 | BATS suite | `test/signalloom/adversarial-boundaries.bats` | `28006c987e9b5bc63fbabc4ce138f30e77d4ec28` |
 | BATS ASGI bootstrap | `test/signalloom/adversarial_boot.py` | `b7a5411e0fd6200100d7db52bba417ec7f6867bb` |
 | mutation registry (extended) | `d2-signalloom/apps/fe-signalloom/src/tests/mutation_probe.sh` | `1a16d66c3d8376867eba417eebb86d03f305dd64` |
 | mitigation patch | `d2-signalloom/apps/fe-signalloom/src/api_compat.py` | `07cfc76889eccdef50c3b32ca8433bf4efdfa01a` |
 
-Hashes are `git hash-object` values for the files as run. The BATS file's hash
-predates the final guard-15 correction recorded in §4; the committed hash is in
-the errata.
+Hashes are `git hash-object` values for the files as run. The `api_compat.py`
+and `mutation_probe.sh` hashes are those of commit
+`c7d8863a7e514c2007d22a1cf7b648ddfd590ae6`; the pytest suite and this report
+were extended afterwards with the F-2 material and land in the follow-up commit
+recorded in the errata. Each is verifiable with `git ls-tree -r HEAD`, so the
+artefact that was tested is the artefact that was committed.
 
 ---
 
@@ -41,19 +55,20 @@ the errata.
 
 | # | Command | Exit | Result |
 |---|---|---|---|
-| V-1 | `pytest tests/test_adversarial_onboarding.py -q` | `0` | `87 passed, 1 warning in 1.00s` |
+| V-1 | `pytest tests/test_adversarial_onboarding.py -q` | `0` | `89 passed, 1 xfailed, 1 warning in 1.15s` — the xfail is F-2 |
 | V-2 | `bats test/signalloom/adversarial-boundaries.bats` | `0` | `16/16 ok`; `1..16` declared = 16 executed |
-| V-3 | `pytest tests -q` (full suite, with this card's file) | `1` | `14 failed, 1233 passed, 83 skipped` |
+| V-3 | `pytest tests -q` (full suite, with this card's file) | `1` | `14 failed, 1235 passed, 83 skipped, 1 xfailed` |
 | V-4 | `pytest tests -q` (full suite, this card's file removed) | `1` | `14 failed, 1146 passed, 83 skipped` |
 | V-5 | `comm -23 <failures-with> <failures-without>` | `0` | **empty — zero regressions introduced** |
 | V-6 | `git diff --stat` after all mutation runs | `0` | only intended files modified; `HEAD` unchanged at `06c6c429` |
 
-**Arithmetic check on V-3 / V-4.** 1233 − 1146 = 87, exactly the count this card
-adds. The failure *sets* are byte-identical, not merely equal in count — the 14
+**Arithmetic check on V-3 / V-4.** 1235 − 1146 = 89, exactly the count this card
+adds (plus the one xfail). The failure *sets* are byte-identical, not merely equal in count — the 14
 failures are pre-existing on the base commit and are enumerated in O-3.
 
-**Declared-versus-executed check.** The pytest file declares 47 `def test_`
-functions, which expand to 87 executed assertions under `pytest.mark.parametrize`.
+**Declared-versus-executed check.** The pytest file declares 50 `def test_`
+functions, which expand to 90 executed outcomes (89 pass + 1 xfail) under
+`pytest.mark.parametrize`.
 The BATS file declares `1..16` and executes 16. Neither suite silently dropped a
 test — a suite that fails to load reports success with a shorter tally, so the
 count is checked, not just the pass/fail.
@@ -228,9 +243,9 @@ refusal would be testing the test.
 
 ---
 
-## 5. Finding
+## 5. Findings
 
-### F-1 — Cross-tenant identifier disclosure in the claim-conflict refusal *(fixed)*
+### 5.1 F-1 — Cross-tenant identifier disclosure in the claim-conflict refusal *(fixed)*
 
 **Severity:** low. **Status:** fixed in this card, under the card's clause
 *"Mitigation patches if any boundary leakage is identified during testing."*
@@ -264,9 +279,116 @@ asserts the tenant identifier is absent, *and* asserts the pod name and the phra
 Mutation `claim_conflict_discloses_owner` restores the original message and turns
 the test red.
 
-**Why the existing suite did not catch it.** `test_adversarial_leakage.py` sweeps
-error responses for stack traces, SQL and connection strings. A tenant identifier
-is none of those; it is legitimate application data being shown to the wrong reader.
+**Why the existing suite did not catch it — and why my own anti-criterion would
+not have either.** `test_adversarial_leakage.py` sweeps error responses for stack
+traces, SQL and connection strings. A tenant identifier is none of those; it is
+legitimate application data being shown to the wrong reader. My own ISC-46 used
+the same marker set and was green for the entire life of the defect. That gap is
+now closed by `test_no_response_to_one_tenant_names_another_tenants_data`
+(ISC-46.1), which asserts that **nothing tenant A owns** — identifier, claim id,
+agent id, session id, root hash — appears in any response served to tenant B,
+across seven probes. It excludes values the caller supplied in their own request,
+because a 404 echoing back the id you asked about is your own input coming home,
+not a disclosure. Mutation `claim_conflict_discloses_owner` turns it red.
+
+**Severity factors, stated rather than assumed.** The incremental harm is not
+"an identifier appeared" — 409-versus-200 already discloses existence
+unavoidably. It is that naming the owner adds *attribution*. Three factors
+govern how much that matters, measured on this codebase:
+
+| Factor | Measured | Effect |
+|---|---|---|
+| Are tenant ids opaque or human-meaningful? | **Human-meaningful slugs** — `config.py:26` ships `{"demo-user": "tenant-demo"}`; the tests use `tenant-a` / `tenant-b` | A slug is customer-identifying; raises impact |
+| Are pod / agent names guessable? | **Semi-deterministic** — the demo estate ships `agent-nono-evidenced` and `agent-standard-baseline` by fixed name | Enumerable, so per-item attribution scales toward bulk inventory |
+| Is the endpoint rate-limited? | **No** — no rate-limit middleware in `api_compat.py` or `main.py` | Nothing bounds an enumeration loop |
+
+So "low" is a judgement about *what* leaks (one identifier, no records, authenticated
+caller), not about how hard it is to harvest. On the three factors above it is
+harvestable at scale. It is fixed regardless; the factors are recorded so the
+classification is defensible on the record rather than asserted.
+
+---
+
+### 5.2 F-2 — Unauthenticated claim-by-id honours a caller-supplied tenant *(OPEN — escalated, not patched)*
+
+**Severity:** high — unauthenticated mutation plus caller-chosen tenant plus a
+fabricated audit actor. **Status:** open. **This is the card's STOP condition.**
+
+`claim_agent_by_id` (`api_compat.py:4173`) reads the `Authorization` header by
+hand instead of depending on `authenticated_principal`, and the absent-header
+branch does not refuse:
+
+```python
+@router.post("/v1/agents/{agent_id}/claim", ...)
+@router.post("/agents/{agent_id}/claim", ...)
+async def claim_agent_by_id(
+    agent_id: str,
+    body: AgentClaimByIdRequest | None = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> AgentClaimResponse:
+    if authorization is not None:
+        principal = authenticated_principal(authorization)
+        tenant_id = principal.tenant
+        actor = principal.actor
+    else:
+        tenant_id = (body and body.tenant_id) or "tenant-demo"   # <-- caller-supplied
+        actor = "operator"                                        # <-- fabricated
+```
+
+`AgentClaimByIdRequest.tenant_id` is a client-settable field, so the tenant is
+chosen by whoever sends the request.
+
+**Reproduction** (no `Authorization` header on either route alias):
+
+```
+NO AUTH HEADER  POST /api/v1/agents/00000000-0000-0000-0000-0000000000aa/claim
+   -> 200  {"claim_id":"claim-ea6c3e54e17b","status":"granted","spiffe_svid_verified":true,...}
+NO AUTH HEADER  POST /api/agents/00000000-0000-0000-0000-0000000000aa/claim
+   -> 200  {"claim_id":"claim-8a49531c4513","status":"granted","spiffe_svid_verified":true,...}
+
+claims now held by victim-tenant: ['claim-ea6c3e54e17b', 'claim-8a49531c4513']
+audit events written: [('agent.created', 'operator'), ('agent.created', 'operator')]
+```
+
+Three distinct failures compound:
+
+1. **Authentication bypass** — a mutating governance route serves anonymous callers.
+2. **Caller-supplied tenant honoured** — precisely the IDOR the card asked to be
+   proven impossible, and the one place in these surfaces where it is possible.
+3. **Audit-trail forgery** — `actor="operator"` is a literal, not an identity.
+   For a product whose output is regulatory evidence, an unattributable write
+   recorded under a fabricated name is worse than no write.
+
+**Not patched, deliberately.** The card lists this class as a hard blocker:
+*"STOP and report — do not improvise… Write a status=fail errata block and stop."*
+It is also genuinely ambiguous: the `"tenant-demo"` default and hardcoded
+`"operator"` look like a deliberate demo affordance for the one-click claim
+button, so removing the branch may break the demo flow. Whether the correct fix
+is `Depends(authenticated_principal)`, a demo-mode feature flag, or a
+network-level restriction is a product decision.
+
+**Recommended fix** (for the record, not applied): replace the hand-rolled header
+read with `principal: Annotated[Principal, Depends(authenticated_principal)]`,
+matching every other route on these surfaces, and delete `tenant_id` from
+`AgentClaimByIdRequest`. If the anonymous path must survive for the demo, gate it
+behind an explicit setting that is off by default and never set in a deployed
+manifest.
+
+**Pinned in code.** `test_unauthenticated_claim_by_id_is_refused` asserts the
+correct behaviour (401) and is marked `@pytest.mark.xfail(strict=True)`. It shows
+as `XFAIL` on every run, so the finding is visible rather than filed away — and
+because `strict=True` makes an unexpected pass a failure, the suite goes red the
+moment somebody fixes it, forcing the marker to be removed alongside the fix.
+
+**How it was found.** Not by the probe list — by ISC-14.1, the body-model sweep
+added in response to advisor review. ISC-14's original route walk inspects path
+and query parameters only, so a tenant-named field on a *request body* was
+invisible to it. Widening the sweep to request-body models surfaced two such
+fields: `SignedAuditSession.tenant_id` (proven overwritten) and
+`AgentClaimByIdRequest.tenant_id` (this finding). The precise claim is therefore
+not "no route accepts a caller-supplied tenant" but: *no path or query parameter
+accepts one; of the two body fields that do, one is overwritten server-side and
+one is an open vulnerability.*
 
 ---
 

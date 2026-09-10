@@ -17,7 +17,7 @@ if [[ "$*" == *'get daemonset -o json'* ]]; then
   fi
 fi
 if [[ "$*" == *'api-resources --api-group=networking.k8s.io -o name'* ]]; then printf 'networkpolicies\n'; fi
-if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'true\n'; fi
+if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'triage-0|true,\n'; fi
 if [[ "$*" == *'get deployment openbao -o json'* ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"containers":[{"name":"openbao","env":[{"name":"BAO_DEV_ROOT_TOKEN_ID","value":"fixture-admin-token"}]}]}}}}'; fi
 # Carries bound_subject/bound_audiences/token_policies as well as the lifetime.
 # The old fixture returned lifetime only, so verify's identity-binding assertions

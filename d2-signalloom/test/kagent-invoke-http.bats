@@ -26,7 +26,7 @@ setup() {
   # A distinct port per test, so a leaked server from a previous test cannot
   # answer this one's requests and manufacture a pass. Guarantee uniqueness across
   # tests in this suite to prevent TIME_WAIT port collisions.
-  PORT=$(( 18000 + (($$ % 100) * 20) + ${BATS_TEST_NUMBER:-1} ))
+  PORT=$(( 38000 + (($$ % 100) * 20) + ${BATS_TEST_NUMBER:-1} ))
   export KAGENT_A2A_BASE="http://127.0.0.1:${PORT}"
 
   STUB_DIR="${BATS_TEST_TMPDIR}/bin"
@@ -54,6 +54,10 @@ teardown() {
 }
 
 start_server() {
+  if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+    echo "port $PORT is already in use before starting server" >&2
+    return 1
+  fi
   A2A_SCENARIO="$1" A2A_PORT="$PORT" \
     bun "$SERVER" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
   SERVER_PID=$!

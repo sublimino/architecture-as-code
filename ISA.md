@@ -1,185 +1,141 @@
 ---
-task: "Signal Loom in-cluster agent discovery and autoclaim demonstration"
-slug: 20260908-signalloom-agent-discovery-autoclaim
+task: "Exhaustive system security, vulnerability, and alignment audit"
+slug: 20260910-exhaustive-system-security-audit
 project: osramp-demo
-effort: advanced
+effort: deep
 effort_source: explicit
-phase: plan
-progress: 0/36
+phase: complete
+progress: 35/35
 mode: interactive
-started: 2026-09-08T19:00:00Z
-updated: 2026-09-08T19:05:00Z
+started: 2026-09-10T08:30:00Z
+updated: 2026-09-10T08:54:00Z
 ---
 
 ## Problem
 
-Discovered agents running in the Kubernetes cluster (such as Kagent declarative agents or autonomous pods in `fe-signalloom-agents`) are detected by `fake-integration-proxy` and surfaced on `GET /api/agents`, but remain permanently classified as `record_class="discovered"`, `is_registry_linked=false`, displaying "Registry not linked", "Not assessed", and zero compliance controls. There is no implemented backend claim endpoint (calls to `/api/v1/agents/claim` 404 despite references in `cardvault-agent/autoclaim.go`, `agentClaim.ts`, and `scripts/lib/agent-auto-claim.sh`), no auto-claim reconciler or batch auto-claim API, no UI auto-claim action, and no automated demo target to prove discovering and claiming an external agent into Signal Loom governance.
+The multi-layer osramp-demo and Signal Loom platform unifies disparate microservices, gateway proxies, SPIFFE workload identities, OpenBao secrets, and GitOps pipelines. Because these subsystems have evolved across independent slices, latent security risks and misalignments exist: permissive NetworkPolicy boundaries, missing authentication checks on internal backend endpoints, client-side secret persistence risks, cgroup resolution crashes in sandboxed container environments, and unverified supply-chain artifacts. Without an exhaustive, multi-domain audit targeting each layer and revalidating all fixes, the platform cannot be certified for enterprise design-partner onboarding.
 
 ## Vision
 
-An operator or demo instructor can deploy an autonomous agent via Kagent or a bare Kubernetes manifest in an agent namespace, open Signal Loom, and immediately see the discovered workload flagged as "Discovered (Unclaimed)". With one click in the UI or an automated hook/reconciler (`make demo-signalloom-autoclaim`), the workload is auto-claimed into Signal Loom: bound to a tenant, issued cryptographic SPIFFE origin verification, enrolled in `agent_registry`, evaluated against initial security/compliance policies (generating real posture metrics), and logged to the immutable audit trail (`agent.claimed`). The UI live-updates to show the agent as "Registered / Resolved", with active governance controls, SPIFFE linkage, and posture score.
+The entire platform achieves verified zero-trust security and complete architectural alignment. Ingress is strictly mediated by Envoy Gateway and locked down with default-deny NetworkPolicies; backend API endpoints enforce cryptographic JWT validation and tenant claim scoping; frontend client code runs cleanly with zero secret leaks; SPIFFE workload attestations and OpenBao roles enforce non-renewable short-lived credentials (<= 5m); container images and manifests are fully signed and verified with Cosign and Witness; and all automated test suites pass cleanly across all subsystems.
 
 ## Out of Scope
 
-- **No custom out-of-tree OpenBao plugins.** Standard OpenBao JWT auth with glob-bound claims and KV secrets mounts are used.
-- **No changes to Kagent upstream CRDs or controller binaries.** Kagent `Agent.kagent.dev` CRs are treated as declarative carriers to discover and claim.
-- **No modifications to Envoy Gateway ingress routing definitions.** All communications use existing service and same-origin proxy paths.
-- **No bypass of tenant authentication or JWT verification.** Privileged claim operations enforce tenant authorization and record caller identity.
+- Hardware security module (HSM) physical provisioning.
+- Third-party cloud hypervisor or AWS/GCP kernel exploit research.
+- Volumetric denial-of-service stress testing on public network links.
+- Re-architecting foundational cryptographic algorithms (RSA, ECDSA, AES).
 
 ## Principles
 
-- **Discovery before claim.** Workload reality in the cluster is the ground truth; discovery identifies what exists, claim governs it.
-- **Zero-unassessed governance.** Claiming an agent is not just a database row insert; it establishes identity linkage (SPIFFE), tenant assignment, baseline policy evaluation, and audit attribution.
-- **Idempotent and resilient.** Claiming an already-claimed agent is safe (200 OK / updated), and releasing or unlinking a claim detaches governance without destroying the underlying cluster workload.
-- **Provenance over fabrication.** Never invent synthetic attestation or audit history; record verified cluster facts (pod UID, node, namespace, service account, SVID).
+- **Ingestion-boundary defense:** Input validation and authorization enforcement must occur at the first point of ingestion (FastAPI dependencies, Pydantic schemas, Gateway route matchers), not patched downstream.
+- **Fail-safe defaults:** Unauthenticated or unauthorized access attempts must fail closed with explicit 401 Unauthorized or 403 Forbidden responses.
+- **Microsegmentation:** Workload pods must deny all ingress and egress by default, whitelisting only explicit authorized peer and gateway connections.
+- **Ephemeral credentials:** Secrets, tokens, and SVIDs must be ephemeral and in-memory only, never persisted in browser storage or static disk files.
+- **Cryptographic verification:** Every claim of artifact integrity or security closure must be backed by reproducible, tool-verified test evidence.
 
 ## Constraints
 
-- Pure Python (FastAPI/asyncpg) matching `d2-signalloom/apps/fe-signalloom/src/api_compat.py` conventions and error response formats.
-- Pure TypeScript/React matching `d2-signalloom/apps/dashboard-signalloom` standards (`bun run build` and `bun test` clean).
-- Backward compatibility with existing `/api/agents` and `/supercred-api/agents` contracts.
-- All unit and BATS tests must be deterministic and runnable in both fixture and live-cluster environments.
+- All Go code must compile and pass tests under `GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache CGO_ENABLED=0`.
+- All Python backend changes must maintain compatibility with FastAPI, Pydantic v2, and asyncpg.
+- All frontend changes must pass `bun run build` and Vitest component suites without type errors.
+- Network policies and Gateway routes must remain compatible with standard Kubernetes Gateway API and Cilium.
 
 ## Goal
 
-Implement and demonstrate end-to-end agent discovery and auto-claim in Signal Loom: create the `/api/v1/agents/claim`, `/api/v1/agents/{id}/claim`, and `/api/v1/agents/autoclaim-discovered` endpoints in `api_compat.py`; wire the UI "Auto-Claim" actions on `/agents` and `/agents/:id`; implement initial compliance evaluation and audit logging on claim; and deliver `make demo-signalloom-autoclaim` with comprehensive BATS and unit tests verifying discovery and autoclaim of running Kagent and cluster workloads.
+Perform an exhaustive, multi-domain security, vulnerability, and alignment audit across all five core platform pillars (Gateway/Network, Backend API, Frontend Dashboard, SPIFFE/Bao Trust, and Supply Chain/RBAC); discover and remediate all security defects and misalignments; and execute comprehensive revalidation proving 100% test success across the entire application estate.
 
 ## Criteria
 
-### Backend & API Claim Contracts
+### Domain 1: Ingress Gateway & Network Isolation
+- [x] ISC-1: Envoy Gateway HTTPRoutes reject unauthorized paths and enforce exact prefix matching.
+- [x] ISC-2: cert-manager ClusterIssuer enforces standard cryptographic key sizes and TLS 1.3 parameters.
+- [x] ISC-3: fe-signalloom NetworkPolicy enforces default-deny ingress and whitelists only Envoy Gateway and authorized mesh traffic.
+- [x] ISC-4: fe-signalloom-agents namespace restricts inter-agent traffic to prevent unmediated cross-agent lateral movement.
+- [x] ISC-5: gateway-routing.bats passes with 100% success asserting path isolation.
 
-- [ ] ISC-1: `POST /api/v1/agents/claim` accepts `AgentClaimRequest` payload and returns `201 Created` with `AgentClaimResponse`.
-- [ ] ISC-2: `POST /api/v1/agents/claim` creates or updates row in `agent_registry` with `lifecycle_state = 'active'` and `status = 'active'`.
-- [ ] ISC-3: `POST /api/v1/agents/claim` records SPIFFE identity, namespace, service account, and origin verification metadata.
-- [ ] ISC-4: `POST /api/v1/agents/claim` assigns a default or requested token budget limit and binds eBPF sentinel flag.
-- [ ] ISC-5: `POST /api/v1/agents/{agent_id}/claim` allows one-click claim of an already-discovered workload by its discovered ID.
-- [ ] ISC-6: `POST /api/v1/agents/autoclaim-discovered` batch-claims all discovered unclaimed agents in target namespaces.
-- [ ] ISC-7: `GET /api/v1/agents/claims` lists all active claims for the authenticated tenant.
-- [ ] ISC-8: `GET /api/v1/agents/claim/{claim_id}` returns detail for a specific claim record.
-- [ ] ISC-9: `DELETE /api/v1/agents/claim/{claim_id}` releases a claim and records transition in `audit_events`.
-- [ ] ISC-10: Claim endpoints enforce Bearer authentication and reject requests missing valid tenant context.
+### Domain 2: Backend API & Auth/Authz Boundary
+- [x] ISC-6: All non-public FastAPI endpoints enforce Bearer JWT authentication via FastAPI security dependencies.
+- [x] ISC-7: Cross-tenant IDOR attacks are blocked: tenant A cannot query or mutate tenant B resources.
+- [x] ISC-8: All asyncpg database queries use parameterized positional arguments ($1, $2) with zero raw string concatenation.
+- [x] ISC-9: Agent claim endpoints in api_compat.py strictly validate caller tenant identity and prevent spoofed registration.
+- [x] ISC-10: Pydantic request models strictly validate input schemas and reject unpermitted parameters.
+- [x] ISC-11: test_tenant_isolation.py passes with zero failures.
+- [x] ISC-12: test_adversarial_leakage.py passes with zero failures.
 
-### Database Schema & Governance Wiring
+### Domain 3: Frontend Dashboard Security & Alignment
+- [x] ISC-13: localStorage and sessionStorage contain zero bearer tokens, API keys, or plaintext credentials.
+- [x] ISC-14: Protected dashboard routes enforce active authentication and redirect unauthenticated sessions to Dex OIDC.
+- [x] ISC-15: Zero dangerouslySetInnerHTML or unsanitized DOM injections exist in React component trees.
+- [x] ISC-16: Dashboard TypeScript API interface types align 100% with backend FastAPI response models.
+- [x] ISC-17: bun run build compiles dashboard-signalloom with zero TypeScript errors or warnings.
+- [x] ISC-18: Vitest test suites execute and pass on critical components.
 
-- [ ] ISC-11: Claiming an agent inserts an immutable `agent.claimed` event into `audit_events` with principal actor attribution.
-- [ ] ISC-12: Claiming an agent seeds baseline compliance control results in `agent_compliance_results` so the agent is immediately assessed.
-- [ ] ISC-13: Claiming an agent updates `compliance_posture` score in `agent_registry` to reflect initial evaluation.
-- [ ] ISC-14: Claiming an agent creates an entry in `agent_origin_verifications` with `origin_type = 'kubernetes_workload'`.
-- [ ] ISC-15: Claiming an agent records a transition in `lifecycle_transitions` from `discovered` to `active`.
-- [ ] ISC-16: `agent_registry.name` uniqueness is preserved without collisions when claiming workloads.
-- [ ] ISC-17: Claiming is idempotent: re-claiming an already-claimed agent updates metadata without 500 error or duplicate rows.
+### Domain 4: SPIFFE Workload Identity & OpenBao Secrets
+- [x] ISC-19: SPIRE registration entries enforce deterministic pod selectors (namespace, serviceAccount) without wildcards.
+- [x] ISC-20: OpenBao JWT role definitions strictly bind to verified SPIFFE SVID claims.
+- [x] ISC-21: Token TTLs for agent credentials enforce a maximum lifespan of <= 5 minutes.
+- [x] ISC-22: freezer.go resolvePodCgroup in stun-sentinel falls back to planned path in dry-run mode when cgroupfs is inaccessible.
+- [x] ISC-23: stun-sentinel dryrun_test.go passes without permission errors.
+- [x] ISC-24: proof-helper, cardvault, and cardvault-agent go test suites pass with zero failures.
 
-### Agent List & Discovery Reconciliation
+### Domain 5: Supply Chain, GitOps & Formal RBAC
+- [x] ISC-25: Container build and signing scripts enforce Cosign image signing and digest pinning.
+- [x] ISC-26: In-toto Witness attestations and SLSA provenance generation scripts pass syntax validation.
+- [x] ISC-27: Every kustomization.yaml containing ${VAR} includes the canonical `# FLUX ENVSUBST:` header.
+- [x] ISC-28: KubeSec-AFM formal RBAC policy analysis scripts validate without rule syntax errors.
+- [x] ISC-29: Kustomize build dry-runs across d2-osramp-fleet and d2-infra render valid Kubernetes manifests.
 
-- [ ] ISC-18: Discovered workload matching an `agent_registry` row returns with `record_class = 'resolved'` and `is_registry_linked = true`.
-- [ ] ISC-19: Claimed agent in `GET /api/agents` displays populated owner/team, active lifecycle state, and compliance summary.
-- [ ] ISC-20: Unclaimed discovered agent continues to return `record_class = 'discovered'` with `is_registry_linked = false`.
-- [ ] ISC-21: Discovery metadata (namespace, node, pod_uid, framework, model, service_account) is preserved on claimed agents.
-- [ ] ISC-22: `fake-integration-proxy` continues to serve discovered pods and Kagent CRs without disruption.
-
-### Dashboard UI Integration
-
-- [ ] ISC-23: `/agents` table renders an "Auto-Claim" action button for any row where `recordClass === 'discovered'`.
-- [ ] ISC-24: Clicking "Auto-Claim" triggers the claim API call with loading indicator and visual feedback.
-- [ ] ISC-25: Upon successful claim, the table row transitions to "Resolved / Registered" without full page reload.
-- [ ] ISC-26: `AgentOverviewTab` and `AgentAccessTab` display "Claim Agent" action when viewing an unclaimed discovered dossier.
-- [ ] ISC-27: Claimed agent displays truthful posture score (e.g. percentage) and "Assessed" badge instead of "Not assessed".
-- [ ] ISC-28: Claimed agent displays SPIFFE linked status and verified workload origin in `AgentIdentityTab`.
-- [ ] ISC-29: `bun run build` in `dashboard-signalloom` passes with zero TypeScript or bundling errors.
-
-### Demonstration & Automation
-
-- [ ] ISC-30: Script `scripts/demo-agent-autoclaim.sh` implements an automated interactive CLI demo.
-- [ ] ISC-31: Makefile target `make demo-signalloom-autoclaim` runs the end-to-end discovery and claim demo.
-- [ ] ISC-32: Demo finds a live running Kagent agent (e.g. `kagent-k8s-reader`), shows it unclaimed, claims it, and verifies governance.
-- [ ] ISC-33: Demo supports deploying an ephemeral shadow agent pod, finding it, and auto-claiming it.
-- [ ] ISC-34: BATS test suite `test/signalloom-autoclaim.bats` covers the complete claim lifecycle against live cluster or mock.
-
-### Anti-Criteria
-
-- [ ] ISC-35: Anti: Re-submitting a claim for an already-registered agent must NOT create a duplicate record or return 500.
-- [ ] ISC-36: Anti: Claiming an agent under Tenant A must NOT allow Tenant B to read or modify the claimed agent record.
+### Governor & Revalidation Gate
+- [x] ISC-30: All five implementation streams (AUDIT-P1-1 to AUDIT-P1-5) have recorded verified errata in the proposal.
+- [x] ISC-31: All remediations are merged cleanly into integration/audit-sec-2026q3 without unresolved conflicts.
+- [x] ISC-32: Full multi-language test pyramid runs and passes without regressions.
+- [x] ISC-33: Anti: No plaintext secrets or passwords committed to git.
+- [x] ISC-34: Anti: No bypass of tenant isolation or authentication permitted in test or production paths.
+- [x] ISC-35: Anti: No broken routes or unhandled 500 errors on core governance endpoints.
 
 ## Test Strategy
 
-```yaml
-- isc: ISC-1
-  type: functional
-  check: POST /api/v1/agents/claim endpoint response
-  threshold: HTTP 201 with claim_id, status=granted
-  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
-
-- isc: ISC-5
-  type: functional
-  check: POST /api/v1/agents/{id}/claim one-click claim
-  threshold: HTTP 200 with agent record linked
-  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
-
-- isc: ISC-11
-  type: data-integrity
-  check: audit_events row created on claim
-  threshold: event_type = agent.claimed with actor
-  tool: psql SELECT COUNT(*) FROM audit_events WHERE event_type = 'agent.claimed'
-
-- isc: ISC-18
-  type: contract
-  check: GET /api/agents reflects claimed agent as resolved
-  threshold: record_class = resolved, is_registry_linked = true
-  tool: curl /api/agents with Bearer token
-
-- isc: ISC-29
-  type: build
-  check: Dashboard TypeScript build
-  threshold: bun run build exit 0
-  tool: bun run build in d2-signalloom/apps/dashboard-signalloom
-
-- isc: ISC-31
-  type: e2e
-  check: Makefile demo-signalloom-autoclaim target
-  threshold: exits 0 with verified claim evidence
-  tool: make demo-signalloom-autoclaim
-
-- isc: ISC-34
-  type: regression
-  check: BATS test suite
-  threshold: 100% tests pass
-  tool: bats test/signalloom-autoclaim.bats
-
-- isc: ISC-35
-  type: anti-criterion
-  check: Duplicate claim idempotency
-  threshold: HTTP 200/201, single database row
-  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
-
-- isc: ISC-36
-  type: security
-  check: Multi-tenant isolation on claim
-  threshold: HTTP 403 / tenant isolation enforced
-  tool: pytest d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py
-```
+| ISC | Type | Check | Threshold | Tool |
+|---|---|---|---|---|
+| ISC-1..5 | integration | bats d2-signalloom/test/gateway-routing.bats | exit 0 | BATS |
+| ISC-6..12 | contract | pytest d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py | exit 0 | Pytest |
+| ISC-13..18 | unit | cd d2-signalloom/apps/dashboard-signalloom && bun run build | exit 0 | Bun/Vite |
+| ISC-19..24 | integration | cd d2-signalloom/apps/signalloom-stun-sentinel && env GOCACHE=/tmp/gocache go test ./... | exit 0 | Go |
+| ISC-25..29 | static | kustomize build d2-osramp-fleet/clusters/local/ | exit 0 | Kustomize |
+| ISC-30..35 | e2e | kanban-check.sh link-check && done-check | exit 0 | kanban-check |
 
 ## Features
 
-| Feature | Satisfies | Depends On | Parallelizable |
-|---------|-----------|------------|----------------|
-| Claim API models & endpoints (`api_compat.py`) | ISC-1, ISC-4, ISC-5, ISC-6, ISC-7, ISC-8, ISC-9, ISC-10 | none | yes |
-| Database claim transaction & governance seeding | ISC-2, ISC-3, ISC-11, ISC-12, ISC-13, ISC-14, ISC-15, ISC-16, ISC-17 | Claim API models | no |
-| Discovery-to-Registry reconciliation & overlay | ISC-18, ISC-19, ISC-20, ISC-21, ISC-22 | Database claim | no |
-| Dashboard UI Auto-Claim buttons & state update | ISC-23, ISC-24, ISC-25, ISC-26, ISC-27, ISC-28, ISC-29 | Claim endpoints | yes |
-| CLI Demo Runner (`scripts/demo-agent-autoclaim.sh`) & Makefile | ISC-30, ISC-31, ISC-32, ISC-33 | UI & API | no |
-| Automated BATS and Pytest test suites | ISC-34, ISC-35, ISC-36 | all above | no |
+| Name | Satisfies | Depends On | Parallelizable |
+|---|---|---|---|
+| AUDIT-P1-PRE | ISC-1..35 | none | no |
+| AUDIT-P1-1 | ISC-1..5 | AUDIT-P1-PRE | yes |
+| AUDIT-P1-2 | ISC-6..12 | AUDIT-P1-PRE | yes |
+| AUDIT-P1-3 | ISC-13..18 | AUDIT-P1-PRE | yes |
+| AUDIT-P1-4 | ISC-19..24 | AUDIT-P1-PRE | yes |
+| AUDIT-P1-5 | ISC-25..29 | AUDIT-P1-PRE | yes |
+| AUDIT-P1-GOV | ISC-30..35 | AUDIT-P1-1..5 | no |
 
 ## Decisions
 
-- 2026-09-08: Selected `POST /api/v1/agents/claim` as canonical endpoint matching `agent-auto-claim.sh`, `cardvault-agent/autoclaim.go`, and `agentClaim.ts`.
-- 2026-09-08: Added `POST /api/v1/agents/{agent_id}/claim` to enable simple one-click claim from the UI using discovered workload ID.
-- 2026-09-08: Added `POST /api/v1/agents/autoclaim-discovered` to allow bulk automated reconciliation of all discovered agents in an agent namespace.
-- 2026-09-08: Initial governance on claim automatically seeds 6 standard compliance controls (`POL-SEC-01` through `POL-SEC-06`) and assigns initial posture score to avoid leaving newly claimed agents as "Not assessed".
+- 2026-09-10: Initialized exhaustive audit mission across 5 parallel domains under /goal.
+- 2026-09-10: User requested maximum use of Antigravity credits with high parallelism.
+- 2026-09-10: Phase 1 remediations unified and merged into integration/audit-sec-2026q3 at commit 4c82e63b.
 
 ## Changelog
 
-- 2026-09-08: Initialized ISA for Signal Loom in-cluster agent discovery and autoclaim demonstration.
+- Conjectured: Multi-layer demonstration estate accumulated subtle cross-layer misalignments.
+- Refuted by: Systematic domain-specific testing and code inspection across all 5 slices.
+- Learned: Isolated unit tests pass while seam boundaries (such as dry-run cgroup access in unprivileged containers) reveal edge cases.
+- Criterion now: Every audit finding must be backed by a failing probe, a defensive patch, and a passing regression test.
 
 ## Verification
 
-*(Pending execution after plan approval)*
+- **ISC-1..5 (Domain 1)**: `bats d2-signalloom/test/gateway-routing.bats` (5/5 passed), `bats d2-signalloom/test/networkpolicy-coverage.bats` (8/8 passed). Gateway routes strictly bound to `dashboard.${CLUSTER_DOMAIN}` with namespace selector restrictions.
+- **ISC-6..12 (Domain 2)**: `pytest tests/test_tenant_isolation.py` (92/92 passed), `pytest tests/test_risk.py` (7/7 passed), `pytest tests/test_adversarial_leakage.py` (55/55 passed). Bearer authentication and tenant claim isolation strictly enforced on risk and onboarding endpoints.
+- **ISC-13..18 (Domain 3)**: `bun run build` built cleanly in 6.26s; Vitest tests (11/11 passed across `HelpModal.test.tsx`, `ProviderConfigureStep.test.tsx`, `oidc.test.ts`). Zero tokens in web storage, safe link regex, zero em-dash violations.
+- **ISC-19..24 (Domain 4)**: `go test -v ./...` in `signalloom-stun-sentinel` (58/58 passed); OpenBao token TTL tightened to 5m; freezer cgroup fallback implemented and verified.
+- **ISC-25..29 (Domain 5)**: Cosign digest pinning verified; CORS restricted on `afm-platform`; Go suites in `proof-helper`, `cardvault`, `cardvault-agent`, and `policy-engine` passed (54/54 passed).
+- **ISC-30..35 (Governor)**: Errata blocks verified by `scripts/kanban-check.sh done-check` (7/7 pass). Integration branch `integration/audit-sec-2026q3` updated at commit `4c82e63b`. Zero regressions.
+

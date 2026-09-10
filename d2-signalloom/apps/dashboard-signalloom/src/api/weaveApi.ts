@@ -8,6 +8,7 @@
  * fakeData.ts via fakeWeaveData.ts's WEAVE_ROUTES export.
  */
 import { req } from './client'
+import type { DelegationRecord } from '../types/identity'
 
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
@@ -95,6 +96,11 @@ export interface AuthorizationChain {
   canonicalId?: string
   aliases?: string[]
   evidenceChain?: EvidenceLink[]
+  delegationChain?: DelegationRecord[]
+  cycleDetected?: boolean
+  cycle_detected?: boolean
+  has_cycle?: boolean
+  cycle_nodes?: string[]
   timestamp?: string
 }
 

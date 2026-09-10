@@ -345,10 +345,10 @@ describe('AgentIdentityTab — Truthful State Language & Error Handling', () => 
 describe('AgentIdentityTab — User Interactions', () => {
   it('copies SPIFFE SVID URI to clipboard on button click', () => {
     const writeTextMock = vi.fn().mockResolvedValue(undefined)
-    Object.assign(navigator, {
-      clipboard: {
-        writeText: writeTextMock,
-      },
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeTextMock },
+      configurable: true,
+      writable: true,
     })
 
     const agent = createMockAgent()

@@ -31,25 +31,68 @@ vi.mock('../auth/oidc', () => {
   return { useAuth0: () => ({ getAccessTokenSilently }) }
 })
 
-vi.mock('../api/client', () => ({
-  api: {
-    agents: {
-      get: vi.fn(),
-      violations: vi.fn().mockResolvedValue({ violations: [], total: 0 }),
-      issueCredential: vi.fn(),
-      revokeCredential: vi.fn(),
-      reassess: vi.fn(),
-      acknowledge: vi.fn(),
-      telemetry: vi.fn().mockResolvedValue({ observations: [], total_count: 0, source_health: 'healthy' }),
+vi.mock('../api/client', () => {
+  const req = vi.fn().mockImplementation(async (path: string) => {
+    if (path.includes('/authorization')) {
+      return {
+        action: 'Invoice batch processing',
+        agentIdentity: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-invoice-bot',
+        actsOnBehalfOf: 'sa/sa-invoice-bot acts-on-behalf-of ops@acme.com',
+        principal: 'ops@acme.com',
+        decision: 'authorized:actionable',
+        confidence: 0.95,
+        evidenceRefs: ['obs-id-001', 'k8s-audit://default/secrets/vault-token'],
+        attestationGitoid: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        complete: true,
+        actorId: 'agent-abc-123',
+        delegationChain: [
+          {
+            id: 1,
+            delegate_actor_id: 'ops@acme.com',
+            principal_actor_id: 'ops@acme.com',
+            authz_ref: 'sso:saml:operator',
+            valid_from: '2026-06-01T00:00:00Z',
+            role: 'Human Principal',
+            containment_evidenced: true,
+          },
+          {
+            id: 2,
+            delegate_actor_id: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-invoice-bot',
+            principal_actor_id: 'ops@acme.com',
+            authz_ref: 'k8s-rbac:invoice-processor',
+            valid_from: '2026-06-01T00:00:00Z',
+            role: 'Executing Agent',
+            containment_evidenced: true,
+            nono_containment: true,
+            spiffe_svid: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-invoice-bot',
+          },
+        ],
+      }
+    }
+    return null
+  })
+
+  return {
+    req,
+    api: {
+      agents: {
+        get: vi.fn(),
+        violations: vi.fn().mockResolvedValue({ violations: [], total: 0 }),
+        issueCredential: vi.fn(),
+        revokeCredential: vi.fn(),
+        reassess: vi.fn(),
+        acknowledge: vi.fn(),
+        telemetry: vi.fn().mockResolvedValue({ observations: [], total_count: 0, source_health: 'healthy' }),
+      },
+      audit: vi.fn().mockResolvedValue({ events: [], total: 0, page: 1, limit: 50 }),
+      compliance: { posture: vi.fn().mockResolvedValue({ agents: [] }) },
+      support: vi.fn().mockResolvedValue({
+        id: 'req-1', subject: 's', urgency: 'normal',
+        submitted_at: '2026-06-11T00:00:00Z', clickup_task_id: 'CU-1',
+      }),
     },
-    audit: vi.fn().mockResolvedValue({ events: [], total: 0, page: 1, limit: 50 }),
-    compliance: { posture: vi.fn().mockResolvedValue({ agents: [] }) },
-    support: vi.fn().mockResolvedValue({
-      id: 'req-1', subject: 's', urgency: 'normal',
-      submitted_at: '2026-06-11T00:00:00Z', clickup_task_id: 'CU-1',
-    }),
-  },
-}))
+  }
+})
 
 function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -484,6 +527,33 @@ describe('AgentDetailPage — Tab 2 (Identity & SPIFFE Integration)', () => {
       'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-invoice-bot'
     )
     expect(screen.getByTestId('identity-plane-separation-notice')).toBeInTheDocument()
+  })
+
+  it('renders WhoAuthorizedPanel with 7-hop attested authorization chain in Tab 2 Identity & SPIFFE', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())
+    renderPage('/agents/agent-abc-123?tab=identity')
+
+    expect(await screen.findByTestId('dossier-panel-identity')).toBeInTheDocument()
+    expect(screen.getByTestId('identity-tab-who-authorized-wrapper')).toBeInTheDocument()
+    expect(screen.getByTestId('who-authorized-panel')).toBeInTheDocument()
+    expect(screen.getByText(/Who Authorized This Action\?/i)).toBeInTheDocument()
+    expect(await screen.findByTestId('hop-action')).toBeInTheDocument()
+    expect(screen.getByTestId('hop-agent-identity')).toBeInTheDocument()
+    expect(screen.getByTestId('hop-acts-on-behalf-of')).toBeInTheDocument()
+    expect(screen.getByTestId('hop-principal')).toBeInTheDocument()
+    expect(screen.getByTestId('hop-decision')).toBeInTheDocument()
+    expect(screen.getByTestId('hop-confidence')).toBeInTheDocument()
+    expect(screen.getByTestId('hop-attestation-gitoid')).toBeInTheDocument()
+    expect(screen.getByTestId('chain-completeness-badge')).toBeInTheDocument()
+  })
+
+  it('renders stepped multi-node delegator tree hierarchy in Tab 2 Identity & SPIFFE', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent())
+    renderPage('/agents/agent-abc-123?tab=identity')
+
+    expect(await screen.findByTestId('delegation-stepped-path')).toBeInTheDocument()
+    expect(screen.getByTestId('delegation-node-0')).toBeInTheDocument()
+    expect(screen.getByTestId('delegation-node-step-0')).toBeInTheDocument()
   })
 })
 

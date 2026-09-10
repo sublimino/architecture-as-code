@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
 import { colors } from '../styles/tokens'
 import CredentialStateNotice from './CredentialStateNotice'
+import WhoAuthorizedPanel from './WhoAuthorizedPanel'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -506,6 +507,15 @@ export default function AgentIdentityTab({
             </div>
           </div>
         )}
+      </div>
+
+      {/* ─── 7-Hop Attested Authorization Chain & Live Delegator Tree ────────── */}
+      <div data-testid="identity-tab-who-authorized-wrapper">
+        <WhoAuthorizedPanel
+          actorId={agent.id}
+          compact={false}
+          hideHeaderControls={false}
+        />
       </div>
 
       {/* ─── Panel 2: Delegation Chain & Separation of Identity Planes ──────── */}

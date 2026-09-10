@@ -12,6 +12,25 @@ SHELL = /usr/bin/env bash -o pipefail
 
 CLUSTER_NAME ?= osramp
 
+KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml
+export KUBECONFIG
+GOCACHE ?= /tmp/gocache
+export GOCACHE
+GOMODCACHE ?= /tmp/gomodcache
+export GOMODCACHE
+CGO_ENABLED ?= 0
+export CGO_ENABLED
+HELM_CACHE_HOME ?= /tmp/helm/cache
+export HELM_CACHE_HOME
+HELM_CONFIG_HOME ?= /tmp/helm/config
+export HELM_CONFIG_HOME
+HELM_DATA_HOME ?= /tmp/helm/data
+export HELM_DATA_HOME
+UV_CONFIG_FILE ?= /dev/null
+export UV_CONFIG_FILE
+UV_CACHE_DIR ?= /tmp/uv-cache
+export UV_CACHE_DIR
+
 # Signing keys live in the MAIN worktree and are shared by every linked one.
 #
 # .keys/ is gitignored, so it was per-checkout while the Kind cluster and the
@@ -449,6 +468,85 @@ test: ## Run the end-to-end bats suite against the running cluster.
 	# were in front of a user. Every line was `ok`, so it read as a pass. The
 	# wrapper fails a run in which nothing actually executed.
 	./scripts/assert-bats-ran-something.sh $(MAKE) -C d2-osramp-apps test
+
+.PHONY: test-all
+test-all: ## Run every single test across all slices and verification stages in a single unified command.
+	@echo "=== Stage 1/10: Meta & Test Registries ==="
+	bats test/acceptance-spec-coverage.bats
+	bats d2-signalloom/test/bats-registry-coverage.bats
+	@echo "=== Stage 2/10: Go Unit Tests ==="
+	$(MAKE) test-signal-ingest
+	$(MAKE) test-signal-ingest-frostdb
+	$(MAKE) test-tetragon
+	cd tools/riskctl && go test ./...
+	cd tools/demo-console && go test ./...
+	cd d2-signalloom/apps/cardvault && go test ./...
+	cd d2-signalloom/apps/cardvault-agent && go test ./...
+	cd d2-signalloom/apps/cpai-engineer && go test ./...
+	cd d2-signalloom/apps/fleet-manager && go test ./...
+	cd d2-signalloom/apps/policy-engine && go test ./...
+	cd d2-signalloom/apps/signalloom-stun-sentinel && go test ./...
+	cd d2-signalloom/apps/triage-ci-worker && go test ./...
+	cd d2-signalloom/proof-helper && go test ./...
+	cd d2-signalloom/test/dex-templates && go test ./...
+	cd d2-signalloom/test/mocks && go test ./...
+	@echo "=== Stage 3/10: Frontend Unit & Integration Tests ==="
+	$(MAKE) test-dashboard-weave
+	cd d2-signalloom/apps/dashboard-signalloom && bun run test -- --run
+	@echo "=== Stage 4/10: Python Unit & Invariant Suites ==="
+	cd d2-signalloom/apps/fe-signalloom/src && pytest -n auto -q --disable-warnings
+	bash d2-signalloom/apps/fe-signalloom/test/audit-guard-reintroduction-proof.sh
+	python3 -m unittest discover -s d2-agent-trust/tests -p "*_test.py"
+	$(MAKE) -C olly-replica authz-test
+	@echo "=== Stage 5/10: KPAI & Swarm Unit Tests ==="
+	bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts
+	@echo "=== Stage 6/10: Static Config, Manifests & Guards ==="
+	$(MAKE) demo-signalloom-test-config
+	$(MAKE) demo-kagent-test-config
+	$(MAKE) demo-cpai-test-config
+	$(MAKE) demo-bao-test-config
+	$(MAKE) demo-agent-trust-test-config
+	$(MAKE) demo-osramp-test-config
+	$(MAKE) demo-olly-test-config
+	$(MAKE) test-zot-cache
+	$(MAKE) test-demo-lifecycle
+	$(MAKE) test-node-doctor
+	$(MAKE) test-cosign-signing-consistency
+	$(MAKE) test-ci-build-parity
+	$(MAKE) test-kind-load-verified
+	$(MAKE) test-deployed-staleness
+	$(MAKE) test-supervise-port-forward
+	$(MAKE) test-sfdp-p3-3-root-wiring
+	$(MAKE) check-flux-dynamic-labels-test
+	$(MAKE) demo-signalloom-supercred-images-test
+	$(MAKE) test-signalfusion-images
+	$(MAKE) demo-signalloom-supercred-evidence-test
+	$(MAKE) test-bao-spire-proof-harness
+	$(MAKE) test-revocation-demo-safety
+	$(MAKE) test-ci-lock
+	$(MAKE) test-ci-state
+	$(MAKE) test-ci-path-anchoring
+	$(MAKE) audit-anchor-test
+	$(MAKE) test-signalfusion-bats
+	$(MAKE) test-tetragon-bats
+	$(MAKE) test-tetragon-stream
+	@echo "=== Stage 7/10: API Contract & Integration Tests ==="
+	./scripts/signalloom-api-test.sh contract
+	./scripts/signalloom-api-test.sh integration
+	@echo "=== Stage 8/10: Live Cluster Slices & Runtime Tests ==="
+	$(MAKE) test
+	$(MAKE) demo-signalloom-runtime-test
+	$(MAKE) demo-agent-trust-test
+	$(MAKE) demo-agent-trust-network-test
+	$(MAKE) demo-bao-test
+	$(MAKE) demo-cpai-test
+	$(MAKE) demo-cpai-conversation
+	$(MAKE) demo-kagent-test
+	@echo "=== Stage 9/10: Test Count Floor Circuit Breakers ==="
+	bats test/test-count-floor.bats
+	@echo "=== Stage 10/10: Browser Acceptance Tests ==="
+	ADOPT_GATEWAY_FORWARD=1 PW_CHANNEL=chromium PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-browsers ./scripts/acceptance-test.sh smoke.spec.ts docs.spec.ts live-data.spec.ts
+	@echo "=== COMPLETE: All 10 verification stages passed successfully! ==="
 
 # ─── Signal Fusion / Weave unit tests ───────────────────────────────────────
 # All targets below run offline — no cluster, no network, no API key.

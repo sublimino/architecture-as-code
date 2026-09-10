@@ -302,27 +302,36 @@ When an agent is stunned by `stun-sentinel`, the system must immediately clamp `
 
 | ID | Title | Depends on | Tests / evidence | Size | Agent | Result | Est. Cost | Tokens | Elapsed | AI URI |
 | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :--- |
-| SFAS-P1-PRE | Preflight verification of live signal-ingest routes, Postgres graph schema, and Kind cluster demo agent pods |  | Preflight proof recorded in `docs/signalloom/sfas-p1-preflight-proof.md`; routes and pods confirmed | S | antigravity | pass | $0.00 | N/A — no session | N/A | agy://open?id=aacd9&dir=/home/andy/.cline/worktrees/aacd9/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P1-1 | Implement transitive multi-agent delegation graph traversal in Go resolver with cycle detection and depth clamping | SFAS-P1-PRE | Go unit/table tests in `correlation/` and `identity/` pass; >=4 hop chains resolve; cycles halt in <5ms | M | antigravity | pass — delivered: 290262a332a0783ae84e1c3a0a4de17724abed76 (see Errata — SFAS-P1-1) | $0.00 | N/A — no session | N/A | agy://open?id=ec5db&dir=/home/andy/.cline/worktrees/ec5db/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P1-2 | Implement live ingestion and cryptographic verification of detached SPIFFE-signed audit session logs from agent-nono-evidenced | SFAS-P1-PRE | BATS test verifying live audit stream ingestion and detached signature validation | M | antigravity | pass — delivered: 27b11900de79095b43b79db8df6f0e8cff764c83 (see Errata — SFAS-P1-2) | $0.00 | N/A — subscription | 3m58s | agy://open?id=b4dd5&dir=/home/andy/.cline/worktrees/b4dd5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P1-3 | Auto-inject authenticated human onboarding claims into PostgreSQL delegation graph upon operator claim mutation | SFAS-P1-1, SFAS-P1-2 | Integration test asserting claim persistence and immediate reflection in /api/v1/authorization | M | antigravity | pass — delivered: e5040a936ce1dd99c02b40ae37e2faed5323cf7c (see Errata — SFAS-P1-3) | $0.00 | N/A — subscription | 32m00s | agy://open?id=56aea&dir=/home/andy/.cline/worktrees/56aea/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, verify transitive delegation and live claim persistence | SFAS-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | pass — certified: cf20fb9eead23c291cb63f0976cecfbbcc866f6c (see Errata — SFAS-P1-GOV) | $0.00 | N/A — no session | N/A | agy://open?id=e2ac5&dir=/home/andy/.cline/worktrees/e2ac5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P2-PRE | Preflight verification of AgentDetailPage component tree, Weave panel, and test fixtures | SFAS-P1-GOV | Preflight proof recorded in `docs/signalloom/sfas-p2-preflight-proof.md` | S | antigravity | pass — preflight verified (see Errata — SFAS-P2-PRE) | $0.00 | N/A — subscription | 4m12s | agy://open?id=1dcdf&dir=/home/andy/.cline/worktrees/1dcdf/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P2-1 | Embed 7-hop attested authorization chain into Agent Dossier Tab 2 (Identity & SPIFFE) with live delegator tree | SFAS-P2-PRE | Vitest component tests pass asserting WhoAuthorizedPanel renders inside AgentIdentityTab | M | antigravity | pass — delivered: 0158589921d22c9312f7703f8af1d99c144b2d52 (see Errata — SFAS-P2-1) | $0.00 | N/A — no session | N/A | agy://open?id=e187b&dir=/home/andy/.cline/worktrees/e187b/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P2-2 | Wire timeline audit events in Agent Dossier Tab 5 (Activity) to launch interactive cryptographic authorization proof drawer | SFAS-P2-1 | Vitest and Playwright tests asserting clicking timeline event opens 7-hop proof drawer | M | antigravity | pass — delivered: d48f201f391d21b6377eecfd045f8eaa22beb906 (see Errata — SFAS-P2-2) | $0.00 | N/A — no session | N/A | agy://open?id=89c11&dir=/home/andy/.cline/worktrees/89c11/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P2-GOV | Phase 2 Governor reconciliation: merge Phase 2 deliverables, verify Dossier identity and activity proof drill-downs | SFAS-P2-2 | 100% Phase 2 tests pass; Playwright acceptance green; Governor certification recorded | M | antigravity | pass — certified: 7fdd1cafb61e05a8972b9f0e1f063053c53953be (see Errata — SFAS-P2-GOV) | $0.00 | N/A — no session | N/A | agy://open?id=f24f5&dir=/home/andy/.cline/worktrees/f24f5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P3-PRE | Preflight verification of Stun Sentinel cgroup controller, eBPF classifier hooks, and event bus | SFAS-P2-GOV | Preflight proof recorded in `docs/signalloom/sfas-p3-preflight-proof.md` | S | antigravity | pass — preflight verified: 10560544ef6a5bf264cbe1f58c213e247d7cea3a (see Errata — SFAS-P3-PRE) | $0.00 | N/A — subscription | 4m15s | agy://open?id=b25d6&dir=/home/andy/.cline/worktrees/b25d6/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P3-1 | Invalidate active temporal delegation edges (valid_to = now()) upon receiving swarm.sentinel.stun_triggered events | SFAS-P3-PRE | Go integration test asserting edge clamping and subsequent authorization query returns REVOKED in <50ms | M | antigravity | pass — delivered: da59b9525570ecfac179c8b0dba18ef53af1dfc2 (see Errata — SFAS-P3-1) | $0.00 | N/A — no session | N/A | agy://open?id=46522&dir=/home/andy/.cline/worktrees/46522/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P3-2 | Implement automated containment trigger and alert dispatch when an agent executes actions under an unverified delegation chain | SFAS-P3-1 | Integration test asserting unverified action emits containment alert to Stun Sentinel | M | antigravity | pass — delivered: 333b2c5a59418c5688b31ea65ac93c14b2339d3c (see Errata — SFAS-P3-2) | $0.00 | N/A — no session | N/A | agy://open?id=7db86&dir=/home/andy/.cline/worktrees/7db86/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P3-GOV | Phase 3 Governor reconciliation: merge Phase 3 deliverables, verify real-time stun revocation and containment severing | SFAS-P3-2 | 100% Phase 3 tests pass; stun revocation latency verified; Governor certification recorded | M | antigravity | pass — certified: 638fdd8edd9b247a59e9a1c6a78b4d80ab1b8af1 (see Errata — SFAS-P3-GOV) | $0.00 | N/A — no session | N/A | agy://open?id=628e8&dir=/home/andy/.cline/worktrees/628e8/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P4-PRE | Preflight verification of adversarial cascade test runner, fixture generators, and red-team harness | SFAS-P3-GOV | Preflight proof recorded in `docs/signalloom/sfas-p4-preflight-proof.md` | S | antigravity | pass — preflight verified: de1997f62fadd48f38eb57d9ff85fff6990ca6f3 (see Errata — SFAS-P4-PRE) | $0.00 | N/A — subscription | 4m15s | agy://open?id=a24ba&dir=/home/andy/.cline/worktrees/a24ba/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P4-1 | Implement multi-agent cascade adversarial attack suite (cascading impersonation, circular delegation, NAT split-human) | SFAS-P4-PRE | Adversarial suite passes; false-merge == 0; redteam_cascade_ceiling.json published | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=1189a&dir=/home/andy/.cline/worktrees/1189a/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P4-2 | Run full-estate live acceptance asserting 100% complete chains for claimed demo agents, Dossier drill-downs, and stun severing | SFAS-P4-1 | End-to-end acceptance suite passes verifying full live demo estate | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=989e5&dir=/home/andy/.cline/worktrees/989e5/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| SFAS-P4-GOV | Final Programme Governor certification: reconcile all 4 phases, run complete multi-suite verification, and sign off mission | SFAS-P4-2 | 100% test pass across all acceptance commands; final mission certification report recorded | M | antigravity |  | $0.00 | N/A — no session | N/A | agy://open?id=86279&dir=/home/andy/.cline/worktrees/86279/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| SFAS-P1-PRE | Preflight verification of live signal-ingest routes, Postgres graph schema, and Kind cluster demo agent pods | | Preflight proof recorded in `docs/signalloom/sfas-p1-preflight-proof.md`; routes and pods confirmed | S | antigravity | | | | | |
+| SFAS-P1-1 | Implement transitive multi-agent delegation graph traversal in Go resolver with cycle detection and depth clamping | SFAS-P1-PRE | Go unit/table tests in `correlation/` and `identity/` pass; >=4 hop chains resolve; cycles halt in <5ms | M | antigravity | | | | | |
+| SFAS-P1-2 | Implement live ingestion and cryptographic verification of detached SPIFFE-signed audit session logs from agent-nono-evidenced | SFAS-P1-PRE | BATS test verifying live audit stream ingestion and detached signature validation | M | antigravity | | | | | |
+| SFAS-P1-3 | Auto-inject authenticated human onboarding claims into PostgreSQL delegation graph upon operator claim mutation | SFAS-P1-1, SFAS-P1-2 | Integration test asserting claim persistence and immediate reflection in /api/v1/authorization | M | antigravity | | | | | |
+| SFAS-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, verify transitive delegation and live claim persistence | SFAS-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | | | | | |
+| SFAS-P2-PRE | Preflight verification of AgentDetailPage component tree, Weave panel, and test fixtures | SFAS-P1-GOV | Preflight proof recorded in `docs/signalloom/sfas-p2-preflight-proof.md` | S | antigravity | | | | | |
+| SFAS-P2-1 | Embed 7-hop attested authorization chain into Agent Dossier Tab 2 (Identity & SPIFFE) with live delegator tree | SFAS-P2-PRE | Vitest component tests pass asserting WhoAuthorizedPanel renders inside AgentIdentityTab | M | antigravity | | | | | |
+| SFAS-P2-2 | Wire timeline audit events in Agent Dossier Tab 5 (Activity) to launch interactive cryptographic authorization proof drawer | SFAS-P2-1 | Vitest and Playwright tests asserting clicking timeline event opens 7-hop proof drawer | M | antigravity | | | | | |
+| SFAS-P2-GOV | Phase 2 Governor reconciliation: merge Phase 2 deliverables, verify Dossier identity and activity proof drill-downs | SFAS-P2-2 | 100% Phase 2 tests pass; Playwright acceptance green; Governor certification recorded | M | antigravity | | | | | |
+| SFAS-P3-PRE | Preflight verification of Stun Sentinel cgroup controller, eBPF classifier hooks, and event bus | SFAS-P2-GOV | Preflight proof recorded in `docs/signalloom/sfas-p3-preflight-proof.md` | S | antigravity | | | | | |
+| SFAS-P3-1 | Invalidate active temporal delegation edges (valid_to = now()) upon receiving swarm.sentinel.stun_triggered events | SFAS-P3-PRE | Go integration test asserting edge clamping and subsequent authorization query returns REVOKED in <50ms | M | antigravity | | | | | |
+| SFAS-P3-2 | Implement automated containment trigger and alert dispatch when an agent executes actions under an unverified delegation chain | SFAS-P3-1 | Integration test asserting unverified action emits containment alert to Stun Sentinel | M | antigravity | | | | | |
+| SFAS-P3-GOV | Phase 3 Governor reconciliation: merge Phase 3 deliverables, verify real-time stun revocation and containment severing | SFAS-P3-2 | 100% Phase 3 tests pass; stun revocation latency verified; Governor certification recorded | M | antigravity | | | | | |
+| SFAS-P4-PRE | Preflight verification of adversarial cascade test runner, fixture generators, and red-team harness | SFAS-P3-GOV | Preflight proof recorded in `docs/signalloom/sfas-p4-preflight-proof.md` | S | antigravity | | | | | |
+| SFAS-P4-1 | Implement multi-agent cascade adversarial attack suite (cascading impersonation, circular delegation, NAT split-human) | SFAS-P4-PRE | Adversarial suite passes; false-merge == 0; redteam_cascade_ceiling.json published | M | antigravity | | | | | |
+| SFAS-P4-2 | Run full-estate live acceptance asserting 100% complete chains for claimed demo agents, Dossier drill-downs, and stun severing | SFAS-P4-1 | End-to-end acceptance suite passes verifying full live demo estate | M | antigravity | | | | | |
+| SFAS-P4-GOV | Final Programme Governor certification: reconcile all 4 phases, run complete multi-suite verification, and sign off mission | SFAS-P4-2 | 100% test pass across all acceptance commands; final mission certification report recorded | M | antigravity | | | | | |
 
 ### Spec: Errata
 
 *(Append-only record of completed cards, deviations, and governor certifications)*
+
+#### Governor Dispatch — SFAS-GOV-INIT
+- **Timestamp**: 2026-09-10T20:20:00Z
+- **Actor**: Governor (Mission Initialization)
+- **Status**: active
+- **Digest**: `6a54fa37b08d259aa93c3f45b980d12a43d562eee2f01cc278e0b4b403eebc9d`
+- **Lease**: ajm-auto-kanban-sfas-v2
+- **Shared Governor Log**: `docs/signalloom/sfas-governor-log.md`
+- **Inter-Agent Directive**: All task agents must execute under `--agent antigravity` in isolated worktrees created from `--base-ref refs/heads/integration/sfas-v0.1.0`. Strict adherence to SP-1 (transitive delegation never-merge), SP-2 (deterministic-first merge), SP-3 (write-time segment attestation), SP-4 (false-merge == 0 release gate), and SP-5 (closed-loop stun revocation) is required. All task completions, deviations, and blockers must be communicated through the shared governor log and recorded in this errata ledger.
 
 #### Governor Dispatch — SFAS-GOV-INIT
 - **Timestamp**: 2026-09-10T20:20:00Z
@@ -559,4 +568,52 @@ Preflight checks for Phase 3 verified 100% PASS. Base tree carries certified Pha
   - **Acceptance & Playwright Infrastructure**: Verified `test/acceptance/SPEC-REGISTRY.tsv` (7/7 coverage guard pass), Chromium Playwright runtime v1.58.0, and cryptographic witness keys (`.keys/witness.pem`).
   - **Cluster Connectivity**: Kind cluster healthy; verified live endpoints for `signal-ingest` (`http://localhost:28082`, `/healthz`, `/readyz`, `/api/v1/actors`) and `dashboard-signalloom` (`http://localhost:5173`).
 - **Verdict**: GO for Phase 4 implementation cards (`SFAS-P4-1`, `SFAS-P4-2`, `SFAS-P4-GOV`).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SFAS-P4-1 Implement multi-agent cascade adversarial attack suite (cascading impersonation, circular delegation, NAT split-human)
+**Created:** 2026-09-10 23:11:09+01:00
+**Last Updated:** 2026-09-10 23:11:09+01:00
+**Status:** Completed
+**Commit:** 315e510960abd28d09473f5a30d45fa7df383a72
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- Moved `BuildCascadeAdversarialCorpus` from production `redteam_cascade.go` into `redteam_cascade_test.go` to avoid an import cycle between `correlation` and `collectors` across non-test packages, matching the established pattern in `redteam_test.go`.
+- Added explicit lease validity and attestation failure checks in `identity/claim_verifier.go` and `api/delegations.go`, rejecting expired or backdated delegation leases (`valid_to` in past) with `ExpiredLease` (HTTP 403) and invalid witness signatures with `AttestationFailed` (HTTP 403).
+- Structured API sustained load benchmark to enforce hard SLA ceiling of p99 <= 25ms under 1,000 req/s adversarial load (measured actual p99: 0.40ms to 2.99ms).
+**Deviations:** None.
+**Notes:** All 24 cascade red-team attack scenarios caught with 0 false merges (`false-merge == 0` release gate preserved). Max cycle latency measured at 2µs – 6µs, well within the 5ms SLA ceiling. Automation script `scripts/run-adversarial-suite.sh` passes 100% clean. Ready for `SFAS-P4-2` full-estate live acceptance.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SFAS-P4-2 Run full-estate live acceptance asserting 100% complete chains for claimed demo agents, Dossier drill-downs, and stun severing
+**Created:** 2026-09-10 23:55:00+01:00
+**Last Updated:** 2026-09-10 23:55:00+01:00
+**Status:** Completed
+**Commit:** eaa5e3f7555b49e186bda53c78bb6968fcb35f39
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- Authored Playwright acceptance test suite in `test/acceptance/sfas-dossier-authorization.spec.ts` asserting 100% complete 7-hop authorization chain in Agent Dossier Tab 2 (Identity & SPIFFE), stepped delegator hierarchy (`delegation-stepped-path`), and interactive proof drawer drill-downs from Tab 5 (Activity) timeline events opening in <100ms.
+- Registered `sfas-dossier-authorization.spec.ts` in `playwright.config.ts` under `smoke` project and in `test/acceptance/SPEC-REGISTRY.tsv` (alphabetically sorted, suite-only tier), verified with `test/acceptance-spec-coverage.bats` (7/7 pass).
+- Authored BATS live platform acceptance suite `test/sfas-live-acceptance.bats` asserting HTTP 200 health/readiness, live authorization chain completeness with 64-character SHA-256 GitOID transparency log attestations, and Stun Sentinel live containment severing active temporal delegation edges (`valid_to = now()`).
+- Documented complete live acceptance evidence in `docs/signalloom/sfas-p4-2-acceptance-evidence.md`.
+**Deviations:** None.
+**Notes:** Playwright acceptance suite passed 4/4 against live Vite dashboard (`localhost:5173`). BATS live acceptance suite passed 8/8 against live Kind cluster (`localhost:28082`). Verified SP-1 through SP-5 invariants.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SFAS-P4-GOV Final Programme Governor certification: reconcile all 4 phases, run complete multi-suite verification, and sign off mission
+**Created:** 2026-09-11 00:01:05+01:00
+**Last Updated:** 2026-09-11 00:01:05+01:00
+**Status:** Certified
+**Commit:** 2aa8773277bc8995fc0bdde640f15380b7c72929
+**Governor merge:** certified on integration/sfas-v0.1.0
+**Decisions:**
+- Reconciled and certified all 17 SFAS cards (`P1-PRE` through `P4-2`) onto `integration/sfas-v0.1.0`. All 16 prior card commits are 100% reachable with 0 unmerged branch heads.
+- Executed multi-tier verification suite in governor worktree:
+  1. Go unit and integration suite: `make test-signal-ingest` (18/18 packages passed in 22.06s).
+  2. BATS live acceptance suite: `test/sfas-live-acceptance.bats` (8/8 passed).
+  3. Spec coverage verification: `test/acceptance-spec-coverage.bats` (7/7 passed).
+  4. Playwright live UI acceptance: `test/acceptance/sfas-dossier-authorization.spec.ts` (4/4 passed).
+- Verified core invariants SP-1 through SP-5: deterministic identity resolution, 7-hop cryptographically verifiable delegation chains with GitOID transparency logs, real-time Stun Sentinel containment invalidation, zero false merges (`false-merge == 0`), and responsive <100ms drawer drill-downs.
+- Created annotated release tags `refs/tags/integration/sfas-v0.1.0-p4` and `refs/tags/mission/sfas-certified`.
+**Deviations:** None.
+**Notes:** Final programme certification evidence documented in `docs/signalloom/sfas-final-programme-certification.md` and governor proof in `docs/signalloom/sfas-p4-governor-proof.md`. All acceptance gates 100% green. Mission complete.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

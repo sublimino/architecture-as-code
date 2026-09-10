@@ -42,7 +42,7 @@ export const DelegationEventFilter: React.FC<DelegationEventFilterProps> = memo(
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <label
           htmlFor="delegation-type-select"
-          style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}
+          style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}
         >
           Event Type:
         </label>
@@ -56,7 +56,7 @@ export const DelegationEventFilter: React.FC<DelegationEventFilterProps> = memo(
             fontSize: 12,
             borderRadius: 4,
             border: "1px solid var(--border)",
-            background: "var(--surface1)",
+            background: "var(--surface)",
             color: "var(--text)",
           }}
         >
@@ -72,7 +72,7 @@ export const DelegationEventFilter: React.FC<DelegationEventFilterProps> = memo(
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <label
           htmlFor="delegation-min-hops-input"
-          style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}
+          style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}
         >
           Min Hops:
         </label>
@@ -90,7 +90,7 @@ export const DelegationEventFilter: React.FC<DelegationEventFilterProps> = memo(
             fontSize: 12,
             borderRadius: 4,
             border: "1px solid var(--border)",
-            background: "var(--surface1)",
+            background: "var(--surface)",
             color: "var(--text)",
           }}
         />
@@ -106,8 +106,8 @@ export const DelegationEventFilter: React.FC<DelegationEventFilterProps> = memo(
             fontSize: 12,
             borderRadius: 4,
             border: "1px solid var(--border)",
-            background: "var(--surface1)",
-            color: "var(--text-muted)",
+            background: "var(--surface)",
+            color: "var(--muted)",
             cursor: "pointer",
           }}
         >

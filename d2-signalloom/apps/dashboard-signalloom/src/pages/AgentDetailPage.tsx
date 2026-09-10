@@ -625,6 +625,14 @@ function DossierHeader({
   lastScanTimestamp: string | null
 }) {
   const [copiedId, setCopiedId] = useState(false)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
+
   const canTransition = (VALID_NEXT_STATES[agent.lifecycle_state] ?? []).length > 0
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
   const recordClassLabel = recordClass.charAt(0).toUpperCase() + recordClass.slice(1)
@@ -632,7 +640,8 @@ function DossierHeader({
   function handleCopyId() {
     navigator.clipboard?.writeText(agent.id).catch(() => {})
     setCopiedId(true)
-    setTimeout(() => setCopiedId(false), 2000)
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    copyTimeoutRef.current = setTimeout(() => setCopiedId(false), 2000)
   }
 
   return (

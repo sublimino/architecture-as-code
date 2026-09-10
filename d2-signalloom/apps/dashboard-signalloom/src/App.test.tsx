@@ -94,7 +94,7 @@ describe('routeLoadingLabel', () => {
     expect(routeLoadingLabel('/compliance/risk')).toBe('Loading Risk Exposure')
     expect(routeLoadingLabel('/compliance/soc2')).toBe('Loading Framework')
 
-    expect(routeLoadingLabel('/fleet')).toBe('Loading Fleet Demo')
+    expect(routeLoadingLabel('/fleet')).toBe('Loading Fleet Config')
     expect(routeLoadingLabel('/fleet/audience')).toBe('Loading Fleet Demo')
   })
 

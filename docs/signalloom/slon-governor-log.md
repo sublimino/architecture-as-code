@@ -111,14 +111,18 @@ All participating autonomous agents (Pre-Flight, Implementation, Governor, Revie
 ## 4. Active Phase Status: Phase 2 (Dual Demo Agents & Isolated Smoke Test)
 
 - **Completed Preflight Card**:
-  - `SLON-P2-PRE` (`355e8`, Preflight Verification): **`done`**. Preflight verification proof recorded in `docs/signalloom/slon-p2-preflight-proof.md`. SPIFFE workload identity in `inf-bao` (22 entries), OpenBao JWT roles, `fe-signalloom-agents` namespace (9 NetworkPolicies, 22 ServiceAccounts), and host Nono/Landlock capabilities verified green.
+  - `SLON-P2-PRE` (`355e8`, Preflight Verification, Commit `73eb775d`): **`done`**. Preflight verification proof recorded in `docs/signalloom/slon-p2-preflight-proof.md`.
+
+- **Active Implementation Cards**:
+  - `SLON-P2-1` (`c1ce1`, Dual Demo Agents: `agent-nono-evidenced` + `agent-standard-baseline`): **`in_progress`** in worktree `/home/andy/.cline/worktrees/c1ce1/osramp-demo`.
+  - `SLON-P2-4` (`0d0c9`, Isolated Demo Smoke Test Target `make demo-signalloom-smoke`): **`in_progress`** in worktree `/home/andy/.cline/worktrees/0d0c9/osramp-demo`.
 
 - **Phase 2 Pipeline**:
 1. `SLON-P2-PRE` (`355e8`): Preflight verification of SPIFFE provider, OpenBao JWT roles, and Nono capability probe. [DONE]
-2. `SLON-P2-1` (`c1ce1`): Deploy `agent-nono-evidenced` and `agent-standard-baseline` into `fe-signalloom-agents`. [READY]
-3. `SLON-P2-2` (`254f7`): Implement `probe-nono-capability.sh` dynamic detection and signed audit session telemetry ingest. [READY]
-4. `SLON-P2-3` (`46bb8`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry. [READY]
-5. `SLON-P2-4` (`0d0c9`): Implement `make demo-signalloom-smoke` target for < 90s dual-agent verification. [READY]
+2. `SLON-P2-1` (`c1ce1`): Deploy `agent-nono-evidenced` and `agent-standard-baseline` into `fe-signalloom-agents`. [ACTIVE]
+3. `SLON-P2-2` (`254f7`): Implement `probe-nono-capability.sh` dynamic detection and signed audit session telemetry ingest. [BLOCKED on P2-1]
+4. `SLON-P2-3` (`46bb8`): Implement operator dual-agent claim flow in dashboard and wire comparative activity telemetry. [BLOCKED on P2-1, P2-2]
+5. `SLON-P2-4` (`0d0c9`): Implement `make demo-signalloom-smoke` target for < 90s dual-agent verification. [ACTIVE]
 6. `SLON-P2-GOV` (`c0fa6`): Phase 2 Governor reconciliation, ingress restart claim persistence assertion, and merge. [PENDING]
 
 ---

@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-standard-baseline-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/instance: agent-standard-baseline
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: agent-standard-baseline
+    signalloom.io/agent: demo
+    signalloom.io/workload-profile: standard-baseline
+data:
+  entrypoint.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    trap 'echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [agent-standard-baseline] Received termination signal, shutting down gracefully"; exit 0' SIGTERM SIGINT SIGHUP
+
+    AGENT_ID="${AGENT_ID:-agent-standard-baseline}"
+    AGENT_NAME="${AGENT_NAME:-Demo Agent (Standard Baseline)}"
+    WORKLOAD_PROFILE="${WORKLOAD_PROFILE:-standard-baseline}"
+    SPIFFE_SOCKET="${SPIFFE_SOCKET:-/run/spire/sockets/agent.sock}"
+    SPIFFE_ID="${SPIFFE_ID:-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-standard-baseline}"
+    HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL:-10}"
+
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ================================================================================"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting Signal Loom Demo Agent: ${AGENT_NAME} (${AGENT_ID})"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Workload Profile: ${WORKLOAD_PROFILE}"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Expected SPIFFE ID: ${SPIFFE_ID}"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] SPIFFE Workload API Socket: ${SPIFFE_SOCKET}"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ================================================================================"
+
+    # SPIFFE Workload API socket preflight probe
+    if [ -S "$SPIFFE_SOCKET" ]; then
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [SPIFFE] Workload API socket verified available at ${SPIFFE_SOCKET}"
+    else
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [SPIFFE] WARNING: Workload API socket not found at ${SPIFFE_SOCKET}"
+    fi
+
+    # Periodic heartbeat emission loop
+    SEQ=0
+    while true; do
+      SEQ=$((SEQ + 1))
+      NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      echo "{\"timestamp\":\"${NOW}\",\"agent_id\":\"${AGENT_ID}\",\"name\":\"${AGENT_NAME}\",\"profile\":\"${WORKLOAD_PROFILE}\",\"spiffe_id\":\"${SPIFFE_ID}\",\"status\":\"healthy\",\"lifecycle_state\":\"active\",\"heartbeat_seq\":${SEQ}}"
+      sleep "${HEARTBEAT_INTERVAL}" &
+      wait $!
+    done

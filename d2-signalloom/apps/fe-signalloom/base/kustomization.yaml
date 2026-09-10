@@ -14,6 +14,8 @@ resources:
   - api-service.yaml
   - dashboard-deployment.yaml
   - dashboard-service.yaml
+  - docs-deployment.yaml
+  - docs-service.yaml
   - gateway-route.yaml
   # Agent inventory: health-reader RBAC only (same namespace as targetNamespace).
   # The namespace, cross-namespace RBAC, and baseline agent are inline in the

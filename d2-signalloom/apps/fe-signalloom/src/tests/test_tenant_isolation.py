@@ -337,6 +337,7 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", "/api/v1/agents/autoclaim-discovered", None),
     ("POST", "/api/agents/autoclaim-discovered", None),
     ("GET", "/api/audit", None),
+    ("GET", "/api/audit/events.csv", None),
     ("GET", "/api/compliance/summary", None),
     ("GET", "/api/compliance/posture", None),
     ("GET", "/api/nhi/scans", None),
@@ -583,11 +584,16 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/signals/observations"),
     ("GET", "/api/signals/actors"),
     ("GET", "/api/signals/actors/{actor_id}"),
+    ("GET", "/api/signals/actors/{actor_id}/authorization"),
+    ("GET", "/api/signals/authorization"),
     ("GET", "/api/signals/coverage"),
     ("GET", "/api/signals/store/stats"),
     ("POST", "/api/signals/actors/{actor_id}/promote"),
     ("POST", "/api/signals/correlate"),
     ("POST", "/api/signals/collectors/seed"),
+    # Quantitative Risk (OpenFAIR) -- pure proxy to Go signal-ingest service (pkg/fair)
+    ("GET", "/api/v1/risk/agents/{agent_id:path}"),
+    ("GET", "/api/v1/risk/fleet"),
 ]
 
 

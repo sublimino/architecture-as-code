@@ -55,8 +55,24 @@ export default function ConsentModal({ onAccept }: Props) {
 
   // Listen for scroll-to-≥95% postMessages from legal doc iframes
   useEffect(() => {
+    let expectedLegalOrigin = ''
+    try {
+      expectedLegalOrigin = new URL(LEGAL_BASE).origin
+    } catch {
+      // Invalid URL fallback
+    }
+
     function onMessage(evt: MessageEvent) {
       if (!evt.data || evt.data.type !== 'sl-legal-scrolled') return
+      if (
+        expectedLegalOrigin &&
+        evt.origin &&
+        evt.origin !== '*' &&
+        evt.origin !== window.location.origin &&
+        evt.origin !== expectedLegalOrigin
+      ) {
+        return
+      }
       const doc = evt.data.doc as DocKey
       if (doc === 'terms' || doc === 'privacy' || doc === 'eula') {
         setScrolledDocs(prev => prev[doc] ? prev : { ...prev, [doc]: true })
@@ -181,6 +197,7 @@ export default function ConsentModal({ onAccept }: Props) {
                   src={loadedSrcs[doc.key]}
                   title={doc.label}
                   data-doc-version={DOC_VERSIONS[doc.key]}
+                  sandbox="allow-scripts allow-same-origin"
                   style={{ width: '100%', height: '100%', border: 'none', background: 'var(--bg)' }}
                 />
               ) : null}

@@ -53,6 +53,18 @@ func TestDryRunFreezerResolvesPlannedPathWhenMissing(t *testing.T) {
 	}
 }
 
+func TestDryRunFreezerResolvesPlannedPathWhenInaccessibleCgroupRoot(t *testing.T) {
+	freezer := &cgroupFreezer{cgroupRoot: "/nonexistent/inaccessible/sys/fs/cgroup", dryRun: true}
+	path, err := freezer.resolvePodCgroup("abc-123-def")
+	if err != nil {
+		t.Fatalf("resolvePodCgroup failed in dry-run with inaccessible cgroupRoot: %v", err)
+	}
+	expected := filepath.Join("/nonexistent/inaccessible/sys/fs/cgroup", "kubepods.slice", "kubepods-burstable-podabc_123_def.slice")
+	if path != expected {
+		t.Fatalf("expected path %q, got %q", expected, path)
+	}
+}
+
 func TestDryRunTCDropFilterDoesNotInvokeTC(t *testing.T) {
 	var tcCalls []string
 	tc := newTCDropFilter()

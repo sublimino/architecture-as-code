@@ -4,6 +4,8 @@
 
 set -uo pipefail
 
+export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TEST_DIR="${REPO_ROOT}/test/acceptance"

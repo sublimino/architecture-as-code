@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
@@ -88,6 +90,8 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /audit/webhook", h.handleAuditWebhook)
 	mux.HandleFunc("POST "+apiaudit.GKEWebhookPath, h.handleGKECloudLogging)
 	mux.HandleFunc("POST /audit/gke", h.handleGKECloudLogging)
+	mux.HandleFunc("POST /api/v1/audit/nono", h.handleNonoAudit)
+	mux.HandleFunc("POST /audit/nono", h.handleNonoAudit)
 
 	// OpenFAIR quantitative risk routes (CRKC Phase 2)
 	mux.HandleFunc("GET /api/v1/risk/agents/{id}", h.handleGetAgentRisk)
@@ -102,6 +106,103 @@ func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.AuditReceiver.HandleAuditWebhook(w, r)
+}
+
+
+func (h *Handlers) handleNonoAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	defer r.Body.Close()
+
+	if len(body) == 0 {
+		writeError(w, http.StatusBadRequest, "empty request body")
+		return
+	}
+
+	var event agentnono.NonoAuditEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json audit event: %v", err))
+		return
+	}
+
+	verifier := agentnono.NewAuditVerifier(agentnono.VerifierConfig{
+		TrustDomain: agentnono.DefaultTrustDomain,
+	})
+	res := verifier.VerifyEvent(&event)
+
+	fidelity := model.FidelityDefinitive
+	confidence := 1.0
+	switch res.Status {
+	case agentnono.StatusVerified:
+		fidelity = model.FidelityDefinitive
+		confidence = 1.0
+	case agentnono.StatusTampered:
+		fidelity = model.FidelityCircumstantial
+		confidence = 0.0
+	case agentnono.StatusUnverified, agentnono.StatusUnsigned:
+		fidelity = model.FidelityCircumstantial
+		confidence = 0.2
+	}
+
+	obs := model.Observation{
+		ID:             fmt.Sprintf("nono-%s-%d", event.AuditSessionID, event.Seq),
+		Timestamp:      event.Timestamp,
+		Layer:          model.LayerEndpointHost,
+		Fidelity:       fidelity,
+		Source:         "agent-nono-evidenced",
+		Confidence:     confidence,
+		ActorHint:      event.SPIFFEID,
+		RawEvidenceRef: fmt.Sprintf("nono://session/%s/event/%d", event.AuditSessionID, event.Seq),
+		SessionID:      event.AuditSessionID,
+		ActorID:        event.AgentID,
+		Description:    fmt.Sprintf("Nono Landlock audit session event #%d (%s) [%s]", event.Seq, event.EventType, res.Status),
+		Labels: map[string]string{
+			"event_type":          event.EventType,
+			"spiffe_id":           event.SPIFFEID,
+			"agent_id":            event.AgentID,
+			"verification_status": string(res.Status),
+			"hash_chain_digest":   res.CalculatedDigest,
+			"prev_digest":         event.PrevDigest,
+			"signature_gitoid":    res.SignatureGitOID,
+			"landlock_status":     event.Landlock.Status,
+			"landlock_abi":        fmt.Sprintf("%d", event.Landlock.ABIVersion),
+			"nono_available":      fmt.Sprintf("%t", event.NonoCapabilityAvailable),
+		},
+	}
+	if event.DelegationChainID != "" {
+		obs.Labels["delegation_chain_id"] = event.DelegationChainID
+	}
+	if event.Syscall != "" {
+		obs.Labels["syscall"] = event.Syscall
+	}
+	if event.Path != "" {
+		obs.Labels["path"] = event.Path
+	}
+	if event.DenialReason != "" {
+		obs.Labels["denial_reason"] = event.DenialReason
+	}
+
+	if h.Store != nil {
+		if err := h.Store.Append(r.Context(), []model.Observation{obs}); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to append observation: %v", err))
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":              "accepted",
+		"verification_status": res.Status,
+		"observation_id":      obs.ID,
+		"digest":              res.CalculatedDigest,
+		"signature_gitoid":    res.SignatureGitOID,
+	})
 }
 
 func (h *Handlers) handleGKECloudLogging(w http.ResponseWriter, r *http.Request) {

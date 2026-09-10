@@ -18,6 +18,7 @@ import (
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
@@ -210,10 +211,18 @@ func main() {
 	// Renders even before the collector starts (zeroed counters), so a scrape
 	// during rollout reports "0" rather than an empty body that would read as
 	// "this collector does not exist".
+	agentNonoMetrics := agentnono.NewMetrics()
+	if c := collectorRegistry.GetCollector("agentnono"); c != nil {
+		if anc, ok := c.(*collectors.AgentNonoCollector); ok && anc.RawCollector() != nil {
+			agentNonoMetrics = anc.RawCollector().Metrics()
+		}
+	}
+
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
 		_, _ = io.WriteString(w, fairService.Metrics.Render())
+		_, _ = io.WriteString(w, agentNonoMetrics.Render())
 	})
 
 	srv := &http.Server{

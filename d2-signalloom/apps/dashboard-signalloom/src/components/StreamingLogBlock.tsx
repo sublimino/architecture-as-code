@@ -282,6 +282,7 @@ export default function StreamingLogBlock({
   // something — in which case new output must not yank the view away from
   // whatever they are reading. Re-pins as soon as they scroll back down.
   const pinnedRef = useRef(true)
+  const lastScrollHeightRef = useRef(0)
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
@@ -291,7 +292,16 @@ export default function StreamingLogBlock({
 
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight
+    if (!el) return
+    const prevHeight = lastScrollHeightRef.current
+    if (prevHeight > 0) {
+      const wasAtBottom = prevHeight - el.scrollTop - el.clientHeight < 24
+      pinnedRef.current = wasAtBottom
+    }
+    if (pinnedRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+    lastScrollHeightRef.current = el.scrollHeight
   }, [lines])
 
   const copy = useCallback(() => {

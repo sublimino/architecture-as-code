@@ -410,15 +410,15 @@ test("batched output must FAIL the progressive-arrival assertions", async ({
 
   await expect(page.locator(RUN_STATUS)).toContainText(/—\s*succeeded/, { timeout: 60_000 });
   await expect(page.locator(RUN_LOG)).toBeVisible({ timeout: 15_000 });
-
-  const samples = await readLogSamples(page);
-  test.info().attach("batch-timeline", { body: formatSamples(samples), contentType: "text/plain" });
-
   // First: the harness is not simply broken. The whole log DID arrive, all of
   // it, and the panel rendered it correctly. This is the sentence that makes
   // the failure below mean "too late" rather than "not at all" — and it is the
   // exact reason every pre-existing test passed against the broken runner.
   await expect(page.locator(RUN_LOG_LINE).last()).toContainText(/phase 1 complete/);
+
+  const samples = await readLogSamples(page);
+  test.info().attach("batch-timeline", { body: formatSamples(samples), contentType: "text/plain" });
+
   expect(
     Math.max(...samples.map((s) => s.lastLine)),
     "the batch-mode harness must still deliver the full log eventually, or this test " +

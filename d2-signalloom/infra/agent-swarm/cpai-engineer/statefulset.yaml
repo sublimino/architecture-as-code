@@ -9,6 +9,7 @@ metadata:
     app.kubernetes.io/part-of: signalloom
     app.kubernetes.io/managed-by: signalloom-governor
     signalloom.ai/agent: "true"
+    signalloom.ai/framework: "custom"
     signalloom.ai/role: implementer
     signalloom.ai/harness: opencode-cpai
     signalloom.ai/model: claude-sonnet-4
@@ -36,6 +37,7 @@ spec:
         app.kubernetes.io/component: agent
         app.kubernetes.io/part-of: signalloom
         signalloom.ai/agent: "true"
+        signalloom.ai/framework: "custom"
         signalloom.ai/role: implementer
         signalloom.ai/harness: opencode-cpai
         signalloom.ai/model: claude-sonnet-4

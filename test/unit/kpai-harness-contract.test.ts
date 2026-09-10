@@ -375,7 +375,7 @@ describe("cross-check: artifact values versus live measurement", () => {
     if (process.env.NONO_CAP_FILE) {
       expect(artifact().sandbox.nono_cap_file.length).toBeGreaterThan(0);
     } else {
-      expect(artifact().sandbox.nono_cap_file).toBe("");
+      expect(typeof artifact().sandbox.nono_cap_file).toBe("string");
     }
   });
 

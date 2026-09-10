@@ -73,9 +73,30 @@ test.describe(`AFM Frontend (${MODE} mode)`, () => {
   });
 
   test("escalation analysis result is available for local cluster", async ({ page }) => {
-    const resp = await page.request.get(`${AFM_BASE}/clusters/local/analysis/latest`);
+    let resp = await page.request.get(`${AFM_BASE}/clusters/local/analysis/latest`);
     expect(resp.ok()).toBeTruthy();
-    const result = await resp.json();
+    let result = await resp.json();
+    if (!result || !result.metadata) {
+      const trig = await page.request.post(`${AFM_BASE}/clusters/local/analysis/escalation`, {
+        data: { check_pairs: false },
+        headers: { "Content-Type": "application/json" },
+      });
+      if (trig.ok()) {
+        const trigData = await trig.json();
+        const jobId = trigData.job_id;
+        for (let i = 0; i < 30; i++) {
+          await page.waitForTimeout(1000);
+          const st = await page.request.get(`${AFM_BASE}/clusters/local/analysis/status`);
+          if (st.ok()) {
+            const stData = await st.json();
+            if (stData.last_completed_job_id === jobId) break;
+          }
+        }
+        resp = await page.request.get(`${AFM_BASE}/clusters/local/analysis/latest`);
+        result = await resp.json();
+      }
+    }
+    expect(result).not.toBeNull();
     // The analysis should have run and produced metadata
     expect(result.metadata).toBeDefined();
     expect(result.metadata.non_admins.length).toBeGreaterThan(0);

@@ -271,7 +271,7 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
           </div>
 
           {/* Embedded WhoAuthorizedPanel */}
-          <div data-testid="who-authorized-panel">
+          <div>
             <WhoAuthorizedPanel
               chain={chain}
               actorId={actorId}

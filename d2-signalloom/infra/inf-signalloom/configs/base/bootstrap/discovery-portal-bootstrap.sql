@@ -2323,7 +2323,7 @@ DO $body$
 BEGIN
     -- Only run quarantine copy/delete if audit_events exists
     IF EXISTS (
-        SELECT 1 FROM information_schema.tables
+        SELECT 1 FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'audit_events'
     ) THEN
         -- Lift append-only trigger temporarily for sanctioned quarantine
@@ -2337,7 +2337,7 @@ BEGIN
         INSERT INTO public.quarantined_synthetic_audit_events (
             id, tenant_id, event_type, agent_id, agent_name, actor, detail, timestamp, quarantine_reason
         )
-        SELECT
+        SELECT 
             id, tenant_id, event_type, agent_id, agent_name, actor, detail, timestamp,
             'legacy_synthetic_audit_generation'
         FROM public.audit_events

@@ -1,13 +1,13 @@
 {
   "schema_version": "v2",
-  "generated_at": "2026-09-11T08:23:14Z",
+  "generated_at": "2026-09-11T08:25:46Z",
   "total_injected": 24,
   "total_caught": 24,
   "total_missed": 0,
   "resolution_ceiling": "24/24 caught",
   "resolution_rate": 1,
   "false_merges": 0,
-  "max_cycle_latency_us": 3,
+  "max_cycle_latency_us": 2,
   "breakdown_by_class": {
     "cascading-impersonation": {
       "injected": 6,
@@ -70,9 +70,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 3,
+      "cycle_latency_us": 2,
       "quarantine_triggered": false,
-      "details": "cycle detected in 3µs (\u003c5ms SLA); hops=3, distinct_nodes=3, false-merge=0"
+      "details": "cycle detected in 2µs (\u003c5ms SLA); hops=3, distinct_nodes=3, false-merge=0"
     },
     {
       "case_id": "ADV-CD-03",
@@ -120,9 +120,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 1,
+      "cycle_latency_us": 0,
       "quarantine_triggered": false,
-      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+      "details": "cycle detected in 0µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
     },
     {
       "case_id": "ADV-CD-06",

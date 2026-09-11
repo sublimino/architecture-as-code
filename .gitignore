@@ -194,3 +194,6 @@ terraform/modules/*/.terraform.lock.hcl
 # Bun temporary files
 d2-signalloom/bun/
 
+
+# Editor session logs
+.nvimlog

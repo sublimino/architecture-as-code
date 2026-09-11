@@ -1069,6 +1069,13 @@ run_stage \
   "stage7d-autoclaim.tap" \
   "cd ${WORK_DIR} && bats --tap test/signalloom-autoclaim.bats"
 
+# Stage 7e: SFAS live dossier authorization and stun containment acceptance
+run_stage \
+  "SFAS live dossier authorization and stun containment acceptance" \
+  "stage7e-sfas-live.tap" \
+  "cd ${WORK_DIR} && bats --tap test/sfas-live-acceptance.bats"
+
+
 
 # Stage 8: Browser journey (Playwright → JUnit XML)
 run_stage \

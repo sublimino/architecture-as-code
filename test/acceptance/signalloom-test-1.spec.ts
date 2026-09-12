@@ -132,4 +132,63 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
     await expect(page.locator('input[name="login"]')).toBeVisible({ timeout: 15_000 });
   });
 
+  test("sidebar logo remains anchored and collapse toggle preserves 12px rail inset across states", async ({ page }) => {
+    await page.goto(`${DASHBOARD_URL}/agents`);
+    await page.waitForSelector(".sl-sidebar");
+    
+    // 1. Measure expanded state
+    const exp = await page.evaluate(() => {
+      const sidebar = document.querySelector(".sl-sidebar") as HTMLElement;
+      const logo = document.querySelector(".sl-sidebar__workspace-logo") as HTMLElement;
+      const toggle = document.querySelector(".sl-sidebar__collapse-toggle") as HTMLElement;
+      const sbRect = sidebar.getBoundingClientRect();
+      const logoRect = logo.getBoundingClientRect();
+      const toggleRect = toggle.getBoundingClientRect();
+      return {
+        logoLeft: logoRect.left - sbRect.left,
+        logoTop: logoRect.top - sbRect.top,
+        toggleRightInset: sbRect.right - toggleRect.right,
+      };
+    });
+
+    // Collapse toggle must preserve 12px inset from the right rail edge, not overhang at 0px
+    expect(
+      exp.toggleRightInset,
+      `collapse toggle in expanded mode must preserve 12px right inset (got ${exp.toggleRightInset}px)`,
+    ).toBeGreaterThanOrEqual(10);
+    expect(exp.logoLeft).toBeCloseTo(16, 0);
+    expect(exp.logoTop).toBeCloseTo(16, 0);
+
+    // 2. Click collapse and measure collapsed state
+    await page.click('[data-testid="sidebar-collapse-toggle"]');
+    await page.waitForTimeout(300); // CSS width transition is 200ms
+
+    const col = await page.evaluate(() => {
+      const sidebar = document.querySelector(".sl-sidebar") as HTMLElement;
+      const logo = document.querySelector(".sl-sidebar__workspace-logo") as HTMLElement;
+      const toggle = document.querySelector(".sl-sidebar__collapse-toggle") as HTMLElement;
+      const sbRect = sidebar.getBoundingClientRect();
+      const logoRect = logo.getBoundingClientRect();
+      const toggleRect = toggle.getBoundingClientRect();
+      return {
+        logoLeft: logoRect.left - sbRect.left,
+        logoTop: logoRect.top - sbRect.top,
+        toggleCenterX: toggleRect.left - sbRect.left + toggleRect.width / 2,
+        railCenter: sbRect.width / 2,
+      };
+    });
+
+    // The logo must stay anchored at (16, 16) without jumping across states
+    expect(
+      Math.abs(exp.logoLeft - col.logoLeft),
+      `logo shifted horizontally from ${exp.logoLeft}px to ${col.logoLeft}px across collapse`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(exp.logoTop - col.logoTop),
+      `logo shifted vertically from ${exp.logoTop}px to ${col.logoTop}px across collapse`,
+    ).toBeLessThanOrEqual(1);
+
+    // Toggle must be centered in collapsed rail
+    expect(col.toggleCenterX).toBeCloseTo(col.railCenter, 0);
+  });
 });

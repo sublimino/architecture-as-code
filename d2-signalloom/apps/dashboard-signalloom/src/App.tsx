@@ -51,6 +51,7 @@ const SignalFusionPage = lazy(() => import('./pages/SignalFusionPage'))
 const DistanceLatencyPage = lazy(() => import('./pages/DistanceLatencyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
 const SignalStorePage = lazy(() => import('./pages/SignalStorePage'))
+const FeedsExplorerPage = lazy(() => import('./pages/FeedsExplorerPage'))
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
 const DesignSystemHeadersPage = lazy(() => import('./pages/DesignSystemHeadersPage'))
 
@@ -423,6 +424,7 @@ export default function App() {
                 <Route path="/signal-fusion" element={<ProtectedRoute><SignalFusionPage /></ProtectedRoute>} />
                 <Route path="/distance-latency" element={<ProtectedRoute><DistanceLatencyPage /></ProtectedRoute>} />
                 <Route path="/signal-store" element={<ProtectedRoute><SignalStorePage /></ProtectedRoute>} />
+                <Route path="/feeds" element={<ProtectedRoute><FeedsExplorerPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/onboarding" element={<ProtectedRoute exemptFromOnboardingGate><OnboardingWizardPage /></ProtectedRoute>} />
                 <Route path="/help/connectors/:provider" element={<ProtectedRoute exemptFromOnboardingGate><ConnectorHelpPage /></ProtectedRoute>} />

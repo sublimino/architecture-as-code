@@ -1922,8 +1922,8 @@ def test_audit_events_contain_attributable_identity_plane_metadata(client, monke
     events = data["events"]
     assert len(events) >= 3
 
-    # Check first event attribution
-    ev = events[0]
+    # Check event attribution for initial manifest registration
+    ev = next(e for e in events if e["id"].endswith(":audit-1"))
     assert ev["authorizing_principal_id"] == "admin@signal-loom.ai"
     assert "agent-1" in ev["executing_actor_id"]
     assert ev["spiffe_id"] == "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-inventory"
@@ -2180,10 +2180,11 @@ def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypat
     monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
     monkeypatch.setattr(api_compat, "_perform_cluster_stun", _stun_succeeds)
 
-    # Seed an agent for tenant-a (alice)
+    # Seed an agent for tenant-a (alice) and ensure it is in active state
     api_compat._ensure_seeded("tenant-a")
     with api_compat._STORE_LOCK:
         agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
+        api_compat._AGENTS["tenant-a"][agent_id]["lifecycle_state"] = "active"
 
     res = client.post(f"/api/agents/{agent_id}/stun", headers=bearer(token_for("alice")))
     assert res.status_code == 200

@@ -29,7 +29,7 @@ export type IconKind =
   | 'workspaces' | 'connectors' | 'fleet' | 'settings'
   | 'crypto' | 'credentials' | 'federation' | 'collusion'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred'
-  | 'signalFusion' | 'distanceLatency' | 'signalStore'
+  | 'signalFusion' | 'distanceLatency' | 'signalStore' | 'feeds'
   | 'designSystem' | 'designSystemHeaders'
   | 'onboarding' | 'docs'
 
@@ -79,6 +79,7 @@ function NavIcon({ kind }: { kind: IconKind }) {
     signalFusion: <><path d="M4 7h5l3 5-3 5H4" /><path d="M4 12h8" /><path d="M14 7l4 5-4 5" /><circle cx="19" cy="12" r="2" /></>,
     distanceLatency: <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /><path d="M4 12h2M18 12h2" /></>,
     signalStore: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" /><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" /></>,
+    feeds: <><path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1" /></>,
     designSystem: <><path d="M12 3a9 9 0 0 0 0 18 1.6 1.6 0 0 0 1.6-1.6c0-.42-.16-.8-.42-1.08a1.6 1.6 0 0 1 1.18-2.7h1.9A4.74 4.74 0 0 0 21 10.9C21 6.54 16.97 3 12 3Z" /><circle cx="7.5" cy="12.5" r="1.15" /><circle cx="9.5" cy="8.5" r="1.15" /><circle cx="14" cy="7.5" r="1.15" /></>,
     designSystemHeaders: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /><circle cx="17.5" cy="7.5" r="1" /><path d="M6 7.5h4" /></>,
 
@@ -121,6 +122,7 @@ export const NAV: NavItem[] = [
   { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'View', icon: 'signalFusion', superadminOnly: true },
   { to: '/distance-latency', label: 'Distance Latency Demo', section: 'View', icon: 'distanceLatency', superadminOnly: true },
   { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },
+  { to: '/feeds', label: 'Feeds & Collectors', section: 'View', icon: 'feeds', superadminOnly: true },
   { to: '/design-system', label: 'Design System', section: 'Design', icon: 'designSystem', end: true, superadminOnly: true },
   { to: '/design-system/headers', label: 'Design System — Headers', section: 'Design', icon: 'designSystemHeaders', superadminOnly: true },
 ]

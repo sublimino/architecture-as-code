@@ -143,6 +143,91 @@ export interface WeaveActorsResponse {
 const asList = <T>(value: T[] | null | undefined): T[] => (Array.isArray(value) ? value : [])
 
 export const weaveApi = {
+
+  /**
+   * Connect to the SSE observations stream.
+   * Uses fetch() directly because EventSource cannot send the Authorization header.
+   */
+  createObservationsStream: (
+    token: string,
+    params?: { after?: string; before?: string; layers?: string; actor_id?: string; limit?: number },
+    onMessage?: (observation: SignalObservation) => void,
+    onError?: (error: Error) => void
+  ) => {
+    const q = new URLSearchParams()
+    if (params?.after) q.set('after', params.after)
+    if (params?.before) q.set('before', params.before)
+    if (params?.layers) q.set('layers', params.layers)
+    if (params?.actor_id) q.set('actor_id', params.actor_id)
+    if (params?.limit) q.set('limit', String(params.limit))
+    
+    const qs = q.toString()
+    const url = `/api/signals/observations/stream${qs ? `?${qs}` : ''}`
+    
+    const controller = new AbortController()
+    
+    // We cannot use the shared req() for a streaming response since it uses Axios
+    // which buffers responses or requires node stream APIs. Instead we use native fetch.
+    const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+    const fullUrl = url.startsWith('http') ? url : `${BASE}${url}`
+    
+    fetch(fullUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'text/event-stream',
+      },
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Stream connection failed: ${response.status}`)
+      }
+      if (!response.body) {
+        throw new Error('No response body')
+      }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+          
+          let eventName = ''
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventName = line.slice(7).trim()
+            } else if (line.startsWith('data: ')) {
+              const data = line.slice(6)
+              if (eventName === 'observation' || !eventName) {
+                try {
+                  const obs = JSON.parse(data) as SignalObservation
+                  onMessage?.(obs)
+                } catch (e) {
+                  console.error('Failed to parse SSE data', e)
+                }
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return
+        onError?.(err)
+      }
+    }).catch((err) => {
+      if (err.name === 'AbortError') return
+      onError?.(err)
+    })
+    
+    return {
+      disconnect: () => controller.abort()
+    }
+  },
+
   getObservations: async (token: string, params?: { layer?: string; limit?: number }) => {
     const q = new URLSearchParams()
     if (params?.layer) q.set('layer', params.layer)

@@ -246,7 +246,7 @@ export default defineConfig({
       // this project's contract. A spec that matches NO project is silently
       // skipped by Playwright — exit 0, no warning — so leaving it out would
       // reproduce the very blindness it was written to close.
-      testMatch: /smoke\.spec\.ts|navigation\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|agent-claim\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts|sfas-dossier-authorization\.spec\.ts|onboarding\.spec\.ts|smoke-onboarding-agents\.spec\.ts/,
+      testMatch: /smoke\.spec\.ts|navigation\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|agent-claim\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts|sfas-dossier-authorization\.spec\.ts|onboarding\.spec\.ts|smoke-onboarding-agents\.spec\.ts|feeds-explorer\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         channel: CHANNEL,

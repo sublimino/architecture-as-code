@@ -231,7 +231,7 @@ select option { background: var(--surface); }
 .sl-sidebar--collapsed .sl-sidebar__nav { padding: 8px 4px; }
 .sl-sidebar--collapsed .sl-sidebar__link { justify-content: center; gap: 0; padding: 7px 0; }
 .sl-sidebar--collapsed .sl-sidebar__selection { left: 4px; right: 4px; }
-.sl-sidebar__workspace-button { align-items: center; background: transparent; border: 0; border-radius: 8px; color: var(--text); display: flex; flex: 1 1 auto; gap: 10px; min-width: 0; padding: 4px; text-align: left; }
+.sl-sidebar__workspace-button { align-items: center; background: transparent; border: 0; border-radius: 8px; box-sizing: border-box; color: var(--text); display: flex; flex: 1 1 auto; gap: 10px; height: 40px; min-width: 0; padding: 4px; text-align: left; }
 .sl-sidebar__workspace-button:hover { background: var(--surface2); }
 .sl-sidebar__workspace-copy { flex: 1; min-width: 0; }
 .sl-sidebar__workspace-title { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,0 +1,201 @@
+---
+title: Run the partner demonstration
+description: A ninety-second operator runbook and spoken script for demonstrating onboarding, dual-agent claiming, and Nono optionality.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Run a Signal Loom demonstration for a design partner in under ninety seconds,
+then talk through what they just saw. This runbook matches
+`make demo-signalloom-smoke` step for step, so the narration and the terminal
+stay in sync.
+
+## Before the room
+
+Do these before the partner joins. None of them belong in the demonstration
+itself.
+
+1. Check that the cluster is up:
+
+```bash
+kubectl get nodes
+```
+
+2. Check that the demo agents are running:
+
+```bash
+kubectl -n fe-signalloom-agents get pods -l signalloom.ai/agent=true
+```
+
+3. Bring the demo up if it is not already running:
+
+```bash
+make demo-signalloom-up
+```
+
+:::caution
+Do not run `make demo-signalloom-up` with a partner watching. It rebuilds
+images, reconciles Flux, and restarts Dex, which signs every operator out
+mid-demonstration. Run it beforehand and confirm the pods are healthy.
+:::
+
+4. Do one rehearsal run of the smoke suite so container images and the browser
+   are already warm.
+
+## The demonstration
+
+One command drives the whole thing:
+
+```bash
+make demo-signalloom-smoke
+```
+
+It enforces a wall-clock service level of **under ninety seconds** and fails the
+run if it exceeds it. The suite is three stages.
+
+<Mermaid
+  label="Demo smoke suite stages"
+  diagram={`flowchart LR
+    subgraph S1[Stage 1 of 3]
+      A[Probe cluster foundation] --> B[Check Envoy Gateway]
+      B --> C[Check fe-signalloom backend]
+      C --> D[Check Dex]
+    end
+    subgraph S2[Stage 2 of 3]
+      E[Bind Gateway on 30754] --> F[Bind Dex on 15556]
+      F --> G[Bind backend API on 18000]
+    end
+    subgraph S3[Stage 3 of 3]
+      H[Onboarding wizard flow] --> I[Dual-agent discovery and claim]
+      I --> J[Comparative telemetry]
+    end
+    S1 --> S2 --> S3 --> K{Elapsed under 90s?}
+    K -- yes --> L[Suite passed]
+    K -- no --> M[SLA violation, exit 1]`}
+/>
+
+### Stage 1 of 3 — cluster foundation and ingress
+
+The suite probes the Kubernetes API, discovers the Envoy Gateway service, and
+checks the `fe-signalloom` backend and the `dex` deployment. Each check prints a
+tick.
+
+### Stage 2 of 3 — gateway and auth endpoints
+
+The suite reuses any responsive listener it finds and only creates a
+port-forward when one is missing. Three local ports are involved:
+
+| Port | Service | Purpose |
+| --- | --- | --- |
+| `30754` | Envoy Gateway (`443`) | The dashboard and API through the gateway. |
+| `15556` | `dex` (`5556`) | The OIDC provider. |
+| `18000` | `fe-signalloom` (`8000`) | The backend API directly. |
+
+Every port-forward the suite creates is torn down by its exit trap, including on
+interrupt.
+
+### Stage 3 of 3 — the browser journey
+
+The suite runs the Playwright specification
+`smoke-onboarding-agents.spec.ts` against
+`https://dashboard.osramp.acme.local:30754`. It drives the first-user onboarding
+wizard, then dual-agent discovery, claiming, and comparative telemetry.
+
+### The verdict
+
+A passing run ends with a duration line and:
+
+```text
+✅ DEMO SMOKE SUITE PASSED in <N>s (strictly under 90s SLA).
+```
+
+A run that passes its tests but exceeds ninety seconds still fails, and reports
+`SLA VIOLATION`. That is deliberate: a demonstration that takes three minutes is
+not the product being demonstrated.
+
+## The spoken script
+
+Read this while the command runs. The timings assume a warm cluster.
+
+**Opening — while stage 1 prints.**
+
+> "What you are watching is not a mock. This is a live Kubernetes cluster with a
+> real OIDC provider, a real policy backend, and two real agent workloads. The
+> whole thing has ninety seconds to prove itself, and it fails if it takes
+> longer."
+
+**On stage 2 — the port bindings.**
+
+> "It is reusing what is already there rather than tearing anything down. That
+> matters, because the demonstration you are watching is the same code path an
+> operator uses. There is no demo-only shortcut underneath it."
+
+**On stage 3, first half — onboarding.**
+
+> "This is a first user signing in for the first time. Three steps: name the
+> tenant, link the identity provider, consent to the containment policy. Notice
+> that nothing is stored in the browser. Every answer is written server-side, so
+> if this operator switches machines mid-onboarding, they resume exactly where
+> they left off."
+
+**On stage 3, second half — the two agents.**
+
+> "Two agent workloads, and this is the interesting part. They are identical
+> except for one thing. One is instrumented for kernel-level confinement with a
+> tamper-evident, cryptographically signed audit trail. The other is a perfectly
+> ordinary container. Both are governed by the same platform, both are claimed
+> the same way, and the dashboard tells you plainly which one you are looking
+> at."
+
+**On the comparative telemetry banner.**
+
+> "eBPF tracing tells you what a workload *did*. The hash-chained audit session
+> tells you what it *could have done*, and proves the record has not been edited
+> since. Most platforms give you the first. Very few give you the second."
+
+**On the fallback, if asked.**
+
+> "Confinement is optional by design. If the kernel does not offer Landlock, or
+> the binary is not in the image, the workload does not crash and the pod does
+> not fail to schedule. It logs `nono_capability_available: false` and carries
+> on unconfined. The platform records which of the two happened, so you never
+> have to guess about your own assurance posture."
+
+**Closing — on the verdict line.**
+
+> "Ninety seconds, end to end, with the clock enforced. That number is the
+> commitment. Everything you just saw is reproducible from one command in your
+> own cluster."
+
+## Follow-on questions to expect
+
+| Question | Short answer |
+| --- | --- |
+| "Is the containment control production-ready?" | No. It is a demonstration control and the current endpoint enforces authentication only. Say so, and point at the roadmap page. |
+| "What happens if two tenants claim the same agent?" | The second claim is refused with HTTP 409 and the message names the tenant holding the claim. |
+| "Does the claim survive a restart?" | Yes. Claims persist in PostgreSQL, in `public.agent_claims`. |
+| "Can we run this without Nono?" | Yes. That is the whole point of the optional-capability design. |
+| "Can we see the audit chain rejected?" | Yes. The backend returns HTTP 400 for a broken chain or a forged signature. |
+
+## Troubleshoot the run
+
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| `Kubernetes cluster API is unreachable`. | No cluster, or the wrong kube context. | Run `kubectl config current-context` and select the demo cluster. |
+| `WARNING: fe-signalloom deployment not found`. | The demo is not up. | Run `make demo-signalloom-up` and wait for the pods, then retry. |
+| The browser stage fails at sign-in. | Dex restarted and invalidated the session. | Retry once. If it recurs, check the `dex` deployment reports `1/1`. |
+| `SLA VIOLATION` on a passing suite. | Cold images or a cold browser download. | Do a rehearsal run first. The second run is the one to demonstrate. |
+| Only one demo agent appears in the browser stage. | One agent Kustomization did not reconcile. | Check both deployments exist in `fe-signalloom-agents`. |
+| A port-forward is left behind after an interrupt. | Rare; the exit trap normally removes them. | Check the three ports with `nc -z 127.0.0.1 30754`, and repeat for `15556` and `18000`. |
+| The suite passes but the dashboard shows stale content. | The running container image predates the branch you are on. | Treat a live probe as evidence about the deployed image only, never about the checked-out branch. |
+
+## Where to go next
+
+- [Onboard as a first user](/docs/onboarding/user-journey/) is the flow stage 3
+  drives.
+- [Claim the two demonstration agents](/docs/agents/dual-agent-onboarding/) is
+  the flow stage 3 drives next.
+- [Nono optionality and Landlock confinement](/docs/security/nono-optionality/)
+  answers the fallback question in detail.
+- [Superadmin demonstrations](/docs/demos/superadmin/) covers the longer,
+  repeatable demonstration phases.

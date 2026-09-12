@@ -23,12 +23,28 @@ export default defineConfig({
           ]
         },
         {
+          label: "Onboarding",
+          items: [{ label: "Onboard as a first user", slug: "onboarding/user-journey" }]
+        },
+        {
           label: "Operate agents",
-          items: [{ label: "Stun or unstun an agent", slug: "operate/stun-agent" }]
+          items: [
+            { label: "Claim the two demonstration agents", slug: "agents/dual-agent-onboarding" },
+            { label: "Stun or unstun an agent", slug: "operate/stun-agent" }
+          ]
+        },
+        {
+          label: "Security",
+          items: [
+            { label: "Nono optionality and Landlock confinement", slug: "security/nono-optionality" }
+          ]
         },
         {
           label: "Run demonstrations",
-          items: [{ label: "Superadmin demonstrations", slug: "demos/superadmin" }]
+          items: [
+            { label: "Run the partner demonstration", slug: "operations/demo-walkthrough" },
+            { label: "Superadmin demonstrations", slug: "demos/superadmin" }
+          ]
         },
         {
           label: "Use the platform",

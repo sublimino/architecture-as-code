@@ -28,7 +28,7 @@ tags:
   - osramp
 aliases:
   - "#proposal-2026-q3-signal-loom-first-user-and-agent-onboarding"
-updated: 2026-09-10T09:21
+updated: 2026-09-10T09:39
 shortcode: SLON
 ---
 # Proposal — Signal Loom First User and Agent Onboarding (2026-Q3)
@@ -230,7 +230,7 @@ Nono is an optional capability. Workloads instrumented for Nono must run a pre-e
 | SLON-P1-PRE | Preflight verification of repo base, Kind cluster, Envoy Gateway, and fe-signalloom build | | Preflight proof recorded in `docs/signalloom/slon-p1-preflight-proof.md`; base confirmed | S | antigravity | pass | | | | |
 | SLON-P1-1 | Wire onboarding API client to live database endpoints and eliminate mock mode fallback | SLON-P1-PRE | Vitest and Pytest asserting database roundtrips; skip/complete status survives reload | M | antigravity | pass — delivered: ad2fec79d26dc3445efd50bc37351663c7e91867 (see Errata — SLON-P1-1) | | | | |
 | SLON-P1-2 | Reorder dashboard left-hand sidebar navigation into View, Control, Design categories | SLON-P1-PRE | Vitest component tests and Playwright navigation test asserting route links | M | antigravity | pass — delivered: 26eef1b933655d0f6eb3427283b645e3db0dfc26 (see Errata — SLON-P1-2) | | | | |
-| SLON-P1-3 | Implement first user onboarding wizard flow with persistent organization setup and consent | SLON-P1-1, SLON-P1-2 | Playwright e2e onboarding spec passes verifying wizard flow and dashboard redirect | M | antigravity | | | | | |
+| SLON-P1-3 | Implement first user onboarding wizard flow with persistent organization setup and consent | SLON-P1-1, SLON-P1-2 | Playwright e2e onboarding spec passes verifying wizard flow and dashboard redirect | M | antigravity | pass — delivered: 8b28a25de55b92f96b5e62e244bf8187ebe6c18b (see Errata — SLON-P1-3) | | | | |
 | SLON-P1-GOV | Phase 1 Governor reconciliation: merge Phase 1 deliverables, run user onboarding verification suite | SLON-P1-3 | 100% Phase 1 tests pass; zero regressions; Governor certification recorded | M | antigravity | | | | | |
 | SLON-P2-PRE | Preflight verification of agent claim API, SPIFFE provider, and Nono optionality probe | SLON-P1-GOV | Preflight proof recorded in `docs/signalloom/slon-p2-preflight-proof.md` | S | antigravity | | | | | |
 | SLON-P2-1 | Deploy dual demo agents: agent-nono-evidenced and agent-standard-baseline with discovery labels | SLON-P2-PRE | BATS test verifying both demo agent pods running in fe-signalloom-agents and registered | M | antigravity | | | | | |
@@ -300,6 +300,18 @@ Nono is an optional capability. Workloads instrumented for Nono must run a pre-e
 **Deviations:** None. All changes conform strictly to SP-2 and WCAG 2.5.3 accessibility invariants.  
 **Notes:** Vitest (156/156 test files, 3,088 tests passed; `Sidebar.test.tsx` 84/84 passed), production build (`✓ built in 5.75s`), and BATS spec registry test (7/7 passed) all 100% clean. Evidence recorded in `docs/signalloom/slon-p1-2-evidence.md`.  
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLON-P1-3 Implement first user onboarding wizard flow with persistent organization setup and consent
+**Created:** 2026-09-10 09:39:00+01:00  
+**Last Updated:** 2026-09-10 09:39:00+01:00  
+**Status:** Completed  
+**Commit:** 8b28a25de55b92f96b5e62e244bf8187ebe6c18b  
+**Governor merge:** [pending Governor reconciliation]  
+**Decisions:** Built 3-step first user onboarding wizard (`TenantIdentityStep`, `IdpLinkageStep`, `ContainmentPolicyConsentStep`) and celebratory completion screen (`CompletionCelebration`) in `dashboard-signalloom`. Connected directly to live backend endpoints (`GET/PUT /api/onboarding/state`, `POST /api/onboarding/complete`, `POST /api/onboarding/skip`, `GET /api/onboarding/status`) with strict zero-mock state persistence (SP-1). Implemented client-side validation error alert banner (`ValidationErrorBanner`) and interactive IdP connection test probe. Integrated with `ProtectedRoute` to direct unonboarded operators to `/onboarding` and redirect completed/skipped operators to `/overview`. Added Playwright acceptance test suite `test/acceptance/onboarding.spec.ts` registered with `suite-only` runner in `SPEC-REGISTRY.tsv`.  
+**Deviations:** None. All changes conform strictly to SP-1, SP-2, and WCAG accessibility standards.  
+**Notes:** Vitest suite (158/158 test files, 3,107 passed tests; `OnboardingWizard.test.tsx` 14/14 passed), TypeScript typecheck (0 errors), Vite production build (`✓ built in 4.43s`), and BATS spec registry test (7/7 passed) all 100% clean. Evidence recorded in `docs/signalloom/slon-p1-3-evidence.md`.  
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 
 
 

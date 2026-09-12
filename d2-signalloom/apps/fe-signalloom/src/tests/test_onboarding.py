@@ -35,8 +35,12 @@ SUBJECT_TENANTS = {
     "onb-fresh": "tenant-onb-fresh",
     "onb-skip": "tenant-onb-skip",
     "onb-complete": "tenant-onb-complete",
-    "onb-idempotent": "tenant-onb-idempotent",
+    "onb-idempotent-skip": "tenant-onb-idempotent-skip",
+    "onb-idempotent-complete": "tenant-onb-idempotent-complete",
+    "onb-skip-then-complete": "tenant-onb-skip-then-complete",
+    "onb-complete-then-skip": "tenant-onb-complete-then-skip",
     "onb-state": "tenant-onb-state",
+    "onb-lifecycle": "tenant-onb-lifecycle",
     "onb-isolation-a": "tenant-onb-isolation-a",
     "onb-isolation-b": "tenant-onb-isolation-b",
 }
@@ -145,13 +149,47 @@ def test_complete_sets_status_and_date(client: TestClient) -> None:
     assert body["skipped_at"] is None
 
 
+def test_complete_persists_across_requests(client: TestClient) -> None:
+    client.post("/api/onboarding/complete", headers=_bearer("onb-complete"))
+    body = client.get("/api/onboarding/status", headers=_bearer("onb-complete")).json()
+    assert body["status"] == "completed"
+    assert body["completed_at"] is not None
+
+
 def test_repeat_skip_keeps_the_original_timestamp(client: TestClient) -> None:
     """A double-clicked button must not rewrite when onboarding finished."""
-    first = client.post("/api/onboarding/skip", headers=_bearer("onb-idempotent")).json()
+    first = client.post("/api/onboarding/skip", headers=_bearer("onb-idempotent-skip")).json()
     time.sleep(0.01)
-    second = client.post("/api/onboarding/skip", headers=_bearer("onb-idempotent")).json()
+    second = client.post("/api/onboarding/skip", headers=_bearer("onb-idempotent-skip")).json()
     assert first["skipped_at"] == second["skipped_at"]
     assert second["status"] == "skipped"
+
+
+def test_repeat_complete_keeps_the_original_timestamp(client: TestClient) -> None:
+    first = client.post("/api/onboarding/complete", headers=_bearer("onb-idempotent-complete")).json()
+    time.sleep(0.01)
+    second = client.post("/api/onboarding/complete", headers=_bearer("onb-idempotent-complete")).json()
+    assert first["completed_at"] == second["completed_at"]
+    assert second["status"] == "completed"
+
+
+def test_skip_then_complete_transitions_to_completed(client: TestClient) -> None:
+    skip_res = client.post("/api/onboarding/skip", headers=_bearer("onb-skip-then-complete")).json()
+    assert skip_res["status"] == "skipped"
+    assert skip_res["skipped_at"] is not None
+
+    complete_res = client.post("/api/onboarding/complete", headers=_bearer("onb-skip-then-complete")).json()
+    assert complete_res["status"] == "completed"
+    assert complete_res["completed_at"] is not None
+
+    status_res = client.get("/api/onboarding/status", headers=_bearer("onb-skip-then-complete")).json()
+    assert status_res["status"] == "completed"
+    assert status_res["completed_at"] is not None
+
+
+def test_skip_and_complete_require_authentication(client: TestClient) -> None:
+    assert client.post("/api/onboarding/skip").status_code == 401
+    assert client.post("/api/onboarding/complete").status_code == 401
 
 
 # ─── Wizard state ───────────────────────────────────────────────────────────
@@ -178,6 +216,11 @@ def test_wizard_state_round_trips(client: TestClient) -> None:
     assert got["selected_provider_ids"] == ["okta", "entra"]
     assert got["step_index"] == 2
     assert got["provider_run_state"]["entra"]["error"] == "invalid client secret"
+
+
+def test_wizard_state_requires_authentication(client: TestClient) -> None:
+    assert client.get("/api/onboarding/state").status_code == 401
+    assert client.put("/api/onboarding/state", json={"step_index": 1}).status_code == 401
 
 
 def test_wizard_state_rejects_a_malformed_body(client: TestClient) -> None:
@@ -208,6 +251,18 @@ def test_one_tenant_skip_does_not_leak_to_another(client: TestClient) -> None:
     assert b["skipped_at"] is None
 
 
+def test_one_tenant_complete_does_not_leak_to_another(client: TestClient) -> None:
+    client.post("/api/onboarding/complete", headers=_bearer("onb-isolation-a"))
+
+    a = client.get("/api/onboarding/status", headers=_bearer("onb-isolation-a")).json()
+    b = client.get("/api/onboarding/status", headers=_bearer("onb-isolation-b")).json()
+
+    assert a["status"] == "completed"
+    assert a["completed_at"] is not None
+    assert b["status"] == "pending"
+    assert b["completed_at"] is None
+
+
 def test_wizard_state_does_not_leak_between_tenants(client: TestClient) -> None:
     client.put(
         "/api/onboarding/state",
@@ -217,3 +272,24 @@ def test_wizard_state_does_not_leak_between_tenants(client: TestClient) -> None:
     b = client.get("/api/onboarding/state", headers=_bearer("onb-isolation-b")).json()
     assert b["selected_provider_ids"] == []
     assert b["step_index"] == 0
+
+
+def test_onboarding_persistence_across_service_lifecycle(client: TestClient) -> None:
+    """Asserts that state survives multiple independent request cycles."""
+    # Step 1: Save state and complete onboarding
+    client.put(
+        "/api/onboarding/state",
+        json={"selected_provider_ids": ["okta"], "step_index": 1, "provider_run_state": {"okta": {"status": "connected"}}},
+        headers=_bearer("onb-lifecycle"),
+    )
+    client.post("/api/onboarding/complete", headers=_bearer("onb-lifecycle"))
+
+    # Step 2: Query status in subsequent request
+    status = client.get("/api/onboarding/status", headers=_bearer("onb-lifecycle")).json()
+    assert status["status"] == "completed"
+    assert status["completed_at"] is not None
+
+    state = client.get("/api/onboarding/state", headers=_bearer("onb-lifecycle")).json()
+    assert state["selected_provider_ids"] == ["okta"]
+    assert state["step_index"] == 1
+    assert state["provider_run_state"]["okta"]["status"] == "connected"

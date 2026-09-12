@@ -16,6 +16,7 @@ import HelpHint from '../components/HelpHint'
 import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
 import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
+import ClaimModal, { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -542,6 +543,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
   const recordClassLabel = recordClass.charAt(0).toUpperCase() + recordClass.slice(1)
   const canClaim = recordClass === 'discovered' || agent.is_registry_linked === false
+  const secProfile = getAgentWorkloadSecurityProfile(agent)
 
   // 1. Agent column
   const agentName = agent.name || 'Unnamed agent'
@@ -624,7 +626,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
               />
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
             <span
               className="tag"
               style={{
@@ -647,6 +649,24 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
               }}
             >
               {recordClassLabel}
+            </span>
+            <span
+              data-testid={`agent-security-profile-badge-${agent.id}`}
+              className="tag"
+              title={secProfile.description}
+              style={{
+                fontSize: 10,
+                padding: '1px 5px',
+                background: secProfile.profile === 'nono-sandboxed'
+                  ? 'rgba(34, 197, 94, 0.15)'
+                  : 'rgba(56, 189, 248, 0.15)',
+                color: secProfile.profile === 'nono-sandboxed'
+                  ? 'var(--teal)'
+                  : 'var(--cyan)',
+                border: `1px solid ${secProfile.profile === 'nono-sandboxed' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+              }}
+            >
+              {secProfile.label}
             </span>
             <span
               title={`Agent ID: ${agent.id}`}

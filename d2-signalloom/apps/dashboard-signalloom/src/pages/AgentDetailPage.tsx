@@ -21,6 +21,7 @@ import AgentIdentityTab from '../components/AgentIdentityTab'
 import AgentAccessTab from '../components/AgentAccessTab'
 import AgentAssessmentsTab from '../components/AgentAssessmentsTab'
 import AgentActivityTab from '../components/AgentActivityTab'
+import ClaimModal, { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -615,6 +616,7 @@ function DossierHeader({
   onScanCompliance,
   scanning,
   lastScanTimestamp,
+  onOpenClaim,
 }: {
   agent: AgentResponse
   onRequestTransition: () => void
@@ -623,16 +625,27 @@ function DossierHeader({
   onScanCompliance: () => void
   scanning: boolean
   lastScanTimestamp: string | null
+  onOpenClaim?: () => void
 }) {
   const [copiedId, setCopiedId] = useState(false)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
+
   const canTransition = (VALID_NEXT_STATES[agent.lifecycle_state] ?? []).length > 0
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
   const recordClassLabel = recordClass.charAt(0).toUpperCase() + recordClass.slice(1)
+  const secProfile = getAgentWorkloadSecurityProfile(agent)
 
   function handleCopyId() {
     navigator.clipboard?.writeText(agent.id).catch(() => {})
     setCopiedId(true)
-    setTimeout(() => setCopiedId(false), 2000)
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    copyTimeoutRef.current = setTimeout(() => setCopiedId(false), 2000)
   }
 
   return (
@@ -666,6 +679,20 @@ function DossierHeader({
               }}
             >
               {recordClassLabel}
+            </span>
+            <span
+              data-testid="dossier-security-profile-badge"
+              className="tag"
+              title={secProfile.description}
+              style={{
+                fontSize: 10,
+                padding: '2px 8px',
+                background: secProfile.profile === 'nono-sandboxed' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                color: secProfile.profile === 'nono-sandboxed' ? colors.tealLoom : colors.cyanLoom,
+                border: `1px solid ${secProfile.profile === 'nono-sandboxed' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+              }}
+            >
+              {secProfile.label}
             </span>
             <StatusBadge status={agent.lifecycle_state} variant="lifecycle" testId="dossier-lifecycle-badge" />
             {agent.eu_ai_act_risk_class && (
@@ -732,6 +759,17 @@ function DossierHeader({
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {(recordClass === 'discovered' || agent.is_registry_linked === false) && (
+              <button
+                type="button"
+                data-testid="dossier-claim-btn"
+                className="btn btn-primary"
+                style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
+                onClick={onOpenClaim}
+              >
+                Claim Agent
+              </button>
+            )}
             {(agent.lifecycle_state === 'enrolled' || agent.lifecycle_state === 'active') && (
               <CredentialActionsMenu onIssue={onIssueCredential} onRevoke={onRevokeCredential} />
             )}
@@ -744,7 +782,7 @@ function DossierHeader({
               >
                 Request Transition
               </button>
-            ) : (
+            ) : !(recordClass === 'discovered' || agent.is_registry_linked === false) && (
               <span
                 title="Revoked is a terminal state — no further transitions are possible."
                 style={{ fontSize: 11, color: 'var(--muted)' }}
@@ -795,6 +833,7 @@ export default function AgentDetailPage() {
   const [showTransition, setShowTransition] = useState(false)
   const [showIssueCredential, setShowIssueCredential] = useState(false)
   const [showRevokeCredential, setShowRevokeCredential] = useState(false)
+  const [showClaimModal, setShowClaimModal] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
   const [claiming, setClaiming] = useState(false)
@@ -1234,6 +1273,17 @@ export default function AgentDetailPage() {
         />
       )}
 
+      {showClaimModal && agent && (
+        <ClaimModal
+          agent={agent}
+          onClose={() => setShowClaimModal(false)}
+          onSuccess={() => {
+            setShowClaimModal(false)
+            load()
+          }}
+        />
+      )}
+
       {/* ─── Credential State Notice ─────────────────────────────────────────── */}
       <div style={{ marginBottom: 16 }}>
         <CredentialStateNotice
@@ -1252,6 +1302,7 @@ export default function AgentDetailPage() {
         onScanCompliance={handleComplianceScan}
         scanning={scanning}
         lastScanTimestamp={lastScanTimestamp}
+        onOpenClaim={() => setShowClaimModal(true)}
       />
 
       {/* ─── Tab Navigation Bar ──────────────────────────────────────────────── */}

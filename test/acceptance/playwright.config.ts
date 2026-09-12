@@ -10,7 +10,7 @@ const gatewayAddress = process.env.GATEWAY_ADDRESS ?? "127.0.0.1";
 // assertion runs. PW_CHANNEL=chromium falls back to Playwright's bundled build,
 // which is enough for functional E2E; leave it unset to keep real Chrome.
 const CHANNEL =
-  process.env.PW_CHANNEL === "chromium"
+  process.env.PW_CHANNEL === "chromium" || process.env.PW_CHANNEL === "bundled"
     ? undefined
     : (process.env.PW_CHANNEL ?? "chrome");
 
@@ -49,9 +49,17 @@ export default defineConfig({
     launchOptions: {
       args: [
         `--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`,
-        "--use-gl=disabled",
         "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--disable-gpu-compositing",
+        "--disable-gpu-rasterization",
+        "--disable-gpu-early-init",
+        "--disable-gpu-sandbox",
+        "--use-gl=disabled",
+        "--disable-software-rasterizer",
         "--disable-dev-shm-usage",
+        "--ignore-certificate-errors",
       ],
     },
   },
@@ -238,13 +246,49 @@ export default defineConfig({
       // this project's contract. A spec that matches NO project is silently
       // skipped by Playwright — exit 0, no warning — so leaving it out would
       // reproduce the very blindness it was written to close.
-      testMatch: /smoke\.spec\.ts|docs\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts|sfas-dossier-authorization\.spec\.ts/,
+      testMatch: /smoke\.spec\.ts|navigation\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|agent-claim\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts|sfas-dossier-authorization\.spec\.ts|onboarding\.spec\.ts|smoke-onboarding-agents\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         channel: CHANNEL,
         video: "off",
       },
     },
+    // The static documentation portal. Opt-in on DOCS_BASE_URL, and that gate
+    // is load-bearing rather than stylistic: scripts/acceptance-test.sh runs
+    // `bunx playwright test` with no --project, so an unconditional docs
+    // project would be claimed by `make acceptance-test` and fail 5/5 against
+    // a preview server nobody started. Its precondition is a built dist being
+    // served, which `make demo-signalloom-up` does not provide, so unlike every
+    // other project here it cannot ride the cluster lane. `make
+    // docs-render-check` sets DOCS_BASE_URL, builds, serves and runs it.
+    //
+    // The spec-coverage guard reads this file as text, so the testMatch below
+    // is visible to it whether or not the ternary includes the project — the
+    // spec reads as wired, which it is whenever it is meant to run.
+    ...(process.env.DOCS_BASE_URL ? [{
+      // Its own project because it is the one suite here that must NOT touch
+      // the cluster.
+      //
+      // It carries no `dependencies: ["setup"]` and no storageState on purpose:
+      // /docs is unauthenticated static HTML, so a Dex auth dependency would
+      // make a docs render failure indistinguishable from an auth failure, and
+      // would couple an offline check to a live OIDC provider.
+      //
+      // It also does not use the gateway. docs/signalloom/
+      // slon-p3-docs-portal-provenance.md §4 records that every Flux source in
+      // the demo cluster is an OCIRepository with no git revision, and that the
+      // running docs image was published from a different branch — so a probe
+      // of https://dashboard.osramp.acme.local/docs is evidence about the
+      // deployed artifact, never about the checked-out tree. docs.spec.ts
+      // therefore drives a locally served build via DOCS_BASE_URL.
+      name: "docs",
+      testMatch: /docs\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    }] : []),
   ],
   // The junit reporter is added only when CI asks for it by setting
   // PLAYWRIGHT_JUNIT_OUTPUT_FILE, so local runs keep the list + html output

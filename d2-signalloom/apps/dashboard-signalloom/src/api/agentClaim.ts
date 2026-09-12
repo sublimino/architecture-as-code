@@ -92,7 +92,9 @@ async function claimError(response: Response, action: string): Promise<Error> {
       // A non-JSON proxy response is not safe or useful to expose in the UI.
     }
   }
-  return new Error(message || `${action} failed (${response.status})`)
+  const err = new Error(message || `${action} failed (${response.status})`)
+  ;(err as Error & { status?: number }).status = response.status
+  return err
 }
 
 /**

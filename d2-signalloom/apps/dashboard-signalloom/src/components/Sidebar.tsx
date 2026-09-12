@@ -10,10 +10,12 @@ import type { TenantSettingsResponse } from '../types/api'
 import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
 
+export type NavSection = 'View' | 'Control' | 'Design'
+
 export interface NavItem {
   to: string
   label: string
-  section: 'Workspace' | 'Governance' | 'Signal Fusion' | 'Configuration'
+  section: NavSection
   icon: IconKind
   end?: boolean
   superadminOnly?: boolean
@@ -22,86 +24,105 @@ export interface NavItem {
 // One glyph per destination — never share a kind between two nav items. A
 // collapsed sidebar is icons only, so a duplicated glyph is an unreadable nav.
 export type IconKind =
-  | 'discovery' | 'agents' | 'compliance' | 'policies' | 'posture' | 'risk'
-  | 'audit' | 'crypto' | 'credentials' | 'federation' | 'access'
-  | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred' | 'fleet'
-  | 'weave' | 'signalFusion' | 'distanceLatency' | 'signalStore' | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
+  | 'overview' | 'agents' | 'topology' | 'activity' | 'risk'
+  | 'policies' | 'containment' | 'approvals' | 'audit'
+  | 'workspaces' | 'connectors' | 'fleet' | 'settings'
+  | 'crypto' | 'credentials' | 'federation' | 'collusion'
+  | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred'
+  | 'signalFusion' | 'distanceLatency' | 'signalStore'
+  | 'designSystem' | 'designSystemHeaders'
+  | 'onboarding' | 'docs'
 
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
-    discovery: <><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4M11 8v6M8 11h6" /></>,
+    // ─── View Group Icons ──────────────────────────────────
+    // Reticle/radar compass — platform overview and discovery
+    overview: <><circle cx="12" cy="12" r="8" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /><circle cx="12" cy="12" r="2" /></>,
+    // Agent identity frame with central processor
     agents: <><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 12h8M12 8v8" /></>,
-    compliance: <><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></>,
-    // Document with a tick — a written, ratified policy.
-    policies: <><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" /><path d="M14 3v5h5" /><path d="m9 15 2 2 3.5-3.5" /></>,
-    // Gauge — posture is a measured score, not a binary.
-    posture: <><path d="M4 17a8 8 0 1 1 16 0" /><path d="m12 17 4.5-5.2" /><circle cx="12" cy="17" r="1.2" /></>,
+    // Network topology graph with nodes and interconnects
+    topology: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="m8 7 3 9M16 7l-3 9M8 6h8" /></>,
+    // Interlocking signal threads — live runtime activity
+    activity: <><path d="M4 6l16 12" /><path d="M20 6 4 18" /><path d="M12 3v18" /><circle cx="12" cy="12" r="2.5" /></>,
+    // FAIR Risk exposure warning triangle
     risk: <><path d="M12 4 2.6 20h18.8L12 4Z" /><path d="M12 10v4" /><path d="M12 17.4h.01" /></>,
+
+    // ─── Control Group Icons ────────────────────────────────
+    // Document with a tick — ratified governance policy
+    policies: <><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" /><path d="M14 3v5h5" /><path d="m9 15 2 2 3.5-3.5" /></>,
+    // Enclosed boundary shield — runtime kernel containment
+    containment: <><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></>,
+    // Access & approval gate with operator authorization
+    approvals: <><circle cx="12" cy="8" r="3" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6M19 8v4M17 10h4" /></>,
+    // Immutable chronological audit trail register
     audit: <><path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h8M8 16h5" /></>,
-    // Certificate with a ribbon — keeps Cryptography off the shield motif that
-    // Compliance already owns.
+
+    // ─── Design Group Icons ─────────────────────────────────
+    // Workspace organizational partition grid
+    workspaces: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
+    // External service connectors & integration plug
+    connectors: <><path d="M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0V7zM12 17v4" /></>,
+    // Clustered fleet configuration racks
+    fleet: <><rect x="3" y="5" width="7" height="6" rx="1" /><rect x="14" y="5" width="7" height="6" rx="1" /><rect x="8.5" y="14" width="7" height="6" rx="1" /><path d="M6.5 11v2h5M17.5 11v2h-5" /></>,
+    // System configuration gear
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.3 3h-4l-.3 2.8a7 7 0 0 0-1.9 1.1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.9 1.1l.3 2.8h4l.3-2.8a7 7 0 0 0 1.9-1.1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1.1Z" /></>,
+
+    // ─── Superadmin Specialized Icons ───────────────────────
     crypto: <><rect x="4" y="4" width="16" height="11" rx="2" /><circle cx="12" cy="9.5" r="2.3" /><path d="m9.6 14.6-1.1 5.4 3.5-2.1 3.5 2.1-1.1-5.4" /></>,
     credentials: <><circle cx="8" cy="15" r="3" /><path d="m10 13 7-7 2 2-7 7M14 9l2 2" /></>,
     federation: <><circle cx="7" cy="12" r="3" /><circle cx="17" cy="7" r="3" /><circle cx="17" cy="17" r="3" /><path d="m10 11 4-3M10 13l4 3" /></>,
-    access: <><circle cx="12" cy="8" r="3" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6M19 8v4M17 10h4" /></>,
-    // Bar chart — RBAC Analysis aggregates; RBAC Explorer inspects.
+    collusion: <><circle cx="9" cy="7" r="3" /><circle cx="15" cy="7" r="3" /><path d="M4 18c0-3 3-5 5-5h6c2 0 5 2 5 5" /></>,
     rbacAnalysis: <><path d="M4 20h16" /><path d="M7 17v-6M12 17V7M17 17v-4" /></>,
     rbacExplorer: <><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" /><circle cx="16.5" cy="16.5" r="3" /><path d="m18.8 18.8 2.2 2.2" /></>,
-    // Broadcast arcs — a reachability probe, distinct from Federation's graph.
     network: <><path d="M4.5 9.5a11 11 0 0 1 15 0" /><path d="M7.5 12.8a7 7 0 0 1 9 0" /><path d="M10.3 16a3 3 0 0 1 3.4 0" /><path d="M12 19.2h.01" /></>,
     supercred: <><path d="M7 10V7a5 5 0 0 1 10 0v3" /><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M12 14v2" /></>,
-    fleet: <><rect x="3" y="5" width="7" height="6" rx="1" /><rect x="14" y="5" width="7" height="6" rx="1" /><rect x="8.5" y="14" width="7" height="6" rx="1" /><path d="M6.5 11v2h5M17.5 11v2h-5" /></>,
-    // Interlocking threads — three diagonal lines crossing through a shared
-    // midpoint, evoking converging signals woven into a single fabric.
-    weave: <><path d="M4 6l16 12" /><path d="M20 6 4 18" /><path d="M12 3v18" /><circle cx="12" cy="12" r="2.5" /></>,
-    // Layered signals converging into a prism — multiple input streams fused
-    // into a single output, distinct from the interlocking-threads motif above.
     signalFusion: <><path d="M4 7h5l3 5-3 5H4" /><path d="M4 12h8" /><path d="M14 7l4 5-4 5" /><circle cx="19" cy="12" r="2" /></>,
-    // Distance latency stopwatch with vector radar arcs.
     distanceLatency: <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /><path d="M4 12h2M18 12h2" /></>,
-    // Cylinder with horizontal partition lines — a columnar store, distinct
-    // from the prism (signalFusion) and the woven threads (weave).
     signalStore: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" /><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" /></>,
-    topology: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="m8 7 3 9M16 7l-3 9M8 6h8" /></>,
-    // Painter's palette with paint wells — the only organic blob in the set, so
-    // it stays legible against the grids and shields around it.
     designSystem: <><path d="M12 3a9 9 0 0 0 0 18 1.6 1.6 0 0 0 1.6-1.6c0-.42-.16-.8-.42-1.08a1.6 1.6 0 0 1 1.18-2.7h1.9A4.74 4.74 0 0 0 21 10.9C21 6.54 16.97 3 12 3Z" /><circle cx="7.5" cy="12.5" r="1.15" /><circle cx="9.5" cy="8.5" r="1.15" /><circle cx="14" cy="7.5" r="1.15" /></>,
-    // A framed window with its top bar filled in — the only glyph in the set
-    // that depicts chrome rather than content, which is what the page is about.
     designSystemHeaders: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /><circle cx="17.5" cy="7.5" r="1" /><path d="M6 7.5h4" /></>,
-    settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.3 3h-4l-.3 2.8a7 7 0 0 0-1.9 1.1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.9 1.1l.3 2.8h4l.3-2.8a7 7 0 0 0 1.9-1.1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1.1Z" /></>,
+
+    // ─── Persistent Anchors ─────────────────────────────────
+    onboarding: <><circle cx="12" cy="12" r="9" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></>,
+    docs: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /><path d="M6 6h10M6 10h10" /></>,
   }
   return <svg aria-hidden="true" className="sl-sidebar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg>
 }
 
 export const NAV: NavItem[] = [
-  { to: '/discovery', label: 'Discovery', section: 'Workspace', icon: 'discovery' },
-  { to: '/agents', label: 'Agents', section: 'Workspace', icon: 'agents' },
-  { to: '/compliance', label: 'Compliance', section: 'Governance', icon: 'compliance', end: true },
-  { to: '/compliance/policies', label: 'Policy Compliance', section: 'Governance', icon: 'policies' },
-  { to: '/compliance/posture', label: 'Agent Posture', section: 'Governance', icon: 'posture' },
-  { to: '/compliance/risk', label: 'Risk Exposure', section: 'Governance', icon: 'risk' },
-  { to: '/audit', label: 'Audit Trail', section: 'Governance', icon: 'audit' },
-  { to: '/cryptography', label: 'Cryptography', section: 'Governance', icon: 'crypto', superadminOnly: true },
-  { to: '/credential-inventory', label: 'Credential Inventory', section: 'Governance', icon: 'credentials', superadminOnly: true },
-  { to: '/federated-services', label: 'Federated Services', section: 'Governance', icon: 'federation', superadminOnly: true },
-  { to: '/collusion-access', label: 'Collusion & Access', section: 'Governance', icon: 'access', superadminOnly: true },
-  { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Governance', icon: 'rbacAnalysis', superadminOnly: true },
-  { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Governance', icon: 'rbacExplorer', superadminOnly: true },
-  { to: '/network-tests', label: 'Network Tests', section: 'Governance', icon: 'network', superadminOnly: true },
-  { to: '/supercred', label: 'SuperCredential Demo', section: 'Governance', icon: 'supercred', superadminOnly: true },
-  { to: '/fleet', label: 'Fleet Demo', section: 'Governance', icon: 'fleet', superadminOnly: true },
-  { to: '/agent-trust-topology', label: 'Agent Trust Topology', section: 'Governance', icon: 'topology' },
-  { to: '/weave', label: 'The Weave', section: 'Signal Fusion', icon: 'weave' },
-  { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'Signal Fusion', icon: 'signalFusion', superadminOnly: true },
-  { to: '/distance-latency', label: 'Distance Latency Demo', section: 'Signal Fusion', icon: 'distanceLatency', superadminOnly: true },
-  { to: '/signal-store', label: 'Signal Store', section: 'Signal Fusion', icon: 'signalStore', superadminOnly: true },
-  // `end` for the same reason /compliance carries it: a NavLink without it
-  // matches its own children, so both this and the Headers entry below would
-  // paint as the active page whenever /design-system/headers is open.
-  { to: '/design-system', label: 'Design System', section: 'Configuration', icon: 'designSystem', end: true, superadminOnly: true },
-  { to: '/design-system/headers', label: 'Design System — Headers', section: 'Configuration', icon: 'designSystemHeaders', superadminOnly: true },
-  { to: '/settings', label: 'Settings', section: 'Configuration', icon: 'settings' },
+  // ─── View Group ─────────────────────────────────────────
+  { to: '/overview', label: 'Overview', section: 'View', icon: 'overview' },
+  { to: '/agents', label: 'Agents', section: 'View', icon: 'agents' },
+  { to: '/topology', label: 'Topology', section: 'View', icon: 'topology' },
+  { to: '/activity', label: 'Activity', section: 'View', icon: 'activity' },
+  { to: '/risk', label: 'FAIR Risk', section: 'View', icon: 'risk' },
+
+  // ─── Control Group ──────────────────────────────────────
+  { to: '/policies', label: 'Policies', section: 'Control', icon: 'policies' },
+  { to: '/containment', label: 'Containment', section: 'Control', icon: 'containment' },
+  { to: '/approvals', label: 'Approvals', section: 'Control', icon: 'approvals' },
+  { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit' },
+
+  // ─── Design Group ───────────────────────────────────────
+  { to: '/workspaces', label: 'Workspaces', section: 'Design', icon: 'workspaces' },
+  { to: '/connectors', label: 'Connectors', section: 'Design', icon: 'connectors' },
+  { to: '/fleet', label: 'Fleet Config', section: 'Design', icon: 'fleet' },
+  { to: '/settings', label: 'Settings', section: 'Design', icon: 'settings' },
+
+  // ─── Superadmin Specialized Modules ─────────────────────
+  { to: '/cryptography', label: 'Cryptography', section: 'Control', icon: 'crypto', superadminOnly: true },
+  { to: '/credential-inventory', label: 'Credential Inventory', section: 'Control', icon: 'credentials', superadminOnly: true },
+  { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation', superadminOnly: true },
+  { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion', superadminOnly: true },
+  { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true },
+  { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true },
+  { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
+  { to: '/supercred', label: 'SuperCredential Demo', section: 'Control', icon: 'supercred', superadminOnly: true },
+  { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'View', icon: 'signalFusion', superadminOnly: true },
+  { to: '/distance-latency', label: 'Distance Latency Demo', section: 'View', icon: 'distanceLatency', superadminOnly: true },
+  { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },
+  { to: '/design-system', label: 'Design System', section: 'Design', icon: 'designSystem', end: true, superadminOnly: true },
+  { to: '/design-system/headers', label: 'Design System — Headers', section: 'Design', icon: 'designSystemHeaders', superadminOnly: true },
 ]
 
 // Exported so the quick-search width budget in
@@ -135,7 +156,7 @@ function writeSidebarCollapsed(on: boolean): void {
 
 export default function Sidebar() {
   const { user, logout, getAccessTokenSilently } = useAuth0()
-  const { failingControls, setHelpOpen, superadmin, setSuperadmin } = useAppContext()
+  const { failingControls, setHelpOpen, superadmin, setSuperadmin, needsOnboarding } = useAppContext()
   const navigate = useNavigate()
   const location = useLocation()
   const [tenant, setTenant] = useState<TenantSettingsResponse | null>(null)
@@ -160,11 +181,7 @@ export default function Sidebar() {
   const matchesQuery = ({ label }: NavItem) => !normalizedQuery || label.toLowerCase().includes(normalizedQuery)
   const visibleNavItems = navItems.filter(matchesQuery)
   const visibleSuperadminItems = superadminItems.filter(matchesQuery)
-  // A heading, and the rule above it, are labels for the items beneath them —
-  // with nothing beneath, they are furniture announcing an empty room. The
-  // Workspace/Governance/Configuration headings already derive from
-  // visibleNavItems; the superadmin block did not, so it kept printing its
-  // divider and title over nothing.
+
   const hasVisibleSuperadminItems = showSuperadminNav && visibleSuperadminItems.length > 0
   const hasNoMatches = normalizedQuery !== '' && visibleNavItems.length === 0 && !hasVisibleSuperadminItems
 
@@ -195,28 +212,17 @@ export default function Sidebar() {
     const activeItem = NAV.find(({ to, end }) => end ? location.pathname === to : location.pathname === to || location.pathname.startsWith(`${to}/`))
     const targetTo = (hoveredNav === null ? activeItem : NAV[hoveredNav])?.to
     const target = targetTo ? itemRefs.current[targetTo] : null
+
     // No row to sit on: the active route is off-nav, filtered out of the rail,
-    // or behind the superadmin flag. Withdrawing the highlight is the whole
-    // fix — bailing out early instead left it parked on the row it was last
-    // measured against, so that row stayed lit while the newly-active one lit
-    // up too. Two selected rows, which is what Andy saw.
+    // or behind the superadmin flag.
     if (!container || !target || !targetTo) {
       setSelectionBox(null)
       return
     }
     const containerRect = container.getBoundingClientRect()
     const targetRect = target.getBoundingClientRect()
-    // `.sl-sidebar__nav` is the scroll container *and* the containing block, so
-    // the pill scrolls with the rows and its `top` is in content coordinates.
-    // The rect delta is in viewport coordinates: without adding the scroll
-    // offset back, a rail scrolled far enough to reach the superadmin block
-    // seats the pill a screenful above the row it belongs to — over whichever
-    // row happens to be there.
     const top = targetRect.top - containerRect.top + container.scrollTop
     setSelectionBox({ to: targetTo, top, height: targetRect.height })
-    // The rail's geometry moves under the highlight for more reasons than the
-    // route changing: filtering removes rows above it, and the superadmin flag
-    // adds or removes a whole block. Both have to re-measure.
   }, [hoveredNav, location.pathname, collapsed, normalizedQuery, showSuperadminNav])
 
   useEffect(() => {
@@ -256,8 +262,6 @@ export default function Sidebar() {
 
       if (e.key === '/') {
         e.preventDefault()
-        // The search box is unmounted while collapsed — expand first, then
-        // focus it once it exists, rather than leaving "/" as a dead key.
         if (collapsed) {
           applyCollapsed(false)
           setPendingSearchFocus(true)
@@ -268,15 +272,12 @@ export default function Sidebar() {
       }
 
       const idx = Number(e.key) - 1
-      if (Number.isInteger(idx) && idx >= 0 && idx < navItems.length) {
+      if (Number.isInteger(idx) && idx >= 0 && idx < navItems.length && idx < 9) {
         navigate(navItems[idx].to)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-    // No dependency array: the handler closes over `collapsed` and over
-    // `navItems`, which is rebuilt every render anyway, so this listener always
-    // re-registered per render. Being explicit about it beats a stale closure.
   })
 
   useEffect(() => {
@@ -285,16 +286,8 @@ export default function Sidebar() {
     setPendingSearchFocus(false)
   }, [pendingSearchFocus, collapsed])
 
-  // Every row in the rail — main block and superadmin block alike — is
-  // rendered here. The superadmin block used to be a second copy of this JSX,
-  // and the copy had drifted: it registered no `itemRefs` entry and no hover
-  // handlers, so the moving selection highlight could neither find a
-  // superadmin row nor follow the pointer over one. A duplicated render block
-  // that has to be kept in sync is the defect behind the defect.
   function renderNavLink({ to, label, end, icon, superadminOnly }: NavItem) {
     const i = NAV.findIndex((item) => item.to === to)
-    // The digit keys bind `navItems`, which excludes superadmin entries, so a
-    // badge on one would advertise a shortcut that does not exist.
     const showShortcut = !collapsed && !superadminOnly && hoveredNav === i && i < 9
     return (
       <NavLink
@@ -309,10 +302,9 @@ export default function Sidebar() {
         onMouseLeave={() => setHoveredNav(null)}
       >
         <NavIcon kind={icon} />
-        {/* Collapsed keeps the label in the a11y tree, not on screen. */}
         <span className={collapsed ? 'sr-only' : 'sl-sidebar__link-label'}>{label}</span>
         {showShortcut && <kbd aria-hidden="true" className="sl-sidebar__shortcut">{i + 1}</kbd>}
-        {!collapsed && label === 'Compliance' && failingControls > 0 && (
+        {!collapsed && (label === 'Containment' || label === 'Policies') && failingControls > 0 && (
           <span
             aria-hidden="true"
             style={{
@@ -344,7 +336,7 @@ export default function Sidebar() {
             {tenant.agent_count > 99 ? '99+' : tenant.agent_count}
           </span>
         )}
-        {!collapsed && label === 'Discovery' && needsTriage !== null && needsTriage > 0 && (
+        {!collapsed && label === 'Overview' && needsTriage !== null && needsTriage > 0 && (
           <span
             aria-hidden="true"
             title={`${needsTriage} discovered account${needsTriage === 1 ? '' : 's'} need triage`}
@@ -389,12 +381,6 @@ export default function Sidebar() {
             className="sl-sidebar__workspace-button"
             title={collapsed ? (tenant?.org_name || 'Signal Loom') : undefined}
           >
-            {/* The real woven-diamond mark, transparent-keyed so it carries
-              * across all three themes. Decorative: it sits beside the
-              * workspace title (or its sr-only twin when collapsed), and a
-              * named image here would give the button a second accessible
-              * name. The asset is square — `contain` keeps it that way even if
-              * the flex row squeezes the box. */}
             <img
               src="/brand/signal-loom-logo.png"
               alt=""
@@ -426,14 +412,6 @@ export default function Sidebar() {
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             onClick={() => applyCollapsed(!collapsed)}
           >
-            {/* A chevron beside a bare vertical stroke reads as "next/previous"
-              * far more readily than "collapse this panel" — the stroke has no
-              * shape to identify it as an edge of anything. This is the
-              * conventional panel glyph instead: a framed rectangle with the
-              * rail partitioned off inside it, so the icon depicts the thing it
-              * acts on. Only the chevron flips between states, and it always
-              * points the way the rail is about to travel — left to close, right
-              * to reopen — so the icon states the outcome, not the state. */}
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="4" width="18" height="16" rx="2" />
               <path d="M9 4v16" />
@@ -483,8 +461,6 @@ export default function Sidebar() {
             />
           )}
           {visibleNavItems.map((item, visibleIndex) => {
-            // Previous *visible* sibling, so a heading is emitted only where a
-            // section actually starts in the filtered list.
             const previous = visibleNavItems[visibleIndex - 1]
             return (
               <div key={item.to}>
@@ -496,9 +472,7 @@ export default function Sidebar() {
             )
           })}
 
-          {/* Superadmin-only nav block. Gated on there being something to show:
-            * filtering used to leave the rule and the "Superadmin" title
-            * stranded above nothing. */}
+          {/* Superadmin-only nav block */}
           {hasVisibleSuperadminItems && (
             <>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: collapsed ? '8px 6px' : '8px 14px' }} />
@@ -511,12 +485,6 @@ export default function Sidebar() {
             </>
           )}
 
-          {/* Filtering everything away leaves a blank rail, which reads as
-            * broken rather than filtered and offers no way out. role="status"
-            * so the result is announced, not merely drawn — the filter is
-            * driven from a text box the user is already focused in, and a
-            * silent change of nothing to nothing is the one case a screen
-            * reader would otherwise miss. */}
           {hasNoMatches && (
             <p className="sl-sidebar__empty" role="status" data-testid="sidebar-no-matches">
               No navigation matches <strong>{query.trim()}</strong>.
@@ -526,46 +494,68 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* Bottom: help + superadmin + user */}
-        <div style={{ padding: collapsed ? '8px 4px 16px' : '8px 8px 16px', borderTop: '1px solid var(--border)' }}>
-          {/* The accessible name is the visible label, verbatim. It used to be
-            * "Open help and support", which is a WCAG 2.5.3 failure twice over:
-            * "and" is not "&", so a speech-input user saying what they read —
-            * "click Help and Support" — matched nothing, and a screen reader
-            * announced words printed nowhere on the screen. The "Open" verb
-            * bought nothing either; role=button already says the control acts.
-            * Named unconditionally rather than only when collapsed, so the
-            * phrase that activates it does not change as the rail folds. */}
+        {/* Persistent Anchors: Onboarding and Help/Docs */}
+        <div
+          role="region"
+          aria-label="Utility navigation"
+          style={{
+            padding: collapsed ? '6px 4px' : '6px 8px',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          <NavLink
+            to="/onboarding"
+            aria-label="Onboarding"
+            title={collapsed ? 'Onboarding' : undefined}
+            className={({ isActive }) => `sl-sidebar__link${isActive ? ' sl-sidebar__link--active' : ''}`}
+            ref={(element) => { itemRefs.current['/onboarding'] = element }}
+          >
+            <NavIcon kind="onboarding" />
+            <span className={collapsed ? 'sr-only' : 'sl-sidebar__link-label'}>Onboarding</span>
+            {!collapsed && needsOnboarding === true && (
+              <span
+                aria-hidden="true"
+                style={{
+                  background: 'var(--cyan)',
+                  color: 'var(--on-accent)',
+                  borderRadius: 99,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  minWidth: 18,
+                  textAlign: 'center',
+                }}
+              >
+                New
+              </span>
+            )}
+          </NavLink>
+
           <button
+            type="button"
             onClick={() => setHelpOpen(true)}
-            aria-label="Help & Support"
+            aria-label={collapsed ? 'Help & Support' : undefined}
             title={collapsed ? 'Help & Support' : undefined}
+            className="sl-sidebar__link"
             style={{
               width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: collapsed ? 'center' : 'flex-start',
-              padding: collapsed ? '9px 0' : '9px 14px',
-              borderRadius: 8,
               background: 'none',
               border: 'none',
-              color: 'var(--muted)',
-              fontSize: 14,
               cursor: 'pointer',
+              textAlign: 'left',
               fontFamily: 'inherit',
-              transition: 'color 0.12s',
-              marginBottom: 4,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
           >
-            {collapsed ? (
-              <svg aria-hidden="true" className="sl-sidebar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.7" /><path d="M12 17.3h.01" />
-              </svg>
-            ) : 'Help & Support'}
+            <NavIcon kind="docs" />
+            <span className={collapsed ? 'sr-only' : 'sl-sidebar__link-label'}>Help & Support</span>
           </button>
+        </div>
 
+        {/* Bottom: superadmin toggle + user identity */}
+        <div style={{ padding: collapsed ? '6px 4px 14px' : '6px 8px 14px', borderTop: '1px solid var(--border)' }}>
           {canSuperadmin && (
             <button
               data-testid="superadmin-toggle"
@@ -579,12 +569,12 @@ export default function Sidebar() {
                 alignItems: 'center',
                 justifyContent: collapsed ? 'center' : 'space-between',
                 gap: 8,
-                padding: collapsed ? '9px 0' : '9px 14px',
-                borderRadius: 8,
+                padding: collapsed ? '8px 0' : '8px 10px',
+                borderRadius: 7,
                 background: 'none',
                 border: 'none',
                 color: 'var(--muted)',
-                fontSize: 14,
+                fontSize: 13,
                 cursor: 'pointer',
                 fontFamily: 'inherit',
                 transition: 'color 0.12s',
@@ -594,11 +584,6 @@ export default function Sidebar() {
               onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
             >
               {!collapsed && 'Superadmin'}
-              {/* aria-hidden because aria-pressed above already carries this
-                * state; the pill is the sighted restatement of it, not a second
-                * fact. Collapsed, it is the button's only text, so without this
-                * the visible label reads "On" — which the accessible name
-                * happens to contain (in "navigati-on-") purely by accident. */}
               <span aria-hidden="true" style={{
                 fontSize: 10,
                 fontWeight: 700,
@@ -620,7 +605,7 @@ export default function Sidebar() {
             flexDirection: collapsed ? 'column' : 'row',
             alignItems: 'center',
             gap: collapsed ? 4 : 10,
-            padding: collapsed ? '6px 0' : '6px 14px',
+            padding: collapsed ? '4px 0' : '4px 10px',
           }}>
             {user?.picture ? (
               <img
@@ -659,3 +644,4 @@ export default function Sidebar() {
     </>
   )
 }
+

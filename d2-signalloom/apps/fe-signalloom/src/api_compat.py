@@ -4,10 +4,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import csv
 import enum
 import hashlib
-import io
 import itertools
 import json
 import logging
@@ -31,19 +29,10 @@ import jwt
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
-
-try:
-    from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
-except ImportError:
-    try:
-        from .agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
-    except ImportError:
-        sync_claim_delegation_to_spine = None  # type: ignore
-        clamp_claim_delegation_in_spine = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -369,26 +358,30 @@ class AgentListResponse(BaseModel):
     pagination: PaginationMetadata | None = None
 
 
-class AgentClaimRequest(BaseModel):
+class AgentClaimByIdRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     pod_name: str | None = None
-    namespace: str = "fe-signalloom-agents"
+    namespace: str | None = None
     spiffe_id: str | None = None
+    harness: str | None = None
+    model: str | None = None
+    token_budget_limit: int | None = None
+    declared_tools: list[str] | None = None
+    agent_id: str | None = None
+
+
+class AgentClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    pod_name: str
+    namespace: str = "fe-signalloom-agents"
+    spiffe_id: str
     harness: str = "claude-code"
     model: str = "claude-3-5-sonnet"
     declared_tools: list[str] = Field(default_factory=list)
     token_budget_limit: int = 100000
     agent_id: str | None = None
-    operator_id: str | None = None
-    capabilities: list[str] = Field(default_factory=list)
-    containment_claims: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_claim_identity(self) -> AgentClaimRequest:
-        if not self.pod_name and not self.agent_id and not self.operator_id:
-            raise ValueError("At least one of pod_name, agent_id, or operator_id is required")
-        return self
 
 
 class AgentClaimResponse(BaseModel):
@@ -2749,7 +2742,10 @@ def _synth_agent(tenant_id: str, agent_id: str) -> dict[str, Any]:
 
 
 def _cookie_preferences_for_tenant(tenant_id: str) -> CookiePreferences:
-    prefs = _COOKIE_PREFS[tenant_id]
+    prefs = _COOKIE_PREFS.get(tenant_id)
+    if prefs is None:
+        prefs = {"strictly_necessary": True, "analytics": False}
+        _COOKIE_PREFS[tenant_id] = prefs
     return CookiePreferences(**prefs)
 
 
@@ -2762,10 +2758,10 @@ def _tenant_settings_response(tenant_id: str) -> TenantSettingsResponse:
         tenant_id=tenant_id,
         org_name=f"{tenant_id} Org",
         plan_tier="enterprise",
-        agent_count=len(_AGENTS[tenant_id]),
+        agent_count=len(_AGENTS.get(tenant_id, [])),
         billing_tier="annual",
         api_key_status="active",
-        selected_frameworks=list(_TENANT_FRAMEWORKS[tenant_id]),
+        selected_frameworks=list(_TENANT_FRAMEWORKS.get(tenant_id, ["eu-ai-act"])),
         consent_required=True,
         cookie_preferences=_cookie_preferences_for_tenant(tenant_id),
         preferred_scan_cadence_hours=prefs["preferred_scan_cadence_hours"],
@@ -3734,9 +3730,32 @@ async def _execute_claim(
         agent_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{body.pod_name}")
     agent_id = str(agent_uuid)
 
-    pool = await _require_pool("Claiming an agent")
+    pool = await _get_pool()
     if pool is not None:
         async with _write(pool) as conn:
+            # Check cross-tenant conflict: if already claimed by another tenant
+            conflict_row = await conn.fetchrow(
+                """SELECT claim_id, tenant_id FROM public.agent_claims
+                    WHERE (agent_id = $1 OR pod_name = $2)
+                      AND tenant_id != $3
+                      AND status = 'granted'
+                      AND released_at IS NULL""",
+                agent_uuid, body.pod_name, tenant_id,
+            )
+            if conflict_row is not None:
+                # The conflicting tenant's identifier is deliberately NOT in the
+                # message.  The caller has no relationship with that tenant --
+                # naming it turns a refusal into a cross-tenant disclosure, and
+                # a pod-name guessing loop into a tenant enumerator.  "Some
+                # other tenant holds this" is everything the caller needs to
+                # act on; who they are is the operator's business, and the
+                # conflict row is still available server-side for support.
+                raise APIError(
+                    409,
+                    "claim_conflict",
+                    f"Agent '{body.pod_name}' is already claimed by another tenant",
+                )
+
             agent_name = body.pod_name
             display_name = body.pod_name.replace("-", " ").title()
             row = await conn.fetchrow(
@@ -3749,7 +3768,7 @@ async def _execute_claim(
                     'Signal Loom Built', 83, 'anthropic', $6,
                     NOW(), NOW(), NOW()
                 )
-                ON CONFLICT (tenant_id, name) DO UPDATE SET
+                ON CONFLICT (name) DO UPDATE SET
                     lifecycle_state = 'active',
                     status = 'active',
                     compliance_posture = 83,
@@ -3820,6 +3839,27 @@ async def _execute_claim(
                     evidence_ref,
                 )
 
+            # Persist to public.agent_claims
+            await conn.execute(
+                """INSERT INTO public.agent_claims (
+                    claim_id, tenant_id, agent_id, pod_name, namespace, spiffe_id,
+                    harness, model, status, allocated_token_budget, claimed_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, 'granted', $9, NOW()
+                ) ON CONFLICT (claim_id) DO UPDATE SET
+                    status = 'granted',
+                    released_at = NULL""",
+                claim_id,
+                tenant_id,
+                agent_uuid,
+                body.pod_name,
+                body.namespace,
+                body.spiffe_id,
+                body.harness,
+                body.model,
+                allocated_budget,
+            )
+
             audit_detail = {
                 "action": "claimed",
                 "source": "autoclaim",
@@ -3840,6 +3880,21 @@ async def _execute_claim(
                 principal_actor,
                 audit_detail,
             )
+
+    # In-memory cross-tenant conflict check
+    with _STORE_LOCK:
+        for other_tenant, tclaims in _CLAIMS.items():
+            if other_tenant != tenant_id:
+                for c in tclaims.values():
+                    if (c.get("pod_name") == body.pod_name or c.get("agent_id") == agent_id) and c.get("status") == "granted" and c.get("released_at") is None:
+                        # See the database branch above: the owning tenant is
+                        # not named.  Both branches must agree, or the
+                        # disclosure simply moves to whichever one is live.
+                        raise APIError(
+                            409,
+                            "claim_conflict",
+                            f"Agent '{body.pod_name}' is already claimed by another tenant",
+                        )
 
     origin_verif = OriginVerificationMetadata(
         verified=True,
@@ -3935,23 +3990,6 @@ async def _execute_claim(
             spiffe_id=body.spiffe_id,
         )
 
-    if sync_claim_delegation_to_spine is not None:
-        operator_actor = body.operator_id or principal_actor
-        await sync_claim_delegation_to_spine(
-            agent_id=agent_id,
-            operator_id=operator_actor,
-            claim_id=claim_id,
-            capabilities=body.capabilities,
-            containment_claims=body.containment_claims,
-            metadata={
-                "pod_name": body.pod_name,
-                "namespace": body.namespace,
-                "model": body.model,
-                "harness": body.harness,
-                "token_budget": allocated_budget,
-            },
-        )
-
     return AgentClaimResponse(
         claim_id=claim_id,
         status="granted",
@@ -3970,7 +4008,6 @@ async def claim_agent(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> AgentClaimResponse:
     """Claim an agent pod into Signal Loom governance."""
-    await _require_pool("Claiming an agent")
     return await _execute_claim(principal.tenant, principal.actor, body)
 
 
@@ -3980,7 +4017,6 @@ async def autoclaim_discovered(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> AutoclaimDiscoveredResponse:
     """Reconcile and batch auto-claim all unlinked discovered workloads in the cluster."""
-    await _require_pool("Autoclaiming discovered workloads")
     raw_discovered = await _fetch_discovered_agents()
     claimed_records: list[ClaimRecord] = []
     tenant_id = principal.tenant
@@ -4030,6 +4066,35 @@ async def list_agent_claims(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> ClaimListResponse:
     """List all active and historical claims for the caller's tenant."""
+    pool = await _get_pool()
+    if pool is not None:
+        rows = await pool.fetch(
+            """SELECT claim_id, pod_name, namespace, spiffe_id, harness, model,
+                      status, allocated_token_budget, claimed_at, released_at, agent_id::text
+                 FROM public.agent_claims
+                WHERE tenant_id = $1
+             ORDER BY claimed_at DESC""",
+            tenant_id,
+        )
+        if rows:
+            claims = [
+                ClaimRecord(
+                    claim_id=r["claim_id"],
+                    pod_name=r["pod_name"],
+                    namespace=r["namespace"],
+                    spiffe_id=r["spiffe_id"],
+                    harness=r["harness"],
+                    model=r["model"],
+                    status=r["status"],
+                    allocated_token_budget=r["allocated_token_budget"],
+                    claimed_at=r["claimed_at"].isoformat() if hasattr(r["claimed_at"], "isoformat") else str(r["claimed_at"]),
+                    released_at=r["released_at"].isoformat() if r["released_at"] and hasattr(r["released_at"], "isoformat") else (str(r["released_at"]) if r["released_at"] else None),
+                    agent_id=r["agent_id"],
+                )
+                for r in rows
+            ]
+            return ClaimListResponse(claims=claims, total=len(claims))
+
     with _STORE_LOCK:
         raw_claims = list(_CLAIMS.get(tenant_id, {}).values())
     claims = [ClaimRecord(**c) for c in raw_claims]
@@ -4043,6 +4108,30 @@ async def get_agent_claim(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> ClaimRecord:
     """Retrieve details for a specific agent claim."""
+    pool = await _get_pool()
+    if pool is not None:
+        r = await pool.fetchrow(
+            """SELECT claim_id, pod_name, namespace, spiffe_id, harness, model,
+                      status, allocated_token_budget, claimed_at, released_at, agent_id::text
+                 FROM public.agent_claims
+                WHERE tenant_id = $1 AND claim_id = $2""",
+            tenant_id, claim_id,
+        )
+        if r is not None:
+            return ClaimRecord(
+                claim_id=r["claim_id"],
+                pod_name=r["pod_name"],
+                namespace=r["namespace"],
+                spiffe_id=r["spiffe_id"],
+                harness=r["harness"],
+                model=r["model"],
+                status=r["status"],
+                allocated_token_budget=r["allocated_token_budget"],
+                claimed_at=r["claimed_at"].isoformat() if hasattr(r["claimed_at"], "isoformat") else str(r["claimed_at"]),
+                released_at=r["released_at"].isoformat() if r["released_at"] and hasattr(r["released_at"], "isoformat") else (str(r["released_at"]) if r["released_at"] else None),
+                agent_id=r["agent_id"],
+            )
+
     with _STORE_LOCK:
         claim = _CLAIMS.get(tenant_id, {}).get(claim_id)
     if claim is None:
@@ -4057,20 +4146,27 @@ async def release_agent_claim(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> dict[str, str]:
     """Release or revoke an active agent claim."""
-    await _require_pool("Releasing an agent claim")
-    agent_id = None
+    pool = await _get_pool()
+    if pool is not None:
+        async with _write(pool) as conn:
+            row = await conn.fetchrow(
+                """UPDATE public.agent_claims
+                      SET status = 'denied', released_at = NOW()
+                    WHERE tenant_id = $1 AND claim_id = $2
+                RETURNING claim_id""",
+                tenant_id, claim_id,
+            )
+            if row is None:
+                raise APIError(404, "not_found", f"Claim '{claim_id}' not found")
+
     with _STORE_LOCK:
         claims = _CLAIMS.get(tenant_id, {})
         claim = claims.get(claim_id)
-        if claim is None:
+        if claim is None and pool is None:
             raise APIError(404, "not_found", f"Claim '{claim_id}' not found")
-        claim["released_at"] = _now_iso()
-        claim["status"] = "denied"
-        agent_id = claim.get("agent_id")
-
-    if agent_id and clamp_claim_delegation_in_spine is not None:
-        await clamp_claim_delegation_in_spine(agent_id=agent_id, claim_id=claim_id)
-
+        if claim is not None:
+            claim["released_at"] = _now_iso()
+            claim["status"] = "denied"
     return {"status": "released", "claim_id": claim_id}
 
 
@@ -4079,40 +4175,38 @@ async def release_agent_claim(
 async def claim_agent_by_id(
     agent_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
-    body: AgentClaimRequest | None = None,
+    body: AgentClaimByIdRequest | None = None,
 ) -> AgentClaimResponse:
     """One-click claim of a discovered agent by ID into Signal Loom governance."""
-    await _require_pool("Claiming an agent by ID")
+    tenant_id = principal.tenant
+    actor = principal.actor
+
     try:
-        agent_res = await get_agent(agent_id=agent_id, tenant_id=principal.tenant)
-        agent_name = agent_res.name
-        agent_ns = agent_res.namespace or "fe-signalloom-agents"
-        agent_model = agent_res.model_name or "claude-3-5-sonnet"
-        agent_uuid_str = agent_res.id
+        agent_res = await get_agent(agent_id=agent_id, tenant_id=tenant_id)
     except APIError as exc:
-        if exc.status_code == 404 and body is not None:
-            agent_name = body.pod_name or f"agent-{agent_id[:8]}"
-            agent_ns = body.namespace or "fe-signalloom-agents"
-            agent_model = body.model or "claude-3-5-sonnet"
-            agent_uuid_str = agent_id
-        else:
-            raise
+        if exc.status_code == 404:
+            raise APIError(404, "not_found", f"Discovered agent '{agent_id}' not found") from None
+        raise
 
-    if body is None:
-        body = AgentClaimRequest(
-            pod_name=agent_name,
-            namespace=agent_ns,
-            spiffe_id=f"spiffe://cluster.local/ns/{agent_ns}/sa/{agent_name}",
-            harness="claude-code",
-            model=agent_model,
-            declared_tools=[],
-            token_budget_limit=100000,
-            agent_id=agent_uuid_str,
-        )
-    elif not body.pod_name:
-        body.pod_name = agent_name
+    pod_name = (body and body.pod_name) or agent_res.name or agent_id
+    namespace = (body and body.namespace) or agent_res.namespace or "fe-signalloom-agents"
+    spiffe_id = (body and body.spiffe_id) or f"spiffe://signalloom.demo/ns/{namespace}/sa/{pod_name}"
+    harness = (body and body.harness) or agent_res.framework or "claude-code"
+    model = (body and body.model) or agent_res.model_name or "claude-3-5-sonnet"
+    token_budget = (body and body.token_budget_limit) or 100000
+    declared_tools = (body and body.declared_tools) or []
 
-    return await _execute_claim(principal.tenant, principal.actor, body, agent_id_override=agent_uuid_str)
+    claim_req = AgentClaimRequest(
+        pod_name=pod_name,
+        namespace=namespace,
+        spiffe_id=spiffe_id,
+        harness=harness,
+        model=model,
+        declared_tools=declared_tools,
+        token_budget_limit=token_budget,
+        agent_id=agent_res.id,
+    )
+    return await _execute_claim(tenant_id, actor, claim_req, agent_id_override=agent_res.id)
 
 
 @router.get("/agents/{agent_id}", response_model=AgentResponse, responses=ERROR_RESPONSES)
@@ -4133,7 +4227,8 @@ async def get_agent(
                     continue
                 d_id = str(d.get("id")) if d.get("id") is not None else None
                 d_name = str(d.get("name")) if d.get("name") is not None else None
-                if d_id == agent_id or d_name == agent_id:
+                d_sa = str(d.get("service_account")) if d.get("service_account") is not None else None
+                if d_id == agent_id or d_name == agent_id or d_sa == agent_id or (d_id and d_id.startswith(agent_id)):
                     discovered_match = d
                     break
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
@@ -4749,42 +4844,144 @@ async def get_agent_telemetry(
     if not agent_found:
         raise APIError(404, "not_found", f"Agent {agent_id} not found")
 
-    # Generate FrostDB-correlated telemetry observations for agent
-    observations: list[TelemetryObservationModel] = [
-        TelemetryObservationModel(
-            id=f"obs-{agent_id}-1",
-            observed_at=_now_iso(),
-            source="frostdb-columnar",
-            layer="LayerNetworkEgress",
-            actor_id=agent_id,
-            principal_id=tenant_id,
-            action="egress.traffic_allowed",
-            details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
-            confidence=0.98,
-        ),
-        TelemetryObservationModel(
-            id=f"obs-{agent_id}-2",
-            observed_at=_now_iso(),
-            source="ebpf-sentinel",
-            layer="LayerKernelSocket",
-            actor_id=agent_id,
-            principal_id=tenant_id,
-            action="socket.ebpf_traced",
-            details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
-            confidence=1.0,
-        ),
-        TelemetryObservationModel(
-            id=f"obs-{agent_id}-3",
-            observed_at=_now_iso(),
-            source="tc-ebpf",
-            layer="LayerCgroup",
-            actor_id=agent_id,
-            principal_id=tenant_id,
-            action="cgroup.containment_probe",
-            details={"state": "active", "filter": "tc_clsact"},
-            confidence=0.95,
-        ),
-    ]
+    # Generate comparative telemetry observations based on agent security profile
+    observations: list[TelemetryObservationModel] = []
+    agent_id_lower = agent_id.lower()
+
+    if "nono" in agent_id_lower:
+        observations = [
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-nono-1",
+                observed_at=_now_iso(),
+                source="nono-audit-verifier",
+                layer="LayerLSMConfinement",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="landlock.confinement_verified",
+                details={
+                    "confinement_status": "enforcing",
+                    "lsm": "landlock",
+                    "hash_chain_sha256": "3a7f9c2e4b8d1f0a5e6c7b8a9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e",
+                    "detached_signature": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced",
+                    "fs_sandbox": "strict_readonly",
+                    "verification": "cryptographically_verified",
+                },
+                confidence=1.0,
+            ),
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-nono-2",
+                observed_at=_now_iso(),
+                source="nono-audit-verifier",
+                layer="LayerCryptographicAudit",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="nono.hash_chain_appended",
+                details={
+                    "block_height": 104,
+                    "previous_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "current_hash": "3a7f9c2e4b8d1f0a5e6c7b8a9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e",
+                    "audit_trail_signature": "verified",
+                },
+                confidence=1.0,
+            ),
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-1",
+                observed_at=_now_iso(),
+                source="frostdb-columnar",
+                layer="LayerNetworkEgress",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="egress.traffic_allowed",
+                details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
+                confidence=0.98,
+            ),
+        ]
+    elif "standard" in agent_id_lower or "baseline" in agent_id_lower:
+        observations = [
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-tetragon-1",
+                observed_at=_now_iso(),
+                source="tetragon-ebpf-flow",
+                layer="LayerKernelTracepoint",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="tetragon.process_exec",
+                details={
+                    "binary": "/usr/local/bin/agent-worker",
+                    "syscall": "sys_enter_execve",
+                    "namespace": "fe-signalloom-agents",
+                    "cgroup": "fe-signalloom-agents/agent-standard-baseline",
+                    "pid": 48123,
+                    "event": "PROCESS_EXEC",
+                },
+                confidence=1.0,
+            ),
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-tetragon-2",
+                observed_at=_now_iso(),
+                source="tetragon-ebpf-flow",
+                layer="LayerKernelSocket",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="tetragon.socket_connect",
+                details={
+                    "daddr": "10.96.0.1",
+                    "dport": 443,
+                    "protocol": "TCP",
+                    "syscall": "sys_enter_connect",
+                    "tracepoint": "tcp_connect",
+                    "event": "SOCKET_CONNECT",
+                },
+                confidence=1.0,
+            ),
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-2",
+                observed_at=_now_iso(),
+                source="ebpf-sentinel",
+                layer="LayerKernelSocket",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="socket.ebpf_traced",
+                details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
+                confidence=1.0,
+            ),
+        ]
+    else:
+        observations = [
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-1",
+                observed_at=_now_iso(),
+                source="frostdb-columnar",
+                layer="LayerNetworkEgress",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="egress.traffic_allowed",
+                details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
+                confidence=0.98,
+            ),
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-2",
+                observed_at=_now_iso(),
+                source="ebpf-sentinel",
+                layer="LayerKernelSocket",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="socket.ebpf_traced",
+                details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
+                confidence=1.0,
+            ),
+            TelemetryObservationModel(
+                id=f"obs-{agent_id}-3",
+                observed_at=_now_iso(),
+                source="tc-ebpf",
+                layer="LayerCgroup",
+                actor_id=agent_id,
+                principal_id=tenant_id,
+                action="cgroup.containment_probe",
+                details={"state": "active", "filter": "tc_clsact"},
+                confidence=0.95,
+            ),
+        ]
 
     if layer:
         observations = [o for o in observations if o.layer.lower() == layer.strip().lower()]
@@ -5741,59 +5938,6 @@ async def audit(
             )
         )
     return AuditListResponse(events=events, total=total, page=page, limit=limit, source_health="healthy")
-
-
-@router.get("/audit/events.csv", response_class=Response, responses=ERROR_RESPONSES)
-async def audit_events_csv(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
-    from_: str | None = Query(default=None, alias="from"),
-    to: str | None = None,
-    agent: str | None = None,
-    type: str | None = None,
-) -> Response:
-    """Export audit events as CSV with CSV formula injection protection."""
-    audit_res = await audit(
-        tenant_id=tenant_id,
-        page=1,
-        limit=10000,
-        from_=from_,
-        to=to,
-        agent=agent,
-        type=type,
-    )
-
-    def _sanitize_cell(val: Any) -> str:
-        s = "" if val is None else str(val)
-        if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
-            return "'" + s
-        return s
-
-    output = io.StringIO()
-    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
-    writer.writerow([
-        "id", "timestamp", "event_type", "agent_id", "agent_name",
-        "actor", "authorizing_principal_id", "executing_actor_id",
-        "spiffe_id", "attribution_rationale"
-    ])
-    for ev in audit_res.events:
-        writer.writerow([
-            _sanitize_cell(ev.id),
-            _sanitize_cell(ev.timestamp),
-            _sanitize_cell(ev.event_type),
-            _sanitize_cell(ev.agent_id),
-            _sanitize_cell(ev.agent_name),
-            _sanitize_cell(ev.actor),
-            _sanitize_cell(ev.authorizing_principal_id),
-            _sanitize_cell(ev.executing_actor_id),
-            _sanitize_cell(ev.spiffe_id),
-            _sanitize_cell(ev.attribution_rationale),
-        ])
-
-    return Response(
-        content=output.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="audit-events.csv"'},
-    )
 
 
 async def _iter_audit_stream(

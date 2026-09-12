@@ -394,7 +394,7 @@ export default function App() {
                 <Route path="/signup" element={<Navigate to="/redeem-invite" replace />} />
 
                 <Route path="/" element={<Navigate to="/agents" replace />} />
-                <Route path="/overview" element={<ProtectedRoute><DiscoveryPage /></ProtectedRoute>} />
+                <Route path="/overview" element={<Navigate to="/discovery" replace />} />
                 <Route path="/discovery" element={<ProtectedRoute><DiscoveryPage /></ProtectedRoute>} />
                 <Route path="/discovery/accounts/:accountId" element={<ProtectedRoute><DiscoveryAccountDetailPage /></ProtectedRoute>} />
                 <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
@@ -407,15 +407,15 @@ export default function App() {
                 <Route path="/compliance/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />
                 <Route path="/compliance/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />
-                <Route path="/containment" element={<ProtectedRoute><CompliancePage /></ProtectedRoute>} />
+                <Route path="/containment" element={<Navigate to="/compliance" replace />} />
                 <Route path="/compliance" element={<ProtectedRoute><CompliancePage /></ProtectedRoute>} />
                 <Route path="/compliance/posture" element={<ProtectedRoute><AgentPosturePage /></ProtectedRoute>} />
                 <Route path="/compliance/:frameworkId" element={<ProtectedRoute><FrameworkDetailPage /></ProtectedRoute>} />
-                <Route path="/approvals" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
+                <Route path="/approvals" element={<Navigate to="/collusion-access" replace />} />
                 <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
                 <Route path="/audit" element={<ProtectedRoute><AuditTrailPage /></ProtectedRoute>} />
-                <Route path="/workspaces" element={<ProtectedRoute><DiscoveryPage /></ProtectedRoute>} />
-                <Route path="/connectors" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
+                <Route path="/workspaces" element={<Navigate to="/discovery" replace />} />
+                <Route path="/connectors" element={<Navigate to="/federated-services" replace />} />
                 <Route path="/federated-services" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
                 <Route path="/cryptography" element={<ProtectedRoute><CryptographyPage /></ProtectedRoute>} />
                 <Route path="/credential-inventory" element={<ProtectedRoute><CredentialInventoryPage /></ProtectedRoute>} />

@@ -92,7 +92,7 @@ function NavIcon({ kind }: { kind: IconKind }) {
 
 export const NAV: NavItem[] = [
   // ─── View Group ─────────────────────────────────────────
-  { to: '/overview', label: 'Overview', section: 'View', icon: 'overview' },
+  { to: '/discovery', label: 'Discovery', section: 'View', icon: 'overview' },
   { to: '/agents', label: 'Agents', section: 'View', icon: 'agents' },
   { to: '/topology', label: 'Topology', section: 'View', icon: 'topology' },
   { to: '/activity', label: 'Activity', section: 'View', icon: 'activity' },
@@ -100,21 +100,18 @@ export const NAV: NavItem[] = [
 
   // ─── Control Group ──────────────────────────────────────
   { to: '/policies', label: 'Policies', section: 'Control', icon: 'policies' },
-  { to: '/containment', label: 'Containment', section: 'Control', icon: 'containment' },
-  { to: '/approvals', label: 'Approvals', section: 'Control', icon: 'approvals' },
+  { to: '/compliance', label: 'Compliance', section: 'Control', icon: 'containment' },
+  { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion' },
   { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit' },
 
   // ─── Design Group ───────────────────────────────────────
-  { to: '/workspaces', label: 'Workspaces', section: 'Design', icon: 'workspaces' },
-  { to: '/connectors', label: 'Connectors', section: 'Design', icon: 'connectors' },
+  { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation' },
   { to: '/fleet', label: 'Fleet Config', section: 'Design', icon: 'fleet' },
   { to: '/settings', label: 'Settings', section: 'Design', icon: 'settings' },
 
   // ─── Superadmin Specialized Modules ─────────────────────
   { to: '/cryptography', label: 'Cryptography', section: 'Control', icon: 'crypto', superadminOnly: true },
   { to: '/credential-inventory', label: 'Credential Inventory', section: 'Control', icon: 'credentials', superadminOnly: true },
-  { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation', superadminOnly: true },
-  { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion', superadminOnly: true },
   { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true },
   { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true },
   { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
@@ -306,7 +303,7 @@ export default function Sidebar() {
         <NavIcon kind={icon} />
         <span className={collapsed ? 'sr-only' : 'sl-sidebar__link-label'}>{label}</span>
         {showShortcut && <kbd aria-hidden="true" className="sl-sidebar__shortcut">{i + 1}</kbd>}
-        {!collapsed && (label === 'Containment' || label === 'Policies') && failingControls > 0 && (
+        {!collapsed && (label === 'Compliance' || label === 'Policies') && failingControls > 0 && (
           <span
             aria-hidden="true"
             style={{
@@ -338,7 +335,7 @@ export default function Sidebar() {
             {tenant.agent_count > 99 ? '99+' : tenant.agent_count}
           </span>
         )}
-        {!collapsed && label === 'Overview' && needsTriage !== null && needsTriage > 0 && (
+        {!collapsed && label === 'Discovery' && needsTriage !== null && needsTriage > 0 && (
           <span
             aria-hidden="true"
             title={`${needsTriage} discovered account${needsTriage === 1 ? '' : 's'} need triage`}

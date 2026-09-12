@@ -108,7 +108,7 @@ export const NAV: NavItem[] = [
 // styles/sidebarQuickSearchLayout.test.ts is computed against the real rail
 // width rather than a copy of it that can drift.
 export const EXPANDED_WIDTH = 268
-const COLLAPSED_WIDTH = 64
+export const COLLAPSED_WIDTH = 64
 
 // Collapsed/expanded is a per-browser display preference, so it lives in
 // localStorage alongside the superadmin flag (see auth/superadmin.ts). Reads and

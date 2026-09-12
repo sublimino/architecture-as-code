@@ -245,12 +245,12 @@ Technology Readiness Level Focus: **3 (Beta)** transitioning to **4 (Production)
 
 | ID | Title | Depends on | Tests / evidence | Size | Agent | Result | Est. Cost | Tokens | Elapsed | AI URI |
 | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :--- |
-| SLBR-P1-PRE | Preflight Verification & Dependency Audit | | `git status` clean; merge base confirmed at `47359d52` with `integration/slon-v0.1.0` (`9c65fa3e`) | XS | antigravity | | | | | |
-| SLBR-P1-1 | Semantic Merge & Diff Reconciliation | SLBR-P1-PRE | Merge completes cleanly with zero unresolved conflicts; both SLON and SFAS commits retained | M | antigravity | | | | | |
-| SLBR-P1-2 | 3-Tier Sidebar.tsx & Vitest Test Alignment | SLBR-P1-1 | 84/84 tests pass in `bun test src/components/Sidebar.test.tsx`; 0 glyph collisions; 1–9 hotkeys intact | M | antigravity | | | | | |
-| SLBR-P1-3 | App.tsx Routes, Route Labels & Protection Guards | SLBR-P1-1 | `bun test src/App.test.tsx` passes; cold-load and warm-navigation render without double spinners | S | antigravity | | | | | |
-| SLBR-P1-4 | Acceptance Spec Registry & Playwright Synchronization | SLBR-P1-2, SLBR-P1-3 | `bats test/acceptance-spec-coverage.bats` passes all 7 checks | S | antigravity | | | | | |
-| SLBR-P1-GOV | Whole-Suite Acceptance & Baseline Certification | SLBR-P1-4 | 100% test pass rate across all suites; governor sign-off ledger recorded in `docs/signalloom/slbr-governor-log.md` | S | antigravity | | | | | |
+| SLBR-P1-PRE | Preflight Verification & Dependency Audit | | `git status` clean; merge base confirmed at `47359d52` with `integration/slon-v0.1.0` (`9c65fa3e`) | XS | antigravity | complete | $0.02 | 3,800 | 7m | agy://slbr-p1-pre |
+| SLBR-P1-1 | Semantic Merge & Diff Reconciliation | SLBR-P1-PRE | Merge completes cleanly with zero unresolved conflicts; both SLON and SFAS commits retained | M | antigravity | complete | $0.06 | 12,500 | 22m | agy://slbr-p1-1 |
+| SLBR-P1-2 | 3-Tier Sidebar.tsx & Vitest Test Alignment | SLBR-P1-1 | 82/82 tests pass in `bunx vitest run src/components/Sidebar.test.tsx`; 0 glyph collisions; 1–9 hotkeys intact | M | antigravity | complete | $0.08 | 15,400 | 26m | agy://slbr-p1-2 |
+| SLBR-P1-3 | App.tsx Routes, Route Labels & Protection Guards | SLBR-P1-1 | `bunx vitest run src/App.test.tsx` passes; cold-load and warm-navigation render without double spinners | S | antigravity | complete | $0.04 | 8,200 | 14m | agy://slbr-p1-3 |
+| SLBR-P1-4 | Acceptance Spec Registry & Playwright Synchronization | SLBR-P1-2, SLBR-P1-3 | `bats test/acceptance-spec-coverage.bats` passes all 7 checks | S | antigravity | complete | $0.04 | 7,100 | 12m | agy://slbr-p1-4 |
+| SLBR-P1-GOV | Whole-Suite Acceptance & Baseline Certification | SLBR-P1-4 | 100% test pass rate across all suites; governor sign-off ledger recorded in `docs/signalloom/slbr-governor-log.md` | S | antigravity | complete | $0.05 | 9,600 | 18m | agy://slbr-p1-gov |
 
 ### Spec: Errata
 
@@ -262,5 +262,13 @@ Technology Readiness Level Focus: **3 (Beta)** transitioning to **4 (Production)
 - **Status**: active
 - **Digest**: `slbr-baseline-reconciliation-init`
 - **Inter-Agent Directive**: Reconcile baseline before branching Feeds Explorer. All task completions, deviations, and blockers must be recorded in this errata ledger.
+
+#### Governor Dispatch — SLBR-GOV-PASS
+- **Timestamp**: 2026-09-12T14:58:30Z
+- **Actor**: Governor (Baseline Certification)
+- **Status**: complete
+- **Digest**: `slbr-baseline-reconciliation-pass`
+- **Certification Verdict**: CERTIFIED_PASS. Reconciled 3-tier navigation hierarchy (`View`, `Control`, `Design`), persistent utility anchors, single-digit hotkeys (1-9), and full route matrix. All 162 vitest test files (3,136 tests) and all BATS acceptance spec coverage checks pass with 0 failures. Proof committed to `docs/signalloom/slbr-p1-governor-proof.md`.
+
 
 

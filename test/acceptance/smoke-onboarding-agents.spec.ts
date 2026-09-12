@@ -33,7 +33,7 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
     await skipOrGoBtn.click();
 
     await page.waitForURL(/\/(overview|agents)/, { timeout: 15_000 });
-    await expect(page.locator("nav a[href='/agents'], nav a[href='/overview']").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("nav a[href='/agents'], nav a[href='/discovery']").first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("user onboarding: complete 3-step wizard with validation, IdP test, consent, and celebration", async ({
@@ -124,7 +124,7 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
 
     // Verify redirect and sidebar navigation visibility
     await page.waitForURL(/\/(overview|agents)/, { timeout: 15_000 });
-    await expect(page.locator("nav a[href='/agents'], nav a[href='/overview']").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("nav a[href='/agents'], nav a[href='/discovery']").first()).toBeVisible({ timeout: 10_000 });
   });
 
   // ─── Group 2: Dual-Agent Discovery, Claim & Telemetry Verification ─────────

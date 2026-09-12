@@ -21,7 +21,7 @@ interface NavItemSpec {
 
 const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
   // View Tier
-  { name: "Overview", href: "/overview", category: "View" },
+  { name: "Discovery", href: "/discovery", category: "View" },
   { name: "Agents", href: "/agents", category: "View" },
   { name: "Topology", href: "/topology", category: "View" },
   { name: "Activity", href: "/activity", category: "View" },
@@ -29,13 +29,12 @@ const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
 
   // Control Tier
   { name: "Policies", href: "/policies", category: "Control" },
-  { name: "Containment", href: "/containment", category: "Control" },
-  { name: "Approvals", href: "/approvals", category: "Control" },
+  { name: "Compliance", href: "/compliance", category: "Control" },
+  { name: "Collusion & Access", href: "/collusion-access", category: "Control" },
   { name: "Audit Trail", href: "/audit", category: "Control" },
 
   // Design Tier
-  { name: "Workspaces", href: "/workspaces", category: "Design" },
-  { name: "Connectors", href: "/connectors", category: "Design" },
+  { name: "Federated Services", href: "/federated-services", category: "Design" },
   { name: "Fleet Config", href: "/fleet", category: "Design" },
   { name: "Settings", href: "/settings", category: "Design" },
 ];
@@ -71,9 +70,9 @@ test.describe("3-Tier Navigation Hierarchy & Structure", () => {
 
     // Test a representative from each tier
     const sampleItems = [
-      { name: "Overview", href: "/overview" },
+      { name: "Discovery", href: "/discovery" },
       { name: "Policies", href: "/policies" },
-      { name: "Workspaces", href: "/workspaces" },
+      { name: "Settings", href: "/settings" },
     ];
 
     for (const item of sampleItems) {
@@ -82,6 +81,21 @@ test.describe("3-Tier Navigation Hierarchy & Structure", () => {
 
       await expect(page).toHaveURL(new RegExp(`${item.href}`));
       await expect(link).toHaveAttribute("aria-current", "page");
+    }
+  });
+
+  test("legacy route redirects cleanly to canonical routes", async ({ page }) => {
+    const legacyRedirects = [
+      { from: "/overview", to: "/discovery" },
+      { from: "/containment", to: "/compliance" },
+      { from: "/approvals", to: "/collusion-access" },
+      { from: "/workspaces", to: "/discovery" },
+      { from: "/connectors", to: "/federated-services" },
+    ];
+
+    for (const { from, to } of legacyRedirects) {
+      await page.goto(`${BASE}${from}`, { waitUntil: "domcontentloaded" });
+      await expect(page).toHaveURL(new RegExp(`${to}`));
     }
   });
 

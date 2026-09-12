@@ -192,7 +192,7 @@ proxy_segments() {
 	# foreign prefix — /api/supercred/ being the obvious temptation — is a real
 	# defect, because the gateway hands the whole /api subtree to another backend
 	# and nginx never sees it.
-	local exempt=("/api" "/dex")
+	local exempt=("/api" "/dex" "/docs")
 
 	local loc prefix skip_it offenders=()
 	while read -r loc; do
@@ -267,3 +267,24 @@ proxy_segments() {
 	[ "$status" -eq 0 ]
 	[ "$output" -eq 1 ]
 }
+
+@test "dashboard nginx proxies /docs to docs-signalloom on port 8080" {
+	# When reached directly (e.g. Tailscale public-tunnel, local port-forward,
+	# or in-cluster callers), /docs must proxy to the docs-signalloom service
+	# instead of falling through to try_files /index.html and redirecting to /agents.
+	run grep -E '^\s*location /docs' "$nginx_conf"
+	[ "$status" -eq 0 ]
+
+	run grep -F 'docs-signalloom.fe-signalloom.svc.cluster.local:8080' "$nginx_conf"
+	[ "$status" -eq 0 ]
+}
+
+@test "the docs NetworkPolicy admits the dashboard pod" {
+	# Bidirectional NetworkPolicy requirement: dashboard must have egress to docs,
+	# and docs must admit ingress from dashboard.
+	command -v yq >/dev/null || skip "yq is required to read the NetworkPolicy"
+	run yq eval-all '[select(.kind == "NetworkPolicy") | select(.spec.podSelector.matchLabels."app.kubernetes.io/name" == "docs-signalloom") | .spec.ingress[]?.from[]?.podSelector.matchLabels."app.kubernetes.io/name"] | .[]' "$netpol"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"dashboard-signalloom"* ]]
+}
+

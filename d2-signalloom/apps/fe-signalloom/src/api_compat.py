@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
+from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +383,9 @@ class AgentClaimRequest(BaseModel):
     declared_tools: list[str] = Field(default_factory=list)
     token_budget_limit: int = 100000
     agent_id: str | None = None
+    operator_id: str | None = None
+    capabilities: list[str] | None = None
+    containment_claims: list[str] | None = None
 
 
 class AgentClaimResponse(BaseModel):
@@ -3990,6 +3994,16 @@ async def _execute_claim(
             spiffe_id=body.spiffe_id,
         )
 
+    sync_kwargs: dict[str, Any] = {
+        "agent_id": agent_id,
+        "operator_id": getattr(body, "operator_id", None) or principal_actor,
+        "claim_id": claim_id,
+        "capabilities": getattr(body, "capabilities", None) or ["agent:operate"],
+    }
+    if getattr(body, "containment_claims", None) is not None:
+        sync_kwargs["containment_claims"] = body.containment_claims
+    await sync_claim_delegation_to_spine(**sync_kwargs)
+
     return AgentClaimResponse(
         claim_id=claim_id,
         status="granted",
@@ -4147,17 +4161,20 @@ async def release_agent_claim(
 ) -> dict[str, str]:
     """Release or revoke an active agent claim."""
     pool = await _get_pool()
+    agent_id: str | None = None
     if pool is not None:
         async with _write(pool) as conn:
             row = await conn.fetchrow(
                 """UPDATE public.agent_claims
                       SET status = 'denied', released_at = NOW()
                     WHERE tenant_id = $1 AND claim_id = $2
-                RETURNING claim_id""",
+                RETURNING claim_id, agent_id""",
                 tenant_id, claim_id,
             )
             if row is None:
                 raise APIError(404, "not_found", f"Claim '{claim_id}' not found")
+            if row.get("agent_id"):
+                agent_id = str(row["agent_id"])
 
     with _STORE_LOCK:
         claims = _CLAIMS.get(tenant_id, {})
@@ -4167,6 +4184,12 @@ async def release_agent_claim(
         if claim is not None:
             claim["released_at"] = _now_iso()
             claim["status"] = "denied"
+            if not agent_id and claim.get("agent_id"):
+                agent_id = str(claim["agent_id"])
+
+    if agent_id:
+        await clamp_claim_delegation_in_spine(agent_id=agent_id, claim_id=claim_id)
+
     return {"status": "released", "claim_id": claim_id}
 
 
@@ -4206,7 +4229,7 @@ async def claim_agent_by_id(
         token_budget_limit=token_budget,
         agent_id=agent_res.id,
     )
-    return await _execute_claim(tenant_id, actor, claim_req, agent_id_override=agent_res.id)
+    return await _execute_claim(tenant_id, principal.actor, claim_req, agent_id_override=agent_res.id)
 
 
 @router.get("/agents/{agent_id}", response_model=AgentResponse, responses=ERROR_RESPONSES)

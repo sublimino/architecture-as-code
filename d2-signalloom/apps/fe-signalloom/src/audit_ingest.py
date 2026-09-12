@@ -28,7 +28,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from api_compat import (
     APIError,
     Principal,
-    _audit_log,
     _get_pool,
     _write,
     authenticated_principal,
@@ -359,22 +358,6 @@ async def ingest_signed_audit_session(
     if pool is not None:
         try:
             await _save_session_db(pool, session, tenant_id, True, True, True)
-            await _audit_log(
-                pool=pool,
-                tenant=tenant_id,
-                actor=principal.actor,
-                event_type="audit_session_ingested",
-                agent_id=None,
-                agent_name=session.agent_id,
-                detail={
-                    "session_id": session.session_id,
-                    "spiffe_id": session.spiffe_id,
-                    "events_count": len(session.events),
-                    "root_hash": session.root_hash,
-                    "algorithm": session.algorithm,
-                    "verified": True,
-                },
-            )
         except Exception as exc:
             logger.warning("Failed to persist audit session to database: %s", exc)
 

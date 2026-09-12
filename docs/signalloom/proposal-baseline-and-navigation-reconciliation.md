@@ -243,35 +243,24 @@ Technology Readiness Level Focus: **3 (Beta)** transitioning to **4 (Production)
 
 ### Spec: Work Decomposition
 
-#### Phase 1: Baseline Integration & Navigation Reconciliation
-
-* **`SLBR-P1-PRE` — Preflight Verification & Dependency Audit**
-  * Description: Inspect clean branch state on `feat/signal-loop-and-bootstrap-refactor`, ensure no uncommitted dirty files, verify cluster connectivity if needed, and confirm merge base commit `47359d52` with `integration/slon-v0.1.0` (`9c65fa3e`).
-  * Acceptance Criteria: `git status` clean; merge base confirmed; preflight proof recorded.
-
-* **`SLBR-P1-1` — Semantic Merge & Diff Reconciliation**
-  * Description: Execute git merge of `integration/slon-v0.1.0` into `feat/signal-loop-and-bootstrap-refactor`. Reconcile conflicting files (`Sidebar.tsx`, `App.tsx`, `api_compat.py`, `SPEC-REGISTRY.tsv`, `playwright.config.ts`).
-  * Acceptance Criteria: Merge completes cleanly with zero unresolved conflicts; both SLON onboarding commits and SFAS signal fusion commits retained in git history.
-
-* **`SLBR-P1-2` — 3-Tier Sidebar.tsx & Vitest Test Alignment**
-  * Description: Harmonize `Sidebar.tsx` to the SP-2 3-tier hierarchy (`View`, `Control`, `Design`, `Superadmin`). Incorporate `/weave` and `/feeds` under **View**, retain all governance controls under **Control**, all setup under **Design**, and place `/distance-latency`, `/signal-fusion`, `/signal-store` under the superadmin toggle. Update `Sidebar.test.tsx` (`ALL_HEADINGS = ['View', 'Control', 'Design', 'Superadmin']`).
-  * Acceptance Criteria: 84/84 tests pass in `bun test src/components/Sidebar.test.tsx`; 0 glyph collisions; 1–9 hotkeys intact.
-
-* **`SLBR-P1-3` — App.tsx Routes, Route Labels & Protection Guards**
-  * Description: Ensure all routes (`/onboarding`, `/docs`, `/weave`, `/signal-store`, `/signal-fusion`, `/distance-latency`, `/feeds`) are registered with `<ProtectedRoute>` in `App.tsx` and have human-readable labels in `EXTRA_ROUTE_LABELS`.
-  * Acceptance Criteria: `bun test src/App.test.tsx` passes; cold-load and warm-navigation render without double spinners or React error boundaries.
-
-* **`SLBR-P1-4` — Acceptance Spec Registry & Playwright Synchronization**
-  * Description: Wire `navigation.spec.ts` and `onboarding.spec.ts` into `test/acceptance/SPEC-REGISTRY.tsv` and `test/acceptance/playwright.config.ts` in strict alphabetical sort order.
-  * Acceptance Criteria: `bats test/acceptance-spec-coverage.bats` passes all 7 checks.
-
-* **`SLBR-P1-GOV` — Whole-Suite Acceptance & Baseline Certification**
-  * Description: Run complete test suite (`bun test` across dashboard, `bats test/acceptance-spec-coverage.bats`, Playwright `navigation.spec.ts`, and core smoke tests). Verify zero lingering commits, zero worktree drift, and record Governor sign-off ledger.
-  * Acceptance Criteria: 100% test pass rate; governor sign-off ledger recorded in `docs/signalloom/slbr-governor-log.md`.
+| ID | Title | Depends on | Tests / evidence | Size | Agent | Result | Est. Cost | Tokens | Elapsed | AI URI |
+| :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :--- |
+| SLBR-P1-PRE | Preflight Verification & Dependency Audit | | `git status` clean; merge base confirmed at `47359d52` with `integration/slon-v0.1.0` (`9c65fa3e`) | XS | antigravity | | | | | |
+| SLBR-P1-1 | Semantic Merge & Diff Reconciliation | SLBR-P1-PRE | Merge completes cleanly with zero unresolved conflicts; both SLON and SFAS commits retained | M | antigravity | | | | | |
+| SLBR-P1-2 | 3-Tier Sidebar.tsx & Vitest Test Alignment | SLBR-P1-1 | 84/84 tests pass in `bun test src/components/Sidebar.test.tsx`; 0 glyph collisions; 1–9 hotkeys intact | M | antigravity | | | | | |
+| SLBR-P1-3 | App.tsx Routes, Route Labels & Protection Guards | SLBR-P1-1 | `bun test src/App.test.tsx` passes; cold-load and warm-navigation render without double spinners | S | antigravity | | | | | |
+| SLBR-P1-4 | Acceptance Spec Registry & Playwright Synchronization | SLBR-P1-2, SLBR-P1-3 | `bats test/acceptance-spec-coverage.bats` passes all 7 checks | S | antigravity | | | | | |
+| SLBR-P1-GOV | Whole-Suite Acceptance & Baseline Certification | SLBR-P1-4 | 100% test pass rate across all suites; governor sign-off ledger recorded in `docs/signalloom/slbr-governor-log.md` | S | antigravity | | | | | |
 
 ### Spec: Errata
 
-| Date | Card ID | Change / Decision | Rationale | Signoff |
-| :--- | :--- | :--- | :--- | :--- |
-| 2026-09-12 | `SLBR-P1-INIT` | Reconcile baseline before branching Feeds Explorer | Prevents divergent merge conflicts and establishes single authoritative platform baseline | AJM |
+*(Append-only record of completed cards, deviations, and governor certifications)*
+
+#### Governor Dispatch — SLBR-GOV-INIT
+- **Timestamp**: 2026-09-12T13:28:00Z
+- **Actor**: Governor (Mission Initialization)
+- **Status**: active
+- **Digest**: `slbr-baseline-reconciliation-init`
+- **Inter-Agent Directive**: Reconcile baseline before branching Feeds Explorer. All task completions, deviations, and blockers must be recorded in this errata ledger.
+
 

@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from api_compat import APIError, Principal, authenticated_principal, authenticated_tenant
 
@@ -60,6 +61,58 @@ async def get_observations(
     if layer:
         params["layer"] = layer
     return await _proxy("GET", "/api/v1/observations", params=params)
+
+
+
+@router.get("/observations/stream")
+async def stream_observations(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    after: str | None = None,
+    before: str | None = None,
+    layers: str | None = None,
+    actor_id: str | None = None,
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> StreamingResponse:
+    """Stream signal observations as Server-Sent Events."""
+    params: dict[str, Any] = {"limit": limit}
+    if after:
+        params["after"] = after
+    if before:
+        params["before"] = before
+    if layers:
+        params["layers"] = layers
+    if actor_id:
+        params["actor_id"] = actor_id
+
+    async def event_generator() -> AsyncIterator[bytes]:
+        try:
+            async with httpx.AsyncClient(
+                base_url=_SIGNAL_INGEST_URL, timeout=None
+            ) as client:
+                async with client.stream(
+                    "GET", "/api/v1/observations/stream", params=params
+                ) as resp:
+                    resp.raise_for_status()
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+        except httpx.ConnectError as exc:
+            logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
+            yield b"event: error\ndata: {\"error\": \"upstream_unavailable\"}\n\n"
+        except httpx.TimeoutException as exc:
+            logger.warning("signal-ingest stream timed out")
+            yield b"event: error\ndata: {\"error\": \"upstream_timeout\"}\n\n"
+        except Exception as exc:
+            logger.exception("signal-ingest stream proxy error")
+            yield b"event: error\ndata: {\"error\": \"upstream_error\"}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("/actors")

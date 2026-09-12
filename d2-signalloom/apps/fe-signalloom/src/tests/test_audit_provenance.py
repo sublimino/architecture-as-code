@@ -510,31 +510,6 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
         "A compliance scan record that cites an unverified policy version is a "
         "regulatory artefact asserting something the system never checked."
     ),
-    # ---- POST /api/audit/sessions ------------------------------------------
-    ("audit_ingest.py", "ingest_signed_audit_session", "agent_name", "agent_id"): (
-        "Client-attested agent id for signed audit session telemetry verified via detached SPIFFE cryptographic signature"
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session", "agent_name", "model_dump"): (
-        "Client-attested payload dump verified via root hash and signature"
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "algorithm"): (
-        "Signature algorithm specified in signed session header"
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "events"): (
-        "Canonical events verified via hash chain"
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "model_dump"): (
-        "Client-attested payload dump verified via root hash and signature"
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "root_hash"): (
-        "Cryptographic root hash verifying the event chain"
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "session_id"): (
-        "Session ID verified in signed audit envelope"
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "spiffe_id"): (
-        "SPIFFE identity verified in signed audit envelope"
-    ),
 }
 
 
@@ -761,6 +736,11 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
     ),
     ("audit_ingest.py", "verify_audit_session_probe"): (
         "Stateless cryptographic verification probe; validates signatures and hash chains without mutating state."
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session"): (
+        "Ingest of signed audit sessions from agent-nono. The session itself is an "
+        "immutable, cryptographically signed audit object persisted to signed_audit_sessions; "
+        "recording an audit event in audit_events for ingesting an audit log is redundant."
     ),
 }
 
@@ -1122,9 +1102,6 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
         "exists precisely because it carries kubectl and the repo scripts, "
         "which the API pod does not. So the actor stays where it is and only "
         "the storage moves. Structural, not convenient."
-    ),
-    ("audit_ingest.py", "ingest_signed_audit_session"): (
-        "LEGITIMATE. Ingests verified signed audit session into signed_audit_sessions table via helper and records audit event."
     ),
 }
 

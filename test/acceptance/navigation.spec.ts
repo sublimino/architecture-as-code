@@ -121,10 +121,10 @@ test.describe("3-Tier Navigation Hierarchy & Structure", () => {
     const nav = page.locator("#sl-sidebar-nav");
     await expect(nav).toBeVisible({ timeout: 15_000 });
 
-    // Press '1' for item 1 (Overview)
+    // Press '1' for item 1 (Discovery)
     await page.keyboard.press("1");
-    const overviewLink = nav.getByRole("link", { name: /^Overview/i });
-    await expect(overviewLink).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
+    const discoveryLink = nav.getByRole("link", { name: /^Discovery/i });
+    await expect(discoveryLink).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
 
     // Press '2' for item 2 (Agents)
     await page.keyboard.press("2");

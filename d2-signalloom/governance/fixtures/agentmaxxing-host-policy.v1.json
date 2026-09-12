@@ -1,0 +1,142 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "amxo-host-policy-v1",
+  "approval": {
+    "approver": "Andrew Martin",
+    "approved_at": "2026-09-12T19:36:00+01:00",
+    "provenance": "AMXO-P1-2 task contract",
+    "scope": "host-confinement-and-privacy-v1"
+  },
+  "nono": {
+    "name": "agentmaxxing-linux-v1",
+    "version": "0.73.0",
+    "fail_closed": true,
+    "landlock_required": true,
+    "network_proxy_required": true
+  },
+  "host": {
+    "host_owner": "AgentMaxxing Incorporated",
+    "service_account": "agentmaxxing-sensor",
+    "systemd_unit": "agentmaxxing-agent.service",
+    "tenant_id": "tenant-agentmaxxing",
+    "agent_id": "agentmaxxing-linux-001",
+    "host_id": "amx-host-001"
+  },
+  "readable_roots": [
+    {
+      "root_id": "agent-install",
+      "path": "/opt/agentmaxxing",
+      "artifact_hashing": false
+    },
+    {
+      "root_id": "system-trust",
+      "path": "/etc/ssl/certs",
+      "artifact_hashing": false
+    },
+    {
+      "root_id": "customer-input",
+      "path": "/srv/agentmaxxing/input",
+      "artifact_hashing": false
+    }
+  ],
+  "writable_roots": [
+    {
+      "root_id": "agent-work",
+      "path": "/var/lib/agentmaxxing/work",
+      "artifact_hashing": true
+    },
+    {
+      "root_id": "agent-output",
+      "path": "/var/lib/agentmaxxing/output",
+      "artifact_hashing": true
+    },
+    {
+      "root_id": "nono-audit",
+      "path": "/var/lib/agentmaxxing/audit",
+      "artifact_hashing": false
+    }
+  ],
+  "network_destinations": [
+    {
+      "destination_id": "signal-loom-ingest",
+      "dns_name": "signal-ingest.signalloom.controlplane.io",
+      "transport": "tcp",
+      "port": 443,
+      "tls_required": true
+    },
+    {
+      "destination_id": "agentmaxxing-api",
+      "dns_name": "api.agentmaxxing.com",
+      "transport": "tcp",
+      "port": 443,
+      "tls_required": true
+    }
+  ],
+  "artifact_access": {
+    "syscall": "openat2",
+    "root_descriptor_pinning": "service-lifetime",
+    "resolve_flags": [
+      "RESOLVE_BENEATH",
+      "RESOLVE_NO_SYMLINKS",
+      "RESOLVE_NO_XDEV"
+    ],
+    "require_regular_file": true,
+    "required_link_count": 1,
+    "require_same_mount_id": true,
+    "pre_hash_identity_fields": [
+      "inode",
+      "mount_id",
+      "link_count",
+      "size",
+      "mtime_ns",
+      "ctime_ns"
+    ],
+    "revalidate_after_hash": true,
+    "hash_validated_descriptor_only": true
+  },
+  "hashing": {
+    "algorithm": "sha256",
+    "max_file_size_bytes": 16777216,
+    "max_files_per_window": 120,
+    "max_bytes_per_window": 67108864,
+    "window_seconds": 60,
+    "oversize_state": "unobserved",
+    "rate_limited_state": "unobserved"
+  },
+  "lifecycle": {
+    "evidence_retention_days": 30,
+    "deletion_deadline_days": 7,
+    "retention_owner": "ControlPlane Signal Loom Operations",
+    "deletion_owner": "ControlPlane Signal Loom Operations",
+    "host_unenrollment_owner": "AgentMaxxing Platform Engineering",
+    "deletion_trigger": "verified-tenant-request-or-host-unenrollment"
+  },
+  "privacy": {
+    "unobserved_fields": [
+      "read_only_input_file_digests",
+      "file_contents",
+      "process_memory_contents",
+      "in_memory_synthesis_contents",
+      "streamed_payload_digests",
+      "streamed_payload_contents",
+      "network_payload_contents"
+    ],
+    "prohibited_export_fields": [
+      "raw_nono_record",
+      "command",
+      "path",
+      "url",
+      "error",
+      "file_contents",
+      "memory_contents",
+      "streamed_payload_digest",
+      "streamed_payload_contents",
+      "network_payload_contents"
+    ],
+    "raw_paths_exported": false,
+    "raw_urls_exported": false,
+    "raw_errors_exported": false,
+    "integrity_implies_completeness": false,
+    "integrity_implies_host_trust": false
+  }
+}

@@ -510,6 +510,31 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
         "A compliance scan record that cites an unverified policy version is a "
         "regulatory artefact asserting something the system never checked."
     ),
+    # ---- POST /api/audit/sessions ------------------------------------------
+    ("audit_ingest.py", "ingest_signed_audit_session", "agent_name", "agent_id"): (
+        "Client-attested agent id for signed audit session telemetry verified via detached SPIFFE cryptographic signature"
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session", "agent_name", "model_dump"): (
+        "Client-attested payload dump verified via root hash and signature"
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "algorithm"): (
+        "Signature algorithm specified in signed session header"
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "events"): (
+        "Canonical events verified via hash chain"
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "model_dump"): (
+        "Client-attested payload dump verified via root hash and signature"
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "root_hash"): (
+        "Cryptographic root hash verifying the event chain"
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "session_id"): (
+        "Session ID verified in signed audit envelope"
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session", "detail", "spiffe_id"): (
+        "SPIFFE identity verified in signed audit envelope"
+    ),
 }
 
 
@@ -731,6 +756,12 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "Seeds fixture observations for the demo estate. Demo-only endpoint "
         "that writes synthetic data; the observations themselves are the record."
     ),
+    ("api_compat.py", "release_agent_claim"): (
+        "Releases an in-memory claim record for the tenant without mutating durable state."
+    ),
+    ("audit_ingest.py", "verify_audit_session_probe"): (
+        "Stateless cryptographic verification probe; validates signatures and hash chains without mutating state."
+    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate
@@ -759,11 +790,6 @@ AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
         "authenticated_principal's own wrapper. Owned by the endpoints agent. "
         "Delete this entry when the event lands; do NOT move it to "
         "NOT_AUDIT_WORTHY, that question has been answered."
-    ),
-    ("api_compat.py", "release_agent_claim"): (
-        "DELETE /agents/claim/{claim_id} releases an agent lease. "
-        "Audit decision is pending whether claim release requires an explicit audit log "
-        "or is tracked via lease lifecycle states."
     ),
     ("signal_fusion.py", "promote_actor"): (
         "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "
@@ -959,8 +985,7 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
         "does nothing with it."
     ),
     ("api_compat.py", "_execute_claim"): (
-        "In-memory claim execution audit for fixture/no-database mode, consistent with other "
-        "in-memory agent claim and lease lifecycle handlers."
+        "Fixture path for agent claims when no database pool is available."
     ),
 }
 
@@ -1097,6 +1122,9 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
         "exists precisely because it carries kubectl and the repo scripts, "
         "which the API pod does not. So the actor stays where it is and only "
         "the storage moves. Structural, not convenient."
+    ),
+    ("audit_ingest.py", "ingest_signed_audit_session"): (
+        "LEGITIMATE. Ingests verified signed audit session into signed_audit_sessions table via helper and records audit event."
     ),
 }
 

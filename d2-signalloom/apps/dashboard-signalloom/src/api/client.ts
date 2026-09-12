@@ -3,6 +3,7 @@ import { isDemoMode } from './demoMode'
 import { hasFakeRoute, resolveFake } from './fakeData'
 import { affectsDemo, projectResponse } from './supercredProjection'
 import { ensureSuperCredState, isSuperCredEnabled } from './supercredSource'
+import type { AgentClaimRequest, AgentClaimResponse } from './agentClaim'
 import type {
   AgentCreateRequest,
   AgentListParams,
@@ -411,6 +412,9 @@ export const api = {
 
     update: (token: string, id: string, body: Partial<AgentCreateRequest>) =>
       req<AgentResponse>(`/agents/${id}`, token, { method: 'PUT', data: body }),
+
+    claim: (token: string, id: string, body?: AgentClaimRequest) =>
+      req<AgentClaimResponse>(`/agents/${id}/claim`, token, { method: 'POST', data: body }),
 
     transition: (token: string, id: string, body: TransitionRequest) =>
       req<TransitionResponse>(`/agents/${id}/transition`, token, { method: 'POST', data: body }),

@@ -6,6 +6,7 @@
   "scripts": {
     "build": "astro check && astro build",
     "check": "astro check",
+    "audit:links": "node scripts/link-audit.mjs --dist dist --base /docs --self-test",
     "dev": "astro dev",
     "preview": "astro preview"
   },

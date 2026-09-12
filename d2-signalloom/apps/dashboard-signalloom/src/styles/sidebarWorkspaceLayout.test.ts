@@ -63,6 +63,8 @@ describe('sidebar workspace header layout arithmetic', () => {
     // With flex: 1 on the workspace button, available content width = innerWidth - wsPad.left - wsPad.right
     const contentWidth = innerWidth - wsPad.left - wsPad.right
     const btnWidth = contentWidth - gap - toggleWidth
+    expect(gap).toBe(8)
+    expect(btnWidth).toBeGreaterThanOrEqual(200)
 
     // Button + gap + toggle + right padding must equal innerWidth - left padding
     const toggleRightEdge = wsPad.left + btnWidth + gap + toggleWidth

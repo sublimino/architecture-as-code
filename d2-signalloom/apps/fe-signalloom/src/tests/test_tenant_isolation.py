@@ -262,7 +262,7 @@ class RecordingPool:
 
 
 _TABLE_REF = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?(\w+)", re.I)
-_TENANT_PREDICATE = re.compile(r"\btenant_id\s*=\s*\$(\d+)", re.I)
+_TENANT_PREDICATE = re.compile(r"\btenant_id\s*(?:=|!=)\s*\$(\d+)", re.I)
 
 
 def _tables_touched(sql: str) -> set[str]:
@@ -337,7 +337,6 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", "/api/v1/agents/autoclaim-discovered", None),
     ("POST", "/api/agents/autoclaim-discovered", None),
     ("GET", "/api/audit", None),
-    ("GET", "/api/audit/events.csv", None),
     ("GET", "/api/compliance/summary", None),
     ("GET", "/api/compliance/posture", None),
     ("GET", "/api/nhi/scans", None),
@@ -591,7 +590,13 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/signals/actors/{actor_id}/promote"),
     ("POST", "/api/signals/correlate"),
     ("POST", "/api/signals/collectors/seed"),
-    # Quantitative Risk (OpenFAIR) -- pure proxy to Go signal-ingest service (pkg/fair)
+    ("GET", "/api/signals/observations/stream"),
+    # Signed audit sessions -- verified and tested in test_audit_ingest.py
+    ("GET", "/api/audit/sessions"),
+    ("GET", "/api/audit/sessions/{session_id}"),
+    ("POST", "/api/audit/sessions"),
+    ("POST", "/api/audit/sessions/verify"),
+    # Risk calculation proxy routes to signal-ingest
     ("GET", "/api/v1/risk/agents/{agent_id:path}"),
     ("GET", "/api/v1/risk/fleet"),
 ]

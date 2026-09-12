@@ -740,3 +740,29 @@ class CookiePreferencesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     cookie_preferences: CookiePreferences
+
+
+# ---- Onboarding -----------------------------------------------------------
+
+class OnboardingStatusContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    skipped_at: str | None = None
+    completed_at: str | None = None
+    status: Literal["pending", "completed", "skipped"]
+
+
+class ProviderRunStateContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    error: str | None = None
+
+
+class OnboardingWizardStateContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selected_provider_ids: list[str] = Field(default_factory=list)
+    step_index: int = 0
+    provider_run_state: dict[str, ProviderRunStateContract] = Field(default_factory=dict)
+

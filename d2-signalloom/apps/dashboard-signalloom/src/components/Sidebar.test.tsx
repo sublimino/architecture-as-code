@@ -63,7 +63,7 @@ const appCtxValue = {
   setCookieSettingsOpen: () => undefined,
   connectedProviderCount: 0,
   totalProviderCount: 0,
-  needsOnboarding: null,
+  needsOnboarding: null as boolean | null,
   refreshOnboardingState: () => Promise.resolve(),
   superadmin: false,
   setSuperadmin: () => undefined,
@@ -106,64 +106,154 @@ describe('Sidebar tenant identity card', () => {
   })
 })
 
-describe('Sidebar Discovery nav item', () => {
-  it('is present as a top-level nav item', async () => {
+describe('Sidebar Overview nav item', () => {
+  it('is present as top-level nav item in View group', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
 
-    expect(await screen.findByRole('link', { name: /Discovery/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Overview/ })).toBeInTheDocument()
   })
 
-  it('shows a needs-triage badge next to Discovery when accounts need triage', async () => {
+  it('shows a needs-triage badge next to Overview when accounts need triage', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     vi.mocked(api.nhi.discovered).mockResolvedValue({
       accounts: [], total: 0, summary: { total_discovered: 5, needs_triage: 3, previously_dismissed: 2 },
     })
     renderSidebar()
 
-    const discoveryLink = await screen.findByRole('link', { name: /Discovery/ })
-    await waitFor(() => expect(discoveryLink).toHaveTextContent('3'))
+    const overviewLink = await screen.findByRole('link', { name: /Overview/ })
+    await waitFor(() => expect(overviewLink).toHaveTextContent('3'))
   })
 
-  it('fails open — renders nav with no badge when the discovery-count fetch errors', async () => {
+  it('fails open — renders nav with no badge when discovery fetch errors', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     vi.mocked(api.nhi.discovered).mockRejectedValue(new Error('network error'))
     renderSidebar()
 
-    const discoveryLink = await screen.findByRole('link', { name: /Discovery/ })
-    expect(discoveryLink).toBeInTheDocument()
+    const overviewLink = await screen.findByRole('link', { name: /Overview/ })
+    expect(overviewLink).toBeInTheDocument()
   })
 })
 
 describe('Sidebar active-link precision', () => {
-  it('does not highlight Compliance when a child route like /compliance/policies is active', async () => {
+  it('highlights Policies when /policies is active', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     render(
-      <MemoryRouter initialEntries={['/compliance/policies']}>
+      <MemoryRouter initialEntries={['/policies']}>
         <AppContext.Provider value={appCtxValue}>
           <Sidebar />
         </AppContext.Provider>
       </MemoryRouter>
     )
 
-    const policyLink = await screen.findByRole('link', { name: /Policy Compliance/ })
+    const policyLink = await screen.findByRole('link', { name: /^Policies$/ })
     expect(policyLink).toHaveAttribute('aria-current', 'page')
 
-    const complianceLink = screen.getByRole('link', { name: /^Compliance$/ })
-    expect(complianceLink).not.toHaveAttribute('aria-current', 'page')
+    const containmentLink = screen.getByRole('link', { name: /^Containment$/ })
+    expect(containmentLink).not.toHaveAttribute('aria-current', 'page')
+  })
+
+  it('highlights Containment when /containment is active', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    render(
+      <MemoryRouter initialEntries={['/containment']}>
+        <AppContext.Provider value={appCtxValue}>
+          <Sidebar />
+        </AppContext.Provider>
+      </MemoryRouter>
+    )
+
+    const containmentLink = await screen.findByRole('link', { name: /^Containment$/ })
+    expect(containmentLink).toHaveAttribute('aria-current', 'page')
   })
 })
 
-describe('Sidebar primary navigation destinations', () => {
-  it('keeps core destinations as client-side route links', async () => {
+describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
+  it('renders all 3 category headings: View, Control, Design', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
 
     await screen.findByRole('link', { name: /Agents/ })
-    expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('href', '/agents')
-    expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('href', '/compliance')
-    expect(screen.getByRole('link', { name: /Audit Trail/ })).toHaveAttribute('href', '/audit')
+    expect(screen.getByText('View')).toBeInTheDocument()
+    expect(screen.getByText('Control')).toBeInTheDocument()
+    expect(screen.getByText('Design')).toBeInTheDocument()
+  })
+
+  it('organizes items in the exact SP-2 3-tier sequence', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+
+    await screen.findByRole('link', { name: /Agents/ })
+
+    // View group
+    expect(screen.getByRole('link', { name: /^Overview/ })).toHaveAttribute('href', '/overview')
+    expect(screen.getByRole('link', { name: /^Agents/ })).toHaveAttribute('href', '/agents')
+    expect(screen.getByRole('link', { name: /^Topology$/ })).toHaveAttribute('href', '/topology')
+    expect(screen.getByRole('link', { name: /^Activity$/ })).toHaveAttribute('href', '/activity')
+    expect(screen.getByRole('link', { name: /^FAIR Risk$/ })).toHaveAttribute('href', '/risk')
+
+    // Control group
+    expect(screen.getByRole('link', { name: /^Policies$/ })).toHaveAttribute('href', '/policies')
+    expect(screen.getByRole('link', { name: /^Containment$/ })).toHaveAttribute('href', '/containment')
+    expect(screen.getByRole('link', { name: /^Approvals$/ })).toHaveAttribute('href', '/approvals')
+    expect(screen.getByRole('link', { name: /^Audit Trail$/ })).toHaveAttribute('href', '/audit')
+
+    // Design group
+    expect(screen.getByRole('link', { name: /^Workspaces$/ })).toHaveAttribute('href', '/workspaces')
+    expect(screen.getByRole('link', { name: /^Connectors$/ })).toHaveAttribute('href', '/connectors')
+    expect(screen.getByRole('link', { name: /^Fleet Config$/ })).toHaveAttribute('href', '/fleet')
     expect(screen.getByRole('link', { name: /^Settings$/ })).toHaveAttribute('href', '/settings')
+
+    // Persistent Anchors
+    expect(screen.getByRole('link', { name: /^Onboarding/ })).toHaveAttribute('href', '/onboarding')
+    expect(screen.getByRole('button', { name: /Help & (Support|Docs)/ })).toBeInTheDocument()
+  })
+
+  it('renders View items before Control items, and Control items before Design items', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+
+    const navRegion = document.getElementById('sl-sidebar-nav')!
+    const links = Array.from(navRegion.querySelectorAll('a')).map((a) => a.getAttribute('href'))
+
+    expect(links.indexOf('/overview')).toBeLessThan(links.indexOf('/agents'))
+    expect(links.indexOf('/agents')).toBeLessThan(links.indexOf('/topology'))
+    expect(links.indexOf('/topology')).toBeLessThan(links.indexOf('/activity'))
+    expect(links.indexOf('/activity')).toBeLessThan(links.indexOf('/risk'))
+
+    expect(links.indexOf('/risk')).toBeLessThan(links.indexOf('/policies'))
+    expect(links.indexOf('/policies')).toBeLessThan(links.indexOf('/containment'))
+    expect(links.indexOf('/containment')).toBeLessThan(links.indexOf('/approvals'))
+    expect(links.indexOf('/approvals')).toBeLessThan(links.indexOf('/audit'))
+
+    expect(links.indexOf('/audit')).toBeLessThan(links.indexOf('/workspaces'))
+    expect(links.indexOf('/workspaces')).toBeLessThan(links.indexOf('/connectors'))
+    expect(links.indexOf('/connectors')).toBeLessThan(links.indexOf('/fleet'))
+    expect(links.indexOf('/fleet')).toBeLessThan(links.indexOf('/settings'))
+  })
+})
+
+describe('Sidebar Persistent Anchors', () => {
+  it('renders Onboarding and Help & Support persistent anchors in utilities region', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar({ needsOnboarding: true })
+
+    const onboardingLink = await screen.findByRole('link', { name: /Onboarding/ })
+    expect(onboardingLink).toHaveAttribute('href', '/onboarding')
+    expect(onboardingLink).toHaveTextContent('New')
+
+    const helpButton = screen.getByRole('button', { name: /Help & (Support|Docs)/ })
+    expect(helpButton).toBeInTheDocument()
+  })
+
+  it('triggers setHelpOpen when Help & Support button is clicked', async () => {
+    const setHelpOpen = vi.fn()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar({ setHelpOpen })
+
+    const helpButton = await screen.findByRole('button', { name: /Help & (Support|Docs)/ })
+    fireEvent.click(helpButton)
+    expect(setHelpOpen).toHaveBeenCalledWith(true)
   })
 })
 
@@ -193,22 +283,10 @@ describe('Sidebar Beautiful UI interactions', () => {
   })
 })
 
-describe('Sidebar Agent Trust Topology navigation', () => {
-  it('places Agent Trust Topology before The Weave, with Settings after Signal Fusion entries', async () => {
-    vi.mocked(api.settings).mockResolvedValue(makeSettings())
-    renderSidebar()
-
-    const labels = (await screen.findAllByRole('link')).map(link => link.textContent?.replace(/\d+/g, '').trim())
-    expect(labels.indexOf('The Weave')).toBe(labels.indexOf('Agent Trust Topology') + 1)
-    expect(labels.indexOf('Settings')).toBe(labels.indexOf('The Weave') + 1)
-  })
-})
-
 describe('Sidebar superadmin-only nav', () => {
-  // Every admin surface behind the superadmin visibility flag. SuperCred is a
-  // demo surface and belongs here with the rest of them.
   const SUPERADMIN_LINKS = [
     'Cryptography',
+    'Credential Inventory',
     'Federated Services',
     'Collusion & Access',
     'RBAC Analysis',
@@ -226,7 +304,7 @@ describe('Sidebar superadmin-only nav', () => {
     authMock.user = { ...DEFAULT_USER }
   })
 
-  it('renders every superadmin-only link, including SuperCred, when superadmin is on', async () => {
+  it('renders every superadmin-only link when superadmin is on', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar({ superadmin: true })
     await screen.findByRole('link', { name: 'Agents' })
@@ -236,7 +314,7 @@ describe('Sidebar superadmin-only nav', () => {
     }
   })
 
-  it('hides every superadmin-only link, including SuperCred, when superadmin is off', async () => {
+  it('hides every superadmin-only link when superadmin is off', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar({ superadmin: false })
     await screen.findByRole('link', { name: 'Agents' })
@@ -248,19 +326,7 @@ describe('Sidebar superadmin-only nav', () => {
 })
 
 describe('Sidebar keyboard shortcuts', () => {
-  it('navigates to the nth nav item when its digit key is pressed', async () => {
-    vi.mocked(api.settings).mockResolvedValue(makeSettings())
-    renderSidebar()
-    await screen.findByRole('link', { name: /Agents/ })
-
-    fireEvent.keyDown(window, { key: '3' })
-
-    await waitFor(() =>
-      expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('aria-current', 'page')
-    )
-  })
-
-  it('navigates to Discovery (nav item 1) when "1" is pressed', async () => {
+  it('navigates to Overview (nav item 1) when "1" is pressed', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
     await screen.findByRole('link', { name: /Agents/ })
@@ -268,7 +334,7 @@ describe('Sidebar keyboard shortcuts', () => {
     fireEvent.keyDown(window, { key: '1' })
 
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: /Discovery/ })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page')
     )
   })
 
@@ -284,6 +350,30 @@ describe('Sidebar keyboard shortcuts', () => {
     )
   })
 
+  it('navigates to Topology (nav item 3) when "3" is pressed', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+    await screen.findByRole('link', { name: /Agents/ })
+
+    fireEvent.keyDown(window, { key: '3' })
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /^Topology$/ })).toHaveAttribute('aria-current', 'page')
+    )
+  })
+
+  it('navigates to Policies (nav item 6) when "6" is pressed', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+    await screen.findByRole('link', { name: /Agents/ })
+
+    fireEvent.keyDown(window, { key: '6' })
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /^Policies$/ })).toHaveAttribute('aria-current', 'page')
+    )
+  })
+
   it('ignores digit presses when focus is inside an input', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
@@ -295,7 +385,7 @@ describe('Sidebar keyboard shortcuts', () => {
 
     fireEvent.keyDown(input, { key: '2' })
 
-    expect(screen.queryByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('link', { name: /^Policies$/ })).not.toHaveAttribute('aria-current', 'page')
     document.body.removeChild(input)
   })
 
@@ -312,15 +402,11 @@ describe('Sidebar keyboard shortcuts', () => {
     fireEvent.keyDown(window, { key: '0' })
 
     expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('aria-current', 'page')
-    expect(screen.queryByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('link', { name: /^Policies$/ })).not.toHaveAttribute('aria-current', 'page')
   })
 })
 
 describe('Sidebar iconography', () => {
-  // The regression this guards: four Governance routes once shared the
-  // 'compliance' glyph and the two RBAC routes shared 'rbac', so a collapsed
-  // icon-only rail was ambiguous. Asserting on the data, not the pixels, is
-  // what actually stops the duplication creeping back in.
   it('gives every nav item a distinct icon kind', () => {
     const kinds = NAV.map(({ icon }) => icon)
     expect(new Set(kinds).size).toBe(kinds.length)
@@ -340,7 +426,8 @@ describe('Sidebar iconography', () => {
       renderSidebar({ superadmin: true })
       await screen.findByRole('link', { name: 'Agents' })
 
-      const glyphs = screen.getAllByRole('link').map((link) => link.querySelector('svg')?.innerHTML)
+      const navRegion = document.getElementById('sl-sidebar-nav')!
+      const glyphs = Array.from(navRegion.querySelectorAll('a')).map((link) => link.querySelector('svg')?.innerHTML)
       expect(glyphs).toHaveLength(NAV.length)
       expect(glyphs.every(Boolean)).toBe(true)
       expect(new Set(glyphs).size).toBe(glyphs.length)
@@ -361,19 +448,21 @@ describe('Sidebar collapse', () => {
 
     const toggle = screen.getByTestId('sidebar-collapse-toggle')
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Workspace')).toBeInTheDocument()
+    expect(screen.getByText('View')).toBeInTheDocument()
 
     await user.click(toggle)
 
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     // Section headings, workspace copy and the search box all go away…
-    expect(screen.queryByText('Workspace')).not.toBeInTheDocument()
+    expect(screen.queryByText('View')).not.toBeInTheDocument()
+    expect(screen.queryByText('Control')).not.toBeInTheDocument()
+    expect(screen.queryByText('Design')).not.toBeInTheDocument()
     expect(screen.queryByText('Agent governance workspace')).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Quick search navigation' })).not.toBeInTheDocument()
 
     await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Workspace')).toBeInTheDocument()
+    expect(screen.getByText('View')).toBeInTheDocument()
   })
 
   it('keeps every collapsed link named and hoverable', async () => {
@@ -436,10 +525,10 @@ describe('Sidebar collapse', () => {
     await screen.findByRole('link', { name: 'Agents' })
     await user.click(screen.getByTestId('sidebar-collapse-toggle'))
 
-    fireEvent.keyDown(window, { key: '3' })
+    fireEvent.keyDown(window, { key: '2' })
 
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('aria-current', 'page')
     )
   })
 })
@@ -511,20 +600,14 @@ describe('Sidebar quick-search clearing', () => {
     expect(search).toHaveFocus()
 
     // Digits typed inside the search box must filter, never navigate.
-    fireEvent.keyDown(search, { key: '3' })
-    expect(screen.getByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
+    fireEvent.keyDown(search, { key: '2' })
+    expect(screen.getByRole('link', { name: /Agents/ })).not.toHaveAttribute('aria-current', 'page')
   })
 })
 
 describe('Sidebar filtered section headings', () => {
-  // A section heading is a label for the items beneath it. Filtering used to
-  // leave headings — and the superadmin block's dividing rule — printed over
-  // nothing, so the rail claimed sections it was no longer showing.
-  const ALL_HEADINGS = ['Workspace', 'Governance', 'Signal Fusion', 'Configuration', 'Superadmin']
+  const ALL_HEADINGS = ['View', 'Control', 'Design', 'Superadmin']
 
-  // Scoped to the nav region, not the whole rail: the footer's superadmin
-  // toggle is also labelled "Superadmin", and a document-wide text query
-  // cannot tell that button apart from the section heading.
   function navRegion(): HTMLElement {
     return document.getElementById('sl-sidebar-nav')!
   }
@@ -550,36 +633,42 @@ describe('Sidebar filtered section headings', () => {
     expect(visibleHeadings()).toEqual(ALL_HEADINGS)
   })
 
-  it('renders only the heading whose section still has a match', async () => {
+  it('renders only Control when the match is a Control item', async () => {
     renderSidebar({ superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
-    // "audit" matches Audit Trail alone, which lives under Governance.
     fireEvent.change(search, { target: { value: 'audit' } })
 
-    expect(visibleHeadings()).toEqual(['Governance'])
+    expect(visibleHeadings()).toEqual(['Control'])
     expect(screen.getByRole('link', { name: /Audit Trail/ })).toBeInTheDocument()
   })
 
-  it('renders only Workspace when the match is a Workspace item', async () => {
+  it('renders only View when the match is a View item', async () => {
     renderSidebar({ superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
-    fireEvent.change(search, { target: { value: 'discovery' } })
+    fireEvent.change(search, { target: { value: 'overview' } })
 
-    expect(visibleHeadings()).toEqual(['Workspace'])
+    expect(visibleHeadings()).toEqual(['View'])
+  })
+
+  it('renders only Design when the match is a Design item', async () => {
+    renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'workspaces' } })
+
+    expect(visibleHeadings()).toEqual(['Design'])
   })
 
   it('drops the Superadmin heading and its rule when no superadmin item matches', async () => {
     const { container } = renderSidebar({ superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
-    // Andy's report: the "Splitter and Super Admin bar titles still display".
     fireEvent.change(search, { target: { value: 'audit' } })
 
     expect(within(navRegion()).queryByText('Superadmin')).not.toBeInTheDocument()
     expect(container.querySelector('hr')).toBeNull()
-    // The footer toggle keeps its own label — only the section heading goes.
     expect(screen.getByTestId('superadmin-toggle')).toHaveTextContent('Superadmin')
   })
 
@@ -592,8 +681,6 @@ describe('Sidebar filtered section headings', () => {
     expect(within(navRegion()).getByText('Superadmin')).toBeInTheDocument()
     expect(container.querySelector('hr')).not.toBeNull()
     expect(screen.getByRole('link', { name: 'RBAC Analysis' })).toBeInTheDocument()
-    // …and no Workspace/Governance/Configuration heading, since nothing under
-    // those matched.
     expect(visibleHeadings()).toEqual(['Superadmin'])
   })
 
@@ -605,7 +692,7 @@ describe('Sidebar filtered section headings', () => {
 
     expect(visibleHeadings()).toEqual([])
     expect(container.querySelector('hr')).toBeNull()
-    expect(screen.queryAllByRole('link')).toHaveLength(0)
+    expect(within(navRegion()).queryAllByRole('link')).toHaveLength(0)
   })
 })
 
@@ -623,8 +710,6 @@ describe('Sidebar empty search results', () => {
 
     const empty = screen.getByTestId('sidebar-no-matches')
     expect(empty).toHaveTextContent('No navigation matches zzzznotathing')
-    // Announced, not merely drawn — focus is in the search box, so a silent
-    // change from a list to nothing is exactly what a screen reader misses.
     expect(empty).toHaveAttribute('role', 'status')
     expect(empty).toHaveTextContent(/Escape to clear/i)
   })
@@ -683,7 +768,6 @@ describe('Sidebar collapse control legibility', () => {
     await screen.findByRole('link', { name: 'Agents' })
 
     const svg = toggleGlyph()
-    // A framed rectangle with the rail partitioned off inside it.
     expect(svg.querySelector('rect')).not.toBeNull()
     expect(svg.innerHTML).toContain('M9 4v16')
     expect(svg).toHaveAttribute('aria-hidden', 'true')
@@ -694,17 +778,14 @@ describe('Sidebar collapse control legibility', () => {
     renderSidebar()
     await screen.findByRole('link', { name: 'Agents' })
 
-    // Expanded: the next click closes the rail, so the chevron points left.
     const expandedGlyph = toggleGlyph().innerHTML
     expect(expandedGlyph).toContain('m16.5 9.5-2.5 2.5 2.5 2.5')
 
     await user.click(screen.getByTestId('sidebar-collapse-toggle'))
 
-    // Collapsed: the next click reopens it, so the chevron points right.
     const collapsedGlyph = toggleGlyph().innerHTML
     expect(collapsedGlyph).toContain('m14 9.5 2.5 2.5-2.5 2.5')
     expect(collapsedGlyph).not.toBe(expandedGlyph)
-    // The panel itself is the constant; only the direction changes.
     expect(toggleGlyph().querySelector('rect')).not.toBeNull()
   })
 
@@ -724,7 +805,6 @@ describe('Sidebar collapse control legibility', () => {
     expect(toggle).toHaveAccessibleName('Expand sidebar')
     expect(toggle).toHaveAttribute('title', 'Expand sidebar')
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    // aria-controls has to keep pointing at something that exists.
     expect(document.getElementById('sl-sidebar-nav')).not.toBeNull()
   })
 
@@ -732,18 +812,12 @@ describe('Sidebar collapse control legibility', () => {
     renderSidebar()
     await screen.findByRole('link', { name: 'Agents' })
 
-    // The nav's no-duplicate-icons rule exists because a collapsed rail is
-    // icons only; the collapse control shares that rail and that constraint.
     const navGlyphs = screen.getAllByRole('link').map((link) => link.querySelector('svg')?.innerHTML)
     expect(navGlyphs).not.toContain(toggleGlyph().innerHTML)
   })
 })
 
 describe('Sidebar brand mark', () => {
-  // The workspace button used to draw its own diamond in inline SVG. It is now
-  // the real Signal Loom mark, which changes the a11y calculus: an <img> can
-  // acquire a name of its own and give the button two, so the asserts below are
-  // as much about what the mark must NOT contribute as what it must render.
   const LOGO_SRC = '/brand/signal-loom-logo.png'
 
   function workspaceButton() {
@@ -771,8 +845,6 @@ describe('Sidebar brand mark', () => {
     const button = workspaceButton()
     const logo = button.querySelector('img')!
 
-    // alt="" + aria-hidden keeps the mark out of the a11y tree entirely, so the
-    // button is named once, by the workspace title sitting beside it.
     expect(logo).toHaveAttribute('alt', '')
     expect(logo).toHaveAttribute('aria-hidden', 'true')
     expect(logo).not.toHaveAttribute('title')
@@ -788,8 +860,6 @@ describe('Sidebar brand mark', () => {
     const logo = workspaceButton().querySelector('img')! as HTMLImageElement
     expect(logo).toHaveAttribute('width', '32')
     expect(logo).toHaveAttribute('height', '32')
-    // The source asset is square; contain is what guarantees it stays that way
-    // if the flex row ever squeezes the box.
     expect(logo.style.objectFit).toBe('contain')
     expect(logo.style.flexShrink).toBe('0')
   })
@@ -801,7 +871,6 @@ describe('Sidebar brand mark', () => {
 
     await user.click(screen.getByTestId('sidebar-collapse-toggle'))
 
-    // Workspace copy is gone; the mark is the only thing identifying the rail.
     expect(screen.queryByText('Agent governance workspace')).not.toBeInTheDocument()
     const button = screen.getByRole('button', { name: 'Acme Insurance' })
     expect(button.querySelector('img')).toHaveAttribute('src', LOGO_SRC)
@@ -842,28 +911,9 @@ describe('Sidebar Design System nav entry', () => {
 
     expect(screen.queryByRole('link', { name: 'Design System' })).not.toBeInTheDocument()
   })
-
-  it('never claims a numbered keyboard shortcut', async () => {
-    renderSidebar({ superadmin: true })
-    await screen.findByRole('link', { name: 'Design System' })
-
-    // 9 is the last digit the nav binds; The Weave is now the 9th
-    // non-superadmin item, so key 9 lands there, not on Settings.
-    fireEvent.keyDown(window, { key: '9' })
-
-    await waitFor(() =>
-      expect(screen.getByRole('link', { name: /^The Weave$/ })).toHaveAttribute('aria-current', 'page')
-    )
-    expect(screen.getByRole('link', { name: 'Design System' })).not.toHaveAttribute('aria-current', 'page')
-  })
 })
 
 describe('Sidebar selection highlight', () => {
-  // Two independent mechanisms say "this row is selected": the per-link
-  // `--active` class react-router applies, and the single moving
-  // `.sl-sidebar__selection` pill the effect positions. Andy's report — pick
-  // Fleet Demo and the previously-selected row stays half-lit — is the two
-  // disagreeing. These tests pin them together for every route.
   const SUPERADMIN_ROUTES = [
     '/cryptography',
     '/credential-inventory',
@@ -873,15 +923,10 @@ describe('Sidebar selection highlight', () => {
     '/rbac-explorer',
     '/network-tests',
     '/supercred',
-    '/fleet',
     '/signal-fusion',
     '/design-system',
   ]
 
-  // jsdom performs no layout, so every getBoundingClientRect is 0x0 and a
-  // highlight stranded on the old row is indistinguishable from one that
-  // moved. Give each rendered anchor a deterministic top from its DOM order:
-  // the pill's `top` then names the row it is actually sitting on.
   const ROW_ORIGIN = 100
   const ROW_PITCH = 40
   const ROW_HEIGHT = 34
@@ -916,7 +961,6 @@ describe('Sidebar selection highlight', () => {
     return navRegion().querySelector<HTMLElement>('.sl-sidebar__selection')
   }
 
-  /** Every row the UI currently paints as selected, by href. */
   function selectedHrefs(): string[] {
     const box = selection()
     const boxed = box?.dataset.navTo
@@ -946,9 +990,6 @@ describe('Sidebar selection highlight', () => {
       if (!nav) return domRect(0, 0)
       if (this === nav) return domRect(0, 1000)
       const index = Array.from(nav.querySelectorAll('a')).indexOf(this as HTMLAnchorElement)
-      // Rects are viewport-relative, so a scrolled rail drags its rows up by
-      // scrollTop while the container's own rect stays put. Modelling that is
-      // what lets the scroll test assert a real invariant.
       return index === -1 ? domRect(0, 0) : domRect(ROW_ORIGIN + index * ROW_PITCH - nav.scrollTop, ROW_HEIGHT)
     })
   })
@@ -968,7 +1009,7 @@ describe('Sidebar selection highlight', () => {
     expect(selection()!.style.height).toBe(`${ROW_HEIGHT}px`)
   })
 
-  it.each(['/discovery', '/agents', '/audit', '/agent-trust-topology', '/settings'])(
+  it.each(['/overview', '/agents', '/audit', '/topology', '/settings'])(
     'shows exactly one selected row on %s with the superadmin block open',
     async (route) => {
       renderAt(route, { superadmin: true })
@@ -985,29 +1026,28 @@ describe('Sidebar selection highlight', () => {
     const agentsTop = expectedTop('/agents')
     expect(selection()!.style.top).toBe(agentsTop)
 
-    fireEvent.click(link('/fleet'))
+    fireEvent.click(link('/cryptography'))
 
-    await waitFor(() => expect(link('/fleet')).toHaveAttribute('aria-current', 'page'))
-    expect(selectedHrefs()).toEqual(['/fleet'])
-    // The actual defect: the pill stayed on Agents while Fleet Demo lit up.
+    await waitFor(() => expect(link('/cryptography')).toHaveAttribute('aria-current', 'page'))
+    expect(selectedHrefs()).toEqual(['/cryptography'])
     expect(selection()!.style.top).not.toBe(agentsTop)
-    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
+    expect(selection()!.style.top).toBe(expectedTop('/cryptography'))
     expect(link('/agents')).not.toHaveClass('sl-sidebar__link--active')
   })
 
   it('leaves no stale highlight going from a superadmin route back to a normal one', async () => {
-    renderAt('/fleet', { superadmin: true })
+    renderAt('/cryptography', { superadmin: true })
     await screen.findByRole('link', { name: 'Agents' })
-    const fleetTop = expectedTop('/fleet')
-    expect(selection()!.style.top).toBe(fleetTop)
+    const cryptoTop = expectedTop('/cryptography')
+    expect(selection()!.style.top).toBe(cryptoTop)
 
     fireEvent.click(link('/agents'))
 
     await waitFor(() => expect(link('/agents')).toHaveAttribute('aria-current', 'page'))
     expect(selectedHrefs()).toEqual(['/agents'])
-    expect(selection()!.style.top).not.toBe(fleetTop)
+    expect(selection()!.style.top).not.toBe(cryptoTop)
     expect(selection()!.style.top).toBe(expectedTop('/agents'))
-    expect(link('/fleet')).not.toHaveClass('sl-sidebar__link--active')
+    expect(link('/cryptography')).not.toHaveClass('sl-sidebar__link--active')
   })
 
   it('walks every superadmin route in turn without accumulating highlights', async () => {
@@ -1047,23 +1087,11 @@ describe('Sidebar selection highlight', () => {
     expect(selection()!.style.top).toBe(expectedTop('/agents'))
   })
 
-  it('previews a hovered normal row and returns to the active superadmin one', async () => {
-    renderAt('/fleet', { superadmin: true })
-    await screen.findByRole('link', { name: 'Agents' })
-
-    fireEvent.mouseEnter(link('/audit'))
-    expect(selection()!.style.top).toBe(expectedTop('/audit'))
-
-    fireEvent.mouseLeave(link('/audit'))
-    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
-  })
-
   it('withdraws the highlight when the active row is filtered out of the rail', async () => {
     renderAt('/agents', { superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
     expect(selection()).not.toBeNull()
 
-    // "audit" leaves Audit Trail alone in the rail; nothing selected is showing.
     fireEvent.change(search, { target: { value: 'audit' } })
 
     expect(selectedHrefs()).toEqual([])
@@ -1075,7 +1103,6 @@ describe('Sidebar selection highlight', () => {
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
     fireEvent.change(search, { target: { value: 'agent' } })
-    // Agents survives its own filter, but the rail above it has shrunk.
     expect(selectedHrefs()).toEqual(['/agents'])
     expect(selection()!.style.top).toBe(expectedTop('/agents'))
 
@@ -1085,7 +1112,7 @@ describe('Sidebar selection highlight', () => {
   })
 
   it('withdraws the highlight when the active route is hidden behind the superadmin flag', async () => {
-    renderAt('/fleet', { superadmin: false })
+    renderAt('/cryptography', { superadmin: false })
     await screen.findByRole('link', { name: 'Agents' })
 
     expect(selectedHrefs()).toEqual([])
@@ -1094,7 +1121,7 @@ describe('Sidebar selection highlight', () => {
 
   it('seats the highlight when the superadmin block opens onto the active route', async () => {
     const { rerender } = render(
-      <MemoryRouter initialEntries={['/fleet']}>
+      <MemoryRouter initialEntries={['/cryptography']}>
         <AppContext.Provider value={{ ...appCtxValue, superadmin: false }}>
           <Sidebar />
         </AppContext.Provider>
@@ -1104,44 +1131,32 @@ describe('Sidebar selection highlight', () => {
     expect(selection()).toBeNull()
 
     rerender(
-      <MemoryRouter initialEntries={['/fleet']}>
+      <MemoryRouter initialEntries={['/cryptography']}>
         <AppContext.Provider value={{ ...appCtxValue, superadmin: true }}>
           <Sidebar />
         </AppContext.Provider>
       </MemoryRouter>
     )
 
-    expect(selectedHrefs()).toEqual(['/fleet'])
-    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
+    expect(selectedHrefs()).toEqual(['/cryptography'])
+    expect(selection()!.style.top).toBe(expectedTop('/cryptography'))
   })
 
   it('seats the highlight in content coordinates when the rail is scrolled', async () => {
-    // The rail is the scroll container and the pill's containing block, so the
-    // pill scrolls with the rows: its `top` is measured from the top of the
-    // content, while the rects it is computed from are viewport-relative. With
-    // 19 rows the superadmin block is below the fold on a laptop, so reaching
-    // Fleet Demo means scrolling — and an unadjusted offset puts the pill a
-    // screenful high, over an unrelated row.
     renderAt('/agents', { superadmin: true })
     await screen.findByRole('link', { name: 'Agents' })
 
-    // jsdom has no scrolling of its own; the geometry stub reads this back and
-    // drags the row rects up by it, exactly as a real scroll container does.
     Object.defineProperty(navRegion(), 'scrollTop', { value: 120, configurable: true })
-    fireEvent.click(link('/fleet'))
+    fireEvent.click(link('/cryptography'))
 
-    await waitFor(() => expect(link('/fleet')).toHaveAttribute('aria-current', 'page'))
-    // The row's offset within the content is unchanged by scrolling, so the
-    // pill's `top` must be too.
-    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
+    await waitFor(() => expect(link('/cryptography')).toHaveAttribute('aria-current', 'page'))
+    expect(selection()!.style.top).toBe(expectedTop('/cryptography'))
   })
 
   it('keeps digit-shortcut badges off superadmin rows even when hovered', async () => {
     renderAt('/agents', { superadmin: true })
     await screen.findByRole('link', { name: 'Agents' })
 
-    // NAV index 7 is /cryptography — inside the `i < 9` badge window, but the
-    // digit keys bind the non-superadmin list, so the badge would be a lie.
     fireEvent.mouseEnter(link('/cryptography'))
     expect(link('/cryptography').querySelector('.sl-sidebar__shortcut')).toBeNull()
     expect(link('/cryptography').textContent).toBe('Cryptography')
@@ -1150,3 +1165,4 @@ describe('Sidebar selection highlight', () => {
     expect(link('/agents').querySelector('.sl-sidebar__shortcut')).toHaveTextContent('2')
   })
 })
+

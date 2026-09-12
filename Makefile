@@ -770,6 +770,20 @@ demo-signalloom-autoclaim: ## Demonstrate agent discovery, auto-claim, complianc
 demo-signalloom-autoclaim-test: ## Run the BATS integration suite guarding in-cluster discovery and auto-claim.
 	bats test/signalloom-autoclaim.bats
 
+.PHONY: demo-signalloom-smoke
+demo-signalloom-smoke: ## Rapid demo smoke test suite (<90s): cluster health, onboarding wizard, dual-agent claim & telemetry verification.
+	./scripts/demo-signalloom-smoke.sh smoke-onboarding-agents.spec.ts
+
+.PHONY: docs-render-check
+docs-render-check: ## Build the docs portal, serve it locally, and render-check it in Chromium (docs.spec.ts). No cluster.
+	# Deliberately offline. docs/signalloom/slon-p3-docs-portal-provenance.md
+	# records that the running docs-signalloom image was published from a
+	# different branch and that every Flux source in the demo cluster is an
+	# OCIRepository with no git revision, so a probe of the gateway is evidence
+	# about a deployed artifact and never about the checked-out tree. This
+	# target therefore serves the tree's own build.
+	./scripts/docs-render-check.sh docs.spec.ts
+
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
 	test/bench-cgroup-freezer.sh

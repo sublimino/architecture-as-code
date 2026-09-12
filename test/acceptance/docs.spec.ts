@@ -30,3 +30,11 @@ test("unknown documentation paths return a real 404", async ({ page }) => {
   expect(response?.status()).toBe(404);
   await expect(page.locator("#root")).toHaveCount(0);
 });
+
+test("accessing /docs without trailing slash redirects to /docs/ and never to /agents", async ({ page }) => {
+  await page.goto(DOCS);
+  await expect(page).toHaveURL(/\/docs\/$/);
+  expect(page.url()).not.toContain("/agents");
+  await expect(page.getByRole("heading", { name: "Govern agents through evidence" })).toBeVisible();
+});
+

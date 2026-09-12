@@ -193,6 +193,26 @@ spec:
         - protocol: TCP
           port: 8080
 ---
+# Allow dashboard-signalloom reverse-proxy ingress to docs-signalloom.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-docs-dashboard-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: docs-signalloom
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dashboard-signalloom
+      ports:
+        - protocol: TCP
+          port: 8080
+---
 # The dashboard nginx proxies /dex, /api, the AFM prefixes and /supercred-api/
 # on the browser's behalf, so it needs egress to DNS, Dex (inf-signalloom), the
 # in-namespace compatibility API, AFM (fe-k8s-afm), and the SuperCred
@@ -303,6 +323,14 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: fake-integration-proxy
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Documentation service: nginx's /docs block proxies to docs-signalloom:8080.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: docs-signalloom
       ports:
         - protocol: TCP
           port: 8080

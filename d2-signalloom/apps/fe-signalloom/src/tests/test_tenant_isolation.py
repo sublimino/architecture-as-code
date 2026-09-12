@@ -239,6 +239,25 @@ class RecordingPool:
 
     async def fetchrow(self, query: str, *args: Any) -> None:
         self._record(query, args)
+        if "FROM public.operator_identities oi" in query:
+            return {
+                "identity_id": uuid.UUID("d0000000-0000-0000-0000-000000000001"),
+                "platform_user_id": uuid.UUID("a0000000-0000-0000-0000-000000000001"),
+                "tenant_id": TENANT_A,
+                "issuer": ISSUER,
+                "subject": ALICE,
+                "identity_kind": "individual",
+                "identity_status": "active",
+                "removed_at": None,
+                "removed_by_user_id": None,
+                "removal_reason": None,
+                "email": "alice@example.test",
+                "display_name": "Alice",
+                "role": "admin",
+                "user_status": "active",
+                "last_login_at": None,
+                "created_at": "2026-09-12T00:00:00Z",
+            }
         return None
 
     async def fetchval(self, query: str, *args: Any) -> None:
@@ -345,12 +364,29 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/nhi/report/json", None),
     ("GET", "/api/tenant/settings", None),
     ("GET", "/api/tenant/users", None),
+    ("GET", "/api/operator-identities/session", None),
+    ("GET", "/api/operator-identities", None),
     ("GET", "/api/user/preferences", None),
     ("GET", "/api/consent/status", None),
     ("GET", "/api/cookie-preferences", None),
     ("GET", "/api/onboarding/status", None),
     ("GET", "/api/onboarding/state", None),
     ("POST", "/api/agents", {"name": "probe", "type": "service"}),
+    (
+        "POST",
+        "/api/operator-identities",
+        {
+            "provider_subject": "bob",
+            "email": "bob@example.test",
+            "display_name": "Bob",
+            "role": "editor",
+        },
+    ),
+    (
+        "POST",
+        "/api/operator-identities/d0000000-0000-0000-0000-000000000001/remove",
+        {"reason": "tenant isolation probe"},
+    ),
     ("POST", "/api/agents/00000000-0000-0000-0000-0000000000a1/credentials", None),
     ("POST", "/api/agents/00000000-0000-0000-0000-0000000000a1/credentials/revoke", None),
     (
@@ -423,7 +459,7 @@ def recording(monkeypatch):
     ids=[f"{method} {path}" for method, path, _ in DB_ROUTES],
 )
 def test_every_database_statement_is_bound_to_the_callers_tenant(
-    client, recording, method, path, body
+    client, recording, monkeypatch, method, path, body
 ):
     """No statement may reach a tenant-owned table without the caller's tenant.
 
@@ -442,6 +478,9 @@ def test_every_database_statement_is_bound_to_the_callers_tenant(
     Falsified by: agent_by_id_tenant_filter, agent_list_tenant_filter,
     audit_tenant_filter, nhi_detail_tenant_filter, violation_ack_tenant_filter.
     """
+    if path.startswith("/api/operator-identities"):
+        monkeypatch.setattr(settings, "api_attributable_operator_tenants", {TENANT_A})
+
     response = client.request(method, path, json=body, headers=bearer(ALICE))
 
     # Authentication must have succeeded, or the route never got far enough to
@@ -503,6 +542,10 @@ def _template_for(concrete: str) -> str:
         .replace("/00000000-0000-0000-0000-0000000000c1", "/{account_id}")
         .replace("/ctrl-1/reassess", "/{control_id}/reassess")
         .replace(f"/tenants/{TENANT_A}/", "/tenants/{tenant_id_path}/")
+        .replace(
+            "/operator-identities/d0000000-0000-0000-0000-000000000001/remove",
+            "/operator-identities/{identity_id}/remove",
+        )
     )
 
 

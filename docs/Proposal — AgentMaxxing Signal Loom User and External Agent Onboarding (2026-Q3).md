@@ -35,7 +35,7 @@ shortcode: AMXO
 | Reviewer & Date | To be assigned |
 | Approver & Date | To be assigned |
 
-## Future-State Press Release
+## Press Release
 
 The following press release describes the intended state after acceptance. It
 does not describe the current implementation.

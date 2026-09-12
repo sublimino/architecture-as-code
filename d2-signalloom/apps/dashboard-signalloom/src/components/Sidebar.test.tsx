@@ -106,23 +106,23 @@ describe('Sidebar tenant identity card', () => {
   })
 })
 
-describe('Sidebar Overview nav item', () => {
+describe('Sidebar Discovery nav item', () => {
   it('is present as top-level nav item in View group', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
 
-    expect(await screen.findByRole('link', { name: /Overview/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Discovery/ })).toBeInTheDocument()
   })
 
-  it('shows a needs-triage badge next to Overview when accounts need triage', async () => {
+  it('shows a needs-triage badge next to Discovery when accounts need triage', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     vi.mocked(api.nhi.discovered).mockResolvedValue({
       accounts: [], total: 0, summary: { total_discovered: 5, needs_triage: 3, previously_dismissed: 2 },
     })
     renderSidebar()
 
-    const overviewLink = await screen.findByRole('link', { name: /Overview/ })
-    await waitFor(() => expect(overviewLink).toHaveTextContent('3'))
+    const discoveryLink = await screen.findByRole('link', { name: /Discovery/ })
+    await waitFor(() => expect(discoveryLink).toHaveTextContent('3'))
   })
 
   it('fails open — renders nav with no badge when discovery fetch errors', async () => {
@@ -130,8 +130,8 @@ describe('Sidebar Overview nav item', () => {
     vi.mocked(api.nhi.discovered).mockRejectedValue(new Error('network error'))
     renderSidebar()
 
-    const overviewLink = await screen.findByRole('link', { name: /Overview/ })
-    expect(overviewLink).toBeInTheDocument()
+    const discoveryLink = await screen.findByRole('link', { name: /Discovery/ })
+    expect(discoveryLink).toBeInTheDocument()
   })
 })
 
@@ -149,22 +149,22 @@ describe('Sidebar active-link precision', () => {
     const policyLink = await screen.findByRole('link', { name: /^Policies$/ })
     expect(policyLink).toHaveAttribute('aria-current', 'page')
 
-    const containmentLink = screen.getByRole('link', { name: /^Containment$/ })
-    expect(containmentLink).not.toHaveAttribute('aria-current', 'page')
+    const complianceLink = screen.getByRole('link', { name: /^Compliance$/ })
+    expect(complianceLink).not.toHaveAttribute('aria-current', 'page')
   })
 
-  it('highlights Containment when /containment is active', async () => {
+  it('highlights Compliance when /compliance is active', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     render(
-      <MemoryRouter initialEntries={['/containment']}>
+      <MemoryRouter initialEntries={['/compliance']}>
         <AppContext.Provider value={appCtxValue}>
           <Sidebar />
         </AppContext.Provider>
       </MemoryRouter>
     )
 
-    const containmentLink = await screen.findByRole('link', { name: /^Containment$/ })
-    expect(containmentLink).toHaveAttribute('aria-current', 'page')
+    const complianceLink = await screen.findByRole('link', { name: /^Compliance$/ })
+    expect(complianceLink).toHaveAttribute('aria-current', 'page')
   })
 })
 
@@ -186,7 +186,7 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
     await screen.findByRole('link', { name: /Agents/ })
 
     // View group
-    expect(screen.getByRole('link', { name: /^Overview/ })).toHaveAttribute('href', '/overview')
+    expect(screen.getByRole('link', { name: /^Discovery/ })).toHaveAttribute('href', '/discovery')
     expect(screen.getByRole('link', { name: /^Agents/ })).toHaveAttribute('href', '/agents')
     expect(screen.getByRole('link', { name: /^Topology$/ })).toHaveAttribute('href', '/topology')
     expect(screen.getByRole('link', { name: /^Activity$/ })).toHaveAttribute('href', '/activity')
@@ -194,13 +194,12 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
 
     // Control group
     expect(screen.getByRole('link', { name: /^Policies$/ })).toHaveAttribute('href', '/policies')
-    expect(screen.getByRole('link', { name: /^Containment$/ })).toHaveAttribute('href', '/containment')
-    expect(screen.getByRole('link', { name: /^Approvals$/ })).toHaveAttribute('href', '/approvals')
+    expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('href', '/compliance')
+    expect(screen.getByRole('link', { name: /^Collusion & Access$/ })).toHaveAttribute('href', '/collusion-access')
     expect(screen.getByRole('link', { name: /^Audit Trail$/ })).toHaveAttribute('href', '/audit')
 
     // Design group
-    expect(screen.getByRole('link', { name: /^Workspaces$/ })).toHaveAttribute('href', '/workspaces')
-    expect(screen.getByRole('link', { name: /^Connectors$/ })).toHaveAttribute('href', '/connectors')
+    expect(screen.getByRole('link', { name: /^Federated Services$/ })).toHaveAttribute('href', '/federated-services')
     expect(screen.getByRole('link', { name: /^Fleet Config$/ })).toHaveAttribute('href', '/fleet')
     expect(screen.getByRole('link', { name: /^Settings$/ })).toHaveAttribute('href', '/settings')
 
@@ -216,19 +215,18 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
     const navRegion = document.getElementById('sl-sidebar-nav')!
     const links = Array.from(navRegion.querySelectorAll('a')).map((a) => a.getAttribute('href'))
 
-    expect(links.indexOf('/overview')).toBeLessThan(links.indexOf('/agents'))
+    expect(links.indexOf('/discovery')).toBeLessThan(links.indexOf('/agents'))
     expect(links.indexOf('/agents')).toBeLessThan(links.indexOf('/topology'))
     expect(links.indexOf('/topology')).toBeLessThan(links.indexOf('/activity'))
     expect(links.indexOf('/activity')).toBeLessThan(links.indexOf('/risk'))
 
     expect(links.indexOf('/risk')).toBeLessThan(links.indexOf('/policies'))
-    expect(links.indexOf('/policies')).toBeLessThan(links.indexOf('/containment'))
-    expect(links.indexOf('/containment')).toBeLessThan(links.indexOf('/approvals'))
-    expect(links.indexOf('/approvals')).toBeLessThan(links.indexOf('/audit'))
+    expect(links.indexOf('/policies')).toBeLessThan(links.indexOf('/compliance'))
+    expect(links.indexOf('/compliance')).toBeLessThan(links.indexOf('/collusion-access'))
+    expect(links.indexOf('/collusion-access')).toBeLessThan(links.indexOf('/audit'))
 
-    expect(links.indexOf('/audit')).toBeLessThan(links.indexOf('/workspaces'))
-    expect(links.indexOf('/workspaces')).toBeLessThan(links.indexOf('/connectors'))
-    expect(links.indexOf('/connectors')).toBeLessThan(links.indexOf('/fleet'))
+    expect(links.indexOf('/audit')).toBeLessThan(links.indexOf('/federated-services'))
+    expect(links.indexOf('/federated-services')).toBeLessThan(links.indexOf('/fleet'))
     expect(links.indexOf('/fleet')).toBeLessThan(links.indexOf('/settings'))
   })
 })
@@ -287,8 +285,6 @@ describe('Sidebar superadmin-only nav', () => {
   const SUPERADMIN_LINKS = [
     'Cryptography',
     'Credential Inventory',
-    'Federated Services',
-    'Collusion & Access',
     'RBAC Analysis',
     'RBAC Explorer',
     'Network Tests',
@@ -326,7 +322,7 @@ describe('Sidebar superadmin-only nav', () => {
 })
 
 describe('Sidebar keyboard shortcuts', () => {
-  it('navigates to Overview (nav item 1) when "1" is pressed', async () => {
+  it('navigates to Discovery (nav item 1) when "1" is pressed', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
     await screen.findByRole('link', { name: /Agents/ })
@@ -334,7 +330,7 @@ describe('Sidebar keyboard shortcuts', () => {
     fireEvent.keyDown(window, { key: '1' })
 
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('link', { name: /Discovery/ })).toHaveAttribute('aria-current', 'page')
     )
   })
 
@@ -647,7 +643,7 @@ describe('Sidebar filtered section headings', () => {
     renderSidebar({ superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
-    fireEvent.change(search, { target: { value: 'overview' } })
+    fireEvent.change(search, { target: { value: 'discovery' } })
 
     expect(visibleHeadings()).toEqual(['View'])
   })
@@ -656,7 +652,7 @@ describe('Sidebar filtered section headings', () => {
     renderSidebar({ superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
-    fireEvent.change(search, { target: { value: 'workspaces' } })
+    fireEvent.change(search, { target: { value: 'fleet' } })
 
     expect(visibleHeadings()).toEqual(['Design'])
   })
@@ -917,8 +913,6 @@ describe('Sidebar selection highlight', () => {
   const SUPERADMIN_ROUTES = [
     '/cryptography',
     '/credential-inventory',
-    '/federated-services',
-    '/collusion-access',
     '/rbac-analysis',
     '/rbac-explorer',
     '/network-tests',
@@ -1009,7 +1003,7 @@ describe('Sidebar selection highlight', () => {
     expect(selection()!.style.height).toBe(`${ROW_HEIGHT}px`)
   })
 
-  it.each(['/overview', '/agents', '/audit', '/topology', '/settings'])(
+  it.each(['/discovery', '/agents', '/audit', '/topology', '/settings'])(
     'shows exactly one selected row on %s with the superadmin block open',
     async (route) => {
       renderAt(route, { superadmin: true })

@@ -1996,5 +1996,13 @@
     "verdict": "pass",
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P5-PRE verified: Go session verifier ownership confirmed across 18 passing suites, Phase 4 host fixture digests verified, database migration sequence 001-041 clean with slot 042 uncontested, proof in docs/signalloom/amxo-p5-pre-proof.md (commit efba34c9)"
+  },
+  "29f57": {
+    "task_id": "29f57",
+    "reviewed_at": "2026-09-13T19:13:49.183Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": "antigravity-gemini-3.8-flash",
+    "reason": "AMXO-P5-2 verified: Enforce upload idempotency across concurrency and interrupted retries; Go verifier in-memory deduplication and per-session mutex (29/29 pass with -race), FastAPI HTTP 200 idempotent response on duplicate sessions and HTTP 409 on conflict, 10-thread concurrent upload deduplication, proof in docs/signalloom/amxo-p5-2-evidence.md (commit 5316d032)"
   }
 }

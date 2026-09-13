@@ -1,6 +1,6 @@
 # AMXO-P1-3 delivery proof
 
-Status: **PASS — scoped contract freeze, qualified by the evidence report**.
+Status: **PASS — scoped contract freeze; final DOC-3 closeout gate pending**.
 Observed: 2026-09-13, Europe/London.
 
 ## Current prompt-to-artifact acceptance audit
@@ -23,7 +23,8 @@ Observed: 2026-09-13, Europe/London.
 | Independent full regression | API/model 113, dashboard API/type 555, Go collector/identity and vet, Astro build pass. |
 | Worktree commit | This proof is delivered in the scoped conventional implementation commit; full SHA recorded in proposal Result and qualified errata after commit. |
 | Integration commit | Pending Governor reconciliation; worker must not merge, rebase, push, or create PR. |
-| Qualified proposal success record | Publish only the P1-3 block and Result in the explicitly named proposal; not in this Git commit. |
+| Qualified proposal success record | Published exactly one P1-3 block and its Result in the explicitly named proposal, then read back; excluded from Git commit. |
+| Final doctor loop | Sole DOC-3 exception after the required proposal publication; cannot clear without prohibited principal proposal cleanup/commit. Governor/principal reconciliation required. |
 
 The prior failure below is historical evidence, superseded by Governor recovery
 and implementation. Its original files remain available in `12dc22d3`.

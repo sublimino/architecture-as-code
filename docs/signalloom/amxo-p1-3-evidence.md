@@ -26,7 +26,7 @@ database migration, deployment, or customer telemetry collection was added.
 | `go test -v ./d2-signalloom/apps/signal-ingest/collectors/agentnono/...` | exit 1; directory prefix does not contain main module or selected dependencies | Repository has nested Go modules, not a root module/workspace. No root workspace was introduced. |
 | `pytest d2-signalloom/apps/fe-signalloom/src/tests/test_api_compat.py -k test_contracts` | exit 0; 4 passed, 82 deselected | Added real positive/negative API-plane request/response model fixtures to this required entry point. Initially selected zero tests, now covered. |
 | `bats test/signalloom/contract-conformance.bats || true` | nine `ok`, no skips | Also rerun without `|| true`: exit 0, nine passed. |
-| `kanban-check.sh --repo /home/andy/src/cp/osramp-demo --shortcode AMXO doctor` | exit 0; `ALL CHECKS HEALTHY` | Read-only graph/ledger/filesystem check; not schema or runtime acceptance. |
+| `kanban-check.sh --repo /home/andy/src/cp/osramp-demo --shortcode AMXO doctor` | Before publication: exit 0, `ALL CHECKS HEALTHY`. After required proposal publication: nonzero, sole exception DOC-3 principal proposal dirty. | Required proposal write conflicts with generic principal-clean gate. Worker cannot commit, revert, or stash the proposal; Governor/principal reconciliation remains necessary. |
 
 ## Independent final validation
 
@@ -108,3 +108,19 @@ No Linux host sandbox was launched and no Landlock compatibility claim is made.
    no substitute vault section, prior errata, or other row is changed.
 
 Integration merge and phase acceptance remain exclusively Governor-owned.
+
+## Publication and final closeout gate
+
+Implementation commit: `64a3e300ce67ad261ef0713a82cfd822c6b52a52`.
+Read-back confirmed exactly one qualified AMXO-P1-3 success errata inside the
+specified proposal Appendix, with both timestamps and the implementation SHA;
+only this card's decomposition Result was updated. Proposal is excluded from
+the implementation commit and the isolated worktree is clean after committing.
+
+The post-publication doctor reports exactly one exception:
+`PRINCIPAL CHECKOUT DIRTY (DOC-3)` for the required proposal update. This is an
+external closeout gate, not a contract-test failure. The objective's demand for
+a green doctor cannot be achieved simultaneously with publishing the required
+proposal update and the prohibition on committing that proposal. No principal
+cleanup or runtime-state mutation was attempted. The implementation is a
+qualified success; overall gate reconciliation remains pending.

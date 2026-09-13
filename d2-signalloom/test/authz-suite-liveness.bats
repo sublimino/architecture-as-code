@@ -33,6 +33,7 @@ setup() {
 	suite="$src/tests/test_tenant_isolation.py"
 	: "${UV_CACHE_DIR:=${TMPDIR:-/tmp}/.uvcache}"
 	export UV_CACHE_DIR
+	export UV_CONFIG_FILE=/dev/null
 }
 
 # Names declared in ATTACK_MANIFEST, read from the source without importing it.
@@ -84,8 +85,8 @@ declared_attacks() {
 	# (is it selected?) without paying for execution, and it answers it even
 	# when a test would fail for an unrelated reason.
 	run bash -c "cd '$src' && uv run --python 3.12 --with pytest --with pytest-asyncio \
-		--with pytest-xdist --with-requirements requirements.txt \
-		python -m pytest tests --collect-only -q -n0 2>&1"
+		--with-requirements requirements.txt \
+		python -m pytest tests --collect-only -q -o addopts=\"\" 2>&1"
 	if [ "$status" -ne 0 ]; then
 		echo "pytest --collect-only failed; cannot verify the suite is live:"
 		echo "$output"

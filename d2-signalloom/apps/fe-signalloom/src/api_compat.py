@@ -7155,6 +7155,7 @@ def install_compatibility_api(app: FastAPI) -> None:
         compat_router as external_agent_compat_router,
         v1_router as external_agent_v1_router,
     )
+    from external_agent_evidence import router as external_evidence_router
     from host_enrollment import (
         router as host_enrollment_router,
         api_router as host_enrollment_api_router,
@@ -7173,4 +7174,5 @@ def install_compatibility_api(app: FastAPI) -> None:
     app.include_router(external_agent_router)
     app.include_router(external_agent_v1_router)
     app.include_router(external_agent_compat_router)
+    app.include_router(external_evidence_router)
     install_api_exception_handlers(app)

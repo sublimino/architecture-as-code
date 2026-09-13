@@ -515,6 +515,42 @@ async def ingest_signed_audit_session(
             except Exception as exc:
                 logger.warning("Failed to persist audit session to database: %s", exc)
 
+        # 6. Record Allowlisted Evidence Projections (AMXO-P5-3)
+        try:
+            from external_agent_evidence import save_external_evidence
+            for ev in session.events:
+                ev_type = "process" if "process" in ev.event_type.lower() else (
+                    "artifact" if "artifact" in ev.event_type.lower() else (
+                        "network" if "net" in ev.event_type.lower() else "process"
+                    )
+                )
+                attrs = dict(ev.detail) if isinstance(ev.detail, dict) else {}
+                if ev.action and "action" not in attrs:
+                    attrs["action"] = ev.action
+                if ev.resource and "artifact_id" not in attrs:
+                    attrs["artifact_id"] = f"hmac-sha256:{hashlib.sha256(ev.resource.encode()).hexdigest()}"
+                    attrs["root_id"] = "agent-work"
+                    attrs["sha256"] = hashlib.sha256(ev.resource.encode()).hexdigest()
+                    attrs["size_bytes"] = 0
+                    attrs["mtime_ns"] = "0"
+                await save_external_evidence(
+                    tenant_id=tenant_id,
+                    agent_id=session.agent_id,
+                    session_id=session.session_id,
+                    evidence_type=ev_type,
+                    source="nono-audit-ingest",
+                    observed_at=ev.timestamp,
+                    attributable_actor=session.spiffe_id,
+                    spiffe_id=session.spiffe_id,
+                    landlock_abi=3,
+                    git_oid=None,
+                    attributes=attrs,
+                    hash_chain_digest=ev.entry_hash,
+                    verified=True,
+                )
+        except Exception as exc:
+            logger.debug("Failed to record evidence projection: %s", exc)
+
         return AuditSessionVerificationResult(
             session_id=session.session_id,
             agent_id=session.agent_id,

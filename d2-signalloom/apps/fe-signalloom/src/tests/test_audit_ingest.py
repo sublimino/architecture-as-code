@@ -1262,4 +1262,194 @@ def test_interrupted_retry_resumption(client: TestClient):
     assert data2["root_hash"] == root_hash
 
 
+# ---------------------------------------------------------------------------
+# AMXO-P5-3: Allowlisted Evidence Persistence and Tenant-Scoped Projections
+# ---------------------------------------------------------------------------
+
+def test_tenant_projections(client: TestClient):
+    """Assert external agent evidence timeline projections are strictly scoped to authenticated tenant."""
+    # 1. Ingest evidence for agent on tenant-a
+    payload_a = {
+        "session_id": "sess-tenant-a-proj-001",
+        "evidence_type": "process",
+        "source": "agentmaxxing-host-sensor",
+        "observed_at": "2026-09-10T11:00:00Z",
+        "spiffe_id": "spiffe://signalloom.demo/ns/agents/sa/agent-tenant-a",
+        "landlock_abi": 3,
+        "attributes": {
+            "health_state": "running",
+            "cpu_time_ms": 100,
+            "resident_memory_bytes": 10240,
+            "exit_code": 0,
+            "restart_count": 0,
+        },
+        "hash_chain_digest": "aaaa00000000000000000000000000000000000000000000000000000000aaaa",
+        "verified": True,
+    }
+    create_res = client.post(
+        "/api/v1/agents/agent-tenant-a/external-evidence",
+        json=payload_a,
+        headers=_bearer("audit-tenant-a"),
+    )
+    assert create_res.status_code == 201, create_res.text
+
+    # 2. Query evidence as tenant-a caller -> returns evidence
+    res_a = client.get(
+        "/api/v1/agents/agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-a"),
+    )
+    assert res_a.status_code == 200, res_a.text
+    data_a = res_a.json()
+    assert data_a["tenant_id"] == "tenant-a"
+    assert data_a["agent_id"] == "agent-tenant-a"
+    assert data_a["total"] >= 1
+    assert data_a["evidence"][0]["session_id"] == "sess-tenant-a-proj-001"
+    assert data_a["evidence"][0]["attributes"]["health_state"] == "running"
+
+    # Also test compatibility alias /api/agents/{agent_id}/external-evidence
+    res_compat = client.get(
+        "/api/agents/agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-a"),
+    )
+    assert res_compat.status_code == 200
+    assert res_compat.json()["total"] >= 1
+
+    # 3. Cross-tenant IDOR attack: caller from tenant-b requests tenant-a's agent -> returns empty list (total 0)
+    res_b = client.get(
+        "/api/v1/agents/agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-b"),
+    )
+    assert res_b.status_code == 200
+    data_b = res_b.json()
+    assert data_b["tenant_id"] == "tenant-b"
+    assert data_b["total"] == 0
+    assert len(data_b["evidence"]) == 0
+
+    # 4. Explicit cross-tenant namespace address: 'tenant-a:agent-tenant-a' requested by tenant-b -> HTTP 404
+    res_idor = client.get(
+        "/api/v1/agents/tenant-a:agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-b"),
+    )
+    assert res_idor.status_code == 404, res_idor.text
+
+
+def test_prohibited_fields(client: TestClient):
+    """Assert prohibited customer payload data, raw commands, and memory dumps are dropped at storage boundary."""
+    dirty_payload = {
+        "session_id": "sess-prohibited-fields-001",
+        "evidence_type": "process",
+        "source": "agentmaxxing-host-sensor",
+        "observed_at": "2026-09-10T12:00:00Z",
+        "spiffe_id": "spiffe://signalloom.demo/ns/agents/sa/agent-sanitized",
+        "landlock_abi": 3,
+        "attributes": {
+            "health_state": "running",
+            "cpu_time_ms": 250,
+            "resident_memory_bytes": 20480,
+            "exit_code": 0,
+            "restart_count": 0,
+            # Prohibited fields that must be dropped:
+            "payload": "SUPER_SECRET_PAYLOAD_CONTENT",
+            "raw_payload": "{\"key\": \"password123\"}",
+            "file_contents": "cat /etc/shadow",
+            "memory_dump": "0x7fff00010203",
+            "command_text": "curl https://evil.example.com",
+            "raw_command": "rm -rf /",
+            "stdin_content": "admin_credentials",
+            # Unobserved state that MUST be preserved:
+            "observation_state": "unobserved",
+        },
+        "hash_chain_digest": "bbbb00000000000000000000000000000000000000000000000000000000bbbb",
+        "verified": True,
+    }
+
+    create_res = client.post(
+        "/api/v1/agents/agent-sanitized/external-evidence",
+        json=dirty_payload,
+        headers=_bearer("audit-tester"),
+    )
+    assert create_res.status_code == 201, create_res.text
+    created = create_res.json()
+
+    # Verify dropped prohibited fields
+    attrs = created["attributes"]
+    assert "payload" not in attrs
+    assert "raw_payload" not in attrs
+    assert "file_contents" not in attrs
+    assert "memory_dump" not in attrs
+    assert "command_text" not in attrs
+    assert "raw_command" not in attrs
+    assert "stdin_content" not in attrs
+
+    # Verify preserved allowlisted fields
+    assert attrs["health_state"] == "running"
+    assert attrs["cpu_time_ms"] == 250
+    assert attrs["exit_code"] == 0
+    assert attrs["observation_state"] == "unobserved"
+
+    # Query projection endpoint and assert raw prohibited strings NEVER appear in exported JSON
+    read_res = client.get(
+        "/api/v1/agents/agent-sanitized/external-evidence",
+        headers=_bearer("audit-tester"),
+    )
+    assert read_res.status_code == 200
+    serialized_resp = read_res.text
+
+    assert "SUPER_SECRET_PAYLOAD_CONTENT" not in serialized_resp
+    assert "password123" not in serialized_resp
+    assert "cat /etc/shadow" not in serialized_resp
+    assert "0x7fff00010203" not in serialized_resp
+    assert "evil.example.com" not in serialized_resp
+    assert "admin_credentials" not in serialized_resp
+
+
+def test_external_evidence_filtering_and_pagination(client: TestClient):
+    """Assert query filtering by evidence_type, session_id, and limit/offset pagination."""
+    agent_id = "agent-filter-test"
+    headers = _bearer("audit-tester")
+
+    for i in range(5):
+        client.post(
+            f"/api/v1/agents/{agent_id}/external-evidence",
+            json={
+                "session_id": f"sess-filter-{i % 2}",
+                "evidence_type": "artifact" if i % 2 == 0 else "network",
+                "source": "agentmaxxing-host-sensor",
+                "observed_at": f"2026-09-10T13:0{i}:00Z",
+                "spiffe_id": f"spiffe://signalloom.demo/ns/agents/sa/{agent_id}",
+                "landlock_abi": 3,
+                "attributes": {
+                    "artifact_id": f"hmac-sha256:{hashlib.sha256(str(i).encode()).hexdigest()}",
+                    "root_id": "agent-work",
+                    "sha256": hashlib.sha256(str(i).encode()).hexdigest(),
+                    "size_bytes": 100 * (i + 1),
+                    "mtime_ns": "1000",
+                } if i % 2 == 0 else {
+                    "destination_id": "signal-loom-ingest",
+                    "decision": "allowed",
+                },
+                "hash_chain_digest": hashlib.sha256(f"digest-{i}".encode()).hexdigest(),
+                "verified": True,
+            },
+            headers=headers,
+        )
+
+    # Filter by evidence_type=artifact
+    res_art = client.get(f"/api/v1/agents/{agent_id}/external-evidence?evidence_type=artifact", headers=headers)
+    assert res_art.status_code == 200
+    data_art = res_art.json()
+    assert all(it["evidence_type"] == "artifact" for it in data_art["evidence"])
+    assert data_art["total"] == 3
+
+    # Pagination: limit=2, offset=0
+    res_page = client.get(f"/api/v1/agents/{agent_id}/external-evidence?limit=2&offset=0", headers=headers)
+    assert res_page.status_code == 200
+    data_page = res_page.json()
+    assert len(data_page["evidence"]) == 2
+    assert data_page["total"] == 5
+    assert data_page["limit"] == 2
+    assert data_page["offset"] == 0
+
+
+
 

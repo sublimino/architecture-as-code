@@ -2044,5 +2044,13 @@
     "verdict": "pass",
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P6-2 verified: Publish external-agent guide and verified evidence-flow diagram; external-linux-agent.mdx complete operational guide, interactive Mermaid evidence flow, Astro check & build pass (20/20 pages), 0 broken links (568 checked), Playwright Chromium SVG assertion pass, proof in docs/signalloom/amxo-p6-2-evidence.md (commit d3963090)"
+  },
+  "03790": {
+    "task_id": "03790",
+    "reviewed_at": "2026-09-13T19:41:05.358Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": "antigravity-gemini-3.8-flash",
+    "reason": "AMXO-P6-3 verified: Build deterministic local onboarding-to-removal acceptance journey; 5 lifecycle phases automated (attributable registration, host key enrollment exchange, session upload with telemetry, denial falsification on tampered chains/gaps/conflicts, and operator revocation with post-revocation upload denial); 6/6 pytest and 6/6 BATS pass under make demo-agentmaxxing-acceptance-test, proof in docs/signalloom/amxo-p6-3-evidence.md (commit 0f09b693)"
   }
 }

@@ -1,103 +1,88 @@
-# AMXO-P6-GOV Verification Proof: Phase 6 Workspace Agentic Governance, Registration Wizard UI, Verified Evidence Presentation, Documentation & End-to-End Acceptance Journey Governor Certification
+# AMXO-P6-GOV — Phase 6 Governor: Reconcile Acceptance Wiring and Publish Reviewed Alpha Evidence
 
-**Card**: `AMXO-P6-GOV` (`d18b8`)  
-**Timestamp**: `2026-09-13T20:43:00+01:00`  
-**Base Ref**: `refs/heads/integration/agentmaxxing-onboarding-v0.1.0`  
-**Status**: `CERTIFIED_PASS`  
-
----
-
-## 1. Executive Summary & Phase 6 Certification
-
-The Phase 6 Governor for AgentMaxxing Signal Loom User and External Agent Onboarding (AMXO) certifies all Phase 6 deliverables (`AMXO-P6-PRE`, `AMXO-P6-1`, `AMXO-P6-2`, `AMXO-P6-3`, `AMXO-P6-GOV`) and marks the **100% completion of the entire 6-phase AMXO initiative** against the Definition of Done, architecture invariants, cryptographic verification guarantees, privacy boundaries, and end-to-end acceptance contracts.
-
-All deliverables are merged into `integration/agentmaxxing-onboarding-v0.1.0` with zero drift and verified across a unified 6-suite verification matrix encompassing Go, Python, TypeScript/React/Vitest, Astro/Playwright, and BATS.
-
-### Certified Milestones & Invariants in Phase 6
-
-1. **AMXO-P6-PRE (Evidence API Contract & User-Facing Vocabulary Preflight)**:
-   - Certified stable OpenAPI schema and TypeScript definitions (`ExternalEvidenceItem`, `ExternalEvidenceResponse`) for external evidence endpoints.
-   - Frozen user-facing vocabulary across the Signal Loom platform: `INTEGRITY VERIFIED`, `TAMPERED HASH CHAIN`, `UNOBSERVED`, `DENIED`, `OBSERVED`.
-   - Verified zero route collisions between `fe-signalloom` FastAPI endpoints and `dashboard-signalloom` frontend routes at commit `8a4d9b95`.
-2. **AMXO-P6-1 (Attributable Evidence States on Tenant-Bound Agent Timeline)**:
-   - Delivered rich external evidence rendering on `AgentActivityTab.tsx` in `dashboard-signalloom`.
-   - Implemented integrity border colors (`tealLoom` for verified, `red` for tampered/denied, `amber` for unobserved), badges, metadata per event type (process, artifact, network, limit), expandable allowlisted attributes JSON viewer, and filter/search controls.
-   - Wired `api.agents.externalEvidence` client method; verified 22/22 passing Vitest unit tests at commit `dddf49ba`.
-3. **AMXO-P6-2 (External-Agent Operational Guide & Verified Evidence-Flow Diagram)**:
-   - Published comprehensive operational documentation in `d2-signalloom/apps/docs-signalloom/src/content/docs/start/external-linux-agent.mdx`.
-   - Embedded interactive Mermaid evidence-flow diagram illustrating complete evidence lineage from host-level Linux Landlock LSM / nono sensor up to Signal Loom Dossier timeline.
-   - Validated docs build with Astro (20 pages built, 0 errors/warnings, 568 internal links checked with 0 unresolved) and Chromium rendering with Playwright SVG assertion at commit `d3963090`.
-4. **AMXO-P6-3 (Deterministic Local Onboarding-to-Removal Acceptance Journey)**:
-   - Delivered deterministic end-to-end acceptance journey in `d2-signalloom/apps/fe-signalloom/src/tests/test_agentmaxxing_acceptance_journey.py` and companion BATS suite in `test/signalloom/agentmaxxing-acceptance-journey.bats`.
-   - Automates all 5 operational lifecycle phases: attributable operator registration & one-time enrollment token issuance, host enrollment exchange with single-use atomic consumption, audit session upload with hash-chain verification & privacy sanitization, denial falsification on tampered chains/sequence gaps/conflicts, and operator revocation with fail-closed post-revocation upload refusal (`HTTP 403 Forbidden`).
-   - Verified 6/6 Pytest and 6/6 BATS tests pass under dedicated make target `demo-agentmaxxing-acceptance-test` at commit `0f09b693`.
-5. **AMXO-P6-GOV (Governor Reconciliation & Initiative Closure)**:
-   - Reconciled all Phase 6 deliverables into `integration/agentmaxxing-onboarding-v0.1.0`.
-   - Executed full 6-suite verification sweep covering 169 tests with 100% PASS and 0 failures.
-   - Certified final Alpha evidence and certified complete delivery of the AMXO initiative.
+**Status:** PASS — Phase 6 Monorepo Reconciled & Alpha Evidence Published  
+**Certified at:** 2026-09-13 20:44:00+01:00  
+**Governor:** Antigravity Autonomous Supervisor Controller  
+**Task ID:** `d18b8` (`AMXO-P6-GOV`)  
+**Role:** governor  
+**Integration Branch:** `integration/agentmaxxing-onboarding-v0.1.0`  
 
 ---
 
-## 2. Test Verification Matrix (Approved Acceptance Commands)
+## 1. Executive Summary & Monorepo Certification
 
-The proposal defines the approved acceptance test commands. Every approved target was executed on the reconciled codebase with 100% PASS:
+`AMXO-P6-GOV` completes the final Governor reconciliation and whole-estate multi-layer verification for the **AgentMaxxing Signal Loom User and External Agent Onboarding (AMXO, 2026-Q3)** mission.
 
-| Test Suite | Approved Make Target / Command | Scope & Layer | Result |
-| :--- | :--- | :--- | :--- |
-| **1. Operator Contracts** | `make demo-agentmaxxing-contract-test` | OIDC attribution, authorization matrix, removal ownership, migration 038 | **6/6 PASS** |
-| **2. Host Confinement** | `make demo-agentmaxxing-host-test` | Linux sensor unit tests (38), audit ingest (6), Landlock confinement (11), descriptor anti-escape (9), TOCTOU hasher (6) | **70/70 PASS** |
-| **3. Ingest Pipeline** | `make demo-agentmaxxing-ingest-test` | Go AgentNono verifier (29), Pytest session idempotency & finalization (12), external evidence projections (5) | **46/46 PASS** |
-| **4. UI Presentation** | `make demo-agentmaxxing-ui-test` | Dashboard `AgentActivityTab.tsx` Vitest suite: evidence rendering, badges, borders, attributes viewer, filter/search | **22/22 PASS** |
-| **5. Documentation & SVG** | `make demo-agentmaxxing-docs-test` | Astro check/build (20 pages), link audit (568 checked, 0 broken), Playwright Chromium SVG diagram rendering (6) | **6/6 PASS** |
-| **6. Acceptance Journey** | `make demo-agentmaxxing-acceptance-test` | Deterministic local 5-phase onboarding-to-removal journey: Pytest suite (6) + BATS suite (6) | **12/12 PASS** |
-| **7. Spec Coverage Guard** | `bats test/acceptance-spec-coverage.bats` | CI stage 1c Playwright spec registry and pipeline declaration guard | **7/7 PASS** |
-| **TOTAL VERIFICATION** | **Full 7-suite multi-layer sweep** | **End-to-end Signal Loom external agent platform** | **169/169 PASS (100%)** |
+All constituent cards across all 6 phases are now completed and verified:
+- **Phase 0 (Harness Smoke)**: `451ff` (`AMXO-P0`)
+- **Phase 1 (Operator Attribution)**: `5da01` (`P1-PRE`), `32b57` (`P1-1`), `2e369` (`P1-2`), `539f5` (`P1-3`), `c907c` (`P1-GOV`)
+- **Phase 2 (Host Enrollment)**: `905f5` (`P2-PRE`), `9a9b6` (`P2-1`), `6ca5a` (`P2-2`), `63150` (`P2-GOV`)
+- **Phase 3 (Confinement)**: `82ac8` (`P3-PRE`), `023d1` (`P3-1`), `59e47` (`P3-2`), `cbeba` (`P3-3`), `57358` (`P3-GOV`)
+- **Phase 4 (Host Anti-Escape & TOCTOU)**: `bb4bd` (`P4-PRE`), `5d3df` (`P4-1`), `dee2a` (`P4-2`), `af50e` (`P4-3`), `942a1` (`P4-4`), `58840` (`P4-GOV`)
+- **Phase 5 (Ingestion & Privacy)**: `63db4` (`P5-PRE`), `67394` (`P5-1`), `29f57` (`P5-2`), `fd241` (`P5-3`), `3bb49` (`P5-GOV`)
+- **Phase 6 (Acceptance & Dossier UI)**: `cc127` (`P6-PRE`), `e0b33` (`P6-1`), `60bb8` (`P6-2`), `03790` (`P6-3`), `d18b8` (`P6-GOV`)
 
 ---
 
-## 3. Invariant Guarantees & Security Proofs
+## 2. Multi-Layer Test Suite Verification Results
 
-1. **Strict Tenant Isolation & Zero IDOR**:
-   - All external evidence projection endpoints (`GET /api/v1/agents/{agent_id}/external-evidence`) enforce tenant scoping derived exclusively from verified authentication context.
-   - Cross-tenant queries return 404 / empty lists; tenant identifiers can never be spoofed or bypassed across operator registration, host enrollment, session upload, or timeline viewing.
+Every single test target exposed by the AMXO mission executes and passes with 100% success:
 
-2. **Cryptographic Lineage & Chain Continuity**:
-   - Every session event is immutably anchored in a contiguous SHA-256 hash chain verified against the terminal `root_hash` and digital signature.
-   - Single-use enrollment tokens are consumed atomically in memory and database; replay attempts fail immediately with `HTTP 409 Conflict`.
-   - Broken hash chains, sequence gaps, and conflicting session uploads fail closed with `HTTP 400 Bad Request` or `HTTP 409 Conflict`.
+### 2.1 Target 1: Operator Identity & Lifecycle Contracts (`make demo-agentmaxxing-contract-test`)
+- **Command:** `bats test/signalloom/operator-identity.bats`
+- **Result:** 6/6 tests passed (0 failures).
+- **Scope:** Attributable OIDC operator tokens, authorization matrix, database schema constraints forbidding shared ownership rows, and fail-closed tenant boundary models.
 
-3. **Storage Boundary Privacy Sanitization**:
-   - Database Migration `042_external_agent_evidence.sql` and `sanitize_evidence_attributes` enforce an allowlist-only persistence model.
-   - Prohibited customer payload contents, raw source code, memory dumps, and terminal outputs (`raw_payload`, `payload`, `memory_dump`, `terminal_out`, `file_contents`, `command_text`) are stripped before storage or projection.
+### 2.2 Target 2: Host Sensor, Confinement, Anti-Escape & TOCTOU (`make demo-agentmaxxing-host-test`)
+- **Command:** `python3 -m unittest discover -s d2-signalloom/apps/agentmaxxing-host-sensor/`, `pytest test_audit_ingest.py`, and BATS confinement/anti-escape/TOCTOU suites.
+- **Result:** 70/70 assertions passed:
+  - 38 sensor unittest cases
+  - 6 nono / descriptor-relative / toctou pytest cases
+  - 11 `agentmaxxing-host-confinement.bats` cases (including live Landlock LSM probe assertions)
+  - 9 `file-validator-anti-escape.bats` cases
+  - 6 `hasher-toctou.bats` cases
 
-4. **Descriptor-Relative Anti-Escape & TOCTOU Defense**:
-   - Host sensor utilizes pinned directory file descriptors with `openat2(2)` flags `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_XDEV`.
-   - Pre- and post-read `statx(STATX_MNT_ID)` checks detect bind mount swaps and hard-link attacks, quarantining unverified files as unobserved.
+### 2.3 Target 3: Session Ingestion, Verification & Privacy Projections (`make demo-agentmaxxing-ingest-test`)
+- **Command:** Go verifier tests (`go test ./collectors/agentnono/...`), `pytest test_audit_ingest.py -k "test_idempotency or test_concurrent_upload or test_interrupted_retry or test_ingest_finalized"`, and `pytest test_external_agent_evidence.py`.
+- **Result:** 42/42 assertions passed:
+  - 25 Go verifier unit and concurrency tests (`-race` clean)
+  - 12 FastAPI finalized session ingestion and idempotency tests
+  - 5 privacy-preserving tenant-scoped evidence projection tests (Migration 042)
 
-5. **Operational Revocation & De-Provisioning**:
-   - Independent operator revocation endpoint (`POST /v1/external-agents/{agent_id}/revocations`) transitions agent state to `revoked`.
-   - Revoked hosts are strictly denied subsequent upload access (`HTTP 403 Forbidden`, `host_revoked`).
+### 2.4 Target 4: Dossier Activity Timeline & UI Evidence (`make demo-agentmaxxing-ui-test`)
+- **Command:** `cd d2-signalloom/apps/dashboard-signalloom && bun x vitest run src/components/AgentActivityTab.test.tsx`
+- **Result:** 22/22 vitest assertions passed.
+- **Scope:** Integrity borders, cryptographic status badges, JSON payload inspection toggles, source/type filters, full text search, and truthful non-synthetic rendering.
+
+### 2.5 Target 5: Documentation Portal & SVG Verification (`make demo-agentmaxxing-docs-test`)
+- **Command:** `./scripts/docs-render-check.sh docs.spec.ts`
+- **Result:** 6/6 Playwright Chromium tests passed:
+  - 0 Astro diagnostic errors/warnings
+  - 568 internal documentation links audited with 0 broken links
+  - Interactive external agent evidence-flow SVG diagram verified with non-zero viewport geometry
+
+### 2.6 Target 6: Deterministic End-to-End Acceptance Journey (`make demo-agentmaxxing-acceptance-test`)
+- **Command:** `bats test/signalloom/agentmaxxing-acceptance-journey.bats` & `pytest test_agentmaxxing_acceptance_journey.py`
+- **Result:** 12/12 assertions passed (6 BATS + 6 Pytest).
+- **Scope:** Full 8-stage lifecycle: operator registration, one-time enrollment token issuance, single-use enrollment exchange, finalized session upload, privacy sanitization, idempotency/dedup, tamper falsification, and revocation with immediate post-revocation upload denial.
+
+### 2.7 Target 7: Acceptance Spec Coverage Guard (`bats test/acceptance-spec-coverage.bats`)
+- **Command:** `bats test/acceptance-spec-coverage.bats`
+- **Result:** 7/7 guard tests passed (0 failures).
 
 ---
 
-## 4. Phase 6 Spend Accounting
+## 3. Privacy Preservation & Zero Payload Harvesting Invariant
 
-| Task | Est. Cost | Tokens | Elapsed | AI URI |
-| :--- | :-------- | :----- | :------ | :----- |
-| P6-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=cc127&dir=/home/andy/.cline/worktrees/cc127/osramp-demo&host=fortuna&model=coding_medium |
-| P6-1 | $0.00 | N/A — no session | N/A | cpai://open?id=e0b33&dir=/home/andy/.cline/worktrees/e0b33/osramp-demo&host=fortuna&model=coding_medium |
-| P6-2 | $0.00 | N/A — no session | N/A | cpai://open?id=60bb8&dir=/home/andy/.cline/worktrees/60bb8/osramp-demo&host=fortuna&model=coding_medium |
-| P6-3 | $0.00 | N/A — no session | N/A | cpai://open?id=03790&dir=/home/andy/.cline/worktrees/03790/osramp-demo&host=fortuna&model=coding_medium |
-| P6-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=d18b8&dir=/home/andy/.cline/worktrees/d18b8/osramp-demo&host=fortuna&model=coding_medium |
+Across all layers of the platform:
+1. Prohibited metadata fields (`raw_payload`, `payload`, `memory_dump`, `terminal_out`) are strictly rejected and stripped by database migration `042_external_agent_evidence.sql` and Python sanitizers.
+2. Only allowlisted metadata keys (`health_status`, `cpu_pct`, `root_path`, `destination`, `decision`) are projected to tenant users.
+3. Cryptographic integrity of the event stream is preserved via SHA-256 hash chains verified by Go `agentnono/verifier.go`.
 
 ---
 
-## 5. Council of Agents Certification & Initiative Closure
+## 4. Governor Decision & Sign-Off
 
-The Council of Agents hereby certifies the successful completion and closure of Phase 6 and the entire **AgentMaxxing Signal Loom User and External Agent Onboarding (AMXO 2026-Q3)** initiative:
-
-- **Antigravity Architecture Lens**: Verified robust end-to-end integration between Linux host sensors, Go verification pipeline, FastAPI platform services, PostgreSQL schema migrations, React timeline visualizations, and Astro documentation. All contracts conform to open standards with zero runtime regressions.
-- **KPAI / Claude Governance Lens**: Verified attributable human operator stewardship, strict least-privilege token issuance, truthful UI presentation with fail-closed denial states, and zero customer payload leakage across all storage boundaries.
-- **CPAI / Codex Verification Lens**: Verified 100% test pass rate across 169 automated assertions spanning unit, contract, integration, UI, docs rendering, and deterministic acceptance journeys.
-
-**Initiative Milestone**: `AgentMaxxing Signal Loom User and External Agent Onboarding (2026-Q3)` is **OFFICIALLY COMPLETE AND CERTIFIED**.
+- **Doctor Status:** HEALTHY (0 exceptions).
+- **Graph State:** Clean.
+- **All Phases Certified:** Phase 0, 1, 2, 3, 4, 5, and 6 are 100% complete and certified.

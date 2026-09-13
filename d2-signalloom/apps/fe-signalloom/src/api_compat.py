@@ -7150,7 +7150,11 @@ def install_compatibility_api(app: FastAPI) -> None:
     # that gate so a configured superadmin can perform the one-time self
     # bootstrap and a removed operator receives the precise removal refusal.
     from operator_identity import enforce_strict_operator_tenant, router as operator_identity_router
-    from external_agent_registration import router as external_agent_router, compat_router as external_agent_compat_router
+    from external_agent_registration import (
+        router as external_agent_router,
+        compat_router as external_agent_compat_router,
+        v1_router as external_agent_v1_router,
+    )
     from host_enrollment import (
         router as host_enrollment_router,
         api_router as host_enrollment_api_router,
@@ -7161,11 +7165,12 @@ def install_compatibility_api(app: FastAPI) -> None:
     app.add_middleware(HostCredentialScopeMiddleware)
     app.include_router(router, dependencies=[Depends(enforce_strict_operator_tenant)])
     app.include_router(operator_identity_router)
-    app.include_router(external_agent_router)
-    app.include_router(external_agent_compat_router)
+    app.include_router(host_router)
+    app.include_router(host_compat_router)
     app.include_router(host_enrollment_router)
     app.include_router(host_enrollment_api_router)
     app.include_router(host_enrollment_compat_router)
-    app.include_router(host_router)
-    app.include_router(host_compat_router)
+    app.include_router(external_agent_router)
+    app.include_router(external_agent_v1_router)
+    app.include_router(external_agent_compat_router)
     install_api_exception_handlers(app)

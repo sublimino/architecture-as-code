@@ -446,7 +446,7 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P6-1 | implementation | Render attributable evidence states on tenant-bound agent timeline | P6-PRE | `make demo-agentmaxxing-ui-test`; source, timestamp, integrity, limit, unobserved assertions | L | antigravity | pass — delivered: dddf49ba05e263eb973b4bb10bb664624d59b360 (see Errata — AMXO-P6-1) | $0.00 | N/A — no session | N/A | cpai://open?id=e0b33&dir=/home/andy/.cline/worktrees/e0b33/osramp-demo&host=fortuna&model=coding_medium |
 | P6-2 | implementation | Publish external-agent guide and verified evidence-flow diagram | P6-PRE | `make demo-agentmaxxing-docs-test`; Astro diagnostics and SVG browser assertion | M | antigravity | pass — delivered: d39630904989931d322e915ef55db939305955ef (see Errata — AMXO-P6-2) | $0.00 | N/A — no session | N/A | cpai://open?id=60bb8&dir=/home/andy/.cline/worktrees/60bb8/osramp-demo&host=fortuna&model=coding_medium |
 | P6-3 | implementation | Build deterministic local onboarding-to-removal acceptance journey | P6-PRE | `make demo-agentmaxxing-acceptance-test`; enrollment, upload, denial, revocation, removal | L | antigravity | pass — delivered: 0f09b693a5cead2d13cd1d4f725a3b2dfb50e574 (see Errata — AMXO-P6-3) | $0.00 | N/A — no session | N/A | cpai://open?id=03790&dir=/home/andy/.cline/worktrees/03790/osramp-demo&host=fortuna&model=coding_medium |
-| P6-GOV | governor | Reconcile acceptance wiring and publish reviewed Alpha evidence | P6-1, P6-2, P6-3 | Six proposed `make demo-agentmaxxing-*-test` targets; `bats test/acceptance-spec-coverage.bats`; partner review record | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=d18b8&dir=/home/andy/.cline/worktrees/d18b8/osramp-demo&host=fortuna&model=coding_medium |
+| P6-GOV | governor | Reconcile acceptance wiring and publish reviewed Alpha evidence | P6-1, P6-2, P6-3 | Six proposed `make demo-agentmaxxing-*-test` targets; `bats test/acceptance-spec-coverage.bats`; partner review record | L | antigravity | pass — certified: Phase 6 Monorepo Certification (see Errata — AMXO-P6-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=d18b8&dir=/home/andy/.cline/worktrees/d18b8/osramp-demo&host=fortuna&model=coding_medium |
 
 ### Spec: Errata
 
@@ -685,6 +685,10 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Spend and token use:**
 | Task | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :-------- | :----- | :------ | :----- |
+| P3-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
+| P3-1 | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
+| P3-2 | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
+| P3-3 | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
 | P3-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
@@ -745,6 +749,17 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Notes:** 17 pytest concurrency tests, 2 backend audit tests, and 6 BATS TOCTOU tests passed with zero failures. Evidence recorded in `docs/signalloom/amxo-p4-4-proof.md`.
 
 #### Errata — AMXO-P4-GOV Merge host components and falsify confinement escape paths
+
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P4-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
+| P4-1 | $0.00 | N/A — no session | N/A | cpai://open?id=5d3df&dir=/home/andy/.cline/worktrees/5d3df/osramp-demo&host=fortuna&model=coding_medium |
+| P4-2 | $0.00 | N/A — no session | N/A | cpai://open?id=dee2a&dir=/home/andy/.cline/worktrees/dee2a/osramp-demo&host=fortuna&model=coding_medium |
+| P4-3 | $0.00 | N/A — no session | N/A | cpai://open?id=af50e&dir=/home/andy/.cline/worktrees/af50e/osramp-demo&host=fortuna&model=coding_medium |
+| P4-4 | $0.00 | N/A — no session | N/A | cpai://open?id=942a1&dir=/home/andy/.cline/worktrees/942a1/osramp-demo&host=fortuna&model=coding_medium |
+| P4-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=58840&dir=/home/andy/.cline/worktrees/58840/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-13 18:41:00+01:00
 **Last Updated:** 2026-09-13 18:41:00+01:00
@@ -795,6 +810,16 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Notes:** 37/37 audit ingest tests, 5/5 external evidence tests, and migration discovery tests passing. Proof recorded in `docs/signalloom/amxo-p5-3-evidence.md`.
 
 #### Errata — AMXO-P5-GOV Merge ingestion work and verify privacy-preserving evidence semantics
+
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P5-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=63db4&dir=/home/andy/.cline/worktrees/63db4/osramp-demo&host=fortuna&model=coding_medium |
+| P5-1 | $0.00 | N/A — no session | N/A | cpai://open?id=67394&dir=/home/andy/.cline/worktrees/67394/osramp-demo&host=fortuna&model=coding_medium |
+| P5-2 | $0.00 | N/A — no session | N/A | cpai://open?id=29f57&dir=/home/andy/.cline/worktrees/29f57/osramp-demo&host=fortuna&model=coding_medium |
+| P5-3 | $0.00 | N/A — no session | N/A | cpai://open?id=fd241&dir=/home/andy/.cline/worktrees/fd241/osramp-demo&host=fortuna&model=coding_medium |
+| P5-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=3bb49&dir=/home/andy/.cline/worktrees/3bb49/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-13 20:25:00+01:00
 **Last Updated:** 2026-09-13 20:25:00+01:00
@@ -843,3 +868,47 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Decisions:** Delivered deterministic end-to-end acceptance suite (`test_agentmaxxing_acceptance_journey.py` and `agentmaxxing-acceptance-journey.bats`) wired into `make demo-agentmaxxing-acceptance-test`. Validated all eight stages: operator registration, one-time enrollment token issuance, atomic single-use enrollment exchange (409 on replay), finalized session upload with process/artifact/network telemetry, strict metadata-only evidence projection (verifying zero customer payload leakage), upload idempotency (duplicate OK, conflicting payload 409), tamper denial falsification (400 on broken hash chain or sequence gaps), attributable host revocation (202 Accepted), and immediate post-revocation upload refusal (403 Forbidden host_revoked).
 **Deviations:** None.
 **Notes:** 12/12 acceptance assertions green across BATS and Pytest runners. Proof recorded in `docs/signalloom/amxo-p6-3-evidence.md`.
+
+#### Errata — AMXO-P6-GOV Reconcile acceptance wiring and publish reviewed Alpha evidence
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 20:45:00+01:00
+**Last Updated:** 2026-09-13 20:45:00+01:00
+**Status:** Completed
+**Commit:** `12a8f5aaf4e001dc222fe602114d8977072c9f74`
+**Decisions:** Reconciled whole-monorepo acceptance test suite and verified 100% passing results across all six proposed Makefile targets: `demo-agentmaxxing-contract-test` (6/6), `demo-agentmaxxing-host-test` (70/70), `demo-agentmaxxing-ingest-test` (42/42), `demo-agentmaxxing-ui-test` (22/22), `demo-agentmaxxing-docs-test` (6/6), and `demo-agentmaxxing-acceptance-test` (12/12). Reconciled `acceptance-spec-coverage.bats` (7/7) and published audited Alpha evidence report in `docs/signalloom/amxo-p6-governor-proof.md`. Verified strict zero customer payload leakage across all external evidence projections and audit chains. Certified completion of all phases (P0–P6) on `integration/agentmaxxing-onboarding-v0.1.0`.
+**Deviations:** None.
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P0 | $0.00 | in 13.5M; out 37.7k; reason 15.5k; cache 6.7M | 35m06s | cpai://open?id=ses_f6a045793ffeNr17q7Xo0IqiGI&dir=/home/andy/.cline/worktrees/451ff/osramp-demo&host=fortuna&model=gpt-5.6-sol-fast |
+| P1-PRE | $0.00 | in 3.8M; out 34.3k; reason 16.6k; cache 6.0M | 14m44s | cpai://open?id=ses_f69b1f3ccffe07wiN5RX3j3bAt&dir=/home/andy/.cline/worktrees/5da01/osramp-demo&host=fortuna&model=gpt-5.6-sol-fast |
+| P1-1 | $0.00 | in 40.6M; out 135.5k; reason 70.6k; cache 42.9M | 1h54m43s | cpai://open?id=ses_f6923e316ffedNNEg9iArgCvZV&dir=/home/andy/.cline/worktrees/32b57/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-2 | $0.00 | in 26.0M; out 89.3k; reason 34.4k; cache 9.0M | 1h08m05s | cpai://open?id=ses_f6921968fffed0kQ0XD123Vva7&dir=/home/andy/.cline/worktrees/2e369/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-3 | $0.00 | in 32.2M; out 258.7k; reason 80.0k; cache 75.4M | 3h24m26s | cpai://open?id=ses_f659de86effex9i0eIohpcKiGM&dir=/home/andy/.cline/worktrees/539f5/osramp-demo&host=fortuna&model=gpt-5.6-sol |
+| P1-GOV | $0.00 | in 2.0M; out 11.6k; reason 2.0k; cache 1.7M | 12m02s | cpai://open?id=ses_f64f9d8b7ffe2uOW5AapGeSik3&dir=/home/andy/.cline/worktrees/c907c/osramp-demo&host=fortuna&model=gpt-6-astra |
+| P2-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=905f5&dir=/home/andy/.cline/worktrees/905f5/osramp-demo&host=fortuna&model=coding_medium |
+| P2-1 | $0.00 | N/A — no session | N/A | cpai://open?id=9a9b6&dir=/home/andy/.cline/worktrees/9a9b6/osramp-demo&host=fortuna&model=coding_medium |
+| P2-2 | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
+| P2-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
+| P3-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
+| P3-1 | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
+| P3-2 | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
+| P3-3 | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
+| P3-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
+| P4-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
+| P4-1 | $0.00 | N/A — no session | N/A | cpai://open?id=5d3df&dir=/home/andy/.cline/worktrees/5d3df/osramp-demo&host=fortuna&model=coding_medium |
+| P4-2 | $0.00 | N/A — no session | N/A | cpai://open?id=dee2a&dir=/home/andy/.cline/worktrees/dee2a/osramp-demo&host=fortuna&model=coding_medium |
+| P4-3 | $0.00 | N/A — no session | N/A | cpai://open?id=af50e&dir=/home/andy/.cline/worktrees/af50e/osramp-demo&host=fortuna&model=coding_medium |
+| P4-4 | $0.00 | N/A — no session | N/A | cpai://open?id=942a1&dir=/home/andy/.cline/worktrees/942a1/osramp-demo&host=fortuna&model=coding_medium |
+| P4-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=58840&dir=/home/andy/.cline/worktrees/58840/osramp-demo&host=fortuna&model=coding_medium |
+| P5-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=63db4&dir=/home/andy/.cline/worktrees/63db4/osramp-demo&host=fortuna&model=coding_medium |
+| P5-1 | $0.00 | N/A — no session | N/A | cpai://open?id=67394&dir=/home/andy/.cline/worktrees/67394/osramp-demo&host=fortuna&model=coding_medium |
+| P5-2 | $0.00 | N/A — no session | N/A | cpai://open?id=29f57&dir=/home/andy/.cline/worktrees/29f57/osramp-demo&host=fortuna&model=coding_medium |
+| P5-3 | $0.00 | N/A — no session | N/A | cpai://open?id=fd241&dir=/home/andy/.cline/worktrees/fd241/osramp-demo&host=fortuna&model=coding_medium |
+| P5-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=3bb49&dir=/home/andy/.cline/worktrees/3bb49/osramp-demo&host=fortuna&model=coding_medium |
+| P6-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=cc127&dir=/home/andy/.cline/worktrees/cc127/osramp-demo&host=fortuna&model=coding_medium |
+| P6-1 | $0.00 | N/A — no session | N/A | cpai://open?id=e0b33&dir=/home/andy/.cline/worktrees/e0b33/osramp-demo&host=fortuna&model=coding_medium |
+| P6-2 | $0.00 | N/A — no session | N/A | cpai://open?id=60bb8&dir=/home/andy/.cline/worktrees/60bb8/osramp-demo&host=fortuna&model=coding_medium |
+| P6-3 | $0.00 | N/A — no session | N/A | cpai://open?id=03790&dir=/home/andy/.cline/worktrees/03790/osramp-demo&host=fortuna&model=coding_medium |
+| P6-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=d18b8&dir=/home/andy/.cline/worktrees/d18b8/osramp-demo&host=fortuna&model=coding_medium |
+**Notes:** All six proposed Makefile verification targets green with 165+ multi-layer assertions verified. Proof recorded in `docs/signalloom/amxo-p6-governor-proof.md`.

@@ -1,4 +1,4 @@
-"""Command-line interface for the AgentMaxxing host process telemetry collector."""
+"""Command-line interface for the AgentMaxxing host telemetry sensor and artifact hasher."""
 from __future__ import annotations
 
 import argparse
@@ -15,14 +15,18 @@ if str(PKG_DIR) not in sys.path:
 try:
     from .cgroups import CgroupV2Reader
     from .collector import ProcessTelemetryCollector
+    from .hasher import BoundedArtifactHasher
     from .models import BoundedProcessAttributes, ExportSource, ProcessTelemetryEvent
     from .proc import ProcReader
+    from .ratelimit import RateLimiter
     from .sensor import HostSensor
 except (ImportError, ValueError):
     from cgroups import CgroupV2Reader
     from collector import ProcessTelemetryCollector
+    from hasher import BoundedArtifactHasher
     from models import BoundedProcessAttributes, ExportSource, ProcessTelemetryEvent
     from proc import ProcReader
+    from ratelimit import RateLimiter
     from sensor import HostSensor
 
 
@@ -106,11 +110,31 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hash_relative(args: argparse.Namespace) -> int:
+    """Hash a file relative to a pinned root directory with TOCTOU checks."""
+    limiter = RateLimiter(
+        max_files_per_window=args.max_files_per_window,
+        max_bytes_per_window=args.max_bytes_per_window,
+        max_file_size_bytes=args.max_file_size,
+    )
+    hasher = BoundedArtifactHasher(
+        rate_limiter=limiter,
+        max_file_size_bytes=args.max_file_size,
+    )
+    result = hasher.hash_relative_path(
+        root_dir_path=args.root_dir,
+        relpath=args.relpath,
+        root_id=args.root_id,
+    )
+    print(json.dumps(result.to_dict(), indent=2))
+    return 0 if result.observation_state == "observed" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="agentmaxxing-host-sensor",
-        description="AgentMaxxing Host Telemetry Sensor — Bounded Process Lifecycle Collector",
+        description="AgentMaxxing Host Telemetry Sensor — Bounded Process Lifecycle Collector and Artifact Hasher",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -141,6 +165,40 @@ def build_parser() -> argparse.ArgumentParser:
     # Verify
     p_verify = subparsers.add_parser("verify", help="Verify host sensor environment")
     p_verify.set_defaults(func=cmd_verify)
+
+    # Hash Relative
+    p_hash = subparsers.add_parser(
+        "hash-relative",
+        help="Hash a file relative to a pinned root directory with TOCTOU checks",
+    )
+    p_hash.add_argument(
+        "--root-dir", required=True, help="Absolute path to approved root directory"
+    )
+    p_hash.add_argument(
+        "--relpath", required=True, help="Relative path within the root directory"
+    )
+    p_hash.add_argument(
+        "--root-id", default="agent-work", help="Approved root ID (e.g. agent-work, agent-output)"
+    )
+    p_hash.add_argument(
+        "--max-file-size",
+        type=int,
+        default=16_777_216,
+        help="Maximum permissible file size in bytes",
+    )
+    p_hash.add_argument(
+        "--max-files-per-window",
+        type=int,
+        default=120,
+        help="Max files permitted per 60s window",
+    )
+    p_hash.add_argument(
+        "--max-bytes-per-window",
+        type=int,
+        default=67_108_864,
+        help="Max bytes permitted per 60s window",
+    )
+    p_hash.set_defaults(func=cmd_hash_relative)
 
     return parser
 

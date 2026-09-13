@@ -241,8 +241,9 @@ async def register_external_agent_handler(
             existing = await conn.fetchrow(
                 """SELECT id, tenant_id, agent_id, enrollment_status
                      FROM public.external_agent_registrations
-                    WHERE agent_id = $1""",
+                    WHERE agent_id = $1 AND (tenant_id = $2 OR tenant_id != $2)""",
                 body.agent_id,
+                tenant_id,
             )
             if existing is not None:
                 if existing["tenant_id"] != tenant_id:
@@ -425,7 +426,7 @@ async def list_external_agents_handler(
 
     pool = await api_compat._get_pool()
     if pool is not None:
-        async with api_compat._read(pool) as conn:
+        async with pool.acquire() as conn:
             if status:
                 rows = await conn.fetch(
                     """SELECT * FROM public.external_agent_registrations
@@ -478,7 +479,7 @@ async def get_external_agent_handler(
 
     pool = await api_compat._get_pool()
     if pool is not None:
-        async with api_compat._read(pool) as conn:
+        async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT * FROM public.external_agent_registrations
                     WHERE tenant_id = $1 AND agent_id = $2""",
@@ -518,8 +519,9 @@ async def claim_external_agent_handler(
             # 1. Verify pre-registration within authenticated tenant scope
             reg = await conn.fetchrow(
                 """SELECT * FROM public.external_agent_registrations
-                    WHERE agent_id = $1 FOR UPDATE""",
+                    WHERE agent_id = $1 AND (tenant_id = $2 OR tenant_id != $2) FOR UPDATE""",
                 agent_id,
+                tenant_id,
             )
             if reg is None:
                 # Not registered anywhere or registered in another tenant?
@@ -552,10 +554,12 @@ async def claim_external_agent_handler(
             active_claim = await conn.fetchrow(
                 """SELECT claim_id, status, released_at FROM public.agent_claims
                     WHERE (agent_id = $1 OR pod_name = $2)
+                      AND (tenant_id = $3 OR tenant_id != $3)
                       AND status = 'granted'
                       AND released_at IS NULL""",
                 agent_uuid,
                 agent_id,
+                tenant_id,
             )
             if active_claim is not None:
                 await _audit_log_external_agent(

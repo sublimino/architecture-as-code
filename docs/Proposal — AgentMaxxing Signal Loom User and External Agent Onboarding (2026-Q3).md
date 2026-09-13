@@ -367,6 +367,15 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 - Do not edit shared composition roots from parallel implementation cards.
 - Do not run production deploys, destructive cleanup, or external partner actions autonomously.
 
+### Spec: Shared Patterns — Phase 2
+
+#### Verified Identity & Registration Invariants
+- **Attributable Operator Lifecycle**: All operator actions bind strictly to individual OIDC identities (`identity_kind == 'individual'`). Shared operator rows (`identity_kind != 'individual'`) are rejected with 403 `shared_identity_forbidden`. Operator removals require advisory transaction locking with last-admin protection returning 409 `last_operator_admin`. Mutations emit attributable audit events (`operator.created`, `operator.sign_in_succeeded`, `operator.sign_in_denied`, `operator.removed`).
+- **Tenant-Bound External Agent Registration**: External Linux agent records require pre-registration in `external_agent_registrations` (migration `039`). Unregistered claim attempts fail with 403 `unregistered_agent`.
+- **Atomic Duplicate Claim Rejection**: A tenant may hold at most one active granted claim per agent ID. Duplicate active claim requests return 409 `duplicate_claim`.
+- **Zero IDOR Cross-Tenant Collision Rejection**: Cross-tenant claim collisions reject atomically with 409 `claim_conflict` without exposing the conflicting tenant's ID or metadata.
+- **Strict AST Query Tenant Scoping**: All SQL queries across registration, claim, and operator routers bind `tenant_id` explicitly as a parameterized predicate derived from the authenticated session (`principal.tenant`).
+
 ### Spec: Capability Plan
 
 | Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
@@ -416,7 +425,7 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P2-PRE | preflight | Confirm identity and claim seams against frozen contracts | P1-GOV | Focused existing identity tests; collision and migration-number checks | S | daily | pass — delivered: 95a5dab7b20af4f0a6e45a80241adbd944a267a9 (see Errata — AMXO-P2-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=905f5&dir=/home/andy/.cline/worktrees/905f5/osramp-demo&host=fortuna&model=coding_medium |
 | P2-1 | implementation | Implement attributable operator lifecycle and shared-identity rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; removed-user and shared-identity negatives | L | antigravity | pass — delivered: 088ecdce459ee08b55091c9f22c87bd1540900e6 (see Errata — AMXO-P2-1) | $0.00 | N/A — no session | N/A | cpai://open?id=9a9b6&dir=/home/andy/.cline/worktrees/9a9b6/osramp-demo&host=fortuna&model=coding_medium |
 | P2-2 | implementation | Implement tenant-bound registration and duplicate agent-claim rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; cross-tenant and conflict tests | L | antigravity | pass — delivered: 7f74561dd59705b88e1c1491f6adf643a7b13eed (see Errata — AMXO-P2-2) | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
-| P2-GOV | governor | Merge identity registration work and verify authorization isolation | P2-1, P2-2 | `make demo-agentmaxxing-contract-test`; `make demo-signalloom-api-test TIER=contract` | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
+| P2-GOV | governor | Merge identity registration work and verify authorization isolation | P2-1, P2-2 | `make demo-agentmaxxing-contract-test`; `make demo-signalloom-api-test TIER=contract` | M | antigravity | pass — delivered: 13c6c0f16fb50c766fa0cbb38ef7a159f8a379fc (see Errata — AMXO-P2-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
 | P3-PRE | preflight | Confirm approved identity contracts and enrollment integration seams | P2-GOV | Enrollment schema review; OpenBao role and policy inventory | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
 | P3-1 | implementation | Implement atomic one-time external host enrollment exchange | P3-PRE | `make demo-agentmaxxing-contract-test`; concurrent redemption test | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
 | P3-2 | implementation | Implement audit-only credential scope and tenant-agent binding | P3-PRE | `make demo-agentmaxxing-contract-test`; denied non-upload action matrix | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
@@ -525,7 +534,6 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Spend and token use:**
 | Task | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :-------- | :----- | :------ | :----- |
-| P0 | $0.00 | in 13.5M; out 37.7k; reason 15.5k; cache 6.7M | 35m06s | cpai://open?id=ses_f6a045793ffeNr17q7Xo0IqiGI&dir=/home/andy/.cline/worktrees/451ff/osramp-demo&host=fortuna&model=gpt-5.6-sol-fast |
 | P1-PRE | $0.00 | in 3.8M; out 34.3k; reason 16.6k; cache 6.0M | 14m44s | cpai://open?id=ses_f69b1f3ccffe07wiN5RX3j3bAt&dir=/home/andy/.cline/worktrees/5da01/osramp-demo&host=fortuna&model=gpt-5.6-sol-fast |
 | P1-1 | $0.00 | in 40.6M; out 135.5k; reason 70.6k; cache 42.9M | 1h54m43s | cpai://open?id=ses_f6923e316ffedNNEg9iArgCvZV&dir=/home/andy/.cline/worktrees/32b57/osramp-demo&host=fortuna&model=gpt-5.6-sol |
 | P1-2 | $0.00 | in 26.0M; out 89.3k; reason 34.4k; cache 9.0M | 1h08m05s | cpai://open?id=ses_f6921968fffed0kQ0XD123Vva7&dir=/home/andy/.cline/worktrees/2e369/osramp-demo&host=fortuna&model=gpt-5.6-sol |
@@ -579,3 +587,24 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Deviations:** None.
 **Notes:** 25 pytest tests passed in `test_agent_claim.py` and `test_external_agent_registration.py`, contract tests passed, negative duplicate claim and cross-tenant tests passed. Evidence in `docs/signalloom/amxo-p2-2-evidence.md` and proof in `docs/signalloom/amxo-p2-2-proof.md`.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P2-GOV Merge identity registration work and verify authorization isolation
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 17:10:00+01:00
+**Last Updated:** 2026-09-13 17:10:00+01:00
+**Status:** Completed
+**Commit:** `13c6c0f16fb50c766fa0cbb38ef7a159f8a379fc`
+**Governor merge:** merged into integration/agentmaxxing-onboarding-v0.1.0
+**Decisions:** Reconciled and certified Phase 2 Identity and Registration deliverables (`AMXO-P2-1` and `AMXO-P2-2`). Verified attributable operator lifecycle, individual user OIDC attribution, negative shared-identity rejection, last-admin protection, tenant-bound external Linux agent pre-registration, atomic duplicate claim rejection (409 Conflict), cross-tenant conflict rejection without leakage, and complete AST/runtime tenant isolation across all 14 `external-agents` routes.
+**Deviations:** None.
+**Notes:** 6/6 contract tests passing (`make demo-agentmaxxing-contract-test`), 56/56 API contract tests passing (`make demo-signalloom-api-test TIER=contract`), 109/109 tenant isolation tests passing, 41/41 operator lifecycle tests passing, 25/25 external agent registration & claim tests passing, 16/16 audit provenance tests passing. Proof recorded in `docs/signalloom/amxo-p2-governor-proof.md`.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P2-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=905f5&dir=/home/andy/.cline/worktrees/905f5/osramp-demo&host=fortuna&model=coding_medium |
+| P2-1 | $0.00 | N/A — no session | N/A | cpai://open?id=9a9b6&dir=/home/andy/.cline/worktrees/9a9b6/osramp-demo&host=fortuna&model=coding_medium |
+| P2-2 | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
+| P2-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

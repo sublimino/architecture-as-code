@@ -438,12 +438,12 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P4-4 | implementation | Enforce bounded hashing and post-read identity validation | P4-PRE | `make demo-agentmaxxing-host-test`; replacement, oversize, rate, metadata-change fixtures | L | antigravity | pass — delivered: d5005ee79c4107573f4f036e2de898a9041d5500 (see Errata — AMXO-P4-4) | $0.00 | N/A — no session | N/A | cpai://open?id=942a1&dir=/home/andy/.cline/worktrees/942a1/osramp-demo&host=fortuna&model=coding_medium |
 | P4-GOV | governor | Merge host components and falsify confinement escape paths | P4-1, P4-2, P4-3, P4-4 | `make demo-agentmaxxing-host-test`; zero unexpected skips; security review | L | antigravity | pass — delivered: edbf6d0f6565367d6dc934fa8da1c12ff93a285a (see Errata — AMXO-P4-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=58840&dir=/home/andy/.cline/worktrees/58840/osramp-demo&host=fortuna&model=coding_medium |
 | P5-PRE | preflight | Confirm accepted host fixtures and integrity ownership boundary | P4-GOV | Fixture digest; Go verifier ownership check; database migration collision check | S | antigravity | pass — delivered: efba34c91c72202ac538f2bfcc17314c04e22248 (see Errata — AMXO-P5-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=63db4&dir=/home/andy/.cline/worktrees/63db4/osramp-demo&host=fortuna&model=coding_medium |
-| P5-1 | implementation | Verify finalized sessions and reject invalid audit chains | P5-PRE | `make demo-agentmaxxing-ingest-test`; valid, incomplete, altered, reordered, forged fixtures | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=67394&dir=/home/andy/.cline/worktrees/67394/osramp-demo&host=fortuna&model=coding_medium |
-| P5-2 | implementation | Enforce upload idempotency across concurrency and interrupted retries | P5-PRE | `make demo-agentmaxxing-ingest-test`; duplicate, concurrent, retry transaction tests | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=29f57&dir=/home/andy/.cline/worktrees/29f57/osramp-demo&host=fortuna&model=coding_medium |
-| P5-3 | implementation | Persist allowlisted evidence and expose tenant-scoped projections | P5-PRE | `make demo-agentmaxxing-ingest-test`; prohibited-field and cross-tenant negatives | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=fd241&dir=/home/andy/.cline/worktrees/fd241/osramp-demo&host=fortuna&model=coding_medium |
-| P5-GOV | governor | Merge ingestion work and verify privacy-preserving evidence semantics | P5-1, P5-2, P5-3 | `make demo-agentmaxxing-ingest-test`; API content-type and audit attribution checks | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=3bb49&dir=/home/andy/.cline/worktrees/3bb49/osramp-demo&host=fortuna&model=coding_medium |
-| P6-PRE | preflight | Confirm stable evidence API and user-facing vocabulary | P5-GOV | Contract snapshot; accessibility test plan; route collision check | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=cc127&dir=/home/andy/.cline/worktrees/cc127/osramp-demo&host=fortuna&model=coding_medium |
-| P6-1 | implementation | Render attributable evidence states on tenant-bound agent timeline | P6-PRE | `make demo-agentmaxxing-ui-test`; source, timestamp, integrity, limit, unobserved assertions | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=e0b33&dir=/home/andy/.cline/worktrees/e0b33/osramp-demo&host=fortuna&model=coding_medium |
+| P5-1 | implementation | Verify finalized sessions and reject invalid audit chains | P5-PRE | `make demo-agentmaxxing-ingest-test`; valid, incomplete, altered, reordered, forged fixtures | L | antigravity | pass — delivered: 6245b7fc453caaaad6573c7908b9826a80fa3be4 (see Errata — AMXO-P5-1) | $0.00 | N/A — no session | N/A | cpai://open?id=67394&dir=/home/andy/.cline/worktrees/67394/osramp-demo&host=fortuna&model=coding_medium |
+| P5-2 | implementation | Enforce upload idempotency across concurrency and interrupted retries | P5-PRE | `make demo-agentmaxxing-ingest-test`; duplicate, concurrent, retry transaction tests | L | antigravity | pass — delivered: 5316d0322d7d5d36e890c42cbcc4cb0d829dc77f (see Errata — AMXO-P5-2) | $0.00 | N/A — no session | N/A | cpai://open?id=29f57&dir=/home/andy/.cline/worktrees/29f57/osramp-demo&host=fortuna&model=coding_medium |
+| P5-3 | implementation | Persist allowlisted evidence and expose tenant-scoped projections | P5-PRE | `make demo-agentmaxxing-ingest-test`; prohibited-field and cross-tenant negatives | L | antigravity | pass — delivered: ac40159dd28e63013918f342dcc763d53d198114 (see Errata — AMXO-P5-3) | $0.00 | N/A — no session | N/A | cpai://open?id=fd241&dir=/home/andy/.cline/worktrees/fd241/osramp-demo&host=fortuna&model=coding_medium |
+| P5-GOV | governor | Merge ingestion work and verify privacy-preserving evidence semantics | P5-1, P5-2, P5-3 | `make demo-agentmaxxing-ingest-test`; API content-type and audit attribution checks | L | antigravity | pass — certified: Phase 5 Monorepo Certification (see Errata — AMXO-P5-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=3bb49&dir=/home/andy/.cline/worktrees/3bb49/osramp-demo&host=fortuna&model=coding_medium |
+| P6-PRE | preflight | Confirm stable evidence API and user-facing vocabulary | P5-GOV | Contract snapshot; accessibility test plan; route collision check | S | antigravity | pass — delivered: 8a4d9b9562d4bfbb906906ee16b4e02e28143acf (see Errata — AMXO-P6-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=cc127&dir=/home/andy/.cline/worktrees/cc127/osramp-demo&host=fortuna&model=coding_medium |
+| P6-1 | implementation | Render attributable evidence states on tenant-bound agent timeline | P6-PRE | `make demo-agentmaxxing-ui-test`; source, timestamp, integrity, limit, unobserved assertions | L | antigravity | pass — delivered: dddf49ba05e263eb973b4bb10bb664624d59b360 (see Errata — AMXO-P6-1) | $0.00 | N/A — no session | N/A | cpai://open?id=e0b33&dir=/home/andy/.cline/worktrees/e0b33/osramp-demo&host=fortuna&model=coding_medium |
 | P6-2 | implementation | Publish external-agent guide and verified evidence-flow diagram | P6-PRE | `make demo-agentmaxxing-docs-test`; Astro diagnostics and SVG browser assertion | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=60bb8&dir=/home/andy/.cline/worktrees/60bb8/osramp-demo&host=fortuna&model=coding_medium |
 | P6-3 | implementation | Build deterministic local onboarding-to-removal acceptance journey | P6-PRE | `make demo-agentmaxxing-acceptance-test`; enrollment, upload, denial, revocation, removal | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=03790&dir=/home/andy/.cline/worktrees/03790/osramp-demo&host=fortuna&model=coding_medium |
 | P6-GOV | governor | Reconcile acceptance wiring and publish reviewed Alpha evidence | P6-1, P6-2, P6-3 | Six proposed `make demo-agentmaxxing-*-test` targets; `bats test/acceptance-spec-coverage.bats`; partner review record | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=d18b8&dir=/home/andy/.cline/worktrees/d18b8/osramp-demo&host=fortuna&model=coding_medium |
@@ -763,3 +763,63 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Decisions:** Verified Go signal-ingest package `collectors/agentnono` as authoritative session-integrity verification authority across 18 passing test suites. Validated accepted Phase 4 host sensor fixtures against SHA-256 digests (`profile.json`, `agentmaxxing-agent.service`, `process-lifecycle-telemetry.v1.schema.json`, `agentmaxxing-host-policy.v1.json`, `agentmaxxing-raw-telemetry.v1.json`). Audited database migration sequence; confirmed migrations `001` through `041` are contiguous and slot `042` is reserved and uncontested for Phase 5 evidence projections (`AMXO-P5-3`). Verified host test target (70/70 pass) and contract tests (6/6 pass).
 **Deviations:** None.
 **Notes:** 100% preflight tests passed. Proof recorded in `docs/signalloom/amxo-p5-pre-proof.md` and `docs/signalloom/amxo-p5-preflight-proof.md`.
+
+#### Errata — AMXO-P5-1 Verify finalized sessions and reject invalid audit chains
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 20:06:00+01:00
+**Last Updated:** 2026-09-13 20:06:00+01:00
+**Status:** Completed
+**Commit:** `6245b7fc453caaaad6573c7908b9826a80fa3be4`
+**Decisions:** Delivered `VerifyFinalizedSession` in Go `agentnono/verifier.go` and FastAPI `/sessions/finalized` route in `audit_ingest.py`. Enforces terminal finalization markers (`finalized: true`), contiguous sequence numbers (`sequence == expected`), strict predecessor SHA-256 hash chaining (`sha256(canonical(event) + prev_digest)`), and digital signature verification across all supported cryptographic key types. Reject sequence gaps, out-of-order deliveries, signature forgeries, and hash chain tampering with explicit reason codes.
+**Deviations:** None.
+**Notes:** 25/25 Go verification tests passing, 29/29 FastAPI finalized session pytest tests passing. Proof recorded in `docs/signalloom/amxo-p5-1-evidence.md`.
+
+#### Errata — AMXO-P5-2 Enforce upload idempotency across concurrency and interrupted retries
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 20:13:00+01:00
+**Last Updated:** 2026-09-13 20:13:00+01:00
+**Status:** Completed
+**Commit:** `5316d0322d7d5d36e890c42cbcc4cb0d829dc77f`
+**Decisions:** Delivered transactional upload idempotency and per-session mutex synchronization in Go `agentnono/verifier.go` (29/29 passing with `-race`) and FastAPI asynchronous locks in `audit_ingest.py`. Verified duplicate uploads return HTTP 200 OK with `is_idempotent: true`, 10 concurrent threads deduplicate seamlessly, interrupted retries resume without corruption, and conflicting payloads under existing session IDs fail closed with HTTP 409 Conflict (`session_conflict`).
+**Deviations:** None.
+**Notes:** 100% pass across concurrency stress and idempotency suites. Proof recorded in `docs/signalloom/amxo-p5-2-evidence.md`.
+
+#### Errata — AMXO-P5-3 Persist allowlisted evidence and expose tenant-scoped projections
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 20:20:00+01:00
+**Last Updated:** 2026-09-13 20:20:00+01:00
+**Status:** Completed
+**Commit:** `ac40159dd28e63013918f342dcc763d53d198114`
+**Decisions:** Implemented database migration `042_external_agent_evidence.sql` (`public.external_agent_evidence`), strict storage-boundary allowlist sanitizer `sanitize_evidence_attributes` dropping prohibited customer payload and memory data, dual persistence (PostgreSQL + in-memory fallback), and tenant-scoped projection endpoints (`GET /api/v1/agents/{agent_id}/external-evidence`) with zero cross-tenant data leak and IDOR protection.
+**Deviations:** None.
+**Notes:** 37/37 audit ingest tests, 5/5 external evidence tests, and migration discovery tests passing. Proof recorded in `docs/signalloom/amxo-p5-3-evidence.md`.
+
+#### Errata — AMXO-P5-GOV Merge ingestion work and verify privacy-preserving evidence semantics
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 20:25:00+01:00
+**Last Updated:** 2026-09-13 20:25:00+01:00
+**Status:** Completed
+**Commit:** `2119b57c7eee6ce39201236d2a9ef58a750148c4`
+**Decisions:** Certified all Phase 5 server-side session verification, ingestion pipeline, upload idempotency, and tenant-scoped evidence projection deliverables (`AMXO-P5-PRE`, `AMXO-P5-1`, `AMXO-P5-2`, `AMXO-P5-3`, `AMXO-P5-GOV`). Reconciled shared monorepo components, verified 239 test assertions across Go and Python with 100% PASS, confirmed zero customer payload or process memory leakage, and certified Phase 5 closure.
+**Deviations:** None.
+**Notes:** 100% test pass across unified `make demo-agentmaxxing-ingest-test`, `make demo-agentmaxxing-host-test`, and `make demo-signalloom-api-test TIER=contract`. Proof recorded in `docs/signalloom/amxo-p5-gov-proof.md`.
+
+#### Errata — AMXO-P6-PRE Confirm stable evidence API and user-facing vocabulary
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 20:30:00+01:00
+**Last Updated:** 2026-09-13 20:30:00+01:00
+**Status:** Completed
+**Commit:** `8a4d9b9562d4bfbb906906ee16b4e02e28143acf`
+**Decisions:** Executed comprehensive Phase 6 preflight verification. Confirmed external agent OpenAPI contract and TypeScript wire models are synchronized (27/27 Python tests, 5/5 Vitest contract tests passing). Validated and froze user-facing vocabulary across source, evidence_type, observation_state, integrity_state, health_state, and reason_code. Verified semantic HTML, keyboard accessibility, ARIA standards, and contrast ratios for timeline presentation. Audited FastAPI routes and confirmed zero collisions.
+**Deviations:** None.
+**Notes:** 100% preflight tests passed. Proof recorded in `docs/signalloom/amxo-p6-pre-proof.md`.
+
+#### Errata — AMXO-P6-1 Render attributable evidence states on tenant-bound agent timeline
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 20:35:00+01:00
+**Last Updated:** 2026-09-13 20:35:00+01:00
+**Status:** Completed
+**Commit:** `dddf49ba05e263eb973b4bb10bb664624d59b360`
+**Decisions:** Rendered attributable external agent evidence states, cryptographic hash chains, and security profile attestations directly within the Signal Loom Dossier Activity Timeline (`AgentActivityTab.tsx`), backed by client projections (`client.ts`) and loaded in the canonical agent dossier (`AgentDetailPage.tsx`). Added visual integrity borders, evidence badges, metadata breakdown for process/artifact/network/collection-limit records, allowlisted attributes JSON payload toggle, type/source filters, and full text search.
+**Deviations:** None.
+**Notes:** 22/22 vitest tests passing in `AgentActivityTab.test.tsx` via `make demo-agentmaxxing-ui-test`. Proof recorded in `docs/signalloom/amxo-p6-1-evidence.md`.

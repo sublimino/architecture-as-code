@@ -1,0 +1,40 @@
+syntax = "proto3";
+package signalloom.agentnono.v1;
+option go_package = "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono;agentnono";
+import "google/protobuf/struct.proto";
+
+// Every numeric wire scalar is constrained by the JSON contract to 0..9007199254740991,
+// except signed exit_code. Artifact mtime_ns is decimal text constrained to uint64.
+
+enum Source { SOURCE_UNSPECIFIED = 0; SOURCE_NONO_0_73_0 = 1; SOURCE_HOST_SENSOR_V1 = 2; }
+enum ObservationState { OBSERVATION_STATE_UNSPECIFIED = 0; OBSERVATION_STATE_OBSERVED = 1; OBSERVATION_STATE_DENIED = 2; OBSERVATION_STATE_UNOBSERVED = 3; }
+enum AssertionIntegrityState { ASSERTION_INTEGRITY_STATE_UNSPECIFIED = 0; ASSERTION_INTEGRITY_STATE_NOT_VERIFIED = 1; }
+
+message ProcessAttributes {
+  optional string health_state = 1; optional uint64 cpu_time_ms = 2; optional uint64 resident_memory_bytes = 3;
+  oneof exit_code_value { sint32 exit_code = 4; google.protobuf.NullValue exit_code_null = 6; }
+  optional uint64 restart_count = 5;
+}
+message ArtifactAttributes { optional string artifact_id = 1; optional string root_id = 2; optional string sha256 = 3; optional uint64 size_bytes = 4; optional string mtime_ns = 5; }
+message NetworkAttributes { optional string destination_id = 1; optional string decision = 2; }
+message CollectionLimitAttributes { optional string reason_code = 1; optional uint64 max_file_size_bytes = 2; optional uint64 max_files_per_window = 3; optional uint64 max_bytes_per_window = 4; optional uint64 window_seconds = 5; }
+
+message ExternalEvidence {
+  optional string schema_version = 1; optional string session_id = 2; optional uint64 sequence = 3; optional string observed_at = 4;
+  optional Source source = 5; optional ObservationState observation_state = 6; optional AssertionIntegrityState integrity_state = 7;
+  optional string agent_id = 8; optional string host_id = 9;
+  oneof attributes { ProcessAttributes process = 10; ArtifactAttributes artifact = 11; NetworkAttributes network = 12; CollectionLimitAttributes collection_limit = 13; }
+}
+message OriginalChainReference { optional string session_id = 1; optional uint64 event_count = 2; optional string final_digest = 3; }
+message HostAssertionEnvelope { optional string format = 1; optional string algorithm = 2; optional string payload_sha256 = 3; optional string key_id = 4; optional string signature = 5; repeated ExternalEvidence assertions = 6; }
+message ExternalUpload { optional string schema_version = 1; optional string upload_id = 2; optional string replay_key = 3; optional string session_id = 4; optional uint64 sequence_start = 5; optional uint64 sequence_end = 6; optional HostAssertionEnvelope assertion_envelope = 7; optional OriginalChainReference original_chain_reference = 8; }
+message UploadAcknowledgement { optional string schema_version = 1; optional string upload_id = 2; optional string replay_result = 3; optional string host_signature_state = 4; optional string original_chain_state = 5; }
+message ServerIntegrityResult { optional string authority = 1; optional string session_id = 2; optional uint64 event_count = 3; optional string final_digest = 4; optional string state = 5; optional string evaluated_at = 6; optional string reason = 7; }
+message ServerAcceptance { optional string schema_version = 1; optional string upload_id = 2; optional string accepted_at = 3; optional string replay_result = 4; optional string host_signature_state = 5; optional string original_chain_state = 6; }
+message EvidenceItem { optional ExternalEvidence evidence = 1; optional ServerAcceptance acceptance = 2; }
+message EvidencePage { optional string schema_version = 1; optional string tenant_id = 2; repeated EvidenceItem items = 3; optional string next_cursor = 4; }
+message EnrollmentRequest { optional string schema_version = 1; optional string agent_id = 2; optional string host_id = 3; optional string key_id = 4; optional string key_algorithm = 5; optional string public_key = 6; optional string client_nonce = 7; optional string credential_kind = 8; optional string credential_scope = 9; optional string credential_bootstrap = 10; optional string credential_reference = 11; }
+message EnrollmentResult { optional string schema_version = 1; optional string tenant_id = 2; optional string agent_id = 3; optional string host_id = 4; optional string key_id = 5; optional string enrollment_state = 6; optional string credential_kind = 7; optional string credential_scope = 8; optional string credential_bootstrap = 9; optional string credential_reference = 10; optional string credential_expires_at = 11; optional string revocation_endpoint = 12; }
+message RevocationRequest { optional string schema_version = 1; optional string reason_code = 2; }
+message RevocationResult { optional string schema_version = 1; optional string agent_id = 2; optional string credential_reference = 3; optional string revocation_state = 4; optional string reason_code = 5; optional string revoked_at = 6; }
+message ContractError { optional string schema_version = 1; optional string error_code = 2; optional string message = 3; optional string request_id = 4; }

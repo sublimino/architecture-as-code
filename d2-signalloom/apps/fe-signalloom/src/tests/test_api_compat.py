@@ -19,6 +19,29 @@ from db.connection import set_pool_for_testing
 from main import app
 
 
+@pytest.mark.parametrize(
+    ("model_name", "fixture_name"),
+    [("EnrollmentRequest", "enrollment"), ("EnrollmentResult", "enrollment-result"),
+     ("UploadResult", "upload-result"), ("EvidencePage", "evidence-page")],
+)
+def test_contracts_external_agent_boundary(model_name, fixture_name):
+    """The API plane consumes closed models, not host integrity authority."""
+    from pathlib import Path
+
+    from pydantic import ValidationError
+
+    import external_agent_contract
+
+    fixtures = (Path(__file__).resolve().parents[3] / "signal-ingest" /
+                "collectors/agentnono/fixtures/contracts")
+    model = getattr(external_agent_contract, model_name)
+    valid = json.loads((fixtures / f"valid-{fixture_name}.v1.json").read_text())
+    assert model.model_validate(valid).model_dump(mode="json") == valid
+    malformed = json.loads((fixtures / f"malformed-{fixture_name}.v1.json").read_text())
+    with pytest.raises(ValidationError):
+        model.model_validate(malformed)
+
+
 class ReadyPool:
     async def close(self):
         pass
@@ -2440,4 +2463,3 @@ def test_get_agent_origin_verification_strictly_side_effect_free(client, monkeyp
     res = client.get("/api/agents/agent-origin-003/origin-verification", headers=bearer(token_for("alice")))
     assert res.status_code == 200
     assert len(executed_writes) == 0
-

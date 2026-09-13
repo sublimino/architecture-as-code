@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Signal Loom external-agent v1 schema catalogue",
+  "description": "Documentation entry point containing relative references to the six authoritative collector-owned schemas.",
+  "$defs": {
+    "enrollment": {
+      "$ref": "../../../d2-signalloom/apps/signal-ingest/collectors/agentnono/contracts/external-agent-enrollment.v1.schema.json"
+    },
+    "evidence": {
+      "$ref": "../../../d2-signalloom/apps/signal-ingest/collectors/agentnono/contracts/external-agent-evidence.v1.schema.json"
+    },
+    "privacy": {
+      "$ref": "../../../d2-signalloom/apps/signal-ingest/collectors/agentnono/contracts/external-agent-privacy.v1.schema.json"
+    },
+    "revocation": {
+      "$ref": "../../../d2-signalloom/apps/signal-ingest/collectors/agentnono/contracts/external-agent-revocation.v1.schema.json"
+    },
+    "server": {
+      "$ref": "../../../d2-signalloom/apps/signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json"
+    },
+    "upload": {
+      "$ref": "../../../d2-signalloom/apps/signal-ingest/collectors/agentnono/contracts/external-agent-upload.v1.schema.json"
+    }
+  }
+}

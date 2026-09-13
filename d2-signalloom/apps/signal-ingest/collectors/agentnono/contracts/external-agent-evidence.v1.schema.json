@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalloom.controlplane.io/contracts/external-agent-evidence.v1.schema.json",
+  "title": "ExternalAgentEvidenceV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "session_id", "sequence", "observed_at", "source", "evidence_type", "observation_state", "integrity_state", "agent_id", "host_id", "attributes"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "session_id": {"type": "string", "pattern": "^[A-Za-z0-9-]{3,128}$"},
+    "sequence": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "observed_at": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$", "minLength": 20, "maxLength": 35},
+    "source": {"enum": ["nono-0.73.0", "host-sensor-v1"]},
+    "evidence_type": {"enum": ["process", "artifact", "network", "collection-limit"]},
+    "observation_state": {"enum": ["observed", "denied", "unobserved"]},
+    "integrity_state": {"const": "not-integrity-verified"},
+    "agent_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$"},
+    "host_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$"},
+    "attributes": {"oneOf": [
+      {"$ref": "#/$defs/process"}, {"$ref": "#/$defs/artifact"},
+      {"$ref": "#/$defs/network"}, {"$ref": "#/$defs/limit"}
+    ]}
+  },
+  "allOf": [
+    {"if":{"properties":{"evidence_type":{"const":"process"}},"required":["evidence_type"]},"then":{"properties":{"attributes":{"$ref":"#/$defs/process"}}}},
+    {"if":{"properties":{"evidence_type":{"const":"artifact"}},"required":["evidence_type"]},"then":{"properties":{"attributes":{"$ref":"#/$defs/artifact"}}}},
+    {"if":{"properties":{"evidence_type":{"const":"network"}},"required":["evidence_type"]},"then":{"properties":{"attributes":{"$ref":"#/$defs/network"}}}},
+    {"if":{"properties":{"evidence_type":{"const":"collection-limit"}},"required":["evidence_type"]},"then":{"properties":{"observation_state":{"const":"unobserved"},"attributes":{"$ref":"#/$defs/limit"}}}}
+  ],
+  "$defs": {
+    "process": {"type":"object","additionalProperties":false,"required":["health_state","cpu_time_ms","resident_memory_bytes","exit_code","restart_count"],"properties":{"health_state":{"enum":["starting","running","stopped","failed","unknown"]},"cpu_time_ms":{"type":"integer","minimum":0,"maximum":9007199254740991},"resident_memory_bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"exit_code":{"type":["integer","null"],"minimum":-2147483648,"maximum":2147483647},"restart_count":{"type":"integer","minimum":0,"maximum":9007199254740991}}},
+    "artifact": {"type":"object","additionalProperties":false,"required":["artifact_id","root_id","sha256","size_bytes","mtime_ns"],"properties":{"artifact_id":{"type":"string","pattern":"^hmac-sha256:[0-9a-f]{64}$"},"root_id":{"enum":["agent-work","agent-output"]},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"size_bytes":{"type":"integer","minimum":0,"maximum":16777216},"mtime_ns":{"type":"string","pattern":"^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]|1844674407370955161[0-5])$"}}},
+    "network": {"type":"object","additionalProperties":false,"required":["destination_id","decision"],"properties":{"destination_id":{"enum":["signal-loom-ingest","agentmaxxing-api"]},"decision":{"enum":["allowed","denied"]}}},
+    "limit": {"type":"object","additionalProperties":false,"required":["reason_code","max_file_size_bytes","max_files_per_window","max_bytes_per_window","window_seconds"],"properties":{"reason_code":{"enum":["oversize","files-rate-exhausted","bytes-rate-exhausted"]},"max_file_size_bytes":{"const":16777216},"max_files_per_window":{"const":120},"max_bytes_per_window":{"const":67108864},"window_seconds":{"const":60}}}
+  },
+  "x-signalloom-semantics": {"tenant-source":"authenticated-principal","allowlist-source":"AMXO-P1-2","redacted-records-prove-original-chain":false}
+}

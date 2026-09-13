@@ -429,7 +429,7 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P3-PRE | preflight | Confirm approved identity contracts and enrollment integration seams | P2-GOV | Enrollment schema review; OpenBao role and policy inventory | S | antigravity | pass — delivered: dea03e76053ffdef5aa43fb92f08ddc3998ba65f (see Errata — AMXO-P3-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
 | P3-1 | implementation | Implement atomic one-time external host enrollment exchange | P3-PRE | `make demo-agentmaxxing-contract-test`; concurrent redemption test | L | antigravity | pass — delivered: c3393d64cfdb61d62160393cb54ecbd877205d94 (see Errata — AMXO-P3-1) | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
 | P3-2 | implementation | Implement audit-only credential scope and tenant-agent binding | P3-PRE | `make demo-agentmaxxing-contract-test`; denied non-upload action matrix | L | antigravity | pass — delivered: 76e0c31b9e24c9c18dc84c511a65313ecf1018a6 (see Errata — AMXO-P3-2) | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
-| P3-3 | implementation | Implement independent host revocation enforcement | P3-PRE | `make demo-agentmaxxing-contract-test`; post-revocation upload denial | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
+| P3-3 | implementation | Implement independent host revocation enforcement | P3-PRE | `make demo-agentmaxxing-contract-test`; post-revocation upload denial | M | antigravity | pass — delivered: aec889d363717dfb119a0082f427ba9e65842c16 (see Errata — AMXO-P3-3) | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
 | P3-GOV | governor | Merge enrollment work and verify credential least privilege | P3-1, P3-2, P3-3 | `make demo-agentmaxxing-contract-test`; security review evidence | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
 | P4-PRE | preflight | Confirm Linux kernel nono systemd and upload prerequisites | P3-GOV | Kernel capability probe; pinned nono version and digest evidence; fixture plan | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
 | P4-1 | implementation | Build fail-closed nono profile systemd unit and digest gate | P4-PRE | `make demo-agentmaxxing-host-test`; filesystem and network denial probes | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=5d3df&dir=/home/andy/.cline/worktrees/5d3df/osramp-demo&host=fortuna&model=coding_medium |
@@ -654,5 +654,21 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | Task | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :-------- | :----- | :------ | :----- |
 | P3-2 | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P3-3 Implement independent host revocation enforcement
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 17:52:00+01:00
+**Last Updated:** 2026-09-13 17:52:00+01:00
+**Status:** Completed
+**Commit:** `aec889d363717dfb119a0082f427ba9e65842c16`
+**Decisions:** Delivered independent host revocation enforcement in `fe-signalloom`. External Linux hosts can be revoked by authorized operators via `POST /v1/external-agents/{agent_id}/revocations`, `POST /api/v1/external-agents/registrations/{agent_id}/revoke`, and `POST /v1/external-agents/hosts/{host_id}/revoke`. Implemented database migration `041_external_host_revocation.sql` tracking revoking operator user ID, subject, and issuer with foreign key to `platform_users` and composite index. Verified real-time upload rejection (HTTP 403 Forbidden with `host_revoked`), audit ingestion blocking, sibling host isolation, operator account isolation, and `external_agent.revoked` audit event emission.
+**Deviations:** None.
+**Notes:** 8/8 revocation tests passing (`pytest test_host_revocation.py`), 149/149 host and tenant isolation tests passing, 6/6 contract tests passing (`make demo-agentmaxxing-contract-test`), 56/56 API contract tests passing (`make demo-signalloom-api-test TIER=contract`). Proof recorded in `docs/signalloom/amxo-p3-3-proof.md` and `docs/signalloom/amxo-p3-3-evidence.md`.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P3-3 | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

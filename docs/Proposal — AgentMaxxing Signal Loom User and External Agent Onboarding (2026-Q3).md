@@ -546,7 +546,7 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Task checkout:** `(detached)`
 **Launch base:** `1d224f51c63be3d771981a20fea8e30c1952e75c`
 **Integration ref inspected:** `integration/agentmaxxing-onboarding-v0.1.0` at `7a2b45d2c3adb1223163a89fd190f0abaa97f9ac`
-**Governor merge:** pending Governor reconciliation
+**Governor merge:** merged into integration/agentmaxxing-onboarding-v0.1.0 (commit fcb2da9)
 
 **Decisions:** Certified the Phase 2 identity and claim seams as ready after verifying Phase 1 operator, claim, signed-session, and closed external wire contracts. Migration prefixes have no collisions through `038`; `039` is the next available external-agent migration number. FastAPI tenant scope is derived from validated server-side subject mapping, and claim list/get/release operations bind tenant predicates. Repaired the stale claim upsert conflict target to match migration `035`, restored OpenAPI-based tenant route inventory, restored authorization-suite collection, and made the static `/docs` proxy read-only. These are baseline repairs, not Phase 2 registration implementation.
 

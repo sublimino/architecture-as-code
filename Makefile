@@ -815,7 +815,7 @@ demo-agentmaxxing-contract-test: ## Run attributable AgentMaxxing operator lifec
 	bats test/signalloom/operator-identity.bats
 demo-agentmaxxing-host-test: ## Run AgentMaxxing Linux host sensor, confinement, anti-escape, and TOCTOU hasher tests.
 	python3 -m unittest discover -s d2-signalloom/apps/agentmaxxing-host-sensor/ -p 'test_*.py'
-	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py -k "nono or process or anti_escape or toctou"
+	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py -k "nono or process or anti_escape or toctou"
 	bats test/signalloom/agentmaxxing-host-confinement.bats
 	bats test/signalloom/file-validator-anti-escape.bats
 	bats test/signalloom/hasher-toctou.bats

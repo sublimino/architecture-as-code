@@ -568,3 +568,75 @@ def test_privacy_boundaries() -> None:
     absent = classify_boundary(integrity_verified=True)
     assert absent.observation_state is ObservationState.UNOBSERVED
     assert absent.integrity_state is IntegrityState.VERIFIED
+
+
+def test_nono_profile_conformance() -> None:
+    """Validate that agentmaxxing-host-sensor profile.json satisfies approved host policy."""
+    from pathlib import Path
+    import json
+
+    profile_path = (
+        Path(__file__).resolve().parents[3]
+        / "agentmaxxing-host-sensor"
+        / "profile.json"
+    )
+    assert profile_path.is_file(), f"profile.json missing at {profile_path}"
+
+    with profile_path.open(encoding="utf-8") as f:
+        prof = json.load(f)
+
+    policy_path = (
+        Path(__file__).resolve().parents[4]
+        / "governance"
+        / "fixtures"
+        / "agentmaxxing-host-policy.v1.json"
+    )
+    with policy_path.open(encoding="utf-8") as f:
+        policy = json.load(f)
+
+    # Version check
+    assert prof.get("meta", {}).get("version") == policy["nono"]["version"]
+
+    # Filesystem allow/read check
+    allow_paths = prof.get("filesystem", {}).get("allow", [])
+    for w_root in policy.get("writable_roots", []):
+        assert w_root["path"] in allow_paths, f"writable root {w_root['path']} missing from profile allow"
+
+    read_paths = prof.get("filesystem", {}).get("read", [])
+    for r_root in policy.get("readable_roots", []):
+        assert r_root["path"] in read_paths, f"readable root {r_root['path']} missing from profile read"
+
+    # Network destinations check
+    allowed_domains = prof.get("network", {}).get("allow_domain", [])
+    for dest in policy.get("network_destinations", []):
+        assert dest["dns_name"] in allowed_domains, f"network destination {dest['dns_name']} missing from profile"
+    assert 443 in prof.get("network", {}).get("connect_port", [])
+
+    # Deny rules check
+    deny_paths = prof.get("filesystem", {}).get("deny", [])
+    assert "/root" in deny_paths
+    assert "/etc/shadow" in deny_paths
+
+
+def test_nono_profile_fail_closed() -> None:
+    """Assert nono profile enforces fail-closed isolation directives and denies credential leaks."""
+    from pathlib import Path
+    import json
+
+    profile_path = (
+        Path(__file__).resolve().parents[3]
+        / "agentmaxxing-host-sensor"
+        / "profile.json"
+    )
+    with profile_path.open(encoding="utf-8") as f:
+        prof = json.load(f)
+
+    security = prof.get("security", {})
+    assert security.get("signal_mode") == "isolated"
+    assert security.get("process_info_mode") == "isolated"
+    assert security.get("capability_elevation") is False
+
+    deny_vars = prof.get("environment", {}).get("deny_vars", [])
+    assert "SSH_AUTH_SOCK" in deny_vars
+    assert "AWS_ACCESS_KEY_ID" in deny_vars
+    assert "GITHUB_TOKEN" in deny_vars

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://nono.sh/schema/profile.json",
+  "meta": {
+    "name": "agentmaxxing-linux-v1",
+    "version": "0.73.0",
+    "description": "Fail-closed nono 0.73.0 confinement profile for the external AgentMaxxing Linux agent. Restricts filesystem access to designated workspace roots, enforces read-only input roots, blocks all unauthorized outbound network destinations except Signal Loom ingest and AgentMaxxing API, strips sensitive credentials from the environment, and prevents privilege elevation via Landlock LSM.",
+    "author": "ControlPlane Signal Loom Operations"
+  },
+  "groups": {
+    "exclude": [
+      "system_write_linux"
+    ]
+  },
+  "security": {
+    "signal_mode": "isolated",
+    "process_info_mode": "isolated",
+    "ipc_mode": "shared_memory_only",
+    "capability_elevation": false
+  },
+  "filesystem": {
+    "allow": [
+      "/var/lib/agentmaxxing/work",
+      "/var/lib/agentmaxxing/output",
+      "/var/lib/agentmaxxing/audit",
+      "/run/agentmaxxing"
+    ],
+    "read": [
+      "/opt/agentmaxxing",
+      "/etc/ssl/certs",
+      "/srv/agentmaxxing/input",
+      "/usr",
+      "/lib",
+      "/lib64",
+      "/etc/resolv.conf",
+      "/etc/hosts"
+    ],
+    "deny": [
+      "/root",
+      "/etc/shadow",
+      "/etc/gshadow",
+      "/etc/sudoers",
+      "/etc/pam.d",
+      "~/.ssh",
+      "~/.gnupg",
+      "~/.aws",
+      "~/.kube",
+      "~/.config/gcloud"
+    ]
+  },
+  "network": {
+    "allow_domain": [
+      "signal-ingest.signalloom.controlplane.io",
+      "api.agentmaxxing.com"
+    ],
+    "connect_port": [
+      443
+    ]
+  },
+  "environment": {
+    "deny_vars": [
+      "SSH_AUTH_SOCK",
+      "SSH_ASKPASS",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "GITHUB_TOKEN",
+      "GH_TOKEN",
+      "GH_ENTERPRISE_TOKEN",
+      "KUBECONFIG",
+      "VAULT_TOKEN",
+      "GNUPGHOME",
+      "GPG_TTY",
+      "PINENTRY_USER_DATA"
+    ]
+  }
+}

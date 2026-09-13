@@ -414,8 +414,8 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P1-3 | implementation | Freeze versioned architecture wire contracts and service ownership | P1-1, P1-2 | Contract schemas; threat assumptions; FastAPI/Go ownership decision; privacy allowlist | L | deep | pass — delivered: 1f35b82edb2e6e575e0ea049ea09b2f9f883b924 (see Errata — AMXO-P1-3) | $0.00 | in 32.2M; out 258.7k; reason 80.0k; cache 75.4M | 3h24m26s | cpai://open?id=ses_f659de86effex9i0eIohpcKiGM&dir=/home/andy/.cline/worktrees/539f5/osramp-demo&host=fortuna&model=gpt-5.6-sol |
 | P1-GOV | governor | Approve decision freeze and reject unresolved placeholders | P1-1, P1-2, P1-3 | Proposal review; zero unresolved kickoff gates; architecture and security sign-off | M | deep | pass — certified: Phase 1 Monorepo Certification (see Errata — AMXO-P1-GOV) | $0.00 | in 2.0M; out 11.6k; reason 2.0k; cache 1.7M | 12m02s | cpai://open?id=ses_f64f9d8b7ffe2uOW5AapGeSik3&dir=/home/andy/.cline/worktrees/c907c/osramp-demo&host=fortuna&model=gpt-6-astra |
 | P2-PRE | preflight | Confirm identity and claim seams against frozen contracts | P1-GOV | Focused existing identity tests; collision and migration-number checks | S | daily | pass — delivered: 95a5dab7b20af4f0a6e45a80241adbd944a267a9 (see Errata — AMXO-P2-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=905f5&dir=/home/andy/.cline/worktrees/905f5/osramp-demo&host=fortuna&model=coding_medium |
-| P2-1 | implementation | Implement attributable operator lifecycle and shared-identity rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; removed-user and shared-identity negatives | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=9a9b6&dir=/home/andy/.cline/worktrees/9a9b6/osramp-demo&host=fortuna&model=coding_medium |
-| P2-2 | implementation | Implement tenant-bound registration and duplicate agent-claim rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; cross-tenant and conflict tests | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
+| P2-1 | implementation | Implement attributable operator lifecycle and shared-identity rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; removed-user and shared-identity negatives | L | antigravity | pass — delivered: 088ecdce459ee08b55091c9f22c87bd1540900e6 (see Errata — AMXO-P2-1) | $0.00 | N/A — no session | N/A | cpai://open?id=9a9b6&dir=/home/andy/.cline/worktrees/9a9b6/osramp-demo&host=fortuna&model=coding_medium |
+| P2-2 | implementation | Implement tenant-bound registration and duplicate agent-claim rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; cross-tenant and conflict tests | L | antigravity | pass — delivered: 7f74561dd59705b88e1c1491f6adf643a7b13eed (see Errata — AMXO-P2-2) | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
 | P2-GOV | governor | Merge identity registration work and verify authorization isolation | P2-1, P2-2 | `make demo-agentmaxxing-contract-test`; `make demo-signalloom-api-test TIER=contract` | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
 | P3-PRE | preflight | Confirm approved identity contracts and enrollment integration seams | P2-GOV | Enrollment schema review; OpenBao role and policy inventory | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
 | P3-1 | implementation | Implement atomic one-time external host enrollment exchange | P3-PRE | `make demo-agentmaxxing-contract-test`; concurrent redemption test | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
@@ -555,3 +555,27 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 **Verification:** Required claim pytest: 11 passed. Attributable operator suite: 33 passed. Tenant-isolation suite: 95 passed. Credential revocation transaction selector: one passed. Agentnono Go contract package passed. Focused authorization/nginx BATS: nine passed. Signal Loom static suite: 571 checks with zero failures. Root `make test`: eight tests, zero skips, exit `0`. Required proof-file gate passed. Evidence: `docs/signalloom/amxo-p2-pre-proof.md`; readiness proof: `docs/signalloom/amxo-p2-preflight-proof.md`.
 
 **Scope:** No Phase 2 product behavior, external-agent tables, enrollment flow, live partner contact, production deployment, sibling worktree edit, Kanban runtime mutation, remote push, customer payload collection, process-memory collection, or file-content collection occurred.
+
+#### Errata — AMXO-P2-1 Implement attributable operator lifecycle and shared-identity rejection
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 16:34:42+01:00
+**Last Updated:** 2026-09-13 16:34:42+01:00
+**Status:** Completed
+**Commit:** `088ecdce459ee08b55091c9f22c87bd1540900e6`
+**Governor merge:** merged into integration/agentmaxxing-onboarding-v0.1.0
+**Decisions:** Implemented attributable operator lifecycle in `fe-signalloom` with strict individual authentication and negative shared-identity rejection (`platform_users.py`, `operator_identity.py`, `038_operator_identities.sql`). Enforced individual user identity validation, de-provisioning, last-admin protection, and audit events.
+**Deviations:** None. Pure-Go and mock test paths verified without external network dependency.
+**Notes:** 41 pytest tests passed in `test_platform_users.py`, 6 contract BATS tests passed in `test/signalloom/operator-identity.bats`, negative shared-identity and cross-tenant tests passed. Evidence in `docs/signalloom/amxo-p2-1-evidence.md` and proof in `docs/signalloom/amxo-p2-1-proof.md`.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P2-2 Implement tenant-bound registration and duplicate agent-claim rejection
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 16:44:13+01:00
+**Last Updated:** 2026-09-13 16:44:13+01:00
+**Status:** Completed
+**Commit:** `7f74561dd59705b88e1c1491f6adf643a7b13eed`
+**Governor merge:** merged into integration/agentmaxxing-onboarding-v0.1.0
+**Decisions:** Implemented external agent registration router, agent_claim extensions, and migration `039_external_agent_registrations.sql` with tenant-scoped pre-registration and duplicate claim rejection. Resolved re-entrancy lock contention on `_STORE_LOCK`.
+**Deviations:** None.
+**Notes:** 25 pytest tests passed in `test_agent_claim.py` and `test_external_agent_registration.py`, contract tests passed, negative duplicate claim and cross-tenant tests passed. Evidence in `docs/signalloom/amxo-p2-2-evidence.md` and proof in `docs/signalloom/amxo-p2-2-proof.md`.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

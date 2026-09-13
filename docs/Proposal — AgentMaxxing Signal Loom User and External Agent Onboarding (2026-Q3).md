@@ -427,8 +427,8 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P2-2 | implementation | Implement tenant-bound registration and duplicate agent-claim rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; cross-tenant and conflict tests | L | antigravity | pass — delivered: 7f74561dd59705b88e1c1491f6adf643a7b13eed (see Errata — AMXO-P2-2) | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
 | P2-GOV | governor | Merge identity registration work and verify authorization isolation | P2-1, P2-2 | `make demo-agentmaxxing-contract-test`; `make demo-signalloom-api-test TIER=contract` | M | antigravity | pass — delivered: 4589bdf43eb1343801e2cb3cadc73fb0b75c7d0e (see Errata — AMXO-P2-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
 | P3-PRE | preflight | Confirm approved identity contracts and enrollment integration seams | P2-GOV | Enrollment schema review; OpenBao role and policy inventory | S | antigravity | pass — delivered: dea03e76053ffdef5aa43fb92f08ddc3998ba65f (see Errata — AMXO-P3-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
-| P3-1 | implementation | Implement atomic one-time external host enrollment exchange | P3-PRE | `make demo-agentmaxxing-contract-test`; concurrent redemption test | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
-| P3-2 | implementation | Implement audit-only credential scope and tenant-agent binding | P3-PRE | `make demo-agentmaxxing-contract-test`; denied non-upload action matrix | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
+| P3-1 | implementation | Implement atomic one-time external host enrollment exchange | P3-PRE | `make demo-agentmaxxing-contract-test`; concurrent redemption test | L | antigravity | pass — delivered: c3393d64cfdb61d62160393cb54ecbd877205d94 (see Errata — AMXO-P3-1) | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
+| P3-2 | implementation | Implement audit-only credential scope and tenant-agent binding | P3-PRE | `make demo-agentmaxxing-contract-test`; denied non-upload action matrix | L | antigravity | pass — delivered: 76e0c31b9e24c9c18dc84c511a65313ecf1018a6 (see Errata — AMXO-P3-2) | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
 | P3-3 | implementation | Implement independent host revocation enforcement | P3-PRE | `make demo-agentmaxxing-contract-test`; post-revocation upload denial | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
 | P3-GOV | governor | Merge enrollment work and verify credential least privilege | P3-1, P3-2, P3-3 | `make demo-agentmaxxing-contract-test`; security review evidence | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
 | P4-PRE | preflight | Confirm Linux kernel nono systemd and upload prerequisites | P3-GOV | Kernel capability probe; pinned nono version and digest evidence; fixture plan | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
@@ -622,5 +622,37 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | Task | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :-------- | :----- | :------ | :----- |
 | P3-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P3-1 Implement atomic one-time external host enrollment exchange
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 17:31:00+01:00
+**Last Updated:** 2026-09-13 17:31:00+01:00
+**Status:** Completed
+**Commit:** `c3393d64cfdb61d62160393cb54ecbd877205d94`
+**Decisions:** Delivered atomic one-time external host enrollment token exchange in `fe-signalloom`. External Linux hosts bootstrap onto Signal Loom through cryptographically validated single-use Bearer enrollment tokens issued by authorized operators (`POST /v1/external-agents/registrations/{agent_id}/token` and `POST /v1/external-agents/enroll`). Implemented database migration `040_host_enrollment_tokens.sql` with single-use flags, expiration timestamps, and unique SHA-256 hash indexes. Enforced atomic CAS transactions and multi-threaded concurrency locking for replay prevention.
+**Deviations:** None.
+**Notes:** 13/13 host enrollment tests passing (`pytest test_host_enrollment.py`), 6/6 contract tests passing (`make demo-agentmaxxing-contract-test`), 56/56 API contract tests passing (`make demo-signalloom-api-test TIER=contract`). Proof recorded in `docs/signalloom/amxo-p3-1-proof.md` and `docs/signalloom/host-enrollment-protocol.md`.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P3-1 | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P3-2 Implement audit-only credential scope and tenant-agent binding
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 17:32:00+01:00
+**Last Updated:** 2026-09-13 17:32:00+01:00
+**Status:** Completed
+**Commit:** `76e0c31b9e24c9c18dc84c511a65313ecf1018a6`
+**Decisions:** Delivered audit-only credential scoping, tenant-agent-host-key binding, negative action denial middleware, and credential rotation mechanics for enrolled external Linux hosts (`nono-0.73.0`). Built RS256 host credential issuance and verification service (`host_credential.py`) binding host tokens strictly to `(tenant_id, agent_id, host_id, key_id)` under the canonical SPIFFE SVID pattern. Installed `HostCredentialScopeMiddleware` intercepting host tokens and strictly denying access (403 Forbidden with `host_credential_scope_restricted`) across all operator control-plane routes.
+**Deviations:** None.
+**Notes:** 19/19 host credential tests passing (`pytest test_host_credential.py`), 109/109 tenant isolation tests passing (`pytest test_tenant_isolation.py`), 6/6 contract tests passing (`make demo-agentmaxxing-contract-test`), 56/56 API contract tests passing (`make demo-signalloom-api-test TIER=contract`). Proof recorded in `docs/signalloom/amxo-p3-2-proof.md` and `docs/signalloom/host-credential-scoping.md`.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P3-2 | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

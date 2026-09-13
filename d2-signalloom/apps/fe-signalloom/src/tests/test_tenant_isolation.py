@@ -258,6 +258,26 @@ class RecordingPool:
                 "last_login_at": None,
                 "created_at": "2026-09-12T00:00:00Z",
             }
+        if "INSERT INTO public.external_agent_registrations" in query or "FOR UPDATE" in query or ("FROM public.external_agent_registrations" in query and ("WHERE tenant_id =" in query or "AND tenant_id =" in query) and "SELECT id," not in query):
+            return {
+                "id": uuid.UUID("e0000000-0000-0000-0000-000000000001"),
+                "agent_id": "probe-ext-01",
+                "tenant_id": TENANT_A,
+                "host_id": "host-01",
+                "host_os": "linux",
+                "runtime_profile": "nono-0.73.0-standard",
+                "enrollment_status": "pending",
+                "registered_by_subject": ALICE,
+                "registered_by_user_id": None,
+                "allocated_token_budget": 100000,
+                "spiffe_id_pattern": None,
+                "enrolled_at": None,
+                "revoked_at": None,
+                "revocation_reason": None,
+                "metadata": {},
+                "created_at": "2026-09-12T00:00:00Z",
+                "updated_at": "2026-09-12T00:00:00Z",
+            }
         return None
 
     async def fetchval(self, query: str, *args: Any) -> None:
@@ -433,6 +453,96 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
         "/api/compliance/policy/scan",
         {"namespace": "probe-ns", "policyVersion": "v1", "frameworks": []},
     ),
+    ("GET", "/api/v1/external-agents/registrations", None),
+    ("GET", "/api/external-agents/registrations", None),
+    ("GET", "/api/v1/external-agents/registrations/probe-ext-01", None),
+    ("GET", "/api/external-agents/registrations/probe-ext-01", None),
+    (
+        "POST",
+        "/api/v1/external-agents/register",
+        {
+            "agent_id": "probe-ext-01",
+            "host_id": "host-01",
+            "host_os": "linux",
+            "runtime_profile": "nono-0.73.0-standard",
+            "allocated_token_budget": 100000,
+        },
+    ),
+    (
+        "POST",
+        "/api/external-agents/register",
+        {
+            "agent_id": "probe-ext-01",
+            "host_id": "host-01",
+            "host_os": "linux",
+            "runtime_profile": "nono-0.73.0-standard",
+            "allocated_token_budget": 100000,
+        },
+    ),
+    (
+        "POST",
+        "/api/v1/external-agents/registrations",
+        {
+            "agent_id": "probe-ext-01",
+            "host_id": "host-01",
+            "host_os": "linux",
+            "runtime_profile": "nono-0.73.0-standard",
+            "allocated_token_budget": 100000,
+        },
+    ),
+    (
+        "POST",
+        "/api/external-agents/registrations",
+        {
+            "agent_id": "probe-ext-01",
+            "host_id": "host-01",
+            "host_os": "linux",
+            "runtime_profile": "nono-0.73.0-standard",
+            "allocated_token_budget": 100000,
+        },
+    ),
+    (
+        "POST",
+        "/api/v1/external-agents/registrations/probe-ext-01/claim",
+        {
+            "harness": "nono-0.73.0",
+            "model": "claude-3-5-sonnet",
+        },
+    ),
+    (
+        "POST",
+        "/api/external-agents/registrations/probe-ext-01/claim",
+        {
+            "harness": "nono-0.73.0",
+            "model": "claude-3-5-sonnet",
+        },
+    ),
+    (
+        "POST",
+        "/api/v1/external-agents/registrations/probe-ext-01/revoke",
+        {"reason": "probe"},
+    ),
+    (
+        "POST",
+        "/api/external-agents/registrations/probe-ext-01/revoke",
+        {"reason": "probe"},
+    ),
+    (
+        "POST",
+        "/api/v1/external-agents/probe-ext-01/claim",
+        {
+            "harness": "nono-0.73.0",
+            "model": "claude-3-5-sonnet",
+        },
+    ),
+    (
+        "POST",
+        "/api/external-agents/probe-ext-01/claim",
+        {
+            "harness": "nono-0.73.0",
+            "model": "claude-3-5-sonnet",
+        },
+    ),
 ]
 
 
@@ -550,6 +660,7 @@ def _template_for(concrete: str) -> str:
             "/operator-identities/d0000000-0000-0000-0000-000000000001/remove",
             "/operator-identities/{identity_id}/remove",
         )
+        .replace("/probe-ext-01", "/{agent_id}")
     )
 
 

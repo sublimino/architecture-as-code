@@ -1,0 +1,1 @@
+{"schema_version":"1.0.0","agent_id":"agentmaxxing-linux-001","credential_reference":"spiffe://signalloom.demo/ns/agents/sa/agentmaxxing-linux-001","revocation_state":"revocation-accepted","reason_code":"anything","revoked_at":"2026-09-13T10:05:00Z"}

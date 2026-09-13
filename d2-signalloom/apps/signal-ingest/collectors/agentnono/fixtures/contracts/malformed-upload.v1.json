@@ -1,0 +1,1 @@
+{"schema_version":"1.0.0","tenant_id":"attacker-tenant","upload_id":"short","replay_key":"bad","session_id":"session-001","sequence_start":1,"sequence_end":0,"assertion_envelope":{},"original_chain_reference":{"authority":"agentnono-go-v1","state":"integrity-verified"}}

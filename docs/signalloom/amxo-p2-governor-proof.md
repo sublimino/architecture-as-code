@@ -2,6 +2,7 @@
 
 **Card**: `AMXO-P2-GOV` (`63150`)  
 **Timestamp**: `2026-09-13T17:10:00+01:00`  
+**Commit**: `347006b29759ad2ce7b70743f55ebfdb62ff6bfd`  
 **Base Ref**: `refs/heads/integration/agentmaxxing-onboarding-v0.1.0`  
 **Workspace**: `/home/andy/src/.worktrees/63150/osramp-demo`  
 **Status**: `CERTIFIED_PASS`  

@@ -570,6 +570,7 @@ def test_privacy_boundaries() -> None:
     assert absent.integrity_state is IntegrityState.VERIFIED
 
 
+<<<<<<< HEAD
 def test_nono_profile_conformance() -> None:
     """Validate that agentmaxxing-host-sensor profile.json satisfies approved host policy."""
     from pathlib import Path
@@ -715,4 +716,69 @@ def test_process_metadata() -> None:
     assert attrs["cpu_time_ms"] >= 0
     assert attrs["resident_memory_bytes"] >= 0
     assert attrs["restart_count"] == 0
+
+
+def test_anti_escape_descriptor_relative_validation(tmp_path: Any) -> None:
+    """AMXO-P4-3: Assert descriptor-relative anti-escape constraints reject ineligible targets with 0 bytes read."""
+    from pathlib import Path
+    import tempfile
+    
+    # Import file validator module from agentmaxxing-host-sensor
+    sensor_dir = Path(__file__).resolve().parents[3] / "agentmaxxing-host-sensor"
+    if str(sensor_dir) not in sys.path:
+        sys.path.insert(0, str(sensor_dir))
+    
+    from file_validator import (
+        PinnedRoot,
+        EligibilityStatus,
+        RejectionReason,
+        validate_and_hash_artifact,
+    )
+
+    work_dir = tmp_path / "agent_work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Valid regular file
+    valid_file = work_dir / "valid_output.json"
+    valid_file.write_text('{"status": "ok", "result": 42}', encoding="utf-8")
+    
+    with PinnedRoot(str(work_dir)) as pinned:
+        valid_res = pinned.validate_and_hash("valid_output.json")
+        assert valid_res.is_eligible
+        assert valid_res.sha256 is not None
+        assert valid_res.bytes_read > 0
+        assert "RESOLVE_BENEATH" in valid_res.syscall_flags_used
+        assert "RESOLVE_NO_SYMLINKS" in valid_res.syscall_flags_used
+        assert "RESOLVE_NO_XDEV" in valid_res.syscall_flags_used
+
+        # 2. Symlink trap (inside)
+        symlink_inside = work_dir / "sym_inside.json"
+        symlink_inside.symlink_to("valid_output.json")
+        sym_res = pinned.validate_and_hash("sym_inside.json")
+        assert not sym_res.is_eligible
+        assert sym_res.reason == RejectionReason.SYMLINK_REJECTED
+        assert sym_res.bytes_read == 0
+
+        # 3. Symlink escape (outside to /etc/passwd)
+        symlink_out = work_dir / "sym_outside.json"
+        symlink_out.symlink_to("/etc/passwd")
+        sym_out_res = pinned.validate_and_hash("sym_outside.json")
+        assert not sym_out_res.is_eligible
+        assert sym_out_res.reason == RejectionReason.SYMLINK_REJECTED
+        assert sym_out_res.bytes_read == 0
+
+        # 4. Path traversal escape (..)
+        traversal_res = pinned.validate_and_hash("../../../etc/passwd")
+        assert not traversal_res.is_eligible
+        assert traversal_res.reason == RejectionReason.ESCAPE_REJECTED
+        assert traversal_res.bytes_read == 0
+
+        # 5. Hard-link escape (nlink > 1)
+        hardlink_target = work_dir / "hardlink_target.json"
+        os.link(str(valid_file), str(hardlink_target))
+        hl_res = pinned.validate_and_hash("hardlink_target.json")
+        assert not hl_res.is_eligible
+        assert hl_res.reason == RejectionReason.HARDLINK_REJECTED
+        assert hl_res.bytes_read == 0
+
 

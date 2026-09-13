@@ -1,41 +1,124 @@
-"""AgentMaxxing Host Sensor — Bounded Process Lifecycle Telemetry Collector.
+"""
+AgentMaxxing Linux Host Sensor & Confinement Package.
 
-Emits bounded allowlisted process lifecycle metadata (health state, CPU time/percent,
-RSS memory, exit codes, restart count) without inspecting process memory, commandline
-arguments, environment variables, customer files, or payload contents.
+Provides defense-in-depth Linux host confinement, fail-closed nono 0.73.0 profiles,
+hardened systemd service definitions, bounded allowlisted process telemetry collection,
+descriptor-relative artifact anti-escape validation, and rate-limited TOCTOU artifact hashing.
 """
 from __future__ import annotations
 
-from .collector import ProcessTelemetryCollector
-from .filter import AllowlistFilter, filter_process_attributes, sanitize_evidence_record
-from .models import (
-    BoundedProcessAttributes,
-    EvidenceType,
-    ExportSource,
-    HealthState,
-    IntegrityState,
-    ObservationState,
-    ProcessTelemetryEvent,
-)
-from .proc import ProcReader
-from .cgroups import CgroupV2Reader
-from .sensor import HostSensor
+import os
+import sys
+from pathlib import Path
+
+_PKG_DIR = str(Path(__file__).resolve().parent)
+if _PKG_DIR not in sys.path:
+    sys.path.insert(0, _PKG_DIR)
+
+try:
+    from .cgroups import CgroupV2Reader
+    from .collector import ProcessTelemetryCollector
+    from .file_validator import (
+        EligibilityStatus,
+        PinnedRoot,
+        RejectionReason,
+        ValidationResult,
+        validate_and_hash_artifact,
+    )
+    from .filter import AllowlistFilter, filter_process_attributes, sanitize_evidence_record
+    from .hasher import (
+        ArtifactHashResult,
+        BoundedArtifactHasher,
+        CollectionLimitRecord,
+        FileIdentitySnapshot,
+        FileOversizeError,
+        HasherError,
+        InvalidArtifactError,
+        RateLimitExceededError,
+        TOCTOURaceDetectedError,
+    )
+    from .models import (
+        BoundedProcessAttributes,
+        EvidenceType,
+        ExportSource,
+        HealthState,
+        IntegrityState,
+        ObservationState,
+        ProcessTelemetryEvent,
+    )
+    from .openat2 import get_statx_mnt_id, open_beneath, query_statx
+    from .proc import ProcReader
+    from .ratelimit import RateLimiter
+    from .sensor import HostSensor
+except (ImportError, ValueError):
+    from cgroups import CgroupV2Reader
+    from collector import ProcessTelemetryCollector
+    from file_validator import (
+        EligibilityStatus,
+        PinnedRoot,
+        RejectionReason,
+        ValidationResult,
+        validate_and_hash_artifact,
+    )
+    from filter import AllowlistFilter, filter_process_attributes, sanitize_evidence_record
+    from hasher import (
+        ArtifactHashResult,
+        BoundedArtifactHasher,
+        CollectionLimitRecord,
+        FileIdentitySnapshot,
+        FileOversizeError,
+        HasherError,
+        InvalidArtifactError,
+        RateLimitExceededError,
+        TOCTOURaceDetectedError,
+    )
+    from models import (
+        BoundedProcessAttributes,
+        EvidenceType,
+        ExportSource,
+        HealthState,
+        IntegrityState,
+        ObservationState,
+        ProcessTelemetryEvent,
+    )
+    from openat2 import get_statx_mnt_id, open_beneath, query_statx
+    from proc import ProcReader
+    from ratelimit import RateLimiter
+    from sensor import HostSensor
 
 __version__ = "1.0.0"
 
 __all__ = [
     "AllowlistFilter",
+    "ArtifactHashResult",
+    "BoundedArtifactHasher",
     "BoundedProcessAttributes",
     "CgroupV2Reader",
+    "CollectionLimitRecord",
+    "EligibilityStatus",
     "EvidenceType",
     "ExportSource",
+    "FileIdentitySnapshot",
+    "FileOversizeError",
+    "HasherError",
     "HealthState",
     "HostSensor",
     "IntegrityState",
+    "InvalidArtifactError",
     "ObservationState",
+    "PinnedRoot",
     "ProcessTelemetryCollector",
     "ProcessTelemetryEvent",
     "ProcReader",
+    "RateLimitExceededError",
+    "RateLimiter",
+    "RejectionReason",
+    "TOCTOURaceDetectedError",
+    "ValidationResult",
     "filter_process_attributes",
+    "get_statx_mnt_id",
+    "open_beneath",
+    "query_statx",
     "sanitize_evidence_record",
+    "validate_and_hash_artifact",
 ]

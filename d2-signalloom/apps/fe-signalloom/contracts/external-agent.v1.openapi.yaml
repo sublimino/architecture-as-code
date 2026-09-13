@@ -1,0 +1,95 @@
+openapi: 3.1.0
+info: {title: Signal Loom External Agent Contract, version: 1.0.0, description: Frozen AMXO-P1-3 contract; no runtime routes are implemented here.}
+paths:
+  /v1/external-agents/enroll:
+    post:
+      operationId: enrollExternalAgent
+      x-operation-owner: fastapi-registration-plane
+      x-tenant-source: authenticated-principal
+      x-token-semantics: Authorization Bearer; single-use atomic compare-and-set; token-bound pre-registered agent-host pair
+      x-credential-semantics: Binds an existing-mtls-identity for audit-upload-only use; bootstrap is pre-provisioned-out-of-band; no credential material is issued
+      security: [{enrollmentToken: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: ../../signal-ingest/collectors/agentnono/contracts/external-agent-enrollment.v1.schema.json}}}}
+      responses:
+        '201': {description: Existing mTLS identity and audit key binding created, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/enrollment_result'}}}}
+        '400': {$ref: '#/components/responses/MalformedRequest'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+  /v1/external-agents/evidence-uploads:
+    post:
+      operationId: uploadExternalAgentEvidence
+      x-operation-owner: go-signal-ingest-integrity-plane
+      x-identity-binding: mTLS identity to pre-registered Ed25519 key, agent, and host
+      x-idempotency: replay_key equals canonical payload SHA-256; equal digest replays are idempotent; unequal digests conflict
+      x-handoff: FastAPI does not authorize or cryptographically verify this operation
+      security: [{agentMTLS: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: ../../signal-ingest/collectors/agentnono/contracts/external-agent-upload.v1.schema.json}}}}
+      responses:
+        '202': {description: Host-signature-verified acknowledgement; original chain remains unverified, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/upload_result'}}}}
+        '400': {$ref: '#/components/responses/MalformedRequest'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+  /v1/external-agents/evidence:
+    get:
+      operationId: listExternalAgentEvidence
+      x-operation-owner: fastapi-read-plane
+      x-tenant-source: authenticated-principal
+      security: [{oidc: []}]
+      responses:
+        '200': {description: Host-provenance evidence paired with separate server acceptance metadata, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/evidence_page'}}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /v1/external-agents/privacy:
+    get:
+      operationId: getExternalAgentPrivacyContract
+      x-operation-owner: fastapi-read-plane
+      security: [{oidc: []}]
+      responses:
+        '200': {description: Frozen P1-2 boundary, content: {application/json: {schema: {$ref: ../../signal-ingest/collectors/agentnono/contracts/external-agent-privacy.v1.schema.json}}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /v1/external-agents/{agent_id}/revocations:
+    post:
+      operationId: revokeExternalAgent
+      x-operation-owner: fastapi-authorization-registration-plane
+      x-revocation-semantics: audit-only independent revocation; no evidence rewrite or deletion
+      x-tenant-source: authenticated-principal
+      security: [{oidc: []}]
+      parameters: [{name: agent_id, in: path, required: true, schema: {type: string, pattern: '^[a-z][a-z0-9-]{2,63}$'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: ../../signal-ingest/collectors/agentnono/contracts/external-agent-revocation.v1.schema.json}}}}
+      responses:
+        '202': {description: Independent revocation audit accepted, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/revocation_result'}}}}
+        '400': {$ref: '#/components/responses/MalformedRequest'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+components:
+  securitySchemes:
+    enrollmentToken: {type: http, scheme: bearer, bearerFormat: opaque single-use enrollment token}
+    agentMTLS: {type: mutualTLS}
+    oidc: {type: openIdConnect, openIdConnectUrl: /api/.well-known/openid-configuration}
+  responses:
+    MalformedRequest: {description: Malformed request syntax, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/error'}}}}
+    Unauthenticated: {description: Missing or invalid authentication, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/error'}}}}
+    Forbidden: {description: Authenticated identity lacks authority, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/error'}}}}
+    Conflict: {description: Replay or lifecycle state conflict, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/error'}}}}
+    PayloadTooLarge: {description: Evidence upload exceeds bounded payload, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/error'}}}}
+    UnsupportedMediaType: {description: Request is not application/json, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/error'}}}}
+    ValidationFailed: {description: Request violates the frozen contract, content: {application/json: {schema: {$ref: '../../signal-ingest/collectors/agentnono/contracts/external-agent-server.v1.schema.json#/$defs/error'}}}}
+x-signalloom-contract:
+  inbound-original-chain: untrusted-reference-without-authority-or-state
+  upload-acknowledgement: host-signature-verified-and-original-chain-not-verified
+  evidence-page-provenance: host-source-preserved-with-separate-acceptance
+  server-integrity-authority: agentnono-go-v1
+  local-original-chain-inputs: trusted-raw-events-expected-session-and-finalized-state
+  raw-original-chain-endpoint: absent
+  schema-validity-is-cryptographic-validity: false

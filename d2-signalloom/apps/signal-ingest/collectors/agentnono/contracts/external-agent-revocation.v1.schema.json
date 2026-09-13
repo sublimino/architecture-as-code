@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://signalloom.controlplane.io/contracts/external-agent-revocation.v1.schema.json","title":"ExternalAgentRevocationV1","type":"object","additionalProperties":false,
+  "required":["schema_version","reason_code"],
+  "properties":{"schema_version":{"const":"1.0.0"},"reason_code":{"enum":["operator-request","host-unenrolled","credential-compromise","credential-expired","key-rotation"]}}
+}

@@ -1938,5 +1938,12 @@
     "reviewer": "supervisor",
     "verdict": "pass",
     "reason": "AMXO-P3-GOV: Phase 3 Governor certified; reconciled migrations 040 and 041, least privilege credential scope verified, 149/149 host and isolation tests green, proof recorded in docs/signalloom/amxo-p3-gov-proof.md"
+  },
+  "bb4bd": {
+    "task_id": "bb4bd",
+    "reviewed_at": "2026-09-13T17:08:30Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "reason": "AMXO-P4-PRE: Preflight verified for Linux host confinement and sensor prerequisites; Linux kernel 7.1.3 Landlock LSM ABI v9 confirmed, nono 0.73.0 binary digest 71581b92 verified, deny-overlap policy rule established, openat2 RESOLVE_BENEATH and systemd 257 cgroup v2 confirmed, proof in docs/signalloom/amxo-p4-preflight-proof.md"
   }
 }

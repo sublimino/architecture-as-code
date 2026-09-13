@@ -431,7 +431,7 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P3-2 | implementation | Implement audit-only credential scope and tenant-agent binding | P3-PRE | `make demo-agentmaxxing-contract-test`; denied non-upload action matrix | L | antigravity | pass — delivered: 76e0c31b9e24c9c18dc84c511a65313ecf1018a6 (see Errata — AMXO-P3-2) | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
 | P3-3 | implementation | Implement independent host revocation enforcement | P3-PRE | `make demo-agentmaxxing-contract-test`; post-revocation upload denial | M | antigravity | pass — delivered: aec889d3f7317f67faeda8c4f4fe83f89311d708 (see Errata — AMXO-P3-3) | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
 | P3-GOV | governor | Merge enrollment work and verify credential least privilege | P3-1, P3-2, P3-3 | `make demo-agentmaxxing-contract-test`; security review evidence | M | antigravity | pass — delivered: e8886c4a06c1df3942f8dbeaddebb504d8ad43cd (see Errata — AMXO-P3-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
-| P4-PRE | preflight | Confirm Linux kernel nono systemd and upload prerequisites | P3-GOV | Kernel capability probe; pinned nono version and digest evidence; fixture plan | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
+| P4-PRE | preflight | Confirm Linux kernel nono systemd and upload prerequisites | P3-GOV | Kernel capability probe; pinned nono version and digest evidence; fixture plan | S | antigravity | pass — delivered: bad24d68dd2c522062427e8d10c643e9d9faaf77 (see Errata — AMXO-P4-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
 | P4-1 | implementation | Build fail-closed nono profile systemd unit and digest gate | P4-PRE | `make demo-agentmaxxing-host-test`; filesystem and network denial probes | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=5d3df&dir=/home/andy/.cline/worktrees/5d3df/osramp-demo&host=fortuna&model=coding_medium |
 | P4-2 | implementation | Emit bounded allowlisted process lifecycle metadata | P4-PRE | `make demo-agentmaxxing-host-test`; CPU, memory-use, exit, restart fixtures | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=dee2a&dir=/home/andy/.cline/worktrees/dee2a/osramp-demo&host=fortuna&model=coding_medium |
 | P4-3 | implementation | Enforce descriptor-relative artifact eligibility before reading bytes | P4-PRE | `make demo-agentmaxxing-host-test`; symlink, hard-link, mount, non-regular no-read proofs | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=af50e&dir=/home/andy/.cline/worktrees/af50e/osramp-demo&host=fortuna&model=coding_medium |
@@ -686,5 +686,21 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | Task | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :-------- | :----- | :------ | :----- |
 | P3-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P4-PRE Confirm Linux kernel nono systemd and upload prerequisites
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 18:08:00+01:00
+**Last Updated:** 2026-09-13 18:08:00+01:00
+**Status:** Completed
+**Commit:** `bad24d68dd2c522062427e8d10c643e9d9faaf77`
+**Decisions:** Executed comprehensive Phase 4 preflight verification for Linux host confinement and sensor prerequisites. Confirmed Linux kernel 7.1.3+deb13-amd64 with active Landlock LSM in execution stack (`lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm`) and Landlock ABI Version 9 confirmed via direct syscall probe (__NR_landlock_create_ruleset = 444). Verified pinned nono 0.73.0 binary at /usr/bin/nono with SHA-256 digest `71581b92e7683c86276bbbd91c80b059e0fe2d7b1aa95b1176870456ee22ad5c`. Identified Landlock LSM policy rule: deny-overlap is not enforceable on Linux under allowed parents; confinement profiles must bind explicit dedicated directories rather than broad parent trees. Verified fail-closed filesystem denial (Permission denied on ungranted /root/secret), openat2 syscall support with RESOLVE_BENEATH (0x08) and RESOLVE_NO_XDEV (0x01), and systemd 257 cgroup v2 resource control readiness. Established strict telemetry boundary: zero customer payload or file content collection; only bounded allowlisted process lifecycle metadata.
+**Deviations:** None.
+**Notes:** 149/149 host and tenant isolation tests, 6/6 AgentMaxxing contract tests, and 56/56 API contract tests passed with zero failures. Proof recorded in `docs/signalloom/amxo-p4-preflight-proof.md` and `docs/signalloom/amxo-p4-pre-proof.md`.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P4-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

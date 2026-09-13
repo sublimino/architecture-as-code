@@ -82,13 +82,13 @@ async def sync_claim_delegation_to_spine(
     Injects an acts-on-behalf-of delegation edge linking the operator principal
     to the agent actor.
     """
-    if not SIGNAL_INGEST_URL or ("pytest" in sys.modules and "SIGNAL_INGEST_URL" not in os.environ):
+    if not SIGNAL_INGEST_URL:
         return True
 
     caps = capabilities or ["agent:operate"]
     containment = containment_claims or []
     if not containment and ("nono" in agent_id.lower() or "external" in agent_id.lower()):
-        containment = ["containment:landlock", "containment:nono_0.73.0"]
+        containment = ["containment:landlock"]
 
     payload = {
         "delegate_actor_id": agent_id,
@@ -119,7 +119,7 @@ async def clamp_claim_delegation_in_spine(
     claim_id: str,
 ) -> bool:
     """Terminate or clamp a delegation edge in signal-ingest upon claim release."""
-    if not SIGNAL_INGEST_URL or ("pytest" in sys.modules and "SIGNAL_INGEST_URL" not in os.environ):
+    if not SIGNAL_INGEST_URL:
         return True
 
     payload = {

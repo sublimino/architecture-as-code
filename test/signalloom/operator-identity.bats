@@ -80,7 +80,7 @@ PY
 }
 
 @test "focused operator lifecycle tests execute without skips" {
-  run env PYTHONPATH="$API_SRC" python3 -m pytest \
+  run env PYTHONPATH="$API_SRC" python3 -m pytest -p no:libtmux \
     "$API_SRC/tests/test_platform_users.py" -q -k test_operator_identity
   [ "$status" -eq 0 ]
   [[ "$output" == *"passed"* ]]

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealthMap, TelemetryObservationModel } from '../types/api'
+import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealthMap, TelemetryObservationModel, ExternalEvidenceItem } from '../types/api'
 import { colors } from '../styles/tokens'
 import EmptyState from './EmptyState'
 import { getAgentWorkloadSecurityProfile } from './agents/ClaimModal'
@@ -66,12 +66,14 @@ export type AttributableTimelineItem =
   | { kind: 'audit'; id: string; ts: string; event: AuditEventResponse }
   | { kind: 'violation'; id: string; ts: string; violation: ViolationResponse }
   | { kind: 'telemetry'; id: string; ts: string; observation: TelemetryObservationModel }
+  | { kind: 'external_evidence'; id: string; ts: string; evidence: ExternalEvidenceItem }
 
 export interface AgentActivityTabProps {
   agent: AgentResponse
   auditEvents?: AuditEventResponse[]
   violations?: ViolationResponse[]
   telemetryObservations?: TelemetryObservationModel[]
+  externalEvidence?: ExternalEvidenceItem[]
   sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
   sourceHealthDetail?: SourceHealthMap | null
   onAcknowledgeViolation?: (violationId: string) => Promise<void>
@@ -86,6 +88,7 @@ export default function AgentActivityTab({
   auditEvents = [],
   violations = [],
   telemetryObservations = [],
+  externalEvidence = [],
   sourceHealth = 'healthy',
   sourceHealthDetail,
   onAcknowledgeViolation,
@@ -240,20 +243,29 @@ export default function AgentActivityTab({
         ts: o.observed_at,
         observation: o,
       })),
+      ...externalEvidence.map(ev => ({
+        kind: 'external_evidence' as const,
+        id: ev.id,
+        ts: ev.observed_at,
+        evidence: ev,
+      })),
     ]
     return items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-  }, [allAuditEvents, violations, telemetryObservations])
+  }, [allAuditEvents, violations, telemetryObservations, externalEvidence])
 
   // Filter items
   const filteredItems = useMemo(() => {
     return rawTimelineItems.filter(item => {
       // 1. Type Filter
       if (typeFilter !== 'all') {
-        if (typeFilter === 'violations' && item.kind !== 'violation') return false
-        if (typeFilter === 'telemetry' && item.kind !== 'telemetry') return false
-        if (typeFilter !== 'violations' && typeFilter !== 'telemetry') {
-          if (item.kind !== 'audit' || item.event.event_type !== typeFilter) return false
+        if (typeFilter === 'violations') return item.kind === 'violation'
+        if (typeFilter === 'telemetry') return item.kind === 'telemetry'
+        if (typeFilter === 'evidence') return item.kind === 'external_evidence'
+        if (typeFilter.startsWith('evidence:')) {
+          const evType = typeFilter.split(':')[1]
+          return item.kind === 'external_evidence' && item.evidence.evidence_type === evType
         }
+        if (item.kind !== 'audit' || item.event.event_type !== typeFilter) return false
       }
 
       // 2. Actor / Identity Plane Filter
@@ -262,6 +274,8 @@ export default function AgentActivityTab({
           if (actorFilter !== 'system') return false
         } else if (item.kind === 'telemetry') {
           if (actorFilter !== 'system' && actorFilter !== 'workload') return false
+        } else if (item.kind === 'external_evidence') {
+          if (actorFilter !== 'workload') return false
         } else {
           const ev = item.event
           const hasHumanPrincipal = !!(ev.authorizing_principal_id || (ev.actor && ev.actor.includes('@')))
@@ -274,7 +288,11 @@ export default function AgentActivityTab({
 
       // 3. Layer Filter
       if (layerFilter !== 'all') {
-        if (item.kind !== 'telemetry' || item.observation.layer.toLowerCase() !== layerFilter.toLowerCase()) {
+        if (item.kind === 'telemetry') {
+          if (item.observation.layer.toLowerCase() !== layerFilter.toLowerCase()) return false
+        } else if (item.kind === 'external_evidence') {
+          if (layerFilter.toLowerCase() !== 'kernel' && layerFilter.toLowerCase() !== 'host') return false
+        } else {
           return false
         }
       }
@@ -283,6 +301,8 @@ export default function AgentActivityTab({
       if (sourceFilter !== 'all') {
         if (item.kind === 'telemetry') {
           if (!item.observation.source.toLowerCase().includes(sourceFilter.toLowerCase())) return false
+        } else if (item.kind === 'external_evidence') {
+          if (!item.evidence.source.toLowerCase().includes(sourceFilter.toLowerCase())) return false
         } else if (item.kind === 'audit') {
           const s = (item.event.actor || '') + ' ' + JSON.stringify(item.event.detail || {})
           if (!s.toLowerCase().includes(sourceFilter.toLowerCase())) return false
@@ -312,6 +332,19 @@ export default function AgentActivityTab({
             (o.actor_id || '').toLowerCase().includes(q) ||
             (o.principal_id || '').toLowerCase().includes(q) ||
             detailStr.includes(q)
+          if (!match) return false
+        } else if (item.kind === 'external_evidence') {
+          const ev = item.evidence
+          const attrStr = JSON.stringify(ev.attributes || {}).toLowerCase()
+          const match =
+            (ev.evidence_type || '').toLowerCase().includes(q) ||
+            (ev.source || '').toLowerCase().includes(q) ||
+            (ev.session_id || '').toLowerCase().includes(q) ||
+            (ev.observation_state || '').toLowerCase().includes(q) ||
+            (ev.integrity_state || '').toLowerCase().includes(q) ||
+            (ev.hash_chain_digest || '').toLowerCase().includes(q) ||
+            (ev.spiffe_id || '').toLowerCase().includes(q) ||
+            attrStr.includes(q)
           if (!match) return false
         } else {
           const ev = item.event
@@ -377,7 +410,7 @@ export default function AgentActivityTab({
             {isSourceUnavailable ? '—' : totalEventsCount}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-            {isSourceUnavailable ? 'Source unavailable' : `${allAuditEvents.length} audit · ${violations.length} violations${telemetryObservations.length > 0 ? ` · ${telemetryObservations.length} telemetry` : ''}`}
+            {isSourceUnavailable ? 'Source unavailable' : `${allAuditEvents.length} audit · ${violations.length} violations${telemetryObservations.length > 0 ? ` · ${telemetryObservations.length} telemetry` : ''}${externalEvidence.length > 0 ? ` · ${externalEvidence.length} evidence` : ''}`}
           </div>
         </div>
 
@@ -519,7 +552,7 @@ export default function AgentActivityTab({
             <input
               type="text"
               data-testid="activity-search-input"
-              placeholder="Search event type, actor, rationale, payload..."
+              placeholder="Search by rationale, actor, evidence type, digest…"
               value={searchQuery}
               onChange={e => handleSearchChange(e.target.value)}
               style={{
@@ -542,6 +575,11 @@ export default function AgentActivityTab({
               <option value="all">All Event Types</option>
               <option value="violations">Violations Only</option>
               <option value="telemetry">Telemetry Observations</option>
+              <option value="evidence">External Evidence (All)</option>
+              <option value="evidence:process">Evidence: Process Lifecycle</option>
+              <option value="evidence:artifact">Evidence: Artifact Hashes</option>
+              <option value="evidence:network">Evidence: Network Egress</option>
+              <option value="evidence:collection-limit">Evidence: Limit / Quarantined</option>
               {ALL_EVENT_TYPES.map(t => (
                 <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
               ))}
@@ -569,6 +607,8 @@ export default function AgentActivityTab({
               <option value="LayerNetworkEgress">LayerNetworkEgress</option>
               <option value="LayerKernelSocket">LayerKernelSocket</option>
               <option value="LayerCgroup">LayerCgroup</option>
+              <option value="kernel">Kernel (Landlock / LSM)</option>
+              <option value="host">Host Sensor</option>
             </select>
 
             <select
@@ -581,6 +621,8 @@ export default function AgentActivityTab({
               <option value="frostdb-columnar">FrostDB Columnar</option>
               <option value="ebpf-sentinel">eBPF Sentinel</option>
               <option value="tc-ebpf">TC eBPF</option>
+              <option value="nono-0.73.0">Nono Sandbox (0.73.0)</option>
+              <option value="host-sensor-v1">Host Sensor (v1)</option>
             </select>
 
             {(typeFilter !== 'all' || actorFilter !== 'all' || layerFilter !== 'all' || sourceFilter !== 'all' || searchQuery) && (
@@ -887,6 +929,195 @@ export default function AgentActivityTab({
                               }}
                             >
                               {JSON.stringify(obs.details, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+
+              if (item.kind === 'external_evidence') {
+                const ev = item.evidence
+                const isExpanded = !!expandedDetails[ev.id]
+
+                // Left border color: green for integrity-verified, amber for unobserved, red for tampered / denied
+                let lineColor = colors.tealLoom
+                if (ev.integrity_state === 'tampered' || ev.observation_state === 'denied') {
+                  lineColor = colors.red
+                } else if (ev.observation_state === 'unobserved' || ev.integrity_state === 'not-integrity-verified') {
+                  lineColor = colors.amber
+                } else if (ev.integrity_state === 'integrity-verified') {
+                  lineColor = colors.tealLoom
+                }
+
+                // Integrity Badge styling
+                const isTampered = ev.integrity_state === 'tampered'
+                const isVerified = ev.integrity_state === 'integrity-verified'
+                const integrityLabel = isVerified ? 'INTEGRITY VERIFIED' : isTampered ? 'TAMPERED HASH CHAIN' : 'UNVERIFIED'
+                const integrityBg = isVerified ? 'rgba(16, 185, 129, 0.15)' : isTampered ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)'
+                const integrityColor = isVerified ? colors.tealLoom : isTampered ? colors.red : colors.amber
+
+                // Observation state styling
+                const isDenied = ev.observation_state === 'denied'
+                const isObserved = ev.observation_state === 'observed'
+                const obsLabel = (ev.observation_state || 'UNOBSERVED').toUpperCase()
+                const obsBg = isDenied ? 'rgba(239, 68, 68, 0.15)' : isObserved ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)'
+                const obsColor = isDenied ? colors.red : isObserved ? colors.tealLoom : colors.amber
+
+                return (
+                  <div
+                    key={`ev-${ev.id}`}
+                    data-testid={`activity-external-evidence-${ev.id}`}
+                    style={{
+                      display: 'flex',
+                      gap: 14,
+                      padding: '12px 0',
+                      borderBottom: idx < filteredItems.length - 1 ? '1px solid var(--border)' : 'none',
+                    }}
+                  >
+                    <div style={{
+                      width: 3,
+                      background: lineColor,
+                      borderRadius: 2,
+                      flexShrink: 0,
+                      minHeight: 48,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', flexShrink: 0 }}>
+                          {fmtTs(ev.observed_at)}
+                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '2px 8px',
+                          borderRadius: 3,
+                          background: 'rgba(59, 130, 246, 0.15)',
+                          color: '#3b82f6',
+                        }}>
+                          EVIDENCE: {ev.evidence_type}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 3,
+                          background: 'var(--surface2)',
+                          color: 'var(--muted)',
+                          border: '1px solid var(--border)',
+                        }}>
+                          Source: {ev.source}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 3,
+                          background: obsBg,
+                          color: obsColor,
+                          fontWeight: 600,
+                        }}>
+                          {obsLabel}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 3,
+                          background: integrityBg,
+                          color: integrityColor,
+                          fontWeight: 600,
+                        }}>
+                          {integrityLabel}
+                        </span>
+                        {ev.session_id && (
+                          <span style={{
+                            fontSize: 10,
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            background: 'var(--surface2)',
+                            color: 'var(--muted)',
+                            fontFamily: 'monospace',
+                          }}>
+                            Session: {ev.session_id.slice(0, 8)}…
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                        {ev.evidence_type === 'process' && `Process Lifecycle (${ev.attributes?.health_status || 'running'})`}
+                        {ev.evidence_type === 'artifact' && `Artifact Digest (${ev.attributes?.root_path || 'workspace'})`}
+                        {ev.evidence_type === 'network' && `Network Egress (${ev.attributes?.decision || ev.observation_state})`}
+                        {ev.evidence_type === 'collection-limit' && `Collection Limit (${ev.attributes?.reason_code || 'quarantine'})`}
+                        {!['process', 'artifact', 'network', 'collection-limit'].includes(ev.evidence_type) && `${ev.evidence_type} Observation`}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap', marginBottom: 6 }}>
+                        {ev.evidence_type === 'process' && (
+                          <>
+                            {ev.attributes?.health_status && <span>Health: <strong style={{ color: 'var(--text)' }}>{ev.attributes.health_status}</strong></span>}
+                            {ev.attributes?.cpu_pct !== undefined && <span>CPU: <code style={{ color: 'var(--text)' }}>{ev.attributes.cpu_pct}%</code></span>}
+                            {ev.attributes?.memory_rss_bytes !== undefined && <span>RSS: <code style={{ color: 'var(--text)' }}>{Math.round(ev.attributes.memory_rss_bytes / (1024 * 1024))} MB</code></span>}
+                            {ev.attributes?.exit_code !== undefined && <span>Exit: <code style={{ color: 'var(--text)' }}>{ev.attributes.exit_code}</code></span>}
+                          </>
+                        )}
+                        {ev.evidence_type === 'artifact' && (
+                          <>
+                            {ev.attributes?.root_path && <span>Root: <code style={{ color: 'var(--text)' }}>{ev.attributes.root_path}</code></span>}
+                            {ev.attributes?.sha256 && (
+                              <span>SHA-256: <code style={{ color: 'var(--text)' }} title={ev.attributes.sha256}>{ev.attributes.sha256.slice(0, 12)}…</code></span>
+                            )}
+                            {ev.attributes?.size_bytes !== undefined && <span>Size: <code style={{ color: 'var(--text)' }}>{ev.attributes.size_bytes} B</code></span>}
+                            {ev.attributes?.mtime_ns !== undefined && <span>Mtime: <code style={{ color: 'var(--text)' }}>{ev.attributes.mtime_ns}</code></span>}
+                          </>
+                        )}
+                        {ev.evidence_type === 'network' && (
+                          <>
+                            {ev.attributes?.destination && <span>Destination: <code style={{ color: 'var(--text)' }}>{ev.attributes.destination}</code></span>}
+                            {ev.attributes?.decision && <span>Decision: <strong style={{ color: 'var(--text)' }}>{ev.attributes.decision}</strong></span>}
+                          </>
+                        )}
+                        {ev.evidence_type === 'collection-limit' && (
+                          <>
+                            {ev.attributes?.reason_code && <span>Reason: <code style={{ color: 'var(--text)' }}>{ev.attributes.reason_code}</code></span>}
+                            {ev.attributes?.window && <span>Window: <code style={{ color: 'var(--text)' }}>{ev.attributes.window}</code></span>}
+                          </>
+                        )}
+
+                        {ev.hash_chain_digest && (
+                          <span>Hash Chain: <code style={{ color: 'var(--text)' }} title={ev.hash_chain_digest}>{ev.hash_chain_digest.slice(0, 10)}…</code></span>
+                        )}
+                        {ev.landlock_abi !== null && ev.landlock_abi !== undefined && (
+                          <span>Landlock ABI: <code style={{ color: 'var(--text)' }}>v{ev.landlock_abi}</code></span>
+                        )}
+                        {ev.spiffe_id && (
+                          <span>SPIFFE ID: <code style={{ color: 'var(--text)' }}>{ev.spiffe_id}</code></span>
+                        )}
+                      </div>
+
+                      {ev.attributes && Object.keys(ev.attributes).length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          <button
+                            data-testid={`toggle-external-evidence-detail-${ev.id}`}
+                            className="btn btn-secondary"
+                            onClick={() => toggleDetail(ev.id)}
+                            style={{ fontSize: 11, padding: '2px 8px' }}
+                          >
+                            {isExpanded ? 'Hide Allowlisted Attributes' : 'View Allowlisted Attributes'}
+                          </button>
+                          {isExpanded && (
+                            <pre
+                              data-testid={`activity-external-evidence-payload-${ev.id}`}
+                              style={{
+                                marginTop: 8,
+                                padding: 10,
+                                background: 'var(--surface2)',
+                                borderRadius: 4,
+                                fontSize: 11,
+                                overflowX: 'auto',
+                                border: '1px solid var(--border)',
+                              }}
+                            >
+                              {JSON.stringify(ev.attributes, null, 2)}
                             </pre>
                           )}
                         </div>

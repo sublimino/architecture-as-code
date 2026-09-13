@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import AgentActivityTab from './AgentActivityTab'
-import type { AgentResponse, AuditEventResponse, ViolationResponse, TelemetryObservationModel } from '../types/api'
+import type { AgentResponse, AuditEventResponse, ViolationResponse, TelemetryObservationModel, ExternalEvidenceItem } from '../types/api'
 
 function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -111,6 +111,85 @@ function createMockViolations(): ViolationResponse[] {
       acknowledged_by: null,
       acknowledged_at: null,
       resolved_at: null,
+    },
+  ]
+}
+
+function createMockExternalEvidence(): ExternalEvidenceItem[] {
+  return [
+    {
+      id: 'ev-proc-1',
+      tenant_id: 'tenant-acme',
+      agent_id: 'agent-order-uuid',
+      session_id: 'sess-abc-12345678',
+      evidence_type: 'process',
+      source: 'nono-0.73.0',
+      observed_at: '2026-09-07T09:30:00Z',
+      spiffe_id: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-order-agent',
+      landlock_abi: 3,
+      observation_state: 'observed',
+      integrity_state: 'integrity-verified',
+      attributes: {
+        health_status: 'healthy',
+        cpu_pct: 4.5,
+        memory_rss_bytes: 47185920,
+        exit_code: 0,
+      },
+      hash_chain_digest: 'a1b2c3d4e5f67890abcdef1234567890abcdef12',
+      verified: true,
+    },
+    {
+      id: 'ev-art-1',
+      tenant_id: 'tenant-acme',
+      agent_id: 'agent-order-uuid',
+      session_id: 'sess-abc-12345678',
+      evidence_type: 'artifact',
+      source: 'nono-0.73.0',
+      observed_at: '2026-09-07T09:20:00Z',
+      landlock_abi: 3,
+      observation_state: 'observed',
+      integrity_state: 'integrity-verified',
+      attributes: {
+        root_path: '/home/agent/workspace',
+        sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        size_bytes: 1024,
+        mtime_ns: 1726000000000,
+      },
+      hash_chain_digest: 'b2c3d4e5f6a17890abcdef1234567890abcdef12',
+      verified: true,
+    },
+    {
+      id: 'ev-net-1',
+      tenant_id: 'tenant-acme',
+      agent_id: 'agent-order-uuid',
+      session_id: 'sess-def-87654321',
+      evidence_type: 'network',
+      source: 'host-sensor-v1',
+      observed_at: '2026-09-07T09:10:00Z',
+      observation_state: 'denied',
+      integrity_state: 'tampered',
+      attributes: {
+        destination: '198.51.100.22:443',
+        decision: 'blocked',
+      },
+      hash_chain_digest: 'c3d4e5f6a1b27890abcdef1234567890abcdef12',
+      verified: false,
+    },
+    {
+      id: 'ev-lim-1',
+      tenant_id: 'tenant-acme',
+      agent_id: 'agent-order-uuid',
+      session_id: 'sess-def-87654321',
+      evidence_type: 'collection-limit',
+      source: 'host-sensor-v1',
+      observed_at: '2026-09-07T08:50:00Z',
+      observation_state: 'unobserved',
+      integrity_state: 'not-integrity-verified',
+      attributes: {
+        reason_code: 'RATE_LIMIT_EXCEEDED',
+        window: '60s',
+      },
+      verified: false,
     },
   ]
 }
@@ -565,6 +644,166 @@ describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => 
     expect(screen.getByTestId('tetragon-kernel-sensor')).toHaveTextContent('eBPF Kernel Sensor')
     expect(screen.getByTestId('tetragon-tracepoints')).toHaveTextContent('Tracepoints: sys_execve, sys_connect')
     expect(screen.getByTestId('tetragon-flow-status')).toHaveTextContent('Real-Time Flow Stream')
+  })
+
+  describe('External Agent Evidence Projections (AMXO-P6-1)', () => {
+    it('renders external evidence items with type, source, observation state, integrity badge, and attributable metadata', () => {
+      const agent = createMockAgent()
+      const evidence = createMockExternalEvidence()
+
+      renderWithRouter(
+        <AgentActivityTab
+          agent={agent}
+          auditEvents={[]}
+          violations={[]}
+          telemetryObservations={[]}
+          externalEvidence={evidence}
+        />
+      )
+
+      // Stat card reflects evidence items
+      expect(screen.getByTestId('activity-total-events')).toHaveTextContent('4')
+      expect(screen.getByTestId('activity-card-total-events')).toHaveTextContent('4 evidence')
+
+      // Process evidence item
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toHaveTextContent('EVIDENCE: process')
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toHaveTextContent('Source: nono-0.73.0')
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toHaveTextContent('OBSERVED')
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toHaveTextContent('INTEGRITY VERIFIED')
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toHaveTextContent('Landlock ABI: v3')
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toHaveTextContent('Health: healthy')
+
+      // Artifact evidence item
+      expect(screen.getByTestId('activity-external-evidence-ev-art-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-art-1')).toHaveTextContent('EVIDENCE: artifact')
+      expect(screen.getByTestId('activity-external-evidence-ev-art-1')).toHaveTextContent('Root: /home/agent/workspace')
+
+      // Network evidence item (denied + tampered)
+      expect(screen.getByTestId('activity-external-evidence-ev-net-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-net-1')).toHaveTextContent('EVIDENCE: network')
+      expect(screen.getByTestId('activity-external-evidence-ev-net-1')).toHaveTextContent('DENIED')
+      expect(screen.getByTestId('activity-external-evidence-ev-net-1')).toHaveTextContent('TAMPERED HASH CHAIN')
+      expect(screen.getByTestId('activity-external-evidence-ev-net-1')).toHaveTextContent('Destination: 198.51.100.22:443')
+
+      // Collection limit evidence item (unobserved + unverified)
+      expect(screen.getByTestId('activity-external-evidence-ev-lim-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-lim-1')).toHaveTextContent('EVIDENCE: collection-limit')
+      expect(screen.getByTestId('activity-external-evidence-ev-lim-1')).toHaveTextContent('UNOBSERVED')
+      expect(screen.getByTestId('activity-external-evidence-ev-lim-1')).toHaveTextContent('UNVERIFIED')
+      expect(screen.getByTestId('activity-external-evidence-ev-lim-1')).toHaveTextContent('Reason: RATE_LIMIT_EXCEEDED')
+    })
+
+    it('toggles allowlisted attributes payload JSON viewer', () => {
+      const agent = createMockAgent()
+      const evidence = createMockExternalEvidence()
+
+      renderWithRouter(
+        <AgentActivityTab
+          agent={agent}
+          auditEvents={[]}
+          violations={[]}
+          telemetryObservations={[]}
+          externalEvidence={evidence}
+        />
+      )
+
+      expect(screen.queryByTestId('activity-external-evidence-payload-ev-proc-1')).not.toBeInTheDocument()
+      const toggleBtn = screen.getByTestId('toggle-external-evidence-detail-ev-proc-1')
+      expect(toggleBtn).toHaveTextContent('View Allowlisted Attributes')
+
+      fireEvent.click(toggleBtn)
+      expect(screen.getByTestId('activity-external-evidence-payload-ev-proc-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-payload-ev-proc-1')).toHaveTextContent('healthy')
+      expect(toggleBtn).toHaveTextContent('Hide Allowlisted Attributes')
+
+      fireEvent.click(toggleBtn)
+      expect(screen.queryByTestId('activity-external-evidence-payload-ev-proc-1')).not.toBeInTheDocument()
+    })
+
+    it('filters external evidence by type filter options', () => {
+      const agent = createMockAgent()
+      const evidence = createMockExternalEvidence()
+
+      renderWithRouter(
+        <AgentActivityTab
+          agent={agent}
+          auditEvents={[]}
+          violations={[]}
+          telemetryObservations={[]}
+          externalEvidence={evidence}
+        />
+      )
+
+      const selects = screen.getAllByRole('combobox')
+      const typeSelect = selects[0]
+
+      // Filter to all external evidence
+      fireEvent.change(typeSelect, { target: { value: 'evidence' } })
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-art-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-net-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-lim-1')).toBeInTheDocument()
+
+      // Filter to evidence:artifact specifically
+      fireEvent.change(typeSelect, { target: { value: 'evidence:artifact' } })
+      expect(screen.queryByTestId('activity-external-evidence-ev-proc-1')).not.toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-art-1')).toBeInTheDocument()
+      expect(screen.queryByTestId('activity-external-evidence-ev-net-1')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('activity-external-evidence-ev-lim-1')).not.toBeInTheDocument()
+    })
+
+    it('filters external evidence by source filter options', () => {
+      const agent = createMockAgent()
+      const evidence = createMockExternalEvidence()
+
+      renderWithRouter(
+        <AgentActivityTab
+          agent={agent}
+          auditEvents={[]}
+          violations={[]}
+          telemetryObservations={[]}
+          externalEvidence={evidence}
+        />
+      )
+
+      const selects = screen.getAllByRole('combobox')
+      const sourceSelect = selects[3]
+
+      fireEvent.change(sourceSelect, { target: { value: 'nono-0.73.0' } })
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-art-1')).toBeInTheDocument()
+      expect(screen.queryByTestId('activity-external-evidence-ev-net-1')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('activity-external-evidence-ev-lim-1')).not.toBeInTheDocument()
+    })
+
+    it('searches external evidence by session ID, hash digest, or attributes', () => {
+      const agent = createMockAgent()
+      const evidence = createMockExternalEvidence()
+
+      renderWithRouter(
+        <AgentActivityTab
+          agent={agent}
+          auditEvents={[]}
+          violations={[]}
+          telemetryObservations={[]}
+          externalEvidence={evidence}
+        />
+      )
+
+      const searchInput = screen.getByTestId('activity-search-input')
+
+      // Search by session ID fragment
+      fireEvent.change(searchInput, { target: { value: 'sess-def' } })
+      expect(screen.queryByTestId('activity-external-evidence-ev-proc-1')).not.toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-net-1')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-external-evidence-ev-lim-1')).toBeInTheDocument()
+
+      // Search by hash chain digest fragment
+      fireEvent.change(searchInput, { target: { value: 'a1b2c3d4e5f6' } })
+      expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toBeInTheDocument()
+      expect(screen.queryByTestId('activity-external-evidence-ev-art-1')).not.toBeInTheDocument()
+    })
   })
 })
 

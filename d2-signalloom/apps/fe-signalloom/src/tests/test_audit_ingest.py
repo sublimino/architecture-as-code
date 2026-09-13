@@ -568,3 +568,79 @@ def test_privacy_boundaries() -> None:
     absent = classify_boundary(integrity_verified=True)
     assert absent.observation_state is ObservationState.UNOBSERVED
     assert absent.integrity_state is IntegrityState.VERIFIED
+
+
+def test_process_metadata() -> None:
+    """Validate bounded process lifecycle telemetry against host export policy and schema."""
+    from pathlib import Path
+    import sys
+
+    from agentmaxxing_host_policy import (
+        AttributableIdentity,
+        filter_host_telemetry,
+        load_host_policy,
+    )
+
+    sensor_dir = Path(__file__).resolve().parents[3] / "agentmaxxing-host-sensor"
+    if str(sensor_dir) not in sys.path:
+        sys.path.insert(0, str(sensor_dir))
+
+    from collector import ProcessTelemetryCollector
+    from models import HealthState
+
+    collector = ProcessTelemetryCollector()
+    event = collector.collect_event(
+        session_id="amxo-proc-001",
+        sequence=0,
+        agent_id="agentmaxxing-linux-001",
+        host_id="amx-host-001",
+        pid=1,
+        tenant_id="tenant-agentmaxxing",
+        override_exit_code=None,
+        restart_count=0,
+    )
+
+    raw_event = event.to_dict(include_tenant=True)
+    # Inject synthetic raw field to simulate dirty input that must be filtered
+    raw_event["memory_contents"] = "FORBIDDEN_PROCESS_MEMORY"
+    raw_event["command"] = "python3 /agent/run.py"
+
+    policy_path = (
+        Path(__file__).resolve().parents[4]
+        / "governance"
+        / "fixtures"
+        / "agentmaxxing-host-policy.v1.json"
+    )
+    policy = load_host_policy(policy_path)
+
+    exported = filter_host_telemetry(
+        raw_event,
+        AttributableIdentity(
+            tenant_id="tenant-agentmaxxing",
+            agent_id="agentmaxxing-linux-001",
+            host_id="amx-host-001",
+        ),
+        policy,
+    )
+
+    assert exported["schema_version"] == "1.0.0"
+    assert exported["evidence_type"] == "process"
+    assert exported["tenant_id"] == "tenant-agentmaxxing"
+    assert exported["agent_id"] == "agentmaxxing-linux-001"
+    assert exported["host_id"] == "amx-host-001"
+    assert "memory_contents" not in exported
+    assert "command" not in exported
+
+    attrs = exported["attributes"]
+    assert set(attrs.keys()) == {
+        "health_state",
+        "cpu_time_ms",
+        "resident_memory_bytes",
+        "exit_code",
+        "restart_count",
+    }
+    assert attrs["health_state"] in ("running", "starting", "stopped", "failed", "unknown")
+    assert attrs["cpu_time_ms"] >= 0
+    assert attrs["resident_memory_bytes"] >= 0
+    assert attrs["restart_count"] == 0
+

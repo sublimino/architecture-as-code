@@ -432,11 +432,11 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P3-3 | implementation | Implement independent host revocation enforcement | P3-PRE | `make demo-agentmaxxing-contract-test`; post-revocation upload denial | M | antigravity | pass — delivered: aec889d3f7317f67faeda8c4f4fe83f89311d708 (see Errata — AMXO-P3-3) | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
 | P3-GOV | governor | Merge enrollment work and verify credential least privilege | P3-1, P3-2, P3-3 | `make demo-agentmaxxing-contract-test`; security review evidence | M | antigravity | pass — delivered: e8886c4a06c1df3942f8dbeaddebb504d8ad43cd (see Errata — AMXO-P3-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
 | P4-PRE | preflight | Confirm Linux kernel nono systemd and upload prerequisites | P3-GOV | Kernel capability probe; pinned nono version and digest evidence; fixture plan | S | antigravity | pass — delivered: bad24d68dd2c522062427e8d10c643e9d9faaf77 (see Errata — AMXO-P4-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
-| P4-1 | implementation | Build fail-closed nono profile systemd unit and digest gate | P4-PRE | `make demo-agentmaxxing-host-test`; filesystem and network denial probes | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=5d3df&dir=/home/andy/.cline/worktrees/5d3df/osramp-demo&host=fortuna&model=coding_medium |
-| P4-2 | implementation | Emit bounded allowlisted process lifecycle metadata | P4-PRE | `make demo-agentmaxxing-host-test`; CPU, memory-use, exit, restart fixtures | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=dee2a&dir=/home/andy/.cline/worktrees/dee2a/osramp-demo&host=fortuna&model=coding_medium |
-| P4-3 | implementation | Enforce descriptor-relative artifact eligibility before reading bytes | P4-PRE | `make demo-agentmaxxing-host-test`; symlink, hard-link, mount, non-regular no-read proofs | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=af50e&dir=/home/andy/.cline/worktrees/af50e/osramp-demo&host=fortuna&model=coding_medium |
-| P4-4 | implementation | Enforce bounded hashing and post-read identity validation | P4-PRE | `make demo-agentmaxxing-host-test`; replacement, oversize, rate, metadata-change fixtures | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=942a1&dir=/home/andy/.cline/worktrees/942a1/osramp-demo&host=fortuna&model=coding_medium |
-| P4-GOV | governor | Merge host components and falsify confinement escape paths | P4-1, P4-2, P4-3, P4-4 | `make demo-agentmaxxing-host-test`; zero unexpected skips; security review | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=58840&dir=/home/andy/.cline/worktrees/58840/osramp-demo&host=fortuna&model=coding_medium |
+| P4-1 | implementation | Build fail-closed nono profile systemd unit and digest gate | P4-PRE | `make demo-agentmaxxing-host-test`; filesystem and network denial probes | L | antigravity | pass — delivered: f13eb63ffc674c789e1247305dd247d6f8a1dbb7 (see Errata — AMXO-P4-1) | $0.00 | N/A — no session | N/A | cpai://open?id=5d3df&dir=/home/andy/.cline/worktrees/5d3df/osramp-demo&host=fortuna&model=coding_medium |
+| P4-2 | implementation | Emit bounded allowlisted process lifecycle metadata | P4-PRE | `make demo-agentmaxxing-host-test`; CPU, memory-use, exit, restart fixtures | M | antigravity | pass — delivered: dcc715830aace2fdfbba4efc697f3fbf68875715 (see Errata — AMXO-P4-2) | $0.00 | N/A — no session | N/A | cpai://open?id=dee2a&dir=/home/andy/.cline/worktrees/dee2a/osramp-demo&host=fortuna&model=coding_medium |
+| P4-3 | implementation | Enforce descriptor-relative artifact eligibility before reading bytes | P4-PRE | `make demo-agentmaxxing-host-test`; symlink, hard-link, mount, non-regular no-read proofs | L | antigravity | pass — delivered: caaf7550e41e8b77a82fad944009d831252283d0 (see Errata — AMXO-P4-3) | $0.00 | N/A — no session | N/A | cpai://open?id=af50e&dir=/home/andy/.cline/worktrees/af50e/osramp-demo&host=fortuna&model=coding_medium |
+| P4-4 | implementation | Enforce bounded hashing and post-read identity validation | P4-PRE | `make demo-agentmaxxing-host-test`; replacement, oversize, rate, metadata-change fixtures | L | antigravity | pass — delivered: d5005ee79c4107573f4f036e2de898a9041d5500 (see Errata — AMXO-P4-4) | $0.00 | N/A — no session | N/A | cpai://open?id=942a1&dir=/home/andy/.cline/worktrees/942a1/osramp-demo&host=fortuna&model=coding_medium |
+| P4-GOV | governor | Merge host components and falsify confinement escape paths | P4-1, P4-2, P4-3, P4-4 | `make demo-agentmaxxing-host-test`; zero unexpected skips; security review | L | antigravity | pass — delivered: edbf6d0f6565367d6dc934fa8da1c12ff93a285a (see Errata — AMXO-P4-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=58840&dir=/home/andy/.cline/worktrees/58840/osramp-demo&host=fortuna&model=coding_medium |
 | P5-PRE | preflight | Confirm accepted host fixtures and integrity ownership boundary | P4-GOV | Fixture digest; Go verifier ownership check; database migration collision check | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=63db4&dir=/home/andy/.cline/worktrees/63db4/osramp-demo&host=fortuna&model=coding_medium |
 | P5-1 | implementation | Verify finalized sessions and reject invalid audit chains | P5-PRE | `make demo-agentmaxxing-ingest-test`; valid, incomplete, altered, reordered, forged fixtures | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=67394&dir=/home/andy/.cline/worktrees/67394/osramp-demo&host=fortuna&model=coding_medium |
 | P5-2 | implementation | Enforce upload idempotency across concurrency and interrupted retries | P5-PRE | `make demo-agentmaxxing-ingest-test`; duplicate, concurrent, retry transaction tests | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=29f57&dir=/home/andy/.cline/worktrees/29f57/osramp-demo&host=fortuna&model=coding_medium |
@@ -704,3 +704,52 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P4-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+#### Errata — AMXO-P4-1 Build fail-closed nono profile systemd unit and digest gate
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 18:24:00+01:00
+**Last Updated:** 2026-09-13 18:24:00+01:00
+**Status:** Completed
+**Commit:** `f13eb63ffc674c789e1247305dd247d6f8a1dbb7`
+**Decisions:** Authored fail-closed nono 0.73.0 confinement profile (`profile.json`) restricting filesystem writes strictly to designated workspace directories and network egress to approved Signal Loom endpoints. Implemented systemd unit `agentmaxxing-agent.service` with `NoNewPrivileges=yes`, `ProtectSystem=strict`, and cgroup v2 resource limits. Developed SHA-256 binary preflight digest gate script (`digest_gate.sh`) and startup launcher (`start.sh`). Implemented comprehensive BATS test suite (`agentmaxxing-host-confinement.bats`) asserting Landlock filesystem and network denial probes, plus pytest profile validation in `test_audit_ingest.py`.
+**Deviations:** None.
+**Notes:** All tests passed with zero failures. Evidence and proof committed in `docs/signalloom/amxo-p4-1-evidence.md` and `docs/signalloom/amxo-p4-1-proof.md`.
+
+#### Errata — AMXO-P4-2 Emit bounded allowlisted process lifecycle metadata
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 18:24:00+01:00
+**Last Updated:** 2026-09-13 18:24:00+01:00
+**Status:** Completed
+**Commit:** `dcc715830aace2fdfbba4efc697f3fbf68875715`
+**Decisions:** Implemented bounded allowlisted process lifecycle metadata models (`models.py`, JSON schema `process-lifecycle-telemetry.v1.schema.json`). Designed Linux `/proc` and cgroups v2 resource usage collectors (`proc.py`, `cgroups.py`) capturing CPU, memory, exit, and restart states with strict field-level redaction (`filter.py`). Verified negative security controls ensuring zero customer file contents, process memory, or payload contents are collected.
+**Deviations:** None.
+**Notes:** 100% pass across 7 test suites in `d2-signalloom/apps/agentmaxxing-host-sensor/` and backend audit ingest. Proof recorded in `docs/signalloom/amxo-p4-2-proof.md`.
+
+#### Errata — AMXO-P4-3 Enforce descriptor-relative artifact eligibility before reading bytes
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 18:24:00+01:00
+**Last Updated:** 2026-09-13 18:24:00+01:00
+**Status:** Completed
+**Commit:** `caaf7550e41e8b77a82fad944009d831252283d0`
+**Decisions:** Enforced descriptor-relative artifact validation before reading any file bytes (`file_validator.py`). Implemented direct Linux kernel `openat2()` syscall bindings with flags `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_XDEV`. Blocked directory traversal, symlink escapes, hard-link aliasing, non-regular files (fifos, sockets, devices), and mount-point crossings. Added comprehensive anti-escape BATS tests (`file-validator-anti-escape.bats`) and pytest unit tests (`test_file_validator.py`).
+**Deviations:** None.
+**Notes:** 100% pass across BATS and pytest suites. Evidence recorded in `docs/signalloom/amxo-p4-3-evidence.md` and `docs/signalloom/amxo-p4-3-proof.md`.
+
+#### Errata — AMXO-P4-4 Enforce bounded hashing and post-read identity validation
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 18:24:00+01:00
+**Last Updated:** 2026-09-13 18:24:00+01:00
+**Status:** Completed
+**Commit:** `d5005ee79c4107573f4f036e2de898a9041d5500`
+**Decisions:** Built bounded streaming artifact hasher (`hasher.py`) with 16 MiB size cap and sliding 60-second window rate limiter (`ratelimit.py`, max 120 files, max 64 MiB). Implemented post-read TOCTOU identity validation comparing `st_ino`, `st_dev`, `stx_mnt_id`, `st_nlink`, `st_size`, `st_mtime_ns`, and `st_ctime_ns` before and after stream hashing. On any detected mutation or race, digest is immediately discarded and classified as unobserved with explicit reason codes.
+**Deviations:** None.
+**Notes:** 17 pytest concurrency tests, 2 backend audit tests, and 6 BATS TOCTOU tests passed with zero failures. Evidence recorded in `docs/signalloom/amxo-p4-4-proof.md`.
+
+#### Errata — AMXO-P4-GOV Merge host components and falsify confinement escape paths
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 18:41:00+01:00
+**Last Updated:** 2026-09-13 18:41:00+01:00
+**Status:** Completed
+**Commit:** `edbf6d0f6565367d6dc934fa8da1c12ff93a285a`
+**Decisions:** Merged all Phase 4 Linux host confinement, process telemetry, descriptor-relative anti-escape validation, and bounded TOCTOU artifact hashing deliverables (`AMXO-P4-1`, `AMXO-P4-2`, `AMXO-P4-3`, `AMXO-P4-4`). Reconciled shared-file collisions across `Makefile`, `README.md`, `__init__.py`, `cli.py`, and `test_audit_ingest.py`. Resolved pytest global plugin traps by enforcing `-p no:libtmux`. Unified `demo-agentmaxxing-host-test` target orchestrating 70 passing test cases with 0 failures and 0 skips across kernel Landlock LSM, cgroups v2, procfs collectors, `openat2` anti-escape descriptors, and post-read TOCTOU validations.
+**Deviations:** None.
+**Notes:** 100% test pass verified across all 5 host suites. Proof generated in `docs/signalloom/amxo-p4-gov-proof.md` and `docs/signalloom/amxo-p4-governor-proof.md`.

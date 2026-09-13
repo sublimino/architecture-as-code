@@ -430,7 +430,7 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P3-1 | implementation | Implement atomic one-time external host enrollment exchange | P3-PRE | `make demo-agentmaxxing-contract-test`; concurrent redemption test | L | antigravity | pass — delivered: c3393d64cfdb61d62160393cb54ecbd877205d94 (see Errata — AMXO-P3-1) | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
 | P3-2 | implementation | Implement audit-only credential scope and tenant-agent binding | P3-PRE | `make demo-agentmaxxing-contract-test`; denied non-upload action matrix | L | antigravity | pass — delivered: 76e0c31b9e24c9c18dc84c511a65313ecf1018a6 (see Errata — AMXO-P3-2) | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
 | P3-3 | implementation | Implement independent host revocation enforcement | P3-PRE | `make demo-agentmaxxing-contract-test`; post-revocation upload denial | M | antigravity | pass — delivered: aec889d363717dfb119a0082f427ba9e65842c16 (see Errata — AMXO-P3-3) | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
-| P3-GOV | governor | Merge enrollment work and verify credential least privilege | P3-1, P3-2, P3-3 | `make demo-agentmaxxing-contract-test`; security review evidence | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
+| P3-GOV | governor | Merge enrollment work and verify credential least privilege | P3-1, P3-2, P3-3 | `make demo-agentmaxxing-contract-test`; security review evidence | M | antigravity | pass — delivered: e8886c4a63fae498c19ee852ef72a6b2ea946d88 (see Errata — AMXO-P3-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
 | P4-PRE | preflight | Confirm Linux kernel nono systemd and upload prerequisites | P3-GOV | Kernel capability probe; pinned nono version and digest evidence; fixture plan | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=bb4bd&dir=/home/andy/.cline/worktrees/bb4bd/osramp-demo&host=fortuna&model=coding_medium |
 | P4-1 | implementation | Build fail-closed nono profile systemd unit and digest gate | P4-PRE | `make demo-agentmaxxing-host-test`; filesystem and network denial probes | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=5d3df&dir=/home/andy/.cline/worktrees/5d3df/osramp-demo&host=fortuna&model=coding_medium |
 | P4-2 | implementation | Emit bounded allowlisted process lifecycle metadata | P4-PRE | `make demo-agentmaxxing-host-test`; CPU, memory-use, exit, restart fixtures | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=dee2a&dir=/home/andy/.cline/worktrees/dee2a/osramp-demo&host=fortuna&model=coding_medium |
@@ -670,5 +670,21 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | Task | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :-------- | :----- | :------ | :----- |
 | P3-3 | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P3-GOV Merge enrollment work and verify credential least privilege
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 17:55:00+01:00
+**Last Updated:** 2026-09-13 17:55:00+01:00
+**Status:** Completed
+**Commit:** `e8886c4a63fae498c19ee852ef72a6b2ea946d88`
+**Decisions:** Certified all Phase 3 host enrollment, credential scoping, and independent revocation deliverables. Reconciled database migrations `040_host_enrollment_tokens.sql` and `041_external_host_revocation.sql`. Verified `HostCredentialScopeMiddleware` least-privilege denial matrix, atomic compare-and-set token exchange, real-time revocation blocking on evidence uploads, sibling host isolation, and operator attribution logging.
+**Deviations:** None.
+**Notes:** 13/13 host enrollment tests, 19/19 host credential tests, 8/8 revocation tests, 109/109 tenant isolation tests, 6/6 contract tests, and 56/56 API contract tests passed with zero failures. Proof recorded in `docs/signalloom/amxo-p3-gov-proof.md`.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P3-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=57358&dir=/home/andy/.cline/worktrees/57358/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

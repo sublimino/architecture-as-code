@@ -426,7 +426,7 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P2-1 | implementation | Implement attributable operator lifecycle and shared-identity rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; removed-user and shared-identity negatives | L | antigravity | pass — delivered: 088ecdce459ee08b55091c9f22c87bd1540900e6 (see Errata — AMXO-P2-1) | $0.00 | N/A — no session | N/A | cpai://open?id=9a9b6&dir=/home/andy/.cline/worktrees/9a9b6/osramp-demo&host=fortuna&model=coding_medium |
 | P2-2 | implementation | Implement tenant-bound registration and duplicate agent-claim rejection | P2-PRE | `make demo-agentmaxxing-contract-test`; cross-tenant and conflict tests | L | antigravity | pass — delivered: 7f74561dd59705b88e1c1491f6adf643a7b13eed (see Errata — AMXO-P2-2) | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
 | P2-GOV | governor | Merge identity registration work and verify authorization isolation | P2-1, P2-2 | `make demo-agentmaxxing-contract-test`; `make demo-signalloom-api-test TIER=contract` | M | antigravity | pass — delivered: 4589bdf43eb1343801e2cb3cadc73fb0b75c7d0e (see Errata — AMXO-P2-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
-| P3-PRE | preflight | Confirm approved identity contracts and enrollment integration seams | P2-GOV | Enrollment schema review; OpenBao role and policy inventory | S | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
+| P3-PRE | preflight | Confirm approved identity contracts and enrollment integration seams | P2-GOV | Enrollment schema review; OpenBao role and policy inventory | S | antigravity | pass — delivered: dea03e76053ffdef5aa43fb92f08ddc3998ba65f (see Errata — AMXO-P3-PRE) | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
 | P3-1 | implementation | Implement atomic one-time external host enrollment exchange | P3-PRE | `make demo-agentmaxxing-contract-test`; concurrent redemption test | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=023d1&dir=/home/andy/.cline/worktrees/023d1/osramp-demo&host=fortuna&model=coding_medium |
 | P3-2 | implementation | Implement audit-only credential scope and tenant-agent binding | P3-PRE | `make demo-agentmaxxing-contract-test`; denied non-upload action matrix | L | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=59e47&dir=/home/andy/.cline/worktrees/59e47/osramp-demo&host=fortuna&model=coding_medium |
 | P3-3 | implementation | Implement independent host revocation enforcement | P3-PRE | `make demo-agentmaxxing-contract-test`; post-revocation upload denial | M | antigravity | Pending | $0.00 | N/A — no session | N/A | cpai://open?id=cbeba&dir=/home/andy/.cline/worktrees/cbeba/osramp-demo&host=fortuna&model=coding_medium |
@@ -606,5 +606,21 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | P2-1 | $0.00 | N/A — no session | N/A | cpai://open?id=9a9b6&dir=/home/andy/.cline/worktrees/9a9b6/osramp-demo&host=fortuna&model=coding_medium |
 | P2-2 | $0.00 | N/A — no session | N/A | cpai://open?id=6ca5a&dir=/home/andy/.cline/worktrees/6ca5a/osramp-demo&host=fortuna&model=coding_medium |
 | P2-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=63150&dir=/home/andy/.cline/worktrees/63150/osramp-demo&host=fortuna&model=coding_medium |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P3-PRE Confirm approved identity contracts and enrollment integration seams
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-13 17:20:00+01:00
+**Last Updated:** 2026-09-13 17:20:00+01:00
+**Status:** Completed
+**Commit:** `dea03e76053ffdef5aa43fb92f08ddc3998ba65f`
+**Decisions:** Revalidated identity contracts and OpenBao/SPIFFE integration seams for Phase 3 external host enrollment. Audited SPIFFE SVID pattern `spiffe://signalloom.demo/platform/signalloom/tenant/{tenant}/agent/{agent}` and OpenBao JWT auth role bindings. Validated CSPRNG Bearer token hashing (SHA-256) and schema `public.external_agent_registrations` (migration 039) with atomic compare-and-set semantics for `AMXO-P3-1`. Verified least-privilege `audit-upload-only` scope with zero read/management permissions on the tenant control plane.
+**Deviations:** None.
+**Notes:** 18/18 agent claim tests passing (`pytest test_agent_claim.py`), 34/34 external agent registration & contract tests passing, 109/109 tenant isolation tests passing, 6/6 contract tests passing (`make demo-agentmaxxing-contract-test`), 56/56 API contract tests passing (`make demo-signalloom-api-test TIER=contract`), 7/7 Playwright spec coverage tests passing, 8/8 foundation integration tests passing. Proof recorded in `docs/signalloom/amxo-p3-preflight-proof.md`.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P3-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=82ac8&dir=/home/andy/.cline/worktrees/82ac8/osramp-demo&host=fortuna&model=coding_medium |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

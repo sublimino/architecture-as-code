@@ -52,9 +52,11 @@ type SessionState struct {
 
 // AuditVerifier performs cryptographic detached signature verification and hash chain validation.
 type AuditVerifier struct {
-	mu           sync.RWMutex
-	cfg          VerifierConfig
-	sessionState map[string]*SessionState
+	mu                sync.RWMutex
+	cfg               VerifierConfig
+	sessionState      map[string]*SessionState
+	finalizedSessions map[string]*FinalizedSessionVerification
+	sessionLocks      map[string]*sync.Mutex
 }
 
 // NewAuditVerifier constructs a verifier configured with SPIRE trust roots and trust domain.
@@ -68,8 +70,10 @@ func NewAuditVerifier(cfg VerifierConfig) *AuditVerifier {
 		cfg.TrustPool = pool
 	}
 	return &AuditVerifier{
-		cfg:          cfg,
-		sessionState: make(map[string]*SessionState),
+		cfg:               cfg,
+		sessionState:      make(map[string]*SessionState),
+		finalizedSessions: make(map[string]*FinalizedSessionVerification),
+		sessionLocks:      make(map[string]*sync.Mutex),
 	}
 }
 
@@ -78,6 +82,20 @@ func (v *AuditVerifier) ResetSession(sessionID string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	delete(v.sessionState, sessionID)
+	delete(v.finalizedSessions, sessionID)
+	delete(v.sessionLocks, sessionID)
+}
+
+// GetFinalizedSession returns the cached verification result for an already verified session.
+func (v *AuditVerifier) GetFinalizedSession(sessionID string) (*FinalizedSessionVerification, bool) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	existing, ok := v.finalizedSessions[sessionID]
+	if !ok || existing == nil {
+		return nil, false
+	}
+	clone := *existing
+	return &clone, true
 }
 
 // VerifyEvent validates the detached signature, SVID validity, and hash chain integrity of an event.
@@ -213,7 +231,7 @@ func (v *AuditVerifier) verifyHashChain(event *NonoAuditEvent) (string, error) {
 	if sessionID != "" {
 		v.mu.Lock()
 		state, exists := v.sessionState[sessionID]
-		if exists {
+		if exists && state != nil {
 			// If previous digest does not match our recorded last digest
 			if event.PrevDigest != "" && !strings.EqualFold(event.PrevDigest, state.LastDigest) {
 				v.mu.Unlock()
@@ -378,18 +396,19 @@ func VerifyCosignManifest(manifestData []byte, signatureStr string, pubKeyPEM []
 
 // FinalizedSessionVerification represents the comprehensive cryptographic verification result of a completed audit session.
 type FinalizedSessionVerification struct {
-	SessionID   string             `json:"session_id"`
-	EventCount  int                `json:"event_count"`
-	Status      VerificationStatus `json:"status"`
-	FinalDigest string             `json:"final_digest"`
-	RootDigest  string             `json:"root_digest"`
-	SPIFFEID    string             `json:"spiffe_id"`
-	ActorID     string             `json:"actor_id"`
-	LandlockABI int                `json:"landlock_abi"`
-	GitOIDs     []string           `json:"git_oids"`
-	IsFinalized bool               `json:"is_finalized"`
-	Violations  []string           `json:"violations,omitempty"`
-	Error       error              `json:"error,omitempty"`
+	SessionID    string             `json:"session_id"`
+	EventCount   int                `json:"event_count"`
+	Status       VerificationStatus `json:"status"`
+	FinalDigest  string             `json:"final_digest"`
+	RootDigest   string             `json:"root_digest"`
+	SPIFFEID     string             `json:"spiffe_id"`
+	ActorID      string             `json:"actor_id"`
+	LandlockABI  int                `json:"landlock_abi"`
+	GitOIDs      []string           `json:"git_oids"`
+	IsFinalized  bool               `json:"is_finalized"`
+	IsIdempotent bool               `json:"is_idempotent"`
+	Violations   []string           `json:"violations,omitempty"`
+	Error        error              `json:"error,omitempty"`
 }
 
 // IsFinalizedEvent returns true if the event represents an explicit session termination/finalization marker.
@@ -431,12 +450,14 @@ func IsFinalizedEvent(e *NonoAuditEvent) bool {
 // 7. Landlock ABI metadata is verified and recorded.
 // 8. GitOIDs are calculated and verified for all events.
 // 9. The final event in the chain is explicitly marked as finalized.
+// 10. Idempotent re-verification deduplication across concurrent and repeated submissions.
 func (v *AuditVerifier) VerifyFinalizedSession(events []*NonoAuditEvent) *FinalizedSessionVerification {
 	res := &FinalizedSessionVerification{
-		Status:      StatusUnverified,
-		GitOIDs:     make([]string, 0, len(events)),
-		Violations:  make([]string, 0),
-		IsFinalized: false,
+		Status:       StatusUnverified,
+		GitOIDs:      make([]string, 0, len(events)),
+		Violations:   make([]string, 0),
+		IsFinalized:  false,
+		IsIdempotent: false,
 	}
 
 	if len(events) == 0 {
@@ -458,9 +479,45 @@ func (v *AuditVerifier) VerifyFinalizedSession(events []*NonoAuditEvent) *Finali
 	}
 	res.SessionID = sessionID
 
-	// Track session hash chain in an isolated state clone to avoid corrupting active streams
+	// Obtain or create per-session lock to serialize concurrent verifications of the same session ID
 	v.mu.Lock()
-	v.sessionState[sessionID] = nil
+	sessMu, ok := v.sessionLocks[sessionID]
+	if !ok {
+		sessMu = &sync.Mutex{}
+		v.sessionLocks[sessionID] = sessMu
+	}
+	v.mu.Unlock()
+
+	sessMu.Lock()
+	defer sessMu.Unlock()
+
+	// Idempotency check: if session was already verified and cached
+	terminalEvent := events[len(events)-1]
+	v.mu.RLock()
+	existing, exists := v.finalizedSessions[sessionID]
+	v.mu.RUnlock()
+
+	if exists && existing != nil {
+		actorMatches := existing.ActorID == "" || events[0].ActorID == "" || existing.ActorID == events[0].ActorID
+		digestMatches := existing.RootDigest == terminalEvent.Digest
+		countMatches := existing.EventCount == len(events)
+
+		if actorMatches && digestMatches && countMatches {
+			clone := *existing
+			clone.IsIdempotent = true
+			return &clone
+		}
+
+		res.Status = StatusTampered
+		res.Violations = append(res.Violations, "session_conflict")
+		res.Error = fmt.Errorf("session conflict for session %q: incoming payload conflicts with previously verified session (cached root %s count %d != incoming root %s count %d)",
+			sessionID, existing.RootDigest, existing.EventCount, terminalEvent.Digest, len(events))
+		return res
+	}
+
+	// Clear session hash chain state to avoid corrupting active streams
+	v.mu.Lock()
+	delete(v.sessionState, sessionID)
 	v.mu.Unlock()
 
 	var prevCalculatedDigest string
@@ -541,7 +598,7 @@ func (v *AuditVerifier) VerifyFinalizedSession(events []*NonoAuditEvent) *Finali
 	}
 
 	// Verify finalization marker on terminal event
-	terminalEvent := events[len(events)-1]
+	terminalEvent = events[len(events)-1]
 	if !IsFinalizedEvent(terminalEvent) {
 		res.Status = StatusUnverified
 		res.Error = errors.New("unfinalized audit session: terminal event lacks completion or finalization marker")
@@ -558,6 +615,10 @@ func (v *AuditVerifier) VerifyFinalizedSession(events []*NonoAuditEvent) *Finali
 	res.RootDigest = terminalEvent.Digest
 	res.LandlockABI = landlockABI
 	res.Status = StatusVerified
+
+	v.mu.Lock()
+	v.finalizedSessions[sessionID] = res
+	v.mu.Unlock()
 
 	return res
 }

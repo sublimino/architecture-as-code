@@ -804,7 +804,7 @@ demo-signalloom-demo-up: ## Populate ALL demo data: every Monty Python agent + m
 
 ##@ Signal Loom data lifecycle (three UI states: demo-toggle / live-empty / mock-populated)
 
-.PHONY: demo-signalloom-data-reset demo-signalloom-data-mock demo-signalloom-api-test demo-agentmaxxing-contract-test demo-agentmaxxing-host-test
+.PHONY: demo-signalloom-data-reset demo-signalloom-data-mock demo-signalloom-api-test demo-agentmaxxing-contract-test demo-agentmaxxing-host-test demo-agentmaxxing-ingest-test
 demo-signalloom-data-reset: ## Reset data stores to empty defaults (live mode = empty UI). Optional: SERVICE=agents|audit|...
 	./scripts/signalloom-data.sh reset $(SERVICE)
 demo-signalloom-data-mock: ## Populate data stores with realistic demo data (mock mode = populated UI).
@@ -819,6 +819,9 @@ demo-agentmaxxing-host-test: ## Run AgentMaxxing Linux host sensor, confinement,
 	bats test/signalloom/agentmaxxing-host-confinement.bats
 	bats test/signalloom/file-validator-anti-escape.bats
 	bats test/signalloom/hasher-toctou.bats
+demo-agentmaxxing-ingest-test: ## Run AgentMaxxing audit session ingest, deduplication, and verification tests.
+	cd d2-signalloom/apps/signal-ingest && GOPATH=/tmp/gopath GOMODCACHE=/tmp/gomodcache go test -v ./collectors/agentnono/...
+	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py -k "test_idempotency or test_concurrent_upload or test_interrupted_retry or test_ingest_finalized"
 
 .PHONY: demo-signalloom-dex-origin-set demo-signalloom-dex-origin-status demo-signalloom-dex-origin-restore
 demo-signalloom-dex-origin-set: ## Set and apply Dex public origin and callback URIs (ORIGIN=<url> [METHOD=tailscale|ngrok|iap]).

@@ -1070,3 +1070,196 @@ def test_verify_probe_with_require_finalized(client: TestClient):
     assert "unfinalized" in data["error"].lower()
 
 
+# ---------------------------------------------------------------------------
+# AMXO-P5-2: Upload Idempotency and Concurrency Tests
+# ---------------------------------------------------------------------------
+
+def test_idempotency_duplicate_upload_returns_200(client: TestClient):
+    """Assert re-uploading an identical audit session returns HTTP 200 with identical root hash."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-idempotent-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    # First upload: initial creation returns 201 Created
+    res1 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+    data1 = res1.json()
+    assert data1["valid"] is True
+    assert data1["is_idempotent"] is False
+    assert data1["root_hash"] == root_hash
+
+    # Second upload: idempotent replay returns 200 OK with identical verification proof
+    res2 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res2.status_code == 200, res2.text
+    data2 = res2.json()
+    assert data2["valid"] is True
+    assert data2["is_idempotent"] is True
+    assert data2["root_hash"] == root_hash
+    assert data2["session_id"] == data1["session_id"]
+    assert data2["events_verified"] == data1["events_verified"]
+
+
+def test_idempotency_finalized_session_duplicate_returns_200(client: TestClient):
+    """Assert re-uploading a finalized audit session returns HTTP 200 with identical verification."""
+    events, root_hash = _build_hash_chained_events(4, finalized=True)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-idempotent-finalized-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:10:00Z",
+        "events_count": 4,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    # Initial upload
+    res1 = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+    assert res1.json()["is_idempotent"] is False
+
+    # Idempotent re-upload
+    res2 = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res2.status_code == 200, res2.text
+    data2 = res2.json()
+    assert data2["is_idempotent"] is True
+    assert data2["root_hash"] == root_hash
+
+
+def test_idempotency_conflicting_payload_returns_409(client: TestClient):
+    """Assert attempting to upload conflicting data under an existing session ID returns HTTP 409 Conflict."""
+    events1, root_hash1 = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest1 = hashlib.sha256(f"{root_hash1}:{spiffe_id}".encode()).hexdigest()
+
+    payload1 = {
+        "session_id": "sess-test-conflict-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash1,
+        "signature": f"sig-spiffe-{sig_digest1}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events1,
+    }
+
+    res1 = client.post("/api/audit/sessions", json=payload1, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+
+    # Prepare conflicting payload with different events / root hash for same session_id
+    events2, root_hash2 = _build_hash_chained_events(4)
+    sig_digest2 = hashlib.sha256(f"{root_hash2}:{spiffe_id}".encode()).hexdigest()
+
+    payload2 = {
+        "session_id": "sess-test-conflict-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 4,
+        "root_hash": root_hash2,
+        "signature": f"sig-spiffe-{sig_digest2}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events2,
+    }
+
+    res2 = client.post("/api/audit/sessions", json=payload2, headers=_bearer("audit-tester"))
+    assert res2.status_code == 409, res2.text
+    err = res2.json()
+    assert err.get("code") == "session_conflict" or "conflict" in res2.text.lower()
+
+
+def test_concurrent_upload(client: TestClient):
+    """Assert multiple concurrent uploads of identical audit session are safely deduplicated without errors."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-concurrent-dedup-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    headers = _bearer("audit-tester")
+
+    def upload():
+        return client.post("/api/audit/sessions", json=payload, headers=headers)
+
+    concurrency = 10
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(upload) for _ in range(concurrency)]
+        responses = [f.result() for f in futures]
+
+    status_codes = [r.status_code for r in responses]
+    assert all(code in (200, 201) for code in status_codes), f"Unexpected status codes: {status_codes}"
+    assert 201 in status_codes, "Expected at least one 201 Created response"
+
+    # All responses must confirm identical root hash
+    for r in responses:
+        body = r.json()
+        assert body["root_hash"] == root_hash
+        assert body["valid"] is True
+
+
+def test_interrupted_retry_resumption(client: TestClient):
+    """Assert interrupted network retry cleanly succeeds and yields verified idempotent response."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-retry-resume-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    # Initial upload completes
+    res1 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+
+    # Client retry after timeout
+    res2 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res2.status_code == 200, res2.text
+    data2 = res2.json()
+    assert data2["is_idempotent"] is True
+    assert data2["root_hash"] == root_hash
+
+
+

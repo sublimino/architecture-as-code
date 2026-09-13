@@ -6,6 +6,8 @@ package agentnono
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -383,3 +385,185 @@ func TestVerifyFinalizedSession_ForgedSignatureRejected(t *testing.T) {
 		t.Fatalf("expected StatusTampered for forged signature, got %s", res.Status)
 	}
 }
+
+func TestVerifyFinalizedSession_IdempotentReverification(t *testing.T) {
+	spiffeID := "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+	kp, err := GenerateTestKeypair(spiffeID)
+	if err != nil {
+		t.Fatalf("failed to generate test keypair: %v", err)
+	}
+
+	verifier := NewAuditVerifier(VerifierConfig{
+		TrustDomain:      DefaultTrustDomain,
+		TrustBundlePEM:   []byte(kp.CACertPEM),
+		RequireSignature: true,
+	})
+
+	sessionID := "audit-sess-idempotent-001"
+	events, err := GenerateFinalizedSignedSession(kp, sessionID, 4, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate session: %v", err)
+	}
+
+	// First verification
+	res1 := verifier.VerifyFinalizedSession(events)
+	if res1.Status != StatusVerified {
+		t.Fatalf("expected StatusVerified on first verification, got %s (err: %v)", res1.Status, res1.Error)
+	}
+	if res1.IsIdempotent {
+		t.Errorf("expected IsIdempotent false on initial verification")
+	}
+
+	// Second verification (identical events)
+	res2 := verifier.VerifyFinalizedSession(events)
+	if res2.Status != StatusVerified {
+		t.Fatalf("expected StatusVerified on second verification, got %s (err: %v)", res2.Status, res2.Error)
+	}
+	if !res2.IsIdempotent {
+		t.Errorf("expected IsIdempotent true on second verification")
+	}
+	if res2.RootDigest != res1.RootDigest {
+		t.Errorf("root digest mismatch: %s != %s", res2.RootDigest, res1.RootDigest)
+	}
+	if res2.EventCount != res1.EventCount {
+		t.Errorf("event count mismatch: %d != %d", res2.EventCount, res1.EventCount)
+	}
+
+	// Verify GetFinalizedSession helper
+	cached, ok := verifier.GetFinalizedSession(sessionID)
+	if !ok || cached == nil {
+		t.Fatalf("expected GetFinalizedSession to find cached session")
+	}
+	if cached.RootDigest != res1.RootDigest {
+		t.Errorf("cached digest mismatch: %s != %s", cached.RootDigest, res1.RootDigest)
+	}
+}
+
+func TestVerifyFinalizedSession_ConflictingPayloadRejected(t *testing.T) {
+	spiffeID := "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+	kp, err := GenerateTestKeypair(spiffeID)
+	if err != nil {
+		t.Fatalf("failed to generate test keypair: %v", err)
+	}
+
+	verifier := NewAuditVerifier(VerifierConfig{
+		TrustDomain:      DefaultTrustDomain,
+		TrustBundlePEM:   []byte(kp.CACertPEM),
+		RequireSignature: true,
+	})
+
+	sessionID := "audit-sess-conflict-001"
+	events1, err := GenerateFinalizedSignedSession(kp, sessionID, 3, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate session 1: %v", err)
+	}
+
+	res1 := verifier.VerifyFinalizedSession(events1)
+	if res1.Status != StatusVerified {
+		t.Fatalf("expected session 1 to verify successfully: %v", res1.Error)
+	}
+
+	// Generate different events for same session ID (different event count)
+	events2, err := GenerateFinalizedSignedSession(kp, sessionID, 4, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate session 2: %v", err)
+	}
+
+	res2 := verifier.VerifyFinalizedSession(events2)
+	if res2.Status != StatusTampered {
+		t.Fatalf("expected StatusTampered for conflicting session payload, got %s", res2.Status)
+	}
+	hasConflictViolation := false
+	for _, v := range res2.Violations {
+		if v == "session_conflict" {
+			hasConflictViolation = true
+			break
+		}
+	}
+	if !hasConflictViolation {
+		t.Errorf("expected violation 'session_conflict' in violations list: %v", res2.Violations)
+	}
+}
+
+func TestVerifyFinalizedSession_ConcurrentIdempotentVerification(t *testing.T) {
+	spiffeID := "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+	kp, err := GenerateTestKeypair(spiffeID)
+	if err != nil {
+		t.Fatalf("failed to generate test keypair: %v", err)
+	}
+
+	verifier := NewAuditVerifier(VerifierConfig{
+		TrustDomain:      DefaultTrustDomain,
+		TrustBundlePEM:   []byte(kp.CACertPEM),
+		RequireSignature: true,
+	})
+
+	sessionID := "audit-sess-concurrent-001"
+	events, err := GenerateFinalizedSignedSession(kp, sessionID, 5, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate session: %v", err)
+	}
+
+	const concurrency = 25
+	var wg sync.WaitGroup
+	errCh := make(chan error, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res := verifier.VerifyFinalizedSession(events)
+			if res.Status != StatusVerified {
+				errCh <- fmt.Errorf("expected StatusVerified, got %s (%v)", res.Status, res.Error)
+				return
+			}
+			if res.RootDigest == "" {
+				errCh <- fmt.Errorf("empty root digest returned")
+				return
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("concurrent verification failure: %v", err)
+	}
+}
+
+func TestVerifyFinalizedSession_InterruptedRetryResumption(t *testing.T) {
+	spiffeID := "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+	kp, err := GenerateTestKeypair(spiffeID)
+	if err != nil {
+		t.Fatalf("failed to generate test keypair: %v", err)
+	}
+
+	verifier := NewAuditVerifier(VerifierConfig{
+		TrustDomain:      DefaultTrustDomain,
+		TrustBundlePEM:   []byte(kp.CACertPEM),
+		RequireSignature: true,
+	})
+
+	sessionID := "audit-sess-interrupted-retry-001"
+	events, err := GenerateFinalizedSignedSession(kp, sessionID, 3, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate session: %v", err)
+	}
+
+	// First attempt succeeds
+	res1 := verifier.VerifyFinalizedSession(events)
+	if res1.Status != StatusVerified {
+		t.Fatalf("expected first attempt to verify: %v", res1.Error)
+	}
+
+	// Simulated client network timeout retry - sends identical payload
+	res2 := verifier.VerifyFinalizedSession(events)
+	if res2.Status != StatusVerified || !res2.IsIdempotent {
+		t.Fatalf("expected resumed retry to succeed idempotently: Status=%s IsIdempotent=%v", res2.Status, res2.IsIdempotent)
+	}
+	if res2.RootDigest != res1.RootDigest {
+		t.Errorf("resumed retry root digest %s != original %s", res2.RootDigest, res1.RootDigest)
+	}
+}
+

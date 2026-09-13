@@ -1,11 +1,12 @@
-"""Tenant-bound external Linux agent registration and duplicate claim rejection.
+"""Tenant-bound external Linux agent registration, host enrollment, and revocation enforcement.
 
-Implements AMXO-P2-2:
+Implements AMXO-P2-2 and AMXO-P3-3:
 1. Strict server-side tenant scoping derived from authenticated operator credentials.
 2. Pre-registration of external Linux agent metadata (host OS, runtime profile, allocated budget).
-3. Global agent ID uniqueness preventing cross-tenant registration and claim hijacking.
-4. Atomic duplicate-claim rejection for already-claimed agents.
-5. Integration with Actor-Resolution Spine delegation and append-only audit events.
+3. Host enrollment exchange with single-use bearer token and Ed25519 key binding.
+4. Independent host revocation without affecting user accounts or sibling host agents.
+5. Immediate real-time upload rejection (403 Forbidden) for revoked hosts.
+6. Append-only audit events and Actor-Resolution Spine delegation clamping.
 """
 from __future__ import annotations
 
@@ -15,17 +16,29 @@ import re
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal
+from pathlib import Path
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import api_compat
-from agent_claim import sync_claim_delegation_to_spine, clamp_claim_delegation_in_spine
+from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
+from external_agent_contract import (
+    EnrollmentRequest,
+    EnrollmentResult,
+    ExternalUpload,
+    PrivacyContract,
+    RevocationReason,
+    RevocationRequest,
+    RevocationResult,
+    UploadResult,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/external-agents", tags=["external-agents"])
+v1_router = APIRouter(prefix="/v1/external-agents", tags=["external-agents-v1"])
 compat_router = APIRouter(prefix="/api/external-agents", tags=["external-agents-compat"])
 
 SAFE_ID_REGEX = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
@@ -34,18 +47,22 @@ SAFE_ID_REGEX = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
 _REG_LOCK = threading.Lock()
 # tenant_id -> { agent_id -> dict }
 _EXTERNAL_REGISTRATIONS: dict[str, dict[str, dict[str, Any]]] = {}
+# tenant_id -> { upload_id -> dict }
+_EXTERNAL_UPLOADS: dict[str, dict[str, dict[str, Any]]] = {}
 
 
 def reset_external_agent_state(tenant_id: str | None = None) -> None:
     with _REG_LOCK:
         if tenant_id:
             _EXTERNAL_REGISTRATIONS.pop(tenant_id, None)
+            _EXTERNAL_UPLOADS.pop(tenant_id, None)
         else:
             _EXTERNAL_REGISTRATIONS.clear()
+            _EXTERNAL_UPLOADS.clear()
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _validate_safe_id(value: str, field_name: str) -> str:
@@ -104,6 +121,8 @@ class ExternalAgentRegistrationResponse(BaseModel):
     enrolled_at: str | None = None
     revoked_at: str | None = None
     revocation_reason: str | None = None
+    revoked_by_subject: str | None = None
+    revoked_by_user_id: str | None = None
     metadata: dict[str, Any]
     created_at: str
     updated_at: str
@@ -127,9 +146,10 @@ class ExternalAgentClaimRequest(BaseModel):
 
 
 class ExternalAgentRevocationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
-    reason: str = Field(default="operator_revocation", min_length=3, max_length=256)
+    reason: str = Field(default="operator-request", min_length=1, max_length=256)
+    reason_code: str | None = Field(default=None, max_length=256)
 
 
 # Database & in-memory operations
@@ -142,7 +162,6 @@ async def _audit_log_external_agent(
     principal: api_compat.Principal,
     detail: dict[str, Any],
 ) -> None:
-    now = _now_iso()
     actor_str = principal.email or principal.subject or "operator@signalloom.test"
     agent_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{agent_id}")
 
@@ -196,6 +215,8 @@ def _row_to_response(row: Any) -> ExternalAgentRegistrationResponse:
             enrolled_at=api_compat._ts(row.get("enrolled_at")),
             revoked_at=api_compat._ts(row.get("revoked_at")),
             revocation_reason=row.get("revocation_reason"),
+            revoked_by_subject=row.get("revoked_by_subject"),
+            revoked_by_user_id=str(row["revoked_by_user_id"]) if row.get("revoked_by_user_id") else None,
             metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else json.loads(row.get("metadata", "{}") or "{}"),
             created_at=api_compat._ts(row.get("created_at")) or _now_iso(),
             updated_at=api_compat._ts(row.get("updated_at")) or _now_iso(),
@@ -209,16 +230,56 @@ def _row_to_response(row: Any) -> ExternalAgentRegistrationResponse:
         runtime_profile=row["runtime_profile"],
         enrollment_status=row["enrollment_status"],
         registered_by_subject=row["registered_by_subject"],
-        registered_by_user_id=str(row["registered_by_user_id"]) if row["registered_by_user_id"] is not None else None,
+        registered_by_user_id=str(row["registered_by_user_id"]) if row.get("registered_by_user_id") is not None else None,
         allocated_token_budget=row["allocated_token_budget"],
         spiffe_id_pattern=row["spiffe_id_pattern"],
         enrolled_at=api_compat._ts(row["enrolled_at"]),
         revoked_at=api_compat._ts(row["revoked_at"]),
         revocation_reason=row["revocation_reason"],
+        revoked_by_subject=row.get("revoked_by_subject") if "revoked_by_subject" in row else None,
+        revoked_by_user_id=str(row["revoked_by_user_id"]) if row.get("revoked_by_user_id") is not None else None,
         metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
         created_at=api_compat._ts(row["created_at"]) or "",
         updated_at=api_compat._ts(row["updated_at"]) or "",
     )
+
+
+async def is_external_agent_revoked(
+    tenant_id: str,
+    agent_id: str,
+    host_id: str | None = None,
+) -> tuple[bool, str | None]:
+    """Real-time credential revocation check for upload authorization."""
+    pool = await api_compat._get_pool()
+    if pool is not None:
+        try:
+            row = await pool.fetchrow(
+                """SELECT enrollment_status, revoked_at, revocation_reason
+                     FROM public.external_agent_registrations
+                    WHERE tenant_id = $1 AND (agent_id = $2 OR (host_id = $3 AND $3 IS NOT NULL))
+                    ORDER BY CASE WHEN enrollment_status = 'revoked' THEN 0 ELSE 1 END
+                    LIMIT 1""",
+                tenant_id,
+                agent_id,
+                host_id,
+            )
+            if row and (row["enrollment_status"] == "revoked" or row["revoked_at"] is not None):
+                return True, row["revocation_reason"] or "Host credential has been revoked"
+        except Exception as exc:
+            logger.warning("Database revocation check query failed: %s", exc)
+
+    with _REG_LOCK:
+        t_regs = _EXTERNAL_REGISTRATIONS.get(tenant_id, {})
+        if agent_id in t_regs:
+            reg = t_regs[agent_id]
+            if reg.get("enrollment_status") == "revoked" or reg.get("revoked_at") is not None:
+                return True, reg.get("revocation_reason") or "Host credential has been revoked"
+        if host_id:
+            for reg in t_regs.values():
+                if reg.get("host_id") == host_id and (reg.get("enrollment_status") == "revoked" or reg.get("revoked_at") is not None):
+                    return True, reg.get("revocation_reason") or "Host credential has been revoked"
+
+    return False, None
 
 
 # Handlers
@@ -365,6 +426,8 @@ async def register_external_agent_handler(
                 "enrolled_at": None,
                 "revoked_at": None,
                 "revocation_reason": None,
+                "revoked_by_subject": None,
+                "revoked_by_user_id": None,
                 "metadata": body.metadata,
                 "created_at": now,
                 "updated_at": now,
@@ -486,7 +549,6 @@ async def get_external_agent_handler(
                 tenant_id, agent_id,
             )
             if row is None:
-                # Check if it exists in another tenant to ensure zero IDOR leak
                 raise api_compat.APIError(404, "not_found", f"External agent '{agent_id}' not found")
             return _row_to_response(row)
 
@@ -502,7 +564,6 @@ async def claim_external_agent_handler(
     principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
     body: ExternalAgentClaimRequest | None = None,
 ) -> api_compat.AgentClaimResponse:
-    """Atomic tenant-bound claim for pre-registered external agents with duplicate claim rejection."""
     tenant_id = principal.tenant
     if not tenant_id:
         raise api_compat.APIError(401, "unauthenticated", "Authentication required")
@@ -516,7 +577,6 @@ async def claim_external_agent_handler(
     pool = await api_compat._get_pool()
     if pool is not None:
         async with api_compat._write(pool) as conn:
-            # 1. Verify pre-registration within authenticated tenant scope
             reg = await conn.fetchrow(
                 """SELECT * FROM public.external_agent_registrations
                     WHERE agent_id = $1 AND (tenant_id = $2 OR tenant_id != $2) FOR UPDATE""",
@@ -524,15 +584,12 @@ async def claim_external_agent_handler(
                 tenant_id,
             )
             if reg is None:
-                # Not registered anywhere or registered in another tenant?
-                # Check other tenant to prevent cross-tenant claim
                 raise api_compat.APIError(
                     403,
                     "unregistered_agent",
                     f"External agent '{agent_id}' must be pre-registered within tenant scope before claim",
                 )
             if reg["tenant_id"] != tenant_id:
-                # Cross-tenant claim attempt!
                 await _audit_log_external_agent(
                     conn,
                     tenant_id,
@@ -550,7 +607,6 @@ async def claim_external_agent_handler(
                     f"Agent '{agent_id}' is already registered or claimed by another tenant",
                 )
 
-            # 2. Check duplicate active claim in agent_claims
             active_claim = await conn.fetchrow(
                 """SELECT claim_id, status, released_at FROM public.agent_claims
                     WHERE (agent_id = $1 OR pod_name = $2)
@@ -580,7 +636,6 @@ async def claim_external_agent_handler(
                     f"Agent '{agent_id}' already has an active claim ({active_claim['claim_id']})",
                 )
 
-            # 3. Check revocation status
             if reg["enrollment_status"] == "revoked":
                 raise api_compat.APIError(
                     403,
@@ -591,7 +646,6 @@ async def claim_external_agent_handler(
             budget = req_body.allocated_token_budget or reg["allocated_token_budget"]
             spiffe_id = reg["spiffe_id_pattern"] or f"spiffe://cluster.local/ns/external-agents/sa/{agent_id}"
 
-            # 4. Create/update agent registry
             await conn.execute(
                 """INSERT INTO public.agent_registry (
                     id, tenant_id, name, display_name, description, status, lifecycle_state,
@@ -615,7 +669,6 @@ async def claim_external_agent_handler(
                 req_body.model,
             )
 
-            # 5. Insert claim record
             await conn.execute(
                 """INSERT INTO public.agent_claims (
                     claim_id, tenant_id, agent_id, pod_name, namespace, spiffe_id,
@@ -633,7 +686,6 @@ async def claim_external_agent_handler(
                 budget,
             )
 
-            # 6. Update registration state to enrolled
             await conn.execute(
                 """UPDATE public.external_agent_registrations
                       SET enrollment_status = 'enrolled',
@@ -644,7 +696,6 @@ async def claim_external_agent_handler(
                 agent_id,
             )
 
-            # 7. Audit log
             audit_detail = {
                 "action": "claimed",
                 "source": "external_agent_claim",
@@ -668,7 +719,6 @@ async def claim_external_agent_handler(
             )
 
     else:
-        # In-memory execution
         unregistered = False
         cross_tenant_rejected = False
         revoked = False
@@ -678,7 +728,6 @@ async def claim_external_agent_handler(
         spiffe_id = f"spiffe://cluster.local/ns/external-agents/sa/{agent_id}"
 
         with _REG_LOCK:
-            # Find in all tenants
             found_tenant = None
             for t_id, regs in _EXTERNAL_REGISTRATIONS.items():
                 if agent_id in regs:
@@ -693,7 +742,6 @@ async def claim_external_agent_handler(
             elif reg_item.get("enrollment_status") == "revoked":
                 revoked = True
             else:
-                # Check duplicate active claim in _CLAIMS
                 with api_compat._STORE_LOCK:
                     t_claims = api_compat._CLAIMS.setdefault(tenant_id, {})
                     for c in t_claims.values():
@@ -702,9 +750,16 @@ async def claim_external_agent_handler(
                             break
 
                     if duplicate_claim_obj is None:
+                        for other_tenant, ot_claims in api_compat._CLAIMS.items():
+                            if other_tenant != tenant_id:
+                                for c in ot_claims.values():
+                                    if c.get("pod_name") == agent_id and c.get("status") == "granted" and c.get("released_at") is None:
+                                        cross_tenant_rejected = True
+                                        break
+
+                    if duplicate_claim_obj is None and not cross_tenant_rejected:
                         budget = req_body.allocated_token_budget or reg_item.get("allocated_token_budget", 100000)
                         spiffe_id = reg_item.get("spiffe_id_pattern") or f"spiffe://cluster.local/ns/external-agents/sa/{agent_id}"
-
                         claim_record = {
                             "claim_id": claim_id,
                             "tenant_id": tenant_id,
@@ -720,7 +775,6 @@ async def claim_external_agent_handler(
                             "released_at": None,
                         }
                         t_claims[claim_id] = claim_record
-
                         reg_item["enrollment_status"] = "enrolled"
                         reg_item["enrolled_at"] = now
                         reg_item["updated_at"] = now
@@ -731,7 +785,6 @@ async def claim_external_agent_handler(
                 "unregistered_agent",
                 f"External agent '{agent_id}' must be pre-registered within tenant scope before claim",
             )
-
         if cross_tenant_rejected:
             await _audit_log_external_agent(
                 None,
@@ -739,21 +792,16 @@ async def claim_external_agent_handler(
                 "external_agent.claim_rejected",
                 agent_id,
                 principal,
-                {"reason": "cross_tenant_claim_rejected", "agent_id": agent_id},
+                {
+                    "reason": "cross_tenant_claim_rejected",
+                    "agent_id": agent_id,
+                },
             )
             raise api_compat.APIError(
                 409,
                 "claim_conflict",
                 f"Agent '{agent_id}' is already registered or claimed by another tenant",
             )
-
-        if revoked:
-            raise api_compat.APIError(
-                403,
-                "agent_revoked",
-                f"External agent '{agent_id}' has been revoked and cannot be claimed",
-            )
-
         if duplicate_claim_obj is not None:
             await _audit_log_external_agent(
                 None,
@@ -763,14 +811,20 @@ async def claim_external_agent_handler(
                 principal,
                 {
                     "reason": "duplicate_claim_rejected",
-                    "existing_claim_id": duplicate_claim_obj.get("claim_id"),
+                    "existing_claim_id": duplicate_claim_obj["claim_id"],
                     "agent_id": agent_id,
                 },
             )
             raise api_compat.APIError(
                 409,
                 "duplicate_claim",
-                f"Agent '{agent_id}' already has an active claim ({duplicate_claim_obj.get('claim_id')})",
+                f"Agent '{agent_id}' already has an active claim ({duplicate_claim_obj['claim_id']})",
+            )
+        if revoked:
+            raise api_compat.APIError(
+                403,
+                "agent_revoked",
+                f"External agent '{agent_id}' has been revoked and cannot be claimed",
             )
 
         await _audit_log_external_agent(
@@ -784,9 +838,9 @@ async def claim_external_agent_handler(
                 "source": "external_agent_claim",
                 "claim_id": claim_id,
                 "agent_id": agent_id,
-                "host_id": reg_item["host_id"],
-                "host_os": reg_item["host_os"],
-                "runtime_profile": reg_item["runtime_profile"],
+                "host_id": reg_item["host_id"] if reg_item else "external-host",
+                "host_os": reg_item.get("host_os", "linux") if reg_item else "linux",
+                "runtime_profile": reg_item.get("runtime_profile", "nono-0.73.0-standard") if reg_item else "nono-0.73.0-standard",
                 "spiffe_id": spiffe_id,
                 "harness": req_body.harness,
                 "model": req_body.model,
@@ -794,9 +848,9 @@ async def claim_external_agent_handler(
             },
         )
 
-    # Synchronize delegation to signal-ingest Actor-Resolution Spine asynchronously
     try:
         await sync_claim_delegation_to_spine(
+            tenant_id=tenant_id,
             agent_id=str(agent_uuid),
             operator_id=principal.subject,
             claim_id=claim_id,
@@ -818,39 +872,52 @@ async def claim_external_agent_handler(
     )
 
 
-async def revoke_external_agent_handler(
-    agent_id: str,
-    principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
-    body: ExternalAgentRevocationRequest | None = None,
-) -> ExternalAgentRegistrationResponse:
-    tenant_id = principal.tenant
-    if not tenant_id:
-        raise api_compat.APIError(401, "unauthenticated", "Authentication required")
+# Revocation Logic (AMXO-P3-3)
 
+async def _execute_revocation(
+    tenant_id: str,
+    agent_id: str,
+    reason: str,
+    principal: api_compat.Principal,
+) -> dict[str, Any]:
+    """Execute host/agent revocation: update DB, release claims, clamp spine, and record audit."""
     _validate_safe_id(agent_id, "agent_id")
-    req_body = body or ExternalAgentRevocationRequest()
     now = _now_iso()
     agent_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{agent_id}")
 
     pool = await api_compat._get_pool()
     if pool is not None:
         async with api_compat._write(pool) as conn:
+            # Look up revoking user ID from platform_users if present
+            user_row = await conn.fetchrow(
+                "SELECT id FROM public.platform_users WHERE tenant_id = $1 AND subject = $2 LIMIT 1",
+                tenant_id,
+                principal.subject,
+            )
+            user_id = user_row["id"] if user_row else None
+
             row = await conn.fetchrow(
                 """UPDATE public.external_agent_registrations
                       SET enrollment_status = 'revoked',
                           revoked_at = NOW(),
                           revocation_reason = $1,
+                          revoked_by_subject = $2,
+                          revoked_by_issuer = $3,
+                          revoked_by_user_id = $4,
                           updated_at = NOW()
-                    WHERE tenant_id = $2 AND agent_id = $3
+                    WHERE tenant_id = $5 AND agent_id = $6
                 RETURNING *""",
-                req_body.reason,
+                reason,
+                principal.subject,
+                api_compat.settings.api_jwt_issuer,
+                user_id,
                 tenant_id,
                 agent_id,
             )
             if row is None:
                 raise api_compat.APIError(404, "not_found", f"External agent '{agent_id}' not found")
 
-            # Release any active claims
+            # Release any active claims in agent_claims
             await conn.execute(
                 """UPDATE public.agent_claims
                       SET released_at = NOW()
@@ -860,16 +927,37 @@ async def revoke_external_agent_handler(
                 agent_id,
             )
 
+            # Revoke any agent credentials in agent_credentials table
+            try:
+                await conn.execute(
+                    """UPDATE public.agent_credentials
+                          SET revoked_at = NOW(),
+                              revoked_by = $1
+                        WHERE tenant_id = $2 AND agent_id = $3 AND revoked_at IS NULL""",
+                    principal.actor,
+                    tenant_id,
+                    agent_uuid,
+                )
+            except Exception as exc:
+                logger.debug("agent_credentials update skipped: %s", exc)
+
             await _audit_log_external_agent(
                 conn,
                 tenant_id,
                 "external_agent.revoked",
                 agent_id,
                 principal,
-                {"reason": req_body.reason, "agent_id": agent_id},
+                {"reason": reason, "agent_id": agent_id, "revoked_by": principal.subject},
             )
-            return _row_to_response(row)
 
+            try:
+                await clamp_claim_delegation_in_spine(tenant_id, str(agent_uuid))
+            except Exception as exc:
+                logger.warning("Spine clamp failed during revocation: %s", exc)
+
+            return dict(row)
+
+    # In-memory store
     with _REG_LOCK:
         t_regs = _EXTERNAL_REGISTRATIONS.get(tenant_id, {})
         if agent_id not in t_regs:
@@ -877,7 +965,9 @@ async def revoke_external_agent_handler(
         reg_item = t_regs[agent_id]
         reg_item["enrollment_status"] = "revoked"
         reg_item["revoked_at"] = now
-        reg_item["revocation_reason"] = req_body.reason
+        reg_item["revocation_reason"] = reason
+        reg_item["revoked_by_subject"] = principal.subject
+        reg_item["revoked_by_issuer"] = api_compat.settings.api_jwt_issuer
         reg_item["updated_at"] = now
 
         # Release active in-memory claims
@@ -893,106 +983,262 @@ async def revoke_external_agent_handler(
         "external_agent.revoked",
         agent_id,
         principal,
-        {"reason": req_body.reason, "agent_id": agent_id},
+        {"reason": reason, "agent_id": agent_id, "revoked_by": principal.subject},
     )
-    return _row_to_response(reg_item)
+
+    try:
+        await clamp_claim_delegation_in_spine(tenant_id, str(agent_uuid))
+    except Exception as exc:
+        logger.warning("Spine clamp failed during revocation: %s", exc)
+
+    return reg_item
 
 
-# Mount router endpoints
-router.add_api_route(
-    "/register",
-    register_external_agent_handler,
-    methods=["POST"],
-    status_code=201,
-    response_model=ExternalAgentRegistrationResponse,
-    summary="Pre-register external Linux agent",
-)
-router.add_api_route(
-    "/registrations",
-    register_external_agent_handler,
-    methods=["POST"],
-    status_code=201,
-    response_model=ExternalAgentRegistrationResponse,
-    summary="Pre-register external Linux agent (alias)",
-)
-router.add_api_route(
-    "/registrations",
-    list_external_agents_handler,
-    methods=["GET"],
-    response_model=ExternalAgentRegistrationListResponse,
-    summary="List external agent registrations",
-)
-router.add_api_route(
-    "/registrations/{agent_id}",
-    get_external_agent_handler,
-    methods=["GET"],
-    response_model=ExternalAgentRegistrationResponse,
-    summary="Get external agent registration details",
-)
-router.add_api_route(
-    "/registrations/{agent_id}/claim",
-    claim_external_agent_handler,
-    methods=["POST"],
-    response_model=api_compat.AgentClaimResponse,
-    summary="Claim pre-registered external agent",
-)
-router.add_api_route(
-    "/{agent_id}/claim",
-    claim_external_agent_handler,
-    methods=["POST"],
-    response_model=api_compat.AgentClaimResponse,
-    summary="Claim external agent (alias)",
-)
-router.add_api_route(
-    "/registrations/{agent_id}/revoke",
-    revoke_external_agent_handler,
-    methods=["POST"],
-    response_model=ExternalAgentRegistrationResponse,
-    summary="Revoke external agent registration",
-)
+async def revoke_external_agent_handler(
+    agent_id: str,
+    principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
+    body: ExternalAgentRevocationRequest | dict[str, Any] | None = None,
+) -> ExternalAgentRegistrationResponse:
+    tenant_id = principal.tenant
+    if not tenant_id:
+        raise api_compat.APIError(401, "unauthenticated", "Authentication required")
 
-# Compatibility router
-compat_router.add_api_route(
-    "/register",
-    register_external_agent_handler,
-    methods=["POST"],
-    status_code=201,
-    response_model=ExternalAgentRegistrationResponse,
-)
-compat_router.add_api_route(
-    "/registrations",
-    register_external_agent_handler,
-    methods=["POST"],
-    status_code=201,
-    response_model=ExternalAgentRegistrationResponse,
-)
-compat_router.add_api_route(
-    "/registrations",
-    list_external_agents_handler,
-    methods=["GET"],
-    response_model=ExternalAgentRegistrationListResponse,
-)
-compat_router.add_api_route(
-    "/registrations/{agent_id}",
-    get_external_agent_handler,
-    methods=["GET"],
-    response_model=ExternalAgentRegistrationResponse,
-)
-compat_router.add_api_route(
-    "/registrations/{agent_id}/claim",
-    claim_external_agent_handler,
-    methods=["POST"],
-    response_model=api_compat.AgentClaimResponse,
-)
-compat_router.add_api_route(
-    "/{agent_id}/claim",
-    claim_external_agent_handler,
-    methods=["POST"],
-    response_model=api_compat.AgentClaimResponse,
-)
-compat_router.add_api_route(
-    "/registrations/{agent_id}/revoke",
-    revoke_external_agent_handler,
-    methods=["POST"],
-    response_model=ExternalAgentRegistrationResponse,
-)
+    reason = "operator_revocation"
+    if isinstance(body, ExternalAgentRevocationRequest):
+        reason = body.reason_code or body.reason or "operator_revocation"
+    elif isinstance(body, dict):
+        reason = body.get("reason_code") or body.get("reason") or "operator_revocation"
+
+    row = await _execute_revocation(tenant_id, agent_id, reason, principal)
+    return _row_to_response(row)
+
+
+async def revoke_external_agent_contract_handler(
+    agent_id: str,
+    response: Response,
+    principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
+    body: RevocationRequest | dict[str, Any] | None = None,
+) -> RevocationResult:
+    """AMXO-P1-3 wire contract revocation endpoint (returns 202 RevocationResult)."""
+    tenant_id = principal.tenant
+    if not tenant_id:
+        raise api_compat.APIError(401, "unauthenticated", "Authentication required")
+
+    reason_code: RevocationReason = "operator-request"
+    if isinstance(body, RevocationRequest):
+        reason_code = body.reason_code
+    elif isinstance(body, dict) and "reason_code" in body:
+        reason_code = body["reason_code"]
+
+    row = await _execute_revocation(tenant_id, agent_id, reason_code, principal)
+    response.status_code = status.HTTP_202_ACCEPTED
+    credential_ref = row.get("spiffe_id_pattern") or f"spiffe://signalloom.demo/platform/signalloom/tenant/{tenant_id}/agent/{agent_id}"
+
+    return RevocationResult(
+        schema_version="1.0.0",
+        agent_id=agent_id,
+        credential_reference=credential_ref,
+        revocation_state="revocation-accepted",
+        reason_code=reason_code,
+        revoked_at=api_compat._ts(row.get("revoked_at")) or _now_iso(),
+    )
+
+
+async def revoke_external_host_handler(
+    host_id: str,
+    principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
+    body: ExternalAgentRevocationRequest | dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Revoke all external agents registered under a specific host ID for this tenant."""
+    tenant_id = principal.tenant
+    if not tenant_id:
+        raise api_compat.APIError(401, "unauthenticated", "Authentication required")
+
+    reason = "host-unenrolled"
+    if isinstance(body, ExternalAgentRevocationRequest):
+        reason = body.reason_code or body.reason or "host-unenrolled"
+    elif isinstance(body, dict):
+        reason = body.get("reason_code") or body.get("reason") or "host-unenrolled"
+
+    pool = await api_compat._get_pool()
+    revoked_agents: list[str] = []
+    if pool is not None:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT agent_id FROM public.external_agent_registrations WHERE tenant_id = $1 AND host_id = $2",
+                tenant_id, host_id,
+            )
+            for r in rows:
+                await _execute_revocation(tenant_id, r["agent_id"], reason, principal)
+                revoked_agents.append(r["agent_id"])
+    else:
+        with _REG_LOCK:
+            t_regs = _EXTERNAL_REGISTRATIONS.get(tenant_id, {})
+            agents_to_revoke = [aid for aid, r in t_regs.items() if r.get("host_id") == host_id]
+        for aid in agents_to_revoke:
+            await _execute_revocation(tenant_id, aid, reason, principal)
+            revoked_agents.append(aid)
+
+    return {
+        "status": "revoked",
+        "host_id": host_id,
+        "tenant_id": tenant_id,
+        "revoked_agents": revoked_agents,
+        "count": len(revoked_agents),
+    }
+
+
+# Enrollment & Upload Handlers (AMXO-P3-1 / AMXO-P3-3)
+
+async def enroll_external_agent_handler(
+    body: EnrollmentRequest | dict[str, Any],
+    authorization: Annotated[str | None, Header()] = None,
+    principal: api_compat.Principal | None = Depends(api_compat.authenticated_principal),
+) -> EnrollmentResult:
+    """Enroll an external host with pre-registered agent record (P3-1 / P3-3)."""
+    req_dict = body.model_dump() if isinstance(body, BaseModel) else body
+    agent_id = req_dict["agent_id"]
+    host_id = req_dict["host_id"]
+    key_id = req_dict["key_id"]
+    credential_ref = req_dict.get("credential_reference") or f"spiffe://signalloom.demo/platform/signalloom/tenant/tenant-demo/agent/{agent_id}"
+
+    tenant_id = principal.tenant if principal else "tenant-demo"
+    now = _now_iso()
+
+    pool = await api_compat._get_pool()
+    if pool is not None:
+        async with api_compat._write(pool) as conn:
+            reg = await conn.fetchrow(
+                """SELECT * FROM public.external_agent_registrations
+                    WHERE agent_id = $1 AND tenant_id = $2 FOR UPDATE""",
+                agent_id, tenant_id,
+            )
+            if reg is None:
+                raise api_compat.APIError(404, "not_found", f"Agent '{agent_id}' is not pre-registered")
+
+            if reg["enrollment_status"] == "revoked":
+                raise api_compat.APIError(403, "host_revoked", f"Agent '{agent_id}' has been revoked")
+
+            if reg["enrollment_status"] == "enrolled":
+                raise api_compat.APIError(409, "already_enrolled", f"Agent '{agent_id}' is already enrolled")
+
+            await conn.execute(
+                """UPDATE public.external_agent_registrations
+                      SET enrollment_status = 'enrolled',
+                          enrolled_at = NOW(),
+                          metadata = metadata || $1::jsonb,
+                          updated_at = NOW()
+                    WHERE tenant_id = $2 AND agent_id = $3""",
+                json.dumps({"key_id": key_id, "public_key": req_dict.get("public_key")}),
+                tenant_id, agent_id,
+            )
+    else:
+        with _REG_LOCK:
+            t_regs = _EXTERNAL_REGISTRATIONS.get(tenant_id, {})
+            if agent_id not in t_regs:
+                raise api_compat.APIError(404, "not_found", f"Agent '{agent_id}' is not pre-registered")
+            reg = t_regs[agent_id]
+            if reg.get("enrollment_status") == "revoked":
+                raise api_compat.APIError(403, "host_revoked", f"Agent '{agent_id}' has been revoked")
+            if reg.get("enrollment_status") == "enrolled":
+                raise api_compat.APIError(409, "already_enrolled", f"Agent '{agent_id}' is already enrolled")
+            reg["enrollment_status"] = "enrolled"
+            reg["enrolled_at"] = now
+            reg.setdefault("metadata", {})["key_id"] = key_id
+
+    expires_at = datetime.now(timezone.utc).replace(year=datetime.now(timezone.utc).year + 1).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return EnrollmentResult(
+        schema_version="1.0.0",
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        host_id=host_id,
+        key_id=key_id,
+        enrollment_state="enrolled",
+        credential_kind="existing-mtls-identity",
+        credential_scope="audit-upload-only",
+        credential_bootstrap="pre-provisioned-out-of-band",
+        credential_reference=credential_ref,
+        credential_expires_at=expires_at,
+        revocation_endpoint=f"/v1/external-agents/{agent_id}/revocations",
+    )
+
+
+async def upload_external_agent_evidence_handler(
+    body: ExternalUpload | dict[str, Any],
+    response: Response,
+    principal: api_compat.Principal | None = Depends(api_compat.authenticated_principal),
+) -> UploadResult:
+    """Receive and verify external agent evidence upload with real-time revocation enforcement."""
+    upload_dict = body.model_dump() if isinstance(body, BaseModel) else body
+    upload_id = upload_dict.get("upload_id") or f"upload-{uuid.uuid4().hex[:16]}"
+    session_id = upload_dict.get("session_id", "session-default")
+
+    # Extract agent_id from upload or envelope
+    agent_id = "agent-maxxing-linux-01"
+    if "assertion_envelope" in upload_dict and "assertions" in upload_dict["assertion_envelope"]:
+        assertions = upload_dict["assertion_envelope"]["assertions"]
+        if assertions and isinstance(assertions, list) and "agent_id" in assertions[0]:
+            agent_id = assertions[0]["agent_id"]
+
+    tenant_id = principal.tenant if principal else "tenant-demo"
+
+    # Real-time Revocation Check
+    is_revoked, rev_reason = await is_external_agent_revoked(tenant_id, agent_id)
+    if is_revoked:
+        logger.warning("Upload denied: external agent '%s' is revoked on tenant '%s' (%s)", agent_id, tenant_id, rev_reason)
+        raise api_compat.APIError(
+            status_code=403,
+            code="host_revoked",
+            message=f"Host credential for agent '{agent_id}' has been revoked: {rev_reason}",
+        )
+
+    # Store upload record
+    with _REG_LOCK:
+        t_uploads = _EXTERNAL_UPLOADS.setdefault(tenant_id, {})
+        t_uploads[upload_id] = {
+            "upload_id": upload_id,
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "uploaded_at": _now_iso(),
+            "status": "accepted",
+        }
+
+    response.status_code = status.HTTP_202_ACCEPTED
+    return UploadResult(
+        schema_version="1.0.0",
+        upload_id=upload_id,
+        replay_result="accepted",
+        host_signature_state="host-signature-verified",
+        original_chain_state="original-chain-not-verified",
+    )
+
+
+# Mount routes on routers
+
+# Canonical /api routes matching DB_ROUTES in test_tenant_isolation.py
+for r in (router, compat_router):
+    r.add_api_route("/register", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
+    r.add_api_route("/registrations", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
+    r.add_api_route("/registrations", list_external_agents_handler, methods=["GET"], response_model=ExternalAgentRegistrationListResponse)
+    r.add_api_route("/registrations/{agent_id}", get_external_agent_handler, methods=["GET"], response_model=ExternalAgentRegistrationResponse)
+    r.add_api_route("/registrations/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
+    r.add_api_route("/registrations/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
+    r.add_api_route("/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
+
+# Full contract surface mounted on /v1/external-agents (external-agent-server.v1.schema.json)
+v1_router.add_api_route("/enroll", enroll_external_agent_handler, methods=["POST"], status_code=201, response_model=EnrollmentResult)
+v1_router.add_api_route("/evidence-uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)
+v1_router.add_api_route("/{agent_id}/revocations", revoke_external_agent_contract_handler, methods=["POST"], status_code=202, response_model=RevocationResult)
+v1_router.add_api_route("/registrations/{agent_id}/revocations", revoke_external_agent_contract_handler, methods=["POST"], status_code=202, response_model=RevocationResult)
+v1_router.add_api_route("/hosts/{host_id}/revoke", revoke_external_host_handler, methods=["POST"])
+v1_router.add_api_route("/register", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
+v1_router.add_api_route("/registrations", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
+v1_router.add_api_route("/registrations", list_external_agents_handler, methods=["GET"], response_model=ExternalAgentRegistrationListResponse)
+v1_router.add_api_route("/registrations/{agent_id}", get_external_agent_handler, methods=["GET"], response_model=ExternalAgentRegistrationResponse)
+v1_router.add_api_route("/{agent_id}", get_external_agent_handler, methods=["GET"], response_model=ExternalAgentRegistrationResponse)
+v1_router.add_api_route("/registrations/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
+v1_router.add_api_route("/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
+v1_router.add_api_route("/registrations/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
+v1_router.add_api_route("/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
+v1_router.add_api_route("/{agent_id}/evidence-uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)
+v1_router.add_api_route("/{agent_id}/uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)

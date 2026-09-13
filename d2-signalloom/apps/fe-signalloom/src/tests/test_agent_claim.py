@@ -368,3 +368,287 @@ def test_audit_event_logged_on_claim(client: TestClient) -> None:
     assert ev["actor"] == f"{ALICE_SUB}@signalloom.test"
     assert ev["detail"]["pod_name"] == "audited-agent"
     assert ev["detail"]["spiffe_id"] == payload["spiffe_id"]
+
+
+# ---------------------------------------------------------------------------
+# AMXO-P2-2: External Agent Pre-Registration & Duplicate Claim Rejection
+# ---------------------------------------------------------------------------
+
+def test_external_agent_preregistration_and_claim_lifecycle(client: TestClient) -> None:
+    # 1. Pre-register external Linux agent in Tenant A (Alice)
+    reg_payload = {
+        "agent_id": "agentmaxxing-linux-worker-01",
+        "host_id": "host-prod-linux-01",
+        "host_os": "ubuntu-24.04",
+        "runtime_profile": "nono-0.73.0-standard",
+        "allocated_token_budget": 200000,
+        "spiffe_id_pattern": "spiffe://cluster.local/ns/external-agents/sa/agentmaxxing-linux-worker-01",
+        "metadata": {"datacenter": "ldn-01", "environment": "production"},
+    }
+    reg_res = client.post(
+        "/api/v1/external-agents/register",
+        json=reg_payload,
+        headers=_bearer(ALICE_SUB),
+    )
+    assert reg_res.status_code == 201, reg_res.text
+    reg_data = reg_res.json()
+    assert reg_data["agent_id"] == "agentmaxxing-linux-worker-01"
+    assert reg_data["tenant_id"] == TENANT_A
+    assert reg_data["enrollment_status"] == "pending"
+    assert reg_data["allocated_token_budget"] == 200000
+    assert reg_data["registered_by_subject"] == ALICE_SUB
+
+    # 2. Get registration by agent_id
+    get_res = client.get(
+        f"/api/v1/external-agents/registrations/{reg_data['agent_id']}",
+        headers=_bearer(ALICE_SUB),
+    )
+    assert get_res.status_code == 200, get_res.text
+    assert get_res.json()["agent_id"] == "agentmaxxing-linux-worker-01"
+    assert get_res.json()["enrollment_status"] == "pending"
+
+    # 3. List registrations
+    list_res = client.get(
+        "/api/v1/external-agents/registrations",
+        headers=_bearer(ALICE_SUB),
+    )
+    assert list_res.status_code == 200, list_res.text
+    list_data = list_res.json()
+    assert list_data["total"] >= 1
+    assert any(r["agent_id"] == "agentmaxxing-linux-worker-01" for r in list_data["registrations"])
+
+    # 4. Atomic claim for pre-registered external agent
+    claim_payload = {
+        "harness": "nono-0.73.0",
+        "model": "claude-3-5-sonnet",
+        "declared_tools": ["read", "write", "bash"],
+        "allocated_token_budget": 200000,
+        "metadata": {"session_type": "onboarding"},
+    }
+    claim_res = client.post(
+        f"/api/v1/external-agents/registrations/{reg_data['agent_id']}/claim",
+        json=claim_payload,
+        headers=_bearer(ALICE_SUB),
+    )
+    assert claim_res.status_code == 200, claim_res.text
+    claim_data = claim_res.json()
+    assert claim_data["status"] == "granted"
+    assert claim_data["allocated_token_budget"] == 200000
+
+    # 5. Verify registration status transitioned to 'enrolled'
+    get_enrolled = client.get(
+        f"/api/v1/external-agents/registrations/{reg_data['agent_id']}",
+        headers=_bearer(ALICE_SUB),
+    )
+    assert get_enrolled.status_code == 200
+    assert get_enrolled.json()["enrollment_status"] == "enrolled"
+    assert get_enrolled.json()["enrolled_at"] is not None
+
+
+def test_duplicate_claim_rejection_same_tenant(client: TestClient) -> None:
+    agent_id = "agentmaxxing-duplicate-target"
+    reg_payload = {
+        "agent_id": agent_id,
+        "host_id": "host-linux-02",
+        "host_os": "linux",
+        "runtime_profile": "nono-0.73.0-standard",
+        "allocated_token_budget": 150000,
+    }
+    reg_res = client.post(
+        "/api/v1/external-agents/register",
+        json=reg_payload,
+        headers=_bearer(ALICE_SUB),
+    )
+    assert reg_res.status_code == 201
+
+    # First claim succeeds
+    first_claim = client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/claim",
+        json={"harness": "nono-0.73.0", "model": "claude-3-5-sonnet"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert first_claim.status_code == 200
+
+    # Duplicate claim attempt within same tenant is rejected with 409 Conflict
+    second_claim = client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/claim",
+        json={"harness": "nono-0.73.0", "model": "claude-3-5-sonnet"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert second_claim.status_code == 409, second_claim.text
+    err = second_claim.json()["error"]
+    assert err["code"] == "duplicate_claim"
+    assert "already has an active claim" in err["message"]
+
+
+def test_duplicate_claim_rejection_cross_tenant(client: TestClient) -> None:
+    agent_id = "agentmaxxing-cross-target"
+    # Alice (Tenant A) registers and claims agent
+    reg_res = client.post(
+        "/api/v1/external-agents/register",
+        json={
+            "agent_id": agent_id,
+            "host_id": "host-alice-01",
+            "host_os": "linux",
+            "runtime_profile": "nono-0.73.0-standard",
+        },
+        headers=_bearer(ALICE_SUB),
+    )
+    assert reg_res.status_code == 201
+
+    claim_res = client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/claim",
+        json={"harness": "nono-0.73.0", "model": "claude-3-5-sonnet"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert claim_res.status_code == 200
+
+    # Bob (Tenant B) attempts to register or claim the same agent_id: rejected with 409 Conflict
+    bob_reg = client.post(
+        "/api/v1/external-agents/register",
+        json={
+            "agent_id": agent_id,
+            "host_id": "host-bob-01",
+            "host_os": "linux",
+            "runtime_profile": "nono-0.73.0-standard",
+        },
+        headers=_bearer(BOB_SUB),
+    )
+    assert bob_reg.status_code == 409, bob_reg.text
+    assert bob_reg.json()["error"]["code"] == "claim_conflict"
+    # Crucial security invariant: Bob must NOT receive Alice's tenant ID in the error message
+    assert TENANT_A not in bob_reg.text
+
+    # Bob also cannot directly claim Alice's agent
+    bob_claim = client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/claim",
+        json={"harness": "nono-0.73.0", "model": "claude-3-5-sonnet"},
+        headers=_bearer(BOB_SUB),
+    )
+    assert bob_claim.status_code in (403, 409), bob_claim.text
+    assert TENANT_A not in bob_claim.text
+
+
+def test_cross_tenant_claim_rejection_forbidden_or_conflict(client: TestClient) -> None:
+    # Attempting to claim an unregistered agent in Tenant B returns 403 unregistered_agent
+    unregistered_id = "agentmaxxing-never-registered"
+    res = client.post(
+        f"/api/v1/external-agents/registrations/{unregistered_id}/claim",
+        json={"harness": "nono-0.73.0", "model": "claude-3-5-sonnet"},
+        headers=_bearer(BOB_SUB),
+    )
+    assert res.status_code == 403
+    assert res.json()["error"]["code"] == "unregistered_agent"
+
+
+def test_cross_tenant_registration_isolation_and_idor_protection(client: TestClient) -> None:
+    agent_id = "agentmaxxing-private-alice"
+    reg_res = client.post(
+        "/api/v1/external-agents/register",
+        json={
+            "agent_id": agent_id,
+            "host_id": "host-private-01",
+            "host_os": "linux",
+            "runtime_profile": "nono-0.73.0-standard",
+        },
+        headers=_bearer(ALICE_SUB),
+    )
+    assert reg_res.status_code == 201
+
+    # Bob queries Alice's agent: 404 Not Found (no IDOR leakage)
+    bob_get = client.get(
+        f"/api/v1/external-agents/registrations/{agent_id}",
+        headers=_bearer(BOB_SUB),
+    )
+    assert bob_get.status_code == 404
+    assert bob_get.json()["error"]["code"] == "not_found"
+
+    # Bob lists registrations: sees 0 of Alice's agents
+    bob_list = client.get(
+        "/api/v1/external-agents/registrations",
+        headers=_bearer(BOB_SUB),
+    )
+    assert bob_list.status_code == 200
+    assert not any(r["agent_id"] == agent_id for r in bob_list.json()["registrations"])
+
+    # Bob attempts revocation on Alice's agent: 404 Not Found
+    bob_revoke = client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/revoke",
+        json={"reason": "malicious_attempt"},
+        headers=_bearer(BOB_SUB),
+    )
+    assert bob_revoke.status_code == 404
+
+
+def test_external_agent_registration_pydantic_validation(client: TestClient) -> None:
+    # 1. Invalid agent_id (uppercase / special characters)
+    invalid_agent = client.post(
+        "/api/v1/external-agents/register",
+        json={
+            "agent_id": "INVALID_AGENT!",
+            "host_id": "host-01",
+        },
+        headers=_bearer(ALICE_SUB),
+    )
+    assert invalid_agent.status_code == 422
+    assert invalid_agent.json()["error"]["code"] == "invalid_request"
+
+    # 2. Injected tenant_id (must be rejected by extra="forbid")
+    injected_tenant = client.post(
+        "/api/v1/external-agents/register",
+        json={
+            "agent_id": "agentmaxxing-valid-id",
+            "host_id": "host-01",
+            "tenant_id": "victim-tenant-override",
+        },
+        headers=_bearer(ALICE_SUB),
+    )
+    assert injected_tenant.status_code == 422
+
+    # 3. Negative token budget
+    negative_budget = client.post(
+        "/api/v1/external-agents/register",
+        json={
+            "agent_id": "agentmaxxing-valid-id",
+            "host_id": "host-01",
+            "allocated_token_budget": -500,
+        },
+        headers=_bearer(ALICE_SUB),
+    )
+    assert negative_budget.status_code == 422
+
+
+def test_external_agent_revocation_lifecycle(client: TestClient) -> None:
+    agent_id = "agentmaxxing-revocation-test"
+    # Register & claim
+    client.post(
+        "/api/v1/external-agents/register",
+        json={"agent_id": agent_id, "host_id": "host-01"},
+        headers=_bearer(ALICE_SUB),
+    )
+    client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/claim",
+        json={"harness": "nono-0.73.0"},
+        headers=_bearer(ALICE_SUB),
+    )
+
+    # Revoke
+    revoke_res = client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/revoke",
+        json={"reason": "host_decommissioned"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert revoke_res.status_code == 200
+    data = revoke_res.json()
+    assert data["enrollment_status"] == "revoked"
+    assert data["revocation_reason"] == "host_decommissioned"
+    assert data["revoked_at"] is not None
+
+    # Re-claiming a revoked agent is rejected
+    reclaim_res = client.post(
+        f"/api/v1/external-agents/registrations/{agent_id}/claim",
+        json={"harness": "nono-0.73.0"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert reclaim_res.status_code == 403
+    assert reclaim_res.json()["error"]["code"] == "agent_revoked"

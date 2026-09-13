@@ -94,6 +94,9 @@ All participating autonomous agents operating on the `AMXO` mission adhere to th
 | `2026-09-13T13:51:53Z` | `supervisor` | `TICK_20_EXECUTED` | Controller Tick #20 executed via `CycleInput.ts`: `b=25, ip=1, rev=0`. Created rescue branch `rescue-92a5c9f0` resolving DOC-7 dangling commit. Verified `AMXO-P1-GOV` (`c907c`) actively executing Phase 1 certification. |
 | `2026-09-13T14:02:15Z` | `Council of Agents` | `COUNCIL_ADVISORY_P1-GOV` | Injected mid-session guidance to `AMXO-P1-GOV` (`c907c`): clarified sibling precedent and task contract authority authorizing file-tool proposal updates and cost calculations without git commits, unblocking final certification and errata. |
 | `2026-09-13T14:02:30Z` | `supervisor` | `TICK_21_EXECUTED` | Controller Tick #21 executed: `b=25, ip=1, rev=0`. Board state: all 5 prerequisite cards in `done`. Quotas healthy (`cdx:0%/cld:1%/agy:42%`). `AMXO-P1-GOV` actively running final proof and cost calculations. |
+| `2026-09-13T14:11:15Z` | `governor` | `P1-GOV_CERTIFIED` | `AMXO-P1-GOV` completed Phase 1 certification: verified wire contracts, test suite, and clean AMXO doctor; recorded errata and spend metrics in proposal (commits `9504a3e7`, `e970b3a6`, `1d224f51`). |
+| `2026-09-13T14:12:05Z` | `supervisor` | `PHASE_2_STARTED` | Started `AMXO-P2-PRE` (`905f5`, PID 887150, `cpai-opencode`) into `in_progress` to confirm identity and claim seams against frozen contracts. |
+| `2026-09-13T14:14:40Z` | `supervisor` | `TICK_22_EXECUTED` | Controller Tick #22 executed: Phase 1 closed out; Phase 2 launched. Board: `backlog=24, in_progress=1, review=2`. Quotas healthy (`cdx:0%/cld:1%/agy:46%`). `AMXO-P2-PRE` active. |
 
 
 

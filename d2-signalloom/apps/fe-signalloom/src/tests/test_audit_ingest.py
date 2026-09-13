@@ -521,3 +521,50 @@ def test_canonical_event_json_determinism():
     dict1 = {"seq": 1, "timestamp": "2026-09-10T10:00:00Z", "event_type": "open", "action": "read", "resource": "/etc/hosts", "detail": {"a": 1, "b": 2}}
     dict2 = {"detail": {"b": 2, "a": 1}, "resource": "/etc/hosts", "action": "read", "event_type": "open", "timestamp": "2026-09-10T10:00:00Z", "seq": 1}
     assert canonical_event_json(dict1) == canonical_event_json(dict2)
+
+
+def test_privacy_boundaries() -> None:
+    """External host telemetry exports only frozen, attributable safe fields."""
+    from pathlib import Path
+
+    from agentmaxxing_host_policy import (
+        AttributableIdentity,
+        IntegrityState,
+        ObservationState,
+        classify_boundary,
+        filter_host_telemetry,
+        load_host_policy,
+    )
+
+    fixture_path = (
+        Path(__file__).resolve().parents[4]
+        / "governance"
+        / "fixtures"
+        / "agentmaxxing-raw-telemetry.v1.json"
+    )
+    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+    policy_path = (
+        Path(__file__).resolve().parents[4]
+        / "governance"
+        / "fixtures"
+        / "agentmaxxing-host-policy.v1.json"
+    )
+    exported = filter_host_telemetry(
+        raw,
+        AttributableIdentity(
+            tenant_id="tenant-agentmaxxing",
+            agent_id="agentmaxxing-linux-001",
+            host_id="amx-host-001",
+        ),
+        load_host_policy(policy_path),
+    )
+
+    serialized = json.dumps(exported, sort_keys=True)
+    for prohibited_value in raw["prohibited_test_values"]:
+        assert prohibited_value not in serialized
+    assert exported["tenant_id"] == "tenant-agentmaxxing"
+    assert exported["agent_id"] == "agentmaxxing-linux-001"
+
+    absent = classify_boundary(integrity_verified=True)
+    assert absent.observation_state is ObservationState.UNOBSERVED
+    assert absent.integrity_state is IntegrityState.VERIFIED

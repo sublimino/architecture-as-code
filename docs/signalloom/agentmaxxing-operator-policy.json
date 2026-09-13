@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0.0",
+  "tenant": "tenant-agentmaxxing",
+  "approved_by": "Andrew Martin",
+  "approval_basis": "AMXO-P1-1 implementation task contract",
+  "approved_on": "2026-09-12",
+  "identity": {
+    "source": "oidc",
+    "issuer_authority": "API_JWT_ISSUER",
+    "canonical_key": [
+      "issuer",
+      "subject"
+    ],
+    "account_kind": "individual",
+    "individual_mailbox_required": true,
+    "shared_accounts": "reject",
+    "anonymous_accounts": "reject",
+    "request_supplied_tenant": "reject"
+  },
+  "authorization_matrix": {
+    "admin": [
+      "operator:create",
+      "operator:list",
+      "operator:remove",
+      "operator:sign-in"
+    ],
+    "editor": [
+      "operator:sign-in"
+    ],
+    "viewer": [
+      "operator:sign-in"
+    ]
+  },
+  "bootstrap": {
+    "authority": "configured Signal Loom superadmin",
+    "scope": "self only",
+    "precondition": "zero active tenant administrators"
+  },
+  "removal": {
+    "accountable_owner": "Andrew Martin",
+    "operational_role": "admin",
+    "mode": "soft removal",
+    "post_removal_authentication": "reject",
+    "audit_history": "retain",
+    "last_active_admin": "retain until successor active"
+  }
+}

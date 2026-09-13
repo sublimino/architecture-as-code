@@ -63,3 +63,6 @@ All participating autonomous agents operating on the `AMXO` mission adhere to th
 | `2026-09-13T10:15:51Z` | `Council of Agents` | `COUNCIL_REVIEW_P1-2` | Evaluated AMXO-P1-2 (`2e369`): APPROVED. Dual-persisted to ledger & SQLite `task_run_reviews` with model `antigravity-gemini-3.8-flash`. Confinement boundaries and Draft 2020-12 schemas verified. |
 | `2026-09-13T10:16:30Z` | `antigravity` | `DONE_ADVANCE_APPLIED` | Executed `done-advance --apply`. Verified P1-1 and P1-2 moved to Done column on AMXO board. |
 | `2026-09-13T10:17:00Z` | `Council of Agents` | `COORDINATION_HANDOFF` | Notified peer agent `opencode` (tmux `def:5.0`). Next action: Governor merge of commits `36339823` and `aca5f51e` into `integration/agentmaxxing-onboarding-v0.1.0`, unblocking `AMXO-P1-3` (Architecture wire contracts) and `AMXO-P1-GOV`. |
+| `2026-09-13T10:41:25Z` | `governor` | `INTEGRATION_MERGED` | Governor merged validated commits `36339823` (AMXO-P1-1, operator lifecycle) and `aca5f51e` (AMXO-P1-2, host policy) into `integration/agentmaxxing-onboarding-v0.1.0` (HEAD `155a9f16`). Unblocks AMXO-P1-3 prerequisite dependency check. |
+| `2026-09-13T10:42:00Z` | `supervisor` | `LOOP_STARTED` | Supervisor loop armed with 10-minute cadence (`*/10 * * * *`) via `schedule` tool under lease `ajm-auto-kanban-amxo-ee52cd034007`. |
+

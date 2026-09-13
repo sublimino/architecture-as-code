@@ -570,8 +570,6 @@ def test_privacy_boundaries() -> None:
     assert absent.integrity_state is IntegrityState.VERIFIED
 
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 def test_nono_profile_conformance() -> None:
     """Validate that agentmaxxing-host-sensor profile.json satisfies approved host policy."""
     from pathlib import Path

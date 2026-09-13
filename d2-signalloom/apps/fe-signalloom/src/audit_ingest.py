@@ -323,7 +323,18 @@ async def ingest_signed_audit_session(
     """Ingest and cryptographically verify a signed Nono audit session."""
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # 1. Verify Hash-Chain Integrity
+    # 1. Real-time Host Credential Revocation Check (AMXO-P3-3)
+    from external_agent_registration import is_external_agent_revoked
+    is_revoked, rev_reason = await is_external_agent_revoked(tenant_id, session.agent_id)
+    if is_revoked:
+        logger.warning("Audit ingest rejected: agent '%s' is revoked on tenant '%s' (%s)", session.agent_id, tenant_id, rev_reason)
+        raise APIError(
+            status_code=403,
+            code="host_revoked",
+            message=f"Host credential for agent '{session.agent_id}' has been revoked: {rev_reason}",
+        )
+
+    # 2. Verify Hash-Chain Integrity
     hc_valid, hc_err = verify_hash_chain(session.events, session.root_hash, session.session_id)
     if not hc_valid:
         logger.warning("Audit ingest rejected: hash chain broken for session %s (%s)", session.session_id, hc_err)
@@ -333,7 +344,7 @@ async def ingest_signed_audit_session(
             message=f"Audit session hash chain corrupted or invalid: {hc_err}",
         )
 
-    # 2. Verify SPIFFE SVID Signature
+    # 3. Verify SPIFFE SVID Signature
     sig_valid, sig_err = verify_session_signature(session)
     if not sig_valid:
         logger.warning("Audit ingest rejected: signature invalid for session %s (%s)", session.session_id, sig_err)
@@ -386,6 +397,23 @@ async def verify_audit_session_probe(
 ) -> AuditSessionVerificationResult:
     """Verify signed audit session payload integrity without persisting state."""
     now_iso = datetime.now(timezone.utc).isoformat()
+
+    from external_agent_registration import is_external_agent_revoked
+    is_revoked, rev_reason = await is_external_agent_revoked(tenant_id, session.agent_id)
+    if is_revoked:
+        return AuditSessionVerificationResult(
+            session_id=session.session_id,
+            agent_id=session.agent_id,
+            tenant_id=tenant_id,
+            valid=False,
+            hash_chain_valid=False,
+            signature_valid=False,
+            events_verified=0,
+            root_hash=session.root_hash,
+            spiffe_id=session.spiffe_id,
+            verified_at=now_iso,
+            error=f"Host credential revoked: {rev_reason}",
+        )
 
     hc_valid, hc_err = verify_hash_chain(session.events, session.root_hash, session.session_id)
     sig_valid, sig_err = verify_session_signature(session)

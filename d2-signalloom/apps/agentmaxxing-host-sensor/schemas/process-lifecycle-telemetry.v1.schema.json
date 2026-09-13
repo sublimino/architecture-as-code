@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalloom.controlplane.io/schemas/process-lifecycle-telemetry.v1.schema.json",
+  "title": "ProcessLifecycleTelemetryV1",
+  "description": "Bounded allowlisted process lifecycle metadata emitted by agentmaxxing-host-sensor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "sequence",
+    "observed_at",
+    "source",
+    "evidence_type",
+    "observation_state",
+    "integrity_state",
+    "agent_id",
+    "host_id",
+    "attributes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9-]{3,128}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "source": {
+      "enum": ["host-sensor-v1", "nono-0.73.0", "signal-ingest"]
+    },
+    "evidence_type": {
+      "const": "process"
+    },
+    "observation_state": {
+      "enum": ["observed", "denied", "unobserved"]
+    },
+    "integrity_state": {
+      "enum": ["integrity-verified", "not-integrity-verified"]
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,63}$"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,63}$"
+    },
+    "host_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,63}$"
+    },
+    "attributes": {
+      "$ref": "#/$defs/process_attributes"
+    }
+  },
+  "$defs": {
+    "process_attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "health_state",
+        "cpu_time_ms",
+        "resident_memory_bytes",
+        "exit_code",
+        "restart_count"
+      ],
+      "properties": {
+        "health_state": {
+          "enum": ["starting", "running", "stopped", "failed", "unknown"]
+        },
+        "cpu_time_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resident_memory_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "exit_code": {
+          "type": ["integer", "null"],
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "restart_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cpu_percent": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ppid": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -820,12 +820,6 @@ demo-agentmaxxing-host-test: ## Run AgentMaxxing Linux host sensor, confinement,
 	bats test/signalloom/file-validator-anti-escape.bats
 	bats test/signalloom/hasher-toctou.bats
 
-.PHONY: demo-agentmaxxing-host-test
-demo-agentmaxxing-host-test: ## Run AgentMaxxing Linux host sensor, confinement, and TOCTOU hasher tests.
-	python3 -m pytest -o cache_dir=/tmp/pytest_cache_sensor -v d2-signalloom/apps/agentmaxxing-host-sensor/test_hasher.py
-	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py -k test_toctou
-	bats test/signalloom/hasher-toctou.bats
-
 .PHONY: demo-signalloom-dex-origin-set demo-signalloom-dex-origin-status demo-signalloom-dex-origin-restore
 demo-signalloom-dex-origin-set: ## Set and apply Dex public origin and callback URIs (ORIGIN=<url> [METHOD=tailscale|ngrok|iap]).
 	@if [ -z "$(ORIGIN)" ]; then \

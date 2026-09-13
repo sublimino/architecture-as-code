@@ -762,6 +762,13 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/v1/external-agents/credentials/renew"),
     ("POST", "/api/v1/external-agents/credentials/rotate"),
     ("POST", "/api/v1/external-agents/evidence-uploads"),
+    # Host enrollment token exchange and redemption -- covered by test_host_enrollment.py
+    ("POST", "/api/external-agents/enroll"),
+    ("POST", "/api/v1/external-agents/enroll"),
+    ("POST", "/api/external-agents/registrations/{agent_id}/token"),
+    ("POST", "/api/v1/external-agents/registrations/{agent_id}/token"),
+    ("POST", "/api/external-agents/{agent_id}/token"),
+    ("POST", "/api/v1/external-agents/{agent_id}/token"),
 ]
 
 

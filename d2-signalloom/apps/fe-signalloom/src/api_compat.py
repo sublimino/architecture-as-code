@@ -3772,7 +3772,7 @@ async def _execute_claim(
                     'Signal Loom Built', 83, 'anthropic', $6,
                     NOW(), NOW(), NOW()
                 )
-                ON CONFLICT (name) DO UPDATE SET
+                ON CONFLICT (tenant_id, name) DO UPDATE SET
                     lifecycle_state = 'active',
                     status = 'active',
                     compliance_posture = 83,

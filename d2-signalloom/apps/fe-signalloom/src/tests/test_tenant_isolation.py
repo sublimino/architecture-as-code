@@ -509,11 +509,15 @@ def test_the_route_sweep_covers_every_authenticated_api_route(client):
     Every ``/api`` route must therefore appear in ``DB_ROUTES`` or in
     ``NOT_DATABASE_BACKED`` with a stated reason.
     """
+    # This FastAPI version stores included routers as opaque _IncludedRouter
+    # entries, so app.routes no longer exposes their paths. OpenAPI is the
+    # published client surface and retains both route paths and methods.
     registered = {
-        (method, route.path)
-        for route in app.routes
-        if getattr(route, "path", "").startswith("/api")
-        for method in getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/api")
+        for method in operations
+        if method.upper() in {"DELETE", "GET", "PATCH", "POST", "PUT"}
     }
     # DB_ROUTES holds concrete URLs; map them back to their templates.
     swept = {(method, _template_for(path)) for method, path, _ in DB_ROUTES}
@@ -640,7 +644,7 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/audit/sessions"),
     ("POST", "/api/audit/sessions/verify"),
     # Risk calculation proxy routes to signal-ingest
-    ("GET", "/api/v1/risk/agents/{agent_id:path}"),
+    ("GET", "/api/v1/risk/agents/{agent_id}"),
     ("GET", "/api/v1/risk/fleet"),
 ]
 

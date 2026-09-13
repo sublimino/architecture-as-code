@@ -6,6 +6,7 @@ signatures against agent SPIFFE identities.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -87,6 +88,7 @@ class AuditSessionVerificationResult(BaseModel):
     root_hash: str
     spiffe_id: str
     verified_at: str
+    is_idempotent: bool = False
     error: str | None = None
 
 
@@ -98,16 +100,30 @@ class AuditSessionListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# In-Memory Store (Fallback when PostgreSQL pool is unavailable)
+# In-Memory Store & Concurrency Locks (AMXO-P5-2)
 # ---------------------------------------------------------------------------
 
 _SESSIONS: dict[str, dict[str, Any]] = {}
 _SESSIONS_LOCK = threading.Lock()
+_IN_FLIGHT_LOCKS: dict[str, asyncio.Lock] = {}
+_IN_FLIGHT_META_LOCK = threading.Lock()
+
+
+def _get_session_async_lock(session_key: str) -> asyncio.Lock:
+    """Retrieve or create an asyncio.Lock for coordinating concurrent uploads of the same session."""
+    with _IN_FLIGHT_META_LOCK:
+        lock = _IN_FLIGHT_LOCKS.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _IN_FLIGHT_LOCKS[session_key] = lock
+        return lock
 
 
 def _clear_sessions_for_testing() -> None:
     with _SESSIONS_LOCK:
         _SESSIONS.clear()
+    with _IN_FLIGHT_META_LOCK:
+        _IN_FLIGHT_LOCKS.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -357,86 +373,162 @@ async def _save_session_db(
 )
 async def ingest_signed_audit_session(
     session: SignedAuditSession,
+    response: Response,
     principal: Annotated[Principal, Depends(authenticated_principal)],
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
     require_finalized: bool = Query(False, description="Require session to be finalized and contiguous"),
 ) -> AuditSessionVerificationResult:
     """Ingest and cryptographically verify a signed Nono audit session."""
-    now_iso = datetime.now(timezone.utc).isoformat()
+    session_key = f"{tenant_id}:{session.session_id}"
+    session_lock = _get_session_async_lock(session_key)
 
-    # 1. Real-time Host Credential Revocation Check (AMXO-P3-3)
-    from external_agent_registration import is_external_agent_revoked
-    is_revoked, rev_reason = await is_external_agent_revoked(tenant_id, session.agent_id)
-    if is_revoked:
-        logger.warning("Audit ingest rejected: agent '%s' is revoked on tenant '%s' (%s)", session.agent_id, tenant_id, rev_reason)
-        raise APIError(
-            status_code=403,
-            code="host_revoked",
-            message=f"Host credential for agent '{session.agent_id}' has been revoked: {rev_reason}",
-        )
+    async with session_lock:
+        now_iso = datetime.now(timezone.utc).isoformat()
 
-    # 2. Finalized Session & Contiguous Sequence Validation (AMXO-P5-1)
-    if require_finalized:
-        chain_valid, chain_err, status_code = validate_finalized_session_chain(session)
-        if not chain_valid:
-            logger.warning("Audit ingest rejected: finalized validation failed for %s (%s)", session.session_id, chain_err)
-            raise APIError(
-                status_code=status_code,
-                code="unfinalized_session" if status_code == 422 else "invalid_audit_chain",
-                message=f"Finalized session verification failed: {chain_err}",
+        # 0. Upload Idempotency & Deduplication Check (AMXO-P5-2)
+        with _SESSIONS_LOCK:
+            existing = _SESSIONS.get(session_key)
+        if existing is not None:
+            # Check for conflict: same session_id but conflicting root_hash or agent_id
+            if existing.get("root_hash") != session.root_hash or existing.get("agent_id") != session.agent_id:
+                logger.warning(
+                    "Audit ingest rejected: session conflict for '%s' (existing root %s != incoming %s)",
+                    session.session_id,
+                    existing.get("root_hash"),
+                    session.root_hash,
+                )
+                raise APIError(
+                    status_code=409,
+                    code="session_conflict",
+                    message=f"Session conflict: session '{session.session_id}' already exists with conflicting payload",
+                )
+            # Idempotent re-upload: return cached verification result with HTTP 200
+            logger.info("Audit ingest idempotent hit for session '%s'", session.session_id)
+            response.status_code = status.HTTP_200_OK
+            return AuditSessionVerificationResult(
+                session_id=existing["session_id"],
+                agent_id=existing["agent_id"],
+                tenant_id=existing.get("tenant_id", tenant_id),
+                valid=existing.get("verified", True),
+                hash_chain_valid=existing.get("hash_chain_valid", True),
+                signature_valid=existing.get("signature_valid", True),
+                events_verified=existing.get("events_count", len(existing.get("events", []))),
+                root_hash=existing["root_hash"],
+                spiffe_id=existing["spiffe_id"],
+                verified_at=existing.get("ingested_at", now_iso),
+                is_idempotent=True,
+                error=None,
             )
 
-    # 3. Verify Hash-Chain Integrity
-    hc_valid, hc_err = verify_hash_chain(session.events, session.root_hash, session.session_id)
-    if not hc_valid:
-        logger.warning("Audit ingest rejected: hash chain broken for session %s (%s)", session.session_id, hc_err)
-        raise APIError(
-            status_code=400,
-            code="hash_chain_verification_failed",
-            message=f"Audit session hash chain corrupted or invalid: {hc_err}",
+        pool = await _get_pool()
+        if pool is not None:
+            try:
+                row = await pool.fetchrow(
+                    "SELECT session_id, tenant_id, agent_id, spiffe_id, root_hash, events_count, verified, hash_chain_valid, signature_valid, ingested_at FROM public.signed_audit_sessions WHERE tenant_id = $1 AND session_id = $2",
+                    tenant_id,
+                    session.session_id,
+                )
+                if row is not None:
+                    if row["root_hash"] != session.root_hash or row["agent_id"] != session.agent_id:
+                        raise APIError(
+                            status_code=409,
+                            code="session_conflict",
+                            message=f"Session conflict: session '{session.session_id}' already exists in database with conflicting payload",
+                        )
+                    logger.info("Audit ingest database idempotent hit for session '%s'", session.session_id)
+                    response.status_code = status.HTTP_200_OK
+                    return AuditSessionVerificationResult(
+                        session_id=row["session_id"],
+                        agent_id=row["agent_id"],
+                        tenant_id=row["tenant_id"],
+                        valid=row["verified"],
+                        hash_chain_valid=row["hash_chain_valid"],
+                        signature_valid=row["signature_valid"],
+                        events_verified=row["events_count"],
+                        root_hash=row["root_hash"],
+                        spiffe_id=row["spiffe_id"],
+                        verified_at=row["ingested_at"].isoformat(),
+                        is_idempotent=True,
+                        error=None,
+                    )
+            except APIError:
+                raise
+            except Exception as exc:
+                logger.debug("Database idempotency check fallback to validation: %s", exc)
+
+        # 1. Real-time Host Credential Revocation Check (AMXO-P3-3)
+        from external_agent_registration import is_external_agent_revoked
+        is_revoked, rev_reason = await is_external_agent_revoked(tenant_id, session.agent_id)
+        if is_revoked:
+            logger.warning("Audit ingest rejected: agent '%s' is revoked on tenant '%s' (%s)", session.agent_id, tenant_id, rev_reason)
+            raise APIError(
+                status_code=403,
+                code="host_revoked",
+                message=f"Host credential for agent '{session.agent_id}' has been revoked: {rev_reason}",
+            )
+
+        # 2. Finalized Session & Contiguous Sequence Validation (AMXO-P5-1)
+        if require_finalized:
+            chain_valid, chain_err, status_code = validate_finalized_session_chain(session)
+            if not chain_valid:
+                logger.warning("Audit ingest rejected: finalized validation failed for %s (%s)", session.session_id, chain_err)
+                raise APIError(
+                    status_code=status_code,
+                    code="unfinalized_session" if status_code == 422 else "invalid_audit_chain",
+                    message=f"Finalized session verification failed: {chain_err}",
+                )
+
+        # 3. Verify Hash-Chain Integrity
+        hc_valid, hc_err = verify_hash_chain(session.events, session.root_hash, session.session_id)
+        if not hc_valid:
+            logger.warning("Audit ingest rejected: hash chain broken for session %s (%s)", session.session_id, hc_err)
+            raise APIError(
+                status_code=400,
+                code="hash_chain_verification_failed",
+                message=f"Audit session hash chain corrupted or invalid: {hc_err}",
+            )
+
+        # 4. Verify SPIFFE SVID Signature
+        sig_valid, sig_err = verify_session_signature(session)
+        if not sig_valid:
+            logger.warning("Audit ingest rejected: signature invalid for session %s (%s)", session.session_id, sig_err)
+            raise APIError(
+                status_code=400,
+                code="signature_verification_failed",
+                message=f"Audit session signature verification failed: {sig_err}",
+            )
+
+        # 5. Persistence (In-Memory + Database)
+        session_dict = session.model_dump()
+        session_dict["tenant_id"] = tenant_id
+        session_dict["verified"] = True
+        session_dict["hash_chain_valid"] = True
+        session_dict["signature_valid"] = True
+        session_dict["ingested_at"] = now_iso
+
+        with _SESSIONS_LOCK:
+            _SESSIONS[session_key] = session_dict
+
+        if pool is not None:
+            try:
+                await _save_session_db(pool, session, tenant_id, True, True, True)
+            except Exception as exc:
+                logger.warning("Failed to persist audit session to database: %s", exc)
+
+        return AuditSessionVerificationResult(
+            session_id=session.session_id,
+            agent_id=session.agent_id,
+            tenant_id=tenant_id,
+            valid=True,
+            hash_chain_valid=True,
+            signature_valid=True,
+            events_verified=len(session.events),
+            root_hash=session.root_hash,
+            spiffe_id=session.spiffe_id,
+            verified_at=now_iso,
+            is_idempotent=False,
+            error=None,
         )
-
-    # 4. Verify SPIFFE SVID Signature
-    sig_valid, sig_err = verify_session_signature(session)
-    if not sig_valid:
-        logger.warning("Audit ingest rejected: signature invalid for session %s (%s)", session.session_id, sig_err)
-        raise APIError(
-            status_code=400,
-            code="signature_verification_failed",
-            message=f"Audit session signature verification failed: {sig_err}",
-        )
-
-    # 5. Persistence (In-Memory + Database)
-    session_dict = session.model_dump()
-    session_dict["tenant_id"] = tenant_id
-    session_dict["verified"] = True
-    session_dict["hash_chain_valid"] = True
-    session_dict["signature_valid"] = True
-    session_dict["ingested_at"] = now_iso
-
-    with _SESSIONS_LOCK:
-        _SESSIONS[f"{tenant_id}:{session.session_id}"] = session_dict
-
-    pool = await _get_pool()
-    if pool is not None:
-        try:
-            await _save_session_db(pool, session, tenant_id, True, True, True)
-        except Exception as exc:
-            logger.warning("Failed to persist audit session to database: %s", exc)
-
-    return AuditSessionVerificationResult(
-        session_id=session.session_id,
-        agent_id=session.agent_id,
-        tenant_id=tenant_id,
-        valid=True,
-        hash_chain_valid=True,
-        signature_valid=True,
-        events_verified=len(session.events),
-        root_hash=session.root_hash,
-        spiffe_id=session.spiffe_id,
-        verified_at=now_iso,
-        error=None,
-    )
 
 
 @router.post(
@@ -446,12 +538,14 @@ async def ingest_signed_audit_session(
 )
 async def ingest_finalized_audit_session(
     session: SignedAuditSession,
+    response: Response,
     principal: Annotated[Principal, Depends(authenticated_principal)],
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> AuditSessionVerificationResult:
     """Ingest and cryptographically verify a completed and finalized Nono audit session."""
     return await ingest_signed_audit_session(
         session=session,
+        response=response,
         principal=principal,
         tenant_id=tenant_id,
         require_finalized=True,

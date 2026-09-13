@@ -1502,6 +1502,13 @@ def authenticated_principal(
     except JWTValidationError:
         raise APIError(401, "invalid_token", "Bearer token is invalid") from None
 
+    if claims.get("scope") == "audit-upload-only" or claims.get("identity_type") == "external-host":
+        raise APIError(
+            403,
+            "host_credential_scope_restricted",
+            "External host credentials grant audit-upload-only permissions and cannot access operator control plane APIs",
+        )
+
     tenant = settings.api_subject_tenants.get(claims["sub"])
     if tenant is None:
         raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
@@ -7149,7 +7156,9 @@ def install_compatibility_api(app: FastAPI) -> None:
         api_router as host_enrollment_api_router,
         compat_router as host_enrollment_compat_router,
     )
+    from host_credential import host_router, host_compat_router, HostCredentialScopeMiddleware
 
+    app.add_middleware(HostCredentialScopeMiddleware)
     app.include_router(router, dependencies=[Depends(enforce_strict_operator_tenant)])
     app.include_router(operator_identity_router)
     app.include_router(external_agent_router)
@@ -7157,4 +7166,6 @@ def install_compatibility_api(app: FastAPI) -> None:
     app.include_router(host_enrollment_router)
     app.include_router(host_enrollment_api_router)
     app.include_router(host_enrollment_compat_router)
+    app.include_router(host_router)
+    app.include_router(host_compat_router)
     install_api_exception_handlers(app)

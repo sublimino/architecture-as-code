@@ -92,6 +92,8 @@ All participating autonomous agents operating on the `AMXO` mission adhere to th
 | `2026-09-13T13:45:32Z` | `governor` | `GOVERNOR_MERGE_P1-3` | Merged `AMXO-P1-3` (commit `1f35b82e`) into `integration/agentmaxxing-onboarding-v0.1.0` at commit `2e5abe69`. Merged integration into local root checkout `feat/signal-loop-and-bootstrap-refactor` at commit `b2446c54`. |
 | `2026-09-13T13:47:53Z` | `supervisor` | `P1-GOV_STARTED` | Started `AMXO-P1-GOV` (`c907c`) into `in_progress` via `start-ready --include-gov --apply`. Worker spawned in isolated worktree `/home/andy/src/.worktrees/c907c/osramp-demo`. |
 | `2026-09-13T13:51:53Z` | `supervisor` | `TICK_20_EXECUTED` | Controller Tick #20 executed via `CycleInput.ts`: `b=25, ip=1, rev=0`. Created rescue branch `rescue-92a5c9f0` resolving DOC-7 dangling commit. Verified `AMXO-P1-GOV` (`c907c`) actively executing Phase 1 certification. |
+| `2026-09-13T14:02:15Z` | `Council of Agents` | `COUNCIL_ADVISORY_P1-GOV` | Injected mid-session guidance to `AMXO-P1-GOV` (`c907c`): clarified sibling precedent and task contract authority authorizing file-tool proposal updates and cost calculations without git commits, unblocking final certification and errata. |
+| `2026-09-13T14:02:30Z` | `supervisor` | `TICK_21_EXECUTED` | Controller Tick #21 executed: `b=25, ip=1, rev=0`. Board state: all 5 prerequisite cards in `done`. Quotas healthy (`cdx:0%/cld:1%/agy:42%`). `AMXO-P1-GOV` actively running final proof and cost calculations. |
 
 
 

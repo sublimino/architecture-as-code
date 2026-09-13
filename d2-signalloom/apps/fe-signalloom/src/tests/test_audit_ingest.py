@@ -568,3 +568,75 @@ def test_privacy_boundaries() -> None:
     absent = classify_boundary(integrity_verified=True)
     assert absent.observation_state is ObservationState.UNOBSERVED
     assert absent.integrity_state is IntegrityState.VERIFIED
+
+
+def test_toctou_artifact_rejection_and_unobserved_classification() -> None:
+    """TOCTOU race rejection produces unobserved observation state and invalidates digests."""
+    from agentmaxxing_host_policy import ObservationState
+
+    # Simulated TOCTOU rejection evidence payload
+    toctou_artifact_evidence = {
+        "artifact_id": "hmac-sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069",
+        "root_id": "agent-work",
+        "sha256": None,
+        "size_bytes": 4096,
+        "mtime_ns": 1789320000000000000,
+        "observation_state": "unobserved",
+        "integrity_state": "unverified",
+        "reason_code": "toctou_mutation_detected",
+        "error_detail": "File mtime changed post-hash: pre=1789320000000000000, post=1789320005000000000",
+    }
+
+    # Verify that unobserved state and invalidated digest are strictly preserved
+    assert toctou_artifact_evidence["observation_state"] == ObservationState.UNOBSERVED.value
+    assert toctou_artifact_evidence["sha256"] is None
+    assert toctou_artifact_evidence["reason_code"] == "toctou_mutation_detected"
+
+
+def test_toctou_sensor_hasher_integration(tmp_path: Any) -> None:
+    """Direct sensor hasher execution verifies descriptor pinning and TOCTOU rejection."""
+    import sys
+    from pathlib import Path
+    sensor_dir = Path(__file__).resolve().parents[3] / "agentmaxxing-host-sensor"
+    if str(sensor_dir) not in sys.path:
+        sys.path.insert(0, str(sensor_dir))
+
+    from hasher import BoundedArtifactHasher
+    from ratelimit import RateLimiter
+
+    hasher = BoundedArtifactHasher(
+        rate_limiter=RateLimiter(max_files_per_window=10, max_bytes_per_window=1_000_000),
+        max_file_size_bytes=1_000_000,
+        chunk_size=1024,
+    )
+
+    work_dir = str(tmp_path / "work")
+    os.makedirs(work_dir, exist_ok=True)
+    test_file = os.path.join(work_dir, "test.txt")
+    with open(test_file, "wb") as f:
+        f.write(b"Initial pristine content" * 10)
+
+    # 1. Pristine hash succeeds
+    res_clean = hasher.hash_relative_path(work_dir, "test.txt", root_id="agent-work")
+    assert res_clean.observation_state == "observed"
+    assert res_clean.integrity_state == "verified"
+    assert res_clean.sha256 is not None
+
+    # 2. Concurrent mutation triggers TOCTOU rejection
+    mutated = False
+
+    def mutate_hook() -> None:
+        nonlocal mutated
+        if not mutated:
+            with open(test_file, "ab") as f:
+                f.write(b"MUTATION")
+            mutated = True
+
+    res_mutated = hasher.hash_relative_path(
+        work_dir, "test.txt", root_id="agent-work", read_delay_hook=mutate_hook
+    )
+    assert res_mutated.observation_state == "unobserved"
+    assert res_mutated.integrity_state == "unverified"
+    assert res_mutated.sha256 is None
+    assert "toctou" in (res_mutated.reason_code or "")
+

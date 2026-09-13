@@ -2028,5 +2028,13 @@
     "verdict": "pass",
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P6-PRE verified: Confirm stable evidence API and user-facing vocabulary; external-agent OpenAPI contracts & TS definitions synchronized (27/27 pytest, 5/5 vitest pass), zero route collisions across FastAPI routers, user-facing vocabulary frozen, proof in docs/signalloom/amxo-p6-pre-proof.md (commit 8a4d9b95)"
+  },
+  "e0b33": {
+    "task_id": "e0b33",
+    "reviewed_at": "2026-09-13T19:30:29.616Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": "antigravity-gemini-3.8-flash",
+    "reason": "AMXO-P6-1 verified: Render attributable evidence states on tenant-bound agent timeline; external-agent evidence projections & client API wired, AgentActivityTab renders process, artifact, network, and limit items with integrity borders & badges, expandable allowlisted attributes viewer, filtering and search (22/22 vitest pass), proof in docs/signalloom/amxo-p6-1-evidence.md (commit dddf49ba)"
   }
 }

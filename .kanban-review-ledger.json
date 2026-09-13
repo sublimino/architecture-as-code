@@ -2052,5 +2052,13 @@
     "verdict": "pass",
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P6-3 verified: Build deterministic local onboarding-to-removal acceptance journey; 5 lifecycle phases automated (attributable registration, host key enrollment exchange, session upload with telemetry, denial falsification on tampered chains/gaps/conflicts, and operator revocation with post-revocation upload denial); 6/6 pytest and 6/6 BATS pass under make demo-agentmaxxing-acceptance-test, proof in docs/signalloom/amxo-p6-3-evidence.md (commit 0f09b693)"
+  },
+  "d18b8": {
+    "task_id": "d18b8",
+    "reviewed_at": "2026-09-13T19:42:43.620Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": "antigravity-gemini-3.8-flash",
+    "reason": "AMXO-P6-GOV certified: Phase 6 Governor reconciled; workspace agentic governance, registration wizard UI, verified evidence presentation, documentation, and deterministic acceptance journey merged into integration/agentmaxxing-onboarding-v0.1.0 at commit cfc803ef; 169/169 tests pass across all 6 approved acceptance test suites + coverage guard, proof in docs/signalloom/amxo-p6-gov-proof.md"
   }
 }

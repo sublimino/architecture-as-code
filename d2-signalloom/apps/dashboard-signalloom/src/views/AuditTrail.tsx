@@ -65,6 +65,8 @@ const EVENT_TYPES = [
   'user.currency_updated', 'consent.accepted', 'cookie.preferences_updated',
   'support.requested',
   'onboarding_completed', 'onboarding_skipped',
+  'operator.created', 'operator.sign_in_succeeded',
+  'operator.sign_in_denied', 'operator.removed',
   'demo.phase_run', 'demo.reset_requested',
   // Generated per demo type by _build_demo_router() in demo_runner.py, which
   // interpolates the demo type into the event name. Without these the Signal
@@ -104,6 +106,10 @@ const EVENT_COLORS: Record<string, string> = {
   'support.requested': 'var(--amber)',
   onboarding_completed: 'var(--teal)',
   onboarding_skipped: 'var(--amber)',
+  'operator.created': 'var(--teal)',
+  'operator.sign_in_succeeded': 'var(--cyan)',
+  'operator.sign_in_denied': 'var(--amber)',
+  'operator.removed': 'var(--error)',
   'demo.phase_run': 'var(--violet)',
   'demo.reset_requested': 'var(--amber)',
   // Same two buckets as the fixed-string demo pair above: running a phase is a

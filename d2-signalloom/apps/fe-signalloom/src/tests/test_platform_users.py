@@ -630,3 +630,93 @@ def test_operator_identity_strict_gate_blocks_other_partner_api_routes(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "operator_removed"
+
+
+def test_platform_users_module_exports_operator_identity_symbols() -> None:
+    import platform_users
+
+    assert platform_users.router is operator_identity.router
+    assert platform_users.AUTHORIZATION_MATRIX == operator_identity.AUTHORIZATION_MATRIX
+    assert platform_users.OperatorIdentityCreateRequest is operator_identity.OperatorIdentityCreateRequest
+    assert platform_users.OperatorIdentityRemovalRequest is operator_identity.OperatorIdentityRemovalRequest
+    assert platform_users.OperatorIdentityResponse is operator_identity.OperatorIdentityResponse
+    assert platform_users.OperatorIdentitiesResponse is operator_identity.OperatorIdentitiesResponse
+    assert platform_users.OperatorSessionResponse is operator_identity.OperatorSessionResponse
+    assert platform_users.OperatorRemovalResponse is operator_identity.OperatorRemovalResponse
+    assert platform_users.OperatorPrincipal is operator_identity.OperatorPrincipal
+
+
+def test_operator_rejection_of_shared_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = QueuedPool(rows=[identity_row(identity_kind="shared")])
+    install_pool(monkeypatch, pool)
+
+    error = error_from(operator_identity.operator_session(principal()))
+    assert error.status_code == 403
+    assert error.code == "shared_identity_forbidden"
+
+
+def test_operator_rejection_of_removed_operators(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = QueuedPool(rows=[identity_row(identity_status="removed")])
+    install_pool(monkeypatch, pool)
+
+    error = error_from(operator_identity.operator_session(principal()))
+    assert error.status_code == 403
+    assert error.code == "operator_removed"
+
+
+def test_operator_rejection_of_anonymous_principals() -> None:
+    with pytest.raises(api_compat.APIError) as caught:
+        operator_identity.operator_from_row(principal(subject=""), identity_row(subject=""))
+    assert caught.value.status_code == 401
+    assert caught.value.code == "anonymous_operator_forbidden"
+
+
+def test_operator_rejection_of_cross_tenant_access() -> None:
+    row = identity_row()
+    row["tenant_id"] = "victim-tenant"
+    with pytest.raises(api_compat.APIError) as caught:
+        operator_identity.operator_from_row(principal(), row)
+    assert caught.value.status_code == 403
+    assert caught.value.code == "operator_tenant_mismatch"
+
+
+def test_operator_rejection_of_unmanaged_tenants(monkeypatch: pytest.MonkeyPatch) -> None:
+    unmanaged = api_compat.Principal(tenant="tenant-unmanaged", subject="user-1", email=None)
+    error = error_from(operator_identity.operator_session(unmanaged))
+    assert error.status_code == 403
+    assert error.code == "operator_tenant_not_managed"
+
+
+def test_operator_rejection_of_nonadmin_user_creation(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = QueuedPool(rows=[identity_row(role="viewer")])
+    install_pool(monkeypatch, pool)
+
+    error = error_from(
+        operator_identity.create_operator_identity(
+            operator_identity.OperatorIdentityCreateRequest(
+                provider_subject="bob",
+                email="bob@agentmaxxing.example",
+                display_name="Bob Operator",
+            ),
+            principal(),
+        )
+    )
+    assert error.status_code == 403
+    assert error.code == "operator_admin_required"
+
+
+def test_operator_rejection_of_last_admin_removal(monkeypatch: pytest.MonkeyPatch) -> None:
+    admin = identity_row(role="admin")
+    pool = QueuedPool(rows=[admin, admin], values=[0])
+    install_pool(monkeypatch, pool)
+
+    error = error_from(
+        operator_identity.remove_operator_identity(
+            IDENTITY_ID,
+            operator_identity.OperatorIdentityRemovalRequest(reason="Remove sole admin"),
+            principal(),
+        )
+    )
+    assert error.status_code == 409
+    assert error.code == "last_operator_admin"
+

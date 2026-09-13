@@ -16,8 +16,9 @@ from __future__ import annotations
 import socket
 import time
 import uuid
-from typing import Any
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import jwt
 import pytest
@@ -294,6 +295,17 @@ def test_idempotent_reclaim(client: TestClient) -> None:
 
     # Re-claiming returns the same agent ID without error
     assert first_id == second_id
+
+
+def test_db_claim_upsert_matches_tenant_scoped_registry_constraint() -> None:
+    source = Path(api_compat.__file__).read_text()
+    migration = (
+        Path(api_compat.__file__).parent / "db/migrations/035_agent_claim_contract.sql"
+    ).read_text()
+
+    assert "ON public.agent_registry (tenant_id, name)" in migration
+    assert "ON CONFLICT (tenant_id, name) DO UPDATE SET" in source
+    assert "ON CONFLICT (name) DO UPDATE SET" not in source
 
 
 def test_compliance_posture_seeding(client: TestClient) -> None:

@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://signalloom.controlplane.io/contracts/external-agent-privacy.v1.schema.json","title":"ExternalAgentPrivacyV1","type":"object","additionalProperties":false,
+  "required":["schema_version","policy_id","unobserved_fields","prohibited_export_fields","raw_paths_exported","raw_urls_exported","raw_errors_exported","integrity_implies_completeness","integrity_implies_host_trust","evidence_retention_days","deletion_deadline_days","retention_owner","deletion_owner","host_unenrollment_owner","deletion_trigger","revocation_semantics"],
+  "properties":{
+    "schema_version":{"const":"1.0.0"},"policy_id":{"const":"amxo-host-policy-v1"},
+    "unobserved_fields":{"type":"array","prefixItems":[{"const":"read_only_input_file_digests"},{"const":"file_contents"},{"const":"process_memory_contents"},{"const":"in_memory_synthesis_contents"},{"const":"streamed_payload_digests"},{"const":"streamed_payload_contents"},{"const":"network_payload_contents"}],"items":false,"minItems":7,"maxItems":7},
+    "prohibited_export_fields":{"type":"array","prefixItems":[{"const":"raw_nono_record"},{"const":"command"},{"const":"path"},{"const":"url"},{"const":"error"},{"const":"file_contents"},{"const":"memory_contents"},{"const":"streamed_payload_digest"},{"const":"streamed_payload_contents"},{"const":"network_payload_contents"}],"items":false,"minItems":10,"maxItems":10},
+    "raw_paths_exported":{"const":false},"raw_urls_exported":{"const":false},"raw_errors_exported":{"const":false},"integrity_implies_completeness":{"const":false},"integrity_implies_host_trust":{"const":false},
+    "evidence_retention_days":{"const":30},"deletion_deadline_days":{"const":7},"retention_owner":{"const":"ControlPlane Signal Loom Operations"},"deletion_owner":{"const":"ControlPlane Signal Loom Operations"},"host_unenrollment_owner":{"const":"AgentMaxxing Platform Engineering"},"deletion_trigger":{"const":"verified-tenant-request-or-host-unenrollment"},"revocation_semantics":{"const":"audit-only-independent-no-evidence-rewrite"}
+  }
+}

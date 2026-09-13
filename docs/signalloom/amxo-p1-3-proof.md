@@ -1,7 +1,34 @@
-# AMXO-P1-3 prerequisite failure proof
+# AMXO-P1-3 delivery proof
 
-Status: **FAIL — implementation not started**.
-Observed: 2026-09-13 11:24:41+01:00.
+Status: **PASS — scoped contract freeze, qualified by the evidence report**.
+Observed: 2026-09-13, Europe/London.
+
+## Current prompt-to-artifact acceptance audit
+
+| Requirement | Delivered artifact / evidence |
+| --- | --- |
+| Versioned enrollment/upload external OpenAPI | `d2-signalloom/apps/fe-signalloom/contracts/external-agent.v1.openapi.yaml`; per-operation ownership, request/response/error schemas, enrollment/revocation/read/privacy. |
+| Go and JSON wire types | `d2-signalloom/apps/signal-ingest/collectors/agentnono/external_contract.go` and `contracts/*.v1.schema.json`. |
+| Protobuf wire definitions | `agentnono/external_contract.proto`; actual Buf compilation via root BATS; typed attributes, presence, explicit JSON mapping. |
+| Generated dashboard API types | `d2-signalloom/apps/dashboard-signalloom/src/types/externalAgent.ts`; schema-driven generator `fe-signalloom/src/generate_external_agent_types.py --check`; TypeScript compiler negatives. |
+| Valid/malformed/tampered fixtures | `agentnono/fixtures/contracts/`; real Ed25519 signing bytes, enrollment/upload/response/privacy/error/revocation cases. |
+| Across-service compliance | Go `external_contract_test.go`; Python `test_external_agent_contract.py`; four `test_contracts_external_agent_boundary` cases in required API compatibility test file; dashboard type tests; root conformance BATS. |
+| Process and disk bounds/privacy | Closed evidence/privacy schemas; frozen P1-2 constants; safe integers and bounded decimal nanosecond string; no raw payload exports. |
+| Ownership/threat assumptions | `docs/signalloom/contracts/README.md`; host assertions vs server acceptance vs local original-chain verification expressly separated. |
+| Published JSON schema entry point | `docs/signalloom/contracts/external-agent.v1.schema.json`; six relative authoritative references without duplicated definitions. |
+| Docs-signalloom page | `src/content/docs/reference/external-agent-wire-contracts.md`; Astro build succeeds; browser smoke not verified. |
+| Existing telemetry and SPIFFE compatibility | Uncached Go collector and identity packages pass; legacy verifier/HTTP composition unchanged. |
+| Runtime isolation/identity/determinism steps 8–15 | Repeated invariants implemented as closed lexical/schema boundaries, trusted host/key binding, source isolation, reproducible canonical signatures; not a deployed host sandbox. |
+| Requested commands | Exact commands and compatibility qualifications in `amxo-p1-3-evidence.md`; backend 56, focused selector 4, unmasked BATS 9 pass. |
+| Independent full regression | API/model 113, dashboard API/type 555, Go collector/identity and vet, Astro build pass. |
+| Worktree commit | This proof is delivered in the scoped conventional implementation commit; full SHA recorded in proposal Result and qualified errata after commit. |
+| Integration commit | Pending Governor reconciliation; worker must not merge, rebase, push, or create PR. |
+| Qualified proposal success record | Publish only the P1-3 block and Result in the explicitly named proposal; not in this Git commit. |
+
+The prior failure below is historical evidence, superseded by Governor recovery
+and implementation. Its original files remain available in `12dc22d3`.
+
+## Historical prerequisite gate (superseded)
 
 ## Authorized baseline
 

@@ -596,7 +596,12 @@ class HostCredentialScopeMiddleware(BaseHTTPMiddleware):
                 if unverified.get("scope") == AUDIT_UPLOAD_SCOPE or unverified.get("identity_type") == EXTERNAL_HOST_IDENTITY_TYPE:
                     path = request.url.path.rstrip("/")
                     # Check if path is in allowed paths
-                    if path not in self.ALLOWED_HOST_PATHS and not any(path.startswith(p) for p in self.ALLOWED_HOST_PATHS):
+                    if (
+                        path not in self.ALLOWED_HOST_PATHS
+                        and not any(path.startswith(p) for p in self.ALLOWED_HOST_PATHS)
+                        and not path.endswith("/evidence-uploads")
+                        and not path.endswith("/uploads")
+                    ):
                         return JSONResponse(
                             status_code=403,
                             content={

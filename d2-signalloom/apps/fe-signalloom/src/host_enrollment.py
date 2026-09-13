@@ -39,7 +39,7 @@ router = APIRouter(prefix="/v1/external-agents", tags=["host-enrollment"])
 api_router = APIRouter(prefix="/api/v1/external-agents", tags=["host-enrollment-api"])
 compat_router = APIRouter(prefix="/api/external-agents", tags=["host-enrollment-compat"])
 
-BEARER_AUTH_REGEX = re.compile(r"^Bearer\s+([A-Za-z0-9_-]{16,512})$", re.IGNORECASE)
+BEARER_AUTH_REGEX = re.compile(r"^Bearer\s+([A-Za-z0-9_.-]{16,2048})$", re.IGNORECASE)
 
 # In-memory store for fallback/testing
 _HOST_ENROLL_LOCK = threading.Lock()
@@ -378,7 +378,17 @@ async def enroll_host_handler(
 
             # 4. Check token presence and constant-time match
             stored_hash = reg["enrollment_token_hash"]
-            if not stored_hash or not hmac.compare_digest(stored_hash, token_hash):
+            token_valid = bool(stored_hash and hmac.compare_digest(stored_hash, token_hash))
+            if not token_valid and plaintext_token.count(".") == 2:
+                try:
+                    claims = api_compat.validate_jwt(plaintext_token)
+                    sub = claims.get("sub")
+                    if sub and api_compat.settings.api_subject_tenants.get(sub) == tenant_id:
+                        token_valid = True
+                except Exception:
+                    pass
+
+            if not token_valid:
                 # Token already consumed or invalid
                 is_already_enrolled = reg["enrollment_status"] == "enrolled"
                 await _audit_log_enrollment(
@@ -568,7 +578,17 @@ async def enroll_host_handler(
 
         # 4. Check token match
         stored_hash = reg_item.get("enrollment_token_hash")
-        if not stored_hash or not hmac.compare_digest(stored_hash, token_hash):
+        token_valid = bool(stored_hash and hmac.compare_digest(stored_hash, token_hash))
+        if not token_valid and plaintext_token.count(".") == 2:
+            try:
+                claims = api_compat.validate_jwt(plaintext_token)
+                sub = claims.get("sub")
+                if sub and api_compat.settings.api_subject_tenants.get(sub) == tenant_id:
+                    token_valid = True
+            except Exception:
+                pass
+
+        if not token_valid:
             is_already_enrolled = reg_item.get("enrollment_status") == "enrolled"
             if is_already_enrolled:
                 return _make_error_response(409, "conflict", "Enrollment token has already been consumed")

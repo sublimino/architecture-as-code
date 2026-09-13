@@ -17,7 +17,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
 import pytest
-import pytest_asyncio
+try:
+    import pytest_asyncio
+    _async_fixture = pytest_asyncio.fixture
+except ImportError:
+    pytest_asyncio = None
+    _async_fixture = pytest.fixture
 
 from db.migrate import MIGRATIONS_DIR, apply_migrations, discover_migrations
 
@@ -27,8 +32,8 @@ ALL_MIGRATIONS = [m.filename for m in discover_migrations(MIGRATIONS_DIR)]
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(
-    DATABASE_URL is None,
-    reason="DATABASE_URL not set -- migration integration tests require a live Postgres",
+    DATABASE_URL is None or pytest_asyncio is None,
+    reason="DATABASE_URL not set or pytest_asyncio missing -- migration integration tests require a live Postgres",
 )
 
 PRE_005_MIGRATIONS = [
@@ -45,7 +50,7 @@ def _with_database(dsn: str, database: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, f"/{database}", parts.query, parts.fragment))
 
 
-@pytest_asyncio.fixture
+@_async_fixture
 async def scratch_dsn():
     """A throwaway database, dropped however the test ends."""
     name = f"signalloom_migtest_{uuid.uuid4().hex[:12]}"
@@ -68,7 +73,7 @@ async def scratch_dsn():
             await admin.close()
 
 
-@pytest_asyncio.fixture
+@_async_fixture
 async def scratch_pool(scratch_dsn: str):
     pool = await asyncpg.create_pool(scratch_dsn, min_size=1, max_size=2)
     try:

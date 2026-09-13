@@ -967,6 +967,9 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
     ("api_compat.py", "_execute_claim"): (
         "Fixture path for agent claims when no database pool is available."
     ),
+    ("external_agent_registration.py", "_audit_log_external_agent"): (
+        "Fixture fallback path for external agent registration and claim audit events when no database pool is available."
+    ),
 }
 
 

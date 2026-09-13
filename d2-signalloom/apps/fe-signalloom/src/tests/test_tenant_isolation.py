@@ -757,6 +757,11 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     # Risk calculation proxy routes to signal-ingest
     ("GET", "/api/v1/risk/agents/{agent_id}"),
     ("GET", "/api/v1/risk/fleet"),
+    # External agent host credential and upload routes (covered by test_host_enrollment.py)
+    ("GET", "/api/v1/external-agents/privacy"),
+    ("POST", "/api/v1/external-agents/credentials/renew"),
+    ("POST", "/api/v1/external-agents/credentials/rotate"),
+    ("POST", "/api/v1/external-agents/evidence-uploads"),
 ]
 
 

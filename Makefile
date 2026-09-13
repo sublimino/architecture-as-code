@@ -804,7 +804,7 @@ demo-signalloom-demo-up: ## Populate ALL demo data: every Monty Python agent + m
 
 ##@ Signal Loom data lifecycle (three UI states: demo-toggle / live-empty / mock-populated)
 
-.PHONY: demo-signalloom-data-reset demo-signalloom-data-mock demo-signalloom-api-test demo-agentmaxxing-contract-test
+.PHONY: demo-signalloom-data-reset demo-signalloom-data-mock demo-signalloom-api-test demo-agentmaxxing-contract-test demo-agentmaxxing-host-test
 demo-signalloom-data-reset: ## Reset data stores to empty defaults (live mode = empty UI). Optional: SERVICE=agents|audit|...
 	./scripts/signalloom-data.sh reset $(SERVICE)
 demo-signalloom-data-mock: ## Populate data stores with realistic demo data (mock mode = populated UI).
@@ -813,6 +813,8 @@ demo-signalloom-api-test: ## Run the consumer-driven contract + integration test
 	./scripts/signalloom-api-test.sh $${TIER:-contract}
 demo-agentmaxxing-contract-test: ## Run attributable AgentMaxxing operator lifecycle contracts.
 	bats test/signalloom/operator-identity.bats
+demo-agentmaxxing-host-test: ## Run AgentMaxxing host sensor process lifecycle and confinement test suite.
+	python3 -m unittest discover -s d2-signalloom/apps/agentmaxxing-host-sensor/ -p 'test_*.py'
 
 .PHONY: demo-signalloom-dex-origin-set demo-signalloom-dex-origin-status demo-signalloom-dex-origin-restore
 demo-signalloom-dex-origin-set: ## Set and apply Dex public origin and callback URIs (ORIGIN=<url> [METHOD=tailscale|ngrok|iap]).

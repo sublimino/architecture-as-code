@@ -277,3 +277,38 @@ func AgentNonoFixtures(baseTime time.Time) []model.Observation {
 
 	return observations
 }
+
+// GenerateFinalizedSignedSession returns a fully signed session whose terminal event is marked finalized.
+func GenerateFinalizedSignedSession(kp *FixtureKeypair, sessionID string, count int, baseTime time.Time) ([]*NonoAuditEvent, error) {
+	if count < 1 {
+		count = 1
+	}
+	events, err := GenerateSignedSession(kp, sessionID, count, baseTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// Mark the terminal event as finalized and resign it
+	last := events[len(events)-1]
+	last.LifecycleState = "finalized"
+	last.EventType = "session_finalized"
+	last.Event = "finalized"
+
+	// Recompute canonical payload, digest, and signature for the finalized event
+	payload := last.CanonicalPayload()
+	h := sha256.New()
+	if last.PrevDigest != "" {
+		h.Write([]byte(last.PrevDigest))
+	}
+	h.Write(payload)
+	last.Digest = hex.EncodeToString(h.Sum(nil))
+
+	sig, err := kp.SignPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("resign finalized terminal event: %w", err)
+	}
+	last.Signature = sig
+	last.SignatureGitOID = ComputeGitOID(payload)
+
+	return events, nil
+}

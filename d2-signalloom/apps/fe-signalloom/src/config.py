@@ -4,8 +4,21 @@ from __future__ import annotations
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+import os
+
+
+def _safe_env_file() -> str | None:
+    try:
+        if os.path.exists(".env"):
+            with open(".env", "rb"):
+                return ".env"
+    except (OSError, PermissionError):
+        return None
+    return None
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_safe_env_file(), env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = ""
     redis_url: str = ""

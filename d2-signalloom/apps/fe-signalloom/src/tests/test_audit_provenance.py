@@ -742,6 +742,16 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "immutable, cryptographically signed audit object persisted to signed_audit_sessions; "
         "recording an audit event in audit_events for ingesting an audit log is redundant."
     ),
+    ("audit_ingest.py", "ingest_finalized_audit_session"): (
+        "Ingest of finalized audit sessions from agent-nono. The session itself is an "
+        "immutable, cryptographically signed and hash-chained audit object persisted to signed_audit_sessions; "
+        "recording an audit event in audit_events for ingesting an audit log is redundant."
+    ),
+    ("external_agent_evidence.py", "create_agent_external_evidence"): (
+        "External agent allowlisted evidence persistence and projection. The evidence is "
+        "cryptographically bound to an audited session and persisted to external_agent_evidence; "
+        "recording a redundant audit row in audit_events is not needed."
+    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate
@@ -969,6 +979,9 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
     ),
     ("external_agent_registration.py", "_audit_log_external_agent"): (
         "Fixture fallback path for external agent registration and claim audit events when no database pool is available."
+    ),
+    ("host_enrollment.py", "_audit_log_enrollment"): (
+        "Fixture fallback path for host enrollment and revocation audit events when no database pool is available."
     ),
 }
 

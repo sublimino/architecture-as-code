@@ -822,6 +822,7 @@ demo-agentmaxxing-host-test: ## Run AgentMaxxing Linux host sensor, confinement,
 demo-agentmaxxing-ingest-test: ## Run AgentMaxxing audit session ingest, deduplication, and verification tests.
 	cd d2-signalloom/apps/signal-ingest && GOPATH=/tmp/gopath GOMODCACHE=/tmp/gomodcache go test -v ./collectors/agentnono/...
 	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py -k "test_idempotency or test_concurrent_upload or test_interrupted_retry or test_ingest_finalized"
+	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_external_agent_evidence.py
 
 .PHONY: demo-signalloom-dex-origin-set demo-signalloom-dex-origin-status demo-signalloom-dex-origin-restore
 demo-signalloom-dex-origin-set: ## Set and apply Dex public origin and callback URIs (ORIGIN=<url> [METHOD=tailscale|ngrok|iap]).

@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalloom.controlplane.io/schemas/agentmaxxing-host-policy.v1.json",
+  "title": "AgentMaxxingHostPolicyV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "approval",
+    "nono",
+    "host",
+    "readable_roots",
+    "writable_roots",
+    "network_destinations",
+    "artifact_access",
+    "hashing",
+    "lifecycle",
+    "privacy"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "policy_id": { "const": "amxo-host-policy-v1" },
+    "approval": { "$ref": "#/$defs/approval" },
+    "nono": { "$ref": "#/$defs/nono" },
+    "host": { "$ref": "#/$defs/host" },
+    "readable_roots": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/root" },
+            { "properties": { "root_id": { "const": "agent-install" }, "path": { "const": "/opt/agentmaxxing" }, "artifact_hashing": { "const": false } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/root" },
+            { "properties": { "root_id": { "const": "system-trust" }, "path": { "const": "/etc/ssl/certs" }, "artifact_hashing": { "const": false } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/root" },
+            { "properties": { "root_id": { "const": "customer-input" }, "path": { "const": "/srv/agentmaxxing/input" }, "artifact_hashing": { "const": false } } }
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "writable_roots": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/root" },
+            { "properties": { "root_id": { "const": "agent-work" }, "path": { "const": "/var/lib/agentmaxxing/work" }, "artifact_hashing": { "const": true } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/root" },
+            { "properties": { "root_id": { "const": "agent-output" }, "path": { "const": "/var/lib/agentmaxxing/output" }, "artifact_hashing": { "const": true } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/root" },
+            { "properties": { "root_id": { "const": "nono-audit" }, "path": { "const": "/var/lib/agentmaxxing/audit" }, "artifact_hashing": { "const": false } } }
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "network_destinations": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/destination" },
+            { "properties": { "destination_id": { "const": "signal-loom-ingest" }, "dns_name": { "const": "signal-ingest.signalloom.controlplane.io" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/destination" },
+            { "properties": { "destination_id": { "const": "agentmaxxing-api" }, "dns_name": { "const": "api.agentmaxxing.com" } } }
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "artifact_access": { "$ref": "#/$defs/artifact_access" },
+    "hashing": { "$ref": "#/$defs/hashing" },
+    "lifecycle": { "$ref": "#/$defs/lifecycle" },
+    "privacy": { "$ref": "#/$defs/privacy" }
+  },
+  "$defs": {
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approver", "approved_at", "provenance", "scope"],
+      "properties": {
+        "approver": { "const": "Andrew Martin" },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "provenance": { "const": "AMXO-P1-2 task contract" },
+        "scope": { "const": "host-confinement-and-privacy-v1" }
+      }
+    },
+    "nono": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "fail_closed", "landlock_required", "network_proxy_required"],
+      "properties": {
+        "name": { "const": "agentmaxxing-linux-v1" },
+        "version": { "const": "0.73.0" },
+        "fail_closed": { "const": true },
+        "landlock_required": { "const": true },
+        "network_proxy_required": { "const": true }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_owner", "service_account", "systemd_unit", "tenant_id", "agent_id", "host_id"],
+      "properties": {
+        "host_owner": { "const": "AgentMaxxing Incorporated" },
+        "service_account": { "const": "agentmaxxing-sensor" },
+        "systemd_unit": { "const": "agentmaxxing-agent.service" },
+        "tenant_id": { "const": "tenant-agentmaxxing" },
+        "agent_id": { "const": "agentmaxxing-linux-001" },
+        "host_id": { "const": "amx-host-001" }
+      }
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root_id", "path", "artifact_hashing"],
+      "properties": {
+        "root_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,31}$" },
+        "path": { "type": "string", "pattern": "^/[^*?\\[\\]]+$" },
+        "artifact_hashing": { "type": "boolean" }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["destination_id", "dns_name", "transport", "port", "tls_required"],
+      "properties": {
+        "destination_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,31}$" },
+        "dns_name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])$" },
+        "transport": { "const": "tcp" },
+        "port": { "const": 443 },
+        "tls_required": { "const": true }
+      }
+    },
+    "artifact_access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "syscall",
+        "root_descriptor_pinning",
+        "resolve_flags",
+        "require_regular_file",
+        "required_link_count",
+        "require_same_mount_id",
+        "pre_hash_identity_fields",
+        "revalidate_after_hash",
+        "hash_validated_descriptor_only"
+      ],
+      "properties": {
+        "syscall": { "const": "openat2" },
+        "root_descriptor_pinning": { "const": "service-lifetime" },
+        "resolve_flags": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "RESOLVE_BENEATH" },
+            { "const": "RESOLVE_NO_SYMLINKS" },
+            { "const": "RESOLVE_NO_XDEV" }
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "require_regular_file": { "const": true },
+        "required_link_count": { "const": 1 },
+        "require_same_mount_id": { "const": true },
+        "pre_hash_identity_fields": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "inode" },
+            { "const": "mount_id" },
+            { "const": "link_count" },
+            { "const": "size" },
+            { "const": "mtime_ns" },
+            { "const": "ctime_ns" }
+          ],
+          "items": false,
+          "minItems": 6,
+          "maxItems": 6
+        },
+        "revalidate_after_hash": { "const": true },
+        "hash_validated_descriptor_only": { "const": true }
+      }
+    },
+    "hashing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "max_file_size_bytes",
+        "max_files_per_window",
+        "max_bytes_per_window",
+        "window_seconds",
+        "oversize_state",
+        "rate_limited_state"
+      ],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "max_file_size_bytes": { "const": 16777216 },
+        "max_files_per_window": { "const": 120 },
+        "max_bytes_per_window": { "const": 67108864 },
+        "window_seconds": { "const": 60 },
+        "oversize_state": { "const": "unobserved" },
+        "rate_limited_state": { "const": "unobserved" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_retention_days",
+        "deletion_deadline_days",
+        "retention_owner",
+        "deletion_owner",
+        "host_unenrollment_owner",
+        "deletion_trigger"
+      ],
+      "properties": {
+        "evidence_retention_days": { "const": 30 },
+        "deletion_deadline_days": { "const": 7 },
+        "retention_owner": { "const": "ControlPlane Signal Loom Operations" },
+        "deletion_owner": { "const": "ControlPlane Signal Loom Operations" },
+        "host_unenrollment_owner": { "const": "AgentMaxxing Platform Engineering" },
+        "deletion_trigger": { "const": "verified-tenant-request-or-host-unenrollment" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unobserved_fields",
+        "prohibited_export_fields",
+        "raw_paths_exported",
+        "raw_urls_exported",
+        "raw_errors_exported",
+        "integrity_implies_completeness",
+        "integrity_implies_host_trust"
+      ],
+      "properties": {
+        "unobserved_fields": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "read_only_input_file_digests",
+              "file_contents",
+              "process_memory_contents",
+              "in_memory_synthesis_contents",
+              "streamed_payload_digests",
+              "streamed_payload_contents",
+              "network_payload_contents"
+            ]
+          }
+        },
+        "prohibited_export_fields": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "raw_nono_record",
+              "command",
+              "path",
+              "url",
+              "error",
+              "file_contents",
+              "memory_contents",
+              "streamed_payload_digest",
+              "streamed_payload_contents",
+              "network_payload_contents"
+            ]
+          }
+        },
+        "raw_paths_exported": { "const": false },
+        "raw_urls_exported": { "const": false },
+        "raw_errors_exported": { "const": false },
+        "integrity_implies_completeness": { "const": false },
+        "integrity_implies_host_trust": { "const": false }
+      }
+    }
+  }
+}

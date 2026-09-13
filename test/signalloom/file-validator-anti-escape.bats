@@ -84,7 +84,7 @@ teardown() {
 }
 
 @test "pytest suite for file validator executes and passes all 16 adversarial assertions" {
-  run python3 -m pytest -v "$SENSOR_DIR/test_file_validator.py"
+  run python3 -m pytest -p no:libtmux -v "$SENSOR_DIR/test_file_validator.py"
   [ "$status" -eq 0 ]
   [[ "$output" =~ "16 passed" ]]
 }

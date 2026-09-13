@@ -1,127 +1,248 @@
 ---
 title: Onboard an external Linux agent
-description: Planned onboarding path for a Linux process governed through nono evidence.
+description: Complete guide for deploying and governing an external Linux agent through Linux Landlock LSM confinement and nono cryptographic evidence.
 ---
 
 import Mermaid from "../../../components/Mermaid.astro";
 
-This integration is **planned**. The current Signal Loom demo does not ingest
-nono audit sessions from an external host.
+Signal Loom provides end-to-end governance, kernel-level confinement, and cryptographic attribution for external AI agents running as standard Linux processes outside Kubernetes (such as design-partner workloads from AgentMaxxing Inc.).
 
-Use this page as the implementation contract for the first AgentMaxxing Inc.
-design-partner onboarding. Do not use it as an operational procedure yet.
+This guide details the complete operational lifecycle: registering an agent with an attributable human operator, enrolling the external host via one-time credential exchange, running under Linux Landlock LSM confinement and nono supervision, enforcing descriptor-relative artifact verification, and observing verified evidence states in the Signal Loom Dossier.
 
-## Target workload
+## Architecture & Verified Evidence Flow
 
-The first workload has these properties:
-
-- It runs as a Linux process outside Kubernetes.
-- It reads data from an approved filesystem location.
-- It synthesizes data in memory or on disk.
-- It sends a result to an approved network destination.
-- Signal Loom must not collect file contents, memory contents, or payload contents.
-
-The integration records metadata for observable actions. It hashes artifacts
-only when they exist on disk.
-
-## Proposed evidence path
+The external agent integration bridges Linux kernel security controls with Signal Loom's centralized governance plane. All observable actions generate privacy-preserving, hash-chained telemetry without ever exfiltrating raw user data or model payloads.
 
 <Mermaid
-  label="AgentMaxxing external-agent evidence path"
-  diagram={`flowchart LR
-    U[AgentMaxxing operator] --> S[systemd service]
-    S --> N[nono supervisor]
-    N --> A[Agent process]
-    A --> F[Approved filesystem paths]
-    A --> P[nono network proxy]
-    N --> L[Integrity-protected audit session]
-    H[Host sensor] --> M[Process and disk metadata]
-    L --> I[Signal Loom nono ingestion API]
-    M --> I
-    I --> E[Agent evidence timeline]`}
+  label="AgentMaxxing external-agent verified evidence flow"
+  diagram={`flowchart TD
+  subgraph TenantPlane["AgentMaxxing Tenant & Operator Plane"]
+    OP["Attributable Operator (OIDC)"]
+    REG["POST /api/v1/external-agents/register"]
+    TOK["One-Time Enrollment Token"]
+  end
+
+  subgraph HostPlane["External Linux Host (Agent Runtime)"]
+    SYS["systemd Unit (agentmaxxing.service)"]
+    NONO["nono Supervisor (v0.73.0)"]
+    LSM["Linux Landlock LSM Confinement (ABI v3)"]
+    AGT["External Agent Process"]
+    FS["Approved Filesystem (read-only base, /workspace)"]
+    NET["nono Network Proxy (allowlisted domains)"]
+    SENS["Host Sensor Daemon"]
+    HASH["Descriptor-Relative Hasher (openat2 + TOCTOU guard)"]
+    AUD["nono Audit Engine (append-only SHA-256 hash chain)"]
+  end
+
+  subgraph LoomPlane["Signal Loom Platform & Governance Plane"]
+    ENROLL["POST /api/v1/external-agents/enroll"]
+    INGEST["POST /api/audit/sessions"]
+    GOV_VER["Server-Side Verifier & Idempotent Deduplicator"]
+    DB[("PostgreSQL Evidence Store (Migration 042)")]
+    DOSSIER["Signal Loom Dossier: Activity Timeline (Tab 5)"]
+  end
+
+  OP --> REG --> TOK
+  TOK --> ENROLL
+  ENROLL -->|Scoped Host Credentials| SENS
+  SYS --> NONO --> LSM --> AGT
+  AGT --> FS
+  AGT --> NET
+  FS --> HASH
+  SENS --> HASH
+  NONO --> AUD
+  HASH --> AUD
+  AUD -->|Verified Finalized Audit Session| INGEST
+  INGEST --> GOV_VER --> DB --> DOSSIER`}
 />
 
-Run the agent through a dedicated nono profile. Use systemd to restart the
-supervised process and expose one stable service identity. Enroll nono with a
-Signal Loom audit endpoint before starting the service.
+## Non-Negotiable Privacy & Confinement Boundaries
 
-## Evidence available from nono
+Signal Loom's external agent integration enforces strict security and privacy boundaries at every layer:
 
-The proposed integration targets nono 0.73.0.
+1. **Zero Raw Data Ingestion (Metadata Only)**:
+   - Prohibited fields—including `payload`, `raw_payload`, `memory_dump`, raw terminal streams, and file byte contents—are stripped by storage boundary sanitizers before database insertion (`Migration 042`).
+   - Signal Loom records only observable telemetry: process health, CPU percentage, RSS memory bytes, exit codes, file metadata (root, size, mtime, SHA-256 digest), and egress socket destinations.
+2. **Descriptor-Relative Filesystem Confinement (`openat2`)**:
+   - The agent process operates under Linux Landlock LSM (ABI v3).
+   - Candidate artifacts are opened exclusively through pinned directory file descriptors via `openat2(2)` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_XDEV`.
+   - Symlinks, hard-link escapes, mount-point crossings, and non-regular files are rejected fail-closed before any byte read.
+3. **TOCTOU Race Prevention**:
+   - Before hashing, the sensor verifies mount identity and link count via `fstat` and `statx(STATX_MNT_ID)`.
+   - After hashing, inode, mount ID, size, and mutation timestamps are re-checked. Any discrepancy causes the digest to be immediately discarded with reason code `toctou_mutation_detected`.
+4. **Network Egress Proxy**:
+   - Outbound connections must traverse the nono network broker.
+   - Connections to unapproved destinations are actively blocked and recorded on the timeline as `DENIED` evidence.
 
-| Evidence | Native nono support | Constraint |
-| --- | --- | --- |
-| Command, timestamps, duration, and exit code | Yes | Audit is enabled by default. |
-| Main executable SHA-256 digest | Yes | Supervised runs hash only the launched executable. |
-| Audit event integrity | Yes | The append-only event stream is hash-chained. |
-| Writable filesystem state | Yes | `--audit-integrity` records pre/post Merkle roots for tracked writable paths. |
-| Network request metadata | Yes | The nono network proxy must be active. |
-| Successful input-file digest | No | Nono does not automatically hash each file read. |
-| Individual disk-write digest | Additional sensor work | Hash created or changed files inside tracked writable paths. |
-| Streamed payload digest | No | The agent must expose this; the first integration does not require it. |
-| In-memory synthesized data | No | Memory inspection is out of scope. |
+## Step-by-Step Onboarding Walkthrough
 
-Do not interpret a filesystem Merkle root as a list of per-file digests. The
-host sensor must calculate an individual digest when Signal Loom needs one.
+### 1. Register the Agent & Issue Enrollment Token
 
-## Required Signal Loom work
+An attributable human operator logs in to Signal Loom and registers the external agent for their tenant:
 
-1. Create an AgentMaxxing tenant and an attributable operator account.
-2. Register one external Linux agent record before host enrollment.
-3. Define one nono profile with explicit read, write, and network grants.
-4. Implement the nono audit-control-plane enrollment contract.
-5. Bind the enrolled host identity to one tenant and one agent.
-6. Ingest finalized nono audit sessions idempotently.
-7. Verify the nono audit chain before accepting session evidence.
-8. Collect process health, CPU, memory, exit, and restart metadata.
-9. Hash created or changed files only inside approved writable paths.
-10. Reject symbolic links, hard-link escapes, mount crossings, and non-regular files.
-11. Verify file identity before and after hashing to detect replacement races.
-12. Reject file contents, memory contents, and payload contents.
-13. Display source, timestamp, integrity state, and collection limits.
-14. Test account removal, host unenrollment, and replay rejection.
+```bash
+curl -sS -X POST "https://dashboard.osramp.acme.local/api/v1/external-agents/register" \
+  -H "Authorization: Bearer ${OPERATOR_OIDC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "agentmaxxing-researcher-01",
+    "description": "AgentMaxxing autonomous code researcher running on external Linux host",
+    "model": "anthropic/claude-3-7-sonnet",
+    "framework": "nono-sandboxed"
+  }'
+```
 
-## Security boundary
+**Response (`201 Created`):**
+```json
+{
+  "agent_id": "agent-amxo-uuid-001",
+  "tenant_id": "tenant-agentmaxxing",
+  "enrollment_token": "amxo_enroll_sec_98f43b12390abcf",
+  "expires_at": "2026-09-14T12:00:00Z"
+}
+```
 
-Use a one-time enrollment token. The resulting host identity must be audit-only.
-It must not read tenant data or invoke agent lifecycle mutations.
+The enrollment token is atomic, single-use, and valid for 24 hours.
 
-Bind each event to these fields:
+### 2. Enroll the External Linux Host
 
-- tenant identifier
-- Signal Loom agent identifier
-- nono session identifier
-- Linux host identifier
-- nono profile digest
-- main executable digest when available
-- event timestamp and source
-- audit-chain verification result
+On the target Linux host, the sensor agent redeems the one-time enrollment token to obtain audit-scoped credentials:
 
-Allowlist filesystem roots and network destinations. Keep credentials outside
-the sandbox by using nono's brokered credential support. Set size and rate
-limits before calculating disk-artifact hashes.
+```bash
+curl -sS -X POST "https://dashboard.osramp.acme.local/api/v1/external-agents/enroll" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enrollment_token": "amxo_enroll_sec_98f43b12390abcf",
+    "host_id": "linux-host-amxo-prod-42",
+    "landlock_abi": 3,
+    "kernel_version": "6.8.0-45-generic"
+  }'
+```
 
-Pin an approved root directory descriptor. Open candidate files descriptor-
-relative through `openat2()`. Require `RESOLVE_BENEATH`,
-`RESOLVE_NO_SYMLINKS`, and `RESOLVE_NO_XDEV`. Hash only through the returned
-descriptor. Before reading, use `fstat` and `statx(STATX_MNT_ID)` to verify a
-regular file on the approved mount with one hard link. After reading, recheck
-the inode, mount ID, link count, size, and mutation timestamps. Discard the
-digest if any value changes. These controls must reject an escaped target
-before the sensor reads its bytes.
+**Response (`200 OK`):**
+```json
+{
+  "agent_id": "agent-amxo-uuid-001",
+  "tenant_id": "tenant-agentmaxxing",
+  "host_id": "linux-host-amxo-prod-42",
+  "access_token": "amxo_audit_scoped_jwt_token_...",
+  "spiffe_id": "spiffe://signalloom.demo/ns/agentmaxxing/sa/researcher-01",
+  "audit_endpoint": "/api/audit/sessions"
+}
+```
 
-## Completion evidence
+These credentials have **least-privilege audit scope**: they can only upload audit sessions for `agent-amxo-uuid-001` and cannot query other tenant records or mutate platform state.
 
-The integration is ready for AgentMaxxing onboarding only when:
+### 3. Configure the nono Sandbox Profile & systemd Service
 
-- a newly provisioned operator signs in with an individual identity;
-- the registered external agent starts only through the approved nono profile;
-- Signal Loom receives one verified nono session without manual import;
-- process and disk metadata appear on the correct agent timeline;
-- one seeded filesystem denial appears as denied evidence;
-- one unapproved network destination is blocked;
-- in-memory and streamed data are explicitly shown as unobserved;
-- removing the host enrollment prevents later audit uploads.
+Install the nono sandbox profile at `/etc/nono/profiles/agentmaxxing.yaml`:
 
-Until these checks pass, use the [current first-agent guide](../first-agent/) only
-for the implemented demonstration workflow.
+```yaml
+version: "0.73.0"
+profile: "agentmaxxing-hardened"
+landlock:
+  abi: 3
+  read_only:
+    - "/usr"
+    - "/lib"
+    - "/etc/ssl/certs"
+  read_write:
+    - "/home/agent/workspace"
+  deny:
+    - "/etc/shadow"
+    - "/home/agent/.ssh"
+network:
+  proxy_mode: "enforce"
+  allow_destinations:
+    - "api.anthropic.com:443"
+    - "api.openai.com:443"
+    - "dashboard.osramp.acme.local:443"
+audit:
+  enabled: true
+  hash_chain: true
+  integrity_marker: true
+```
+
+Configure the systemd service at `/etc/systemd/system/agentmaxxing.service`:
+
+```ini
+[Unit]
+Description=AgentMaxxing Governed External Linux Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent
+Group=agent
+WorkingDirectory=/home/agent/workspace
+ExecStart=/usr/bin/nono run --profile /etc/nono/profiles/agentmaxxing.yaml -- /usr/local/bin/agent-runner
+Restart=on-failure
+RestartSec=5s
+Environment="SIGNAL_LOOM_TOKEN=amxo_audit_scoped_jwt_token_..."
+Environment="SIGNAL_LOOM_ENDPOINT=https://dashboard.osramp.acme.local"
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Reload and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now agentmaxxing.service
+```
+
+### 4. Ingestion, Verification, and Deduplication
+
+As the agent executes, nono and the host sensor generate hash-chained audit events. When a session finalizes, the sensor submits the signed session to Signal Loom:
+
+```bash
+curl -sS -X POST "https://dashboard.osramp.acme.local/api/audit/sessions" \
+  -H "Authorization: Bearer ${SIGNAL_LOOM_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d @/var/log/nono/finalized-session-001.json
+```
+
+The ingestion pipeline performs server-side verification:
+- **Contiguous Sequence Checks**: Validates that all sequence numbers `1..N` form an unbroken chain.
+- **Cryptographic Hash Chain**: Recomputes SHA-256 digests across preceding events; any tampered or forged record is rejected.
+- **Upload Idempotency**: Duplicate submissions of identical sessions return `200 OK` without duplicating database state. Conflicting submissions under the same session ID return `409 Conflict`.
+- **Finalization Markers**: Emits a terminal finalization event (`POST /api/audit/sessions/finalized`).
+
+### 5. Inspecting Evidence on the Agent Timeline
+
+Navigate to the Signal Loom Dossier for the agent (`/agents/{agent_id}?tab=activity`).
+
+The **Activity Timeline** renders external evidence items with full cryptographic attribution:
+
+- **Verification Badges**:
+  - `INTEGRITY VERIFIED` (Green border & tag): The nono audit hash chain has been cryptographically validated server-side.
+  - `TAMPERED HASH CHAIN` (Red border & tag): A sequence or digest mismatch was detected.
+  - `UNVERIFIED` / `UNOBSERVED` (Amber border & tag): Expected telemetry was skipped, rate-limited, or unobserved.
+- **Attributable Metadata**:
+  - Process lifecycle: health status, CPU usage, RSS memory, exit code.
+  - Artifact digests: verified workspace root, truncated SHA-256 hash, byte size, modification timestamp.
+  - Network egress: destination IP/port and broker decision (`allowed` vs `blocked`).
+  - Limits & Quarantines: reason codes (`RATE_LIMIT_EXCEEDED`, `toctou_mutation_detected`, `path_escape_attempted`).
+- **Allowlisted Attributes Viewer**: Click **View Allowlisted Attributes** to inspect the sanitized JSON payload.
+
+### 6. Host Revocation & De-Provisioning
+
+When an external host is decommissioned or compromised, the operator revokes the host registration:
+
+```bash
+curl -sS -X POST "https://dashboard.osramp.acme.local/api/v1/external-agents/registrations/agent-amxo-uuid-001/revoke" \
+  -H "Authorization: Bearer ${OPERATOR_OIDC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{ "reason": "Host decommissioned" }'
+```
+
+Revocation takes effect immediately: subsequent audit upload attempts from the host are rejected with `403 Forbidden`, and a `revocation` audit event is published to the agent timeline.
+
+## Related Documentation
+
+- [Onboard your first agent](../first-agent/): First-agent onboarding workflow in the Signal Loom dashboard.
+- [External Agent Wire Contracts](../../reference/external-agent-wire-contracts/): Complete OpenAPI schemas and TypeScript definitions.
+- [Attributable Operator Lifecycle](../../reference/operator-identity-lifecycle/): Operator identity management, session authorization, and negative shared-identity rejection.
+- [Nono Optionality & Landlock Confinement](../../security/nono-optionality/): Deep dive into Linux Landlock LSM sandboxing.

@@ -1931,5 +1931,12 @@
     "reviewer": "supervisor",
     "verdict": "pass",
     "reason": "AMXO-P3-3: Independent host revocation enforcement verified; migration 041 applied, POST /v1/external-agents/{agent_id}/revocations and /hosts/{host_id}/revoke verified, real-time upload denial, sibling and operator isolation, 8/8 revocation tests and 149/149 test suite green"
+  },
+  "57358": {
+    "task_id": "57358",
+    "reviewed_at": "2026-09-13T16:53:46Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "reason": "AMXO-P3-GOV: Phase 3 Governor certified; reconciled migrations 040 and 041, least privilege credential scope verified, 149/149 host and isolation tests green, proof recorded in docs/signalloom/amxo-p3-gov-proof.md"
   }
 }

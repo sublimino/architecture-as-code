@@ -1,0 +1,59 @@
+[Unit]
+Description=AgentMaxxing External Confinement Agent
+Documentation=https://docs.signalloom.controlplane.io/start/external-linux-agent
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=agentmaxxing-sensor
+Group=agentmaxxing-sensor
+WorkingDirectory=/var/lib/agentmaxxing/work
+EnvironmentFile=-/etc/default/agentmaxxing-agent
+
+# Binary digest verification preflight gate
+ExecStartPre=/opt/agentmaxxing/scripts/digest_gate.sh
+
+# Main execution entrypoint under nono confinement
+ExecStart=/opt/agentmaxxing/scripts/start.sh
+
+# Restart and lifecycle policy
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=30s
+
+# Security hardening directives
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Pinned filesystem boundaries matching policy
+ReadWritePaths=/var/lib/agentmaxxing/work /var/lib/agentmaxxing/output /var/lib/agentmaxxing/audit /run/agentmaxxing
+ReadOnlyPaths=/opt/agentmaxxing /etc/ssl/certs /srv/agentmaxxing/input /usr /lib /lib64 /etc/resolv.conf /etc/hosts
+InaccessiblePaths=/root /etc/shadow /etc/gshadow /etc/sudoers /etc/pam.d
+
+# Cgroup v2 resource limits
+MemoryMax=512M
+TasksMax=64
+CPUQuota=200%
+
+# Confinement telemetry logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agentmaxxing-agent
+
+[Install]
+WantedBy=multi-user.target

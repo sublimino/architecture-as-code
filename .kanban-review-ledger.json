@@ -1924,5 +1924,12 @@
     "reviewer": "Council of Agents (Antigravity/KPAI/CPAI)",
     "verdict": "pass",
     "reason": "AMXO-P3-2: Audit-only credential scope and tenant-agent binding verified; RS256 JWT host tokens, HostCredentialScopeMiddleware denial matrix, 19/19 host credential tests, 109/109 tenant isolation tests pass"
+  },
+  "cbeba": {
+    "task_id": "cbeba",
+    "reviewed_at": "2026-09-13T16:52:12Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "reason": "AMXO-P3-3: Independent host revocation enforcement verified; migration 041 applied, POST /v1/external-agents/{agent_id}/revocations and /hosts/{host_id}/revoke verified, real-time upload denial, sibling and operator isolation, 8/8 revocation tests and 149/149 test suite green"
   }
 }

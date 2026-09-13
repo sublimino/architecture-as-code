@@ -193,6 +193,46 @@ def verify_hash_chain(
     return True, None
 
 
+def validate_finalized_session_chain(session: SignedAuditSession) -> tuple[bool, str | None, int]:
+    """Validate that an audit session chain is strictly finalized, contiguous, and uncorrupted.
+
+    Returns (valid, error_reason, http_status_code).
+    """
+    if not session.events:
+        return False, "Empty audit session: event count is 0", 400
+
+    # 1. Contiguous sequence ordering starting at event 0 sequence
+    first_seq = session.events[0].seq
+    for idx, event in enumerate(session.events):
+        expected_seq = first_seq + idx
+        if event.seq != expected_seq:
+            if idx > 0 and event.seq <= session.events[idx - 1].seq:
+                return False, f"Out-of-order or duplicate sequence at index {idx}: seq {event.seq} <= previous {session.events[idx-1].seq}", 400
+            return False, f"Sequence gap at index {idx}: expected seq {expected_seq}, got {event.seq}", 400
+
+    # 2. Terminal event finalization marker
+    is_finalized = False
+    if session.ended_at:
+        is_finalized = True
+
+    last_event = session.events[-1]
+    last_event_type = (last_event.event_type or "").lower()
+    last_action = (last_event.action or "").lower()
+    last_detail = last_event.detail or {}
+
+    if last_event_type in ("session_finalized", "session_end", "finalized", "process_exit"):
+        is_finalized = True
+    elif last_action in ("finalized", "completed", "terminated"):
+        is_finalized = True
+    elif last_detail.get("finalized") is True or last_detail.get("lifecycle_state") == "finalized":
+        is_finalized = True
+
+    if not is_finalized:
+        return False, "Audit session is unfinalized: terminal event lacks finalization marker and ended_at is absent", 422
+
+    return True, None, 200
+
+
 def verify_session_signature(session: SignedAuditSession) -> tuple[bool, str | None]:
     """Verify detached cryptographic signature over the session root_hash using SPIFFE key."""
     sig = session.signature.strip()
@@ -319,6 +359,7 @@ async def ingest_signed_audit_session(
     session: SignedAuditSession,
     principal: Annotated[Principal, Depends(authenticated_principal)],
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    require_finalized: bool = Query(False, description="Require session to be finalized and contiguous"),
 ) -> AuditSessionVerificationResult:
     """Ingest and cryptographically verify a signed Nono audit session."""
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -334,7 +375,18 @@ async def ingest_signed_audit_session(
             message=f"Host credential for agent '{session.agent_id}' has been revoked: {rev_reason}",
         )
 
-    # 2. Verify Hash-Chain Integrity
+    # 2. Finalized Session & Contiguous Sequence Validation (AMXO-P5-1)
+    if require_finalized:
+        chain_valid, chain_err, status_code = validate_finalized_session_chain(session)
+        if not chain_valid:
+            logger.warning("Audit ingest rejected: finalized validation failed for %s (%s)", session.session_id, chain_err)
+            raise APIError(
+                status_code=status_code,
+                code="unfinalized_session" if status_code == 422 else "invalid_audit_chain",
+                message=f"Finalized session verification failed: {chain_err}",
+            )
+
+    # 3. Verify Hash-Chain Integrity
     hc_valid, hc_err = verify_hash_chain(session.events, session.root_hash, session.session_id)
     if not hc_valid:
         logger.warning("Audit ingest rejected: hash chain broken for session %s (%s)", session.session_id, hc_err)
@@ -344,7 +396,7 @@ async def ingest_signed_audit_session(
             message=f"Audit session hash chain corrupted or invalid: {hc_err}",
         )
 
-    # 3. Verify SPIFFE SVID Signature
+    # 4. Verify SPIFFE SVID Signature
     sig_valid, sig_err = verify_session_signature(session)
     if not sig_valid:
         logger.warning("Audit ingest rejected: signature invalid for session %s (%s)", session.session_id, sig_err)
@@ -354,7 +406,7 @@ async def ingest_signed_audit_session(
             message=f"Audit session signature verification failed: {sig_err}",
         )
 
-    # 3. Persistence (In-Memory + Database)
+    # 5. Persistence (In-Memory + Database)
     session_dict = session.model_dump()
     session_dict["tenant_id"] = tenant_id
     session_dict["verified"] = True
@@ -388,12 +440,32 @@ async def ingest_signed_audit_session(
 
 
 @router.post(
+    "/sessions/finalized",
+    status_code=status.HTTP_201_CREATED,
+    response_model=AuditSessionVerificationResult,
+)
+async def ingest_finalized_audit_session(
+    session: SignedAuditSession,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> AuditSessionVerificationResult:
+    """Ingest and cryptographically verify a completed and finalized Nono audit session."""
+    return await ingest_signed_audit_session(
+        session=session,
+        principal=principal,
+        tenant_id=tenant_id,
+        require_finalized=True,
+    )
+
+
+@router.post(
     "/sessions/verify",
     response_model=AuditSessionVerificationResult,
 )
 async def verify_audit_session_probe(
     session: SignedAuditSession,
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    require_finalized: bool = Query(False, description="Require session to be finalized and contiguous"),
 ) -> AuditSessionVerificationResult:
     """Verify signed audit session payload integrity without persisting state."""
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -414,6 +486,23 @@ async def verify_audit_session_probe(
             verified_at=now_iso,
             error=f"Host credential revoked: {rev_reason}",
         )
+
+    if require_finalized:
+        chain_valid, chain_err, _ = validate_finalized_session_chain(session)
+        if not chain_valid:
+            return AuditSessionVerificationResult(
+                session_id=session.session_id,
+                agent_id=session.agent_id,
+                tenant_id=tenant_id,
+                valid=False,
+                hash_chain_valid=False,
+                signature_valid=False,
+                events_verified=0,
+                root_hash=session.root_hash,
+                spiffe_id=session.spiffe_id,
+                verified_at=now_iso,
+                error=f"Finalized validation failed: {chain_err}",
+            )
 
     hc_valid, hc_err = verify_hash_chain(session.events, session.root_hash, session.session_id)
     sig_valid, sig_err = verify_session_signature(session)

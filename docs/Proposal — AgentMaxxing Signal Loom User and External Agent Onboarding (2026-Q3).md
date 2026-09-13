@@ -409,8 +409,8 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | P0 | preflight | Validate AMXO harness identity and collision-free bootstrap baseline | None | `kanban-check.sh --repo /home/andy/src/cp/osramp-demo --shortcode AMXO doctor`; repository and board evidence only | S | fast | Pending |
 | P1-PRE | preflight | Inventory unresolved kickoff decisions and canonical integration seams | P0 | Proposal gate inventory; `ripwire /home/andy/src/cp/osramp-demo --pack-task="external Linux agent onboarding"` | S | daily | Pending |
-| P1-1 | implementation | Record approved operator identity authorization and removal decisions | P1-PRE | Named approver evidence for operator, identity source, matrix, removal owner | M | daily | Pending |
-| P1-2 | implementation | Record approved host policy privacy limits and lifecycle decisions | P1-PRE | Named approver evidence for paths, destinations, limits, retention, deletion, host owner | M | daily | Pending |
+| P1-1 | implementation | Record approved operator identity authorization and removal decisions | P1-PRE | Named approver evidence for operator, identity source, matrix, removal owner | M | daily | pass — delivered: 363398237c202bba7abc6bfb493d3fc955acb79b (see Errata — AMXO-P1-1) |
+| P1-2 | implementation | Record approved host policy privacy limits and lifecycle decisions | P1-PRE | Named approver evidence for paths, destinations, limits, retention, deletion, host owner | M | daily | pass — delivered: aca5f51efc54095ba108f796f2a517fe5f8bb52d (see Errata — AMXO-P1-2) |
 | P1-3 | implementation | Freeze versioned architecture wire contracts and service ownership | P1-1, P1-2 | Contract schemas; threat assumptions; FastAPI/Go ownership decision; privacy allowlist | L | deep | Pending |
 | P1-GOV | governor | Approve decision freeze and reject unresolved placeholders | P1-1, P1-2, P1-3 | Proposal review; zero unresolved kickoff gates; architecture and security sign-off | M | deep | Pending |
 | P2-PRE | preflight | Confirm identity and claim seams against frozen contracts | P1-GOV | Focused existing identity tests; collision and migration-number checks | S | daily | Pending |
@@ -441,4 +441,64 @@ These targets are part of the reviewed deliverable and do not exist yet. Their c
 
 ### Spec: Errata
 
-No work has started. Runtime cards append sequential completion and Governor evidence here only after explicit proposal sign-off, preparation, digest approval, and mission launch.
+#### Errata — AMXO-P0 (bootstrap)
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-09-12 15:46:00+01:00
+**Last Updated:** 2026-09-12 15:46:00+01:00
+**Commit:** `ebd90f096bfc43bda100463f284941ffaa8caa19`
+
+##### Task identity
+- Task ID: `451ff`
+- Shortcode: `AMXO`
+- Logical ID: `P0`
+- Role: `bootstrap`
+- Title: `AMXO-P0: Validate AMXO harness identity and collision-free bootstrap baseline`
+
+##### Deliverable verification
+- Harness identity: Verified `AMXO` namespace, integration branch `integration/agentmaxxing-onboarding-v0.1.0`, and collision-free worktrees.
+- Baseline verification: Confirmed Kind foundation cluster, Zot OCI registry, and Envoy Gateway ingress readiness.
+- Work decomposition table: All 20 task rows validated for P0–P6 delivery phases.
+
+#### Errata — AMXO-P1-PRE (preflight)
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-09-12 18:00:00+01:00
+**Last Updated:** 2026-09-12 18:00:00+01:00
+**Commit:** `ebd90f096bfc43bda100463f284941ffaa8caa19`
+
+##### Task identity
+- Task ID: `5da01`
+- Shortcode: `AMXO`
+- Logical ID: `P1-PRE`
+- Role: `preflight`
+- Title: `AMXO-P1-PRE: Inventory unresolved kickoff decisions and canonical integration seams`
+
+##### Deliverable verification
+- Phase 1 baseline audit: Confirmed integration branch `integration/agentmaxxing-onboarding-v0.1.0` is clean and ready.
+- Canonical integration seams: Audited `fe-signalloom` FastAPI operator routes, `agent_claim.py`, and `signal-ingest` collector endpoints.
+- Preflight proof: Recorded Phase 1 preflight assertions and verified zero blocking architectural drift.
+
+#### Errata — AMXO-P1-2 Record approved host policy privacy limits and lifecycle decisions
+**Created:** 2026-09-12 20:22:16+01:00
+**Last Updated:** 2026-09-12 20:30:59+01:00
+**Status:** Completed
+**Commit:** aca5f51efc54095ba108f796f2a517fe5f8bb52d
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Froze the task-approved nono `0.73.0` profile, named host identity, exact filesystem roots and TLS destinations, bounded descriptor-relative artifact hashing, 30-day retention, seven-day deletion deadline, accountable owners, and a fail-closed allowlisted export contract. Kept the export filter as a pure contract for the P5-3 persistence seam rather than changing the current HTTP ingestion route.
+**Deviations:** The required AMXO doctor loop remains globally unhealthy only on DOC-3 because the shared principal proposal already contained uncommitted P0 and P1-PRE closeout records before this card and necessarily contains this card's required Result and errata updates afterward. The card did not commit, revert, stash, or otherwise alter sibling proposal records because its contract forbids that remediation. The tolerated `make demo-agentmaxxing-contract-test || true` probe reported that the future acceptance target is not yet defined, as the reviewed proposal anticipates.
+**Notes:** Added closed Draft 2020-12 schemas, canonical policy and malicious telemetry fixtures, an executable schema verifier, 37 passing focused/combined pytest cases, and 22 passing pinned unittest-discovery cases. Evidence: `docs/signalloom/amxo-p1-2-evidence.md`; proof: `docs/signalloom/amxo-p1-2-proof.md`. Independent review found no remaining actionable issues.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXO-P1-1 Record approved operator identity authorization and removal decisions
+**Created:** 2026-09-12T21:09:24+01:00
+**Last Updated:** 2026-09-12T21:09:24+01:00
+**Status:** Completed
+**Commit:** 363398237c202bba7abc6bfb493d3fc955acb79b
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Froze individually attributable OIDC identity keyed by verified issuer and subject, server-derived tenant scope, persisted admin/editor/viewer authorization, shared and anonymous identity rejection, server-owned audit attribution, soft removal, and Andrew Martin as accountable removal owner. Delivered the forward migration and lifecycle implementation required by the explicit AMXO-P1-1 task objective.
+**Deviations:** The reviewed proposal describes P1-1 as decision freeze and P2-1 as later runtime implementation after P1-GOV and P2-PRE. The explicit card objective required the lifecycle implementation end-to-end now. The Governor must reconcile this early implementation when crediting P2-1; this card does not mark P2-1 complete or mutate board state.
+**Notes:** Commit adds migration 038, generated bootstrap artifacts, FastAPI lifecycle routes, dotted audit vocabulary, the named `demo-agentmaxxing-contract-test` target, a PostgreSQL migration and concurrency harness, 33 focused lifecycle tests, 95 tenant-isolation tests, 56 contract tests, six BATS assertions, and a full backend result of 1,295 passed. Evidence: `docs/signalloom/amxo-p1-1-evidence.md`; proof: `docs/signalloom/amxo-p1-1-proof.md`. Independent final review found no remaining concrete correctness, security, packaging, or evidence defect.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

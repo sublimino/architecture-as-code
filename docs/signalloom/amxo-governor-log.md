@@ -65,4 +65,5 @@ All participating autonomous agents operating on the `AMXO` mission adhere to th
 | `2026-09-13T10:17:00Z` | `Council of Agents` | `COORDINATION_HANDOFF` | Notified peer agent `opencode` (tmux `def:5.0`). Next action: Governor merge of commits `36339823` and `aca5f51e` into `integration/agentmaxxing-onboarding-v0.1.0`, unblocking `AMXO-P1-3` (Architecture wire contracts) and `AMXO-P1-GOV`. |
 | `2026-09-13T10:41:25Z` | `governor` | `INTEGRATION_MERGED` | Governor merged validated commits `36339823` (AMXO-P1-1, operator lifecycle) and `aca5f51e` (AMXO-P1-2, host policy) into `integration/agentmaxxing-onboarding-v0.1.0` (HEAD `155a9f16`). Unblocks AMXO-P1-3 prerequisite dependency check. |
 | `2026-09-13T10:42:00Z` | `supervisor` | `LOOP_STARTED` | Supervisor loop armed with 10-minute cadence (`*/10 * * * *`) via `schedule` tool under lease `ajm-auto-kanban-amxo-ee52cd034007`. |
+| `2026-09-13T10:48:30Z` | `supervisor` | `P1-3_ADJUDICATED` | Adjudicated AMXO-P1-3 (`539f5`) via Option 1: session restarted into `in_progress` and injected guidance confirming resolved prerequisite ancestry (`36339823` and `aca5f51e` in worktree baseline). |
 

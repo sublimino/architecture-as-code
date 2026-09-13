@@ -2004,5 +2004,13 @@
     "verdict": "pass",
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P5-2 verified: Enforce upload idempotency across concurrency and interrupted retries; Go verifier in-memory deduplication and per-session mutex (29/29 pass with -race), FastAPI HTTP 200 idempotent response on duplicate sessions and HTTP 409 on conflict, 10-thread concurrent upload deduplication, proof in docs/signalloom/amxo-p5-2-evidence.md (commit 5316d032)"
+  },
+  "fd241": {
+    "task_id": "fd241",
+    "reviewed_at": "2026-09-13T19:19:16.634Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": "antigravity-gemini-3.8-flash",
+    "reason": "AMXO-P5-3 verified: Persist allowlisted evidence and expose tenant-scoped projections; strict allowlist enforcement dropping prohibited/raw memory/command fields; zero cross-tenant data leak / IDOR protection across projection endpoints; dual persistence (PostgreSQL migration 042 + in-memory store); automated evidence extraction from ingested audit sessions, proof in docs/signalloom/amxo-p5-3-evidence.md (commit ac40159d)"
   }
 }

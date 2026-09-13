@@ -7,8 +7,8 @@
 
 | Command | Outcome | Skips | Evidence |
 | :--- | :--- | :--- | :--- |
-| `pytest d2-signalloom/apps/fe-signalloom/src/tests/test_host_enrollment.py -v` | 8 passed | 0 | Full host enrollment, revocation lifecycle, operator & sibling isolation, upload denial, audit ingest denial, re-enrollment denial, cross-tenant protection |
-| `pytest d2-signalloom/apps/fe-signalloom/src/tests/test_host_enrollment.py -k test_host_revocation` | 3 passed | 0 | Dedicated host revocation tests (operator isolation, sibling agent isolation, upload denial) |
+| `pytest d2-signalloom/apps/fe-signalloom/src/tests/test_host_revocation.py -v` | 8 passed | 0 | Full host enrollment, revocation lifecycle, operator & sibling isolation, upload denial, audit ingest denial, re-enrollment denial, cross-tenant protection |
+| `pytest d2-signalloom/apps/fe-signalloom/src/tests/test_host_revocation.py -k test_host_revocation` | 3 passed | 0 | Dedicated host revocation tests (operator isolation, sibling agent isolation, upload denial) |
 | `make demo-agentmaxxing-contract-test` | 6 passed | 0 | Attributable AgentMaxxing operator identity and governance contract assertions |
 | `python3 -m pytest d2-signalloom/apps/fe-signalloom/src/tests/ -k test_post_revocation_denial` | 2 passed | 0 | Post-revocation upload denial and audit ingest denial (403 Forbidden with `host_revoked`) |
 | `pytest d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py -v` | 109 passed | 0 | Complete tenant isolation and authenticated API route coverage sweep |
@@ -18,7 +18,7 @@
 
 ## Verification details
 
-1. **Database Migration (`040_external_host_revocation.sql`)**:
+1. **Database Migration (`041_external_host_revocation.sql`)**:
    - `public.external_agent_registrations` extended with revocation attribution columns: `revoked_by_user_id UUID`, `revoked_by_subject TEXT`, `revoked_by_issuer TEXT`.
    - Foreign key constraint `fk_external_agent_revoked_by_user` referencing `public.platform_users(id, tenant_id)`.
    - Composite indexes `idx_external_agent_registrations_revocation` (`tenant_id, enrollment_status`) and `idx_external_agent_registrations_revoked_by` (`tenant_id, revoked_by_user_id`).

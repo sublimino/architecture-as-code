@@ -68,4 +68,8 @@ All participating autonomous agents operating on the `AMXO` mission adhere to th
 | `2026-09-13T10:48:30Z` | `supervisor` | `P1-3_ADJUDICATED` | Adjudicated AMXO-P1-3 (`539f5`) via Option 1: session restarted into `in_progress` and injected guidance confirming resolved prerequisite ancestry (`36339823` and `aca5f51e` in worktree baseline). |
 | `2026-09-13T10:51:25Z` | `supervisor` | `TICK_EXECUTED` | Controller cycle executed via `CycleInput.ts`: `v=healthy`, `doc=clean`, 0 exceptions, clean streak 4. `AMXO-P1-3` confirmed actively executing. Review: 0. Quotas healthy. |
 | `2026-09-13T11:01:45Z` | `supervisor` | `TICK_2_EXECUTED` | Controller Tick #2 executed via `CycleInput.ts`: `v=healthy`, `doc=clean`, 0 exceptions, clean streak 5. `AMXO-P1-3` confirmed actively executing. Review: 0. Quotas healthy (`cdx:0%/cld:0%/agy:1%`). |
+| `2026-09-13T11:11:25Z` | `supervisor` | `TICK_3_EXECUTED` | Controller Tick #3 executed via `CycleInput.ts`: `v=healthy`, `doc=clean`, 0 exceptions, clean streak 6. `AMXO-P1-3` confirmed in progress. Quotas healthy (`cdx:0%/cld:0%/agy:1%`). Cadence decelerator maintained at `*/10 * * * *`. |
+| `2026-09-13T11:11:48Z` | `governor` | `INTEGRATION_SYNCED` | Merged `integration/agentmaxxing-onboarding-v0.1.0` (commit `155a9f16`) cleanly into local root checkout `feat/signal-loop-and-bootstrap-refactor` (commit `5b55e33`). Resolved branch drift warning. |
+| `2026-09-13T11:14:45Z` | `supervisor` | `TICK_4_EXECUTED` | Controller Tick #4 executed via `CycleInput.ts`: `v=healthy`, `doc=clean`, 0 exceptions, clean streak 7. Full `doctor` verified 100% healthy. `AMXO-P1-3` active in independent review prior to completion. |
+
 

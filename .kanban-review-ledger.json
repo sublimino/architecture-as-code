@@ -2036,5 +2036,13 @@
     "verdict": "pass",
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P6-1 verified: Render attributable evidence states on tenant-bound agent timeline; external-agent evidence projections & client API wired, AgentActivityTab renders process, artifact, network, and limit items with integrity borders & badges, expandable allowlisted attributes viewer, filtering and search (22/22 vitest pass), proof in docs/signalloom/amxo-p6-1-evidence.md (commit dddf49ba)"
+  },
+  "60bb8": {
+    "task_id": "60bb8",
+    "reviewed_at": "2026-09-13T19:33:30.538Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": "antigravity-gemini-3.8-flash",
+    "reason": "AMXO-P6-2 verified: Publish external-agent guide and verified evidence-flow diagram; external-linux-agent.mdx complete operational guide, interactive Mermaid evidence flow, Astro check & build pass (20/20 pages), 0 broken links (568 checked), Playwright Chromium SVG assertion pass, proof in docs/signalloom/amxo-p6-2-evidence.md (commit d3963090)"
   }
 }

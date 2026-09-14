@@ -2245,5 +2245,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SLDP-P6-2 verified: customer-self-hosted install proof delivered in docs/signalloom/sldp-p6-2-selfhost-install-proof.md, 0% ControlPlane infrastructure dependency confirmed, decoupled residual risk matrix (CSH-01..04 vs SAS-01..04), networkpolicy strict egress confirmed, 100% tests pass (commits f9b08ace, bbb8d851)"
+  },
+  "89630": {
+    "task_id": "89630",
+    "reviewed_at": "2026-09-14T23:00:45Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "Retention controller delivered across 35 sinks with 74 tests and 15 mutation kills"
   }
 }

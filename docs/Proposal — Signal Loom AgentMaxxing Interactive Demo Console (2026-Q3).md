@@ -101,7 +101,7 @@ As autonomous coding and reasoning agents enter production development workflows
 | Time to demonstrate complete 5-stage agent lifecycle | >15 mins manual setup | <90 seconds via Auto-Play | Stepper benchmark |
 | Interactive adversarial tamper injection scenarios | 0 | 3 (hash mismatch, symlink escape, oversize) | Feature test |
 | Zero-customer-payload visual proof availability | None | 100% visible on inspector toggle | Accessibility audit |
-| End-to-end browser test coverage | None for demo console | 100% green Playwright suite | `make demo-agentmaxxing-console-test` |
+| End-to-end browser test coverage | None for demo console | 100% green Playwright suite | `make demo-agentmaxxing-ui-test` |
 
 ### 3rd Party Test Plan and Quality Assurance
 
@@ -175,7 +175,7 @@ As autonomous coding and reasoning agents enter production development workflows
 * `/demos/agentmaxxing` route is fully accessible and navigable in `dashboard-signalloom`.
 * All 5 lifecycle stages step smoothly with live visual telemetry, hash verification, and zero-payload audit proof.
 * Adversarial tamper injection and attributable revocation panels demonstrate instantaneous 403 denial.
-* 100% of Playwright acceptance tests pass cleanly in `make demo-agentmaxxing-console-test`.
+* 100% of Playwright acceptance tests pass cleanly in `make demo-agentmaxxing-ui-test`.
 
 ### Reviews & Collaboration (RACI)
 
@@ -220,7 +220,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 - Shortcode: `AMXD`
 - Integration branch: `refs/heads/integration/amxd-v0.1.0`
 - Target components: `d2-signalloom/apps/dashboard-signalloom`, `d2-signalloom/apps/docs-signalloom`, `test/acceptance/`
-- Acceptance commands: `make demo-agentmaxxing-console-test`, `bats test/acceptance-spec-coverage.bats`
+- Acceptance commands: `make demo-agentmaxxing-ui-test`, `bats test/acceptance-spec-coverage.bats`
 
 #### Architectural constitution
 - **State-Machine Controlled Stepper**: The demo console operates as a deterministic 5-stage finite state machine (`operator_init` → `host_enrolled` → `confinement_streaming` → `adversarial_tamper` → `revocation_denied`). Transitions are strictly validated, preventing out-of-order state corruptions.
@@ -239,7 +239,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 #### Testing standards
 - Component & State Machine Tests: `bun run test --run src/components/demos/` in `dashboard-signalloom`
 - Typecheck: `bun run typecheck` in `dashboard-signalloom`
-- Browser Acceptance Suite: `make demo-agentmaxxing-console-test`
+- Browser Acceptance Suite: `make demo-agentmaxxing-ui-test`
 - Spec Coverage Registry Gate: `bats test/acceptance-spec-coverage.bats`
 
 #### Anti-patterns
@@ -275,14 +275,14 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P5-GOV | CodeReview; Browser; ripwire-change-check | Experience Governor | M | 90m | deep | Merge demo automation and docs and verify presentation readiness. |
 | P6-PRE | ripwire-before-you-build; Browser | Acceptance pre-flight engineer | S | 45m | daily | Confirm Playwright test harness, mock server fixtures, and SPEC-REGISTRY. |
 | P6-1 | Browser; ripwire-write-tests | Acceptance engineer | L | 150m | deep | Build Playwright acceptance suite covering all 5 stages and tamper injection. |
-| P6-2 | ripwire-write-tests; SystemsThinking | Test wiring engineer | M | 90m | daily | Wire make demo-agentmaxxing-console-test into estate runners and update SPEC-REGISTRY. |
+| P6-2 | ripwire-write-tests; SystemsThinking | Test wiring engineer | M | 90m | daily | Wire make demo-agentmaxxing-ui-test into estate runners and update SPEC-REGISTRY. |
 | P6-GOV | CodeReview; Browser; ripwire-change-check | Acceptance Governor | L | 150m | deep | Reconcile acceptance wiring, run full test suite, and certify AMXD delivery. |
 
 ### Spec: Work Decomposition
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Validate AMXD harness identity and clean dashboard build baseline | None | `kanban-check.sh --repo /home/andy/src/cp/osramp-demo --shortcode AMXD doctor`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P0 | preflight | Validate AMXD harness identity and clean dashboard build baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode AMXD`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P1-PRE | preflight | Inventory AMXO API endpoints, route structure, and component library | P0 | Endpoint schema review; `d2-signalloom/apps/dashboard-signalloom` inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-1 | implementation | Design 5-stage lifecycle state machine and step-control contract | P1-PRE | Vitest state-machine transitions; `src/components/demos/types.ts` contract | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define demo scenario presets for happy path, tamper breach, and revocation | P1-PRE | Presets schema tests; deterministic scenario fixture data | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -306,7 +306,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P5-GOV | governor | Merge demo automation and docs and verify presentation readiness | P5-1, P5-2 | Full auto-play pass verification; docs link check | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-PRE | preflight | Confirm Playwright test harness, mock server fixtures, and SPEC-REGISTRY | P5-GOV | Test harness check; mock server seed verification | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-1 | implementation | Build Playwright acceptance suite covering all 5 stages and tamper injection | P6-PRE | `test/acceptance/agentmaxxing-demo-console.spec.ts` passes 100% | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P6-2 | implementation | Wire make demo-agentmaxxing-console-test into estate runners | P6-PRE | `make demo-agentmaxxing-console-test` passes; SPEC-REGISTRY.tsv updated | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P6-2 | implementation | Wire make demo-agentmaxxing-ui-test into estate runners | P6-PRE | `make demo-agentmaxxing-ui-test` passes; SPEC-REGISTRY.tsv updated | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-GOV | governor | Reconcile acceptance wiring, run full test suite, and certify AMXD delivery | P6-1, P6-2 | `bats test/acceptance-spec-coverage.bats` passes; all console tests green | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 
 ### Spec: Errata

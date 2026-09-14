@@ -103,7 +103,7 @@ As autonomous AI agents write, test, and ship code, enterprise security teams mu
 | Discovery latency for newly launched harness | Undetected | <2.0 seconds from process start | Latency benchmark |
 | Customer code or prompt leakage rate | Unknown | Exactly 0 bytes (proven by automated leak guards) | Falsification audit |
 | Overhead on developer workstation | Unknown | <1.0% CPU, <25 MB RSS | Resource monitoring test |
-| End-to-end acceptance suite status | None | 100% green Playwright & BATS suite | `make demo-coding-agent-telemetry-test` |
+| End-to-end acceptance suite status | None | 100% green Playwright & BATS suite | `make demo-agentmaxxing-host-test` |
 
 ### 3rd Party Test Plan and Quality Assurance
 
@@ -178,7 +178,7 @@ As autonomous AI agents write, test, and ship code, enterprise security teams mu
 * Kanban cycle state and disk transcript metrics are indexed and streamed without payload leaks.
 * Outbound inference sockets are correlated to harness PIDs without TLS decryption.
 * Zero customer payload invariant is verified by automated leak-falsification tests.
-* Full test suite passes via `make demo-coding-agent-telemetry-test`.
+* Full test suite passes via `make demo-agentmaxxing-host-test`.
 
 ### Reviews & Collaboration (RACI)
 
@@ -223,7 +223,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 - Shortcode: `SLCD`
 - Integration branch: `refs/heads/integration/slcd-v0.1.0`
 - Target components: `d2-signalloom/apps/agentmaxxing-host-sensor/`, `d2-signalloom/apps/signal-ingest/`, `d2-signalloom/apps/dashboard-signalloom/`
-- Acceptance commands: `make demo-coding-agent-telemetry-test`, `bats test/acceptance-spec-coverage.bats`
+- Acceptance commands: `make demo-agentmaxxing-host-test`, `bats test/acceptance-spec-coverage.bats`
 
 #### Architectural constitution
 - **Strictly Detective Posture (Zero MCP Handshakes)**: The telemetry collector operates exclusively in passive, observer mode. It never negotiates MCP client/server connections, never injects RPC commands, never modifies agent configurations, and never interferes with running processes.
@@ -250,9 +250,9 @@ Funded under Signal Loom Agentic Governance platform investment.
 - `d2-signalloom/test/coding-agent-telemetry.bats` — BATS integration test suite
 
 #### Testing standards
-- Unit & Zero-Payload Leak Tests: `pytest d2-signalloom/apps/agentmaxxing-host-sensor/tests/`
-- Ingestion Contract Tests: `go test ./d2-signalloom/apps/signal-ingest/...`
-- Full Estate Integration Test: `make demo-coding-agent-telemetry-test`
+- Unit & Zero-Payload Leak Tests: `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'`
+- Ingestion Contract Tests: `cd d2-signalloom/apps/signal-ingest && go test ./...`
+- Full Estate Integration Test: `make demo-agentmaxxing-host-test`
 - Acceptance Spec Coverage Gate: `bats test/acceptance-spec-coverage.bats`
 
 #### Anti-patterns
@@ -297,7 +297,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Validate SLCD harness identity and clean detective monorepo baseline | None | `kanban-check.sh --repo /home/andy/src/cp/osramp-demo --shortcode SLCD doctor`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P0 | preflight | Validate SLCD harness identity and clean detective monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLCD`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P1-PRE | preflight | Inventory running harness processes, session log formats, and kanban wrappers | P0 | Process snapshot; session log schema inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -320,7 +320,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P5-2 | implementation | Render detected coding agents in Dashboard Topology and Agent Swarm views | P5-PRE | Vitest UI component tests; coding agent card and status badge assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-GOV | governor | Merge ingestion and UI rendering and prove end-to-end telemetry streaming | P5-1, P5-2 | Full ingestion -> UI render integration test; latency assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-PRE | preflight | Confirm end-to-end fixture harnesses, test runners, and SPEC-REGISTRY | P5-GOV | Fixture verification; runner command availability check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P6-1 | implementation | Build unit, integration, and security test suites for detective telemetry | P6-PRE | `make demo-coding-agent-telemetry-test`; 100% pass across all tiers | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P6-1 | implementation | Build unit, integration, and security test suites for detective telemetry | P6-PRE | `make demo-agentmaxxing-host-test`; 100% pass across all tiers | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-2 | implementation | Create documentation and detection runbook in apps/docs-signalloom | P6-PRE | Astro docs build check; runbook clarity verification | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-3 | implementation | Build Playwright browser acceptance test for coding agent topology rendering | P6-PRE | Playwright spec passes; live agent cards and metrics verified | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-GOV | governor | Reconcile acceptance wiring, run full test suite, and certify SLCD delivery | P6-1, P6-2, P6-3 | `bats test/acceptance-spec-coverage.bats` passes; all SLCD tests green | L | deep | Pending | $0.00 | N/A | N/A | N/A |

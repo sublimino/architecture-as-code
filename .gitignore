@@ -197,3 +197,7 @@ d2-signalloom/bun/
 
 # Editor session logs
 .nvimlog
+
+# Kanban task runtime state
+.kanban/
+

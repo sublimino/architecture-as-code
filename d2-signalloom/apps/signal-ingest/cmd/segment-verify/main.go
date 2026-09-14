@@ -32,7 +32,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	flags.StringVar(&cfg.EvidenceDir, "evidence-dir", "", "segment evidence directory")
 	flags.StringVar(&cfg.SegmentRoot, "segment-root", "", "persisted segment root")
 	flags.StringVar(&cfg.HighWaterPath, "highwater", "", "externally protected highwater file")
-	flags.Var(&keys, "public-key", "trusted Ed25519 public key PEM (repeatable)")
+	flags.Var(&keys, "public-key", "trusted public key PEM (Ed25519, ECDSA, RSA; repeatable)")
 	flags.BoolVar(&auditOnly, "audit-only", false, "report partial or empty corpus without accepting it")
 	if err := flags.Parse(args); err != nil {
 		return err

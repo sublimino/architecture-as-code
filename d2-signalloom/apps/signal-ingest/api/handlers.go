@@ -19,6 +19,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
@@ -26,9 +27,10 @@ import (
 
 // Handlers holds shared state for all HTTP handlers.
 type Handlers struct {
-	Store  store.SignalStore
-	Engine *correlation.Engine
-	Audit  audit.AuditWriter
+	Store     store.SignalStore
+	Engine    *correlation.Engine
+	Audit     audit.AuditWriter
+	Encryptor identity.Encryptor
 
 	// AuditReady, when non-nil, is called on every /readyz probe to verify
 	// the audit backend is actually reachable. nil means there is nothing to
@@ -76,6 +78,8 @@ const readyCheckTimeout = 2 * time.Second
 // RegisterRoutes adds all API routes to the mux.
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /health", h.handleHealth)
+	mux.HandleFunc("GET /api/v1/health", h.handleHealth)
 	mux.HandleFunc("GET /readyz", h.handleReadyz)
 	mux.HandleFunc("POST /api/v1/observations", h.handleIngestObservations)
 	mux.HandleFunc("GET /api/v1/observations", h.handleQueryObservations)
@@ -231,6 +235,32 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// HealthResponse reports service liveness and effective protective controls posture.
+type HealthResponse struct {
+	Status     string                     `json:"status"`
+	Encryption identity.EncryptionPosture `json:"encryption"`
+	Audit      audit.AuditPosture         `json:"audit"`
+}
+
+// handleHealth answers health queries with full visibility into the effective protective controls posture.
+// Operators can inspect this endpoint to verify encryption and audit enforcement directly.
+func (h *Handlers) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	encPosture := identity.GetEncryptionPosture(h.Encryptor)
+	auditPosture := audit.GetAuditPosture(h.Audit)
+
+	status := "ok"
+	if !encPosture.Healthy || !auditPosture.Healthy {
+		status = "degraded"
+	}
+
+	resp := HealthResponse{
+		Status:     status,
+		Encryption: encPosture,
+		Audit:      auditPosture,
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleHealthz answers liveness: the process is up and the mux is serving.

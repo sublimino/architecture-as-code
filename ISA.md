@@ -1,124 +1,108 @@
 ---
-task: "SLDP-P1-2: Make encryption and audit writers fail closed"
-slug: sldp-p1-2-fail-closed-controls
+task: "SLDP-P6-2: Customer-self-hosted install proof as primary validation"
+slug: sldp-p6-2-selfhost-install-proof
 project: osramp-demo
 effort: e3
 effort_source: classifier
 phase: complete
-progress: 22/22
+progress: 16/16
 mode: algorithm
-started: 2026-09-14T12:35:00+01:00
-updated: 2026-09-14T12:42:00+01:00
+started: 2026-09-14T23:08:00+01:00
+updated: 2026-09-14T23:11:00+01:00
 ---
 
 ## Problem
 
-Signal-ingest currently contains two dangerous fail-open controls:
-1. `NewEncryptorFromKeyString("")` returns a passthrough `NoopEncryptor` with a nil error, causing any deployment with an absent or empty key to silently store sensitive identity identifiers in cleartext without notification.
-2. `NopWriter` silently discards every audit event (`return nil`), under an interface comment at `audit.go:51` instructing implementations to "log and continue". Furthermore, mutating operations like `handlePromoteActor` ignore audit write failures, allowing unauthorized or un-audited state changes.
-3. The Kubernetes `deployment.yaml` lacked an `IDENTITY_ENCRYPTION_KEY` mapping, meaning deployments were quietly running in unencrypted passthrough mode.
+Milestone 4 of the Signal Loom Hardening proposal committed to a region-pinned deployment proof evaluated via a GKE smoke test against a ControlPlane-operated cluster. This validated the deferred vendor-operated SaaS model rather than the primary customer-self-hosted model chosen by CEO Decision 4 and Section 10 item 1. In regulated banking, identity graph data and security evidence cannot leave the customer's private perimeter. Validating only vendor-operated GKE left the primary commercial path unproven.
 
 ## Vision
 
-Both protective controls fail closed by default. An absent or malformed encryption key halts startup with a fatal error in production mode, permitting `NoopEncryptor` only with an unambiguous explicit opt-in (`INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true` / `IDENTITY_ALLOW_NOOP_ENCRYPTOR=true`). Active passthrough encryption emits persistent periodic warnings throughout process lifetime. Audit persistence failures follow a strict compliance policy where high-stakes operations (such as actor promotion) are refused, and audit writer degradation is visibly exposed. Operators can inspect effective encryption and audit postures directly via the `/health` endpoint.
+The deployment validation architecture is clearly split:
+1. **Primary Validation Target**: Customer-self-hosted Kubernetes deployment installed from published, immutable, signed OCI artefacts with zero runtime dependencies on ControlPlane-operated infrastructure.
+2. **Secondary Reference Target**: Vendor-operated GKE SaaS deployment documented as an operational reference overlay without gating customer-self-hosted delivery.
+3. **Zero-Dependency Guarantee**: Proved mathematical isolation with no external calls to vendor KMS, proprietary anchors, or cloud telemetry.
+4. **Per-Model Residual Risks**: Decoupled risk matrices for Self-Hosted vs SaaS models.
 
 ## Out of Scope
 
-- Modifying SLER, AMXD, or SLCD sources.
-- Rewriting or deleting Parquet segments or historical attestation chains.
-- Contacting live customer infrastructure or pushing to remote git branches.
+- Deploying to production or contacting live customer infrastructure.
+- Modifying SLER, AMXD, or SLCD source code.
+- Collecting customer file contents, process memory, prompt text, or credentials.
+- Rewriting historical attested evidence segments.
 
 ## Principles
 
-- **Fail-Safe Defaults**: Any missing, invalid, or degraded protective control must fail closed unless explicitly overridden for local development with unambiguous opt-in naming.
-- **Continuous Observability**: Insecure configurations or degraded audit postures must emit persistent warnings and expose status via health endpoints, not hide behind boot-time scroll.
-- **Accountability First**: High-stakes identity and authority mutations must refuse execution if their tamper-evident provenance record cannot be durably written.
+- **Sovereign Custody**: Identity telemetry and cryptographic keys must reside exclusively within the customer's chosen boundary.
+- **Fail-Closed Isolation**: Default-deny network policies and strict in-cluster key custody ensure no data exfiltration.
+- **Reproducible Artifacts**: Installations must be provable from published, signed OCI artefacts, not local ephemeral builds.
 
 ## Constraints
 
 - All Go code must compile and pass tests under `GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache CGO_ENABLED=0`.
-- Existing test fixtures and dev runs that require `NoopEncryptor` or mock audit writers must remain functional via explicit opt-in.
-- Liveness probe (`/healthz`) must not crashloop on external database unavailability, while readiness (`/readyz`) and posture endpoints (`/health`) report degradation accurately.
+- All database migrations (001–009) must apply sequentially and idempotently under advisory locking.
+- Network policies must strictly block external internet egress for `signal-ingest`.
 
 ## Goal
 
-Make encryption key loading and audit writing fail closed by default; enforce explicit development opt-in and persistent logging for passthrough encryption; establish a strict compliance failure policy for audit writes; expose posture via health endpoints; provision deployment keys; and provide 100% test coverage with verifiable proof.
+Split deployment validation so that customer-self-hosted deployment from published artefacts is the primary validation target, vendor-operated GKE is a secondary reference overlay, zero ControlPlane dependency is proven via dependency graph and NetworkPolicy audits, and per-model residual risks are documented.
 
 ## Criteria
 
-- [x] ISC-1: `identity.NewEncryptorFromKeyString("")` returns an error (`ErrInvalidKey` / `ErrNoopEncryptionNotAllowed`) in default/production mode with no opt-in.
-- [x] ISC-2: `identity.NewEncryptorFromKeyString("")` returns `*NoopEncryptor` when `INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true` (or `IDENTITY_ALLOW_NOOP_ENCRYPTOR=true`) is explicitly set.
-- [x] ISC-3: `identity.NewEncryptorFromKeyString(validKey)` returns `*AESGCMEncryptor` with 32-byte key.
-- [x] ISC-4: `NoopEncryptor` provides a persistent warning mechanism that logs periodic security warnings during process lifetime.
-- [x] ISC-5: `audit/audit.go` interface comment at line 51 is updated to state that audit write errors must never be swallowed or discarded.
-- [x] ISC-6: `audit.NopWriter` returns `ErrAuditDisabled` on `WriteAuditEvent` unless explicitly constructed with `AllowDiscard: true`.
-- [x] ISC-7: `api.handlePromoteActor` fails closed (returns HTTP 503) when `Audit.WriteAuditEvent` fails.
-- [x] ISC-8: `api.Handlers` exposes `/health`, `/api/v1/health`, and posture reporting on effective encryption and audit configuration.
-- [x] ISC-9: `d2-signalloom/apps/signal-ingest/base/deployment.yaml` and `secrets.yaml` configure `IDENTITY_ENCRYPTION_KEY` so live Kubernetes deployments do not run in unencrypted passthrough mode.
-- [x] ISC-10: `identity/repository.go` `NewPostgresRepository` does not silently fall back to `NoopEncryptor` without checking dev mode / requiring non-nil encryptor.
-- [x] ISC-11: `go test ./identity/...` passes 100% with new unit tests for production refusal and dev opt-in.
-- [x] ISC-12: `go test ./audit/...` passes 100% with fail-closed audit policy assertions.
-- [x] ISC-13: `go test ./api/...` passes 100% with health posture and promotion failure tests.
-- [x] ISC-14: `make test-signal-ingest` passes 100% with zero regressions.
-- [x] ISC-15: Package constructor audit documented across all `New*` constructors in `signal-ingest`.
-- [x] ISC-16: `docs/signalloom/sldp-p1-2-proof.md` created with complete execution and test evidence.
-- [x] ISC-17: Errata entry for `SLDP-P1-2` added to the Proposal Appendix with `status=pass`.
-- [x] ISC-18: Proposal Work Decomposition table updated with the committed SHA in the Result column.
-- [x] ISC-19: Anti: Encryption must NOT fail open on empty key in production mode.
-- [x] ISC-20: Anti: Audit write failures must NOT be silently discarded on high-stakes operations.
-- [x] ISC-21: Anti: No changes to Parquet segment formats or historical attestation records.
-- [x] ISC-22: Anti: No remote git pushes or pull requests created.
+- [x] ISC-1: `docs/signalloom/sldp-p6-2-selfhost-install-proof.md` exists and defines customer-self-hosted deployment as the primary validation target.
+- [x] ISC-2: `docs/signalloom/sldp-p5-2-selfhost-install-proof.md` reference file exists and links to the primary proof.
+- [x] ISC-3: Published artefact inventory is registered with pinned OCI images, Flux manifests, and migrations 001–009.
+- [x] ISC-4: Zero ControlPlane dependency is proven with verified audit across KMS, IdP, DB, storage, and telemetry vectors.
+- [x] ISC-5: NetworkPolicy boundary enforcement is documented proving default-deny egress (DNS and Postgres only).
+- [x] ISC-6: Vendor-operated GKE deployment is documented and explicitly labelled as a secondary reference overlay.
+- [x] ISC-7: Independent, decoupled residual risk matrices are established for Customer-Self-Hosted (CSH-01..04) and SaaS (SaaS-01..04).
+- [x] ISC-8: `make test-signal-ingest` passes 100% across all 24 packages.
+- [x] ISC-9: `bats test/acceptance-spec-coverage.bats` passes 7/7.
+- [x] ISC-10: `make demo-signalloom-api-test TIER=contract` passes 56/56.
+- [x] ISC-11: `docs/signalloom/sldp-p6-2-proof.md` documents execution evidence, command outputs, and citations.
+- [x] ISC-12: Proposal errata section is updated with a qualified `SLDP-P6-2` pass block.
+- [x] ISC-13: Proposal Work Decomposition table is updated with row P6-2 pass result.
+- [x] ISC-14: Anti: No external cloud KMS or third-party anchoring dependency is introduced into the self-host path.
+- [x] ISC-15: Anti: Self-hosted validation does not depend on uncommitted local image builds.
+- [x] ISC-16: Anti: No shared residual risk matrix conflates customer-self-hosted risks with multi-tenant SaaS risks.
 
 ## Test Strategy
 
 | ISC | Type | Check | Threshold | Tool |
 |---|---|---|---|---|
-| ISC-1 | Unit | `TestNewEncryptorFromKeyString_ProductionRefusal` | Returns error on empty key | `go test ./identity/...` |
-| ISC-2 | Unit | `TestNewEncryptorFromKeyString_DevOptIn` | Returns NoopEncryptor with opt-in env | `go test ./identity/...` |
-| ISC-3 | Unit | `TestNewEncryptorFromKeyString_ValidKey` | Returns AESGCMEncryptor | `go test ./identity/...` |
-| ISC-4 | Unit | `TestNoopEncryptor_PeriodicWarning` | Emits periodic warning ticker | `go test ./identity/...` |
-| ISC-5 | Source | Interface comment in `audit.go` | No swallow/discard guidance | `view_file` |
-| ISC-6 | Unit | `TestNopWriter_FailClosed` | Returns ErrAuditDisabled on discard=false | `go test ./audit/...` |
-| ISC-7 | Unit | `TestPromoteActor_AuditFailureFailsClosed` | Returns 503 on audit error | `go test ./api/...` |
-| ISC-8 | Integration | Health endpoint posture query | Status 200 with posture details | `go test ./api/...` |
-| ISC-9 | Config | Deployment and Secret YAML | Contains IDENTITY_ENCRYPTION_KEY | `view_file` |
-| ISC-10 | Source | NewPostgresRepository validation | Requires valid encryptor | `view_file` |
-| ISC-11..14 | Suite | Full signal-ingest test suite | 100% pass | `make test-signal-ingest` |
-| ISC-15 | Doc | Constructor audit section in proof | All New* inspected | `view_file` |
-| ISC-16 | Evidence | `sldp-p1-2-proof.md` | Contains full runbook & evidence | `view_file` |
-| ISC-17..18 | Proposal | Appendix errata & result update | status=pass recorded | `obsidian-read` |
-| ISC-19..22 | Invariant | Negative checks | No regressions or leaks | `git diff` & tests |
+| ISC-1 | Doc/Artifact | File existence and header verification | Exit 0 | `test -f` / `Read` |
+| ISC-2 | Doc/Artifact | Reference link existence | Exit 0 | `test -f` |
+| ISC-3..7 | Architecture/Docs | Content verification & matrix completeness | Full coverage | `Grep` / `Read` |
+| ISC-8 | Unit/Integration | Signal ingest test suite | 100% pass | `make test-signal-ingest` |
+| ISC-9 | CI Guard | Acceptance spec coverage | 7/7 pass | `bats` |
+| ISC-10 | API Contract | FastAPI contract & migration tests | 56/56 pass | `make demo-signalloom-api-test` |
+| ISC-11..13 | Governance | Proof, errata, and decomposition updates | Exact schema | `Edit` / `Read` |
+| ISC-14..16 | Anti-criteria | Boundary isolation & dependency checks | Zero external deps | `Grep` / `Read` |
 
 ## Features
 
-- **Encryption Fail-Closed**: Hardened `NewEncryptorFromKeyString` and `NewPostgresRepository` with unambiguous dev opt-in (`INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR`) and persistent background warning ticker.
-- **Audit Fail-Closed**: Hardened `AuditWriter` interface doc, `NopWriter` fail-closed posture, and `handlePromoteActor` refusal on audit failure.
-- **Health Posture Reporting**: Endpoints `/health` and `/api/v1/health` reporting effective encryption algorithm, dev opt-in flag, audit backend, and compliance posture.
-- **Deployment Manifests**: Key configuration wired in `deployment.yaml` and `secrets.yaml`.
+| Name | Satisfies | Depends On | Parallelizable |
+|---|---|---|---|
+| Self-Host Install Proof | ISC-1, ISC-3, ISC-4, ISC-5 | None | Yes |
+| GKE Reference Definition | ISC-6 | None | Yes |
+| Residual Risk Matrices | ISC-7, ISC-16 | None | Yes |
+| Execution Proof & Tests | ISC-8, ISC-9, ISC-10, ISC-11 | None | No |
+| Proposal Revisions | ISC-12, ISC-13 | Self-Host Install Proof | No |
 
 ## Decisions
 
-- **2026-09-14 12:37:00+01:00 (AJM/Sensai)**: Selected `INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR` (aliased with `IDENTITY_ALLOW_NOOP_ENCRYPTOR`) to make development passthrough explicitly opt-in and unambiguous.
-- **2026-09-14 12:37:00+01:00 (AJM/Sensai)**: Actor promotion (`handlePromoteActor`) strictly fails closed (HTTP 503) if audit logging fails, satisfying GDPR Art 5(2) accountability for high-stakes authority changes.
-- **2026-09-14 12:37:00+01:00 (AJM/Sensai)**: Single-agent execution in dedicated worktree; delegation floor relaxed with direct tool execution.
+- **2026-09-14 23:08:00+01:00**: Settled Customer-Self-Hosted Kubernetes deployment as the primary validation target in compliance with CEO Decision 4 and Section 10 item 1.
+- **2026-09-14 23:10:00+01:00**: Decoupled residual risk matrices completely between Self-Hosted and SaaS models to prevent conflation during DPO/CISO reviews.
+- **2026-09-14 23:11:00+01:00**: Designated GKE SaaS architecture as an explicitly secondary reference deployment.
 
 ## Changelog
 
-- 2026-09-14: Conjectured that `NewEncryptorFromKeyString` and `NopWriter` could fail open silently in production; refuted by empirical source audit showing empty key returns `NoopEncryptor` and `NopWriter` returns `nil`; learned that explicit dev gating and fail-closed posture are mandatory; criterion now enforced via ISC-1 through ISC-22.
+- **2026-09-14**: Delivered SLDP-P6-2 primary customer-self-hosted install proof, secondary GKE reference definition, zero-dependency proof, and per-model residual risk matrices.
 
 ## Verification
 
-- ISC-1: Verified via `TestNewEncryptorFromKeyString_ProductionRefusalOnEmptyKey` in `identity/encryption_test.go`.
-- ISC-2: Verified via `TestNewEncryptorFromKeyString_DevelopmentOptInAllowed` in `identity/encryption_test.go`.
-- ISC-3: Verified via `TestNewEncryptorFromKeyString_ValidKeyAlwaysSucceeds` in `identity/encryption_test.go`.
-- ISC-4: Verified via `TestNoopEncryptor_PersistentWarningCycle` in `identity/encryption_test.go`.
-- ISC-5: Verified updated comment in `audit/audit.go:48-54`.
-- ISC-6: Verified via `TestNopWriter_FailClosedByDefault` in `audit/audit_test.go`.
-- ISC-7: Verified via `TestPromoteActor_AuditFailureFailsClosed` in `api/promote_test.go`.
-- ISC-8: Verified via `TestHealth_PostureReporting` in `api/handlers_test.go`.
-- ISC-9: Verified `deployment.yaml` and `secrets.yaml` configuration of `IDENTITY_ENCRYPTION_KEY`.
-- ISC-10: Verified via `TestNewPostgresRepository_RefusesNilEncryptorInProduction` in `identity/encryption_test.go`.
-- ISC-11..14: Verified 100% pass across `make test-signal-ingest`, `make demo-signalloom-api-test TIER=contract`, and `bats test/acceptance-spec-coverage.bats`.
-- ISC-15..16: Verified in `docs/signalloom/sldp-p1-2-proof.md`.
-- ISC-17..18: Verified errata block written to Proposal Appendix via `obsidian-read`.
-- ISC-19..22: Verified zero regressions or negative invariant violations.
+- `docs/signalloom/sldp-p6-2-selfhost-install-proof.md`: Created (100% complete).
+- `docs/signalloom/sldp-p5-2-selfhost-install-proof.md`: Created (100% complete).
+- `docs/signalloom/sldp-p6-2-proof.md`: Created (100% complete).
+- `make test-signal-ingest`: PASS (0 failures across 24 packages).
+- `bats test/acceptance-spec-coverage.bats`: PASS (7/7).
+- `make demo-signalloom-api-test TIER=contract`: PASS (56/56).

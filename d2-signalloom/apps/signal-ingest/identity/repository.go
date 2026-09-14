@@ -61,8 +61,15 @@ func TenantIDFromEnv() string {
 }
 
 // PostgresRepository implements Repository on top of PostgreSQL.
+//
+// db is the statement target and pool is the connection pool. They are the same object for a
+// repository built by NewPostgresRepository, and differ only for the scoped repository that
+// WithTenant (tenant.go, SLDP-P2-2) hands to its callback: there, db is a transaction on one leased
+// connection carrying the tenant claim, while pool remains the shared pool. Splitting the two is
+// what lets a tenant-scoped call reuse all seventeen query methods unmodified.
 type PostgresRepository struct {
-	db        *sql.DB
+	db        tenantQuerier
+	pool      *sql.DB
 	encryptor Encryptor
 	tenantID  string
 }
@@ -90,6 +97,7 @@ func NewPostgresRepositoryWithTenant(db *sql.DB, encryptor Encryptor, tenantID s
 	}
 	return &PostgresRepository{
 		db:        db,
+		pool:      db,
 		encryptor: encryptor,
 		tenantID:  tenantID,
 	}
@@ -108,7 +116,7 @@ func (r *PostgresRepository) tenantFor(recordTenant string) string {
 
 // DB exposes the underlying *sql.DB connection pool.
 func (r *PostgresRepository) DB() *sql.DB {
-	return r.db
+	return r.pool
 }
 
 // CreateActor inserts or updates a canonical actor in the actors table.
@@ -433,11 +441,14 @@ func (r *PostgresRepository) RevokeActiveDelegations(ctx context.Context, actorI
 	if timestamp.IsZero() {
 		timestamp = time.Now().UTC()
 	}
-	tx, err := r.db.BeginTx(ctx, nil)
+	// begin() opens a transaction, or joins WithTenant's enclosing one when this is called from a
+	// tenant-scoped callback -- see nestedTx in tenant.go for why a second transaction there would
+	// silently lose the tenant claim.
+	tx, err := r.begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck // rollback after commit is a no-op
 
 	const qTree = `
 		WITH RECURSIVE del_tree AS (

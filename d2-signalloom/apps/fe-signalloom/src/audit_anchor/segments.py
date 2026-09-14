@@ -20,7 +20,8 @@ _SIGNED_FIELDS = {
     "signer_key_id", "state", "error",
 }
 _REQUIRED_FIELDS = _SIGNED_FIELDS | {"attestation"}
-_ALL_FIELDS = _REQUIRED_FIELDS | {"checkpoint_inclusion"}
+_OPTIONAL_FIELDS = {"key_version", "checkpoint_inclusion"}
+_ALL_FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 
 
 @dataclass
@@ -146,6 +147,8 @@ class JournalSegmentDigestReader:
             raise IntegrityError(f"cannot read segment attestation {attestation}: {exc}") from exc
         statement = self.keyring.verify(envelope, record["signer_key_id"])
         expected_predicate = {key: record[key] for key in _SIGNED_FIELDS}
+        if record.get("key_version"):
+            expected_predicate["key_version"] = record["key_version"]
         if statement.get("predicateType") != SEGMENT_PREDICATE_TYPE:
             raise AnchorError(f"segment {segment_id} has unexpected predicate type")
         if statement.get("predicate") != expected_predicate:

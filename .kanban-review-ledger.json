@@ -2217,5 +2217,12 @@
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
     "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+  },
+  "302f6": {
+    "task_id": "302f6",
+    "reviewed_at": "2026-09-14T21:13:22Z",
+    "reviewer": "Council of Agents (antigravity, kpai, cpai)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P5-1 verified: pluggable Signer interface (KMSSigner, LocalSigner), multi-algorithm verification (Ed25519, ECDSA, RSA-PSS), multi-process token bucket rate limiting, fail-closed KMS semantics, public verification material retention across rotation/destruction, and 100% passing tests (commit dc90f537)"
   }
 }

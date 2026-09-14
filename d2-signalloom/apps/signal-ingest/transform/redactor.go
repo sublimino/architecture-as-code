@@ -97,6 +97,11 @@ func (r *SecretRedactor) RedactText(text string) string {
 		return r.hashRedact(m)
 	})
 
+	// Tier 4 (SLDP-P3-1): direct identifiers — email, IPv4, IPv6, Kubernetes subject, labelled
+	// username. Tiers 1-3 only ever knew about secrets, so a person's email address or source IP
+	// passed through untouched and into an immutable segment.
+	text = redactIdentifiers(text, r.hashRedact)
+
 	return text
 }
 

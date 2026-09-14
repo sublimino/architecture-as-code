@@ -124,6 +124,13 @@ func (cs *CryptographicSecretScrubber) ScrubText(input string) string {
 	out = awsAccessKey.ReplaceAllString(out, "[REDACTED_AWS_KEY]")
 	out = githubPatRegex.ReplaceAllString(out, "[REDACTED_GH_PAT]")
 	out = vaultTokenRegex.ReplaceAllString(out, "[REDACTED_VAULT_TOKEN]")
+
+	// SLDP-P3-1: direct identifiers. Every pattern above this line is a *secret*; none of them
+	// matches an email address, an IP address or a username, so before this card a scrubbed
+	// observation could still name a natural person. The replacement is the same keyed HMAC used
+	// for token accessors, so repeated occurrences of one identifier stay comparable without being
+	// readable.
+	out = redactIdentifiers(out, cs.AnonymizeHMAC)
 	return out
 }
 

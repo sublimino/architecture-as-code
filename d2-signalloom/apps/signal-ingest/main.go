@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy/tombstone"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/retention"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/subjectkey"
 )
@@ -44,6 +46,184 @@ import (
 // whichever card makes the correlation engine multi-tenant. Until then a multi-tenant deployment
 // must configure the Postgres hold source, which is authoritative for every tenant.
 const ErasureTenantEnvVar = "SIGNAL_ERASURE_TENANT"
+
+// RetentionTenantsEnvVar names the comma-separated tenants the retention reaper sweeps.
+//
+// There is no "all tenants" value and no default. A reaper with an empty tenant list sweeps nothing and
+// reports no error — the shape of failure this whole card exists to remove — so the absence of this
+// variable is a refusal to start the reaper, logged, rather than a reaper that runs over zero tenants
+// and renders a reassuring zero.
+const RetentionTenantsEnvVar = "SIGNAL_RETENTION_TENANTS"
+
+// RetentionClockSyncEnvVar names an RFC3339 upstream time reading used to seed the trusted clock.
+//
+// UNOWNED BOUNDARY, recorded rather than assumed away: a real deployment needs an NTP or Roughtime
+// client feeding TrustedClock.Sync on an interval. This card owns the trust DECISION (freshness window,
+// drift tolerance, fail-closed refusal), not the transport. Until a card owns the transport, an operator
+// seeds the clock once at boot from this variable, and the freshness window then expires it after an
+// hour — which stops the sweep rather than letting it run on a stale reading. That is the correct
+// direction for a placeholder.
+const RetentionClockSyncEnvVar = "SIGNAL_RETENTION_CLOCK_SYNC"
+
+// retentionTenants parses the tenant list the reaper sweeps.
+func retentionTenants() []string {
+	raw := strings.TrimSpace(os.Getenv(RetentionTenantsEnvVar))
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// buildRetentionController assembles the SLDP-P6-1 retention controller.
+//
+// It returns an error rather than a degraded controller in every case it cannot assemble a complete one.
+// There is deliberately no branch that yields a controller with fewer sinks, a local clock, or a
+// discarding ledger: a retention control that runs with any of those reports deletion it did not perform.
+func buildRetentionController(
+	metrics *retention.Metrics,
+	signalStore store.SignalStore,
+	identityStore identity.ResolverStore,
+	auditWriter audit.AuditWriter,
+	engine *correlation.Engine,
+) (*retention.Controller, error) {
+	tenants := retentionTenants()
+	if len(tenants) == 0 {
+		return nil, fmt.Errorf("no tenants configured: set %s; a reaper with no tenants sweeps nothing and reports no error", RetentionTenantsEnvVar)
+	}
+
+	pw, ok := auditWriter.(*audit.PostgresWriter)
+	if !ok || pw == nil {
+		return nil, fmt.Errorf("retention requires a PostgreSQL ledger: set DATABASE_URL. An in-memory receipt ledger loses every proof of deletion on restart")
+	}
+	ledger, err := retention.NewPostgresLedger(pw.DB())
+	if err != nil {
+		return nil, fmt.Errorf("retention ledger: %w", err)
+	}
+
+	// The hold evaluator is privacy.Retention, which is the single implementation of "a legal hold beats
+	// retention expiry" and which fails closed on an undetermined lookup.
+	var sources []privacy.IncidentSource
+	pgSource, err := privacy.NewPostgresIncidentSource(pw.DB())
+	if err != nil {
+		return nil, fmt.Errorf("retention hold source: %w", err)
+	}
+	sources = append(sources, pgSource)
+	if engine != nil {
+		qSource, err := privacy.NewQuarantineIncidentSource(engine, tenants[0])
+		if err != nil {
+			return nil, fmt.Errorf("retention quarantine hold source: %w", err)
+		}
+		sources = append(sources, qSource)
+	}
+	incidents, err := privacy.NewCompositeIncidentSource(sources...)
+	if err != nil {
+		return nil, fmt.Errorf("retention composite hold source: %w", err)
+	}
+
+	clock := retention.NewTrustedClock(retention.TrustedClockConfig{})
+	if raw := strings.TrimSpace(os.Getenv(RetentionClockSyncEnvVar)); raw != "" {
+		upstream, parseErr := time.Parse(time.RFC3339, raw)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%s is not RFC3339: %w", RetentionClockSyncEnvVar, parseErr)
+		}
+		clock.Sync(upstream)
+	} else {
+		return nil, fmt.Errorf("no trusted clock reading: set %s. A retention boundary computed from an unattested local clock expires data early or late with no signal", RetentionClockSyncEnvVar)
+	}
+
+	evaluator, err := privacy.NewRetention(incidents, func() time.Time {
+		// The evaluator shares the controller's clock rather than reading time.Now, so "is it due?" and
+		// "what is the boundary?" cannot be answered from two different clocks. On an untrusted clock this
+		// returns the zero time, which makes every record NOT due — the fail-closed direction, and the
+		// controller aborts the sweep before this is reached anyway.
+		now, clockErr := clock.Now()
+		if clockErr != nil {
+			return time.Time{}
+		}
+		return now
+	})
+	if err != nil {
+		return nil, fmt.Errorf("retention evaluator: %w", err)
+	}
+
+	sinks, err := buildRetentionSinks(signalStore, identityStore, ledger)
+	if err != nil {
+		return nil, err
+	}
+
+	return retention.NewController(retention.Config{
+		Clock:     clock,
+		Ledger:    ledger,
+		Evaluator: evaluator,
+		Audit:     auditWriter,
+		Metrics:   metrics,
+		Policies:  retention.DefaultPolicySet(tenants[0]),
+		Sinks:     sinks,
+		Logger:    slog.Default(),
+	})
+}
+
+// buildRetentionSinks constructs one adapter per inventory entry.
+//
+// Every entry in retention.AllSinkSpecs gets an adapter — there is no path that silently omits one,
+// because the sink set is the denominator of every coverage figure and a missing sink raises apparent
+// coverage instead of showing up as a hole.
+//
+// UNOWNED BOUNDARY, recorded rather than papered over: the in-process row purgers below are wired only
+// for the copies this card can reach without adding repository methods that belong to other cards. Any
+// spec whose purger is not yet implemented is registered as an EXTERNAL-ATTESTATION sink, so it stays
+// outstanding, goes overdue, and is counted — rather than being quietly dropped from the inventory. That
+// is a visible, dated gap for P6-GOV instead of an invisible one.
+func buildRetentionSinks(signalStore store.SignalStore, identityStore identity.ResolverStore, ledger retention.Ledger) ([]retention.Sink, error) {
+	purgers := map[string]retention.RowPurger{}
+	if identityStore != nil {
+		// Placeholder wiring is deliberately absent. Adding a purger that returns (0, nil) here would
+		// make every identity sink report already_absent and the gauge read clean — a passthrough
+		// control, which the architectural constitution forbids.
+		_ = identityStore
+	}
+
+	sinks := make([]retention.Sink, 0, len(retention.AllSinkSpecs()))
+	for _, spec := range retention.AllSinkSpecs() {
+		switch {
+		case spec.ID == "frostdb_observations" && signalStore != nil:
+			sink, err := retention.NewPartitionSink(spec, signalStore, nil)
+			if err != nil {
+				return nil, fmt.Errorf("retention sink %s: %w", spec.ID, err)
+			}
+			sinks = append(sinks, sink)
+
+		case spec.Reach == retention.ReachContinuityBearing:
+			sink, err := retention.NewContinuitySink(spec, retention.LinkageSinksFor(spec.ID), retention.LinkageLookup(ledger))
+			if err != nil {
+				return nil, fmt.Errorf("retention sink %s: %w", spec.ID, err)
+			}
+			sinks = append(sinks, sink)
+
+		default:
+			if purger, ok := purgers[spec.ID]; ok {
+				sink, err := retention.NewRowSink(spec, purger)
+				if err != nil {
+					return nil, fmt.Errorf("retention sink %s: %w", spec.ID, err)
+				}
+				sinks = append(sinks, sink)
+				continue
+			}
+			// No in-process purger: declare it externally attested rather than omitting it.
+			sinks = append(sinks, retention.NewExternalSink(spec))
+		}
+	}
+	if len(sinks) != len(retention.AllSinkSpecs()) {
+		return nil, fmt.Errorf("built %d sinks for %d inventory entries; the inventory must be covered exactly", len(sinks), len(retention.AllSinkSpecs()))
+	}
+	return sinks, nil
+}
 
 // buildErasureGate assembles the Article 17(3) erasure gate from whatever incident sources this
 // deployment actually has.
@@ -400,12 +580,47 @@ func main() {
 		}
 	}
 
+	// --- SLDP-P6-1: retention controller and its overdue-object gauge. --------------------------
+	//
+	// Same fail-closed asymmetry as the erasure gate above, and the same reason: every deployment
+	// predates this card, so refusing startup would turn a new control into an estate-wide boot
+	// failure. What is NOT permitted is a controller that reports success it has not earned, so when
+	// the controller cannot be built the metrics are still registered and render a zeroed series while
+	// the log says the sweep is not running. A missing series would read as "this subsystem does not
+	// exist", which is a much more comfortable claim than "it exists and is not sweeping".
+	retentionMetrics := retention.NewMetrics()
+	retentionController, retentionErr := buildRetentionController(retentionMetrics, signalStore, identityStore, auditWriter, engine)
+	if retentionErr != nil {
+		slog.Warn("retention controller not configured; no sink is being swept for expired personal data",
+			"error", retentionErr,
+			"consequence", "signalloom_retention_overdue_objects renders zero because nothing is evaluated, not because nothing is expired")
+	} else {
+		retentionReaper, reaperErr := retention.NewReaper(
+			retentionController,
+			func() []string { return retentionTenants() },
+			retention.DefaultSweepInterval,
+			slog.Default(),
+		)
+		if reaperErr != nil {
+			slog.Warn("retention reaper not started", "error", reaperErr)
+		} else {
+			retentionReaper.Start(ctx)
+			defer retentionReaper.Stop()
+			slog.Info("retention controller started",
+				"sinks", len(retention.AllSinkSpecs()),
+				"interval", retention.DefaultSweepInterval.String(),
+				"max_retention_period", retention.MaxRetentionPeriod.String(),
+				"max_propagation_delay", retention.MaxPropagationDelay.String())
+		}
+	}
+
 	metricsHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
 		_, _ = io.WriteString(w, fairService.Metrics.Render())
 		_, _ = io.WriteString(w, agentNonoMetrics.Render())
 		_, _ = io.WriteString(w, correlation.DefaultQuarantineMetrics().Render())
+		_, _ = io.WriteString(w, retentionMetrics.Render())
 	})
 
 	// Every HTTP request enters through the Authorization JWT-SVID gate below.

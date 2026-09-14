@@ -136,18 +136,21 @@ func (h *liveHarness) seedLegacyRowsThenMigrate(t *testing.T) {
 		Migration002DelegationIndices,
 		Migration003IdempotentSeeding,
 		Migration004DelegationRevocation,
+		Migration005PseudonymisationAndEncryption,
 	} {
 		if _, err := h.admin.ExecContext(ctx, m); err != nil {
 			t.Fatalf("pre-tenancy migration %d failed: %v", i+1, err)
 		}
 	}
 
+	const legacyPseudonym = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+	const legacyPrincipalPseudonym = "8f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 	h.exec(t, h.admin, `INSERT INTO actors (actor_id, status) VALUES ($1, 'provisional')`, legacyActorID)
-	h.exec(t, h.admin, `INSERT INTO aliases (actor_id, alias_type, alias_value, alias_value_hash, edge_fidelity, valid_from)
-	                    VALUES ($1, 'email', 'legacy@example.test', 'legacyhash', 'strong', NOW() - interval '1 day')`, legacyActorID)
+	h.exec(t, h.admin, `INSERT INTO aliases (actor_id, alias_type, alias_value_hash, alias_value_encrypted, edge_fidelity, valid_from)
+	                    VALUES ($1, 'email', $2, '\x01', 'strong', NOW() - interval '1 day')`, legacyActorID, legacyPseudonym)
 	h.exec(t, h.admin, `INSERT INTO actors (actor_id, status) VALUES ('legacy-principal', 'provisional')`)
-	h.exec(t, h.admin, `INSERT INTO delegations (delegate_actor_id, principal_actor_id, authz_ref, valid_from)
-	                    VALUES ($1, 'legacy-principal', 'legacy-grant', NOW() - interval '1 day')`, legacyActorID)
+	h.exec(t, h.admin, `INSERT INTO delegations (delegate_actor_id, principal_actor_id, delegate_actor_pseudonym, principal_actor_pseudonym, authz_ref, valid_from)
+	                    VALUES ($1, 'legacy-principal', $2, $3, 'legacy-grant', NOW() - interval '1 day')`, legacyActorID, legacyPseudonym, legacyPrincipalPseudonym)
 
 	if _, err := h.admin.ExecContext(ctx, Migration006TenantIsolationRLS); err != nil {
 		t.Fatalf("migration 006 failed against a populated database: %v", err)
@@ -750,8 +753,8 @@ func (h *liveHarness) seedPlannerCorpus(t *testing.T) {
 		FROM generate_series(1, 12000) g
 		ON CONFLICT (actor_id) DO NOTHING`, tenantA, tenantB, tenantSmall)
 	h.exec(t, h.admin, `
-		INSERT INTO aliases (actor_id, alias_type, alias_value, alias_value_hash, edge_fidelity, valid_from, tenant_id)
-		SELECT 'bulk-' || g, 'email', 'bulk-' || g || '@example.test', md5('bulk-' || g), 'strong', NOW() - interval '2 hours',
+		INSERT INTO aliases (actor_id, alias_type, alias_value_hash, alias_value_encrypted, edge_fidelity, valid_from, tenant_id)
+		SELECT 'bulk-' || g, 'email', encode(sha256(('bulk-' || g)::bytea), 'hex'), '\x01', 'strong', NOW() - interval '2 hours',
 		       CASE WHEN g <= 20 THEN $3 WHEN g % 2 = 0 THEN $1 ELSE $2 END
 		FROM generate_series(1, 12000) g
 		ON CONFLICT DO NOTHING`, tenantA, tenantB, tenantSmall)
@@ -759,15 +762,9 @@ func (h *liveHarness) seedPlannerCorpus(t *testing.T) {
 	h.exec(t, h.admin, `ANALYZE aliases`)
 }
 
-// TestTenantRLS_HighSelectivityLookupKeepsItsExistingPlan records what happens to the alias_value
+// TestTenantRLS_HighSelectivityLookupKeepsItsExistingPlan records what happens to the alias_value_hash
 // lookup -- the single hottest statement in repository.go -- once row-level security prepends a
 // tenant predicate to it.
-//
-// The result is a finding, and it is the opposite of what the card's "composite index" framing
-// assumes. alias_value is near-unique, so the pre-existing idx_aliases_value_temporal finds one
-// row and the tenant predicate costs one comparison on that row. A tenant-leading index would
-// start the scan on a two-value column and is correctly rejected by the planner. Adding one and
-// asserting it gets used would mean forcing a worse plan to satisfy a criterion.
 //
 // What matters for the latency budget is therefore asserted instead: the plan is still an index
 // scan, not a sequential one, and the tenant predicate is present in it.
@@ -775,8 +772,8 @@ func TestTenantRLS_HighSelectivityLookupKeepsItsExistingPlan(t *testing.T) {
 	h := requireLive(t)
 	h.seedPlannerCorpus(t)
 
-	const hotLookup = `EXPLAIN (COSTS OFF) SELECT id, actor_id, alias_value FROM aliases
-	                   WHERE alias_value = 'bulk-4242@example.test' AND valid_from <= NOW()
+	const hotLookup = `EXPLAIN (COSTS OFF) SELECT id, actor_id, alias_value_hash FROM aliases
+	                   WHERE alias_value_hash = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' AND valid_from <= NOW()
 	                     AND (valid_to IS NULL OR NOW() < valid_to)`
 
 	plan := explainAs(t, h.app, tenantA, hotLookup)
@@ -896,18 +893,21 @@ func TestTenantRLS_ForeignKeyIsNotACrossTenantExistenceOracle(t *testing.T) {
 		t.Fatalf("set claim: %v", err)
 	}
 
+	const p1 = "1111111111111111111111111111111111111111111111111111111111111111"
+	const p2 = "2222222222222222222222222222222222222222222222222222222222222222"
+
 	// A reference to tenant A's actor, which this session cannot see.
 	_, crossTenantErr := conn.ExecContext(ctx,
-		`INSERT INTO delegations (delegate_actor_id, principal_actor_id, authz_ref, valid_from)
-		 VALUES ('actor-beta', 'principal-alpha', 'oracle-probe', NOW())`)
+		`INSERT INTO delegations (delegate_actor_id, principal_actor_id, delegate_actor_pseudonym, principal_actor_pseudonym, authz_ref, valid_from)
+		 VALUES ('actor-beta', 'principal-alpha', $1, $2, 'oracle-probe', NOW())`, p1, p2)
 	if crossTenantErr == nil {
 		t.Fatal("a session claiming tenant B created a delegation referencing tenant A's actor")
 	}
 
 	// A reference to an identifier that exists nowhere at all.
 	_, absentErr := conn.ExecContext(ctx,
-		`INSERT INTO delegations (delegate_actor_id, principal_actor_id, authz_ref, valid_from)
-		 VALUES ('actor-beta', 'no-such-actor-anywhere', 'oracle-control', NOW())`)
+		`INSERT INTO delegations (delegate_actor_id, principal_actor_id, delegate_actor_pseudonym, principal_actor_pseudonym, authz_ref, valid_from)
+		 VALUES ('actor-beta', 'no-such-actor-anywhere', $1, $2, 'oracle-control', NOW())`, p1, p2)
 	if absentErr == nil {
 		t.Fatal("a delegation was created referencing an actor that does not exist")
 	}
@@ -923,8 +923,8 @@ func TestTenantRLS_ForeignKeyIsNotACrossTenantExistenceOracle(t *testing.T) {
 	// The positive control. Without it, "both are refused" is also satisfied by a trigger that
 	// refuses everything, which would be a broken product rather than a closed oracle.
 	if _, err := conn.ExecContext(ctx,
-		`INSERT INTO delegations (delegate_actor_id, principal_actor_id, authz_ref, valid_from)
-		 VALUES ('actor-beta', 'principal-beta', 'same-tenant-control', NOW() - interval '5 minutes')`); err != nil {
+		`INSERT INTO delegations (delegate_actor_id, principal_actor_id, delegate_actor_pseudonym, principal_actor_pseudonym, authz_ref, valid_from)
+		 VALUES ('actor-beta', 'principal-beta', $1, $2, 'same-tenant-control', NOW() - interval '5 minutes')`, p1, p2); err != nil {
 		t.Fatalf("a legitimate same-tenant delegation was refused; the trigger rejects everything: %v", err)
 	}
 }

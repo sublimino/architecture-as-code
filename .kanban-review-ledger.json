@@ -2140,5 +2140,12 @@
     "reviewer": "Council (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "SLDP-P2-GOV Phase 2 Certified: RLS and pseudonymisation seams resolved, 28/28 live RLS tests pass, 8/8 live alias tests pass (11 assertions), 006 rollback embedded, contract frozen"
+  },
+  "ed2f0": {
+    "task_id": "ed2f0",
+    "reviewed_at": "2026-09-14T15:02:25Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P3-PRE verified: columnar schema seams mapped, attestation chain invariants confirmed, verifier 100% pass, baseline latency p95 1.32ms-2.51ms"
   }
 }

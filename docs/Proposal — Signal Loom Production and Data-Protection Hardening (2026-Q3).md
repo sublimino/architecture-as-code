@@ -314,7 +314,7 @@ previous phase governor, or on `P0` for phase 1.
 | P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | pass — delivered: 2ba84a18 (see Errata — SLDP-P5-2) | $0.00 | N/A | 30m | kpai |
 | P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: 67a18142 (see Errata — SLDP-P5-3) | $0.00 | N/A | 35m | deep |
 | P5-GOV | governor | Certify KMS signing, DPIA completeness and data-subject rights | P5-1, P5-2, P5-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | **fail — PHASE 5 DOES NOT CERTIFY.** P5-1 and P5-2 certify; P5-3 does not. G1 `export.go:424-455` requester verification returns `nil` on every path (fails open, proved by probe: wildcard-scope non-DPO principal gets an unrelated subject's Art. 15/20 export, HTTP 200). G2 `sldp-p5-3-proof.md:81-82` quotes a `--- PASS` for a test that does not exist. Proof: `docs/signalloom/sldp-p5-governor-proof.md`; delivered `0d0fe9a7fbf7841c9e0923c11382ded1611c4fdc` | $0.00 | 130,736 out | 24m01s | `82d2f89b-36af-4789-912e-b7c7c35e9781` |
-| P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | pass — delivered: 22f7e3d5 (see Errata — SLDP-P6-PRE) | $0.00 | N/A | 15m | antigravity |
 | P6-1 | implementation | Retention controller with deletion receipts across every sink | P6-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-2 | implementation | Customer-self-hosted install proof as primary validation | P6-PRE | `test -f docs/signalloom/sldp-p6-2-selfhost-install-proof.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-GOV | governor | Certify data-protection contract and publish downstream contract | P6-1, P6-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -870,12 +870,20 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 
 Two accounting caveats a later reader should not mistake for facts. **SLDP-P5-3 has no session record and SLDP-P5-1 has no elapsed time**, so the phase total understates real spend by two cards — the phase total is a floor, not a measurement. And the `$0.00` figures are an opencode list-price estimate derived from token counts, explicitly **not** provider billing; the tool prints that disclaimer itself. Separately, the `--update-table` pass reported `Updated 0 row(s) and 2 Governor spend table(s)`, and its printed table shows a **column-shift defect on the P1-PRE row** (the `Est. Cost` cell contains the prose `pass — delivered: 70136be0 …`, pushing every subsequent value one column right). That is a pre-existing defect in the cost tool's row parser, not introduced here, and it is left unrepaired rather than hand-patched — recorded so the next governor does not read the shifted row as data.
 
-#### Errata — SLDP-P6-PRE (bootstrap)
-##### Task identity
-- Card: `SLDP-P6-PRE`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P6-PRE: Preflight Verification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 23:05:26+01:00  
+**Last Updated:** 2026-09-14 23:05:26+01:00  
+**Status:** `pass`  
+**Commit:** `22f7e3d5c116bfae8ac7591c49088aad6f4d4d20`  
+**Evidence:** `docs/signalloom/sldp-p6-pre-proof.md`  
+
+**Phase 6 Preflight Verification Summary:**
+- **Reconciled Storage-Copy Inventory**: Audited all 23 persistent, in-memory, and ephemeral storage sinks across identity (PostgreSQL `actors`, `aliases`, `delegations`, `segment_reidentification_map`, `retention_legal_holds`, `subject_keys`, `subject_key_erasures`), columnar/evidence (FrostDB active tables, immutable Parquet blocks, segment evidence envelopes, retained SPKI public keyrings, journal stream, checkpoints, high-water mark, non-linkable tombstones), audit (`signal_audit_trail`, in-memory rings), edge sensors (host sensor Article 21 objection registry), and quarantine caches.
+- **Absence of Existing Deletion / Retention Code Confirmed**: Verified that `EventPartitionDropped` (`audit/audit.go:28,40`) is only called by `privacy/erasure.go:495` for permitted erasure decisions; `FrostDBStore.DropPartition` (`store/frostdb.go:728-735`) only updates an in-memory cutoff `droppedBefore`; zero SQL `DELETE` statements exist in the codebase; and `privacy.Retention` (`privacy/retention.go:47-106`) provides decision logic without deletion execution. Sized SLDP-P6-1 as a complete new build.
+- **Settled Deployment Model Decision**: Established customer-self-hosted Kubernetes deployment as the **primary** validation target for SLDP-P6-2 (`docs/signalloom/sldp-p6-2-selfhost-install-proof.md`), ensuring data residency and processor isolation inside the customer perimeter. Vendor-operated GKE is designated as a secondary reference overlay.
+- **Restated Deletion-Receipt Format**: Restated the cryptographic deletion receipt format (`RetentionDeletionReceipt`) for P6-1 retention sweeps, incorporating deterministic `OperationID`, schema pinning (`signalloom.retention-deletion-receipt/v1`), 32-byte CSPRNG `ReceiptNonce`, canonical binary encoding digest (`ReceiptDigest`), and explicit residual state disclosures (`StorageResidualMVCCAndBackup`).
+- **Test Suites 100% Green**: `rg -c 'EventPartitionDropped' ...` (exit 0, count 2), `rg -l 'DeleteActor|PurgeObservations|EraseSubject' ...` (exit 0, 2 matches in `api/erasure.go` and `api/auth.go`), `make test-signal-ingest` (100% pass across all 24 packages), and `bats test/acceptance-spec-coverage.bats` (7/7 pass).
 
 #### Errata — SLDP-P6-1 (bootstrap)
 ##### Task identity

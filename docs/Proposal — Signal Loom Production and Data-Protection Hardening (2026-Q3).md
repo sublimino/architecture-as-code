@@ -316,7 +316,7 @@ previous phase governor, or on `P0` for phase 1.
 | P5-GOV | governor | Certify KMS signing, DPIA completeness and data-subject rights | P5-1, P5-2, P5-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | **fail — PHASE 5 DOES NOT CERTIFY.** P5-1 and P5-2 certify; P5-3 does not. G1 `export.go:424-455` requester verification returns `nil` on every path (fails open, proved by probe: wildcard-scope non-DPO principal gets an unrelated subject's Art. 15/20 export, HTTP 200). G2 `sldp-p5-3-proof.md:81-82` quotes a `--- PASS` for a test that does not exist. Proof: `docs/signalloom/sldp-p5-governor-proof.md`; delivered `0d0fe9a7fbf7841c9e0923c11382ded1611c4fdc` | $0.00 | 130,736 out | 24m01s | `82d2f89b-36af-4789-912e-b7c7c35e9781` |
 | P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | pass — delivered: 086ac1f3 (see Errata — SLDP-P6-PRE) | $0.00 | N/A | 15m | antigravity |
 | P6-1 | implementation | Retention controller with deletion receipts across every sink | P6-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P6-2 | implementation | Customer-self-hosted install proof as primary validation | P6-PRE | `test -f docs/signalloom/sldp-p6-2-selfhost-install-proof.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P6-2 | implementation | Customer-self-hosted install proof as primary validation | P6-PRE | `test -f docs/signalloom/sldp-p6-2-selfhost-install-proof.md` | M | daily | pass — delivered: pending-commit (see Errata — SLDP-P6-2) | $0.00 | N/A | N/A | N/A |
 | P6-GOV | governor | Certify data-protection contract and publish downstream contract | P6-1, P6-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 
 ### Spec: Errata
@@ -892,12 +892,16 @@ Two accounting caveats a later reader should not mistake for facts. **SLDP-P5-3 
 - Commit: Pending
 - Result: Pending
 
-#### Errata — SLDP-P6-2 (bootstrap)
-##### Task identity
-- Card: `SLDP-P6-2`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P6-2 Customer-self-hosted install proof as primary validation
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 23:11:21+01:00  
+**Last Updated:** 2026-09-14 23:11:21+01:00  
+**Status:** Completed  
+**Commit:** pending-commit  
+**Governor merge:** [pending Governor reconciliation]  
+**Decisions:** Settled Customer-Self-Hosted Kubernetes deployment as the primary validation target in accordance with Section 10 item 1 and CEO Decision 4 ("Customer-Self-Hosted First"); designated Vendor-Operated GKE SaaS deployment as an explicitly secondary reference overlay. Decoupled residual risk matrices completely between Customer-Self-Hosted and SaaS models to prevent cross-contamination of compliance postures.  
+**Deviations:** Replaced the flawed Milestone 4 single-model GKE validation smoke test with a comprehensive customer-self-hosted installation proof from published, signed OCI artefacts, verified with a zero-dependency graph check.  
+**Notes:** Deliverable artifacts published at `docs/signalloom/sldp-p6-2-selfhost-install-proof.md` (primary proof) and `docs/signalloom/sldp-p6-2-proof.md` (execution evidence). All verification suites passed (`make test-signal-ingest`, `bats test/acceptance-spec-coverage.bats`, `make demo-signalloom-api-test TIER=contract`). Ready for final certification by SLDP-P6-GOV.  
 
 #### Errata — SLDP-P6-GOV (bootstrap)
 ##### Task identity

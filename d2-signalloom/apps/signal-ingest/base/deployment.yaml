@@ -92,6 +92,11 @@ spec:
             # overrides this line rather than fighting it.
             - name: PGSSLMODE
               value: disable
+            - name: IDENTITY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-database
+                  key: IDENTITY_ENCRYPTION_KEY
           volumeMounts:
             - name: signal-store
               mountPath: /data/signals

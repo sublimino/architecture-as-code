@@ -58,3 +58,15 @@ func (f *FakeWriter) Reset() {
 	defer f.mu.Unlock()
 	f.events = nil
 }
+
+// AuditPosture returns the compliance posture of the FakeWriter.
+func (f *FakeWriter) AuditPosture() AuditPosture {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return AuditPosture{
+		Backend: "fake_memory",
+		Mode:    "test_recording",
+		Policy:  "fail_closed",
+		Healthy: f.FailWith == nil,
+	}
+}

@@ -27,6 +27,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/subjectkey"
 )
 
 // ErasureTenantEnvVar names the tenant the process-global quarantine engine speaks for.
@@ -79,16 +80,73 @@ func buildErasureGate(auditWriter audit.AuditWriter, encryptor identity.Encrypto
 		return nil, fmt.Errorf("composite incident source: %w", err)
 	}
 
+	destroyer, err := buildKeyDestroyer(auditWriter, encryptor)
+	if err != nil {
+		return nil, err
+	}
+
 	return privacy.NewService(privacy.Config{
-		Incidents: incidents,
-		// UnimplementedKeyDestroyer refuses. Until SLDP-P4-1 ships the per-subject key hierarchy,
-		// an authorised erasure fails loudly rather than reporting a destruction that did not
-		// happen. See privacy/destroyer.go for why a plausible-receipt stub was rejected.
-		Destroyer:     privacy.UnimplementedKeyDestroyer{},
+		Incidents:     incidents,
+		Destroyer:     destroyer,
 		Audit:         auditWriter,
 		Operators:     registry,
 		Pseudonymiser: encryptor,
 	})
+}
+
+// SubjectKeyMasterEnvVar names the master root key encryption key for the per-subject key hierarchy.
+//
+// It is deliberately SEPARATE from IDENTITY_ENCRYPTION_KEY. Sharing one root would mean the key that
+// decrypts every alias also derives every subject KEK, so a single compromise would both read the
+// graph and re-wrap a "destroyed" subject's data key -- and the whole point of SLDP-P4-1 is that a
+// destroyed key cannot be reconstructed from surviving material.
+const SubjectKeyMasterEnvVar = "SUBJECT_KEY_MASTER_KEK"
+
+// buildKeyDestroyer assembles the SLDP-P4-1 erasure saga, or returns the refusing destroyer.
+//
+// The fallback is UnimplementedKeyDestroyer, NOT a recording or passthrough one. When the master KEK
+// is absent there is no per-subject hierarchy, so an authorised erasure must fail loudly rather than
+// report a destruction that did not happen: a false "erased" is a misstatement to a data subject and
+// a regulator, whereas a loud refusal is an unconfigured deployment. See privacy/destroyer.go.
+//
+// It also refuses to run without a database. The in-memory store loses every wrapped key on restart,
+// which would silently convert "this subject's key was destroyed" into "this subject never had one".
+func buildKeyDestroyer(auditWriter audit.AuditWriter, encryptor identity.Encryptor) (privacy.KeyDestroyer, error) {
+	master := os.Getenv(SubjectKeyMasterEnvVar)
+	pw, hasDB := auditWriter.(*audit.PostgresWriter)
+	if master == "" || !hasDB || pw == nil {
+		slog.Error("per-subject key hierarchy is not configured; authorised erasures will be REFUSED",
+			"master_kek_set", master != "",
+			"database_configured", hasDB && pw != nil,
+			"required_env", SubjectKeyMasterEnvVar,
+			"card", "SLDP-P4-1")
+		return privacy.UnimplementedKeyDestroyer{}, nil
+	}
+
+	hierarchy, err := subjectkey.NewHierarchy([]byte(master))
+	if err != nil {
+		return nil, fmt.Errorf("subject key hierarchy: %w", err)
+	}
+	store, err := subjectkey.NewPostgresStore(pw.DB())
+	if err != nil {
+		return nil, fmt.Errorf("subject key store: %w", err)
+	}
+	saga, err := subjectkey.NewSaga(subjectkey.SagaConfig{
+		Hierarchy:     hierarchy,
+		Store:         store,
+		Cache:         subjectkey.NewPlaintextDEKCache(),
+		Pseudonymiser: encryptor,
+		// PostgreSQL is the store, so MVCC dead tuples, WAL and physical backups retain the prior
+		// wrapped key until VACUUM and backup expiry. The receipt states this rather than implying
+		// bit-level erasure.
+		StorageResidual: subjectkey.StorageResidualMVCCAndBackup,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("erasure saga: %w", err)
+	}
+	slog.Info("per-subject key hierarchy and erasure saga are active",
+		"store", "postgres", "max_key_versions_per_subject", subjectkey.MaxKeyVersionsPerSubject)
+	return saga, nil
 }
 
 func main() {

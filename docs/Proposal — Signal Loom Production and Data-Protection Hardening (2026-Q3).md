@@ -310,7 +310,7 @@ previous phase governor, or on `P0` for phase 1.
 | P4-2 | implementation | Non-linkable attested tombstones | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | pass — delivered: 9956a239 (see Errata — SLDP-P4-2) | $0.00 | N/A | 35m | daily |
 | P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified (G1 remediated in 8e94b193, see Errata — SLDP-P4-GOV) | N/A | N/A | ~45m | N/A |
 | P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | pass — delivered: a6974f6b (see Errata — SLDP-P5-PRE) | $0.00 | N/A | ~50m | kpai |
-| P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: fdf85ad1 (see Errata — SLDP-P5-1) | $0.00 | N/A | 35m | deep |
+| P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: dc90f537 (see Errata — SLDP-P5-1) | $0.00 | N/A | 35m | deep |
 | P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | pass — delivered: 2ba84a18 (see Errata — SLDP-P5-2) | $0.00 | N/A | 30m | kpai |
 | P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: 67a18142 (see Errata — SLDP-P5-3) | $0.00 | N/A | 35m | deep |
 | P5-GOV | governor | Certify KMS signing, DPIA completeness and data-subject rights | P5-1, P5-2, P5-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -769,7 +769,7 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 **Created:** 2026-09-14 22:15:00+01:00  
 **Last Updated:** 2026-09-14 22:15:00+01:00  
 **Status:** `pass`  
-**Commit:** `fdf85ad10712d93e5ec7dfa0b3ebca592f6b45a6`  
+**Commit:** `dc90f53724d12e04cbf0167ab3e16a83c1091d54`  
 **Evidence:** `docs/signalloom/sldp-p5-1-proof.md`  
 
 **Phase 5 Implementation Verification Summary:**

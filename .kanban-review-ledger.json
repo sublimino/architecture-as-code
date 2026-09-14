@@ -2231,5 +2231,12 @@
     "reviewer": "Council (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "Council re-adjudication and certification approval for SLDP-P5-GOV: SLDP-P5-1, SLDP-P5-2, and SLDP-P5-3 all certify. Hard blockers G1 (fail-closed verifyRequesterForSubject with PermissionPrivacyAdmin/DPO check) and G2 (TestSubjectRights_RequesterVerification_FailsClosed with 4 green subtests, 8 tests total) fully remediated in commit c3009924 alongside advisory G3 (atomicWrite error check in segment_attestor.go) and G5 (article20_portable support). Phase 5 100% complete; proceed=yes."
+  },
+  "0bc3e": {
+    "task_id": "0bc3e",
+    "reviewed_at": "2026-09-14T22:07:07Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P6-PRE preflight verified: 23 storage-copy inventory reconciled, zero existing deletion/retention code confirmed, customer-self-hosted settled as primary validation model, cryptographic RetentionDeletionReceipt format specified, test suites 100% green (commit ace7c954)"
   }
 }

@@ -38,7 +38,9 @@ func (h *Handlers) handlePromoteActor(w http.ResponseWriter, r *http.Request) {
 		ActorID:   actor.ID,
 		Detail:    detail,
 	}); auditErr != nil {
-		slog.Error("audit write failed (actor_promoted)", "actor", id, "error", auditErr)
+		slog.Error("audit write failed (actor_promoted); refusing promotion due to fail-closed audit policy", "actor", id, "error", auditErr)
+		writeError(w, http.StatusServiceUnavailable, "actor promotion refused: audit trail persistence failed: "+auditErr.Error())
+		return
 	}
 
 	// In a production deployment, this would call the fe-signalloom API

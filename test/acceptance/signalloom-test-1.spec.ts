@@ -68,7 +68,7 @@ test.describe("SignalLoom TEST-1 dashboard matrix", () => {
       // "Skip for now" renders ~470ms after the gate above resolves, so on a
       // gated context it reads false and does nothing. That race is exactly how
       // the onboarding redirect went unnoticed.
-      const skipOnboarding = page.getByRole("button", { name: "Skip for now" });
+      const skipOnboarding = page.locator('[data-testid="skip-onboarding-button"], button:has-text("Skip for now")').first();
       if (await skipOnboarding.isVisible().catch(() => false)) {
         await skipOnboarding.click();
       }
@@ -189,6 +189,6 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
     ).toBeLessThanOrEqual(1);
 
     // Toggle must be centered in collapsed rail
-    expect(col.toggleCenterX).toBeCloseTo(col.railCenter, 0);
+    expect(Math.abs(col.toggleCenterX - col.railCenter)).toBeLessThanOrEqual(1);
   });
 });

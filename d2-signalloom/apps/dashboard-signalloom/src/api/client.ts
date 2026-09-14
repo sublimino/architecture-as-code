@@ -19,6 +19,7 @@ import type {
   ConsentStatusResponse,
   CryptoHealthResponse,
   CookiePreferencesResponse,
+  ExternalEvidenceResponse,
   FrameworkResponse,
   InitialApiKeyResponse,
   IssueCredentialResponse,
@@ -461,6 +462,17 @@ export const api = {
       }
       const qs = searchParams.toString()
       return req<AgentTelemetryResponse>(qs ? `/agents/${id}/telemetry?${qs}` : `/agents/${id}/telemetry`, token)
+    },
+
+    externalEvidence: (token: string, id: string, params?: { evidence_type?: string; limit?: number; offset?: number }) => {
+      const searchParams = new URLSearchParams()
+      if (params) {
+        if (params.evidence_type && params.evidence_type !== 'all') searchParams.set('evidence_type', params.evidence_type)
+        if (params.limit !== undefined) searchParams.set('limit', String(params.limit))
+        if (params.offset !== undefined) searchParams.set('offset', String(params.offset))
+      }
+      const qs = searchParams.toString()
+      return req<ExternalEvidenceResponse>(qs ? `/agents/${id}/external-evidence?${qs}` : `/agents/${id}/external-evidence`, token)
     },
   },
 

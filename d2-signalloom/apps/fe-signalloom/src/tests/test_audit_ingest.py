@@ -111,6 +111,7 @@ def _build_hash_chained_events(
     count: int = 3,
     start_seq: int = 1,
     tamper_seq: int | None = None,
+    finalized: bool = False,
 ) -> tuple[list[dict[str, Any]], str]:
     """Helper to construct a deterministic hash-chained sequence of audit events."""
     events = []
@@ -126,6 +127,10 @@ def _build_hash_chained_events(
             "resource": f"/var/log/audit/step-{i}.log",
             "detail": {"confined": True, "sandbox": "landlock", "step": i},
         }
+        if finalized and i == count - 1:
+            ev_dict["event_type"] = "session_finalized"
+            ev_dict["action"] = "finalized"
+            ev_dict["detail"]["finalized"] = True
 
         entry_hash = compute_expected_entry_hash(prev_hash, ev_dict)
 
@@ -850,5 +855,601 @@ def test_toctou_sensor_hasher_integration(tmp_path: Any) -> None:
     assert res_mutated.integrity_state == "unverified"
     assert res_mutated.sha256 is None
     assert "toctou" in (res_mutated.reason_code or "")
+
+
+# ---------------------------------------------------------------------------
+# AMXO-P5-1 Finalized Audit Session Verification Tests
+# ---------------------------------------------------------------------------
+
+def test_ingest_finalized_audit_session_success(client: TestClient):
+    """Test successful ingestion and verification of a finalized audit session via /sessions/finalized."""
+    events, root_hash = _build_hash_chained_events(3, finalized=True)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-finalized-valid",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+        "metadata": {"substrate": "kind", "lsm": "landlock"},
+    }
+
+    # Test via dedicated /sessions/finalized endpoint
+    res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 201, res.text
+    data = res.json()
+    assert data["session_id"] == "sess-test-finalized-valid"
+    assert data["valid"] is True
+    assert data["hash_chain_valid"] is True
+    assert data["signature_valid"] is True
+    assert data["events_verified"] == 3
+
+    # Test via query parameter require_finalized=true on /sessions
+    payload["session_id"] = "sess-test-finalized-param"
+    res2 = client.post("/api/audit/sessions?require_finalized=true", json=payload, headers=_bearer("audit-tester"))
+    assert res2.status_code == 201, res2.text
+    assert res2.json()["valid"] is True
+
+
+def test_ingest_finalized_session_rejects_unfinalized(client: TestClient):
+    """Test that an unfinalized session is rejected with HTTP 422 Unprocessable Entity."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-unfinalized",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": None,
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+        "metadata": {"substrate": "kind", "lsm": "landlock"},
+    }
+
+    res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 422, res.text
+    err = res.json()
+    assert "unfinalized" in str(err).lower()
+
+
+def test_ingest_finalized_session_rejects_sequence_gap(client: TestClient):
+    """Test that sequence gaps are rejected with HTTP 400."""
+    events, _ = _build_hash_chained_events(3)
+    # Introduce gap: seq 1, 3, 4
+    events[1]["seq"] = 3
+    events[2]["seq"] = 4
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+
+    payload = {
+        "session_id": "sess-test-gap",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": "dummy",
+        "signature": "sig-spiffe-dummy",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 400, res.text
+    assert "sequence gap" in res.text.lower()
+
+
+def test_ingest_finalized_session_rejects_out_of_order_sequence(client: TestClient):
+    """Test that out-of-order sequences are rejected with HTTP 400."""
+    events, _ = _build_hash_chained_events(3)
+    # Out of order: seq 2 before seq 1
+    events[0]["seq"] = 2
+    events[1]["seq"] = 1
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+
+    payload = {
+        "session_id": "sess-test-ooo",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": "dummy",
+        "signature": "sig-spiffe-dummy",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 400, res.text
+    assert "out-of-order" in res.text.lower() or "sequence" in res.text.lower()
+
+
+def test_ingest_finalized_session_rejects_empty_events(client: TestClient):
+    """Test that empty sessions are rejected with HTTP 400 under finalized requirement."""
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    payload = {
+        "session_id": "sess-test-empty",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 0,
+        "root_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "signature": "sig-spiffe-dummy",
+        "algorithm": "ECDSA_SHA256",
+        "events": [],
+    }
+
+    res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 400, res.text
+    assert "empty" in res.text.lower()
+
+
+def test_ingest_finalized_session_rejects_hash_chain_corruption(client: TestClient):
+    """Test that hash chain corruption is rejected with HTTP 400."""
+    events, root_hash = _build_hash_chained_events(3, tamper_seq=2)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-tampered-finalized",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 400, res.text
+    assert "hash chain" in res.text.lower()
+
+
+def test_ingest_finalized_session_rejects_forged_signature(client: TestClient):
+    """Test that forged or invalid signature on finalized session is rejected with HTTP 400."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+
+    payload = {
+        "session_id": "sess-test-forged-finalized",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": "sig-spiffe-forged00000000000000000000000000000000000000000000000000000000",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 400, res.text
+    assert "signature" in res.text.lower()
+
+
+def test_verify_probe_with_require_finalized(client: TestClient):
+    """Test /sessions/verify probe endpoint behavior with require_finalized."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-probe-unfinalized",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": None,
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    res = client.post("/api/audit/sessions/verify?require_finalized=true", json=payload, headers=_bearer("audit-tester"))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["valid"] is False
+    assert "unfinalized" in data["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# AMXO-P5-2: Upload Idempotency and Concurrency Tests
+# ---------------------------------------------------------------------------
+
+def test_idempotency_duplicate_upload_returns_200(client: TestClient):
+    """Assert re-uploading an identical audit session returns HTTP 200 with identical root hash."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-idempotent-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    # First upload: initial creation returns 201 Created
+    res1 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+    data1 = res1.json()
+    assert data1["valid"] is True
+    assert data1["is_idempotent"] is False
+    assert data1["root_hash"] == root_hash
+
+    # Second upload: idempotent replay returns 200 OK with identical verification proof
+    res2 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res2.status_code == 200, res2.text
+    data2 = res2.json()
+    assert data2["valid"] is True
+    assert data2["is_idempotent"] is True
+    assert data2["root_hash"] == root_hash
+    assert data2["session_id"] == data1["session_id"]
+    assert data2["events_verified"] == data1["events_verified"]
+
+
+def test_idempotency_finalized_session_duplicate_returns_200(client: TestClient):
+    """Assert re-uploading a finalized audit session returns HTTP 200 with identical verification."""
+    events, root_hash = _build_hash_chained_events(4, finalized=True)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-idempotent-finalized-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:10:00Z",
+        "events_count": 4,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    # Initial upload
+    res1 = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+    assert res1.json()["is_idempotent"] is False
+
+    # Idempotent re-upload
+    res2 = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+    assert res2.status_code == 200, res2.text
+    data2 = res2.json()
+    assert data2["is_idempotent"] is True
+    assert data2["root_hash"] == root_hash
+
+
+def test_idempotency_conflicting_payload_returns_409(client: TestClient):
+    """Assert attempting to upload conflicting data under an existing session ID returns HTTP 409 Conflict."""
+    events1, root_hash1 = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest1 = hashlib.sha256(f"{root_hash1}:{spiffe_id}".encode()).hexdigest()
+
+    payload1 = {
+        "session_id": "sess-test-conflict-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash1,
+        "signature": f"sig-spiffe-{sig_digest1}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events1,
+    }
+
+    res1 = client.post("/api/audit/sessions", json=payload1, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+
+    # Prepare conflicting payload with different events / root hash for same session_id
+    events2, root_hash2 = _build_hash_chained_events(4)
+    sig_digest2 = hashlib.sha256(f"{root_hash2}:{spiffe_id}".encode()).hexdigest()
+
+    payload2 = {
+        "session_id": "sess-test-conflict-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 4,
+        "root_hash": root_hash2,
+        "signature": f"sig-spiffe-{sig_digest2}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events2,
+    }
+
+    res2 = client.post("/api/audit/sessions", json=payload2, headers=_bearer("audit-tester"))
+    assert res2.status_code == 409, res2.text
+    err = res2.json()
+    assert err.get("code") == "session_conflict" or "conflict" in res2.text.lower()
+
+
+def test_concurrent_upload(client: TestClient):
+    """Assert multiple concurrent uploads of identical audit session are safely deduplicated without errors."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-concurrent-dedup-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    headers = _bearer("audit-tester")
+
+    def upload():
+        return client.post("/api/audit/sessions", json=payload, headers=headers)
+
+    concurrency = 10
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(upload) for _ in range(concurrency)]
+        responses = [f.result() for f in futures]
+
+    status_codes = [r.status_code for r in responses]
+    assert all(code in (200, 201) for code in status_codes), f"Unexpected status codes: {status_codes}"
+    assert 201 in status_codes, "Expected at least one 201 Created response"
+
+    # All responses must confirm identical root hash
+    for r in responses:
+        body = r.json()
+        assert body["root_hash"] == root_hash
+        assert body["valid"] is True
+
+
+def test_interrupted_retry_resumption(client: TestClient):
+    """Assert interrupted network retry cleanly succeeds and yields verified idempotent response."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+    sig_digest = hashlib.sha256(f"{root_hash}:{spiffe_id}".encode()).hexdigest()
+
+    payload = {
+        "session_id": "sess-test-retry-resume-001",
+        "agent_id": "agent-nono-evidenced",
+        "spiffe_id": spiffe_id,
+        "started_at": "2026-09-10T10:00:00Z",
+        "ended_at": "2026-09-10T10:05:00Z",
+        "events_count": 3,
+        "root_hash": root_hash,
+        "signature": f"sig-spiffe-{sig_digest}",
+        "algorithm": "ECDSA_SHA256",
+        "events": events,
+    }
+
+    # Initial upload completes
+    res1 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res1.status_code == 201, res1.text
+
+    # Client retry after timeout
+    res2 = client.post("/api/audit/sessions", json=payload, headers=_bearer("audit-tester"))
+    assert res2.status_code == 200, res2.text
+    data2 = res2.json()
+    assert data2["is_idempotent"] is True
+    assert data2["root_hash"] == root_hash
+
+
+# ---------------------------------------------------------------------------
+# AMXO-P5-3: Allowlisted Evidence Persistence and Tenant-Scoped Projections
+# ---------------------------------------------------------------------------
+
+def test_tenant_projections(client: TestClient):
+    """Assert external agent evidence timeline projections are strictly scoped to authenticated tenant."""
+    # 1. Ingest evidence for agent on tenant-a
+    payload_a = {
+        "session_id": "sess-tenant-a-proj-001",
+        "evidence_type": "process",
+        "source": "agentmaxxing-host-sensor",
+        "observed_at": "2026-09-10T11:00:00Z",
+        "spiffe_id": "spiffe://signalloom.demo/ns/agents/sa/agent-tenant-a",
+        "landlock_abi": 3,
+        "attributes": {
+            "health_state": "running",
+            "cpu_time_ms": 100,
+            "resident_memory_bytes": 10240,
+            "exit_code": 0,
+            "restart_count": 0,
+        },
+        "hash_chain_digest": "aaaa00000000000000000000000000000000000000000000000000000000aaaa",
+        "verified": True,
+    }
+    create_res = client.post(
+        "/api/v1/agents/agent-tenant-a/external-evidence",
+        json=payload_a,
+        headers=_bearer("audit-tenant-a"),
+    )
+    assert create_res.status_code == 201, create_res.text
+
+    # 2. Query evidence as tenant-a caller -> returns evidence
+    res_a = client.get(
+        "/api/v1/agents/agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-a"),
+    )
+    assert res_a.status_code == 200, res_a.text
+    data_a = res_a.json()
+    assert data_a["tenant_id"] == "tenant-a"
+    assert data_a["agent_id"] == "agent-tenant-a"
+    assert data_a["total"] >= 1
+    assert data_a["evidence"][0]["session_id"] == "sess-tenant-a-proj-001"
+    assert data_a["evidence"][0]["attributes"]["health_state"] == "running"
+
+    # Also test compatibility alias /api/agents/{agent_id}/external-evidence
+    res_compat = client.get(
+        "/api/agents/agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-a"),
+    )
+    assert res_compat.status_code == 200
+    assert res_compat.json()["total"] >= 1
+
+    # 3. Cross-tenant IDOR attack: caller from tenant-b requests tenant-a's agent -> returns empty list (total 0)
+    res_b = client.get(
+        "/api/v1/agents/agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-b"),
+    )
+    assert res_b.status_code == 200
+    data_b = res_b.json()
+    assert data_b["tenant_id"] == "tenant-b"
+    assert data_b["total"] == 0
+    assert len(data_b["evidence"]) == 0
+
+    # 4. Explicit cross-tenant namespace address: 'tenant-a:agent-tenant-a' requested by tenant-b -> HTTP 404
+    res_idor = client.get(
+        "/api/v1/agents/tenant-a:agent-tenant-a/external-evidence",
+        headers=_bearer("audit-tenant-b"),
+    )
+    assert res_idor.status_code == 404, res_idor.text
+
+
+def test_prohibited_fields(client: TestClient):
+    """Assert prohibited customer payload data, raw commands, and memory dumps are dropped at storage boundary."""
+    dirty_payload = {
+        "session_id": "sess-prohibited-fields-001",
+        "evidence_type": "process",
+        "source": "agentmaxxing-host-sensor",
+        "observed_at": "2026-09-10T12:00:00Z",
+        "spiffe_id": "spiffe://signalloom.demo/ns/agents/sa/agent-sanitized",
+        "landlock_abi": 3,
+        "attributes": {
+            "health_state": "running",
+            "cpu_time_ms": 250,
+            "resident_memory_bytes": 20480,
+            "exit_code": 0,
+            "restart_count": 0,
+            # Prohibited fields that must be dropped:
+            "payload": "SUPER_SECRET_PAYLOAD_CONTENT",
+            "raw_payload": "{\"key\": \"password123\"}",
+            "file_contents": "cat /etc/shadow",
+            "memory_dump": "0x7fff00010203",
+            "command_text": "curl https://evil.example.com",
+            "raw_command": "rm -rf /",
+            "stdin_content": "admin_credentials",
+            # Unobserved state that MUST be preserved:
+            "observation_state": "unobserved",
+        },
+        "hash_chain_digest": "bbbb00000000000000000000000000000000000000000000000000000000bbbb",
+        "verified": True,
+    }
+
+    create_res = client.post(
+        "/api/v1/agents/agent-sanitized/external-evidence",
+        json=dirty_payload,
+        headers=_bearer("audit-tester"),
+    )
+    assert create_res.status_code == 201, create_res.text
+    created = create_res.json()
+
+    # Verify dropped prohibited fields
+    attrs = created["attributes"]
+    assert "payload" not in attrs
+    assert "raw_payload" not in attrs
+    assert "file_contents" not in attrs
+    assert "memory_dump" not in attrs
+    assert "command_text" not in attrs
+    assert "raw_command" not in attrs
+    assert "stdin_content" not in attrs
+
+    # Verify preserved allowlisted fields
+    assert attrs["health_state"] == "running"
+    assert attrs["cpu_time_ms"] == 250
+    assert attrs["exit_code"] == 0
+    assert attrs["observation_state"] == "unobserved"
+
+    # Query projection endpoint and assert raw prohibited strings NEVER appear in exported JSON
+    read_res = client.get(
+        "/api/v1/agents/agent-sanitized/external-evidence",
+        headers=_bearer("audit-tester"),
+    )
+    assert read_res.status_code == 200
+    serialized_resp = read_res.text
+
+    assert "SUPER_SECRET_PAYLOAD_CONTENT" not in serialized_resp
+    assert "password123" not in serialized_resp
+    assert "cat /etc/shadow" not in serialized_resp
+    assert "0x7fff00010203" not in serialized_resp
+    assert "evil.example.com" not in serialized_resp
+    assert "admin_credentials" not in serialized_resp
+
+
+def test_external_evidence_filtering_and_pagination(client: TestClient):
+    """Assert query filtering by evidence_type, session_id, and limit/offset pagination."""
+    agent_id = "agent-filter-test"
+    headers = _bearer("audit-tester")
+
+    for i in range(5):
+        client.post(
+            f"/api/v1/agents/{agent_id}/external-evidence",
+            json={
+                "session_id": f"sess-filter-{i % 2}",
+                "evidence_type": "artifact" if i % 2 == 0 else "network",
+                "source": "agentmaxxing-host-sensor",
+                "observed_at": f"2026-09-10T13:0{i}:00Z",
+                "spiffe_id": f"spiffe://signalloom.demo/ns/agents/sa/{agent_id}",
+                "landlock_abi": 3,
+                "attributes": {
+                    "artifact_id": f"hmac-sha256:{hashlib.sha256(str(i).encode()).hexdigest()}",
+                    "root_id": "agent-work",
+                    "sha256": hashlib.sha256(str(i).encode()).hexdigest(),
+                    "size_bytes": 100 * (i + 1),
+                    "mtime_ns": "1000",
+                } if i % 2 == 0 else {
+                    "destination_id": "signal-loom-ingest",
+                    "decision": "allowed",
+                },
+                "hash_chain_digest": hashlib.sha256(f"digest-{i}".encode()).hexdigest(),
+                "verified": True,
+            },
+            headers=headers,
+        )
+
+    # Filter by evidence_type=artifact
+    res_art = client.get(f"/api/v1/agents/{agent_id}/external-evidence?evidence_type=artifact", headers=headers)
+    assert res_art.status_code == 200
+    data_art = res_art.json()
+    assert all(it["evidence_type"] == "artifact" for it in data_art["evidence"])
+    assert data_art["total"] == 3
+
+    # Pagination: limit=2, offset=0
+    res_page = client.get(f"/api/v1/agents/{agent_id}/external-evidence?limit=2&offset=0", headers=headers)
+    assert res_page.status_code == 200
+    data_page = res_page.json()
+    assert len(data_page["evidence"]) == 2
+    assert data_page["total"] == 5
+    assert data_page["limit"] == 2
+    assert data_page["offset"] == 0
+
+
 
 

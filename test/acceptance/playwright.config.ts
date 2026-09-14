@@ -27,7 +27,7 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    video: "retain-on-failure",
+    video: "off",
     // dashboard.osramp.acme.local has no DNS record and no /etc/hosts entry, by
     // design: the Gateway needs the SNI name, and the browser is the only thing
     // that ever has to resolve it. Chrome's --host-resolver-rules is therefore

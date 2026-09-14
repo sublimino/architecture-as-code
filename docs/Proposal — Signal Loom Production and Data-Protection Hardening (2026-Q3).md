@@ -305,7 +305,7 @@ previous phase governor, or on `P0` for phase 1.
 | P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: 6bc67236 (see Errata — SLDP-P3-1) | $0.00 | N/A | 35m | kpai |
 | P3-2 | implementation | Gate erasure with legal hold and dual-operator authorisation | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: a4047571 (see Errata — SLDP-P3-2) | $0.00 | N/A | 35m | deep |
 | P3-GOV | governor | Certify redaction, attestation validity and latency budget | P3-1, P3-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 27084fea (see Errata — SLDP-P3-GOV) | $0.00 | N/A | 15m | antigravity |
-| P4-PRE | preflight | Confirm key-management seams and erasure preconditions | P3-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P4-PRE | preflight | Confirm key-management seams and erasure preconditions | P3-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | S | fast | pass — delivered: ed0e3d19 (see Errata — SLDP-P4-PRE) | $0.00 | N/A | 15m | antigravity |
 | P4-1 | implementation | Per-subject key hierarchy with idempotent erasure saga | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P4-2 | implementation | Non-linkable attested tombstones | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -585,14 +585,21 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - **Mixed-Corpus Generation-Aware Reader:** Verified that store reader decodes both v1 (cleartext) and v2 (pseudonymised) segments seamlessly in a single query result.
 - **Legal-Hold Erasure Gating Certified (SLDP-P3-2):** Gated GDPR Article 17 erasure requests with fail-closed Article 17(3) legal holds, dual-operator Ed25519-signed exceptions naming 5 enumerated statutory grounds, 90-day validity ceilings, and pre-execution hold evaluation verified by 23/23 killed mutations.
 - **Published Residual Statement:** Published formal statement that historical pre-change segments retain cleartext columns under immutable evidence store policy until partition expiry (P6-1) or Postgres key shredding (P4-1).
-- **Certified Proof Document:** Complete evidence recorded in `docs/signalloom/sldp-p3-governor-proof.md` (and `docs/signalloom/sldp-p3-gov-proof.md`).
+#### Errata — SLDP-P4-PRE: Confirm key-management seams and erasure preconditions
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 18:12:37+01:00  
+**Last Updated:** 2026-09-14 18:12:37+01:00  
+**Status:** `pass`  
+**Commit:** `ed0e3d19468590fd1dae23f9c482e68e14e00475`  
+**Evidence:** `docs/signalloom/sldp-p4-pre-proof.md`  
 
-#### Errata — SLDP-P4-PRE (bootstrap)
-##### Task identity
-- Card: `SLDP-P4-PRE`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+**Phase 4 Preflight Verification Summary:**
+- **Legal-Hold & Dual-Operator Gating Confirmed Enforced (SLDP-P3-2):** Verified that `privacy.Service.Erase` strictly executes request validation (`TraceValidateRequest`), three-valued incident hold evaluation (`TraceEvaluateHold`), dual-operator exception verification (`TraceEvaluateException`), and pre-execution audit writing (`TraceWriteAudit`) before any key destruction call site (`TraceDestroyKeys`) can be reached. Confirmed all 23 mutation test cases killed with zero survivors.
+- **In-Memory Key Material & Cache Inventory Completed:** Catalogued all 11 key/cache occurrences across Go packages (`identity`, `pseudonym`, `store`, `transform`, `api`, `privacy`) and Python `audit_anchor`. Formally established the cache-invalidation contract for `P4-1`: any in-memory subject key cache introduced must be explicitly purged during key shredding to prevent surviving in-memory decryption.
+- **Current Key Material Layout & Replacement Boundary Mapped:** Documented that PostgreSQL `aliases.alias_value_encrypted` (migration 005) and `segment_reidentification_map.identifier_encrypted` (migration 007) wrap per-record DEKs directly under the single static global root key `IDENTITY_ENCRYPTION_KEY`. Defined the target per-subject key hierarchy (`subject_keys` table in migration 009) and idempotent erasure saga for `P4-1`.
+- **Tombstone Non-Linkability Constraints Specified for P4-2:** Formalised the strict deny-list (no cleartext identifiers, no deterministic subject pseudonyms, no unminimised metadata) and allow-list (blind commitment/salted request hash, timestamp, tenant ID, statutory ground, destruction receipt digest, DSSE attestation) to guarantee GDPR Article 17 privacy and prevent cross-segment correlation.
+- **Test Suites 100% Green:** Verified `go test ./identity/... ./privacy/... ./store/... ./transform/... ./api/...` and `make test-signal-ingest` passing cleanly with zero failures.
+- **Phase 4 Preconditions Cleared:** Proceed to `SLDP-P4-1`. Full execution proof recorded in `docs/signalloom/sldp-p4-pre-proof.md`.
 
 #### Errata — SLDP-P4-1 (bootstrap)
 ##### Task identity

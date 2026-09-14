@@ -73,6 +73,18 @@ var Migration008RetentionLegalHolds string
 //go:embed migrations/009_subject_keys.sql
 var Migration009SubjectKeys string
 
+// Migration010RetentionReceipts adds the retention deletion-receipt ledger (SLDP-P6-1).
+//
+// Sequence 010 was verified free rather than assumed: `git log --all --name-only` over
+// identity/migrations/ shows 009 as the highest on every branch, and no 010 file existed on disk. Note
+// that the comment on 009 above states "SLDP-P4-2 runs concurrently in a separate worktree and takes
+// 010" — that claim is STALE. P4-2 shipped its attested tombstones as evidence-directory files and
+// never added a migration, so 010 was never taken. The stale reservation is recorded in this card's
+// errata rather than silently overwritten.
+//
+//go:embed migrations/010_retention_receipts.sql
+var Migration010RetentionReceipts string
+
 // MigrationSQL returns the concatenated forward migration SQL scripts for external inspection or
 // testing. The rollback script is deliberately excluded: including it would make a grep for a
 // dropped index match the rollback's re-creation of it, so a test asserting "the cleartext index
@@ -86,7 +98,8 @@ func MigrationSQL() string {
 		Migration006TenantIsolationRLS + "\n" +
 		Migration007SegmentReidentificationMap + "\n" +
 		Migration008RetentionLegalHolds + "\n" +
-		Migration009SubjectKeys
+		Migration009SubjectKeys + "\n" +
+		Migration010RetentionReceipts
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -148,6 +161,10 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	// indexes are created before ENABLE/FORCE ROW LEVEL SECURITY is applied.
 	if _, err := tx.ExecContext(ctx, Migration009SubjectKeys); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 009: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, Migration010RetentionReceipts); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 010: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

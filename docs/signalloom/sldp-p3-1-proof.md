@@ -1,6 +1,6 @@
 # SLDP-P3-1 Execution Proof
 
-**Status:** PASS — segment column schema versioned to `signalloom.observations/v2` carrying keyed pseudonyms only; six cleartext identifier columns removed from the writer; dynamic label key space closed by a write-time allow-list; identifier patterns added to both redaction paths and wired into the one call site that makes them non-vacuous; re-identification map relocated to an encrypted, RLS-protected Postgres table; mixed v1/v2 corpus proven decodable; p95 at N=12,000 measured at **2.174 ms** against a 2.75 ms budget. One measured latency regression and three residual exposures are recorded below rather than smoothed over.
+**Status:** PASS — segment column schema versioned to `signalloom.observations/v2` carrying keyed pseudonyms only; six cleartext identifier columns removed from the writer; dynamic label key space closed by a write-time allow-list; identifier patterns added to both redaction paths and wired into the one call site that makes them non-vacuous; re-identification map relocated to an encrypted, RLS-protected Postgres table; mixed v1/v2 corpus proven decodable; p95 at N=12,000 on the KPI query measured at **2.174 ms** against a 2.75 ms budget. **The card asked for proof that the query path meets its budget, and one query class does not** — actor-only pushdown regressed to 9.937 ms. That is recorded as a named, quantified exception for the budget owner to rule on, alongside nine residual exposures, rather than smoothed over.
 **Logical ID:** `SLDP-P3-1`
 **Role:** Implementation
 **Base Commit:** `9bd11bcdc4e576d0326ed1043457c49ce291c84c`
@@ -269,21 +269,45 @@ survived the column move intact, which is the whole reason the card mandates pse
 than encryption: equality on a keyed HMAC is equality on the plaintext, so `buildFilter` still emits
 a single `Eq` on a single STRING column and only the literal changed.
 
-**The actor-only regression is real and is not being smoothed over.** That query shape went from
-1.32 ms to 9.937 ms and now exceeds the 2.75 ms budget on its own. Selectivity is unchanged — same
-target actor, same matched rows, and correctness is asserted against the in-memory oracle — so this
-is an execution-cost change, not a semantic one.
+**Budget verdict, stated precisely: the KPI passes; the card's requirement does not.** The card says
+"Prove the query path still meets its budget." One shape meeting it is not that. The honest verdict
+is **pass with a named, quantified exception that is the budget owner's to waive, not this card's.**
 
-The probable mechanism is that `hmac_actor_hint` holds near-uniform 64-character hex, so every row
-group's min/max range spans almost the whole value space and row-group pruning collapses, where six
-short low-cardinality service-account strings pruned well. **This mechanism is plausible and
-consistent with the numbers but has NOT been isolated by a controlled experiment**, and it should not
-be quoted as established. What is established is the measurement.
+**The actor-only regression is real, and it is a class, not an edge case.** That shape went from
+1.32 ms to 9.937 ms and now exceeds the 2.75 ms budget alone. Selectivity is unchanged — same target
+actor, same matched rows, correctness asserted against the in-memory oracle — so this is an
+execution-cost change, not a semantic one.
 
-Practical impact is bounded: the actor-only query carries no time predicate, and the KPI query —
-which pairs actor with a time range — is well inside budget and got faster. A recommended follow-up
-for P3-GOV is to confirm the mechanism and decide whether to require a time bound alongside an actor
-predicate, or to cluster segments on the pseudonym column.
+It also deserves more weight than "one query got slower", because **actor-only is the shape that
+isolates filtering on the pseudonymised column**. The headline KPI pairs the actor predicate with a
+time range, so its pruning can be carried by `timestamp` — which means the KPI passing is weak
+evidence that identity-filtered queries are healthy. The affected class is *every query whose
+selectivity comes from a pseudonym column*, and actor-only is its canonical member.
+
+**Measured evidence for the mechanism, within each generation's own harness so harness differences
+cancel** — the ratio of actor-only latency to that same run's full-scan baseline:
+
+| Generation | actor-only p95 | full-scan p95 (same run) | speedup from filtering |
+|---|---|---|---|
+| v1 (P3-PRE) | 1.32 ms | 19.43 ms | **14.7×** |
+| v2 (this card) | 9.937 ms | 14.90 ms | **1.5×** |
+
+Filtering on the actor column went from eliminating ~93 % of the scan cost to ~33 %. That collapse is
+a measurement, not an inference.
+
+**What remains inferred, and must not be quoted as established:** that the *cause* of the collapse is
+`hmac_actor_hint` holding near-uniform 64-character hex, so every row group's min/max range spans
+almost the whole value space where six short service-account strings pruned well. That is consistent
+with the numbers and with the mechanism, but it has **not** been isolated by a controlled experiment,
+and two alternative explanations are not ruled out: dictionary-encoding cost on 64-character values,
+and decoder dispatch in the mixed-generation read path.
+
+The distinction matters because the mechanism sizes the remediation. Pruning collapse is bounded —
+sort-on-write, a bloom filter, or a short low-cardinality prefix column for pruning alongside the
+full HMAC for equality. A dictionary or decoder cause needs a different fix. **P3-GOV should not
+accept a waiver until the mechanism is measured**, and the cheapest decisive probe is a measurement
+rather than an experiment: count row groups and bytes scanned for the actor-only query under each
+generation.
 
 ---
 
@@ -313,6 +337,19 @@ Recorded so the next card consumes them rather than re-deriving them.
 6. **Dashboard consumers read empty, not error.** `weaveApi.ts` and `FeedsExplorerPage.tsx` consume
    `actor_hint`. For v2 rows it is now empty, so a panel that depends on it looks empty rather than
    broken. `SchemaVersion` is on the wire (`omitempty`) so a consumer can tell the cases apart.
+   `test/acceptance/feeds-explorer.spec.ts` and `test/signalfusion-demo.bats` also reference the
+   removed names and are the acceptance surfaces most likely to notice.
+7. **One HMAC key de-pseudonymises the whole historical corpus, unfixably.** Segments are immutable,
+   so a key compromise is retroactive across every v2 segment ever written and cannot be remediated
+   by rotation — rotation only changes pseudonyms written *after* it. The key ring is tenant- and
+   epoch-scoped, which bounds the blast radius to one tenant-epoch rather than the estate, but this
+   is a bound, not a fix. P4-1's per-subject key hierarchy is where it actually gets closed.
+8. **No test asserts a rollback cannot resume cleartext writes.** Deploying a pre-P3-1 binary against
+   the same bucket would write v1 segments again, and nothing in the store refuses that. The
+   protection today is deployment discipline, not a control.
+9. **RLS on migration 007 is asserted only on the positive path.** There is no test in which a
+   second, non-owning role is refused. A positive-path RLS test passes identically whether or not
+   the policy is enforced, so the `FORCE` clause is currently reasoned-about rather than proven.
 
 ---
 
@@ -329,7 +366,19 @@ Recorded so the next card consumes them rather than re-deriving them.
 | Make target | `make test-signal-ingest-frostdb` | exit 0 |
 | Make target | `make demo-signalloom-api-test TIER=contract` | exit 0, **56 passed** |
 | New P3-1 tests | 22 store + 5 transform | all PASS |
+| **Untagged** build + tests | `go build ./...` / `go test ./... -count=1` (no `-tags frostdb`) | exit 0, 20/20 ok |
 | Verifier untouched | `git diff --stat -- store/verify/` | empty |
+
+The untagged run matters on its own: a green measured only under `-tags frostdb` would hide any
+reference to a removed column living behind a different tag. Both tag sets are green.
+
+**Workspace-wide sweep for the removed column names** (`rg` across every file type outside markdown)
+returns collector *ingest contract* schemas and fixtures — `collectors/agentnono/contracts/*.json`,
+`collectors/workspacesaas/contract.go`, and similar. These are upstream of the store: the fields
+still exist on `model.Observation` and still arrive over the wire; they are simply no longer
+persisted. No schema-compatibility check, catalog, retention or replication path reads a segment
+column name. The two downstream surfaces that do reference them are acceptance-level
+(`test/acceptance/feeds-explorer.spec.ts`, `test/signalfusion-demo.bats`) and are recorded in §9.
 
 **Test-count integrity.** `frostdb_test.go` declares 18 top-level `Test` functions before and after
 (a suite that stops loading vanishes silently rather than failing); `segment_schema_v2_test.go` adds
@@ -345,3 +394,72 @@ was therefore flaky, and only surfaced once a second column moved. It now iterat
 attestation harness's log lines swamped the markers, and a duplicate map key would have been a
 compile error the filter also hid. Re-running unfiltered with an explicit exit-status check found it.
 A check that never ran is indistinguishable from a check that passed.
+
+---
+
+## 11. Adversarial review — findings, and what was done about them
+
+An independent adversarial review was run over commit `94eda33d`. **The cross-vendor differential did
+NOT happen:** the `codex exec` path is quota-exhausted until 2026-09-19, so the review is
+Claude-family analysis, not the OpenAI-family second opinion it was routed for. The shared-blind-spot
+reduction was therefore not obtained, and P3-GOV should re-run it after that date. Findings below are
+tool-verified regardless.
+
+### Fixed in `49dbc608`
+
+**F1 (critical) — the central claim was false.** `Append` wrote `o.Description` verbatim, and only
+`api/audit/receiver.go` redacted its own. The other seven writers did not, so
+`POST /api/v1/observations` — which validates confidence and nothing else — could put an
+attacker-supplied `"alice@corp.com from 10.0.0.5"` into a signed, unerasable segment.
+`collectors/baoaudit/receiver.go:329` writes a SPIFFE ID and SA principal in cleartext by
+construction.
+
+This is the failure shape §1b explicitly named and then only half-applied: a guard at one caller of
+eight is the same as no guard. Every schema-level test passed throughout, because they inspect column
+*names* and are structurally blind to the payload. The redaction moved to `Append`, the single
+chokepoint, and `TestFrostDBStore_V2_DescriptionIsRedactedAtTheChokepoint` now asserts the persisted
+row. It is mutation-checked: replacing the call with a passthrough fails it.
+
+**Three comments that were false about the code beneath them** were corrected rather than the code
+they misdescribed being quietly changed:
+
+- `transform/identifiers.go` claimed the replacement is "keyed". True for the scrubber
+  (`AnonymizeHMAC`, 128-bit); **false** for `SecretRedactor.hashRedact`, which is unkeyed SHA-256
+  truncated to 8 hex characters = **32 bits**. The entire IPv4 space is 2³², so a redacted source IP
+  is reversible by exhaustive search in minutes. Keying it rewrites every existing
+  `REDACTED_SHA256` value, making it a migration rather than an edit — recorded, not smuggled in.
+- `store/label_allowlist.go` claimed values come from bounded vocabularies. **The allow-list
+  constrains KEYS only.** `Append` checks `k`, never `v`. `labels["reason"]` routinely holds
+  `User "alice" cannot get pods` and `labels["name"]` can hold an email address — both land cleartext
+  in a v2 column.
+- `store/segment_pseudonymiser.go` documents a fail-closed tenant scope while defaulting it from the
+  environment, silently merging tenant correlation domains for any multi-tenant deployment that
+  forgets the variable. The key path fails closed; the tenant path does not.
+
+### Open — recorded, not fixed, and each one bounded
+
+| # | Severity | Defect | Consequence |
+|---|---|---|---|
+| **F4** | High (correctness) | `buildFilter` emits only `hmac_actor_hint == <pseudonym>` and is **not** generation-aware, while `matchesQuery` is. | A v1 block has no `hmac_actor_hint`, so `Query{ActorID:…}` over a mixed bucket **silently under-returns** — no error, no signal. This directly contradicts §7's claim that both generations stay queryable: they decode, but the actor query path reaches only v2. Fix is `Or(hmac_actor_hint == pseudo, actor_hint == cleartext)`. |
+| **F5** | Med-High | IPv4 guard group 3 *consumes* the trailing delimiter, so the next address cannot find its leading guard. | `10.0.0.1,10.0.0.2,10.0.0.3` redacts the 1st and 3rd only. Comma-separated lists are the normal shape of `sourceIPs`, so every second address leaks. |
+| **F6** | Medium | The IPv6 pattern is satisfied by any `HH:MM:SS`. | Clock times inside descriptions are destroyed, permanently, because the segment is immutable. |
+| **F7** | Medium | On the scrubber path `AnonymizeHMAC` returns `hmac-<hex>`, whose characters are inside `usernamePattern`'s value class, so an already-redacted value is re-matched and re-hashed. | The same identifier yields two different pseudonyms, so the actor-graph join fails and `segment_reidentification_map` can never resolve the double-hashed one. Bites the scrubber only; `[REDACTED_SHA256:…]` is immune because `[` breaks the class. |
+| **F8** | Medium | `usernamePattern` requires `[:=]`. | `User "alice" cannot get pods in namespace "prod"` — the standard RBAC denial string, and exactly what lands in `reason` and `description` — passes through untouched. |
+| **F10** | Low | `pseudonym_epoch INTEGER` cannot hold the Go-side `uint32` range; no non-empty constraints on `tenant_id`, `tenant_scope`, `identifier_kind`. | Epochs above 2³¹−1 fail at insert. |
+
+**F4 is the one that matters most of these** and should be the first thing P3-GOV schedules: it is a
+silent correctness defect in the deliverable this card claims, not a hardening gap.
+
+### Categories the review cleared explicitly
+
+Catastrophic backtracking — impossible; Go's `regexp` is RE2, linear-time. Panic on an absent column
+— none; every lookup is `colIdx`-guarded and generation detection is correct. Pseudonymiser
+fail-open — none; all three construction paths refuse before allocating, `Append` has a zero-struct
+backstop, and a nil `labelAllow` denies every key. IPv4 **over**-match — clean; `v1.24.1` and
+`1.2.3.4.5` verified untouched. Migration 007 RLS — correct: `ENABLE` and `FORCE` both present,
+`WITH CHECK` present, and a NULL claim yields no rows rather than all rows.
+
+One item could not be verified: the alias shim preserves behaviour *by construction* (a `=` type
+alias is the same type, not a wrapper), but the pre-move implementation is not reachable in this
+branch's history, so the HKDF domain string's byte-identical survival across the move was **not**
+proven. `git log --all -S'alias-pseudonym/v1'` across origin branches would settle it.

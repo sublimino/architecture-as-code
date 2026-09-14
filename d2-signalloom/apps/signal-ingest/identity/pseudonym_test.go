@@ -179,7 +179,7 @@ func TestPseudonym_KeyDerivationIsCached(t *testing.T) {
 	if _, err := k.Pseudonym("tenant-a", "x@corp.internal"); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	if _, ok := k.derived.Load("tenant-a"); !ok {
+	if !k.IsTenantKeyCached("tenant-a") {
 		t.Fatal("tenant key was not cached after first use; HKDF would re-run on every lookup")
 	}
 }

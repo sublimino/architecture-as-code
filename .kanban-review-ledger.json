@@ -2203,5 +2203,19 @@
     "reviewer": "Council (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "Council approval for SLDP-P5-PRE: Phase 5 preflight complete. KMS signer interface prototyped, Witness DSSE compatibility confirmed, worker synchronicity constraints characterised, claimed-versus-actual inventory for GDPR Articles 15, 20, 21 documented with missing export endpoint verified."
+  },
+  "8e959": {
+    "task_id": "8e959",
+    "reviewed_at": "2026-09-14T20:34:59Z",
+    "reviewer": "Council (Antigravity/KPAI/CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P5-2 verified: Article 28(3)(f) processor assistance pack authored in docs/signalloom/dpia-reference-pack.md (827 lines), Article 6(1)(f) LIA three-limb test, national co-determination mapping (DE BetrVG, FR CSE, NL WOR, UK DPA), 45-row completeness checklist across 31 criteria categories, verified via test -f docs/signalloom/dpia-reference-pack.md and proof recorded in docs/signalloom/sldp-p5-2-proof.md (commit 2ba84a18)"
+  },
+  "752ac": {
+    "task_id": "752ac",
+    "reviewed_at": "2026-09-14T20:35:04Z",
+    "reviewer": "Council (Antigravity/KPAI/CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   }
 }

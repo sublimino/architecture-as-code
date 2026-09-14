@@ -270,7 +270,9 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P1-1 | ripwire-write-tests; Security | Telemetry architect | M | 90m | daily | Define CodingAgentTelemetry event schema and metadata-only dictionary. |
 | P1-2 | ripwire-write-tests; Security | Privacy architect | M | 90m | daily | Formulate strict zero-customer-payload validator and leak falsification tests. |
 | P1-3 | ripwire-before-you-build; Security | Contract architect | L | 150m | deep | Freeze wire contract for host detective probe and signal-ingest consumer. |
-| P1-GOV | CodeReview; ripwire-change-check | Architecture Governor | M | 90m | deep | Approve contract freeze and certify zero-payload invariants. |
+| P1-4 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | antigravity | proc.py:14-32 prohibits fd, fdinfo and net, but no test pins those three. Only mem, environ and cmdline are individually pinned, so P4-2's socket detector could silently remove them and every test would still pass. The pins must exist before the detector is written. |
+| P1-5 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | kpai | Collecting from developer workstations is employee monitoring under GDPR regardless of security purpose, and nothing in the plan establishes a lawful basis. A retrospective assessment cannot justify collection that already happened, so this is the one item in the mission that cannot be retrofitted. Article 88 and works-council consultation are a separate instrument from the Article 6(1)(f) balancing test. |
+| P1-GOV | CodeReview; ripwire-change-check | Architecture Governor | M, P1-4, P1-5 | 90m | deep | Approve contract freeze and certify zero-payload invariants. |
 | P2-PRE | ripwire-before-you-build; ripwire-reuse-first | System pre-flight engineer | S | 45m | daily | Confirm Linux procfs permissions and harness signature database. |
 | P2-1 | ripwire-write-tests; Security | Procfs engineer | L | 150m | daily | Implement non-intrusive procfs process scanner without argument dumping. |
 | P2-2 | ripwire-write-tests; Security | Ancestry classifier engineer | L | 150m | daily | Build harness process ancestry classifier for Claude, Agy, Codex, CPAI. |
@@ -291,7 +293,8 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P6-1 | ripwire-write-tests; ripwire-security-scan | Test automation engineer | L | 150m | daily | Build unit, integration, and security test suites for detective telemetry. |
 | P6-2 | Drawio; Browser | Technical author | M | 90m | daily | Create documentation and detection runbook in apps/docs-signalloom. |
 | P6-3 | Browser; ripwire-write-tests | Acceptance engineer | L | 150m | deep | Build Playwright browser acceptance test for coding agent topology rendering. |
-| P6-GOV | CodeReview; Browser; ripwire-change-check | Acceptance Governor | L | 150m | deep | Reconcile acceptance wiring, run full test suite, and certify SLCD delivery. |
+| P6-4 | ripwire-write-tests; ripwire-security-scan | Implementation | S | 45m | antigravity | P6-PRE only confirms the registry and P6-3 writes a spec, but nothing produces the row or the testMatch entry. That registry already records four specifications that matched no testMatch and were therefore silently never run, so this is a demonstrated failure mode rather than a hypothetical one. |
+| P6-GOV | CodeReview; Browser; ripwire-change-check | Acceptance Governor | L, P6-4 | 150m | deep | Reconcile acceptance wiring, run full test suite, and certify SLCD delivery. |
 
 ### Spec: Work Decomposition
 
@@ -302,7 +305,9 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze wire contract for host detective probe and signal-ingest consumer | P1-1, P1-2 | Versioned Go/Python schemas; OpenAPI contract freeze | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-GOV | governor | Approve contract freeze and certify zero-payload invariants | P1-1, P1-2, P1-3 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-4 | implementation | Pin every prohibited procfs entry before a detector touches them | P1-PRE | `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'` | M | antigravity | Pending | $0.00 | N/A | N/A | N/A |
+| P1-5 | implementation | Legitimate Interest Assessment and works-council position for workstation telemetry | P1-PRE | `test -f docs/signalloom/slcd-lawful-basis.md` | M | kpai | Pending | $0.00 | N/A | N/A | N/A |
+| P1-GOV | governor | Approve contract freeze and certify zero-payload invariants | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm Linux procfs permissions and harness signature database | P1-GOV | Procfs access check; harness signatures inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Implement non-intrusive procfs process scanner without argument dumping | P2-PRE | Pytest procfs scanner tests; verify `/proc/<pid>/cmdline` is not dumped | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Build harness process ancestry classifier for Claude, Agy, Codex, CPAI | P2-PRE | Heuristic classifier tests; tree resolution accuracy assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -323,7 +328,8 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P6-1 | implementation | Build unit, integration, and security test suites for detective telemetry | P6-PRE | `make demo-agentmaxxing-host-test`; 100% pass across all tiers | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-2 | implementation | Create documentation and detection runbook in apps/docs-signalloom | P6-PRE | Astro docs build check; runbook clarity verification | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-3 | implementation | Build Playwright browser acceptance test for coding agent topology rendering | P6-PRE | Playwright spec passes; live agent cards and metrics verified | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P6-GOV | governor | Reconcile acceptance wiring, run full test suite, and certify SLCD delivery | P6-1, P6-2, P6-3 | `bats test/acceptance-spec-coverage.bats` passes; all SLCD tests green | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P6-4 | implementation | Add the SLCD SPEC-REGISTRY row, testMatch entry and Makefile target | P6-PRE | `bats test/acceptance-spec-coverage.bats` | S | antigravity | Pending | $0.00 | N/A | N/A | N/A |
+| P6-GOV | governor | Reconcile acceptance wiring, run full test suite, and certify SLCD delivery | P6-1, P6-2, P6-3, P6-4 | `bats test/acceptance-spec-coverage.bats` passes; all SLCD tests green | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 
 ### Spec: Errata
 
@@ -346,3 +352,25 @@ Funded under Signal Loom Agentic Governance platform investment.
 
 ##### Deliverable verification
 - Verification: Seam inventory and kick-off gates verified.
+
+#### Errata — SLCD-P1-4 (bootstrap)
+##### Task identity
+- Card: `SLCD-P1-4`
+- Shortcode: `SLCD`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLCD-P1-5 (bootstrap)
+##### Task identity
+- Card: `SLCD-P1-5`
+- Shortcode: `SLCD`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLCD-P6-4 (bootstrap)
+##### Task identity
+- Card: `SLCD-P6-4`
+- Shortcode: `SLCD`
+- Commit: Pending
+- Result: Pending
+

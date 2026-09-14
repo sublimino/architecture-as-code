@@ -263,10 +263,12 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | :--- | :--- | :--- | :--- | ---: | :--- | :--- |
 | P0 | ajm-auto-kanban; ripwire-before-you-build | Baseline engineer | S | 45m | fast | Validate SLER harness identity, monorepo build, and read-only baseline. |
 | P1-PRE | FirstPrinciples; ripwire-before-you-build | Contract architect | S | 45m | daily | Inventory unresolved kickoff gates, sentinel implementations, and API seams. |
-| P1-1 | ripwire-write-tests; ripwire-security-scan | Enforcer architect | M | 90m | daily | Unify Enforcer interface and eliminate noopFleetClient silent fallback. |
+| P1-1 | ripwire-write-tests; ripwire-security-scan | Enforcer architect | P1-PRE, P1-2 | 90m | daily | Unify Enforcer interface and eliminate noopFleetClient silent fallback. |
 | P1-2 | ripwire-write-tests; Security | Dispatch architect | M | 90m | daily | Define per-plane containment dispatch schemas and wire models. |
 | P1-3 | ripwire-before-you-build; Security | Integration architect | L | 150m | deep | Freeze versioned enforcement wire contracts and governance resume token. |
-| P1-GOV | CodeReview; ripwire-change-check | Architecture Governor | M | 90m | deep | Approve decision freeze and verify zero unresolved placeholders. |
+| P1-4 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | antigravity | `/stun` and `/resume` are both registered at main.go:214-215 but the credential validator is wired only to the resume path at :228. Anything reaching the DaemonSet on :8080 can freeze arbitrary pods and cannot unfreeze them, on a hostPID privileged workload with no NetworkPolicy. Exploitable on the committed baseline. |
+| P1-5 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | kpai | cascade.go:90-91 treats an unreadable pod state as running, :96 and :101 continue past revoke and set failures, then :107 unconditionally reports StateStunned with a 200. The defect is in the orchestrator, so retiring noopFleetClient per P1-1 does not fix it. Depends on P1-2 because the result types have nowhere to record a failure until the schema lands. |
+| P1-GOV | CodeReview; ripwire-change-check | Architecture Governor | M, P1-4, P1-5 | 90m | deep | Approve decision freeze and verify zero unresolved placeholders. |
 | P2-PRE | ripwire-before-you-build; ripwire-reuse-first | Credential pre-flight engineer | S | 45m | daily | Confirm OpenBao and SPIRE revoke API endpoints and integration seams. |
 | P2-1 | ripwire-write-tests; Security | Secrets engineer | L | 150m | daily | Implement active OpenBao lease and token revocation API client. |
 | P2-2 | ripwire-write-tests; Security | SPIFFE identity engineer | L | 150m | daily | Implement SPIRE entry eviction and SVID rejection enforcement. |
@@ -296,10 +298,12 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | preflight | Validate SLER harness identity and clean monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLER`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P1-PRE | preflight | Inventory unresolved kickoff decisions and enforcement seams | P0 | Seam inventory; `d2-signalloom/apps/{fleet-manager,stun-sentinel}` inspection | S | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE | `cd d2-signalloom/apps/fleet-manager && go test ./...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE, P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze versioned enforcement wire contracts and governance resume token | P1-1, P1-2 | Contract freeze in docs and Go types; resume token signature spec | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-4 | implementation | Authenticate the sentinel /stun endpoint and add its NetworkPolicy | P1-PRE | `cd d2-signalloom/apps/stun-sentinel && go test ./...` | M | antigravity | Pending | $0.00 | N/A | N/A | N/A |
+| P1-5 | implementation | Stop the cascade fabricating success; carry per-plane status and error | P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | L | kpai | Pending | $0.00 | N/A | N/A | N/A |
+| P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Implement active OpenBao lease and token revocation API client | P2-PRE | `make demo-signalloom-api-test TIER=contract`; lease revocation test | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -344,3 +348,18 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 
 ##### Deliverable verification
 - Verification: Seam inventory and kick-off gates verified.
+
+#### Errata — SLER-P1-4 (bootstrap)
+##### Task identity
+- Card: `SLER-P1-4`
+- Shortcode: `SLER`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLER-P1-5 (bootstrap)
+##### Task identity
+- Card: `SLER-P1-5`
+- Shortcode: `SLER`
+- Commit: Pending
+- Result: Pending
+

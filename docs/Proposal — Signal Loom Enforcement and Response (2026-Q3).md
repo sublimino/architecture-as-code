@@ -297,7 +297,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | preflight | Validate SLER harness identity and clean monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLER`; repository and board evidence only | S | fast | **pass** — baseline clean at `2fedff06`; 3/3 acceptance suites green (15/15, 15/15, 7/7); doctor exit 1 attributed to repo-wide inherited state, both board-scoped checks green; M1 confirmed from-zero client build; 2 baseline defects recorded (harness cannot fail; stun-sentinel does not compile) → `docs/signalloom/sler-p0-baseline.md` @ `e0b1671d` | $0.00 | N/A | ~11m | N/A |
-| P1-PRE | preflight | Inventory unresolved kickoff decisions and enforcement seams | P0 | Seam inventory; `d2-signalloom/apps/{fleet-manager,stun-sentinel}` inspection | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-PRE | preflight | Inventory unresolved kickoff decisions and enforcement seams | P0 | Seam inventory; `d2-signalloom/apps/{fleet-manager,stun-sentinel}` inspection | S | daily | **pass** — 7 seams documented with file:line citations; Freezer.Freeze signature gap confirmed; node-capability-guard confirmed 0 manifests; 0 mesh policies confirmed; route auth matrix complete → `docs/signalloom/sler-p1-pre-seam-inventory.md` | $0.00 | N/A | ~4m | N/A |
 | P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE, P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze versioned enforcement wire contracts and governance resume token | P1-1, P1-2 | Contract freeze in docs and Go types; resume token signature spec | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -379,14 +379,43 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 No Go source, Makefile, manifest, or test file was modified. No runtime state (`board.json`, task records) was written. No live customer infrastructure was contacted. No prior errata entry was altered.
 
 #### Errata — SLER-P1-PRE (preflight)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15T00:49:07+01:00
+**Last Updated:** 2026-09-15T00:49:07+01:00
+
 ##### Task identity
 - Card: `SLER-P1-PRE`
 - Shortcode: `SLER`
-- Commit: Pending
-- Result: Pending
+**Status:** pass
+**Commit:** `305b034f794568a95ea1cd2ae27d6da946951a24`
+- Task base: `41d34ce0e46e5d70d19e1d153c0a6bd34c8b3376` (identical to `refs/heads/integration/sler-v0.1.0` at start of run)
+- Worktree branch label: `(detached)`
+- Result: Enforcement seams inventoried; signature-level gaps confirmed; node-capability-guard greenfield status confirmed; dual-sentinel behavioral diff established; deliverables documented in `docs/signalloom/sler-p1-pre-seam-inventory.md`.
+**Phase 1 can proceed:** yes
 
 ##### Deliverable verification
-- Verification: Seam inventory and kick-off gates verified.
+- Deliverable: `docs/signalloom/sler-p1-pre-seam-inventory.md` — complete seam inventory with `file:line` citations.
+- `grep -n 'HandleFunc' d2-signalloom/apps/fleet-manager/main.go d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go` → exit code `0`. Confirmed 7 unauthenticated routes on `fleet-manager` (`:256-262`) and 4 routes on `stun-sentinel` (`:249-255`, 2 probe routes open, 2 state-change routes wrapped with `requireBearer`).
+- `grep -n 'WithCredentialValidator' d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go` → exit code `0`. Confirmed `cgroup.WithCredentialValidator` configured at `:271`, but within `pkg/cgroup/freezer.go` `validator` is checked only in `Unfreeze` (`:578`), while `Freeze` (`:507`) and `FreezePod` (`:557`) take no credential parameter at all.
+- `find d2-signalloom/apps/node-capability-guard -type f` → exit code `0`. Confirmed 4 files total (`cmd/main.go`, `go.mod`, `pkg/webhook/handler.go`, `pkg/webhook/handler_test.go`), exactly 0 Kubernetes manifests and 0 Dockerfiles.
+- `grep -rn 'kind: CiliumNetworkPolicy\|kind: AuthorizationPolicy' d2-signalloom/` → exit code `0` (none found). Confirmed service mesh isolation in P3-1 is 100% greenfield.
+- `cd d2-signalloom/apps/fleet-manager && CGO_ENABLED=0 go test ./...` → exit code `0` (`ok`).
+- `cd d2-signalloom/apps/node-capability-guard && CGO_ENABLED=0 go test ./...` → exit code `0` (`ok`).
+- `cd d2-signalloom/apps/signalloom-stun-sentinel && CGO_ENABLED=0 go test ./...` → exit code `0` (`ok`).
+
+##### Claims checked — including those that held
+- **Held.** `fleet-manager` registers 7 HTTP routes at `main.go:256-262` with zero authentication; anyone reaching `:8082` can trigger cascade stun and recovery across the agent fleet.
+- **Held.** `stun-sentinel`'s missing credential validation on `Freeze` is a structural method signature gap (`Freeze(cgroupPath string)` vs `Unfreeze(cgroupPath, credential string)` at `pkg/cgroup/freezer.go:507,575`). It cannot be closed by a one-line call addition in `main.go`; it requires changing the `Freezer` method signatures.
+- **Held.** `DenyAllCredentials` (`pkg/cgroup/freezer.go:122`) provides a fail-closed default validator for resume, but no counterpart exists for freeze due to the missing parameter.
+- **Held.** `stun-sentinel-daemonset.yaml` runs `hostPID: true`, `privileged: true`, in namespace `signalloom-system` with `pod-security.kubernetes.io/enforce: privileged`, and carries no `NetworkPolicy`.
+- **Held.** `d2-signalloom/infra/agent-swarm/networkpolicy.yaml:12-13` explicitly documents that the stun sentinel runs on the node network (`hostNetwork`), meaning standard pod `NetworkPolicy` rules cannot filter its ingress traffic.
+- **Held.** `signalloom-stun-sentinel` is a separate Informer/Controller implementation declaring `go 1.22.0`, using `os/exec` for `tc`, primitive cgroup writes without process census or emptiness checks, and zero credential validation concepts.
+- **Held.** `node-capability-guard` has zero manifests or Dockerfiles; `fleet-manager` has 6 manifests in `base/`; `stun-sentinel` has a single deploy-level DaemonSet.
+- **Held.** `FleetClient` in `cascade.go:36-48` declares 4 methods (`GetPodState`, `SetPodState`, `RevokeCredentials`, `RestoreCredentials`). `noopFleetClient` at `main.go:214-222` is selected unconditionally, and `cascade.go:88-109` masks all underlying errors to return false-success `StateStunned` HTTP 200.
+- **Held.** Zero `CiliumNetworkPolicy` or Istio `AuthorizationPolicy` manifests exist anywhere in `d2-signalloom/`.
+
+##### Out-of-scope confirmation
+No Go source, Makefile, manifest, or test file was modified. No runtime state (`board.json`, task records) was written. No live customer infrastructure was contacted. No prior errata entry was altered.
 
 #### Errata — SLER-P1-4 (bootstrap)
 ##### Task identity

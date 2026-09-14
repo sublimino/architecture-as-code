@@ -2224,5 +2224,12 @@
     "reviewer": "Council of Agents (antigravity, kpai, cpai)",
     "verdict": "APPROVED",
     "reason": "SLDP-P5-1 verified: pluggable Signer interface (KMSSigner, LocalSigner), multi-algorithm verification (Ed25519, ECDSA, RSA-PSS), multi-process token bucket rate limiting, fail-closed KMS semantics, public verification material retention across rotation/destruction, and 100% passing tests (commit dc90f537)"
+  },
+  "6eb95": {
+    "task_id": "6eb95",
+    "reviewed_at": "2026-09-14T23:05:00Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "Council re-adjudication and certification approval for SLDP-P5-GOV: SLDP-P5-1, SLDP-P5-2, and SLDP-P5-3 all certify. Hard blockers G1 (fail-closed verifyRequesterForSubject with PermissionPrivacyAdmin/DPO check) and G2 (TestSubjectRights_RequesterVerification_FailsClosed with 4 green subtests, 8 tests total) fully remediated in commit c3009924 alongside advisory G3 (atomicWrite error check in segment_attestor.go) and G5 (article20_portable support). Phase 5 100% complete; proceed=yes."
   }
 }

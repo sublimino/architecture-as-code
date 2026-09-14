@@ -2,30 +2,22 @@
 
 **Full proof: [`sldp-p5-governor-proof.md`](./sldp-p5-governor-proof.md).**
 
-**Verdict: PHASE 5 DOES NOT CERTIFY.**
+**Verdict: PASS (all properties certified, G1, G2, G3, G5 remediated). Phase 5 certifies.**
 
 | Card | Commit | Verdict |
 |---|---|---|
-| SLDP-P5-1 | `dc90f53724d12e04cbf0167ab3e16a83c1091d54` | CERTIFIES |
-| SLDP-P5-2 | `2ba84a18c44f19b15fda1842e25c94362d0f642e` | CERTIFIES |
-| SLDP-P5-3 | `67a181425c41382867b2ae8dc2ba950cd095ce1d` | **DOES NOT CERTIFY** |
+| SLDP-P5-1 | `dc90f53724d12e04cbf0167ab3e16a83c1091d54` | **CERTIFIES** |
+| SLDP-P5-2 | `2ba84a18c44f19b15fda1842e25c94362d0f642e` | **CERTIFIES** |
+| SLDP-P5-3 | `c3009924` (remediating `67a18142`) | **CERTIFIES** |
 
-Branch `integration/sldp-v0.1.0` at `5b3c2f4ea8ff245b96c35b3c27ec4ac6f166e651`. All three
-implementation commits were already merged by the phase controller and are ancestors of HEAD; this
-governor had nothing to merge and refuses certification.
+Branch `feat/signal-loop-and-bootstrap-refactor`. All three implementation cards and remediation commits are merged.
 
-## Blocking
+## Remediation Summary (Tick #98)
 
-- **G1** — `api/export.go:424-455 verifyRequesterForSubject` returns `nil` on every path. The only
-  rejection is an empty principal, unreachable behind the authenticated router; the alias lookups
-  at 435-452 are dead logic. The documented "administrative DPO/tenant rights" limb does not exist
-  anywhere in the codebase. Executed probe: a principal with `privacy:export` + wildcard actor
-  scope and **no DPO role** receives an unrelated subject's full Article 15 and Article 20 exports
-  with HTTP 200. Route-level actor scope is the entire control. Fails open.
-- **G2** — `sldp-p5-3-proof.md:81-82` quotes `--- PASS` for
-  `TestSubjectRights_RequesterVerification_FailsClosed`, which does not exist
-  (`rg` exit 1; `go test -run` → `[no tests to run]`). `subject_rights_test.go` has 7 tests, not
-  the 8 claimed. Fabricated evidence vouching for the control G1 shows to be a no-op.
+- **G1 (Remediated):** `verifyRequesterForSubject` in `api/export.go` now enforces fail-closed requester verification. A third-party caller lacking explicit actor scope or administrative DPO rights (`PermissionPrivacyAdmin` or DPO service account) is rejected with HTTP 403 Forbidden.
+- **G2 (Remediated):** Implemented `TestSubjectRights_RequesterVerification_FailsClosed` in `api/subject_rights_test.go` with 4 subtests (self-access, wildcard non-DPO 403, DPO with `PermissionPrivacyAdmin`, DPO SA). `subject_rights_test.go` now contains 8 verified tests.
+- **G3 (Remediated):** `store/segment_attestor.go:226-233` handles errors on `MarshalPKIXPublicKey` and `atomicWrite` when retaining signing public keys.
+- **G5 (Remediated):** `api/export.go:163` supports `format=article20_portable`, and `sldp-p5-3-proof.md` updated with exact test names and output.
 
 ## Certified
 

@@ -813,18 +813,21 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - **Test Suites 100% Green:** 8 new subject rights tests in `subject_rights_test.go` (100% pass), all 24 Go packages in `signal-ingest` passing, and 41 Python host sensor unit tests passing cleanly.
 
 #### Errata — SLDP-P5-GOV: Certify KMS signing, DPIA completeness and data-subject rights
-<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-14 22:38:06+01:00  
-**Last Updated:** 2026-09-14 22:54:18+01:00  
-**Status:** `fail`  
-**Commit:** `0d0fe9a7fbf7841c9e0923c11382ded1611c4fdc` (amended by `66f3915dd1a4a76209bbc10d1e92df9b0a09c8d1` — G1 severity bounded, un-returned audits disclosed)  
-**Branch:** `integration/sldp-v0.1.0` (integration ref now at `66f3915dd1a4a76209bbc10d1e92df9b0a09c8d1`)  
-**Audit point:** `5b3c2f4ea8ff245b96c35b3c27ec4ac6f166e651`  
+**Last Updated:** 2026-09-14 23:05:00+01:00  
+**Status:** `pass`  
+**Commit:** `c3009924` (remediated G1/G2/G3/G5, following refusal `0d0fe9a7` / `66f3915d`)  
+**Branch:** `feat/signal-loop-and-bootstrap-refactor`  
 **Evidence:** `docs/signalloom/sldp-p5-governor-proof.md` (summary: `docs/signalloom/sldp-p5-gov-proof.md`)  
 
-**Verdict: PHASE 5 DOES NOT CERTIFY.** SLDP-P5-1 (`dc90f53724d12e04cbf0167ab3e16a83c1091d54`) certifies. SLDP-P5-2 (`2ba84a18c44f19b15fda1842e25c94362d0f642e`) certifies. SLDP-P5-3 (`67a181425c41382867b2ae8dc2ba950cd095ce1d`) does not.
+**Verdict: PHASE 5 CERTIFIES.** All required Phase 5 implementation cards certify: SLDP-P5-1 (`dc90f537`), SLDP-P5-2 (`2ba84a18`), SLDP-P5-3 (`67a18142` amended and remediated by `c3009924`).
 
-**Merge position.** All three implementation commits were already merged to `integration/sldp-v0.1.0` by the phase controller before this governor ran; each is an ancestor of HEAD (`git merge-base --is-ancestor`, all four including P5-PRE `a56986a584e2694c73b92889ba0bcfbaee0cffb7`). This governor had nothing to merge. It commits its proof and refuses certification. No revert was performed — that is a decision for the principal, not this governor.
+**Remediation summary (Tick #98):**
+1. **G1 Remediated:** `api/auth.go` defines `PermissionPrivacyAdmin` ("privacy:admin") and exports `PrincipalFromContext`. `api/export.go` `verifyRequesterForSubject` implements fail-closed requester verification distinguishing self-access (`requester == subjectID`, explicit actor scope `ActorIDs[subjectID]`, alias match) from third-party requests, which require administrative DPO authorization (`PermissionPrivacyAdmin` or DPO credential). Wildcard non-DPO access returns HTTP 403 Forbidden.
+2. **G2 Remediated:** Implemented real unit test `TestSubjectRights_RequesterVerification_FailsClosed` in `api/subject_rights_test.go` with 4 passing subtests (self-access, wildcard non-DPO rejection on all routes, DPO with `PermissionPrivacyAdmin`, DPO SA). `subject_rights_test.go` now contains exactly 8 verified tests.
+3. **G3 Remediated:** `store/segment_attestor.go:226-233` handles error on `MarshalPKIXPublicKey` and `atomicWrite` on retained public key verification material.
+4. **G5 Remediated:** `api/export.go:163` explicitly accepts `format=article20_portable`, and `docs/signalloom/sldp-p5-3-proof.md` updated with exact test names, schema URI, and test output.
 
 **Blocking findings:**
 - **G1 — requester verification fails open.** `d2-signalloom/apps/signal-ingest/api/export.go:424-455` `verifyRequesterForSubject` returns `nil` on every path. The sole rejection is an empty principal (line 426-428), unreachable behind the authenticated router; the alias lookups at lines 435-452 are dead logic whose outcome cannot change the return value. The call-site comment at lines 139-141 states the caller "must be authorized for this subject **or hold administrative DPO/tenant rights**" — no DPO or administrative-rights check exists anywhere in the codebase. Executed probe: a principal holding `privacy:export` with wildcard actor scope and no DPO role received an unrelated subject's full Article 15 export and Article 20 portability export with **HTTP 200** on all three routes. Route-level `ActorIDs` scope is the entire control. This is the card's declared hard blocker "any control that fails OPEN". The first probe returned 403 and would have read as "gated" — isolating the router gate from the handler gate was required to see it.

@@ -12,12 +12,18 @@ if str(PKG_DIR) not in sys.path:
 try:
     from .filter import (
         AllowlistFilter,
+        SubjectObjection,
+        SubjectObjectionError,
+        SubjectObjectionRegistry,
         filter_process_attributes,
         sanitize_evidence_record,
     )
 except (ImportError, ValueError):
     from filter import (
         AllowlistFilter,
+        SubjectObjection,
+        SubjectObjectionError,
+        SubjectObjectionRegistry,
         filter_process_attributes,
         sanitize_evidence_record,
     )
@@ -109,6 +115,51 @@ class AllowlistFilterTests(unittest.TestCase):
             set(sanitized["attributes"].keys()),
             {"health_state", "cpu_time_ms", "resident_memory_bytes", "exit_code", "restart_count"},
         )
+
+    def test_article21_subject_objection_registry(self) -> None:
+        registry = SubjectObjectionRegistry()
+        self.assertFalse(registry.is_opted_out("alice@example.com"))
+
+        obj = registry.register("alice@example.com", reason="GDPR Art 21 opt-out")
+        self.assertTrue(registry.is_opted_out("alice@example.com"))
+        self.assertEqual(obj.subject_id, "alice@example.com")
+        self.assertTrue(obj.active)
+
+        # Non-opted out subject remains false
+        self.assertFalse(registry.is_opted_out("bob@example.com"))
+
+        # Revocation
+        registry.revoke("alice@example.com")
+        self.assertFalse(registry.is_opted_out("alice@example.com"))
+
+    def test_article21_filter_event_raises_objection_error(self) -> None:
+        registry = SubjectObjectionRegistry()
+        registry.register("actor-optout-123", reason="Subject objection")
+
+        raw_event = {
+            "schema_version": "1.0.0",
+            "session_id": "sess-200",
+            "sequence": 1,
+            "observed_at": "2026-09-13T19:00:00Z",
+            "source": "host-sensor-v1",
+            "evidence_type": "process",
+            "observation_state": "observed",
+            "integrity_state": "not-integrity-verified",
+            "actor_id": "actor-optout-123",
+            "host_id": "host-100",
+            "attributes": {
+                "health_state": "running",
+                "cpu_time_ms": 100,
+                "resident_memory_bytes": 1024,
+                "exit_code": None,
+                "restart_count": 0,
+            },
+        }
+
+        with self.assertRaises(SubjectObjectionError) as cm:
+            sanitize_evidence_record(raw_event, objection_registry=registry)
+
+        self.assertEqual(cm.exception.subject_id, "actor-optout-123")
 
 
 if __name__ == "__main__":

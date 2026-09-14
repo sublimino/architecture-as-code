@@ -58,6 +58,7 @@ ALLOWLISTED_ENVELOPE_FIELDS: Set[str] = {
     "observation_state",
     "integrity_state",
     "agent_id",
+    "actor_id",
     "host_id",
     "attributes",
     "tenant_id",
@@ -69,16 +70,23 @@ PROHIBITED_EXPORT_KEYS: Set[str] = {
     "command",
     "cmdline",
     "argv",
+    "cli_arguments",
+    "command_line",
     "path",
     "url",
     "error",
     "file_contents",
     "memory_contents",
+    "memory_dump",
     "streamed_payload_digest",
     "streamed_payload_contents",
     "network_payload_contents",
+    "network_payload",
+    "input_payload",
+    "output_payload",
     "env",
     "environ",
+    "environment",
     "stack",
     "heap",
     "registers",
@@ -86,11 +94,108 @@ PROHIBITED_EXPORT_KEYS: Set[str] = {
     "stdin",
     "stdout",
     "stderr",
+    "credentials",
+    "secret",
+    "token",
+    "password",
+    "api_key",
+    "user_data",
+    "prompt_text",
+    "completion_text",
 }
 
 
+class SubjectObjectionError(Exception):
+    """Raised when telemetry processing is attempted for an opted-out subject under GDPR Article 21."""
+
+    def __init__(self, subject_id: str, reason: str = ""):
+        self.subject_id = subject_id
+        self.reason = reason
+        msg = f"GDPR Article 21 objection active for subject {subject_id}"
+        if reason:
+            msg += f": {reason}"
+        super().__init__(msg)
+
+
+class SubjectObjection:
+    """Represents a data subject's formal Article 21 objection record."""
+
+    def __init__(
+        self,
+        subject_id: str,
+        reason: str = "GDPR Article 21 right to object",
+        registered_at: Optional[str] = None,
+        active: bool = True,
+    ):
+        self.subject_id = subject_id
+        self.reason = reason
+        self.registered_at = registered_at
+        self.active = active
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "subject_id": self.subject_id,
+            "reason": self.reason,
+            "registered_at": self.registered_at,
+            "active": self.active,
+        }
+
+
+class SubjectObjectionRegistry:
+    """Workstation-level registry of Article 21 objections for person-level exclusion."""
+
+    def __init__(self):
+        self._objections: Dict[str, SubjectObjection] = {}
+
+    def register(
+        self,
+        subject_id: str,
+        reason: str = "",
+        registered_at: Optional[str] = None,
+    ) -> SubjectObjection:
+        """Register a subject's objection/opt-out."""
+        if not subject_id or not str(subject_id).strip():
+            raise ValueError("subject_id cannot be empty")
+        normalized = str(subject_id).strip()
+        obj = SubjectObjection(
+            subject_id=normalized,
+            reason=reason or "GDPR Article 21 right to object",
+            registered_at=registered_at,
+            active=True,
+        )
+        self._objections[normalized] = obj
+        return obj
+
+    def revoke(self, subject_id: str) -> bool:
+        """Revoke a previously registered objection."""
+        normalized = str(subject_id).strip()
+        if normalized in self._objections:
+            self._objections[normalized].active = False
+            return True
+        return False
+
+    def is_opted_out(self, subject_id: Optional[str]) -> bool:
+        """Check whether a subject ID, username, or alias is opted-out under Art. 21."""
+        if not subject_id:
+            return False
+        normalized = str(subject_id).strip()
+        obj = self._objections.get(normalized)
+        return obj is not None and obj.active
+
+    def get(self, subject_id: str) -> Optional[SubjectObjection]:
+        normalized = str(subject_id).strip()
+        return self._objections.get(normalized)
+
+    def list_active(self) -> List[SubjectObjection]:
+        return [o for o in self._objections.values() if o.active]
+
+
+# Default process-level objection registry
+DEFAULT_OBJECTION_REGISTRY = SubjectObjectionRegistry()
+
+
 class AllowlistFilter:
-    """Enforces strict field allowlisting and zero-payload isolation on telemetry records."""
+    """Enforces strict field allowlisting, zero-payload isolation, and Article 21 opt-outs."""
 
     @staticmethod
     def contains_prohibited_data(data: Any) -> Tuple[bool, List[str]]:
@@ -98,7 +203,8 @@ class AllowlistFilter:
         found: List[str] = []
         if isinstance(data, dict):
             for key, val in data.items():
-                if key in PROHIBITED_EXPORT_KEYS or "secret" in str(key).lower():
+                k_str = str(key).lower()
+                if key in PROHIBITED_EXPORT_KEYS or "secret" in k_str or "password" in k_str or "token" in k_str:
                     found.append(f"key:{key}")
                 if isinstance(val, (dict, list)):
                     sub_found, sub_keys = AllowlistFilter.contains_prohibited_data(val)
@@ -144,8 +250,15 @@ class AllowlistFilter:
         raw_event: Dict[str, Any],
         include_tenant: bool = False,
         include_extended: bool = False,
+        objection_registry: Optional[SubjectObjectionRegistry] = None,
     ) -> Dict[str, Any]:
-        """Produce clean, allowlisted export record from raw input."""
+        """Produce clean, allowlisted export record from raw input, enforcing Art. 21 objection."""
+        # Check person-level Article 21 objection
+        actor_id = raw_event.get("actor_id") or raw_event.get("agent_id")
+        reg = objection_registry or DEFAULT_OBJECTION_REGISTRY
+        if actor_id and reg.is_opted_out(actor_id):
+            raise SubjectObjectionError(str(actor_id))
+
         # Check and filter attributes
         raw_attrs = raw_event.get("attributes", {})
         if not isinstance(raw_attrs, dict):
@@ -180,6 +293,12 @@ def filter_process_attributes(
 def sanitize_evidence_record(
     raw_event: Dict[str, Any],
     include_tenant: bool = False,
+    objection_registry: Optional[SubjectObjectionRegistry] = None,
 ) -> Dict[str, Any]:
     """Helper to sanitize raw evidence record into strict allowlisted JSON object."""
-    return AllowlistFilter.filter_event(raw_event, include_tenant=include_tenant, include_extended=False)
+    return AllowlistFilter.filter_event(
+        raw_event,
+        include_tenant=include_tenant,
+        include_extended=False,
+        objection_registry=objection_registry,
+    )

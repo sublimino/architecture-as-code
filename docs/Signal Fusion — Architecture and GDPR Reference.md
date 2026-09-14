@@ -371,13 +371,14 @@ Tombstone:       [ Attested Tombstone logged: "Subject ID erased under Art 17 at
 
 ### 7.4 Servicing Data Subject Rights
 
-| Right | Architectural Implementation | Technical Mechanism |
+| Right | Architectural Implementation | Technical Mechanism & Scope Boundaries |
 | :--- | :--- | :--- |
-| **Access (Art. 15)** | Query all observations and delegation edges for a canonical actor | Built into `GET /api/v1/actors/{id}/authorization` and export endpoint |
-| **Rectification (Art. 16)** | Correct mis-resolved aliases or corrupted authority grants | Updates the mutable PostgreSQL delegation graph with a new time-valid edge |
-| **Erasure (Art. 17)** | Complete and permanent destruction of subject's identity | Crypto-shredding subject data key in KMS + logging attested tombstone |
-| **Restriction (Art. 18)** | Freeze active actor resolution without deleting historical audit | Setting actor resolution status to `frozen` in the PostgreSQL graph |
-| **Objection (Art. 21)** | Exclude employee from non-essential telemetry monitoring | Host sensor allowlist/denylist filter evaluated at the workstation level |
+| **Access (Art. 15)** | Cross-plane personal data export across Plane 1 (identity graph) & Plane 2 (evidence store) | Implemented via `GET /api/v1/privacy/export/{id}` and `GET /api/v1/actors/{id}/export`. Queries Plane 1 (PostgreSQL/in-memory identity graph: canonical actors, aliases, active/revoked delegation edges) and Plane 2 (FrostDB/in-memory evidence records via HMAC pseudonym pushdown matching `SubjectID`). Includes requester verification (fail-closed), Art. 15(4) third-party over-disclosure redaction, bounded pagination (`limit`, `offset`), and k-anonymity enforcement ($k \ge 5$). |
+| **Rectification (Art. 16)** | Correct mis-resolved aliases or corrupted authority grants | Updates the mutable PostgreSQL delegation graph with a new time-valid edge and alias correction. |
+| **Erasure (Art. 17)** | Complete and permanent destruction of subject's identity | Crypto-shredding subject data key in KMS + logging attested tombstone in compliance with immutability guarantees. |
+| **Restriction (Art. 18)** | Freeze active actor resolution without deleting historical audit | Setting actor resolution status to `frozen` in the PostgreSQL identity graph. |
+| **Portability (Art. 20)** | Structured, commonly used, and machine-readable data export | Provided via `GET /api/v1/privacy/export/{id}?format=article20_portable` (or `format=portable`). Emits schema-versioned structured JSON formatted with standard ISO 8601 timestamps and canonical actor attributes. **Scope boundaries**: Covers only subject-provided identity records and directly observed telemetry events processed under consent or contract (Art. 20(1)); explicitly excludes internal risk scoring models, aggregate statistical telemetry (governed by $k \ge 5$ k-anonymity floor), and proprietary correlation engine heuristics. |
+| **Objection (Art. 21)** | Workstation-level person exclusion and telemetry opt-out | Implemented via `SubjectObjectionRegistry` in the workstation host sensor (`filter.py` and `sensor.py`). Unlike field/payload allowlisting (which filters dictionary keys from observed processes), the objection registry matches person/actor identifiers (`actor_id`, username, email) at the sensor boundary and completely suppresses telemetry sampling, stream polling, and exit event emission for opted-out individuals. |
 
 ### 7.5 Sub-Processors & International Data Transfers (Art. 28 & 44–49)
 

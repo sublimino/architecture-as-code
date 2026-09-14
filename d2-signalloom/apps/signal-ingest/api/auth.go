@@ -52,6 +52,8 @@ const (
 	// destroys forensic attribution, so the set of principals who may request it must be
 	// narrowable independently of the set who may edit an actor.
 	PermissionErasureRequest Permission = "erasure:request"
+	// PermissionPrivacyExport gates GDPR Article 15 access and Article 20 data portability export routes (SLDP-P5-3).
+	PermissionPrivacyExport Permission = "privacy:export"
 )
 
 var (
@@ -310,6 +312,9 @@ func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
 		// the sole production route-registration boundary, and a gate reachable by an unregistered
 		// route is not a gate.
 		{"POST", "/api/v1/privacy/erasure/{id}", "POST /api/v1/privacy/erasure/{id}", PermissionErasureRequest, false, true, h.handleEraseSubject},
+		// SLDP-P5-3. Data subject rights export under GDPR Article 15 (access) and Article 20 (portability).
+		{"GET", "/api/v1/privacy/export/{id}", "GET /api/v1/privacy/export/{id}", PermissionPrivacyExport, false, true, h.handleExportSubject},
+		{"GET", "/api/v1/actors/{id}/export", "GET /api/v1/actors/{id}/export", PermissionPrivacyExport, false, true, h.handleExportSubject},
 	}
 	if metrics != nil {
 		r = append(r, routeDefinition{"GET", "/metrics", "GET /metrics", PermissionMetrics, false, false, metrics.ServeHTTP})

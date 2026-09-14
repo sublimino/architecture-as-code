@@ -13,6 +13,11 @@ if str(PKG_DIR) not in sys.path:
 
 try:
     from .collector import ProcessTelemetryCollector
+    from .filter import (
+        DEFAULT_OBJECTION_REGISTRY,
+        SubjectObjectionError,
+        SubjectObjectionRegistry,
+    )
     from .models import (
         BoundedProcessAttributes,
         HealthState,
@@ -20,6 +25,11 @@ try:
     )
 except (ImportError, ValueError):
     from collector import ProcessTelemetryCollector
+    from filter import (
+        DEFAULT_OBJECTION_REGISTRY,
+        SubjectObjectionError,
+        SubjectObjectionRegistry,
+    )
     from models import (
         BoundedProcessAttributes,
         HealthState,
@@ -37,6 +47,7 @@ class HostSensor:
         host_id: str,
         tenant_id: Optional[str] = None,
         collector: Optional[ProcessTelemetryCollector] = None,
+        objection_registry: Optional[SubjectObjectionRegistry] = None,
         initial_sequence: int = 0,
     ) -> None:
         self.session_id: str = session_id
@@ -44,10 +55,15 @@ class HostSensor:
         self.host_id: str = host_id
         self.tenant_id: Optional[str] = tenant_id
         self.collector: ProcessTelemetryCollector = collector or ProcessTelemetryCollector()
+        self.objection_registry: SubjectObjectionRegistry = objection_registry or DEFAULT_OBJECTION_REGISTRY
         self.sequence: int = initial_sequence
         self._current_pid: Optional[int] = None
         self._restart_count: int = 0
         self._is_running: bool = False
+
+    def is_opted_out(self) -> bool:
+        """Check if the monitored agent/actor is opted out under GDPR Article 21."""
+        return self.objection_registry.is_opted_out(self.agent_id)
 
     def bind_pid(self, pid: int, is_restart: bool = False) -> None:
         """Bind or update the monitored PID. Increments restart count if indicated."""
@@ -60,6 +76,9 @@ class HostSensor:
 
     def record_exit(self, exit_code: int) -> ProcessTelemetryEvent:
         """Record process exit and emit final termination evidence record."""
+        if self.is_opted_out():
+            raise SubjectObjectionError(self.agent_id, "telemetry recording suppressed on exit")
+
         event = self.collector.collect_event(
             session_id=self.session_id,
             sequence=self.sequence,
@@ -79,6 +98,9 @@ class HostSensor:
         override_exit_code: Optional[int] = None,
     ) -> ProcessTelemetryEvent:
         """Capture single on-demand telemetry snapshot."""
+        if self.is_opted_out():
+            raise SubjectObjectionError(self.agent_id, "telemetry sample suppressed under Article 21")
+
         pid = self._current_pid or 0
         event = self.collector.collect_event(
             session_id=self.session_id,
@@ -106,6 +128,9 @@ class HostSensor:
         self._is_running = True
 
         while self._is_running:
+            if self.is_opted_out():
+                break
+
             if max_samples is not None and samples_taken >= max_samples:
                 break
 

@@ -37,7 +37,7 @@ func (m *MemoryStore) QueryRange(_ context.Context, q Query) ([]model.Observatio
 		layerSet[l] = struct{}{}
 	}
 
-	var results []model.Observation
+	var matched []model.Observation
 	for _, o := range m.data {
 		if !q.After.IsZero() && o.Timestamp.Before(q.After) {
 			continue
@@ -53,12 +53,31 @@ func (m *MemoryStore) QueryRange(_ context.Context, q Query) ([]model.Observatio
 		if q.ActorID != "" && o.ActorHint != q.ActorID {
 			continue
 		}
-		results = append(results, o)
-		if q.Limit > 0 && len(results) >= q.Limit {
-			break
+		if q.SubjectID != "" {
+			matchSubject := (o.ActorHint == q.SubjectID) ||
+				(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
+					o.Labels["principal_id"] == q.SubjectID ||
+					o.Labels["impersonated_user"] == q.SubjectID ||
+					o.Labels["user"] == q.SubjectID))
+			if !matchSubject {
+				continue
+			}
 		}
+		matched = append(matched, o)
 	}
-	return results, nil
+
+	if q.Offset > 0 {
+		if q.Offset >= len(matched) {
+			return nil, nil
+		}
+		matched = matched[q.Offset:]
+	}
+
+	if q.Limit > 0 && len(matched) > q.Limit {
+		matched = matched[:q.Limit]
+	}
+
+	return matched, nil
 }
 
 // DropPartition removes all observations before the given time.

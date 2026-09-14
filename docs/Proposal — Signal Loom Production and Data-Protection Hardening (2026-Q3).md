@@ -312,7 +312,7 @@ previous phase governor, or on `P0` for phase 1.
 | P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | pass — delivered: a6974f6b (see Errata — SLDP-P5-PRE) | $0.00 | N/A | ~50m | kpai |
 | P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: f5261ea3 (see Errata — SLDP-P5-3) | $0.00 | N/A | 35m | deep |
 | P5-GOV | governor | Certify KMS signing, DPIA completeness and data-subject rights | P5-1, P5-2, P5-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P6-1 | implementation | Retention controller with deletion receipts across every sink | P6-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -778,12 +778,22 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - Commit: Pending
 - Result: Pending
 
-#### Errata — SLDP-P5-3 (bootstrap)
-##### Task identity
-- Card: `SLDP-P5-3`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P5-3: Build Article 15, 20 and 21 data-subject-rights mechanisms
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 21:15:00+01:00  
+**Last Updated:** 2026-09-14 21:15:00+01:00  
+**Status:** `pass`  
+**Commit:** `f5261ea3`  
+**Evidence:** `docs/signalloom/sldp-p5-3-proof.md`  
+
+**Phase 5 Implementation Verification Summary:**
+- **Article 15 (Access) Cross-Plane Personal Data Export:** Built dual-plane export handler in `api/export.go` reachable at `GET /api/v1/privacy/export/{id}` and `GET /api/v1/actors/{id}/export`. Resolves Plane 1 (PostgreSQL/in-memory identity graph: actors, aliases, delegations, revocations, scopes) and Plane 2 (FrostDB/in-memory evidence store: observations and evidence records matching subject HMAC pseudonyms).
+- **Over-disclosure Protection (Article 15(4)):** Implemented third-party personal identifier redaction (`[REDACTED_THIRD_PARTY_SUBJECT]`, `ThirdPartyMasked: true`) on multi-party delegation and observation records to protect co-worker identities.
+- **Fail-Closed Requester Verification & Bounded Export Sizing:** Requires valid authorization with `privacy:export` permission or matching actor token (fails closed 401/403). Enforces bounded pagination (`DefaultExportLimit = 100`, `MaxExportLimit = 1000`, `offset`), returning explicit truncation flags to prevent memory exhaustion.
+- **Article 20 (Portability) Machine-Readable Export & Scope Boundaries:** Added `format=article20_portable` support emitting structured JSON (`signalloom.article20-portable/v1`). Documented statutory scope boundaries excluding internal risk models, aggregate statistical telemetry (governed by $k \ge 5$ k-anonymity floor), and proprietary correlation heuristics.
+- **Article 21 (Objection) Workstation Host Sensor Opt-Out Registry:** Implemented `SubjectObjectionRegistry` in `agentmaxxing-host-sensor/filter.py` and integrated into `sensor.py`. Distinct from payload/field allowlisting, person-level objection matches individual identifiers (`actor_id`, username, email) at the sensor edge and suppresses all process sampling, stream polling, and exit event emission for opted-out individuals.
+- **GDPR Reference Documentation Aligned:** Corrected Section 7.4 of `docs/Signal Fusion — Architecture and GDPR Reference.md` to reflect actual built mechanisms and scope limits.
+- **Test Suites 100% Green:** 8 new subject rights tests in `subject_rights_test.go` (100% pass), all 24 Go packages in `signal-ingest` passing, and 41 Python host sensor unit tests passing cleanly.
 
 #### Errata — SLDP-P5-GOV (bootstrap)
 ##### Task identity

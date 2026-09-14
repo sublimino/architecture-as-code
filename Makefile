@@ -562,12 +562,23 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion
 .PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
+.PHONY: test-signal-segment-verifier verify-signal-segments
 
-test-signal-ingest: ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
+test-signal-ingest: test-signal-segment-verifier ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
 
-test-signal-ingest-frostdb: ## Run Go signal-ingest tests INCLUDING FrostDB store.
+test-signal-ingest-frostdb: test-signal-segment-verifier ## Run Go signal-ingest tests INCLUDING FrostDB store.
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./... -v -count=1
+
+# SLDP-P1-3: negative controls and the compiled auditor run in every ingest gate.
+test-signal-segment-verifier: ## Verify real writer fixtures, tamper refusal, historical keys, schemas, and auditor CLI.
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -count=1 -run '^TestVerify' ./store/... ./cmd/segment-verify
+
+# For a later phase's actual offline snapshot, not just the verifier self-tests.
+# Use the standalone command with repeated -public-key for rotated keyrings.
+verify-signal-segments: ## Verify a supplied corpus; requires SIGNAL_VERIFY_{EVIDENCE,ROOT,HIGHWATER,PUBLIC_KEY} absolute paths.
+	@test -n "$${SIGNAL_VERIFY_EVIDENCE}" && test -n "$${SIGNAL_VERIFY_ROOT}" && test -n "$${SIGNAL_VERIFY_HIGHWATER}" && test -n "$${SIGNAL_VERIFY_PUBLIC_KEY}" || { echo 'Set all four SIGNAL_VERIFY_* paths; no empty-corpus or audit-only bypass.' >&2; exit 1; }
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go run ./cmd/segment-verify -evidence-dir "$${SIGNAL_VERIFY_EVIDENCE}" -segment-root "$${SIGNAL_VERIFY_ROOT}" -highwater "$${SIGNAL_VERIFY_HIGHWATER}" -public-key "$${SIGNAL_VERIFY_PUBLIC_KEY}"
 
 test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 	cd d2-signalloom/apps/dashboard-signalloom && bun install --frozen-lockfile

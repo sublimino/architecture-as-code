@@ -16,15 +16,17 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	evidenceverify "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store/verify"
 )
 
 func TestFrostDBExplicitRotationsAttestRealParquetBytes(t *testing.T) {
 	dir := t.TempDir()
 	evidence := filepath.Join(dir, "evidence")
+	privateKey := testSigningKey(t)
 	s, err := NewFrostDBStoreWithBucket(dir,
 		WithManualFlush(),
 		WithSegmentAttestation(SegmentAttestorConfig{
-			EvidenceDir: evidence, PrivateKeyPath: testSigningKey(t), HighWaterPath: filepath.Join(dir, "protected", "highwater.json"), QueueSize: 8,
+			EvidenceDir: evidence, PrivateKeyPath: privateKey, HighWaterPath: filepath.Join(dir, "protected", "highwater.json"), QueueSize: 8,
 		}),
 	)
 	if err != nil {
@@ -49,6 +51,7 @@ func TestFrostDBExplicitRotationsAttestRealParquetBytes(t *testing.T) {
 	if len(records) != 3 {
 		t.Fatalf("attestations = %d, want 3", len(records))
 	}
+	var corpusBytes int64
 	for _, record := range records {
 		path := filepath.Join(dir, record["segment_id"].(string))
 		raw, err := os.ReadFile(path)
@@ -56,12 +59,39 @@ func TestFrostDBExplicitRotationsAttestRealParquetBytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		digest := sha256.Sum256(raw)
+		corpusBytes += int64(len(raw))
 		if record["digest"] != hexDigest(digest[:]) || record["byte_length"] != float64(len(raw)) {
 			t.Fatalf("persisted bytes disagree with journal for %s", path)
 		}
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
+	}
+	// SLDP-P1-3 verifies the real persisted Parquet corpus, not merely a
+	// self-consistent writer digest. Only this disposable test fixture is mutated.
+	cfg := evidenceverify.Config{
+		EvidenceDir: evidence, SegmentRoot: dir,
+		HighWaterPath: filepath.Join(dir, "protected", "highwater.json"),
+		PublicKeyPaths: []string{writeTestPublicKey(t, privateKey)},
+	}
+	started := time.Now()
+	result, err := evidenceverify.VerifyCorpus(context.Background(), cfg)
+	elapsed := time.Since(started)
+	if err != nil || result.IntegrityScope != evidenceverify.IntegrityScopeComplete || result.Segments != 3 {
+		t.Fatalf("independent Parquet corpus verification: result=%+v err=%v", result, err)
+	}
+	t.Logf("SLDP verifier: %d real Parquet segments, %d bytes, %s total, %s/segment; newly written filesystem cache, not cold-cache", result.Segments, corpusBytes, elapsed, elapsed/time.Duration(result.Segments))
+	segmentPath := filepath.Join(dir, records[0]["segment_id"].(string))
+	content, err := os.ReadFile(segmentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content[len(content)/2] ^= 0xff
+	if err := os.WriteFile(segmentPath, content, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := evidenceverify.VerifyCorpus(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("independent verifier accepted corrupted Parquet: %v", err)
 	}
 }
 

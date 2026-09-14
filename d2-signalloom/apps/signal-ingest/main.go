@@ -231,12 +231,8 @@ func main() {
 		Encryptor:       activeEncryptor,
 	}
 
-	mux := http.NewServeMux()
-	handlers.RegisterRoutes(mux)
-
 	// --- CRKC-P1-4: Prometheus metrics for the Tetragon telemetry lane & OpenFAIR risk ---
-	// Mounted directly on the mux rather than through api.Handlers.RegisterRoutes
-	// to keep this card's footprint in shared files to two additive blocks.
+	// Registered through the protected router alongside every API route.
 	// Renders even before the collector starts (zeroed counters), so a scrape
 	// during rollout reports "0" rather than an empty body that would read as
 	// "this collector does not exist".
@@ -247,7 +243,7 @@ func main() {
 		}
 	}
 
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+	metricsHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
 		_, _ = io.WriteString(w, fairService.Metrics.Render())
@@ -255,9 +251,27 @@ func main() {
 		_, _ = io.WriteString(w, correlation.DefaultQuarantineMetrics().Render())
 	})
 
+	// Every HTTP request enters through the Authorization JWT-SVID gate below.
+	// NewProtectedRouter is the sole production route-registration boundary.
+	authConfig, err := api.AuthConfigFromEnv()
+	if err != nil {
+		slog.Error("HTTP authentication configuration invalid; refusing startup", "error", err)
+		os.Exit(1)
+	}
+	authenticator, err := api.NewJWTAuthenticator(authConfig)
+	if err != nil {
+		slog.Error("HTTP authenticator initialization failed; refusing startup", "error", err)
+		os.Exit(1)
+	}
+	protectedRouter, err := api.NewProtectedRouter(handlers, authenticator, auditWriter, metricsHandler, api.RouterOptions{})
+	if err != nil {
+		slog.Error("protected HTTP router initialization failed", "error", err)
+		os.Exit(1)
+	}
+
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      protectedRouter,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,

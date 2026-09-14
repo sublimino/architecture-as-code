@@ -173,7 +173,7 @@ mutate "M12 FORCE ROW LEVEL SECURITY removed" \
 # M13 — the operation ID becomes an unkeyed digest, turning it into a re-identification oracle.
 mutate "M13 operation id is unkeyed" \
   "subjectkey/saga.go" \
-  's|	mac := hmac.New(sha256.New, kek)|	_ = kek; mac := hmac.New(sha256.New, []byte("fixed-public-constant-not-key32"))|' \
+  's|	mac := hmac.New(sha256.New, key)|	_ = key; mac := hmac.New(sha256.New, []byte("fixed-public-constant-not-key32"))|' \
   'TestErasureSaga_OperationIDIsDeterministicAndKeyed' './subjectkey/...'
 
 # M14 — the receipt canonical encoding stops covering a field.
@@ -181,6 +181,53 @@ mutate "M14 receipt digest ignores the nonce" \
   "subjectkey/receipt.go" \
   's|^	put(r.Nonce)$|	put("")|' \
   'TestErasureSaga_ReceiptDigestIsCanonicalAndSensitive' './subjectkey/...'
+
+# ---------------------------------------------------------------------------------------------
+# M15-M19 close the guards added after adversarial review (Forge, 2026-09-14). Each corresponds to a
+# finding that was REAL: the first four to defects in shipped code, M18 to a comment that vouched for
+# a guard doing nothing.
+# ---------------------------------------------------------------------------------------------
+
+# M15 [CRITICAL] - the version-drift check compares the post-journal read against the PRE-journal one,
+# so on the create path it compares a value with itself and cannot fire. A key provisioned in the
+# race window is silently un-targeted and the receipt attests to an erasure that did not happen.
+mutate "M15 drift check uses the pre-journal read" \
+  "subjectkey/saga.go" \
+  's|^	live, err = s.store.ListVersions(ctx, tenantID, pseudonym)$|	_ = ctx; if false { live, err = s.store.ListVersions(ctx, tenantID, pseudonym) }|' \
+  'TestErasureSaga_KeyProvisionedDuringTheJournalRace' './subjectkey/...'
+
+# M16 [CRITICAL] - certification walks only the target set, so a version arriving during destruction
+# is certified around rather than caught.
+mutate "M16 certification ignores untargeted versions" \
+  "subjectkey/saga.go" \
+  's|	if extra := newVersions(targets, versionNumbers(recs)); len(extra) > 0 {|	if extra := []int(nil); len(extra) > 0 {|' \
+  'TestErasureSaga_KeyProvisionedDuringDestruction' './subjectkey/...'
+
+# M17 [HIGH] - CachesPurged derived from the running binary instead of the journal, so the digest of
+# every completed saga moves when the registry changes.
+mutate "M17 caches_purged derived, not durable" \
+  "subjectkey/saga.go" \
+  's|		CachesPurged:      append(\[\]string(nil), saga.CachesPurged...),|		CachesPurged:      ClearedCacheNames(),|' \
+  'TestErasureSaga_ReceiptDigestSurvives' './subjectkey/...'
+
+# M18 [MEDIUM] - the store accepts a pseudonym the database refuses, so the two halves of the
+# contract validate only against themselves.
+mutate "M18 store accepts a non-hex pseudonym" \
+  "subjectkey/hierarchy.go" \
+  's|	if !validPseudonym(s.SubjectPseudonym) {|	if false {|' \
+  'TestErasureSaga_StoreRejectsPseudonyms' './subjectkey/...'
+
+# M19 [MEDIUM] - a receipt with a zero completion time digests cleanly.
+mutate "M19 zero completed_at digests cleanly" \
+  "subjectkey/receipt.go" \
+  's|	if r.CompletedAt.IsZero() {|	if false {|' \
+  'TestErasureSaga_ReceiptRefusesAZero' './subjectkey/...'
+
+# M20 [MEDIUM] - the proof reports an available control that has no live key version.
+mutate "M20 fully destroyed control reads as available" \
+  "subjectkey/proof.go" \
+  's|	if !sawLiveControl {|	if false \&\& !sawLiveControl {|' \
+  'TestErasureSaga_ProofRefusesAFully' './subjectkey/...'
 
 echo
 printf 'killed=%d survived=%d build_break=%d\n' "$KILLED" "$SURVIVED" "$BUILD_BREAK"

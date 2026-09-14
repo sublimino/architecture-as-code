@@ -300,7 +300,7 @@ previous phase governor, or on `P0` for phase 1.
 
 | P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | pass — delivered: de00dbc4 (see Errata — SLDP-P2-3) | $0.00 | N/A | 6m | antigravity |
 
-| P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 31145c0c (see Errata — SLDP-P2-GOV) | $0.00 | N/A | 20m | Council |
 | P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Gate erasure with legal hold and dual-operator authorisation | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |

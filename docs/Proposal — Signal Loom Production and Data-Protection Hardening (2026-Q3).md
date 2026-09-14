@@ -223,12 +223,21 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 - Target components: `d2-signalloom/apps/signal-ingest/{identity,store,transform,audit,api}`, `d2-signalloom/apps/fe-signalloom/src/audit_anchor`
 - Acceptance commands: `make test-signal-ingest`, `make demo-signalloom-api-test TIER=contract`, `bats test/acceptance-spec-coverage.bats`
 
+#### Card numbering
+
+`P0` is the mission baseline and is a single card. Each phase then opens with a
+`PN-PRE` preflight, carries `PN-K` implementation cards, and closes with a `PN-GOV`
+governor. This is what `link-check` enforces: R1 requires every implementation card
+to reach its phase preflight, R2 requires the governor to wait on every
+implementation card in its phase, and R3 requires each preflight to wait on the
+previous phase governor, or on `P0` for phase 1.
+
 #### Architectural constitution
 
 - **This mission builds, it does not harden.** There is no erasure, deletion or
   retention code anywhere in the repository. `EventPartitionDropped` is declared at
   `audit/audit.go:22,34` with zero call sites, and the only existing reaper flips a
-  status field. Size every estimate accordingly.
+  status field at `identity/repository.go:372-387`. Size every estimate accordingly.
 - **Controls fail closed.** `NewEncryptorFromKeyString("")` currently returns a
   passthrough encryptor and `NopWriter` discards every audit event. No control added
   by this mission may degrade silently.
@@ -239,7 +248,7 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
   segment bytes. Deleting a segment also breaks checkpoint continuity, so retention
   and Article 17 must be reconciled explicitly rather than assumed compatible.
 - **Every acceptance criterion must be able to fail.** There is no `Verify*`
-  entrypoint in `store/segment_attestor.go`, so until P0-4 lands, no test can
+  entrypoint in `store/segment_attestor.go`, so until P1-3 lands, no test can
   evaluate evidence-segment integrity.
 
 ### Spec: Capability Plan
@@ -247,50 +256,66 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 | Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
 | :--- | :--- | :--- | :--- | ---: | :--- | :--- |
 | P0 | ripwire-before-you-build; FirstPrinciples | Preflight | S | 45m | fast | Verify claimed primitives and map implementation boundaries. |
-| P0-2 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Authenticate and authorise the signal-ingest HTTP API. |
-| P0-3 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Make encryption and audit writers fail closed. |
-| P0-4 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Build segment and checkpoint chain verifier; size milestones. |
-| P0-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Certify live holes closed and verifier working. |
-| P1-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Keyed HMAC pseudonyms and envelope-encrypted alias values. |
-| P1-2 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Tenant column and enforced row-level security on identity graph. |
-| P1-3 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Pin never-merge invariant across pseudonymisation change. |
-| P1-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Freeze identity privacy contract; no cleartext identifier remains. |
-| P2-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Remove cleartext identity from immutable columnar segments. |
-| P2-2 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Gate erasure with legal hold and dual-operator authorisation. |
-| P2-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Certify redaction, attestation validity and latency budget. |
-| P3-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Per-subject key hierarchy with idempotent erasure saga. |
-| P3-2 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Non-linkable attested tombstones. |
-| P4-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Abstract segment signer for non-exportable KMS keys. |
-| P4-2 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | DPIA and legitimate-interest assessment pack. |
-| P4-3 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Build Article 15, 20 and 21 data-subject-rights mechanisms. |
-| P5-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Retention controller with deletion receipts across every sink. |
-| P5-2 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Customer-self-hosted install proof as primary validation. |
+| P1-PRE | ripwire-before-you-build; FirstPrinciples | Preflight | S | 45m | fast | Confirm live-hole seams and route inventory before closing them. |
+| P1-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Authenticate and authorise the signal-ingest HTTP API. |
+| P1-2 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Make encryption and audit writers fail closed. |
+| P1-3 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Build segment and checkpoint chain verifier; size milestones. |
+| P1-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Certify live holes closed and verifier working. |
+| P2-PRE | ripwire-before-you-build; FirstPrinciples | Preflight | S | 45m | fast | Confirm identity-layer seams and the next free migration sequence. |
+| P2-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Keyed HMAC pseudonyms and envelope-encrypted alias values. |
+| P2-2 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Tenant column and enforced row-level security on identity graph. |
+| P2-3 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Pin never-merge invariant across pseudonymisation change. |
+| P2-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Freeze identity privacy contract; no cleartext identifier remains. |
+| P3-PRE | ripwire-before-you-build; FirstPrinciples | Preflight | S | 45m | fast | Confirm columnar schema seams and the attestation chain shape. |
+| P3-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Remove cleartext identity from immutable columnar segments. |
+| P3-2 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Gate erasure with legal hold and dual-operator authorisation. |
+| P3-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Certify redaction, attestation validity and latency budget. |
+| P4-PRE | ripwire-before-you-build; FirstPrinciples | Preflight | S | 45m | fast | Confirm key-management seams and erasure preconditions. |
+| P4-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Per-subject key hierarchy with idempotent erasure saga. |
+| P4-2 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Non-linkable attested tombstones. |
+| P4-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Certify per-subject erasure and non-linkable tombstones. |
+| P5-PRE | ripwire-before-you-build; FirstPrinciples | Preflight | S | 45m | fast | Prototype the KMS signer and confirm data-subject-rights surfaces. |
+| P5-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Abstract segment signer for non-exportable KMS keys. |
+| P5-2 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | DPIA and legitimate-interest assessment pack. |
+| P5-3 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Build Article 15, 20 and 21 data-subject-rights mechanisms. |
+| P5-GOV | ripwire-quality-bar; RedTeam | Governor | M | 90m | daily | Certify KMS signing, DPIA completeness and data-subject rights. |
+| P6-PRE | ripwire-before-you-build; FirstPrinciples | Preflight | S | 45m | fast | Inventory retention sinks and confirm the deployment model. |
+| P6-1 | ripwire-write-tests; ripwire-security-scan | Implementation | L | 150m | deep | Retention controller with deletion receipts across every sink. |
+| P6-2 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | daily | Customer-self-hosted install proof as primary validation. |
 | P6-GOV | ripwire-quality-bar; RedTeam | Governor | L | 150m | deep | Certify data-protection contract and publish downstream contract. |
 
 ### Spec: Work Decomposition
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Verify claimed primitives and map implementation boundaries | None | `ripwire /home/andy/src/cp/osramp-demo/d2-signalloom/apps/signal-ingest` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
-| P0-2 | implementation | Authenticate and authorise the signal-ingest HTTP API | P0 | `cd d2-signalloom/apps/signal-ingest && go test ./api/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P0-3 | implementation | Make encryption and audit writers fail closed | P0 | `cd d2-signalloom/apps/signal-ingest && go test ./identity/... ./audit/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P0-4 | implementation | Build segment and checkpoint chain verifier; size milestones | P0 | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P0-GOV | governor | Certify live holes closed and verifier working | P0-2, P0-3, P0-4 | `cd /home/andy/src/cp/osramp-demo && scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P0-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-2 | implementation | Tenant column and enforced row-level security on identity graph | P0-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-3 | implementation | Pin never-merge invariant across pseudonymisation change | P0-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P1-1, P1-2, P1-3 | `cd /home/andy/src/cp/osramp-demo && scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P2-1 | implementation | Remove cleartext identity from immutable columnar segments | P1-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P2-2 | implementation | Gate erasure with legal hold and dual-operator authorisation | P1-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P2-GOV | governor | Certify redaction, attestation validity and latency budget | P2-1, P2-2 | `cd /home/andy/src/cp/osramp-demo && scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P3-1 | implementation | Per-subject key hierarchy with idempotent erasure saga | P2-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P3-2 | implementation | Non-linkable attested tombstones | P3-1 | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P4-1 | implementation | Abstract segment signer for non-exportable KMS keys | P3-1 | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P4-2 | implementation | DPIA and legitimate-interest assessment pack | P3-1, P3-2 | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P4-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P2-1, P1-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P5-1 | implementation | Retention controller with deletion receipts across every sink | P3-1, P2-2 | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P5-2 | implementation | Customer-self-hosted install proof as primary validation | P4-1 | `make test-signal-ingest` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P6-GOV | governor | Certify data-protection contract and publish downstream contract | P4-2, P4-3, P5-1, P5-2 | `cd /home/andy/src/cp/osramp-demo && scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P0 | preflight | Verify claimed primitives and map implementation boundaries | None | `ripwire d2-signalloom/apps/signal-ingest` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P1-PRE | preflight | Confirm live-hole seams and route inventory before closing them | P0 | `rg -n 'HandleFunc|NewServeMux' d2-signalloom/apps/signal-ingest/main.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P1-1 | implementation | Authenticate and authorise the signal-ingest HTTP API | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./api/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-2 | implementation | Make encryption and audit writers fail closed | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-3 | implementation | Build segment and checkpoint chain verifier; size milestones | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-GOV | governor | Certify live holes closed and verifier working | P1-1, P1-2, P1-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-PRE | preflight | Confirm identity-layer seams and the next free migration sequence | P1-GOV | `ls -1 d2-signalloom/apps/signal-ingest/identity/migrations/` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P2-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P2-2 | implementation | Tenant column and enforced row-level security on identity graph | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P3-2 | implementation | Gate erasure with legal hold and dual-operator authorisation | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P3-GOV | governor | Certify redaction, attestation validity and latency budget | P3-1, P3-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-PRE | preflight | Confirm key-management seams and erasure preconditions | P3-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P4-1 | implementation | Per-subject key hierarchy with idempotent erasure saga | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P4-2 | implementation | Non-linkable attested tombstones | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P5-GOV | governor | Certify KMS signing, DPIA completeness and data-subject rights | P5-1, P5-2, P5-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P6-1 | implementation | Retention controller with deletion receipts across every sink | P6-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P6-2 | implementation | Customer-self-hosted install proof as primary validation | P6-PRE | `test -f docs/signalloom/sldp-p6-2-selfhost-install-proof.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P6-GOV | governor | Certify data-protection contract and publish downstream contract | P6-1, P6-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 
 ### Spec: Errata
 
@@ -301,30 +326,9 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 - Commit: Pending
 - Result: Pending
 
-#### Errata — SLDP-P0-2 (bootstrap)
+#### Errata — SLDP-P1-PRE (bootstrap)
 ##### Task identity
-- Card: `SLDP-P0-2`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
-
-#### Errata — SLDP-P0-3 (bootstrap)
-##### Task identity
-- Card: `SLDP-P0-3`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
-
-#### Errata — SLDP-P0-4 (bootstrap)
-##### Task identity
-- Card: `SLDP-P0-4`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
-
-#### Errata — SLDP-P0-GOV (bootstrap)
-##### Task identity
-- Card: `SLDP-P0-GOV`
+- Card: `SLDP-P1-PRE`
 - Shortcode: `SLDP`
 - Commit: Pending
 - Result: Pending
@@ -357,6 +361,13 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 - Commit: Pending
 - Result: Pending
 
+#### Errata — SLDP-P2-PRE (bootstrap)
+##### Task identity
+- Card: `SLDP-P2-PRE`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
 #### Errata — SLDP-P2-1 (bootstrap)
 ##### Task identity
 - Card: `SLDP-P2-1`
@@ -371,9 +382,23 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 - Commit: Pending
 - Result: Pending
 
+#### Errata — SLDP-P2-3 (bootstrap)
+##### Task identity
+- Card: `SLDP-P2-3`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
 #### Errata — SLDP-P2-GOV (bootstrap)
 ##### Task identity
 - Card: `SLDP-P2-GOV`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P3-PRE (bootstrap)
+##### Task identity
+- Card: `SLDP-P3-PRE`
 - Shortcode: `SLDP`
 - Commit: Pending
 - Result: Pending
@@ -392,6 +417,20 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 - Commit: Pending
 - Result: Pending
 
+#### Errata — SLDP-P3-GOV (bootstrap)
+##### Task identity
+- Card: `SLDP-P3-GOV`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P4-PRE (bootstrap)
+##### Task identity
+- Card: `SLDP-P4-PRE`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
 #### Errata — SLDP-P4-1 (bootstrap)
 ##### Task identity
 - Card: `SLDP-P4-1`
@@ -406,9 +445,16 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 - Commit: Pending
 - Result: Pending
 
-#### Errata — SLDP-P4-3 (bootstrap)
+#### Errata — SLDP-P4-GOV (bootstrap)
 ##### Task identity
-- Card: `SLDP-P4-3`
+- Card: `SLDP-P4-GOV`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P5-PRE (bootstrap)
+##### Task identity
+- Card: `SLDP-P5-PRE`
 - Shortcode: `SLDP`
 - Commit: Pending
 - Result: Pending
@@ -423,6 +469,41 @@ Funded as Signal Loom platform investment; it is the gate on any paid real-estat
 #### Errata — SLDP-P5-2 (bootstrap)
 ##### Task identity
 - Card: `SLDP-P5-2`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P5-3 (bootstrap)
+##### Task identity
+- Card: `SLDP-P5-3`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P5-GOV (bootstrap)
+##### Task identity
+- Card: `SLDP-P5-GOV`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P6-PRE (bootstrap)
+##### Task identity
+- Card: `SLDP-P6-PRE`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P6-1 (bootstrap)
+##### Task identity
+- Card: `SLDP-P6-1`
+- Shortcode: `SLDP`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLDP-P6-2 (bootstrap)
+##### Task identity
+- Card: `SLDP-P6-2`
 - Shortcode: `SLDP`
 - Commit: Pending
 - Result: Pending

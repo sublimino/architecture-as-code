@@ -308,7 +308,7 @@ previous phase governor, or on `P0` for phase 1.
 | P4-PRE | preflight | Confirm key-management seams and erasure preconditions | P3-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | S | fast | pass — delivered: ed0e3d19 (see Errata — SLDP-P4-PRE) | $0.00 | N/A | 15m | antigravity |
 | P4-1 | implementation | Per-subject key hierarchy with idempotent erasure saga | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: 2e576206 (see Errata — SLDP-P4-1) | $0.00 | N/A | 35m | deep |
 | P4-2 | implementation | Non-linkable attested tombstones | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | pass — delivered: 9956a239 (see Errata — SLDP-P4-2) | $0.00 | N/A | 35m | daily |
-| P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | **fail — phase 4 does NOT certify**; 5 of 6 properties pass with observed mutation kills, the receipt↔tombstone seam is unbound (see Errata — SLDP-P4-GOV) | N/A | N/A | ~45m | N/A |
 | P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -672,12 +672,53 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - **`privacy` must not import `privacy/tombstone`** (this package imports `privacy` for the compile-checked `ProjectReceipt`). P4-1 should declare the publisher interface in `privacy` and inject from `main.go`.
 
 
-#### Errata — SLDP-P4-GOV (bootstrap)
-##### Task identity
-- Card: `SLDP-P4-GOV`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P4-GOV: Phase 4 Governor Certification
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+**Created:** 2026-09-14 19:51:09+01:00  
+**Last Updated:** 2026-09-14 19:51:09+01:00  
+**Status:** `fail`  
+**Commit:** `4086adec119c7a09888fe7772d681e309096fd0d`  
+**Evidence:** `docs/signalloom/sldp-p4-governor-proof.md` (and `docs/signalloom/sldp-p4-gov-proof.md`)  
+
+**Phase 4 Governor Certification Summary:**
+- **Phase 4 does NOT certify.** Five of six required properties pass, each backed by an observed mutation kill or shipped positive control: per-subject erasure scoping (Property A, killed by emptiness re-read before neighbour assertion), idempotency under retry (Property B, killed by 3 tests across 14 fault points), tombstone non-joinability (Property C, all 6 positive controls fail when inert), non-exportable KMS keys (Property D, deferred to Phase 5 per proposal sequence), and residual statement published (Property E, pseudonyms retained in attested segments, MVCC/WAL retention, differencing attack named).
+- **The seam between the two cards is the finding (G1, severity HIGH), and it is exactly the failure mode this card was briefed to expect.** `privacy.KeyDestructionReceipt` carries `OperationID`, `ReceiptSchema` and `ReceiptDigest`, the last documented *in its own source* as "the hex SHA-256 a tombstone references". **`tombstone.MintRequest` accepts none of the three.** `ReceiptCommitment` is `SHA-256(nonce ‖ canonical(projection))` where the nonce is drawn fresh **inside `Mint`** and the projection is built from the caller's own scalars — never the saga's persisted nonce, never covering the saga's persisted digest. `ProjectReceipt`, the one function taking a real receipt, has **no production caller** (only `tombstone_test.go:290`). And `privacy/tombstone` has **zero non-test importers** — nothing on the production erasure path mints a tombstone at all.
+- **`VerifyReceiptCommitment` is an acceptance criterion that passes whether or not the control works**, which the phase constitution names as a hard blocker. It recomputes the commitment from the tombstone's *own* published fields and its *own* published nonce, making it a self-consistency check. A tombstone minted for a subject who was never erased, by an operator who ran no saga, against a key that was never destroyed, verifies and validates identically to a genuine one. Recorded, not satisfied.
+- **Did not improvise a fix.** Closing the seam means changing `MintRequest`'s contract and the commitment construction — two sibling cards' owned surfaces. The card forbids substituting an approach to get past a blocker, so the shape of the fix is described in the proof (§3) and handed to Phase 5 rather than attempted.
+- **Evidence is durable and self-retiring.** `privacy/tombstone/governor_seam_test.go` adds three *characterisation* tests that assert the seam as it currently stands. They pass today and fail the moment it is wired, with failure text directing the reader back to proof §3. A test tolerating the gap silently would let Phase 5 inherit it by omission; a test that simply failed would break the phase's loop-until-green contract and be muted within a day.
+- **Two proof filenames reconciled to one file.** The card names the artefact `sldp-p4-gov-proof.md` (Required Evidence) and `sldp-p4-governor-proof.md` (Deliverables). Phases 1 and 2 resolved this by duplicating content — `amxo-p1-gov-proof.md` and `amxo-p1-governor-proof.md` are byte-identical twins. Two copies of a certification is one copy and one future lie, so the second file is a pointer, not a copy.
+
+**Tests:**
+- `cd d2-signalloom/apps/signal-ingest && go test ./...` → **PASS**, all packages, 0 failures (includes the 3 new governor seam tests).
+- `make test-signal-ingest` → **PASS**, exit 0.
+- `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` → **UNHEALTHY, exit 1**. Reported honestly rather than cleared: the single exception is 29 fast-exit tasks belonging to `cpai-opencode*` and `antigravity` agents. **No SLDP card is among them** and the SLDP board itself reports `HEALTH: ✓ healthy`. The exception is pre-existing, global-scope and unrelated to Phase 4; clearing another board's runtime records is not this card's authority.
+
+**Deviations:**
+- **`kanban-check.sh cost --update-table --apply` could not run; the table row was filled by hand with `N/A` rather than fabricated figures.** It fails `line 2787: /usr/bin/python3: Argument list too long` (exit 126) — and fails identically **without** `--update-table`, so it is not the proposal size. The shell names `python3` as the binary it could not exec, so python never ran and this is not a cost-calculation bug. Cause: the script passes whole-board JSON through the **environment** (`COST_BOARD_CARDS`), and `MAX_ARG_STRLEN` caps any single env string at `32 * PAGE_SIZE` = **131,072 bytes** — a hard kernel constant no `ulimit` raises. Mechanism confirmed empirically on this host: a 131,000-byte env string execs fine, 140,000 bytes returns `Argument list too long`. The fix is to move the payload off `envp` (stdin, or a temp file read by path), and it belongs to the `ajm-cline-kanban` tooling, not to this card. Surfaced rather than worked around, per the "don't silently extend the wrapper" rule. **Consequence: `Est. Cost`, `Tokens` and `AI URI` for this row are `N/A`, and no Phase Spend table could be produced.**
+- **Ran `doctor` with `--repo` from the governor worktree rather than `cd`-ing into `/home/andy/src/cp/osramp-demo`** as the role-template prose directs. The Safety Rules and worktree boundary outrank role-template prose in this card's stated precedence order, and the `--repo` flag makes the invocation equivalent.
+
+**Residuals published, not implied:**
+- **R1** Pseudonyms survive in attested Parquet segments; the token is retained and only its *resolvability* destroyed, because removal breaks checkpoint continuity. **Article 17 is satisfied by loss of resolvability; Article 5(1)(e) storage limitation is NOT.** Recorded in every receipt.
+- **R2** MVCC dead tuples, WAL and backups retain the prior wrapped key until VACUUM and backup expiry. Recorded in every receipt.
+- **R3** The cache-registry test **transcribes** the P4-PRE §4 inventory as a Go literal instead of deriving it. A guard that copies its source of truth drifts from it silently. Accepted, not proven.
+- **R4** The **differencing attack across two corpus snapshots bypasses every tombstone field**; no field-level control addresses it. Neither card implements SLDP-P4-2's invariants **I6** (batch so ≥5 subjects' rows vanish together) or **I7** (randomly ordered daily batch under one Merkle root — chain position is a total order, and position + tenant + day is a quasi-identifier no random `tombstone_id` fixes). **Open.**
+- **R5** A locally signed tombstone forgery is not externally detectable — Rekor refuses at `anchor.py:407`, Archivista is optional.
+
+**Assumed rather than tested:**
+- **Properties A and B are certified against the in-memory store only.** SLDP-P4-1 verified migration 009 against live PostgreSQL 16, but every governor mutation and property run used `MemoryStore`. The `StorageResidualNone` / `StorageResidualMVCCAndBackup` split exists precisely so a memory-store test cannot masquerade as covering the Postgres claim — which is the right guard, and it also bounds what this certification covers.
+- **"Returned once and never persisted"** for the confirmation key (SLDP-P4-2 invariant I8) is an operational claim about callers, not a property the package enforces. No caller exists yet to violate it.
+- **`MinAnonymitySet = 5`** is the conventional small-cell suppression floor, defensible but named by no regulation.
+
+**Phase-completeness check:** every Phase 4 card left an errata entry — `SLDP-P4-PRE` (pass), `SLDP-P4-1` (pass), `SLDP-P4-2` (pass), and this block. No card ran without a record.
+
+**Handed downstream to Phase 5, explicitly rather than by omission:**
+1. **G1 — the receipt↔tombstone seam is unbound.** Until closed, "attested erasure tombstone" overstates what the artefact proves.
+2. **`privacy/tombstone` has no production caller**; the erasure path publishes no tombstones.
+3. **R4 plus invariants I6 and I7**, and SLDP-P4-2's **I3** — the confirmation key must live outside the crypto-shred boundary, or erasure destroys the proof of its own erasure.
+4. **R3** — the transcribed cache inventory.
+5. **Properties A and B cover the in-memory store only.**
+
+**Blocking:** `proceed=no`. Phase 5 must not open on the assumption that Phase 4's tombstones are evidentially bound to Phase 4's destructions.
 
 #### Errata — SLDP-P5-PRE (bootstrap)
 ##### Task identity

@@ -295,8 +295,9 @@ previous phase governor, or on `P0` for phase 1.
 | P1-3 | implementation | Build segment and checkpoint chain verifier; size milestones | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: c3c36f96 (see Errata — SLDP-P1-3) | $0.00 | N/A | 50m | antigravity |
 | P1-GOV | governor | Certify live holes closed and verifier working | P1-1, P1-2, P1-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 53e412b6 (see Errata — SLDP-P1-GOV) | $0.00 | N/A | 15m | antigravity |
 | P2-PRE | preflight | Confirm identity-layer seams and the next free migration sequence | P1-GOV | `ls -1 d2-signalloom/apps/signal-ingest/identity/migrations/` | S | fast | pass — delivered: d4762cd3 (see Errata — SLDP-P2-PRE) | $0.00 | N/A | 1m | antigravity |
-| P2-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P2-2 | implementation | Tenant column and enforced row-level security on identity graph | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P2-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | pass — delivered: fd9a4aa8 (see Errata — SLDP-P2-1) | $0.00 | N/A | 39m | kpai |
+| P2-2 | implementation | Tenant column and enforced row-level security on identity graph | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | pass — delivered: c16599af (see Errata — SLDP-P2-2) | $0.00 | N/A | 38m | kpai |
+
 | P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
@@ -413,19 +414,38 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - Full execution evidence published to `docs/signalloom/sldp-p2-pre-proof.md`.
 
 
-#### Errata — SLDP-P2-1 (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-1`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P2-1: Keyed HMAC pseudonyms and envelope-encrypted alias values
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:19:10+01:00  
+**Last Updated:** 2026-09-14 15:19:10+01:00  
+**Status:** `pass`  
+**Commit:** `fd9a4aa8`  
+**Evidence:** `docs/signalloom/sldp-p2-1-proof.md`  
 
-#### Errata — SLDP-P2-2 (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-2`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+**Summary of changes and evidence:**
+- Implemented HKDF-SHA256 derived per-tenant, per-epoch pseudonym key ring in `identity/pseudonym.go`, replacing unkeyed bare `sha256.Sum256`.
+- Implemented AES-GCM envelope encryption with per-record data encryption keys (DEK) and additional authenticated data (AAD) row binding over `(actor_id, alias_type, pseudonym)`.
+- Authored and verified PostgreSQL migration `005_pseudonymisation_and_encryption.sql` and rollback `005_pseudonymisation_and_encryption_rollback.sql`.
+- Authored adversarial dictionary attack test in `pseudonym_test.go` with positive control (unkeyed inverted 6/6; keyed inverted 0/6 across 1,446 candidate identifiers).
+- Removed committed default salt from `transform/secrets_scrubber.go` in favor of fail-closed construction, widening `AnonymizeHMAC` from 64 to 128 bits.
+- Full test suite verified: `make test-signal-ingest` **EXIT=0 (539 PASS / 0 FAIL / 7 SKIP)**.
+
+#### Errata — SLDP-P2-2: Tenant column and enforced row-level security on identity graph
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:19:34+01:00  
+**Last Updated:** 2026-09-14 15:19:34+01:00  
+**Status:** `pass`  
+**Commit:** `c16599af`  
+**Evidence:** `docs/signalloom/sldp-p2-2-proof.md`  
+
+**Summary of changes and evidence:**
+- Authored migration `006_tenant_isolation_rls.sql` adding `tenant_id NOT NULL` with `DEFAULT app_current_tenant()` to `actors`, `aliases`, and `delegations`.
+- Enforced `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` across all three tables.
+- Added tenant-leading composite temporal indexes to prevent full scans under RLS predicates.
+- Enforced cross-tenant maintenance path gated by dedicated role and transaction-local reason GUC.
+- Quarantined pre-tenancy rows to `__unattributed__` tenant with comprehensive backfill report.
+- Implemented `identity/tenant_live_test.go` with 28 hostile-context live PostgreSQL tests (including superuser rejection, connection reset safety, and falsification test) passing 100%.
+
 
 #### Errata — SLDP-P2-3 (bootstrap)
 ##### Task identity

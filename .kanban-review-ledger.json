@@ -2252,5 +2252,12 @@
     "reviewer": "Council of Agents",
     "verdict": "APPROVED",
     "reason": "Retention controller delivered across 35 sinks with 74 tests and 15 mutation kills"
+  },
+  "b6e6a": {
+    "task_id": "b6e6a",
+    "reviewed_at": "2026-09-14T23:40:18Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLDP mission certified under GDPR Art 5/17/26; downstream contract frozen; all test suites pass"
   }
 }

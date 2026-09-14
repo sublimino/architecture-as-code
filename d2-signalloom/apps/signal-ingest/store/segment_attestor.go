@@ -225,10 +225,14 @@ func NewSegmentAttestor(cfg SegmentAttestorConfig) (*SegmentAttestor, error) {
 	}
 	// Persist/retain public key verification material for offline corpus verification
 	if pub := signer.PublicKey(); pub != nil {
-		if pubDER, err := x509.MarshalPKIXPublicKey(pub); err == nil {
-			pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
-			pubPath := filepath.Join(cfg.EvidenceDir, "keys", signer.KeyID()+".pem")
-			_ = atomicWrite(pubPath, pubPEM, 0o644)
+		pubDER, err := x509.MarshalPKIXPublicKey(pub)
+		if err != nil {
+			return nil, fmt.Errorf("marshal signer public key: %w", err)
+		}
+		pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+		pubPath := filepath.Join(cfg.EvidenceDir, "keys", signer.KeyID()+".pem")
+		if err := atomicWrite(pubPath, pubPEM, 0o644); err != nil {
+			return nil, fmt.Errorf("persist signer public key verification material: %w", err)
 		}
 	}
 	a := &SegmentAttestor{

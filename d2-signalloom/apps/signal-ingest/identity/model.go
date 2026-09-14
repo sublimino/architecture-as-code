@@ -52,15 +52,18 @@ func (a AliasRecord) IsActiveAt(ts time.Time) bool {
 // DelegationRecord represents an acts-on-behalf-of delegation relationship.
 // Invariant: Delegations are distinct from aliases. A delegate never merges into its principal.
 type DelegationRecord struct {
-	ID               int64          `json:"id,omitempty"`
-	DelegateActorID  string         `json:"delegate_actor_id"`
-	PrincipalActorID string         `json:"principal_actor_id"`
-	AuthzRef         string         `json:"authz_ref"`
-	ValidFrom        time.Time      `json:"valid_from"`
-	ValidTo          *time.Time     `json:"valid_to,omitempty"` // nil means open-ended / still active
-	Status           string         `json:"status,omitempty"`   // "active", "revoked", "expired"
-	Metadata         map[string]any `json:"metadata,omitempty"`
-	CreatedAt        time.Time      `json:"created_at"`
+	ID                      int64          `json:"id,omitempty"`
+	DelegateActorID         string         `json:"delegate_actor_id"`
+	PrincipalActorID        string         `json:"principal_actor_id"`
+	DelegateActorPseudonym  string         `json:"delegate_actor_pseudonym,omitempty"`
+	PrincipalActorPseudonym string         `json:"principal_actor_pseudonym,omitempty"`
+	TenantID                string         `json:"tenant_id,omitempty"`
+	AuthzRef                string         `json:"authz_ref"`
+	ValidFrom               time.Time      `json:"valid_from"`
+	ValidTo                 *time.Time     `json:"valid_to,omitempty"` // nil means open-ended / still active
+	Status                  string         `json:"status,omitempty"`   // "active", "revoked", "expired"
+	Metadata                map[string]any `json:"metadata,omitempty"`
+	CreatedAt               time.Time      `json:"created_at"`
 }
 
 // IsActiveAt evaluates half-open interval [valid_from, valid_to) at timestamp ts.

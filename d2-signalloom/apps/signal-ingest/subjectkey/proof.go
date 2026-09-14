@@ -181,10 +181,12 @@ func (s *Saga) VerifyDestroyed(ctx context.Context, tenantID, subjectPseudonym, 
 		proof.Control.UnwrapError = "control subject has no key versions"
 		return proof, fmt.Errorf("%w: control subject has no keys", ErrProofNotDestroyed)
 	}
+	sawLiveControl := false
 	for _, c := range controlRecs {
 		if c.Destroyed() {
 			continue
 		}
+		sawLiveControl = true
 		proof.Control.KeyVersion = c.KeyVersion
 		if _, err := s.hierarchy.UnwrapDEK(c.Scope(), c.WrappedDEK); err != nil {
 			proof.Control.UnwrapError = err.Error()
@@ -192,6 +194,16 @@ func (s *Saga) VerifyDestroyed(ctx context.Context, tenantID, subjectPseudonym, 
 			proof.Control.UnwrapSucceeded = true
 		}
 		break
+	}
+	if !sawLiveControl {
+		// Every control version is itself destroyed. The verdict was already safe, but without this
+		// the JSON shown to a regulator asserted an available control with key version 0 and no
+		// recorded reason for its silence. Found by adversarial review, 2026-09-14.
+		proof.Control.Available = false
+		proof.Control.UnwrapError = "every key version of the control subject is itself destroyed; it cannot demonstrate a working key path"
+		proof.Verdict = VerdictControlUnavailable
+		proof.Notes = append(proof.Notes, "the control subject has no LIVE key version")
+		return proof, fmt.Errorf("%w: control subject has no live key version", ErrProofNotDestroyed)
 	}
 
 	for _, v := range proof.Versions {

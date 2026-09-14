@@ -267,11 +267,12 @@ func (p *PostgresStore) BeginSaga(ctx context.Context, rec SagaRecord) (SagaReco
 	err := p.withTenantTx(ctx, rec.TenantID, false, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO subject_key_erasures
-			       (operation_id, tenant_id, subject_pseudonym, state, target_versions, nonce, started_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+			       (operation_id, tenant_id, subject_pseudonym, state, target_versions, nonce,
+			        caches_purged, started_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
 			ON CONFLICT (operation_id) DO NOTHING`,
 			rec.OperationID, rec.TenantID, rec.SubjectPseudonym, string(StatePending),
-			pq.Array(rec.TargetVersions), rec.Nonce, rec.StartedAt.UTC())
+			pq.Array(nonNilInts(rec.TargetVersions)), rec.Nonce, pq.Array(nonNilStrings(rec.CachesPurged)), rec.StartedAt.UTC())
 		if err != nil {
 			return fmt.Errorf("subjectkey: insert saga journal row: %w", err)
 		}
@@ -300,7 +301,7 @@ func (p *PostgresStore) LoadSaga(ctx context.Context, operationID string) (SagaR
 	var out SagaRecord
 	row := p.db.QueryRowContext(ctx, `
 		SELECT operation_id, tenant_id, subject_pseudonym, state, target_versions, nonce,
-		       receipt_digest, started_at, updated_at, completed_at
+		       caches_purged, receipt_digest, started_at, updated_at, completed_at
 		  FROM subject_key_erasures WHERE operation_id = $1`, operationID)
 	if err := scanSaga(row, &out); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -316,7 +317,7 @@ func loadSagaInTx(ctx context.Context, tx *sql.Tx, operationID string) (SagaReco
 	var out SagaRecord
 	row := tx.QueryRowContext(ctx, `
 		SELECT operation_id, tenant_id, subject_pseudonym, state, target_versions, nonce,
-		       receipt_digest, started_at, updated_at, completed_at
+		       caches_purged, receipt_digest, started_at, updated_at, completed_at
 		  FROM subject_key_erasures WHERE operation_id = $1`, operationID)
 	if err := scanSaga(row, &out); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -333,12 +334,14 @@ func scanSaga(row rowScanner, out *SagaRecord) error {
 	var (
 		state     string
 		versions  pq.Int64Array
+		caches    pq.StringArray
 		completed sql.NullTime
 	)
 	if err := row.Scan(&out.OperationID, &out.TenantID, &out.SubjectPseudonym, &state,
-		&versions, &out.Nonce, &out.ReceiptDigest, &out.StartedAt, &out.UpdatedAt, &completed); err != nil {
+		&versions, &out.Nonce, &caches, &out.ReceiptDigest, &out.StartedAt, &out.UpdatedAt, &completed); err != nil {
 		return err
 	}
+	out.CachesPurged = append([]string(nil), caches...)
 	out.State = SagaState(state)
 	out.TargetVersions = make([]int, 0, len(versions))
 	for _, v := range versions {
@@ -383,11 +386,12 @@ func (p *PostgresStore) AdvanceSaga(ctx context.Context, operationID string, fro
 			   SET state           = $2,
 			       target_versions = $3,
 			       receipt_digest  = $4,
-			       completed_at    = COALESCE(subject_key_erasures.completed_at, $5),
+			       caches_purged   = $5,
+			       completed_at    = COALESCE(subject_key_erasures.completed_at, $6),
 			       updated_at      = now()
-			 WHERE operation_id = $1 AND state = $6`,
-			operationID, string(to), pq.Array(cur.TargetVersions), cur.ReceiptDigest,
-			nullTime(cur.CompletedAt), string(from))
+			 WHERE operation_id = $1 AND state = $7`,
+			operationID, string(to), pq.Array(nonNilInts(cur.TargetVersions)), cur.ReceiptDigest,
+			pq.Array(nonNilStrings(cur.CachesPurged)), nullTime(cur.CompletedAt), string(from))
 		if err != nil {
 			return fmt.Errorf("subjectkey: advance saga state: %w", err)
 		}
@@ -402,6 +406,28 @@ func (p *PostgresStore) AdvanceSaga(ctx context.Context, operationID string, fro
 		return err
 	})
 	return out, err
+}
+
+// nonNilStrings normalises a nil slice to an empty one.
+//
+// pq.Array(nil) renders as SQL NULL, not as '{}', so a nil CachesPurged violated the NOT NULL
+// constraint on subject_key_erasures.caches_purged. The saga always populates it, but the store must
+// not depend on its only caller being careful -- a direct BeginSaga from operator tooling or a test
+// would otherwise fail with a constraint error that says nothing about the real cause. Caught by
+// TestSubjectKeyPG_SagaJournalIsIdempotentAndCompareAndSwapped against live PostgreSQL 16.
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
+}
+
+// nonNilInts is the same normalisation for target_versions, which carries the same NOT NULL.
+func nonNilInts(in []int) []int {
+	if in == nil {
+		return []int{}
+	}
+	return in
 }
 
 func nullTime(t *time.Time) any {

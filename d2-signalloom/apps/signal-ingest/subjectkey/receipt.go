@@ -130,6 +130,12 @@ func (r DestructionReceipt) canonical() ([]byte, error) {
 	if r.Schema == "" || r.OperationID == "" || r.TenantID == "" || r.SubjectPseudonym == "" || r.Nonce == "" {
 		return nil, fmt.Errorf("%w: schema, operation_id, tenant_id, subject_pseudonym and nonce are all required", ErrReceiptIncomplete)
 	}
+	if r.CompletedAt.IsZero() {
+		// Refused for the same reason a zero DestroyedAt is. This type and Digest() are exported and
+		// SLDP-P4-2 consumes them, so a receipt assembled by any path other than buildReceipt would
+		// otherwise digest cleanly with a completion time of 0001-01-01.
+		return nil, fmt.Errorf("%w: completed_at is zero", ErrReceiptIncomplete)
+	}
 	if r.ResidualPseudonym == "" || r.StorageResidual == "" || r.ComplianceNote == "" {
 		return nil, fmt.Errorf("%w: residual and compliance fields are required; an omitted residual would read as 'no residual'", ErrReceiptIncomplete)
 	}

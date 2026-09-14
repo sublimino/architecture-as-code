@@ -952,3 +952,355 @@ func TestErasureSaga_MemoryStoreRepeatDestroyPreservesOriginalTimestamp(t *testi
 		t.Fatalf("the durable destroyed_at is %s, expected the FIRST destruction at %s", rec.DestroyedAt, t1.UTC())
 	}
 }
+
+// racyProvisionStore provisions a NEW key version during ListVersions, simulating a Provision that
+// lands in the window between the saga's version snapshot and its journal insert.
+//
+// The window is real and narrow: Erase reads versions, then calls BeginSaga. Anything provisioned in
+// between is in neither the caller's read nor the journal, so a drift check comparing those two sets
+// against each other is comparing a value with itself.
+type racyProvisionStore struct {
+	*MemoryStore
+	h *Hierarchy
+	// fireOnCall selects WHICH window to open. Erase reads versions three times: (1) before the
+	// journal insert, (2) after it, for the drift check, and (3) inside certifyAllDestroyed. Firing
+	// on 1 opens the snapshot/journal window that the post-journal re-read closes; firing on 2 opens
+	// the destroy-loop window that only the certification's extra-version check closes. They are
+	// different guards and a single test cannot stand in for both.
+	fireOnCall int
+	calls      int
+	tenantID   string
+	pseudonym  string
+}
+
+func (r *racyProvisionStore) ListVersions(ctx context.Context, tenantID, pseudonym string) ([]KeyRecord, error) {
+	recs, err := r.MemoryStore.ListVersions(ctx, tenantID, pseudonym)
+	if err != nil || tenantID != r.tenantID || pseudonym != r.pseudonym {
+		return recs, err
+	}
+	r.calls++
+	if r.calls != r.fireOnCall {
+		return recs, err
+	}
+	// The concurrent writer. It commits AFTER this read has been taken, exactly as a racing
+	// Provision would.
+	if _, err := r.MemoryStore.Provision(ctx, tenantID, pseudonym, 0, func(sc KeyScope) ([]byte, error) {
+		dek, derr := NewDEK()
+		if derr != nil {
+			return nil, derr
+		}
+		return r.h.WrapDEK(sc, dek)
+	}, time.Now()); err != nil {
+		return nil, err
+	}
+	return recs, nil
+}
+
+// A key provisioned in the snapshot/journal race window must not be silently un-targeted.
+//
+// Found by adversarial review (Forge, 2026-09-14) and NOT by the existing drift test, which
+// pre-seeds the journal with BeginSaga before calling Erase and therefore only ever exercises the
+// RESUME path. On the CREATE path the saga compared its freshly-journalled TargetVersions against
+// the very read it built them from — two names for one slice — so the drift check could not fire at
+// all, and every real erasure takes the create path.
+//
+// The consequence is the worst shape this package can produce: the receipt asserts erasure while a
+// key is still live, and because the operation id is deterministic, a re-issued Article 17 request
+// loads the now-completed saga, sees drift after certification, and refuses FOREVER.
+func TestErasureSaga_KeyProvisionedDuringTheJournalRaceIsNotMissed(t *testing.T) {
+	ctx := context.Background()
+	h := testHierarchy(t)
+	inner := NewMemoryStore()
+	cache := NewPlaintextDEKCache()
+	p, err := fakePseudonymiser{}.Pseudonym("t1", "alice")
+	if err != nil {
+		t.Fatalf("pseudonym: %v", err)
+	}
+	racy := &racyProvisionStore{MemoryStore: inner, h: h, fireOnCall: 1, tenantID: "t1", pseudonym: p}
+
+	s, err := NewSaga(SagaConfig{
+		Hierarchy: h, Store: racy, Cache: cache,
+		Pseudonymiser: fakePseudonymiser{}, StorageResidual: StorageResidualNone, Now: fixedClock(),
+	})
+	if err != nil {
+		t.Fatalf("NewSaga: %v", err)
+	}
+
+	// Two versions exist before the saga starts; a third appears inside the race window.
+	for i := 0; i < 2; i++ {
+		if _, err := inner.Provision(ctx, "t1", p, 0, func(sc KeyScope) ([]byte, error) {
+			dek, derr := NewDEK()
+			if derr != nil {
+				return nil, derr
+			}
+			cache.Put(sc, dek)
+			return h.WrapDEK(sc, dek)
+		}, time.Now()); err != nil {
+			t.Fatalf("provision: %v", err)
+		}
+	}
+
+	receipt, err := s.Erase(ctx, "t1", "alice")
+	if err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+
+	all, err := inner.ListVersions(ctx, "t1", p)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 versions to exist (2 pre-existing + 1 racing), found %d", len(all))
+	}
+
+	// The load-bearing assertion. A receipt covering 2 of 3 versions is a receipt asserting an
+	// erasure that did not happen.
+	if len(receipt.Versions) != 3 {
+		t.Errorf("the receipt covers %d versions but %d exist; a key provisioned in the race window "+
+			"was silently un-targeted and the receipt attests to an erasure that did not happen",
+			len(receipt.Versions), len(all))
+	}
+	for _, r := range all {
+		if !r.Destroyed() {
+			t.Errorf("version %d survived the erasure", r.KeyVersion)
+		}
+		if _, err := h.UnwrapDEK(r.Scope(), r.WrappedDEK); err == nil {
+			t.Errorf("version %d still UNWRAPS after a completed erasure", r.KeyVersion)
+		}
+	}
+
+	// And the subject must not be permanently un-erasable: a re-issued request resolves to the same
+	// deterministic operation id, and must return the same receipt rather than ErrVersionDrift.
+	again, err := s.Erase(ctx, "t1", "alice")
+	if err != nil {
+		t.Fatalf("a re-issued erasure refused after the race: %v — the subject is now permanently "+
+			"un-erasable, because the operation id is deterministic and resolves to this saga", err)
+	}
+	d1, _ := receipt.Digest()
+	d2, _ := again.Digest()
+	if d1 != d2 {
+		t.Errorf("the re-issued erasure produced a different digest: %s vs %s", d1, d2)
+	}
+}
+
+// F4: the receipt digest must not depend on the running binary's CacheRegistry.
+//
+// CachesPurged is a digest input. Deriving it at receipt-build time from a package-level var made
+// the digest a property of the DEPLOYED BINARY rather than of the operation, so adding one cache to
+// the registry -- an entirely plausible future card -- would silently change the digest of every
+// already-completed saga. Because Erase rebuilds on every path including the completed one, that
+// would make Erase permanently error for previously-erased subjects, and any tombstone SLDP-P4-2 had
+// published would stop verifying with nothing naming the cause. Found by adversarial review.
+func TestErasureSaga_ReceiptDigestSurvivesACacheRegistryChange(t *testing.T) {
+	ctx := context.Background()
+	x := newHarness(t, nil)
+	x.provision("t1", "alice", 2)
+
+	first, err := x.saga.Erase(ctx, "t1", "alice")
+	if err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+	d1, err := first.Digest()
+	if err != nil {
+		t.Fatalf("digest: %v", err)
+	}
+
+	// Mutate the registry exactly as a future card would, and restore it afterwards.
+	original := CacheRegistry
+	t.Cleanup(func() { CacheRegistry = original })
+	mutated := make([]CacheDisposition, len(original))
+	copy(mutated, original)
+	for i := range mutated {
+		if !mutated[i].Cleared {
+			mutated[i].Cleared = true
+			break
+		}
+	}
+	CacheRegistry = mutated
+	if len(ClearedCacheNames()) == len(ClearedCacheNames_original(original)) {
+		t.Fatal("the registry mutation did not change the cleared set; this test asserts nothing")
+	}
+
+	second, err := x.saga.Erase(ctx, "t1", "alice")
+	if err != nil {
+		t.Fatalf("Erase after a registry change: %v — the digest is a property of the binary, not of "+
+			"the operation, so every previously-erased subject is now permanently un-attestable", err)
+	}
+	d2, err := second.Digest()
+	if err != nil {
+		t.Fatalf("digest: %v", err)
+	}
+	if d1 != d2 {
+		t.Fatalf("the receipt digest changed when CacheRegistry changed:\n  before: %s\n  after:  %s\n"+
+			"  caches in receipt: %v", d1, d2, second.CachesPurged)
+	}
+	// And the receipt reports what THIS operation purged, not what the binary would purge now.
+	if len(second.CachesPurged) != len(ClearedCacheNames_original(original)) {
+		t.Fatalf("the rebuilt receipt lists %v; it should list what the completed operation purged",
+			second.CachesPurged)
+	}
+}
+
+// ClearedCacheNames_original computes the cleared set for an explicit registry, so the test above can
+// compare against the pre-mutation value without reaching into package state twice.
+func ClearedCacheNames_original(reg []CacheDisposition) []string {
+	var out []string
+	for _, c := range reg {
+		if c.Cleared {
+			out = append(out, string(c.Name))
+		}
+	}
+	return out
+}
+
+// F9: the in-memory store must reject a pseudonym migration 009 would reject.
+func TestErasureSaga_StoreRejectsPseudonymsTheDatabaseWouldReject(t *testing.T) {
+	ctx := context.Background()
+	h := testHierarchy(t)
+	store := NewMemoryStore()
+	for name, bad := range map[string]string{
+		"cleartext email": "alice@example.com",
+		"too short":       "abc123",
+		"uppercase hex":   "ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		"65 chars":        "a" + pseudo("x"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			scope := KeyScope{TenantID: "t1", SubjectPseudonym: bad, KeyEpoch: 0, KeyVersion: 1}
+			if err := scope.Validate(); err == nil {
+				t.Fatalf("KeyScope.Validate accepted %q, which migration 009's CHECK refuses", bad)
+			}
+			if _, err := h.WrapDEK(scope, make([]byte, DEKBytes)); err == nil {
+				t.Fatalf("WrapDEK accepted %q", bad)
+			}
+			if _, err := store.GetVersion(ctx, scope); err == nil {
+				t.Fatalf("GetVersion accepted %q", bad)
+			}
+		})
+	}
+	// The positive control: a well-formed pseudonym must still be accepted, or this test would pass
+	// against a Validate() that rejected everything.
+	good := KeyScope{TenantID: "t1", SubjectPseudonym: pseudo("alice"), KeyEpoch: 0, KeyVersion: 1}
+	if err := good.Validate(); err != nil {
+		t.Fatalf("a well-formed pseudonym was rejected: %v", err)
+	}
+}
+
+// F6: a receipt with a zero CompletedAt must refuse to digest.
+func TestErasureSaga_ReceiptRefusesAZeroCompletedAt(t *testing.T) {
+	r := DestructionReceipt{
+		Schema: ReceiptSchema, OperationID: pseudo("op"), TenantID: "t1",
+		SubjectPseudonym: pseudo("alice"), Nonce: pseudo("n"),
+		ResidualPseudonym: ResidualUnresolvableToken, StorageResidual: StorageResidualNone,
+		ComplianceNote: ComplianceNote,
+		// CompletedAt deliberately zero.
+	}
+	if _, err := r.Digest(); !errors.Is(err, ErrReceiptIncomplete) {
+		t.Fatalf("a receipt with a zero completed_at digested successfully (err=%v)", err)
+	}
+	r.CompletedAt = time.Unix(1, 0)
+	if _, err := r.Digest(); err != nil {
+		t.Fatalf("the same receipt with a real completed_at refused: %v", err)
+	}
+}
+
+// F14: a control subject whose every version is itself destroyed is not an available control.
+func TestErasureSaga_ProofRefusesAFullyDestroyedControl(t *testing.T) {
+	ctx := context.Background()
+	x := newHarness(t, nil)
+	targetP, _ := x.provision("t1", "alice", 1)
+	controlP, _ := x.provision("t1", "bob", 1)
+
+	receipt, err := x.saga.Erase(ctx, "t1", "alice")
+	if err != nil {
+		t.Fatalf("Erase target: %v", err)
+	}
+	priors := map[int]string{}
+	for _, v := range receipt.Versions {
+		priors[v.KeyVersion] = v.PriorWrappedDigest
+	}
+	// Erase the control too, so it has rows but no live version.
+	if _, err := x.saga.Erase(ctx, "t1", "bob"); err != nil {
+		t.Fatalf("Erase control: %v", err)
+	}
+
+	proof, err := x.saga.VerifyDestroyed(ctx, "t1", targetP, controlP, priors)
+	if err == nil {
+		t.Fatal("VerifyDestroyed succeeded with a fully destroyed control")
+	}
+	if proof.Verdict == VerdictDestroyed {
+		t.Fatal("a proof whose control has no live key version reported 'destroyed'")
+	}
+	if proof.Control.Available {
+		t.Error("the proof reports an available control that cannot demonstrate a working key path")
+	}
+	if proof.Control.UnwrapError == "" {
+		t.Error("the proof records no reason for the control's silence")
+	}
+}
+
+// M16: a key provisioned during the DESTROY LOOP, after the drift re-read has already run.
+//
+// This is a different window from the one above and a different guard closes it. The post-journal
+// re-read cannot see a version that appears after it; only certifyAllDestroyed's check that the LIVE
+// set contains nothing outside the target set can. Certification fails, the saga stays at
+// StatePending, and the next attempt widens the targets and completes -- recoverable, which is the
+// whole point, because a false certification is not.
+func TestErasureSaga_KeyProvisionedDuringDestructionIsCaughtByCertification(t *testing.T) {
+	ctx := context.Background()
+	h := testHierarchy(t)
+	inner := NewMemoryStore()
+	cache := NewPlaintextDEKCache()
+	p, err := fakePseudonymiser{}.Pseudonym("t1", "alice")
+	if err != nil {
+		t.Fatalf("pseudonym: %v", err)
+	}
+	racy := &racyProvisionStore{MemoryStore: inner, h: h, fireOnCall: 2, tenantID: "t1", pseudonym: p}
+	s, err := NewSaga(SagaConfig{
+		Hierarchy: h, Store: racy, Cache: cache,
+		Pseudonymiser: fakePseudonymiser{}, StorageResidual: StorageResidualNone, Now: fixedClock(),
+	})
+	if err != nil {
+		t.Fatalf("NewSaga: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := inner.Provision(ctx, "t1", p, 0, func(sc KeyScope) ([]byte, error) {
+			dek, derr := NewDEK()
+			if derr != nil {
+				return nil, derr
+			}
+			cache.Put(sc, dek)
+			return h.WrapDEK(sc, dek)
+		}, time.Now()); err != nil {
+			t.Fatalf("provision: %v", err)
+		}
+	}
+
+	// Attempt 1 must REFUSE. Completing here would certify "everything targeted is gone" while v3
+	// is live, and record a receipt for it.
+	if _, err := s.Erase(ctx, "t1", "alice"); err == nil {
+		all, _ := inner.ListVersions(ctx, "t1", p)
+		live := 0
+		for _, r := range all {
+			if !r.Destroyed() {
+				live++
+			}
+		}
+		t.Fatalf("the saga completed while %d of %d versions were still live; certification walked "+
+			"only the target set and certified around the new key", live, len(all))
+	}
+
+	// Attempt 2 widens and completes. The subject must not be left permanently un-erasable.
+	receipt, err := s.Erase(ctx, "t1", "alice")
+	if err != nil {
+		t.Fatalf("the retry did not converge: %v", err)
+	}
+	all, _ := inner.ListVersions(ctx, "t1", p)
+	if len(receipt.Versions) != len(all) {
+		t.Fatalf("the receipt covers %d versions but %d exist", len(receipt.Versions), len(all))
+	}
+	for _, r := range all {
+		if _, err := h.UnwrapDEK(r.Scope(), r.WrappedDEK); err == nil {
+			t.Errorf("version %d still unwraps after a completed erasure", r.KeyVersion)
+		}
+	}
+}

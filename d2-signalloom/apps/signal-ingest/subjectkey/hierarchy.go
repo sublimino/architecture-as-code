@@ -48,6 +48,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -133,6 +134,9 @@ func (s KeyScope) Validate() error {
 	if s.SubjectPseudonym == "" {
 		return ErrSubjectRequired
 	}
+	if !validPseudonym(s.SubjectPseudonym) {
+		return fmt.Errorf("%w: got %d characters", ErrPseudonymMalformed, len(s.SubjectPseudonym))
+	}
 	if s.KeyVersion <= 0 {
 		return ErrInvalidVersion
 	}
@@ -208,19 +212,42 @@ func (h *Hierarchy) tenantKEK(tenantID string, epoch uint32) ([]byte, error) {
 
 // TenantKEKFingerprint returns a non-invertible fingerprint of a tenant KEK.
 //
-// Tests and operators need to say "the tenant KEK is unchanged" without anything being able to say
-// what it is. The fingerprint is HMAC-shaped rather than a bare digest of the key: it is
-// SHA-256 over a domain label plus the key, so it cannot be compared against a precomputed table of
-// candidate keys without also knowing the label, and it is one-way regardless.
+// WHAT IT CAN AND CANNOT DETECT, stated because an earlier version of this comment overstated it.
+// The tenant KEK is a pure function of the master key and the (tenant, epoch) pair and has no
+// durable representation at all, so this value is IDENTICAL before and after any erasure. It cannot
+// show that an erasure left the tenant key alone -- nothing about an erasure could change it, which
+// is a structural guarantee (see the Hierarchy doc comment) rather than something this value proves.
+// What it DOES detect, for an operator comparing it against a previously recorded value, is a change
+// of master key or of the derivation scheme.
+//
+// The construction is a real HMAC, not SHA-256 over label||key. The previous form was a prefix-MAC:
+// length-extendable, and not what its comment claimed. Not exploitable for a fingerprint comparison,
+// but there is no reason to ship the weaker primitive when hmac.New is the same line.
 func (h *Hierarchy) TenantKEKFingerprint(tenantID string, epoch uint32) ([]byte, error) {
 	kek, err := h.tenantKEK(tenantID, epoch)
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(append([]byte(Domain+"/fingerprint\x00"), kek...))
-	out := make([]byte, len(sum))
-	copy(out, sum[:])
-	return out, nil
+	mac := hmac.New(sha256.New, kek)
+	mac.Write([]byte(Domain + "/fingerprint"))
+	return mac.Sum(nil), nil
+}
+
+// opIDKeyDomain separates the operation-id HMAC key from the wrapping key.
+const opIDKeyDomain = "signalloom/identity/erasure-operation-id-key/v1"
+
+// operationIDKey derives a key used ONLY for operation-id HMACs.
+//
+// The tenant KEK previously served as both the AES-GCM wrapping key and the HMAC key. There is no
+// practical break against AES-GCM plus HMAC-SHA256, but reusing one key across two primitives is a
+// gratuitous violation of key separation in a package whose whole argument is about which keys may
+// and may not be derived, and one extra HKDF costs nothing.
+func (h *Hierarchy) operationIDKey(tenantID string, epoch uint32) ([]byte, error) {
+	kek, err := h.tenantKEK(tenantID, epoch)
+	if err != nil {
+		return nil, err
+	}
+	return hkdf.Key(sha256.New, kek, nil, opIDKeyDomain, 32)
 }
 
 // wrapAAD builds the additional authenticated data binding a wrapped DEK to its exact scope.

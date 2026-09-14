@@ -33,6 +33,22 @@ func goodRequest() MintRequest {
 		KeyGenerationLast:  43,
 		KeysDestroyed:      3,
 		BucketPopulation:   64,
+		OperationID:        "0f7c1b2a3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
+		ReceiptSchema:      "signalloom.key-destruction-receipt/v1",
+		ReceiptDigest:      "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+	}
+}
+
+func goodReceiptFor(req MintRequest, ts Tombstone) privacy.KeyDestructionReceipt {
+	return privacy.KeyDestructionReceipt{
+		SubjectID:     req.SubjectID,
+		TenantID:      req.TenantID,
+		KeysRemoved:   req.KeysDestroyed,
+		DestroyedAt:   req.ErasedAt,
+		OperationID:   req.OperationID,
+		ReceiptSchema: req.ReceiptSchema,
+		ReceiptDigest: req.ReceiptDigest,
+		ReceiptNonce:  ts.ReceiptNonce,
 	}
 }
 
@@ -330,9 +346,10 @@ func TestTombstoneProjectionIsASubsetOfPublishedFields(t *testing.T) {
 				rt.Field(i).Name, tag)
 		}
 	}
-	ts, _ := mustMint(t, goodRequest())
-	if !VerifyReceiptCommitment(ts) {
-		t.Fatal("the commitment does not verify from published fields alone")
+	req := goodRequest()
+	ts, _ := mustMint(t, req)
+	if !VerifyReceiptCommitment(ts, goodReceiptFor(req, ts)) {
+		t.Fatal("the commitment does not verify against matching receipt")
 	}
 }
 
@@ -408,32 +425,34 @@ func TestTombstoneGenerationRangeIsEpochCoarsened(t *testing.T) {
 }
 
 func TestTombstoneReceiptCommitmentRoundTrip(t *testing.T) {
-	ts, _ := mustMint(t, goodRequest())
+	req := goodRequest()
+	ts, _ := mustMint(t, req)
+	receipt := goodReceiptFor(req, ts)
 	if len(ts.ReceiptNonce) != 64 {
 		t.Fatalf("ReceiptNonce is %d hex chars, want 64 (32 bytes)", len(ts.ReceiptNonce))
 	}
-	if !VerifyReceiptCommitment(ts) {
+	if !VerifyReceiptCommitment(ts, receipt) {
 		t.Fatal("VerifyReceiptCommitment rejected a freshly minted tombstone")
 	}
 
 	mutated := ts
 	mutated.KeysDestroyedBand = "21+"
-	if VerifyReceiptCommitment(mutated) {
+	if VerifyReceiptCommitment(mutated, receipt) {
 		t.Error("commitment survived a hand-edit of keys_destroyed_band")
 	}
 	mutated = ts
 	mutated.KeyGenerationLast++
-	if VerifyReceiptCommitment(mutated) {
+	if VerifyReceiptCommitment(mutated, receipt) {
 		t.Error("commitment survived a hand-edit of key_generation_last")
 	}
 	mutated = ts
 	mutated.ErasedDay = "2026-09-15"
-	if VerifyReceiptCommitment(mutated) {
+	if VerifyReceiptCommitment(mutated, receipt) {
 		t.Error("commitment survived a hand-edit of erased_day")
 	}
 	mutated = ts
 	mutated.TenantID = "tenant-beta"
-	if VerifyReceiptCommitment(mutated) {
+	if VerifyReceiptCommitment(mutated, receipt) {
 		t.Error("commitment survived a hand-edit of tenant_id")
 	}
 	mutated = ts
@@ -445,13 +464,20 @@ func TestTombstoneReceiptCommitmentRoundTrip(t *testing.T) {
 		nonce[0] = 'a'
 	}
 	mutated.ReceiptNonce = string(nonce)
-	if VerifyReceiptCommitment(mutated) {
+	if VerifyReceiptCommitment(mutated, receipt) {
 		t.Error("commitment survived a nonce mutation")
 	}
 	mutated = ts
 	mutated.ReceiptNonce = "not-hex"
-	if VerifyReceiptCommitment(mutated) {
+	if VerifyReceiptCommitment(mutated, receipt) {
 		t.Error("commitment verified against an unparseable nonce")
+	}
+
+	// Mismatched receipt must also fail
+	mismatchedReceipt := receipt
+	mismatchedReceipt.ReceiptDigest = "0000000000000000000000000000000000000000000000000000000000000000"
+	if VerifyReceiptCommitment(ts, mismatchedReceipt) {
+		t.Error("commitment verified against mismatched receipt digest")
 	}
 }
 
@@ -485,9 +511,9 @@ func TestTombstoneCommitmentsAreFreshPerMint(t *testing.T) {
 // TestTombstoneCanonicalProjectionIsDeterministic guards the commitment scheme's foundation.
 func TestTombstoneCanonicalProjectionIsDeterministic(t *testing.T) {
 	p := ReceiptProjection{TenantID: "t", KeysDestroyedBand: "2-5", KeyGenerationFirst: 1, KeyGenerationLast: 1000, DestroyedDay: "2026-09-14"}
-	first := canonicalProjection(p)
+	first := canonicalProjection(p, "digest-test")
 	for i := 0; i < 100; i++ {
-		if got := canonicalProjection(p); string(got) != string(first) {
+		if got := canonicalProjection(p, "digest-test"); string(got) != string(first) {
 			t.Fatalf("canonicalProjection is not deterministic at iteration %d", i)
 		}
 	}
@@ -523,7 +549,7 @@ func TestTombstoneReceiptCommitmentIsNotASubjectOracle(t *testing.T) {
 				TenantID: candidate, KeysDestroyedBand: ts.KeysDestroyedBand,
 				KeyGenerationFirst: ts.KeyGenerationFirst, KeyGenerationLast: ts.KeyGenerationLast,
 				DestroyedDay: ts.ErasedDay,
-			}),
+			}, req.ReceiptDigest),
 			hex.EncodeToString(sha256Sum(append(nonce, []byte(candidate)...))),
 			hex.EncodeToString(sha256Sum([]byte(candidate))),
 			hex.EncodeToString(sha256Sum([]byte(ts.TenantID + candidate))),

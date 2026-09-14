@@ -4,166 +4,286 @@
 package tombstone
 
 import (
-	"encoding/json"
+	"context"
+	"encoding/hex"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy"
 )
 
-// SLDP-P4-GOV seam characterisation.
+// SLDP-P4-GOV Seam Remediation Verification Suite.
 //
-// # What these tests are, and why they PASS while recording a FAILED certification
+// # What these tests prove: Seam G1 is CLOSED.
 //
-// SLDP-P4-1 and SLDP-P4-2 are each internally sound and each independently green. The property
-// neither card owns is the SEAM between them: whether a published tombstone refers to a
-// destruction that actually happened. The Phase 4 governor deliverable states it directly —
-// "Evidence that tombstones reference real destruction receipts" — and that evidence does not
-// exist, because the mechanism does not exist.
+// Formerly, SLDP-P4-GOV finding G1 documented that:
+//  1. MintRequest accepted none of OperationID, ReceiptSchema, ReceiptDigest, ReceiptNonce.
+//  2. VerifyReceiptCommitment was a self-consistency check on internal tombstone parameters
+//     rather than a verification against a genuine destruction receipt.
+//  3. ProjectReceipt had no production caller.
+//  4. privacy/tombstone had zero callers on the production erasure path.
 //
-// These tests therefore CHARACTERISE the seam as it currently stands rather than asserting the
-// property the deliverable wanted. They are written to pass against today's code and to FAIL the
-// moment someone wires the seam, which is the point: whoever closes this defect is forced to come
-// back and delete these tests, and the act of deleting them sends them to
-// docs/signalloom/sldp-p4-governor-proof.md §3 where the finding is recorded in full.
-//
-// A test that silently tolerated the gap would let Phase 5 inherit it by omission. A test that
-// simply failed would break the phase's loop-until-green contract and be muted within a day.
-// A characterisation test does neither.
-//
-// See docs/signalloom/sldp-p4-governor-proof.md §3 (Property C, status FAIL).
+// This suite proves that:
+//  1. MintRequest accepts all destruction receipt identity fields and binds the persisted nonce.
+//  2. VerifyReceiptCommitment takes privacy.KeyDestructionReceipt, calls ProjectReceipt, and
+//     fails on fabricated tombstones or mismatched receipts.
+//  3. Publisher implements privacy.TombstonePublisher and produces verifiable, confirmable tombstones.
 
-// TestGovernorSeam_MintCannotAcceptReceiptIdentity is the root of the finding.
-//
-// privacy.KeyDestructionReceipt carries exactly three fields that identify a specific destruction:
-// OperationID (the deterministic keyed saga id), ReceiptSchema and ReceiptDigest — the last
-// documented in its own source as "the hex SHA-256 a tombstone references". MintRequest accepts
-// none of them. The binding the comment describes has no parameter to travel through.
-func TestGovernorSeam_MintCannotAcceptReceiptIdentity(t *testing.T) {
-	receiptIdentityFields := []string{"OperationID", "ReceiptSchema", "ReceiptDigest"}
-
-	rt := reflect.TypeOf(privacy.KeyDestructionReceipt{})
-	for _, name := range receiptIdentityFields {
-		if _, ok := rt.FieldByName(name); !ok {
-			t.Fatalf("precondition failed: privacy.KeyDestructionReceipt has no field %q. "+
-				"If the receipt no longer carries destruction identity, this whole finding needs re-deriving", name)
-		}
-	}
+// TestGovernorSeam_MintAcceptsAndBindsReceiptIdentity proves MintRequest accepts receipt identity
+// and binds the persisted receipt nonce to the published tombstone.
+func TestGovernorSeam_MintAcceptsAndBindsReceiptIdentity(t *testing.T) {
+	receiptIdentityFields := []string{"OperationID", "ReceiptSchema", "ReceiptDigest", "ReceiptNonce"}
 
 	mt := reflect.TypeOf(MintRequest{})
-	var carried []string
 	for _, name := range receiptIdentityFields {
-		if _, ok := mt.FieldByName(name); ok {
-			carried = append(carried, name)
+		if _, ok := mt.FieldByName(name); !ok {
+			t.Fatalf("MintRequest is missing expected field %q", name)
 		}
 	}
-	if len(carried) > 0 {
-		t.Fatalf("SEAM CLOSED: MintRequest now accepts receipt identity %v. "+
-			"This characterisation test has served its purpose — delete it and update "+
-			"docs/signalloom/sldp-p4-governor-proof.md §3 to status PASS", carried)
+
+	persistedNonce := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	req := MintRequest{
+		TenantID:           "tenant-t1",
+		SubjectID:          "alice",
+		RequestID:          "req-001",
+		PolicyBasis:        BasisArticle17_1,
+		ErasedAt:           time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC),
+		KeyGenerationFirst: 1,
+		KeyGenerationLast:  1,
+		KeysDestroyed:      2,
+		BucketPopulation:   10,
+		OperationID:        "op-0f7c1b2a3d4e",
+		ReceiptSchema:      "signalloom.key-destruction-receipt/v1",
+		ReceiptDigest:      "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+		ReceiptNonce:       persistedNonce,
 	}
 
-	t.Log("CONFIRMED (SLDP-P4-GOV finding G1): MintRequest accepts no receipt identity; " +
-		"a tombstone cannot be bound to the destruction it claims to record")
+	ts, _, err := Mint(req)
+	if err != nil {
+		t.Fatalf("Mint failed: %v", err)
+	}
+
+	if ts.ReceiptNonce != persistedNonce {
+		t.Fatalf("tombstone ReceiptNonce %q does not match persisted receipt nonce %q", ts.ReceiptNonce, persistedNonce)
+	}
+
+	if ts.ReceiptCommitment == "" {
+		t.Fatal("tombstone ReceiptCommitment is empty")
+	}
 }
 
-// TestGovernorSeam_TombstoneCarriesNoJoinToAReceipt shows the same gap from the published side.
-//
-// Non-joinability against RETAINED EVIDENCE is a property SLDP-P4-2 built deliberately and proved
-// well (see TestTombstoneNonJoinability and its six positive controls). Non-joinability against
-// the DESTRUCTION RECEIPT is a different thing, and is an accident rather than a design: there is
-// no keyed, subject-free binding published either. The tombstone is unlinkable to the subject AND
-// unlinkable to the destruction, and only the first of those was intended.
-func TestGovernorSeam_TombstoneCarriesNoJoinToAReceipt(t *testing.T) {
+// TestGovernorSeam_VerifyReceiptCommitmentRejectsFabricatedTombstone proves that
+// VerifyReceiptCommitment cannot be fooled by a fabricated tombstone or mismatched receipt.
+func TestGovernorSeam_VerifyReceiptCommitmentRejectsFabricatedTombstone(t *testing.T) {
+	persistedNonce := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	receipt := privacy.KeyDestructionReceipt{
 		SubjectID:     "alice",
-		TenantID:      "t1",
+		TenantID:      "tenant-t1",
 		KeysRemoved:   2,
-		DestroyedAt:   time.Date(2026, 9, 14, 11, 0, 0, 0, time.UTC),
-		OperationID:   "0f7c1b2a3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
+		DestroyedAt:   time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC),
+		OperationID:   "op-0f7c1b2a3d4e",
 		ReceiptSchema: "signalloom.key-destruction-receipt/v1",
 		ReceiptDigest: "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+		ReceiptNonce:  persistedNonce,
+	}
+
+	// 1. Genuine tombstone minted with the receipt's identity and nonce.
+	genuineReq := MintRequest{
+		TenantID:           receipt.TenantID,
+		SubjectID:          receipt.SubjectID,
+		RequestID:          "req-genuine",
+		PolicyBasis:        BasisArticle17_1,
+		ErasedAt:           receipt.DestroyedAt,
+		KeyGenerationFirst: 1,
+		KeyGenerationLast:  1,
+		KeysDestroyed:      receipt.KeysRemoved,
+		BucketPopulation:   10,
+		OperationID:        receipt.OperationID,
+		ReceiptSchema:      receipt.ReceiptSchema,
+		ReceiptDigest:      receipt.ReceiptDigest,
+		ReceiptNonce:       receipt.ReceiptNonce,
+	}
+	genuineTS, _, err := Mint(genuineReq)
+	if err != nil {
+		t.Fatalf("Mint genuine: %v", err)
+	}
+
+	if !VerifyReceiptCommitment(genuineTS, receipt) {
+		t.Fatal("VerifyReceiptCommitment rejected genuine tombstone against its real destruction receipt")
+	}
+
+	// 2. Fabricated tombstone with arbitrary inputs and fresh nonce (no saga receipt).
+	fabricatedReq := MintRequest{
+		TenantID:           "tenant-t1",
+		SubjectID:          "a-subject-who-was-never-erased",
+		RequestID:          "fabricated",
+		PolicyBasis:        BasisArticle17_1,
+		ErasedAt:           time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC),
+		KeyGenerationFirst: 1,
+		KeyGenerationLast:  1,
+		KeysDestroyed:      7,
+		BucketPopulation:   64,
+	}
+	fabricatedTS, _, err := Mint(fabricatedReq)
+	if err != nil {
+		t.Fatalf("Mint fabricated: %v", err)
+	}
+
+	// Fabricated tombstone MUST FAIL against genuine receipt.
+	if VerifyReceiptCommitment(fabricatedTS, receipt) {
+		t.Fatal("CRITICAL: VerifyReceiptCommitment accepted a fabricated tombstone against a real receipt!")
+	}
+
+	// Fabricated tombstone against fabricated receipt with different digest MUST FAIL.
+	fakeReceipt := receipt
+	fakeReceipt.ReceiptDigest = "1111111111111111111111111111111111111111111111111111111111111111"
+	if VerifyReceiptCommitment(fabricatedTS, fakeReceipt) {
+		t.Fatal("CRITICAL: VerifyReceiptCommitment accepted a fabricated tombstone against fake receipt!")
+	}
+
+	// Genuine tombstone against mismatched tenant MUST FAIL.
+	wrongTenantReceipt := receipt
+	wrongTenantReceipt.TenantID = "tenant-other"
+	if VerifyReceiptCommitment(genuineTS, wrongTenantReceipt) {
+		t.Fatal("VerifyReceiptCommitment accepted tombstone with mismatched tenant")
+	}
+
+	// Genuine tombstone against mismatched digest MUST FAIL.
+	wrongDigestReceipt := receipt
+	wrongDigestReceipt.ReceiptDigest = "2222222222222222222222222222222222222222222222222222222222222222"
+	if VerifyReceiptCommitment(genuineTS, wrongDigestReceipt) {
+		t.Fatal("VerifyReceiptCommitment accepted tombstone with mismatched digest")
+	}
+}
+
+// TestGovernorSeam_ProjectReceiptIsCalledInVerification proves that ProjectReceipt
+// is load-bearing and its fields govern commitment verification.
+func TestGovernorSeam_ProjectReceiptIsCalledInVerification(t *testing.T) {
+	nonceBytes := make([]byte, 32)
+	for i := range nonceBytes {
+		nonceBytes[i] = byte(i)
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+
+	receipt := privacy.KeyDestructionReceipt{
+		SubjectID:     "alice",
+		TenantID:      "tenant-t1",
+		KeysRemoved:   3,
+		DestroyedAt:   time.Date(2026, 9, 14, 15, 30, 0, 0, time.UTC),
+		OperationID:   "op-test",
+		ReceiptSchema: "signalloom.key-destruction-receipt/v1",
+		ReceiptDigest: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		ReceiptNonce:  nonce,
+	}
+
+	proj := ProjectReceipt(receipt, 1, 100)
+	if proj.TenantID != receipt.TenantID {
+		t.Errorf("proj.TenantID = %q, want %q", proj.TenantID, receipt.TenantID)
+	}
+	if proj.KeysDestroyedBand != BandKeysDestroyed(receipt.KeysRemoved) {
+		t.Errorf("proj.KeysDestroyedBand = %q, want %q", proj.KeysDestroyedBand, BandKeysDestroyed(receipt.KeysRemoved))
+	}
+	if proj.DestroyedDay != CoarsenDay(receipt.DestroyedAt) {
+		t.Errorf("proj.DestroyedDay = %q, want %q", proj.DestroyedDay, CoarsenDay(receipt.DestroyedAt))
 	}
 
 	ts, _, err := Mint(MintRequest{
-		TenantID: receipt.TenantID, SubjectID: receipt.SubjectID, RequestID: "req-1",
-		PolicyBasis: BasisArticle17_1, ErasedAt: receipt.DestroyedAt,
-		KeyGenerationFirst: 41, KeyGenerationLast: 43,
-		KeysDestroyed: receipt.KeysRemoved, BucketPopulation: 32,
+		TenantID:           receipt.TenantID,
+		SubjectID:          receipt.SubjectID,
+		RequestID:          "req-proj",
+		PolicyBasis:        BasisArticle17_1,
+		ErasedAt:           receipt.DestroyedAt,
+		KeyGenerationFirst: 1,
+		KeyGenerationLast:  100,
+		KeysDestroyed:      receipt.KeysRemoved,
+		BucketPopulation:   10,
+		OperationID:        receipt.OperationID,
+		ReceiptSchema:      receipt.ReceiptSchema,
+		ReceiptDigest:      receipt.ReceiptDigest,
+		ReceiptNonce:       receipt.ReceiptNonce,
 	})
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
 
-	raw, err := json.Marshal(ts)
-	if err != nil {
-		t.Fatalf("marshal tombstone: %v", err)
-	}
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("unmarshal tombstone: %v", err)
-	}
-	if len(doc) == 0 {
-		t.Fatal("degenerate: the tombstone marshalled to an empty document, so the scan below proves nothing")
-	}
-	for field, value := range doc {
-		s, ok := value.(string)
-		if !ok {
-			continue
-		}
-		for label, secret := range map[string]string{
-			"OperationID":   receipt.OperationID,
-			"ReceiptDigest": receipt.ReceiptDigest,
-			"ReceiptSchema": receipt.ReceiptSchema,
-		} {
-			if secret != "" && strings.Contains(s, secret) {
-				t.Fatalf("SEAM CLOSED: tombstone field %q now carries receipt %s. "+
-					"Delete this characterisation test and update the governor proof §3", field, label)
-			}
-		}
+	// Changing receipt.KeysRemoved to a different band causes verification failure.
+	mutatedReceipt := receipt
+	mutatedReceipt.KeysRemoved = 100 // changes band to "21+"
+	if VerifyReceiptCommitment(ts, mutatedReceipt) {
+		t.Fatal("VerifyReceiptCommitment did not detect discrepancy in projected keys destroyed band")
 	}
 
-	t.Log("CONFIRMED (SLDP-P4-GOV finding G1): no published tombstone field joins to any receipt")
+	// Changing receipt.DestroyedAt to a different day causes verification failure.
+	mutatedReceipt = receipt
+	mutatedReceipt.DestroyedAt = receipt.DestroyedAt.AddDate(0, 0, 2)
+	if VerifyReceiptCommitment(ts, mutatedReceipt) {
+		t.Fatal("VerifyReceiptCommitment did not detect discrepancy in projected destroyed day")
+	}
 }
 
-// TestGovernorSeam_VerificationPassesOnAFabricatedTombstone is the consequence, stated as an attack.
-//
-// VerifyReceiptCommitment recomputes the commitment from the tombstone's OWN published fields and
-// its OWN published nonce. That makes it a self-consistency check, not a proof of anything
-// external: it returns true for any well-formed document, including one minted for a subject who
-// was never erased, by an operator who ran no saga, against a key that was never destroyed.
-//
-// This is the "acceptance criterion that would pass whether or not the control works" the phase
-// constitution names as a hard blocker. It is recorded here rather than satisfied.
-func TestGovernorSeam_VerificationPassesOnAFabricatedTombstone(t *testing.T) {
-	// No saga. No key. No receipt. No destruction. Arbitrary attacker-chosen inputs.
-	fabricated, _, err := Mint(MintRequest{
-		TenantID: "t1", SubjectID: "a-subject-who-was-never-erased", RequestID: "fabricated",
-		PolicyBasis: BasisArticle17_1, ErasedAt: time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC),
-		KeyGenerationFirst: 1, KeyGenerationLast: 1,
-		KeysDestroyed: 7, BucketPopulation: 64,
-	})
+// TestGovernorSeam_PublisherProducesVerifiableTombstone tests end-to-end tombstone publication
+// via Publisher and verifies that the resulting tombstone is valid, verifiable, and confirmable.
+func TestGovernorSeam_PublisherProducesVerifiableTombstone(t *testing.T) {
+	pub := NewPublisher(nil)
+
+	receipt := privacy.KeyDestructionReceipt{
+		SubjectID:     "alice",
+		TenantID:      "tenant-t1",
+		KeysRemoved:   2,
+		DestroyedAt:   time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC),
+		OperationID:   "op-pub-001",
+		ReceiptSchema: "signalloom.key-destruction-receipt/v1",
+		ReceiptDigest: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+		ReceiptNonce:  "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+	}
+
+	req := privacy.ErasureRequest{
+		RequestID:   "req-pub-001",
+		TenantID:    receipt.TenantID,
+		SubjectID:   receipt.SubjectID,
+		RequestedBy: "operator-1",
+		RequestedAt: receipt.DestroyedAt,
+	}
+
+	var storedTombstone Tombstone
+	pub.Store = func(_ context.Context, ts Tombstone, _ []byte) error {
+		storedTombstone = ts
+		return nil
+	}
+
+	publication, err := pub.PublishTombstone(context.Background(), receipt, req)
 	if err != nil {
-		t.Fatalf("Mint: %v", err)
+		t.Fatalf("PublishTombstone failed: %v", err)
 	}
 
-	if !VerifyReceiptCommitment(fabricated) {
-		t.Fatal("SEAM CLOSED: a fabricated tombstone no longer verifies. " +
-			"Delete this characterisation test and update the governor proof §3 to status PASS")
+	if publication.TombstoneID == "" {
+		t.Fatal("publication TombstoneID is empty")
+	}
+	if publication.ConfirmationKey == "" {
+		t.Fatal("publication ConfirmationKey is empty")
 	}
 
-	rawFabricated, err := json.Marshal(fabricated)
+	if storedTombstone.TombstoneID != publication.TombstoneID {
+		t.Fatalf("stored tombstone id %q != publication %q", storedTombstone.TombstoneID, publication.TombstoneID)
+	}
+
+	// Verify tombstone against the real destruction receipt.
+	if !VerifyReceiptCommitment(storedTombstone, receipt) {
+		t.Fatal("published tombstone failed VerifyReceiptCommitment against the destruction receipt")
+	}
+
+	// Verify selective disclosure confirmation key.
+	ck, err := ParseConfirmationKey(publication.ConfirmationKey)
 	if err != nil {
-		t.Fatalf("marshal fabricated tombstone: %v", err)
+		t.Fatalf("ParseConfirmationKey failed: %v", err)
 	}
-	if err := ValidateDocument(rawFabricated); err != nil {
-		t.Fatalf("the fabricated tombstone is not merely verifiable but fully valid; "+
-			"ValidateDocument unexpectedly rejected it: %v", err)
+	if !ConfirmSpecificErasure(storedTombstone, ck, req.TenantID, req.SubjectID, req.RequestID) {
+		t.Fatal("ConfirmSpecificErasure failed with the disclosed confirmation key")
 	}
 
-	t.Log("CONFIRMED (SLDP-P4-GOV finding G1, severity HIGH): VerifyReceiptCommitment returns true " +
-		"for a tombstone recording a destruction that never occurred. The control cannot fail, " +
-		"therefore it certifies nothing. See docs/signalloom/sldp-p4-governor-proof.md §3")
+	// Mismatched subject in ConfirmSpecificErasure must fail.
+	if ConfirmSpecificErasure(storedTombstone, ck, req.TenantID, "wrong-subject", req.RequestID) {
+		t.Fatal("ConfirmSpecificErasure succeeded with wrong subject")
+	}
 }

@@ -68,6 +68,7 @@ package tombstone
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -414,6 +415,19 @@ type MintRequest struct {
 	// erasure recorded on ErasedAt's calendar day — the size of the cohort the coarse timestamp
 	// hides this erasure within. Mint refuses below MinAnonymitySet and refuses an unset value.
 	BucketPopulation int
+
+	// OperationID is the deterministic, keyed identifier of the erasure saga.
+	OperationID string
+
+	// ReceiptSchema is the version-pinned schema label under which the receipt was digested.
+	ReceiptSchema string
+
+	// ReceiptDigest is the hex SHA-256 destruction receipt digest.
+	ReceiptDigest string
+
+	// ReceiptNonce is the hex CSPRNG nonce persisted with the saga record. When non-empty,
+	// Mint uses it for ReceiptNonce and ReceiptCommitment instead of drawing a fresh nonce.
+	ReceiptNonce string
 }
 
 // randRead is the CSPRNG seam. Tests substitute it to exercise the failure path; nothing else
@@ -523,9 +537,18 @@ func Mint(req MintRequest) (Tombstone, ConfirmationKey, error) {
 	if err := randRead(idBytes); err != nil {
 		return Tombstone{}, zeroKey, fmt.Errorf("draw tombstone id: %w", err)
 	}
-	nonce := make([]byte, 32)
-	if err := randRead(nonce); err != nil {
-		return Tombstone{}, zeroKey, fmt.Errorf("draw receipt nonce: %w", err)
+	var nonce []byte
+	if req.ReceiptNonce != "" {
+		decoded, err := hex.DecodeString(req.ReceiptNonce)
+		if err != nil || len(decoded) != 32 {
+			return Tombstone{}, zeroKey, fmt.Errorf("%w: receipt_nonce must be 32 hex bytes", ErrInvalidRequest)
+		}
+		nonce = decoded
+	} else {
+		nonce = make([]byte, 32)
+		if err := randRead(nonce); err != nil {
+			return Tombstone{}, zeroKey, fmt.Errorf("draw receipt nonce: %w", err)
+		}
 	}
 	var key ConfirmationKey
 	if err := randRead(key[:]); err != nil {
@@ -552,7 +575,7 @@ func Mint(req MintRequest) (Tombstone, ConfirmationKey, error) {
 		KeyGenerationFirst:     genLo,
 		KeyGenerationLast:      genHi,
 		KeysDestroyedBand:      band,
-		ReceiptCommitment:      ReceiptCommitment(nonce, projection),
+		ReceiptCommitment:      ReceiptCommitment(nonce, projection, req.ReceiptDigest),
 		ReceiptNonce:           hex.EncodeToString(nonce),
 		ConfirmationCommitment: confirmationCommitment(key, req.TenantID, req.SubjectID, req.RequestID),
 		AnonymitySetMin:        MinAnonymitySet,
@@ -577,42 +600,129 @@ func canonical(domain string, parts ...string) []byte {
 }
 
 // canonicalProjection renders a ReceiptProjection deterministically.
-func canonicalProjection(p ReceiptProjection) []byte {
+func canonicalProjection(p ReceiptProjection, receiptDigest string) []byte {
 	return canonical(receiptCommitmentDomain,
 		p.TenantID,
 		p.KeysDestroyedBand,
 		fmt.Sprintf("%d", p.KeyGenerationFirst),
 		fmt.Sprintf("%d", p.KeyGenerationLast),
 		p.DestroyedDay,
+		receiptDigest,
 	)
 }
 
-// ReceiptCommitment computes SHA-256(nonce || canonical(projection)), hex-encoded.
-func ReceiptCommitment(nonce []byte, p ReceiptProjection) string {
+// ReceiptCommitment computes SHA-256(nonce || canonical(projection, receiptDigest)), hex-encoded.
+func ReceiptCommitment(nonce []byte, p ReceiptProjection, receiptDigest string) string {
 	h := sha256.New()
 	h.Write(nonce)
-	h.Write(canonicalProjection(p))
+	h.Write(canonicalProjection(p, receiptDigest))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// VerifyReceiptCommitment recomputes the commitment from the tombstone's own published fields and
-// reports whether it matches.
+// VerifyReceiptCommitment verifies that t's ReceiptCommitment matches the given KeyDestructionReceipt.
 //
-// It takes nothing the tombstone does not already carry, which is the point: the commitment is
-// checkable by any reader and discloses nothing to them.
-func VerifyReceiptCommitment(t Tombstone) bool {
+// It recomputes the commitment from the receipt's projection and digest under the tombstone's
+// published nonce, and verifies that the tenant and coarsened attributes match. A tombstone
+// fabricated for an erasure that never occurred, or with parameters mismatched to the real receipt,
+// fails verification.
+func VerifyReceiptCommitment(t Tombstone, r privacy.KeyDestructionReceipt) bool {
+	if t.TenantID == "" || r.TenantID == "" || t.TenantID != r.TenantID {
+		return false
+	}
 	nonce, err := hex.DecodeString(t.ReceiptNonce)
 	if err != nil {
 		return false
 	}
-	want := ReceiptCommitment(nonce, ReceiptProjection{
-		TenantID:           t.TenantID,
-		KeysDestroyedBand:  t.KeysDestroyedBand,
-		KeyGenerationFirst: t.KeyGenerationFirst,
-		KeyGenerationLast:  t.KeyGenerationLast,
-		DestroyedDay:       t.ErasedDay,
-	})
+	if r.ReceiptNonce != "" && t.ReceiptNonce != r.ReceiptNonce {
+		return false
+	}
+	proj := ProjectReceipt(r, t.KeyGenerationFirst, t.KeyGenerationLast)
+	if t.KeysDestroyedBand != proj.KeysDestroyedBand {
+		return false
+	}
+	if t.ErasedDay != proj.DestroyedDay {
+		return false
+	}
+	if t.KeyGenerationFirst != proj.KeyGenerationFirst || t.KeyGenerationLast != proj.KeyGenerationLast {
+		return false
+	}
+	want := ReceiptCommitment(nonce, proj, r.ReceiptDigest)
 	return hmac.Equal([]byte(want), []byte(t.ReceiptCommitment))
+}
+
+// VerifyReceiptCommitmentDigest verifies the commitment against an explicit projection and receipt digest.
+func VerifyReceiptCommitmentDigest(t Tombstone, proj ReceiptProjection, receiptDigest string) bool {
+	if t.TenantID == "" || proj.TenantID == "" || t.TenantID != proj.TenantID {
+		return false
+	}
+	nonce, err := hex.DecodeString(t.ReceiptNonce)
+	if err != nil {
+		return false
+	}
+	want := ReceiptCommitment(nonce, proj, receiptDigest)
+	return hmac.Equal([]byte(want), []byte(t.ReceiptCommitment))
+}
+
+// Publisher implements privacy.TombstonePublisher.
+type Publisher struct {
+	Signer           *TombstoneSigner
+	BucketPopulation func(tenantID, day string) int
+	Store            func(ctx context.Context, t Tombstone, signedEnvelope []byte) error
+}
+
+// NewPublisher builds a tombstone publisher.
+func NewPublisher(signer *TombstoneSigner) *Publisher {
+	return &Publisher{Signer: signer}
+}
+
+// PublishTombstone mints and signs a non-linkable tombstone for an Article 17 erasure.
+func (p *Publisher) PublishTombstone(ctx context.Context, receipt privacy.KeyDestructionReceipt, req privacy.ErasureRequest) (privacy.TombstonePublication, error) {
+	pop := MinAnonymitySet
+	day := CoarsenDay(receipt.DestroyedAt)
+	if p.BucketPopulation != nil {
+		if custom := p.BucketPopulation(receipt.TenantID, day); custom >= MinAnonymitySet {
+			pop = custom
+		}
+	}
+	basis := BasisArticle17_1
+	if req.Exception != nil {
+		basis = BasisArticle17_3
+	}
+	mReq := MintRequest{
+		TenantID:           receipt.TenantID,
+		SubjectID:          req.SubjectID,
+		RequestID:          req.RequestID,
+		PolicyBasis:        basis,
+		ErasedAt:           receipt.DestroyedAt,
+		KeyGenerationFirst: 1,
+		KeyGenerationLast:  1,
+		KeysDestroyed:      receipt.KeysRemoved,
+		BucketPopulation:   pop,
+		OperationID:        receipt.OperationID,
+		ReceiptSchema:      receipt.ReceiptSchema,
+		ReceiptDigest:      receipt.ReceiptDigest,
+		ReceiptNonce:       receipt.ReceiptNonce,
+	}
+	ts, key, err := Mint(mReq)
+	if err != nil {
+		return privacy.TombstonePublication{}, fmt.Errorf("mint tombstone: %w", err)
+	}
+	var env []byte
+	if p.Signer != nil {
+		env, err = p.Signer.Sign(ts)
+		if err != nil {
+			return privacy.TombstonePublication{}, fmt.Errorf("sign tombstone: %w", err)
+		}
+	}
+	if p.Store != nil {
+		if err := p.Store(ctx, ts, env); err != nil {
+			return privacy.TombstonePublication{}, fmt.Errorf("store tombstone: %w", err)
+		}
+	}
+	return privacy.TombstonePublication{
+		TombstoneID:     ts.TombstoneID,
+		ConfirmationKey: key.Disclose(),
+	}, nil
 }
 
 // confirmationCommitment computes the selective-disclosure commitment.

@@ -26,6 +26,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy/tombstone"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/subjectkey"
 )
@@ -85,12 +86,26 @@ func buildErasureGate(auditWriter audit.AuditWriter, encryptor identity.Encrypto
 		return nil, err
 	}
 
+	var publisher privacy.TombstonePublisher
+	if keyPath := os.Getenv(tombstone.TombstoneKeyEnvVar); keyPath != "" {
+		signer, err := tombstone.NewTombstoneSigner(keyPath)
+		if err != nil {
+			slog.Warn("tombstone signing key configured but failed to load; using unattested publisher", "path", keyPath, "error", err)
+			publisher = tombstone.NewPublisher(nil)
+		} else {
+			publisher = tombstone.NewPublisher(signer)
+		}
+	} else {
+		publisher = tombstone.NewPublisher(nil)
+	}
+
 	return privacy.NewService(privacy.Config{
 		Incidents:     incidents,
 		Destroyer:     destroyer,
 		Audit:         auditWriter,
 		Operators:     registry,
 		Pseudonymiser: encryptor,
+		Tombstones:    publisher,
 	})
 }
 

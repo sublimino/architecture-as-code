@@ -563,12 +563,38 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion
 .PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
 .PHONY: test-signal-segment-verifier verify-signal-segments
+.PHONY: test-identity-rls-live
 
 test-signal-ingest: test-signal-segment-verifier ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
 
 test-signal-ingest-frostdb: test-signal-segment-verifier ## Run Go signal-ingest tests INCLUDING FrostDB store.
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./... -v -count=1
+
+# SLDP-P2-2: tenant isolation is a SERVER behaviour, so the only evidence that counts comes from a
+# server. This target stands one up, runs the hostile-context suite against it, and tears it down.
+# Without it the identity suite asserts on migration text, which passes identically whether the
+# policies deny anything or not.
+IDENTITY_RLS_PG_CONTAINER ?= sldp-identity-rls-pg
+IDENTITY_RLS_PG_PORT ?= 55432
+IDENTITY_RLS_PG_IMAGE ?= postgres:16-alpine
+
+test-identity-rls-live: ## Run the SLDP-P2-2 hostile-context row-level-security suite against a real PostgreSQL.
+	@docker rm -f $(IDENTITY_RLS_PG_CONTAINER) >/dev/null 2>&1 || true
+	@docker run -d --name $(IDENTITY_RLS_PG_CONTAINER) \
+		-e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=signalloom \
+		-p $(IDENTITY_RLS_PG_PORT):5432 $(IDENTITY_RLS_PG_IMAGE) >/dev/null
+	@# pg_isready goes green against the entrypoint's TEMPORARY server during initdb, so polling it
+	@# reports ready seconds before the real listener exists. Poll a real TCP query instead.
+	@for i in $$(seq 1 60); do \
+		if docker exec $(IDENTITY_RLS_PG_CONTAINER) psql -U postgres -h 127.0.0.1 -d signalloom -Atc 'select 1' >/dev/null 2>&1; then break; fi; \
+		sleep 1; \
+	done
+	@cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 \
+		IDENTITY_TEST_DATABASE_URL='postgres://postgres:devpass@127.0.0.1:$(IDENTITY_RLS_PG_PORT)/signalloom?sslmode=disable' \
+		INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true \
+		go test ./identity/... -run 'TestTenant' -count=1 -v; \
+		rc=$$?; docker rm -f $(IDENTITY_RLS_PG_CONTAINER) >/dev/null 2>&1 || true; exit $$rc
 
 # SLDP-P1-3: negative controls and the compiled auditor run in every ingest gate.
 test-signal-segment-verifier: ## Verify real writer fixtures, tamper refusal, historical keys, schemas, and auditor CLI.

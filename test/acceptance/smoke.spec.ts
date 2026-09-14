@@ -55,7 +55,7 @@ const PAGES: PageCase[] = [
   // backend answered.
   { nav: "RBAC Analysis", heading: "RBAC Analysis" },
   { nav: "RBAC Explorer", heading: "RBAC Explorer", content: ["KubeSec-AFM RBAC analysis"] },
-  { nav: "Agent Trust Topology", heading: "Agent Trust Topology", content: ["Trust relationship plane"] },
+  { nav: "Topology", heading: "Agent Trust Topology", content: ["Trust relationship plane"] },
   { nav: "Settings", heading: "Settings" },
 ];
 
@@ -162,7 +162,7 @@ test.describe("authenticated dashboard", () => {
   });
 
   test("Agent Trust Topology exposes denied authorization evidence", async ({ page }) => {
-    await page.getByRole("link", { name: "Agent Trust Topology", exact: true }).click();
+    await page.getByRole("link", { name: "Topology", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Agent Trust Topology" })).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: "Authorization plane", exact: true }).click();
     await page.getByRole("button", { name: /cross-project application denial/i }).click();

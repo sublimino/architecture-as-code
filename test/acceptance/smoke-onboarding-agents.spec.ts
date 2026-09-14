@@ -32,7 +32,7 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
     await expect(skipOrGoBtn).toBeVisible({ timeout: 15_000 });
     await skipOrGoBtn.click();
 
-    await page.waitForURL(/\/(overview|agents)/, { timeout: 15_000 });
+    await page.waitForURL(/\/(overview|agents|discovery)/, { timeout: 15_000 });
     await expect(page.locator("nav a[href='/agents'], nav a[href='/discovery']").first()).toBeVisible({ timeout: 10_000 });
   });
 
@@ -123,7 +123,7 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
     await gotoDashboardBtn.click();
 
     // Verify redirect and sidebar navigation visibility
-    await page.waitForURL(/\/(overview|agents)/, { timeout: 15_000 });
+    await page.waitForURL(/\/(overview|agents|discovery)/, { timeout: 15_000 });
     await expect(page.locator("nav a[href='/agents'], nav a[href='/discovery']").first()).toBeVisible({ timeout: 10_000 });
   });
 

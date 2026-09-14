@@ -7,7 +7,7 @@ const ONBOARDING_SKIP_WAIT_MS = 15_000;
 const DASHBOARD_SETTLE_TIMEOUT_MS = 15_000;
 
 async function dismissOnboardingIfPresent(page: Page): Promise<void> {
-  const skipOnboarding = page.getByRole("button", { name: "Skip for now" });
+  const skipOnboarding = page.locator('[data-testid="skip-onboarding-button"], button:has-text("Skip for now")').first();
 
   // This runs once in the setup project, not in every journey. That is the
   // right place to absorb the onboarding race: the button appears ~500 ms
@@ -83,7 +83,7 @@ setup("authenticate via Dex", async ({ page }) => {
   await loginField.fill("demo-user@signalloom.local");
   await page.locator('input[name="password"]').fill(DEX_DEMO_PASSWORD);
   await page.getByRole("button", { name: /sign in|login/i }).click();
-  await page.waitForURL(/\/agents/, { timeout: 15_000 });
+  await page.waitForURL(/\/(agents|onboarding)/, { timeout: 15_000 });
   await page.waitForLoadState("networkidle", { timeout: DASHBOARD_SETTLE_TIMEOUT_MS });
 
   // Onboarding is another deterministic precondition, alongside the

@@ -77,7 +77,7 @@ func main() {
 			// and readiness stays red for as long as the process lives so the
 			// misconfiguration cannot pass for health.
 			slog.Error("audit DATABASE_URL is unusable, audit writes disabled", "error", err)
-			auditWriter = audit.NopWriter{}
+			auditWriter = audit.NewNopWriter(identity.DevOptInAllowed())
 			permanentErr := err
 			auditReady = func(context.Context) error { return permanentErr }
 		} else {
@@ -115,8 +115,8 @@ func main() {
 	} else {
 		// No DSN: audit is deliberately off (local and fixture runs). This is
 		// a configured state, not a degraded one, so readiness stays green.
-		auditWriter = audit.NopWriter{}
-		slog.Info("no DATABASE_URL set, audit writes disabled")
+		auditWriter = audit.NewNopWriter(identity.DevOptInAllowed())
+		slog.Info("no DATABASE_URL set, audit writes disabled", "allow_discard", identity.DevOptInAllowed())
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -176,9 +176,18 @@ func main() {
 	// Identity graph repository & resolver store (SFDP-P3-2):
 	// Reuses the audit connection pool (*sql.DB) when DATABASE_URL is set, avoiding a second pool.
 	var identityStore identity.ResolverStore
+	var activeEncryptor identity.Encryptor
+
+	keyStr := os.Getenv("IDENTITY_ENCRYPTION_KEY")
+	enc, err := identity.NewEncryptorFromKeyString(keyStr)
+	if err != nil {
+		slog.Error("failed to initialize identity encryptor (refusing to boot unencrypted outside development mode)", "error", err)
+		os.Exit(1)
+	}
+	activeEncryptor = enc
+
 	if pw, ok := auditWriter.(*audit.PostgresWriter); ok && pw != nil {
-		encryptor, _ := identity.NewEncryptorFromKeyString(os.Getenv("IDENTITY_ENCRYPTION_KEY"))
-		identityRepo := identity.NewPostgresRepository(pw.DB(), encryptor)
+		identityRepo := identity.NewPostgresRepository(pw.DB(), activeEncryptor)
 		identityStore = identity.NewGraphResolverStore(identityRepo)
 		migCtx, cancelMig := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := identity.ApplyMigrations(migCtx, pw.DB()); err != nil {
@@ -186,7 +195,7 @@ func main() {
 		}
 		cancelMig()
 	} else {
-		identityStore = identity.NewGraphResolverStore(identity.NewMemoryRepository())
+		identityStore = identity.NewGraphResolverStore(identity.NewMemoryRepository(activeEncryptor))
 	}
 
 	eventBus := identity.NewInProcessEventBus()
@@ -219,6 +228,7 @@ func main() {
 		FairService:     fairService,
 		StunClient:      stunClient,
 		EventBus:        eventBus,
+		Encryptor:       activeEncryptor,
 	}
 
 	mux := http.NewServeMux()

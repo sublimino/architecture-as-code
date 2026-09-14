@@ -13,6 +13,7 @@ import (
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
@@ -51,6 +52,63 @@ func TestHealthz(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("healthz: want 200, got %d", w.Code)
+	}
+}
+
+func TestHealth_PostureReporting(t *testing.T) {
+	// 1. Enforced production posture
+	aesEnc, _ := identity.NewAESGCMEncryptor([]byte("01234567890123456789012345678901"))
+	fakeAudit := audit.NewFakeWriter()
+	h := &Handlers{Encryptor: aesEnc, Audit: fakeAudit}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("health: want 200, got %d", w.Code)
+	}
+
+	var resp HealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode HealthResponse: %v", err)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("expected status ok, got %s", resp.Status)
+	}
+	if resp.Encryption.Algorithm != "AES-256-GCM" || !resp.Encryption.Healthy {
+		t.Errorf("unexpected encryption posture: %+v", resp.Encryption)
+	}
+	if resp.Audit.Backend != "fake_memory" || !resp.Audit.Healthy {
+		t.Errorf("unexpected audit posture: %+v", resp.Audit)
+	}
+
+	// 2. Degraded insecure dev posture
+	noopEnc := identity.NewNoopEncryptor()
+	defer noopEnc.Stop()
+	hDegraded := &Handlers{Encryptor: noopEnc, Audit: audit.NewNopWriter(true)}
+	muxDegraded := http.NewServeMux()
+	hDegraded.RegisterRoutes(muxDegraded)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	w2 := httptest.NewRecorder()
+	muxDegraded.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Fatalf("health api: want 200, got %d", w2.Code)
+	}
+
+	var respDegraded HealthResponse
+	if err := json.Unmarshal(w2.Body.Bytes(), &respDegraded); err != nil {
+		t.Fatalf("failed to decode degraded HealthResponse: %v", err)
+	}
+	if respDegraded.Status != "degraded" {
+		t.Errorf("expected status degraded for insecure dev setup, got %s", respDegraded.Status)
+	}
+	if respDegraded.Encryption.Healthy || !respDegraded.Encryption.DevOptIn {
+		t.Errorf("expected encryption healthy=false and dev_opt_in=true, got %+v", respDegraded.Encryption)
 	}
 }
 

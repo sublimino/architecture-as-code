@@ -92,9 +92,10 @@ func TestPromoteActor_WritesAuditEvent(t *testing.T) {
 	}
 }
 
-// TestPromoteActor_AuditFailureDoesNotCrash verifies that a broken audit
-// writer does not prevent the promote from succeeding (fail-open).
-func TestPromoteActor_AuditFailureDoesNotCrash(t *testing.T) {
+// TestPromoteActor_AuditFailureFailsClosed verifies that when the audit writer fails,
+// the high-stakes promote operation fails closed with HTTP 503 Service Unavailable
+// and refuses the promotion.
+func TestPromoteActor_AuditFailureFailsClosed(t *testing.T) {
 	fake := audit.NewFakeWriter()
 	fake.FailWith = errors.New("postgres connection refused")
 	h, mux := newTestHandlersWithAudit(t, fake)
@@ -118,8 +119,8 @@ func TestPromoteActor_AuditFailureDoesNotCrash(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	// The handler should succeed even though audit writes fail.
-	if w.Code != http.StatusOK {
-		t.Errorf("promote should succeed despite audit failure: want 200, got %d", w.Code)
+	// The handler must fail closed (503) when audit persistence fails.
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("promote should fail closed on audit error: want 503, got %d, body: %s", w.Code, w.Body.String())
 	}
 }

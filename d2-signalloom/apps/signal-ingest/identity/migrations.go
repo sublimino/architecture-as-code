@@ -20,9 +20,26 @@ var Migration003IdempotentSeeding string
 //go:embed migrations/004_delegation_revocation.sql
 var Migration004DelegationRevocation string
 
-// MigrationSQL returns the concatenated migration SQL scripts for external inspection or testing.
+//go:embed migrations/005_pseudonymisation_and_encryption.sql
+var Migration005PseudonymisationAndEncryption string
+
+// Migration005Rollback is the schema half of the 005 rollback. It is NOT executed by
+// ApplyMigrations; it is embedded so operators and tests can run it without a file path, and so
+// its text is covered by the migration test suite.
+//
+//go:embed migrations/005_pseudonymisation_and_encryption_rollback.sql
+var Migration005Rollback string
+
+// MigrationSQL returns the concatenated forward migration SQL scripts for external inspection or
+// testing. The rollback script is deliberately excluded: including it would make a grep for a
+// dropped index match the rollback's re-creation of it, so a test asserting "the cleartext index
+// is gone" would pass whether or not the forward migration removed it.
 func MigrationSQL() string {
-	return Migration001IdentityGraph + "\n" + Migration002DelegationIndices + "\n" + Migration003IdempotentSeeding + "\n" + Migration004DelegationRevocation
+	return Migration001IdentityGraph + "\n" +
+		Migration002DelegationIndices + "\n" +
+		Migration003IdempotentSeeding + "\n" +
+		Migration004DelegationRevocation + "\n" +
+		Migration005PseudonymisationAndEncryption
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -52,6 +69,10 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 
 	if _, err := tx.ExecContext(ctx, Migration004DelegationRevocation); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 004: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, Migration005PseudonymisationAndEncryption); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 005: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

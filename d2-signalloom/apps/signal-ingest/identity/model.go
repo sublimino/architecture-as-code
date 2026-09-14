@@ -16,9 +16,18 @@ type ActorRecord struct {
 }
 
 // AliasRecord represents a typed identity alias with half-open temporal validity [valid_from, valid_to).
+//
+// AliasValue holds the cleartext identifier in memory only. At rest it is AES-GCM envelope
+// ciphertext in aliases.alias_value_encrypted; the cleartext alias_value column is not written.
+// AliasValueHash holds the keyed, tenant-and-epoch-scoped HMAC pseudonym, and is the only indexed
+// representation of the identifier.
+//
+// TenantID scopes pseudonymisation. It is not yet persisted — the tenant_id column is SLDP-P2-2,
+// migration 006 — so an empty value falls back to the repository's configured tenant.
 type AliasRecord struct {
 	ID             int64              `json:"id,omitempty"`
 	ActorID        string             `json:"actor_id"`
+	TenantID       string             `json:"tenant_id,omitempty"`
 	AliasType      string             `json:"alias_type"`
 	AliasValue     string             `json:"alias_value"`
 	AliasValueHash string             `json:"alias_value_hash"`

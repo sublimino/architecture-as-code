@@ -1,9 +1,125 @@
 package identity
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// TestMigrationSQL_EveryFileIsEmbeddedAndExecuted is a count-declared-against-reported guard.
+//
+// MigrationSQL() and ApplyMigrations are hand-maintained lists of //go:embed variables. Adding a
+// migration file and forgetting either one produces a completely green suite while the migration
+// never runs — the failure is invisible because nothing counts the files on disk against the
+// files wired up. This walks the directory and asserts both.
+func TestMigrationSQL_EveryFileIsEmbeddedAndExecuted(t *testing.T) {
+	entries, err := os.ReadDir("migrations")
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+
+	source, err := os.ReadFile("migrations.go")
+	if err != nil {
+		t.Fatalf("read migrations.go: %v", err)
+	}
+	src := string(source)
+
+	forward := regexp.MustCompile(`^\d{3}_.*\.sql$`)
+	combined := MigrationSQL()
+
+	seen := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !forward.MatchString(name) {
+			continue
+		}
+		if strings.Contains(name, "_rollback") {
+			// Rollback scripts are embedded but deliberately excluded from MigrationSQL().
+			if !strings.Contains(src, "//go:embed migrations/"+name) {
+				t.Errorf("rollback %s exists on disk but is not embedded in migrations.go", name)
+			}
+			continue
+		}
+		seen++
+
+		if !strings.Contains(src, "//go:embed migrations/"+name) {
+			t.Errorf("migration %s exists on disk but has no //go:embed directive in migrations.go", name)
+			continue
+		}
+
+		body, err := os.ReadFile(filepath.Join("migrations", name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		// A distinctive line from the file must appear in MigrationSQL(), proving the embedded
+		// variable is actually concatenated rather than merely declared.
+		var probe string
+		for _, line := range strings.Split(string(body), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if len(trimmed) > 30 && !strings.HasPrefix(trimmed, "--") {
+				probe = trimmed
+				break
+			}
+		}
+		if probe == "" {
+			t.Fatalf("could not derive a probe line from %s", name)
+		}
+		if !strings.Contains(combined, probe) {
+			t.Errorf("migration %s is embedded but its content is absent from MigrationSQL(); "+
+				"it is declared and never executed. Probe line: %q", name, probe)
+		}
+	}
+
+	if seen < 5 {
+		t.Errorf("expected at least 5 forward migrations on disk, found %d", seen)
+	}
+}
+
+// TestMigrationSQL_ClearextIndexesAreDropped asserts the SLDP-P2-1 outcome directly.
+//
+// This exists because the obvious assertion is a false-green. TestMigrationSQL_SyntaxAndStructure
+// and sublinear_test.go:18 both check that a literal CREATE INDEX string is PRESENT in
+// MigrationSQL(). Migration 005 only adds a DROP, so 001's CREATE text is still there and both of
+// those stay green whether or not the index was ever removed. Presence of a CREATE proves nothing;
+// only the matching DROP does.
+func TestMigrationSQL_CleartextIndexesAreDropped(t *testing.T) {
+	sql := MigrationSQL()
+
+	required := []string{
+		"DROP INDEX IF EXISTS idx_aliases_value_temporal",
+		"DROP INDEX IF EXISTS idx_aliases_idempotent_seed",
+		"idx_aliases_idempotent_seed_pseudonymous",
+		"alias_value_encrypted BYTEA",
+		"ALTER TABLE aliases ALTER COLUMN alias_value DROP NOT NULL",
+		"delegate_actor_pseudonym",
+		"principal_actor_pseudonym",
+	}
+	for _, want := range required {
+		if !strings.Contains(sql, want) {
+			t.Errorf("migration SQL is missing the SLDP-P2-1 requirement: %q", want)
+		}
+	}
+
+	// The never-merge trigger must compare in pseudonym space, not only check well-formedness.
+	// A trigger that merely validates the hash shape would satisfy every other assertion here
+	// while enforcing nothing.
+	if !strings.Contains(sql, "principal_actor_pseudonym = NEW.alias_value_hash") {
+		t.Error("check_never_merge_alias does not compare the alias pseudonym against the delegation " +
+			"principal pseudonym; the invariant would fail open once alias_value is NULL")
+	}
+	if !strings.Contains(sql, "alias_value_hash = NEW.principal_actor_pseudonym") {
+		t.Error("check_never_merge_delegation does not compare in pseudonym space; " +
+			"the invariant would fail open once alias_value is NULL")
+	}
+
+	// The rollback must not be part of the forward SQL. If it were, its CREATE INDEX statements
+	// would satisfy a grep for the cleartext indexes and mask the drops above.
+	if strings.Contains(sql, "SECURITY NOTE. Rolling back re-materialises cleartext") {
+		t.Error("MigrationSQL() includes the rollback script; forward and reverse SQL must not be concatenated")
+	}
+}
 
 func TestMigrationSQL_SyntaxAndStructure(t *testing.T) {
 	sql := MigrationSQL()

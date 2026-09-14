@@ -3,7 +3,6 @@ package store
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -48,6 +47,7 @@ var (
 
 type SegmentAttestorConfig struct {
 	EvidenceDir        string
+	Signer             Signer
 	PrivateKeyPath     string
 	HighWaterPath      string
 	ArchivistaURL      string
@@ -79,7 +79,7 @@ type attestorErrorRequest struct {
 
 type SegmentAttestor struct {
 	cfg           SegmentAttestorConfig
-	signer        *ed25519Signer
+	signer        Signer
 	queue         chan attestorRequest
 	done          chan struct{}
 	errorDone     chan struct{}
@@ -132,6 +132,7 @@ type segmentRecord struct {
 	Digest              string               `json:"digest"`
 	ByteLength          int64                `json:"byte_length"`
 	SignerKeyID         string               `json:"signer_key_id"`
+	KeyVersion          string               `json:"key_version,omitempty"`
 	State               string               `json:"state"`
 	Error               string               `json:"error"`
 	Attestation         string               `json:"attestation"`
@@ -154,6 +155,8 @@ type checkpoint struct {
 	MerkleRoot           string  `json:"merkle_root"`
 	BoundaryBasis        string  `json:"boundary_basis"`
 	SchemaVersion        string  `json:"schema_version"`
+	SignerKeyID          string  `json:"signer_key_id,omitempty"`
+	KeyVersion           string  `json:"key_version,omitempty"`
 }
 
 type protectedHighWater struct {
@@ -179,51 +182,6 @@ type dsseSignature struct {
 	Sig   string `json:"sig"`
 }
 
-type ed25519Signer struct {
-	privateKey ed25519.PrivateKey
-	publicKey  ed25519.PublicKey
-	keyID      string
-}
-
-func newEd25519Signer(path string) (*ed25519Signer, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read Ed25519 key %s: %w", path, err)
-	}
-	block, _ := pem.Decode(raw)
-	if block == nil {
-		return nil, fmt.Errorf("parse Ed25519 key %s: no PEM block", path)
-	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse Ed25519 PKCS8 key %s: %w", path, err)
-	}
-	privateKey, ok := parsed.(ed25519.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("key %s is %T, not Ed25519", path, parsed)
-	}
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-	spki, err := x509.MarshalPKIXPublicKey(publicKey)
-	if err != nil {
-		return nil, fmt.Errorf("marshal Ed25519 public key: %w", err)
-	}
-	digest := sha256.Sum256(spki)
-	return &ed25519Signer{privateKey: privateKey, publicKey: publicKey, keyID: hexDigest(digest[:])}, nil
-}
-
-func (s *ed25519Signer) sign(statement map[string]any) ([]byte, error) {
-	payload, err := json.Marshal(statement)
-	if err != nil {
-		return nil, fmt.Errorf("marshal signed statement: %w", err)
-	}
-	signature := ed25519.Sign(s.privateKey, dssePAE(dssePayloadType, payload))
-	return json.Marshal(dsseEnvelope{
-		PayloadType: dssePayloadType,
-		Payload:     base64.StdEncoding.EncodeToString(payload),
-		Signatures:  []dsseSignature{{KeyID: s.keyID, Sig: base64.StdEncoding.EncodeToString(signature)}},
-	})
-}
-
 func dssePAE(payloadType string, payload []byte) []byte {
 	return []byte(fmt.Sprintf("DSSEv1 %d %s %d %s", len([]byte(payloadType)), payloadType, len(payload), payload))
 }
@@ -231,8 +189,11 @@ func dssePAE(payloadType string, payload []byte) []byte {
 func hexDigest(raw []byte) string { return hex.EncodeToString(raw) }
 
 func NewSegmentAttestor(cfg SegmentAttestorConfig) (*SegmentAttestor, error) {
-	if cfg.EvidenceDir == "" || cfg.PrivateKeyPath == "" || cfg.HighWaterPath == "" {
-		return nil, errors.New("segment attestor requires evidence directory, private key, and protected highwater path")
+	if cfg.EvidenceDir == "" || cfg.HighWaterPath == "" {
+		return nil, errors.New("segment attestor requires evidence directory and protected highwater path")
+	}
+	if cfg.Signer == nil && cfg.PrivateKeyPath == "" {
+		return nil, errors.New("segment attestor requires either Signer or PrivateKeyPath")
 	}
 	if cfg.RequireArchivista && cfg.ArchivistaURL == "" {
 		return nil, errors.New("segment attestor requires Archivista URL when publication is required")
@@ -249,13 +210,25 @@ func NewSegmentAttestor(cfg SegmentAttestorConfig) (*SegmentAttestor, error) {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	signer, err := newEd25519Signer(cfg.PrivateKeyPath)
-	if err != nil {
-		return nil, err
+	signer := cfg.Signer
+	if signer == nil {
+		var err error
+		signer, err = NewLocalEd25519Signer(cfg.PrivateKeyPath)
+		if err != nil {
+			return nil, err
+		}
 	}
-	for _, directory := range []string{cfg.EvidenceDir, filepath.Join(cfg.EvidenceDir, "attestations"), filepath.Join(cfg.EvidenceDir, "checkpoints")} {
+	for _, directory := range []string{cfg.EvidenceDir, filepath.Join(cfg.EvidenceDir, "attestations"), filepath.Join(cfg.EvidenceDir, "checkpoints"), filepath.Join(cfg.EvidenceDir, "keys")} {
 		if err := os.MkdirAll(directory, 0o750); err != nil {
 			return nil, fmt.Errorf("create segment evidence directory: %w", err)
+		}
+	}
+	// Persist/retain public key verification material for offline corpus verification
+	if pub := signer.PublicKey(); pub != nil {
+		if pubDER, err := x509.MarshalPKIXPublicKey(pub); err == nil {
+			pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+			pubPath := filepath.Join(cfg.EvidenceDir, "keys", signer.KeyID()+".pem")
+			_ = atomicWrite(pubPath, pubPEM, 0o644)
 		}
 	}
 	a := &SegmentAttestor{
@@ -679,9 +652,11 @@ func (a *SegmentAttestor) process(upload segmentUpload) error {
 	}
 	sequence := a.nextSeq + 1
 	attestationPath := filepath.Join("attestations", fmt.Sprintf("%020d.dsse.json", sequence))
+	keyID := a.signer.KeyID()
+	keyVersion := a.signer.KeyVersion()
 	record := segmentRecord{
 		SchemaVersion: segmentSchema, Sequence: sequence, SegmentID: upload.name, Digest: upload.digest,
-		ByteLength: upload.size, SignerKeyID: a.signer.keyID, State: "ok", Error: "", Attestation: filepath.ToSlash(attestationPath),
+		ByteLength: upload.size, SignerKeyID: keyID, KeyVersion: keyVersion, State: "ok", Error: "", Attestation: filepath.ToSlash(attestationPath),
 		CheckpointInclusion: &checkpointInclusion{CheckpointIndex: sequence - 1, LeafIndex: 0},
 	}
 	predicate := map[string]any{
@@ -689,12 +664,15 @@ func (a *SegmentAttestor) process(upload segmentUpload) error {
 		"digest": record.Digest, "byte_length": record.ByteLength, "signer_key_id": record.SignerKeyID,
 		"state": record.State, "error": record.Error,
 	}
+	if record.KeyVersion != "" {
+		predicate["key_version"] = record.KeyVersion
+	}
 	statement := map[string]any{
 		"_type":         inTotoStatementType,
 		"subject":       []any{map[string]any{"name": record.SegmentID, "digest": map[string]any{"sha256": record.Digest}}},
 		"predicateType": segmentPredicateType, "predicate": predicate,
 	}
-	envelope, err := a.signer.sign(statement)
+	envelope, err := a.signer.Sign(context.Background(), statement)
 	if err != nil {
 		return fmt.Errorf("sign segment: %w", err)
 	}
@@ -746,6 +724,7 @@ func (a *SegmentAttestor) checkpoint(record segmentRecord) (string, error) {
 		SchemaVersion: checkpointSchema, TenantScope: segmentScope, Index: record.Sequence - 1,
 		PrevCheckpointDigest: a.prevCP, WindowStartExclusive: start, WindowEndInclusive: end,
 		RowCount: 1, CumulativeRowCount: record.Sequence, MerkleRoot: hexDigest(leaf[:]), BoundaryBasis: "segment_sequence",
+		SignerKeyID: record.SignerKeyID, KeyVersion: record.KeyVersion,
 	}
 	cpDigest := checkpointDigest(cp)
 	statement := map[string]any{
@@ -753,7 +732,7 @@ func (a *SegmentAttestor) checkpoint(record segmentRecord) (string, error) {
 		"subject":       []any{map[string]any{"name": fmt.Sprintf("signalloom-segment-checkpoint/%s/%08d", segmentScope, cp.Index), "digest": map[string]any{"sha256": cpDigest}}},
 		"predicateType": checkpointPredicate, "predicate": checkpointMap(cp),
 	}
-	envelope, err := a.signer.sign(statement)
+	envelope, err := a.signer.Sign(context.Background(), statement)
 	if err != nil {
 		return "", fmt.Errorf("sign checkpoint: %w", err)
 	}
@@ -1005,7 +984,7 @@ func checkpointDigest(cp checkpoint) string {
 }
 
 func segmentRecordMap(record segmentRecord) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"schema_version": record.SchemaVersion, "sequence": record.Sequence,
 		"segment_id": record.SegmentID, "digest": record.Digest,
 		"byte_length": record.ByteLength, "signer_key_id": record.SignerKeyID,
@@ -1015,16 +994,27 @@ func segmentRecordMap(record segmentRecord) map[string]any {
 			"leaf_index":       record.CheckpointInclusion.LeafIndex,
 		},
 	}
+	if record.KeyVersion != "" {
+		m["key_version"] = record.KeyVersion
+	}
+	return m
 }
 
 func checkpointMap(cp checkpoint) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"schema_version": cp.SchemaVersion, "tenant_scope": cp.TenantScope,
 		"index": cp.Index, "prev_checkpoint_digest": cp.PrevCheckpointDigest,
 		"window_start_exclusive": cp.WindowStartExclusive, "window_end_inclusive": cp.WindowEndInclusive,
 		"row_count": cp.RowCount, "cumulative_row_count": cp.CumulativeRowCount,
 		"merkle_root": cp.MerkleRoot, "boundary_basis": cp.BoundaryBasis,
 	}
+	if cp.SignerKeyID != "" {
+		m["signer_key_id"] = cp.SignerKeyID
+	}
+	if cp.KeyVersion != "" {
+		m["key_version"] = cp.KeyVersion
+	}
+	return m
 }
 
 func appendDurable(path string, data []byte) error {

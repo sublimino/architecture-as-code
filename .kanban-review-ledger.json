@@ -2175,5 +2175,19 @@
     "reviewer": "Council (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "SLDP-P4-PRE verified: legal-hold and dual-operator gates confirmed enforced, in-memory key caches inventoried, per-subject key hierarchy layout and replacement boundaries defined, non-linkable tombstone constraints specified, 100% test suites pass"
+  },
+  "15d70": {
+    "task_id": "15d70",
+    "reviewed_at": "2026-09-14T18:33:25Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "Council approval for SLDP-P4-1: CSPRNG per-subject DEK hierarchy wrapped under HKDF tenant KEK, 5-state idempotent erasure saga, Migration 009 with fail-closed RLS and 64-hex CHECK, comprehensive cache purge registry, 14-point fault sweep pass, 14/14 mutations killed, D1 nanosecond clock divergence resolved and falsified."
+  },
+  "6a942": {
+    "task_id": "6a942",
+    "reviewed_at": "2026-09-14T18:34:11Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "Council approval for SLDP-P4-2: Non-linkable attested tombstones, projection commitment replacing raw receipt digest oracle, coarse UTC day with fail-closed MinAnonymitySet=5 gating, selective disclosure one-time confirmation key, Ed25519 DSSE envelopes, 76/76 unit tests pass, 24/24 mutations killed, linkage probe with 6 positive controls."
   }
 }

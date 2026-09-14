@@ -9,6 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"os"
+	"sync"
+	"time"
 )
 
 var (
@@ -16,7 +20,40 @@ var (
 	ErrInvalidCiphertext = errors.New("invalid ciphertext: payload too short or authentication tag mismatch")
 	// ErrInvalidKey is returned when the encryption key length is invalid.
 	ErrInvalidKey = errors.New("invalid encryption key: must be non-empty")
+	// ErrNoopEncryptionNotAllowed is returned when encryption is unconfigured and development mode is not explicitly enabled.
+	ErrNoopEncryptionNotAllowed = errors.New("identity encryption key is missing or empty; passthrough NoopEncryptor is refused in production mode")
 )
+
+// DevOptInEnvVars lists the accepted environment variables for enabling insecure development passthrough.
+var DevOptInEnvVars = []string{
+	"INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR",
+	"IDENTITY_ALLOW_NOOP_ENCRYPTOR",
+	"SIGNAL_INGEST_ALLOW_NOOP_ENCRYPTOR",
+}
+
+// DevOptInAllowed checks if explicit development passthrough has been opted into via environment.
+func DevOptInAllowed() bool {
+	for _, env := range DevOptInEnvVars {
+		val := os.Getenv(env)
+		if val == "true" || val == "1" || val == "yes" {
+			return true
+		}
+	}
+	return false
+}
+
+// EncryptionPosture captures the runtime encryption state for health reporting.
+type EncryptionPosture struct {
+	Algorithm string `json:"algorithm"`
+	Mode      string `json:"mode"`
+	DevOptIn  bool   `json:"dev_opt_in"`
+	Healthy   bool   `json:"healthy"`
+}
+
+// PostureAware is implemented by encryptors that can report their posture.
+type PostureAware interface {
+	Posture() EncryptionPosture
+}
 
 // Encryptor provides encryption-at-rest and deterministic hashing for sensitive identity and delegation fields.
 type Encryptor interface {
@@ -100,11 +137,72 @@ func (e *AESGCMEncryptor) Hash(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// NoopEncryptor is a passthrough Encryptor for unencrypted environments or development.
-type NoopEncryptor struct{}
+// Posture returns the security posture of the AESGCMEncryptor.
+func (e *AESGCMEncryptor) Posture() EncryptionPosture {
+	return EncryptionPosture{
+		Algorithm: "AES-256-GCM",
+		Mode:      "enforced",
+		DevOptIn:  false,
+		Healthy:   true,
+	}
+}
 
+// NoopEncryptor is an unencrypted passthrough Encryptor gated behind explicit development opt-in.
+// It emits persistent warnings throughout its lifecycle.
+type NoopEncryptor struct {
+	stopCh chan struct{}
+	mu     sync.Mutex
+	closed bool
+}
+
+// NewNoopEncryptor creates a NoopEncryptor and initiates a persistent warning loop.
 func NewNoopEncryptor() *NoopEncryptor {
-	return &NoopEncryptor{}
+	n := &NoopEncryptor{
+		stopCh: make(chan struct{}),
+	}
+	n.startWarningLoop(30 * time.Second)
+	return n
+}
+
+// NewNoopEncryptorWithInterval creates a NoopEncryptor with a custom warning interval.
+func NewNoopEncryptorWithInterval(interval time.Duration) *NoopEncryptor {
+	n := &NoopEncryptor{
+		stopCh: make(chan struct{}),
+	}
+	n.startWarningLoop(interval)
+	return n
+}
+
+func (n *NoopEncryptor) startWarningLoop(interval time.Duration) {
+	slog.Warn("SECURITY WARNING: running in development mode with NoopEncryptor (insecure passthrough encryption); identity graph data is NOT encrypted at rest")
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-n.stopCh:
+				return
+			case <-ticker.C:
+				slog.Warn("SECURITY WARNING: running in development mode with NoopEncryptor (insecure passthrough encryption); identity graph data is NOT encrypted at rest")
+			}
+		}
+	}()
+}
+
+// Stop terminates the periodic warning loop.
+func (n *NoopEncryptor) Stop() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !n.closed {
+		n.closed = true
+		close(n.stopCh)
+	}
+}
+
+// Close satisfies io.Closer by stopping the warning loop.
+func (n *NoopEncryptor) Close() error {
+	n.Stop()
+	return nil
 }
 
 func (n *NoopEncryptor) Encrypt(plaintext []byte) ([]byte, error) {
@@ -124,11 +222,51 @@ func (n *NoopEncryptor) Hash(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// Posture returns the security posture of the NoopEncryptor.
+func (n *NoopEncryptor) Posture() EncryptionPosture {
+	return EncryptionPosture{
+		Algorithm: "NOOP-PASSTHROUGH",
+		Mode:      "passthrough_insecure",
+		DevOptIn:  true,
+		Healthy:   false,
+	}
+}
+
 // NewEncryptorFromKeyString instantiates an Encryptor based on key configuration.
-// If keyStr is empty, it returns a NoopEncryptor.
+// If keyStr is empty, it fails closed with an error unless an explicit development opt-in
+// environment variable (such as INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true) is set.
 func NewEncryptorFromKeyString(keyStr string) (Encryptor, error) {
+	return NewEncryptorWithDevOptIn(keyStr, DevOptInAllowed())
+}
+
+// NewEncryptorWithDevOptIn instantiates an Encryptor with an explicit dev opt-in flag.
+func NewEncryptorWithDevOptIn(keyStr string, allowNoop bool) (Encryptor, error) {
 	if keyStr == "" {
-		return NewNoopEncryptor(), nil
+		if allowNoop {
+			return NewNoopEncryptor(), nil
+		}
+		return nil, fmt.Errorf("%w (set IDENTITY_ENCRYPTION_KEY or explicitly opt-in with INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true)", ErrNoopEncryptionNotAllowed)
 	}
 	return NewAESGCMEncryptor([]byte(keyStr))
+}
+
+// GetEncryptionPosture inspects any Encryptor and returns its effective security posture.
+func GetEncryptionPosture(enc Encryptor) EncryptionPosture {
+	if enc == nil {
+		return EncryptionPosture{
+			Algorithm: "NONE",
+			Mode:      "unconfigured",
+			DevOptIn:  false,
+			Healthy:   false,
+		}
+	}
+	if pa, ok := enc.(PostureAware); ok {
+		return pa.Posture()
+	}
+	return EncryptionPosture{
+		Algorithm: "CUSTOM",
+		Mode:      "enforced",
+		DevOptIn:  false,
+		Healthy:   true,
+	}
 }

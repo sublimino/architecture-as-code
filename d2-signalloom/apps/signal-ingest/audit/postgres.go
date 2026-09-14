@@ -163,3 +163,14 @@ func (p *PostgresWriter) Close() error {
 	return p.db.Close()
 }
 
+// AuditPosture returns the compliance posture of the PostgresWriter.
+func (p *PostgresWriter) AuditPosture() AuditPosture {
+	return AuditPosture{
+		Backend: "postgres",
+		Mode:    "enforced",
+		Policy:  "fail_closed",
+		Healthy: true,
+	}
+}
+
+

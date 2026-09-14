@@ -42,6 +42,15 @@ var Migration006TenantIsolationRLS string
 //go:embed migrations/006_tenant_isolation_rls_rollback.sql
 var Migration006Rollback string
 
+// Migration008RetentionLegalHolds adds durable Article 17(3) legal holds (SLDP-P3-2).
+//
+// Sequence 008, not 007. SLDP-P3-1 ran concurrently and claimed 007; neither worktree could see the
+// other's migration, so the collision was visible only in the proposal's errata. A sequence number
+// has to be claimed in writing, not inferred from the tree.
+//
+//go:embed migrations/008_retention_legal_holds.sql
+var Migration008RetentionLegalHolds string
+
 // MigrationSQL returns the concatenated forward migration SQL scripts for external inspection or
 // testing. The rollback script is deliberately excluded: including it would make a grep for a
 // dropped index match the rollback's re-creation of it, so a test asserting "the cleartext index
@@ -52,7 +61,8 @@ func MigrationSQL() string {
 		Migration003IdempotentSeeding + "\n" +
 		Migration004DelegationRevocation + "\n" +
 		Migration005PseudonymisationAndEncryption + "\n" +
-		Migration006TenantIsolationRLS
+		Migration006TenantIsolationRLS + "\n" +
+		Migration008RetentionLegalHolds
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -94,6 +104,13 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	// is not set during a migration.
 	if _, err := tx.ExecContext(ctx, Migration006TenantIsolationRLS); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 006: %w", err)
+	}
+
+	// 008 must run after 006 because its table defaults tenant_id from app_current_tenant(), the
+	// claim accessor 006 defines, and because it follows the same ordering discipline: the table and
+	// its index are created before ENABLE/FORCE ROW LEVEL SECURITY is applied.
+	if _, err := tx.ExecContext(ctx, Migration008RetentionLegalHolds); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 008: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

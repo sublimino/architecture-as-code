@@ -288,16 +288,18 @@ previous phase governor, or on `P0` for phase 1.
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Verify claimed primitives and map implementation boundaries | None | `ripwire d2-signalloom/apps/signal-ingest` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
-| P1-PRE | preflight | Confirm live-hole seams and route inventory before closing them | P0 | `rg -n 'HandleFunc|NewServeMux' d2-signalloom/apps/signal-ingest/main.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
-| P1-1 | implementation | Authenticate and authorise the signal-ingest HTTP API | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./api/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-2 | implementation | Make encryption and audit writers fail closed | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-3 | implementation | Build segment and checkpoint chain verifier; size milestones | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-GOV | governor | Certify live holes closed and verifier working | P1-1, P1-2, P1-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P2-PRE | preflight | Confirm identity-layer seams and the next free migration sequence | P1-GOV | `ls -1 d2-signalloom/apps/signal-ingest/identity/migrations/` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
-| P2-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P2-2 | implementation | Tenant column and enforced row-level security on identity graph | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P0 | preflight | Verify claimed primitives and map implementation boundaries | None | `ripwire d2-signalloom/apps/signal-ingest` | S | fast | pass — delivered: 9d00d295 (see Errata — SLDP-P0) | $0.00 | N/A | 32m | antigravity |
+| P1-PRE | preflight | Confirm live-hole seams and route inventory before closing them | P0 | `rg -n 'HandleFunc|NewServeMux' d2-signalloom/apps/signal-ingest/main.go` | S | fast | pass — delivered: 70136be0 (see Errata — SLDP-P1-PRE) | $0.00 | N/A | 25m | antigravity |
+| P1-1 | implementation | Authenticate and authorise the signal-ingest HTTP API | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./api/...` | L | deep | pass — delivered: 0e6076ae (see Errata — SLDP-P1-1) | $0.00 | N/A | 45m | antigravity |
+| P1-2 | implementation | Make encryption and audit writers fail closed | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | pass — delivered: f375d731 (see Errata — SLDP-P1-2) | $0.00 | N/A | 25m | antigravity |
+| P1-3 | implementation | Build segment and checkpoint chain verifier; size milestones | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: c3c36f96 (see Errata — SLDP-P1-3) | $0.00 | N/A | 50m | antigravity |
+| P1-GOV | governor | Certify live holes closed and verifier working | P1-1, P1-2, P1-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 53e412b6 (see Errata — SLDP-P1-GOV) | $0.00 | N/A | 15m | antigravity |
+| P2-PRE | preflight | Confirm identity-layer seams and the next free migration sequence | P1-GOV | `ls -1 d2-signalloom/apps/signal-ingest/identity/migrations/` | S | fast | pass — delivered: d4762cd3 (see Errata — SLDP-P2-PRE) | $0.00 | N/A | 1m | antigravity |
+| P2-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | pass — delivered: fd9a4aa8 (see Errata — SLDP-P2-1) | $0.00 | N/A | 39m | kpai |
+| P2-2 | implementation | Tenant column and enforced row-level security on identity graph | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | pass — delivered: c16599af (see Errata — SLDP-P2-2) | $0.00 | N/A | 38m | kpai |
+
+| P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | pass — delivered: de00dbc4 (see Errata — SLDP-P2-3) | $0.00 | N/A | 6m | antigravity |
+
 | P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -319,82 +321,162 @@ previous phase governor, or on `P0` for phase 1.
 
 ### Spec: Errata
 
-#### Errata — SLDP-P0 (bootstrap)
-##### Task identity
-- Card: `SLDP-P0`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P0 (qualified preflight failure)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-#### Errata — SLDP-P1-PRE (bootstrap)
-##### Task identity
-- Card: `SLDP-P1-PRE`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+- Council disposition: existing `SegmentAttestor` capability plus delegation revocation satisfy the P0 baseline; attestation-specific revocation is future composition work, not a P0 blocker.
+- Verification correction: Python `audit_anchor` already verifies persisted segment bytes, signed predicates, checkpoint chains and protected high-water state; only the public Go `SegmentAttestor.Verify*` boundary is absent.
+- Status: `pass`
+- Proceed: `yes`
+- Blocking drift: `no`
+- Commit SHA: `9d00d29503088e2f91c0fe80b4caa89503a3cc41`
+- Commit scope: exactly `docs/signalloom/sldp-p0-boundary-map.md` and `docs/signalloom/sldp-p0-proof.md`.
+- Required checks: `make test`, `make test-signal-ingest`, `make demo-signalloom-api-test TIER=contract`, and `bats test/acceptance-spec-coverage.bats` each exited `0`.
+- Additional validation: signal-ingest `go vet ./...` exited `0` with isolated caches and `CGO_ENABLED=0`; independent citation review and final staged-document review reported no unresolved blocker.
+- Deliverables: the boundary map records primitive verdicts, interfaces, personal-data copies, migration sequence and revised estimates; the proof map records reproducible command evidence plus false-green limits.
+- Scope control: no application source, migration, runtime state, sibling worktree or production environment was modified; no remote push was performed.
 
-#### Errata — SLDP-P1-1 (bootstrap)
-##### Task identity
-- Card: `SLDP-P1-1`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P1-PRE: Preflight Verification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 12:30:10+01:00  
+**Last Updated:** 2026-09-14 12:30:10+01:00  
+**Status:** `pass`  
+**Commit:** `70136be0c7d011e00caa54295ecf53c234dd04af`  
+**Evidence:** `docs/signalloom/sldp-p1-pre-proof.md`  
 
-#### Errata — SLDP-P1-2 (bootstrap)
-##### Task identity
-- Card: `SLDP-P1-2`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-ingest inventoried, identity system binding to SPIFFE Workload Identity (JWT-SVID) decided and justified, both fail-open sites (NoopEncryptor and NopWriter) confirmed at exact file and line, zero Go segment verifier entrypoints confirmed, and empty-key reliance in current live deployment documented for P1-2 coordination.
 
-#### Errata — SLDP-P1-3 (bootstrap)
-##### Task identity
-- Card: `SLDP-P1-3`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P1-2 Make encryption and audit writers fail closed
+**Created:** 2026-09-14 12:41:31+01:00  
+**Last Updated:** 2026-09-14 12:41:31+01:00  
+**Status:** Completed  
+**Commit:** f375d731  
+**Governor merge:** [pending Governor reconciliation]  
+**Decisions:** Gated NoopEncryptor behind explicit INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR environment flag; configured background warning loop logging every 30s during passthrough lifecycle; enforced fail-closed policy (503 Service Unavailable) on high-stakes actor promotion when audit writes fail; exposed encryption and audit security postures at /health and /api/v1/health; updated deployment.yaml and secrets.yaml to provision IDENTITY_ENCRYPTION_KEY.  
+**Deviations:** None. All deliverables completed and tested with 100% pass across signal-ingest unit, integration, and contract test suites.  
+**Notes:** Live Kubernetes deployments now have IDENTITY_ENCRYPTION_KEY populated via discovery-portal-database secret.  
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-#### Errata — SLDP-P1-GOV (bootstrap)
-##### Task identity
-- Card: `SLDP-P1-GOV`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P1-1 Authenticate and authorise the signal-ingest HTTP API
+**Created:** 2026-09-14 14:14:04+01:00  
+**Last Updated:** 2026-09-14 14:14:04+01:00  
+**Status:** Completed  
+**Commit:** 0e6076ae  
+**Governor merge:** [pending Governor reconciliation]  
+**Decisions:** Gated all 32 HTTP route endpoints exclusively through NewProtectedRouter; authenticated using SPIFFE JWT-SVID bound to trust domain; protected /metrics under PermissionMetrics (metrics:read) to prevent label cardinality and identifier leakage; derived TenantContext strictly from authenticated principal claims for downstream row-level security (P2-2); enforced pagination bounds and shared per-principal enumeration rate limits across listing endpoints; terminated SSE connections at credential expiration with context cancellation and write deadlines; logged fail-closed HMAC-pseudonymized audit events on all auth/authz rejections with zero credential leakage. Recorded note that encryption-at-rest does not mitigate unauthenticated HTTP read exfiltration.  
+**Deviations:** None. All deliverables and hostile-request tests implemented and passing.  
+**Notes:** Downstream tasks (P2-2 RLS) should consume TenantContext from request context.  
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-#### Errata — SLDP-P2-PRE (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-PRE`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P1-3 Build segment and checkpoint chain verifier; size milestones
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 14:13:39+01:00  
+**Last Updated:** 2026-09-14 14:13:39+01:00  
+**Status:** `pass`  
+**Commit:** `c3c36f96`  
+**Evidence:** `docs/signalloom/sldp-p1-3-proof.md`, `docs/signalloom/segment-verifier.md`, `docs/signalloom/sldp-p1-3-milestone-sizing.md`  
 
-#### Errata — SLDP-P2-1 (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-1`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+- **Independent Segment and Checkpoint Verifier**: Built `d2-signalloom/apps/signal-ingest/store/verify/verify.go` providing fail-closed DSSE / Ed25519 signature verification, checkpoint continuity checks (`Sequence`, `PrevCheckpointDigest`, `CumulativeRowCount`), Merkle tree verification against segment SHA-256 digests, and strict schema validation (`ErrUnknownSchemaVersion`).
+- **Standalone Verification CLI**: Delivered `cmd/segment-verify` with `--data-dir`, `--public-key`, `--highwater`, `--allow-partial`, `--check-rekor`, `--archivist-url` flags and structured JSON output.
+- **Tamper & Negative Test Suite**: Added 17 verification tests in `store/segment_verifier_test.go` and `cmd/segment-verify/main_test.go` exercising corruption of segment Parquet bytes, signature forgery, intermediate symlinks, oversized envelopes, discontinuous journal sequence numbers, broken checkpoint chains, cumulative row count mismatches, schema tampering, highwater tip mutation, and historical key rotation.
+- **Milestone Sizing Published**: Sized M1–M4 in `docs/signalloom/sldp-p1-3-milestone-sizing.md` (Total 75.25–102.25 working days, 126.5–172.5 person-days across 2 core engineers, D+76–103 relative to D0).
 
-#### Errata — SLDP-P2-2 (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-2`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P1-GOV: Phase 1 Governor Certification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 14:28:12+01:00  
+**Last Updated:** 2026-09-14 14:28:12+01:00  
+**Status:** `pass`  
+**Commit:** `53e412b6`  
+**Evidence:** `docs/signalloom/sldp-p1-gov-proof.md`  
 
-#### Errata — SLDP-P2-3 (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-3`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+**Phase 1 Governor Certification Summary:**
+- **Live Holes Certified Closed**: Verified all 32 HTTP route endpoints and 4 SSE streams in `signal-ingest` enforce SPIFFE JWT-SVID authentication and authorization under `NewProtectedRouter`, rejecting unauthenticated calls with 401/403.
+- **Fail-Closed Controls Verified**: Confirmed missing/empty encryption keys fail startup (`ErrNoopEncryptionNotAllowed`), `NopWriter` returns `ErrAuditDisabled`, and `handlePromoteActor` fails closed (503) on audit persistence failure.
+- **Independent Verifier Operational**: Verified `store/verify` and `cmd/segment-verify` correctly reject corrupted Parquet bytes, signature forgery, intermediate symlinks, and broken checkpoint chains (17 test suites pass 100%).
+- **Milestone Sizing Attached**: Integrated M1–M4 sizing (75.25–102.25 working days, 126.5–172.5 person-days, 2 core consultants, D+76–103).
+- **Tenant-Binding Contract Published**: Published strict downstream contract for `SLDP-P2-2` (Row-Level Security).
+- **Certified Proof**: Documented in `docs/signalloom/sldp-p1-gov-proof.md`.
 
-#### Errata — SLDP-P2-GOV (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-GOV`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+
+#### Errata — SLDP-P2-PRE: Confirm identity-layer seams and the next free migration sequence
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 14:33:39+01:00  
+**Last Updated:** 2026-09-14 14:33:39+01:00  
+**Status:** `pass`  
+**Commit:** `d4762cd3`  
+**Evidence:** `docs/signalloom/sldp-p2-pre-proof.md`  
+
+**Summary of changes and evidence:**
+- Audited `d2-signalloom/apps/signal-ingest/identity/migrations/` and reserved sequence numbers: `005` for P2-1 (pseudonymisation & envelope encryption), `006` for P2-2 (tenant isolation & RLS), `007` for P2-3 (never-merge pin / trigger).
+- Re-read `check_never_merge_alias` and `check_never_merge_delegation` in `001_identity_graph.sql:63-87,95-114`. Documented that comparing `alias_value` directly against `delegate_actor_id`/`principal_actor_id` will fail OPEN once `alias_value` is pseudonymised, mandating that P2-3 pin the invariant before P2-1 schema alterations.
+- Restated P1-GOV tenant-binding contract for P2-2: `TenantContext` ingestion from SPIFFE JWT identity, strict prohibition against untrusted `X-Tenant-ID` headers/params, and PostgreSQL RLS transaction scoping via `SET LOCAL app.current_tenant = $tenant_id`.
+- Catalogued 10 indexes currently indexing cleartext identifiers (`actor_id`, `alias_value`, `delegate_actor_id`, `principal_actor_id`), highlighting `idx_aliases_value_temporal` and `idx_aliases_idempotent_seed` as primary P2-1 targets.
+- Documented unconfirmed assumptions regarding RLS query latency overhead, dynamic HMAC salt rotation, and columnar downstream integration.
+- Full execution evidence published to `docs/signalloom/sldp-p2-pre-proof.md`.
+
+
+#### Errata — SLDP-P2-1: Keyed HMAC pseudonyms and envelope-encrypted alias values
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:19:10+01:00  
+**Last Updated:** 2026-09-14 15:19:10+01:00  
+**Status:** `pass`  
+**Commit:** `fd9a4aa8`  
+**Evidence:** `docs/signalloom/sldp-p2-1-proof.md`  
+
+**Summary of changes and evidence:**
+- Implemented HKDF-SHA256 derived per-tenant, per-epoch pseudonym key ring in `identity/pseudonym.go`, replacing unkeyed bare `sha256.Sum256`.
+- Implemented AES-GCM envelope encryption with per-record data encryption keys (DEK) and additional authenticated data (AAD) row binding over `(actor_id, alias_type, pseudonym)`.
+- Authored and verified PostgreSQL migration `005_pseudonymisation_and_encryption.sql` and rollback `005_pseudonymisation_and_encryption_rollback.sql`.
+- Authored adversarial dictionary attack test in `pseudonym_test.go` with positive control (unkeyed inverted 6/6; keyed inverted 0/6 across 1,446 candidate identifiers).
+- Removed committed default salt from `transform/secrets_scrubber.go` in favor of fail-closed construction, widening `AnonymizeHMAC` from 64 to 128 bits.
+- Full test suite verified: `make test-signal-ingest` **EXIT=0 (539 PASS / 0 FAIL / 7 SKIP)**.
+
+#### Errata — SLDP-P2-2: Tenant column and enforced row-level security on identity graph
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:19:34+01:00  
+**Last Updated:** 2026-09-14 15:19:34+01:00  
+**Status:** `pass`  
+**Commit:** `c16599af`  
+**Evidence:** `docs/signalloom/sldp-p2-2-proof.md`  
+
+**Summary of changes and evidence:**
+- Authored migration `006_tenant_isolation_rls.sql` adding `tenant_id NOT NULL` with `DEFAULT app_current_tenant()` to `actors`, `aliases`, and `delegations`.
+- Enforced `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` across all three tables.
+- Added tenant-leading composite temporal indexes to prevent full scans under RLS predicates.
+- Enforced cross-tenant maintenance path gated by dedicated role and transaction-local reason GUC.
+- Quarantined pre-tenancy rows to `__unattributed__` tenant with comprehensive backfill report.
+- Implemented `identity/tenant_live_test.go` with 28 hostile-context live PostgreSQL tests (including superuser rejection, connection reset safety, and falsification test) passing 100%.
+
+
+#### Errata — SLDP-P2-3: Pin never-merge invariant across pseudonymisation change
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:29:22+01:00  
+**Last Updated:** 2026-09-14 15:29:22+01:00  
+**Status:** `pass`  
+**Commit:** `de00dbc4`  
+**Evidence:** `docs/signalloom/sldp-p2-3-proof.md`  
+
+**Summary of changes and evidence:**
+- Proved mathematical fail-open vulnerability of legacy cleartext check_never_merge_alias triggers once alias_value is encrypted.
+- Enforced domain-consistent pseudonym-space comparisons in check_never_merge_alias and check_never_merge_delegation.
+- Updated MemoryRepository and DelegationRecord with pseudonym and tenant fields.
+- Comprehensive TestNeverMerge regression suite (7/7 pass) including constraint and index audit.
+
+
+#### Errata — SLDP-P2-GOV: Phase 2 Governor Certification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:55:00+01:00  
+**Last Updated:** 2026-09-14 15:55:00+01:00  
+**Status:** `pass`  
+**Commit:** `a1aed148`  
+**Evidence:** `docs/signalloom/sldp-p2-gov-proof.md`  
+
+**Phase 2 Governor Certification Summary:**
+- **Remediation Verified**: Unified P2-1 pseudonymisation and P2-2 tenant isolation seams. Bound `tenantID: claim.TenantID` in `WithTenant`, aligned test fixtures, and established session tenant claims in live PostgreSQL tests.
+- **Rollback Completeness**: Authored, verified, and embedded `006_tenant_isolation_rls_rollback.sql` in `migrations.go`.
+- **Live Test Suite Execution**: 28/28 live PostgreSQL RLS tests pass (`make test-identity-rls-live`), 8/8 live PostgreSQL alias tests pass (`TestAliasPG`), combined execution passes 36/36, and all 15 signal-ingest packages pass unit tests (`make test-signal-ingest`).
+- **Invariants Certified**: Verified no bare SHA-256 of personal identifiers, table owner RLS confinement, non-superuser role permissions, pseudonym-space never-merge enforcement, and isolated tenant queries.
+- **Phase 3 Cleared**: Identity privacy contract is frozen. Certified proof recorded in `docs/signalloom/sldp-p2-gov-proof.md`.
 
 #### Errata — SLDP-P3-PRE (bootstrap)
 ##### Task identity

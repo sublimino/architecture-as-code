@@ -45,7 +45,7 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
     const nonoBanner = page.locator('[data-testid="security-profile-telemetry-banner"], [data-testid="nono-verification-badge"]').first();
     if (await nonoBanner.isVisible()) {
       await expect(nonoBanner).toBeVisible();
-      await expect(page.locator('[data-testid="nono-verification-badge"], text=Nono Sandboxed').first()).toBeVisible();
+      await expect(page.locator('[data-testid="nono-verification-badge"]').or(page.locator(':text("Nono Sandboxed")')).first()).toBeVisible();
     }
   });
 
@@ -58,7 +58,7 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
     const standardBanner = page.locator('[data-testid="security-profile-telemetry-banner"], [data-testid="tetragon-flow-badge"]').first();
     if (await standardBanner.isVisible()) {
       await expect(standardBanner).toBeVisible();
-      await expect(page.locator('[data-testid="tetragon-flow-badge"], text=Standard Container').first()).toBeVisible();
+      await expect(page.locator('[data-testid="tetragon-flow-badge"]').or(page.locator(':text("Standard Container")')).first()).toBeVisible();
     }
   });
 });

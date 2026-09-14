@@ -57,6 +57,7 @@ func livePG(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
@@ -72,6 +73,7 @@ func freshSchema(t *testing.T, db *sql.DB) {
 	stmts := []string{
 		`DROP TRIGGER IF EXISTS trg_aliases_never_merge ON aliases`,
 		`DROP TRIGGER IF EXISTS trg_delegations_never_merge ON delegations`,
+		`DROP TABLE IF EXISTS identity_tenant_backfill_report CASCADE`,
 		`DROP TABLE IF EXISTS aliases CASCADE`,
 		`DROP TABLE IF EXISTS delegations CASCADE`,
 		`DROP TABLE IF EXISTS actors CASCADE`,
@@ -352,6 +354,9 @@ func TestAliasPG_NeverMergeTriggerStillFiresInPseudonymSpace(t *testing.T) {
 	}
 	enc := pgEncryptor(t)
 	const tenant = "acme-bank"
+	if _, err := db.ExecContext(ctx, "SELECT set_config('app.current_tenant', $1, false)", tenant); err != nil {
+		t.Fatalf("set tenant: %v", err)
+	}
 	repo := NewPostgresRepositoryWithTenant(db, enc, tenant)
 	now := time.Now().UTC()
 
@@ -409,6 +414,10 @@ func TestAliasPG_TriggerRejectsUnpseudonymisedInsert(t *testing.T) {
 	if err := ApplyMigrations(ctx, db); err != nil {
 		t.Fatalf("ApplyMigrations: %v", err)
 	}
+	const tenant = "acme-bank"
+	if _, err := db.ExecContext(ctx, "SELECT set_config('app.current_tenant', $1, false)", tenant); err != nil {
+		t.Fatalf("set tenant: %v", err)
+	}
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO actors (actor_id, status, created_at, updated_at) VALUES ('actor-x','active',NOW(),NOW())`); err != nil {
 		t.Fatalf("seed actor: %v", err)
@@ -462,7 +471,11 @@ func TestAliasPG_DuplicateAliasStillRefused(t *testing.T) {
 	if err := ApplyMigrations(ctx, db); err != nil {
 		t.Fatalf("ApplyMigrations: %v", err)
 	}
-	repo := NewPostgresRepositoryWithTenant(db, pgEncryptor(t), "acme-bank")
+	const tenant = "acme-bank"
+	if _, err := db.ExecContext(ctx, "SELECT set_config('app.current_tenant', $1, false)", tenant); err != nil {
+		t.Fatalf("set tenant: %v", err)
+	}
+	repo := NewPostgresRepositoryWithTenant(db, pgEncryptor(t), tenant)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	if err := repo.CreateActor(ctx, ActorRecord{ActorID: "actor-dup", Status: "active", CreatedAt: now, UpdatedAt: now}); err != nil {
@@ -522,6 +535,9 @@ func TestAliasPG_NeverMergeSurvivesEpochRotation(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	const tenant = "acme-bank"
+	if _, err := db.ExecContext(ctx, "SELECT set_config('app.current_tenant', $1, false)", tenant); err != nil {
+		t.Fatalf("set tenant: %v", err)
+	}
 
 	encEpoch0, err := NewAESGCMEncryptorWithKeys(
 		[]byte("01234567890123456789012345678901"), []byte("fedcba9876543210fedcba9876543210"), 0)
@@ -614,12 +630,14 @@ func BenchmarkAliasPG_FindAliasesAsOf(b *testing.B) {
 		b.Fatalf("sql.Open: %v", err)
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(1)
 
 	ctx := context.Background()
 	for _, s := range []string{
 		`DROP TABLE IF EXISTS aliases CASCADE`,
 		`DROP TABLE IF EXISTS delegations CASCADE`,
 		`DROP TABLE IF EXISTS actors CASCADE`,
+		`DROP TABLE IF EXISTS identity_tenant_backfill_report CASCADE`,
 	} {
 		if _, err := db.ExecContext(ctx, s); err != nil {
 			b.Fatalf("reset: %v", err)
@@ -629,13 +647,18 @@ func BenchmarkAliasPG_FindAliasesAsOf(b *testing.B) {
 		b.Fatalf("ApplyMigrations: %v", err)
 	}
 
+	const tenant = "acme-bank"
+	if _, err := db.ExecContext(ctx, "SELECT set_config('app.current_tenant', $1, false)", tenant); err != nil {
+		b.Fatalf("set tenant: %v", err)
+	}
+
 	e, err := NewAESGCMEncryptorWithKeys(
 		[]byte("01234567890123456789012345678901"),
 		[]byte("fedcba9876543210fedcba9876543210"), 0)
 	if err != nil {
 		b.Fatalf("encryptor: %v", err)
 	}
-	repo := NewPostgresRepositoryWithTenant(db, e, "acme-bank")
+	repo := NewPostgresRepositoryWithTenant(db, e, tenant)
 	now := time.Now().UTC()
 
 	const n = 12000

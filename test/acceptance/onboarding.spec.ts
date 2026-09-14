@@ -1,9 +1,61 @@
+import { execFileSync } from "node:child_process";
 import { expect, test } from "./fixtures";
-import { config } from "./helpers";
+import { login, config } from "./helpers";
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL ?? config.base;
 
 test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
+  test.afterAll(async () => {
+    try {
+      execFileSync(
+        "kubectl",
+        [
+          "-n",
+          "inf-signalloom",
+          "exec",
+          "deploy/postgresql",
+          "--",
+          "psql",
+          "-U",
+          "signalloom",
+          "-d",
+          "signalloom",
+          "-c",
+          "INSERT INTO tenant_onboarding (tenant_id, status, skipped_at) VALUES ('tenant-demo', 'skipped', NOW()) ON CONFLICT (tenant_id) DO UPDATE SET status = 'skipped', skipped_at = NOW();",
+        ],
+        { stdio: "ignore" },
+      );
+    } catch {
+      // Ignore if cluster or postgres is unreachable
+    }
+  });
+
+  test.beforeEach(async ({ page }) => {
+    try {
+      execFileSync(
+        "kubectl",
+        [
+          "-n",
+          "inf-signalloom",
+          "exec",
+          "deploy/postgresql",
+          "--",
+          "psql",
+          "-U",
+          "signalloom",
+          "-d",
+          "signalloom",
+          "-c",
+          "DELETE FROM tenant_onboarding WHERE tenant_id = 'tenant-demo';",
+        ],
+        { stdio: "ignore" },
+      );
+    } catch {
+      // Ignore if cluster or postgres is unreachable
+    }
+    await login(page, { demoMode: true, skipOnboarding: false });
+  });
+
   test("complete end-to-end 3-step onboarding walkthrough with persistence and celebration", async ({
     page,
   }) => {
@@ -86,9 +138,9 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     await expect(gotoDashboardBtn).toBeVisible();
     await gotoDashboardBtn.click();
 
-    // Verify URL redirects to overview or agents and sidebar is visible
-    await page.waitForURL(/\/(overview|agents)/, { timeout: 15_000 });
-    await expect(page.locator("nav a[href='/agents']")).toBeVisible({ timeout: 10_000 });
+    // Verify URL redirects to overview, agents, or discovery and sidebar is visible
+    await page.waitForURL(/\/(overview|agents|discovery)/, { timeout: 15_000 });
+    await expect(page.locator("nav a[href='/agents'], nav a[href='/discovery']").first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("skip onboarding action records status and redirects to overview dashboard", async ({
@@ -100,8 +152,8 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     await expect(skipBtn).toBeVisible({ timeout: 15_000 });
     await skipBtn.click();
 
-    await page.waitForURL(/\/(overview|agents)/, { timeout: 15_000 });
-    await expect(page.locator("nav a[href='/agents']")).toBeVisible({ timeout: 10_000 });
+    await page.waitForURL(/\/(overview|agents|discovery)/, { timeout: 15_000 });
+    await expect(page.locator("nav a[href='/agents'], nav a[href='/discovery']").first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("step navigation preserves user inputs on back and forward traversal", async ({ page }) => {

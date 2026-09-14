@@ -222,7 +222,7 @@ func (r *PostgresRepository) WithTenant(ctx context.Context, fn func(ctx context
 		return fmt.Errorf("identity: set tenant claim %q: %w", claim.TenantID, err)
 	}
 
-	scoped := &PostgresRepository{db: tx, pool: r.pool, encryptor: r.encryptor}
+	scoped := &PostgresRepository{db: tx, pool: r.pool, encryptor: r.encryptor, tenantID: claim.TenantID}
 	if err := fn(ctx, scoped); err != nil {
 		return err
 	}

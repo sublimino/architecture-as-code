@@ -2060,5 +2060,85 @@
     "verdict": "pass",
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P6-GOV certified: Phase 6 Governor reconciled; workspace agentic governance, registration wizard UI, verified evidence presentation, documentation, and deterministic acceptance journey merged into integration/agentmaxxing-onboarding-v0.1.0 at commit cfc803ef; 169/169 tests pass across all 6 approved acceptance test suites + coverage guard, proof in docs/signalloom/amxo-p6-gov-proof.md"
+  },
+  "99d01": {
+    "task_id": "99d01",
+    "reviewed_at": "2026-09-14T11:26:46.785Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "SLDP-P0 certified: Architecture boundary map, proof of claimed primitives, 48/48 criteria, and unsigned commit 9d00d295 verified green; proposal errata updated with status=pass proceed=yes blocking_drift=no"
+  },
+  "18fc3": {
+    "task_id": "18fc3",
+    "reviewed_at": "2026-09-14T11:32:37.952Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "SLDP-P1-PRE certified: Route inventory (32 endpoints), SPIFFE identity decision, fail-open sites, verifier state, and empty-key reliance confirmed; commit 70136be0 verified; proposal errata updated with status=pass proceed=yes blocking_drift=no"
+  },
+  "025cb": {
+    "task_id": "025cb",
+    "reviewed_at": "2026-09-14T11:50:31.786Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "SLDP-P1-2 certified: Fail-closed encryption (AESGCMEncryptor required, Noop dev-gated) and audit writers (NopWriter ErrAuditDisabled, promote 503 refusal) implemented and verified; unit & package test suites 100% pass; commit f375d731 verified"
+  },
+  "7d932": {
+    "task_id": "7d932",
+    "reviewed_at": "2026-09-14T13:23:10Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P1-1 certified: ProtectedRouter default-deny HTTP auth/authz middleware, SPIFFE JWT-SVID authenticator, 14 granular permissions, principal-derived TenantContext, pagination clamping & enumeration rate limiting, SSE expiry deadline context cancellation, and fail-closed pseudonymous audit logging verified green; 100% test pass; commit 0e6076ae verified"
+  },
+  "81760": {
+    "task_id": "81760",
+    "reviewed_at": "2026-09-14T13:23:12Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P1-3 certified: Independent segment and checkpoint chain verifier (store/verify/verify.go), CLI (cmd/segment-verify), 17 tamper tests (store/segment_verifier_test.go), Makefile targets, milestone sizing (M1-M4: 75.25-102.25 days), and PASS proof verified green; commit c3c36f96 verified"
+  },
+  "ba34b": {
+    "task_id": "ba34b",
+    "reviewed_at": "2026-09-14T13:30:57Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P1-GOV certified: Phase 1 Governor Gate certified; verified all 32 HTTP endpoints and 4 SSE streams protected under SPIFFE JWT-SVID auth, fail-closed encryption/audit controls verified, independent segment/checkpoint chain verifier operational, M1-M4 milestone sizing attached, tenant-binding contract published, boundary map reconciled; proof recorded in docs/signalloom/sldp-p1-gov-proof.md (commit 53e412b6)"
+  },
+  "5117d": {
+    "task_id": "5117d",
+    "reviewed_at": "2026-09-14T13:40:50Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P2-PRE certified: Phase 2 Preflight certified; migration sequence 005-007 reserved, identity-graph seams and never-merge trigger failure modes audited, tenant-binding RLS contract verified, 10 cleartext indexes catalogued; proof in docs/signalloom/sldp-p2-pre-proof.md (commit d4762cd3)"
+  },
+  "ddfcb": {
+    "task_id": "ddfcb",
+    "reviewed_at": "2026-09-14T14:21:14Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "Verified keyed HKDF-SHA256 pseudonymisation key ring, envelope encryption with row-binding AAD, migration 005 and rollback, dictionary attack resistance test, and 539 unit/live test passes at commit fd9a4aa8."
+  },
+  "72dc8": {
+    "task_id": "72dc8",
+    "reviewed_at": "2026-09-14T14:21:17Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "Verified migration 006 tenant_id with DEFAULT app_current_tenant(), FORCE ROW LEVEL SECURITY on all three tables, tenant-leading composite indexes, maintenance role with transaction-local reason GUC, and 28 hostile-context live PostgreSQL tests passing at commit c16599af."
+  },
+  "f857a": {
+    "task_id": "f857a",
+    "reviewed_at": "2026-09-14T14:30:36Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "Verified never-merge invariant preservation across pseudonymisation, mathematical fail-open proof, constraint and index audit, MemoryRepository parity, and full test suite passing at commit de00dbc4."
+  },
+  "63c12": {
+    "task_id": "63c12",
+    "reviewed_at": "2026-09-14T14:54:35Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P2-GOV Phase 2 Certified: RLS and pseudonymisation seams resolved, 28/28 live RLS tests pass, 8/8 live alias tests pass (11 assertions), 006 rollback embedded, contract frozen"
   }
 }

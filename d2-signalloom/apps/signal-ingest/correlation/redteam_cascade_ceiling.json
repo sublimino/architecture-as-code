@@ -1,13 +1,13 @@
 {
   "schema_version": "v2",
-  "generated_at": "2026-09-14T13:13:04Z",
+  "generated_at": "2026-09-14T14:43:11Z",
   "total_injected": 24,
   "total_caught": 24,
   "total_missed": 0,
   "resolution_ceiling": "24/24 caught",
   "resolution_rate": 1,
   "false_merges": 0,
-  "max_cycle_latency_us": 2,
+  "max_cycle_latency_us": 13,
   "breakdown_by_class": {
     "cascading-impersonation": {
       "injected": 6,
@@ -52,9 +52,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 1,
+      "cycle_latency_us": 11,
       "quarantine_triggered": false,
-      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+      "details": "cycle detected in 11µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
     },
     {
       "case_id": "ADV-CD-02",
@@ -70,9 +70,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 1,
+      "cycle_latency_us": 13,
       "quarantine_triggered": false,
-      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=3, distinct_nodes=3, false-merge=0"
+      "details": "cycle detected in 13µs (\u003c5ms SLA); hops=3, distinct_nodes=3, false-merge=0"
     },
     {
       "case_id": "ADV-CD-03",
@@ -86,9 +86,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 1,
+      "cycle_latency_us": 2,
       "quarantine_triggered": false,
-      "details": "reflexive cycle caught at boundary in 1µs (\u003c5ms SLA): structural never-merge invariant violated: self-delegation agent-self-ref is forbidden"
+      "details": "reflexive cycle caught at boundary in 2µs (\u003c5ms SLA): structural never-merge invariant violated: self-delegation agent-self-ref is forbidden"
     },
     {
       "case_id": "ADV-CD-04",
@@ -103,9 +103,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 1,
+      "cycle_latency_us": 10,
       "quarantine_triggered": false,
-      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+      "details": "cycle detected in 10µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
     },
     {
       "case_id": "ADV-CD-05",
@@ -120,9 +120,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 1,
+      "cycle_latency_us": 11,
       "quarantine_triggered": false,
-      "details": "cycle detected in 1µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+      "details": "cycle detected in 11µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
     },
     {
       "case_id": "ADV-CD-06",
@@ -136,9 +136,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 2,
+      "cycle_latency_us": 10,
       "quarantine_triggered": false,
-      "details": "cycle detected in 2µs (\u003c5ms SLA); hops=4, distinct_nodes=4, false-merge=0"
+      "details": "cycle detected in 10µs (\u003c5ms SLA); hops=4, distinct_nodes=4, false-merge=0"
     },
     {
       "case_id": "ADV-CI-01",

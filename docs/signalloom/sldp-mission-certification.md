@@ -131,7 +131,21 @@ Harness: `falsify.sh`, `falsify2.sh` (reproduced in the execution proof). Logs:
 | **M2c** | verifier's ACCEPTANCE of valid evidence (digest comparison inverted) | `store/verify/verify.go:457` `!=` → `==` | `TestVerifyCorpusGeneratedByWriter` | **KILLED** | a valid corpus is rejected; the positive control is live |
 | **M1d** | tenant predicate in the key store | `subjectkey/store.go:293` `r.TenantID == tenantID &&` removed | `TestErasureSaga_ErasesOneSubjectOnly` | **SURVIVED** | **mutant still green — the cross-tenant assertion at `saga_test.go:158` does not defend the predicate** |
 
-**9 mutations: 8 killed, 1 SURVIVED, 0 inconclusive at final state.**
+| **M1e** | tenant predicate — **whole-package blast radius** | same site as M1d | **every test in `./subjectkey/...`, `./privacy/...`, `./privacy/tombstone/...`** | **SURVIVED** | all three packages report `ok`. Mutant liveness proved by `grep -c 'r.TenantID == tenantID && r.SubjectPseudonym'` → **0** in the built source |
+
+**10 mutations: 8 killed, 2 SURVIVED, 0 inconclusive at final state.**
+
+**M1e is the finding, and it is worse than M1d.** M1d showed one test blind to the tenant predicate.
+M1e widened the probe from a single test to every test in the three packages that own erasure,
+privacy and tombstones — **and not one of them notices the predicate being deleted.** The whole
+erasure test surface is blind to it, so this is not a gap in one assertion that a better assertion
+would close; it is an untested control. The mutant's liveness was proved independently rather than
+inferred: the predicate is absent from the source that was compiled (`grep -c … → 0`).
+
+This probe was run because the two commissioned external audits could not execute (proof §8) and the
+survivor was produced by a harness written quickly under budget pressure. Widening the blast radius
+was the cheapest available substitute for an independent reviewer, and it found more than the
+reviewer had been asked to check.
 
 M2c and M1d were added in round 3, commissioned by the commitment-boundary advisor review, which
 asked two questions rounds 1–2 had not: *are all your Property-2 kills rejection tests, so a

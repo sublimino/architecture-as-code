@@ -113,7 +113,7 @@ func (m *MemoryRepository) GetActorAsOf(ctx context.Context, actorID string, asO
 
 // AddAlias records a typed time-valid alias, enforcing structural never-merge invariants against existing delegations.
 func (m *MemoryRepository) AddAlias(ctx context.Context, alias AliasRecord) error {
-	if alias.ActorID == "" || alias.AliasValue == "" || alias.AliasType == "" {
+	if alias.ActorID == "" || (alias.AliasValue == "" && alias.AliasValueHash == "") || alias.AliasType == "" {
 		return fmt.Errorf("actor_id, alias_type, and alias_value are required")
 	}
 	if alias.EdgeFidelity == "" {
@@ -129,11 +129,13 @@ func (m *MemoryRepository) AddAlias(ctx context.Context, alias AliasRecord) erro
 		return fmt.Errorf("valid_from must be strictly before valid_to")
 	}
 	tenant := m.tenantFor(alias.TenantID)
-	pseudonym, err := m.encryptor.Pseudonym(tenant, alias.AliasValue)
-	if err != nil {
-		return fmt.Errorf("failed to pseudonymise alias value: %w", err)
+	if alias.AliasValue != "" {
+		pseudonym, err := m.encryptor.Pseudonym(tenant, alias.AliasValue)
+		if err != nil {
+			return fmt.Errorf("failed to pseudonymise alias value: %w", err)
+		}
+		alias.AliasValueHash = pseudonym
 	}
-	alias.AliasValueHash = pseudonym
 	alias.TenantID = tenant
 	alias.ID = atomic.AddInt64(&m.aliasSeq, 1)
 
@@ -149,13 +151,21 @@ func (m *MemoryRepository) AddAlias(ctx context.Context, alias AliasRecord) erro
 		}
 	}
 
-	// Structural Never-Merge Check: Reject if alias equates actor with any of its delegation partners
+	// Structural Never-Merge Check: Reject if alias equates actor with any of its delegation partners.
+	// Evaluated in pseudonym space (mirroring PostgreSQL trg_aliases_never_merge / migration 005)
+	// and in cleartext for pre-migration transitional rows.
 	for _, d := range m.delegations {
-		if d.DelegateActorID == alias.ActorID && d.PrincipalActorID == alias.AliasValue {
+		principalPseudo, _ := m.encryptor.Pseudonym(tenant, d.PrincipalActorID)
+		delegatePseudo, _ := m.encryptor.Pseudonym(tenant, d.DelegateActorID)
+		if d.DelegateActorID == alias.ActorID &&
+			((alias.AliasValue != "" && d.PrincipalActorID == alias.AliasValue) ||
+				(alias.AliasValueHash != "" && (d.PrincipalActorPseudonym == alias.AliasValueHash || (principalPseudo != "" && principalPseudo == alias.AliasValueHash)))) {
 			return fmt.Errorf("%w: cannot alias delegate %s to delegation principal %s",
 				ErrNeverMergeViolation, alias.ActorID, alias.AliasValue)
 		}
-		if d.PrincipalActorID == alias.ActorID && d.DelegateActorID == alias.AliasValue {
+		if d.PrincipalActorID == alias.ActorID &&
+			((alias.AliasValue != "" && d.DelegateActorID == alias.AliasValue) ||
+				(alias.AliasValueHash != "" && (d.DelegateActorPseudonym == alias.AliasValueHash || (delegatePseudo != "" && delegatePseudo == alias.AliasValueHash)))) {
 			return fmt.Errorf("%w: cannot alias principal %s to delegate %s",
 				ErrNeverMergeViolation, alias.ActorID, alias.AliasValue)
 		}
@@ -229,6 +239,16 @@ func (m *MemoryRepository) AddDelegation(ctx context.Context, delegation Delegat
 	}
 	delegation.ID = atomic.AddInt64(&m.delegSeq, 1)
 
+	tenant := m.tenantFor(delegation.TenantID)
+	delegatePseudo, err := m.encryptor.Pseudonym(tenant, delegation.DelegateActorID)
+	if err == nil && delegation.DelegateActorPseudonym == "" {
+		delegation.DelegateActorPseudonym = delegatePseudo
+	}
+	principalPseudo, err := m.encryptor.Pseudonym(tenant, delegation.PrincipalActorID)
+	if err == nil && delegation.PrincipalActorPseudonym == "" {
+		delegation.PrincipalActorPseudonym = principalPseudo
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -239,10 +259,18 @@ func (m *MemoryRepository) AddDelegation(ctx context.Context, delegation Delegat
 		}
 	}
 
-	// Structural Never-Merge Check: Reject if there is already an alias equating delegate and principal
+	// Structural Never-Merge Check: Reject if there is already an alias equating delegate and principal.
+	// Evaluated in pseudonym space (mirroring PostgreSQL trg_delegations_never_merge / migration 005)
+	// and in cleartext for pre-migration transitional rows.
 	for _, a := range m.aliases {
-		if (a.ActorID == delegation.DelegateActorID && a.AliasValue == delegation.PrincipalActorID) ||
-			(a.ActorID == delegation.PrincipalActorID && a.AliasValue == delegation.DelegateActorID) {
+		if (a.ActorID == delegation.DelegateActorID &&
+			((a.AliasValue != "" && a.AliasValue == delegation.PrincipalActorID) ||
+				(delegation.PrincipalActorPseudonym != "" && a.AliasValueHash == delegation.PrincipalActorPseudonym) ||
+				(principalPseudo != "" && a.AliasValueHash == principalPseudo))) ||
+			(a.ActorID == delegation.PrincipalActorID &&
+				((a.AliasValue != "" && a.AliasValue == delegation.DelegateActorID) ||
+					(delegation.DelegateActorPseudonym != "" && a.AliasValueHash == delegation.DelegateActorPseudonym) ||
+					(delegatePseudo != "" && a.AliasValueHash == delegatePseudo))) {
 			return fmt.Errorf("%w: cannot delegate between aliased identities %s and %s",
 				ErrNeverMergeViolation, delegation.DelegateActorID, delegation.PrincipalActorID)
 		}

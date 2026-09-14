@@ -94,3 +94,114 @@ func TestEncryption_MemoryRepositoryEncrypted(t *testing.T) {
 		t.Errorf("metadata decrypted mismatch: got %v", got.Metadata)
 	}
 }
+
+// TestNewEncryptorFromKeyString_ProductionRefusalOnEmptyKey asserts that an empty key
+// string fails closed in production mode (when no dev opt-in is configured).
+func TestNewEncryptorFromKeyString_ProductionRefusalOnEmptyKey(t *testing.T) {
+	for _, env := range DevOptInEnvVars {
+		t.Setenv(env, "")
+	}
+
+	enc, err := NewEncryptorFromKeyString("")
+	if err == nil {
+		t.Fatalf("expected error on empty key string in production mode, got encryptor: %T", enc)
+	}
+	if !errors.Is(err, ErrNoopEncryptionNotAllowed) {
+		t.Errorf("expected ErrNoopEncryptionNotAllowed, got: %v", err)
+	}
+}
+
+// TestNewEncryptorFromKeyString_DevelopmentOptInAllowed asserts that an empty key
+// returns NoopEncryptor when explicitly opted-in via INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR.
+func TestNewEncryptorFromKeyString_DevelopmentOptInAllowed(t *testing.T) {
+	t.Setenv("INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR", "true")
+
+	enc, err := NewEncryptorFromKeyString("")
+	if err != nil {
+		t.Fatalf("expected nil error when dev opt-in enabled, got: %v", err)
+	}
+	noop, ok := enc.(*NoopEncryptor)
+	if !ok {
+		t.Fatalf("expected *NoopEncryptor, got: %T", enc)
+	}
+	defer noop.Stop()
+
+	posture := noop.Posture()
+	if posture.Healthy {
+		t.Errorf("expected NoopEncryptor posture Healthy to be false")
+	}
+	if posture.Mode != "passthrough_insecure" {
+		t.Errorf("expected mode passthrough_insecure, got %s", posture.Mode)
+	}
+}
+
+// TestNewEncryptorFromKeyString_ValidKeyAlwaysSucceeds asserts that providing a valid key
+// instantiates AESGCMEncryptor regardless of dev opt-in flags.
+func TestNewEncryptorFromKeyString_ValidKeyAlwaysSucceeds(t *testing.T) {
+	t.Setenv("INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR", "")
+
+	enc, err := NewEncryptorFromKeyString("01234567890123456789012345678901")
+	if err != nil {
+		t.Fatalf("unexpected error for valid key: %v", err)
+	}
+	aesEnc, ok := enc.(*AESGCMEncryptor)
+	if !ok {
+		t.Fatalf("expected *AESGCMEncryptor, got: %T", enc)
+	}
+
+	posture := aesEnc.Posture()
+	if !posture.Healthy {
+		t.Errorf("expected AESGCMEncryptor posture Healthy to be true")
+	}
+	if posture.Algorithm != "AES-256-GCM" {
+		t.Errorf("expected algorithm AES-256-GCM, got %s", posture.Algorithm)
+	}
+}
+
+// TestNoopEncryptor_PersistentWarningCycle asserts that the background warning ticker
+// runs and terminates cleanly without leaking or hanging.
+func TestNoopEncryptor_PersistentWarningCycle(t *testing.T) {
+	noop := NewNoopEncryptorWithInterval(10 * time.Millisecond)
+	time.Sleep(35 * time.Millisecond)
+	noop.Stop()
+	// Idempotent stop
+	noop.Stop()
+}
+
+// TestGetEncryptionPosture asserts correct posture reporting across all encryptor implementations.
+func TestGetEncryptionPosture(t *testing.T) {
+	nilPosture := GetEncryptionPosture(nil)
+	if nilPosture.Healthy || nilPosture.Mode != "unconfigured" {
+		t.Errorf("unexpected posture for nil encryptor: %+v", nilPosture)
+	}
+
+	aesEnc, _ := NewAESGCMEncryptor([]byte("01234567890123456789012345678901"))
+	aesPosture := GetEncryptionPosture(aesEnc)
+	if !aesPosture.Healthy || aesPosture.Mode != "enforced" {
+		t.Errorf("unexpected posture for AESGCM: %+v", aesPosture)
+	}
+
+	noop := NewNoopEncryptor()
+	defer noop.Stop()
+	noopPosture := GetEncryptionPosture(noop)
+	if noopPosture.Healthy || !noopPosture.DevOptIn {
+		t.Errorf("unexpected posture for Noop: %+v", noopPosture)
+	}
+}
+
+// TestNewPostgresRepository_RefusesNilEncryptorInProduction asserts that NewPostgresRepository
+// panics if a nil encryptor is supplied in production mode without dev opt-in.
+func TestNewPostgresRepository_RefusesNilEncryptorInProduction(t *testing.T) {
+	for _, env := range DevOptInEnvVars {
+		t.Setenv(env, "")
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic when NewPostgresRepository is given nil encryptor in production mode")
+		}
+	}()
+
+	_ = NewPostgresRepository(nil, nil)
+}

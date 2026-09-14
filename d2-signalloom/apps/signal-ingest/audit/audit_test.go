@@ -81,14 +81,68 @@ func TestFakeWriter_EventsByType(t *testing.T) {
 	}
 }
 
-func TestNopWriter(t *testing.T) {
+// TestNopWriter_FailClosedByDefault asserts that NopWriter fails closed by default
+// returning ErrAuditDisabled to prevent silent un-audited operations in production.
+func TestNopWriter_FailClosedByDefault(t *testing.T) {
 	var w NopWriter
 	err := w.WriteAuditEvent(context.Background(), Event{
 		EventType: EventActorPromoted,
 		Detail:    json.RawMessage(`{}`),
 	})
+	if err == nil {
+		t.Fatal("expected ErrAuditDisabled from default NopWriter")
+	}
+	if !errors.Is(err, ErrAuditDisabled) {
+		t.Errorf("expected ErrAuditDisabled, got: %v", err)
+	}
+
+	posture := w.AuditPosture()
+	if posture.Healthy {
+		t.Errorf("expected posture Healthy to be false")
+	}
+	if posture.Policy != "refuse_all" {
+		t.Errorf("expected policy refuse_all, got %s", posture.Policy)
+	}
+}
+
+// TestNopWriter_DevelopmentOptInAllowed asserts that NopWriter permits event discard
+// only when explicitly configured with AllowDiscard: true.
+func TestNopWriter_DevelopmentOptInAllowed(t *testing.T) {
+	w := NewNopWriter(true)
+	err := w.WriteAuditEvent(context.Background(), Event{
+		EventType: EventActorPromoted,
+		Detail:    json.RawMessage(`{}`),
+	})
 	if err != nil {
-		t.Errorf("NopWriter should never error, got: %v", err)
+		t.Fatalf("expected nil error when AllowDiscard=true, got: %v", err)
+	}
+
+	posture := w.AuditPosture()
+	if posture.Healthy {
+		t.Errorf("expected posture Healthy to be false for dev discard")
+	}
+	if posture.Policy != "discard_insecure" {
+		t.Errorf("expected policy discard_insecure, got %s", posture.Policy)
+	}
+}
+
+// TestAuditPosture_Reporting asserts accurate compliance posture reporting across writers.
+func TestAuditPosture_Reporting(t *testing.T) {
+	nilPosture := GetAuditPosture(nil)
+	if nilPosture.Healthy || nilPosture.Backend != "none" {
+		t.Errorf("unexpected posture for nil audit writer: %+v", nilPosture)
+	}
+
+	fake := NewFakeWriter()
+	fakePosture := GetAuditPosture(fake)
+	if !fakePosture.Healthy || fakePosture.Backend != "fake_memory" {
+		t.Errorf("unexpected posture for fake writer: %+v", fakePosture)
+	}
+
+	fake.FailWith = errors.New("simulated error")
+	fakeDegraded := GetAuditPosture(fake)
+	if fakeDegraded.Healthy {
+		t.Errorf("expected fake degraded posture to be unhealthy")
 	}
 }
 

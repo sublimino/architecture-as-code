@@ -5,7 +5,13 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
+)
+
+var (
+	// ErrAuditDisabled is returned when an audit event is submitted to an unconfigured or disabled audit writer.
+	ErrAuditDisabled = errors.New("audit backend is unconfigured or disabled: audit event cannot be persisted")
 )
 
 // EventType enumerates the legal values for signal_audit_trail.event_type.
@@ -43,17 +49,84 @@ type Event struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+// AuditPosture captures the runtime audit state for compliance posture and health reporting.
+type AuditPosture struct {
+	Backend string `json:"backend"`
+	Mode    string `json:"mode"`
+	Policy  string `json:"policy"`
+	Healthy bool   `json:"healthy"`
+}
+
+// PostureAware is implemented by audit writers that can report their posture.
+type PostureAware interface {
+	AuditPosture() AuditPosture
+}
+
 // AuditWriter is the injectable interface for writing audit events.
 // Implementations must be safe for concurrent use.
 type AuditWriter interface {
-	// WriteAuditEvent persists one audit event. Implementations should not
-	// return errors for transient failures in demo-grade deployments —
-	// log and continue.
+	// WriteAuditEvent persists one audit event to the tamper-evident audit trail.
+	// Failures must never be silently swallowed or discarded; implementations
+	// must return an error when persistence fails so callers and operators can
+	// enforce compliance policy (refuse the operation or record degradation).
 	WriteAuditEvent(ctx context.Context, event Event) error
 }
 
-// NopWriter is an AuditWriter that silently discards all events.
-// Used when no Postgres connection is configured.
-type NopWriter struct{}
+// NopWriter is an AuditWriter used for development or test environments where audit persistence is disabled.
+// In default mode, it fails closed by returning ErrAuditDisabled to prevent silent non-audited executions.
+// Development fixtures may explicitly construct NopWriter with AllowDiscard: true.
+type NopWriter struct {
+	AllowDiscard bool
+}
 
-func (NopWriter) WriteAuditEvent(context.Context, Event) error { return nil }
+// NewNopWriter constructs a NopWriter with an explicit discard policy.
+func NewNopWriter(allowDiscard bool) *NopWriter {
+	return &NopWriter{AllowDiscard: allowDiscard}
+}
+
+// WriteAuditEvent writes an event or returns ErrAuditDisabled if discarding is not opted into.
+func (n NopWriter) WriteAuditEvent(_ context.Context, _ Event) error {
+	if n.AllowDiscard {
+		return nil
+	}
+	return ErrAuditDisabled
+}
+
+// AuditPosture returns the compliance posture of the NopWriter.
+func (n NopWriter) AuditPosture() AuditPosture {
+	if n.AllowDiscard {
+		return AuditPosture{
+			Backend: "nop",
+			Mode:    "development_discard_opt_in",
+			Policy:  "discard_insecure",
+			Healthy: false,
+		}
+	}
+	return AuditPosture{
+		Backend: "nop",
+		Mode:    "fail_closed_unconfigured",
+		Policy:  "refuse_all",
+		Healthy: false,
+	}
+}
+
+// GetAuditPosture inspects any AuditWriter and returns its effective security and compliance posture.
+func GetAuditPosture(w AuditWriter) AuditPosture {
+	if w == nil {
+		return AuditPosture{
+			Backend: "none",
+			Mode:    "unconfigured",
+			Policy:  "refuse_all",
+			Healthy: false,
+		}
+	}
+	if pa, ok := w.(PostureAware); ok {
+		return pa.AuditPosture()
+	}
+	return AuditPosture{
+		Backend: "custom",
+		Mode:    "enforced",
+		Policy:  "fail_closed",
+		Healthy: true,
+	}
+}

@@ -52,9 +52,20 @@ var (
 // redactIdentifiers replaces every direct-identifier class in text using the supplied keyed
 // replacement function.
 //
-// The replacement is keyed rather than a fixed sentinel so two occurrences of the same identifier
-// remain comparable to each other without being readable — the same reason the segment columns hold
-// keyed pseudonyms rather than a constant.
+// The replacement is deterministic rather than a fixed sentinel, so two occurrences of the same
+// identifier remain comparable without being readable in the clear.
+//
+// KNOWN WEAKNESS, recorded rather than left implied. The strength depends entirely on which
+// replacement the caller passes, and the two callers differ:
+//   - CryptographicSecretScrubber.ScrubText passes AnonymizeHMAC — keyed, 128-bit. Sound.
+//   - SecretRedactor.RedactText passes hashRedact, which is an UNKEYED SHA-256 truncated to 8 hex
+//     characters (32 bits). For a small enumerable domain — and the whole IPv4 space is 2^32 — that
+//     is reversible by exhaustive search in minutes, and it collides across a large corpus.
+//
+// So redaction via SecretRedactor obscures an identifier in a log line; it does NOT pseudonymise it
+// to the standard the segment columns meet. Raised by adversarial review (SLDP-P3-1, finding F2);
+// fixing it means keying hashRedact, which changes every existing REDACTED_SHA256 value and is
+// therefore a migration, not an edit. See docs/signalloom/sldp-p3-1-proof.md.
 func redactIdentifiers(text string, replace func(string) string) string {
 	if text == "" {
 		return ""

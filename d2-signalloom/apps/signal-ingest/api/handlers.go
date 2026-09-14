@@ -22,6 +22,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
@@ -63,6 +64,11 @@ type Handlers struct {
 
 	// EventBus provides internal pub/sub event dispatching.
 	EventBus any
+
+	// Privacy is the GDPR Article 17 erasure gate (SLDP-P3-2). A nil Privacy makes the erasure
+	// route answer 503: with no gate configured, no erasure may proceed. That is the fail-closed
+	// direction — the alternative, erasing when unconfigured, is the defect the gate exists for.
+	Privacy *privacy.Service
 }
 
 // Handlers contain application behavior only and do not authenticate requests.

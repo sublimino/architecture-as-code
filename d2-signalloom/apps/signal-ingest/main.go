@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -24,8 +25,71 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
+
+// ErasureTenantEnvVar names the tenant the process-global quarantine engine speaks for.
+//
+// The quarantine engine is not tenant-aware — it is a single in-process map keyed by actor ID — so
+// binding it to one tenant is the only honest adaptation available. Any OTHER tenant's erasure is
+// then evaluated without a containment source, and if no other source has jurisdiction the request
+// is refused rather than permitted. That is the correct failure direction and it is why this is a
+// declination rather than a silent "no holds": a tenant whose containment state cannot be read is a
+// tenant whose subjects cannot be erased.
+//
+// UNOWNED BOUNDARY, recorded rather than assumed away: a tenant-aware quarantine index belongs to
+// whichever card makes the correlation engine multi-tenant. Until then a multi-tenant deployment
+// must configure the Postgres hold source, which is authoritative for every tenant.
+const ErasureTenantEnvVar = "SIGNAL_ERASURE_TENANT"
+
+// buildErasureGate assembles the Article 17(3) erasure gate from whatever incident sources this
+// deployment actually has.
+//
+// It returns an error rather than a permissive fallback whenever it cannot assemble a complete
+// gate. There is deliberately no branch that yields a Service with fewer checks.
+func buildErasureGate(auditWriter audit.AuditWriter, encryptor identity.Encryptor, engine *correlation.Engine) (*privacy.Service, error) {
+	registry, err := privacy.OperatorRegistryFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("operator registry: %w", err)
+	}
+
+	var sources []privacy.IncidentSource
+	// The durable hold table is authoritative for every tenant, and row-level security scopes it.
+	if pw, ok := auditWriter.(*audit.PostgresWriter); ok && pw != nil {
+		pgSource, err := privacy.NewPostgresIncidentSource(pw.DB())
+		if err != nil {
+			return nil, fmt.Errorf("postgres incident source: %w", err)
+		}
+		sources = append(sources, pgSource)
+	}
+	// Live containment, for the one tenant this process's quarantine engine speaks for.
+	if tenant := os.Getenv(ErasureTenantEnvVar); tenant != "" && engine != nil {
+		qSource, err := privacy.NewQuarantineIncidentSource(engine, tenant)
+		if err != nil {
+			return nil, fmt.Errorf("quarantine incident source: %w", err)
+		}
+		sources = append(sources, qSource)
+	}
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("no incident source available: set DATABASE_URL for the durable hold table or %s for live containment", ErasureTenantEnvVar)
+	}
+	incidents, err := privacy.NewCompositeIncidentSource(sources...)
+	if err != nil {
+		return nil, fmt.Errorf("composite incident source: %w", err)
+	}
+
+	return privacy.NewService(privacy.Config{
+		Incidents: incidents,
+		// UnimplementedKeyDestroyer refuses. Until SLDP-P4-1 ships the per-subject key hierarchy,
+		// an authorised erasure fails loudly rather than reporting a destruction that did not
+		// happen. See privacy/destroyer.go for why a plausible-receipt stub was rejected.
+		Destroyer:     privacy.UnimplementedKeyDestroyer{},
+		Audit:         auditWriter,
+		Operators:     registry,
+		Pseudonymiser: encryptor,
+	})
+}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -217,6 +281,25 @@ func main() {
 	fairFixtureSource := fair.NewFixtureSource(fair.DefaultFixtureCount)
 	fairService := fair.NewService(fairFixtureSource)
 
+	// --- SLDP-P3-2: Article 17(3) erasure gate. -------------------------------------------------
+	//
+	// The gate is constructed here, not inside the handler, so that a deployment which cannot build
+	// one ends up with a nil Privacy and a route that answers 503. That is the fail-closed
+	// direction: with no gate configured no erasure may proceed, whereas a handler that built its
+	// own gate lazily could build a permissive one.
+	//
+	// Startup is deliberately NOT refused when the gate cannot be built. Every existing deployment
+	// predates this card and has no SIGNAL_ERASURE_OPERATORS set; exiting here would turn a new
+	// optional route into a boot failure across the estate. The safe asymmetry is available: no
+	// gate means no erasure, which costs a feature nobody is using yet.
+	privacyService, privacyErr := buildErasureGate(auditWriter, activeEncryptor, engine)
+	if privacyErr != nil {
+		slog.Warn("Article 17 erasure gate not configured; the erasure route will refuse every request",
+			"error", privacyErr)
+	} else {
+		slog.Info("Article 17 erasure gate configured", "route", "POST /api/v1/privacy/erasure/{id}")
+	}
+
 	handlers := &api.Handlers{
 		Store:           signalStore,
 		Engine:          engine,
@@ -229,6 +312,7 @@ func main() {
 		StunClient:      stunClient,
 		EventBus:        eventBus,
 		Encryptor:       activeEncryptor,
+		Privacy:         privacyService,
 	}
 
 	// --- CRKC-P1-4: Prometheus metrics for the Tetragon telemetry lane & OpenFAIR risk ---

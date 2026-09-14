@@ -298,7 +298,8 @@ previous phase governor, or on `P0` for phase 1.
 | P2-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | pass — delivered: fd9a4aa8 (see Errata — SLDP-P2-1) | $0.00 | N/A | 39m | kpai |
 | P2-2 | implementation | Tenant column and enforced row-level security on identity graph | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | pass — delivered: c16599af (see Errata — SLDP-P2-2) | $0.00 | N/A | 38m | kpai |
 
-| P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | pass — delivered: de00dbc4 (see Errata — SLDP-P2-3) | $0.00 | N/A | 6m | antigravity |
+
 | P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -447,12 +448,20 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - Implemented `identity/tenant_live_test.go` with 28 hostile-context live PostgreSQL tests (including superuser rejection, connection reset safety, and falsification test) passing 100%.
 
 
-#### Errata — SLDP-P2-3 (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-3`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P2-3: Pin never-merge invariant across pseudonymisation change
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:29:22+01:00  
+**Last Updated:** 2026-09-14 15:29:22+01:00  
+**Status:** `pass`  
+**Commit:** `de00dbc4`  
+**Evidence:** `docs/signalloom/sldp-p2-3-proof.md`  
+
+**Summary of changes and evidence:**
+- Proved mathematical fail-open vulnerability of legacy cleartext check_never_merge_alias triggers once alias_value is encrypted.
+- Enforced domain-consistent pseudonym-space comparisons in check_never_merge_alias and check_never_merge_delegation.
+- Updated MemoryRepository and DelegationRecord with pseudonym and tenant fields.
+- Comprehensive TestNeverMerge regression suite (7/7 pass) including constraint and index audit.
+
 
 #### Errata — SLDP-P2-GOV (bootstrap)
 ##### Task identity

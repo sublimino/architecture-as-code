@@ -2154,5 +2154,12 @@
     "reviewer": "Council (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "SLDP-P3-1 verified: segment column schema v2 with keyed HMAC pseudonyms, dynamic label write-time allow-list, attestation v1 byte integrity preserved, selective query latency 2.174ms p95 within 2.75ms budget, store and transform test suites 100% pass"
+  },
+  "96d0f": {
+    "task_id": "96d0f",
+    "reviewed_at": "2026-09-14T16:24:10Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P3-2 verified: Article 17(3) legal hold fails closed, dual-operator authorization engine in privacy/ package, 23/23 controls proven failable by real-source mutation, migration 008 embedded, 100% tests pass"
   }
 }

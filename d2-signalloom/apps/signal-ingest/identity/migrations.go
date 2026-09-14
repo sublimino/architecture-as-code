@@ -30,6 +30,13 @@ var Migration005PseudonymisationAndEncryption string
 //go:embed migrations/005_pseudonymisation_and_encryption_rollback.sql
 var Migration005Rollback string
 
+// Migration006TenantIsolationRLS adds tenant_id plus enforced row-level security to the identity
+// graph (SLDP-P2-2). Sequence 005 is reserved for SLDP-P2-1 and is deliberately not claimed here;
+// the two are independent, so either concatenation order applies cleanly.
+//
+//go:embed migrations/006_tenant_isolation_rls.sql
+var Migration006TenantIsolationRLS string
+
 // MigrationSQL returns the concatenated forward migration SQL scripts for external inspection or
 // testing. The rollback script is deliberately excluded: including it would make a grep for a
 // dropped index match the rollback's re-creation of it, so a test asserting "the cleartext index
@@ -39,7 +46,8 @@ func MigrationSQL() string {
 		Migration002DelegationIndices + "\n" +
 		Migration003IdempotentSeeding + "\n" +
 		Migration004DelegationRevocation + "\n" +
-		Migration005PseudonymisationAndEncryption
+		Migration005PseudonymisationAndEncryption + "\n" +
+		Migration006TenantIsolationRLS
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -73,6 +81,14 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 
 	if _, err := tx.ExecContext(ctx, Migration005PseudonymisationAndEncryption); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 005: %w", err)
+	}
+
+	// 006 must run after the tables and indexes it constrains exist. It is internally ordered so
+	// that every data-modifying step precedes ENABLE/FORCE ROW LEVEL SECURITY -- FORCE binds the
+	// table owner, so a backfill run after enablement would be policy-checked against a claim that
+	// is not set during a migration.
+	if _, err := tx.ExecContext(ctx, Migration006TenantIsolationRLS); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 006: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

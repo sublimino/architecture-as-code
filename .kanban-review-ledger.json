@@ -2126,5 +2126,12 @@
     "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "Verified migration 006 tenant_id with DEFAULT app_current_tenant(), FORCE ROW LEVEL SECURITY on all three tables, tenant-leading composite indexes, maintenance role with transaction-local reason GUC, and 28 hostile-context live PostgreSQL tests passing at commit c16599af."
+  },
+  "f857a": {
+    "task_id": "f857a",
+    "reviewed_at": "2026-09-14T14:30:36Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "Verified never-merge invariant preservation across pseudonymisation, mathematical fail-open proof, constraint and index audit, MemoryRepository parity, and full test suite passing at commit de00dbc4."
   }
 }

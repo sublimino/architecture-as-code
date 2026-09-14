@@ -43,9 +43,15 @@ func (e *DisallowedLabelKeyError) Error() string {
 // somebody thought of. Only an allow-list makes the claim checkable, because the set of keys that
 // can exist is the set of keys written here.
 //
-// Every entry is infrastructure topology or event classification. Nothing here identifies a natural
-// person, and nothing here is free text — the values are drawn from bounded vocabularies produced
-// by the collectors themselves.
+// Every entry is infrastructure topology or event classification, chosen so that no KEY names a
+// natural person.
+//
+// The limit of this control, stated plainly: it constrains label KEYS only. Append checks `k` and
+// never `v`, so a VALUE remains unconstrained free text. Several keys here routinely carry it —
+// `reason` holds strings like `User "alice" cannot get pods`, and `name` can hold an email address.
+// So this bounds the shape of the label space, not its contents; free-text values are covered only
+// to the extent the description redactor covers them, which is not at all today. Raised by
+// adversarial review (SLDP-P3-1, finding F3).
 var defaultLabelAllowList = map[string]struct{}{
 	// Kubernetes / workload topology
 	"api_group":        {},

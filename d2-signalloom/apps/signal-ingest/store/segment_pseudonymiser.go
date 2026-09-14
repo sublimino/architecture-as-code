@@ -99,6 +99,12 @@ func NewSegmentPseudonymiserFromEnv() (*SegmentPseudonymiser, error) {
 		return nil, ErrSegmentPseudonymKeyRequired
 	}
 
+	// KNOWN INCONSISTENCY (SLDP-P3-1 finding F9): the key path fails closed here and the tenant
+	// path does not. ErrSegmentPseudonymTenantRequired exists because "an empty scope would merge
+	// tenant correlation domains" — and this default does exactly that, silently, for any
+	// multi-tenant deployment that forgets the variable. It is retained for now only because every
+	// current caller is single-scope and changing it is a deployment-breaking change that belongs
+	// with the P4 key hierarchy, not smuggled in here. Do not read this as safe.
 	tenant := os.Getenv(SegmentPseudonymTenantEnv)
 	if tenant == "" {
 		tenant = DefaultSegmentTenantScope

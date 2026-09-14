@@ -734,3 +734,49 @@ func mustPseudonym(t *testing.T, value string) string {
 	}
 	return out
 }
+
+// TestFrostDBStore_V2_DescriptionIsRedactedAtTheChokepoint asserts the PAYLOAD, not the schema.
+//
+// Every other test in this file inspects column names, and all of them passed while
+// `POST /api/v1/observations` could still put an attacker-supplied email address and source IP into
+// a signed, unerasable segment through the free-text description. A schema-level assertion is
+// structurally blind to that. This one writes a hostile description through the store — not through
+// any collector — and reads the persisted row back.
+func TestFrostDBStore_V2_DescriptionIsRedactedAtTheChokepoint(t *testing.T) {
+	s, err := NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer s.Close()
+
+	obs := model.Observation{
+		ID: "obs-hostile", Timestamp: time.Unix(1_700_000_200, 0).UTC(),
+		Layer: model.LayerIdentityAuth, Fidelity: model.FidelityStrong, Source: "http-api",
+		Description: "denied for alice@corp.internal from 10.0.0.5 acting as " +
+			"system:serviceaccount:prod:payments",
+	}
+	if err := s.Append(context.Background(), []model.Observation{obs}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	out, err := s.QueryRange(context.Background(), Query{})
+	if err != nil {
+		t.Fatalf("QueryRange: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("got %d rows, want 1", len(out))
+	}
+
+	got := out[0].Description
+	for _, leaked := range []string{
+		"alice@corp.internal",
+		"10.0.0.5",
+		"system:serviceaccount:prod:payments",
+	} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("identifier %q reached an immutable segment through description: %q", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "denied for") {
+		t.Errorf("redaction destroyed the non-identifier context: %q", got)
+	}
+}

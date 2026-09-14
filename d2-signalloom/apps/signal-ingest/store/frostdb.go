@@ -14,6 +14,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/transform"
 	"github.com/polarsignals/frostdb"
 	"github.com/polarsignals/frostdb/query"
 	"github.com/polarsignals/frostdb/query/logicalplan"
@@ -295,12 +296,23 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 	// Pseudonymise the whole batch before building anything, so a pseudonymisation failure aborts
 	// with nothing written rather than leaving a partially-identified record.
 	pseudonyms := make([]observationPseudonyms, len(observations))
+	descriptions := make([]string, len(observations))
 	for i, o := range observations {
 		p, err := f.pseudonymiseObservation(o)
 		if err != nil {
 			return err
 		}
 		pseudonyms[i] = p
+		// `description` is the one free-text column surviving into v2, and it is redacted HERE
+		// rather than at any caller.
+		//
+		// Redacting at a caller was the original mistake: `api/audit/receiver.go` was fixed and
+		// the other seven writers were not, so `POST /api/v1/observations` could still put an
+		// attacker-supplied "alice@corp.com from 10.0.0.5" into a signed, unerasable segment while
+		// every schema-level test stayed green — those tests inspect column NAMES and are blind to
+		// the payload. A guard applied by one caller of eight is the same as no guard. Append is
+		// the single chokepoint every writer crosses, so the guard belongs at the chokepoint.
+		descriptions[i] = segmentDescriptionRedactor.RedactText(o.Description)
 	}
 
 	// Build Arrow schema: static columns + dynamic label columns, alphabetically ordered.
@@ -339,7 +351,7 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 		idx++
 		builder.Field(idx).(*array.Int64Builder).Append(int64(o.DelegationDepth))
 		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.Description)
+		builder.Field(idx).(*array.StringBuilder).Append(descriptions[i])
 		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(p.EvidenceRefDigest)
 		idx++
@@ -385,6 +397,10 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 
 	return nil
 }
+
+// segmentDescriptionRedactor scrubs direct identifiers out of free text on its way into an
+// immutable segment. Stateless, so one shared instance is safe.
+var segmentDescriptionRedactor = transform.NewSecretRedactor()
 
 // observationPseudonyms holds the keyed replacements for one observation's direct identifiers.
 type observationPseudonyms struct {

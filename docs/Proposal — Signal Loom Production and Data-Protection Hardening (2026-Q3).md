@@ -289,7 +289,7 @@ previous phase governor, or on `P0` for phase 1.
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | preflight | Verify claimed primitives and map implementation boundaries | None | `ripwire d2-signalloom/apps/signal-ingest` | S | fast | pass — delivered: 9d00d295 (see Errata — SLDP-P0) | $0.00 | N/A | 32m | antigravity |
-| P1-PRE | preflight | Confirm live-hole seams and route inventory before closing them | P0 | `rg -n 'HandleFunc|NewServeMux' d2-signalloom/apps/signal-ingest/main.go` | S | fast | pass — delivered: 70136be0 (see Errata — SLDP-P1-PRE) | $0.00 | N/A | 25m | antigravity |
+| P1-PRE | preflight | Confirm live-hole seams and route inventory before closing them | P0 | `rg -n 'HandleFunc | NewServeMux' d2-signalloom/apps/signal-ingest/main.go` | S | fast | pass — delivered: 70136be0 (see Errata — SLDP-P1-PRE) | $0.00 | N/A | 25m | antigravity |
 | P1-1 | implementation | Authenticate and authorise the signal-ingest HTTP API | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./api/...` | L | deep | pass — delivered: 0e6076ae (see Errata — SLDP-P1-1) | $0.00 | N/A | 45m | antigravity |
 | P1-2 | implementation | Make encryption and audit writers fail closed | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | pass — delivered: f375d731 (see Errata — SLDP-P1-2) | $0.00 | N/A | 25m | antigravity |
 | P1-3 | implementation | Build segment and checkpoint chain verifier; size milestones | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: c3c36f96 (see Errata — SLDP-P1-3) | $0.00 | N/A | 50m | antigravity |
@@ -304,7 +304,7 @@ previous phase governor, or on `P0` for phase 1.
 | P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | pass — delivered: 67cbc98b (see Errata — SLDP-P3-PRE) | $0.00 | N/A | 2m | antigravity |
 | P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: 6bc67236 (see Errata — SLDP-P3-1) | $0.00 | N/A | 35m | kpai |
 | P3-2 | implementation | Gate erasure with legal hold and dual-operator authorisation | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: a4047571 (see Errata — SLDP-P3-2) | $0.00 | N/A | 35m | deep |
-| P3-GOV | governor | Certify redaction, attestation validity and latency budget | P3-1, P3-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-GOV | governor | Certify redaction, attestation validity and latency budget | P3-1, P3-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 27084fea (see Errata — SLDP-P3-GOV) | $0.00 | N/A | 15m | antigravity |
 | P4-PRE | preflight | Confirm key-management seams and erasure preconditions | P3-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P4-1 | implementation | Per-subject key hierarchy with idempotent erasure saga | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P4-2 | implementation | Non-linkable attested tombstones | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -382,6 +382,16 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - **Milestone Sizing Published**: Sized M1–M4 in `docs/signalloom/sldp-p1-3-milestone-sizing.md` (Total 75.25–102.25 working days, 126.5–172.5 person-days across 2 core engineers, D+76–103 relative to D0).
 
 #### Errata — SLDP-P1-GOV: Phase 1 Governor Certification
+
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P1-PRE | pass — delivered: 70136be0 (see Errata — SLDP-P1-PRE) | $0.00 | N/A | 25m |
+| P1-1 | $0.00 | N/A | 45m | antigravity |
+| P1-2 | $0.00 | N/A | 25m | antigravity |
+| P1-3 | $0.00 | N/A | 50m | antigravity |
+| P1-GOV | $0.00 | N/A | 15m | antigravity |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-14 14:28:12+01:00  
 **Last Updated:** 2026-09-14 14:28:12+01:00  
@@ -464,6 +474,14 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 
 
 #### Errata — SLDP-P2-GOV: Phase 2 Governor Certification
+
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P2-PRE | $0.00 | N/A | 1m | antigravity |
+| P2-1 | $0.00 | N/A | 39m | kpai |
+| P2-2 | $0.00 | N/A | 38m | kpai |
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-14 15:55:00+01:00  
 **Last Updated:** 2026-09-14 15:55:00+01:00  
@@ -544,12 +562,30 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 
 
 
-#### Errata — SLDP-P3-GOV (bootstrap)
-##### Task identity
-- Card: `SLDP-P3-GOV`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P3-GOV: Phase 3 Governor Certification
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P3-PRE | $0.00 | N/A | 2m | antigravity |
+| P3-1 | $0.00 | in 75.1M; out 317.9k | 36m42s | kpai |
+| P3-2 | $0.00 | in 92.2M; out 582.8k | 57m59s | deep |
+| P3-GOV | $0.00 | N/A | 15m | antigravity |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 17:45:18+01:00  
+**Last Updated:** 2026-09-14 17:45:18+01:00  
+**Status:** `pass`  
+**Commit:** `27084fea`  
+**Evidence:** `docs/signalloom/sldp-p3-governor-proof.md`  
+
+**Phase 3 Governor Certification Summary:**
+- **Columnar Pseudonymisation & Redaction Certified (SLDP-P3-1):** Column schema versioned to `signalloom.observations/v2` with 6 cleartext identifier columns dropped from writer and replaced by keyed HMAC pseudonyms (`hmac_actor_hint`, `hmac_actor_id`, `hmac_principal_id`, `hmac_session_id`, `hmac_impersonated_user`) and digests (`evidence_ref_digest`). Dynamic label keyspace closed via fail-closed allow-list; freeform text scrubbed at `store.Append` chokepoint.
+- **Attestation & Signature Validity Decoupled:** Certified that cryptographic DSSE signature verification (`store/verify`) certifies byte authenticity, not semantic redaction (`SemanticRedactionNotAssessed`). Semantic redaction is independently verified by static schema guards, dynamic label allow-lists, and persisted Arrow record tests. Pre-change segments remain 100% verifiable without breaking attestation envelopes.
+- **Latency Budget Certified (<2.75ms p95 at 12,000 observations):** Selective pushdown query p95 measured at **2.194 ms** (K8s-audit benchmark) and **1.428 ms** (volume benchmark) against the 2.75 ms budget (6.54x speedup vs full scan). Cold-cache startup overhead measured at 3.1–4.8ms before settling into steady-state p95.
+- **Mixed-Corpus Generation-Aware Reader:** Verified that store reader decodes both v1 (cleartext) and v2 (pseudonymised) segments seamlessly in a single query result.
+- **Legal-Hold Erasure Gating Certified (SLDP-P3-2):** Gated GDPR Article 17 erasure requests with fail-closed Article 17(3) legal holds, dual-operator Ed25519-signed exceptions naming 5 enumerated statutory grounds, 90-day validity ceilings, and pre-execution hold evaluation verified by 23/23 killed mutations.
+- **Published Residual Statement:** Published formal statement that historical pre-change segments retain cleartext columns under immutable evidence store policy until partition expiry (P6-1) or Postgres key shredding (P4-1).
+- **Certified Proof Document:** Complete evidence recorded in `docs/signalloom/sldp-p3-governor-proof.md` (and `docs/signalloom/sldp-p3-gov-proof.md`).
 
 #### Errata — SLDP-P4-PRE (bootstrap)
 ##### Task identity

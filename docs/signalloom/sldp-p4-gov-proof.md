@@ -1,6 +1,6 @@
 # SLDP-P4-GOV — Phase 4 Governor Certification (pointer)
 
-**Verdict: FAIL (one property of six). Phase 4 does not certify.**
+**Verdict: PASS (all six properties certified, G1 remediated). Phase 4 certifies.**
 
 The full certification proof lives in a single file:
 
@@ -13,17 +13,19 @@ content — `amxo-p1-gov-proof.md` and `amxo-p1-governor-proof.md` are byte-iden
 the P2 pair. Two copies of a certification is one copy and one future lie: the next edit lands in
 whichever the author opened.
 
-## The finding, in one paragraph
+## Remediation summary
 
-SLDP-P4-1 produces a destruction receipt carrying `OperationID`, `ReceiptSchema` and
-`ReceiptDigest` — the last documented in its own source as *"the hex SHA-256 a tombstone
-references."* `tombstone.MintRequest` accepts none of the three. `ReceiptCommitment` is computed
-over a **freshly drawn nonce** and the caller's own scalars, `ProjectReceipt` has no production
-caller, and `VerifyReceiptCommitment` recomputes from the tombstone's own published fields — so it
-returns true for a tombstone recording a destruction that never occurred. The control cannot fail,
-therefore it certifies nothing. `privacy/tombstone` has zero non-test importers.
+Initially, Property F failed as Hard Blocker G1 (the receipt↔tombstone seam was open; `MintRequest`
+did not accept the receipt identity/nonce, `ProjectReceipt` had no production caller, and
+`VerifyReceiptCommitment` was a self-consistency check).
 
-Evidence: `d2-signalloom/apps/signal-ingest/privacy/tombstone/governor_seam_test.go`.
+In Tick #88 (commit `8e94b193`), G1 was fully remediated:
+1. `privacy.KeyDestructionReceipt` carries `ReceiptNonce` from the saga journal.
+2. `tombstone.MintRequest` accepts `OperationID`, `ReceiptSchema`, `ReceiptDigest`, and `ReceiptNonce`.
+3. `ReceiptCommitment` binds `(nonce ‖ canonical(projection, receiptDigest))`.
+4. `VerifyReceiptCommitment(t Tombstone, r privacy.KeyDestructionReceipt)` takes external genuine receipt and validates identity & commitment (rejecting fabricated tombstones).
+5. `tombstone.Publisher` implements `privacy.TombstonePublisher` and is wired to `privacy.Service.Erase` and `main.go`.
+6. 4 positive seam verification tests in `governor_seam_test.go` prove the seam is closed.
 
-See [`sldp-p4-governor-proof.md` §3](./sldp-p4-governor-proof.md) for the full finding, §4 for
-published residuals, §5 for what was assumed rather than tested, and §6 for what Phase 5 inherits.
+See [`sldp-p4-governor-proof.md`](./sldp-p4-governor-proof.md) for the complete certification proof.
+

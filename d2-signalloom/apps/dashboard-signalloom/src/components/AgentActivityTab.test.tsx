@@ -4,6 +4,13 @@ import { MemoryRouter } from 'react-router-dom'
 import AgentActivityTab from './AgentActivityTab'
 import type { AgentResponse, AuditEventResponse, ViolationResponse, TelemetryObservationModel, ExternalEvidenceItem } from '../types/api'
 
+// Mock useAuth0
+vi.mock('../auth/oidc', () => ({
+  useAuth0: () => ({
+    getAccessTokenSilently: vi.fn().mockResolvedValue('fake-token'),
+  }),
+}))
+
 function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
     id: 'agent-order-uuid',
@@ -804,6 +811,169 @@ describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => 
       expect(screen.getByTestId('activity-external-evidence-ev-proc-1')).toBeInTheDocument()
       expect(screen.queryByTestId('activity-external-evidence-ev-art-1')).not.toBeInTheDocument()
     })
+  })
+
+  it('opens AuthorizationProofDrawer on clicking View Proof button and closes on Escape', async () => {
+    const agent = createMockAgent()
+    const auditEvents = createMockAuditEvents()
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={auditEvents}
+        violations={[]}
+      />
+    )
+
+    // Ensure drawer is initially closed
+    expect(screen.queryByTestId('authorization-proof-drawer')).not.toBeInTheDocument()
+
+    // Click View Proof on audit-ev-1
+    const proofBtn = screen.getByTestId('activity-action-proof-audit-ev-1')
+    expect(proofBtn).toBeInTheDocument()
+    fireEvent.click(proofBtn)
+
+    // Drawer opens and displays title and action
+    expect(screen.getByTestId('authorization-proof-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('proof-drawer-action-id')).toHaveTextContent('Action: audit-ev-1')
+    expect(screen.getByTestId('who-authorized-panel')).toBeInTheDocument()
+
+    // Press Escape to close
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' })
+    expect(screen.queryByTestId('authorization-proof-drawer')).not.toBeInTheDocument()
+  })
+
+  it('allows copying FrostDB digest, audit webhook, and evidence references inside AuthorizationProofDrawer', async () => {
+    const writeTextMock = vi.fn().mockImplementation(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      configurable: true,
+      writable: true,
+    })
+
+    const agent = createMockAgent()
+    const auditEvents = createMockAuditEvents()
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={auditEvents}
+        violations={[]}
+      />
+    )
+
+    // Open proof drawer
+    fireEvent.click(screen.getByTestId('activity-action-proof-audit-ev-1'))
+    expect(screen.getByTestId('authorization-proof-drawer')).toBeInTheDocument()
+
+    // Copy FrostDB
+    const copyFrostDb = screen.getByTestId('proof-drawer-copy-frostdb')
+    fireEvent.click(copyFrostDb)
+    expect(writeTextMock).toHaveBeenCalled()
+
+    // Copy Webhook
+    const copyWebhook = screen.getByTestId('proof-drawer-copy-webhook')
+    fireEvent.click(copyWebhook)
+    expect(writeTextMock).toHaveBeenCalled()
+
+    // Copy Evidence
+    const copyEvidence = screen.getByTestId('proof-drawer-copy-evidence')
+    fireEvent.click(copyEvidence)
+    expect(writeTextMock).toHaveBeenCalled()
+
+    // Close via close button
+    const closeBtn = screen.getByTestId('close-proof-drawer')
+    fireEvent.click(closeBtn)
+    expect(screen.queryByTestId('authorization-proof-drawer')).not.toBeInTheDocument()
+  })
+
+  it('filters timeline items using DelegationEventFilter by minHops and resets correctly', () => {
+    const agent = createMockAgent()
+    const auditEvents: AuditEventResponse[] = [
+      {
+        id: 'ev-hop-3',
+        timestamp: '2026-09-07T09:00:00Z',
+        event_type: 'agent.transitioned',
+        agent_id: 'agent-order-uuid',
+        agent_name: 'Order Processing Agent',
+        actor: 'spire/workload-attestor',
+        detail: { hop_count: 3 },
+      },
+      {
+        id: 'ev-hop-7',
+        timestamp: '2026-09-07T08:30:00Z',
+        event_type: 'credential.issued',
+        agent_id: 'agent-order-uuid',
+        agent_name: 'Order Processing Agent',
+        actor: 'spire/workload-attestor',
+        detail: { hop_count: 7 },
+      },
+    ]
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={auditEvents}
+        violations={[]}
+      />
+    )
+
+    // Initially both rendered
+    expect(screen.getByTestId('activity-event-ev-hop-3')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-event-ev-hop-7')).toBeInTheDocument()
+
+    // Filter by minHops = 5
+    const minHopsInput = screen.getByTestId('delegation-min-hops-filter')
+    fireEvent.change(minHopsInput, { target: { value: '5' } })
+
+    // ev-hop-3 filtered out, ev-hop-7 remains
+    expect(screen.queryByTestId('activity-event-ev-hop-3')).not.toBeInTheDocument()
+    expect(screen.getByTestId('activity-event-ev-hop-7')).toBeInTheDocument()
+
+    // Filter by type in DelegationEventFilter
+    const typeSelect = screen.getByTestId('delegation-type-filter')
+    fireEvent.change(typeSelect, { target: { value: 'agent.transitioned' } })
+
+    // Neither matches (hop-3 is filtered by minHops, hop-7 is credential.issued)
+    expect(screen.queryByTestId('activity-event-ev-hop-7')).not.toBeInTheDocument()
+
+    // Reset filter
+    const resetBtn = screen.getByTestId('delegation-filter-reset')
+    fireEvent.click(resetBtn)
+
+    expect(screen.getByTestId('activity-event-ev-hop-3')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-event-ev-hop-7')).toBeInTheDocument()
+  })
+
+  it('opens DelegationAttestationDrawer on clicking Attestation button and closes on Escape', () => {
+    const agent = createMockAgent()
+    const auditEvents = createMockAuditEvents()
+
+    renderWithRouter(
+      <AgentActivityTab
+        agent={agent}
+        auditEvents={auditEvents}
+        violations={[]}
+      />
+    )
+
+    expect(screen.queryByTestId('delegation-attestation-drawer')).not.toBeInTheDocument()
+
+    // Click Attestation button on audit-ev-1
+    const attBtn = screen.getByTestId('view-attestation-audit-ev-1')
+    expect(attBtn).toBeInTheDocument()
+    fireEvent.click(attBtn)
+
+    // Drawer opens
+    expect(screen.getByTestId('delegation-attestation-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('attestation-action-id')).toHaveTextContent('Action: audit-ev-1')
+    expect(screen.getByTestId('attestation-cosign-sig')).toBeInTheDocument()
+    expect(screen.getByTestId('attestation-landlock-status')).toBeInTheDocument()
+    expect(screen.getByTestId('attestation-raw-payload')).toBeInTheDocument()
+
+    // Press Escape to close
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' })
+    expect(screen.queryByTestId('delegation-attestation-drawer')).not.toBeInTheDocument()
   })
 })
 

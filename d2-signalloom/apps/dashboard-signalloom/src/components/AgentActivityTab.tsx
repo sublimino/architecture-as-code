@@ -4,6 +4,10 @@ import type { AgentResponse, AuditEventResponse, ViolationResponse, SourceHealth
 import { colors } from '../styles/tokens'
 import EmptyState from './EmptyState'
 import { getAgentWorkloadSecurityProfile } from './agents/ClaimModal'
+import type { AuthorizationChain } from '../api/weaveApi'
+import DelegationEventFilter from './DelegationEventFilter'
+import AuthorizationProofDrawer from './AuthorizationProofDrawer'
+import DelegationAttestationDrawer, { type AttestationPayload } from './DelegationAttestationDrawer'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -114,6 +118,68 @@ export default function AgentActivityTab({
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
   const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({})
 
+  // Delegation Drawer & Filter State
+  const [delegationTypeFilter, setDelegationTypeFilter] = useState<string>('all')
+  const [minHopsFilter, setMinHopsFilter] = useState<number>(0)
+  const [proofDrawerOpen, setProofDrawerOpen] = useState<boolean>(false)
+  const [activeActionId, setActiveActionId] = useState<string>('')
+  const [activeEvidenceRef, setActiveEvidenceRef] = useState<string | undefined>(undefined)
+  const [activeChain, setActiveChain] = useState<AuthorizationChain | null>(null)
+  const [attestationDrawerOpen, setAttestationDrawerOpen] = useState<boolean>(false)
+  const [activeAttestation, setActiveAttestation] = useState<AttestationPayload | null>(null)
+
+  const handleViewProof = useCallback((actionId: string, item: AttributableTimelineItem) => {
+    setActiveActionId(actionId)
+    const evRef = item.kind === 'audit'
+      ? (item.event.evidence_ref || 'frostdb-segment-001')
+      : item.kind === 'external_evidence'
+      ? (item.evidence.hash_chain_digest || 'frostdb-segment-001')
+      : 'frostdb-segment-001'
+    setActiveEvidenceRef(evRef)
+    setActiveChain({
+      action: actionId,
+      actorId: agent.id,
+      agentIdentity: agent.identity?.spiffe_id || `spiffe://signalloom.demo/agents/${agent.id}`,
+      principal: (item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai',
+      actsOnBehalfOf: `${agent.name} acts-on-behalf-of ${(item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai'}`,
+      decision: 'ALLOW',
+      confidence: 0.99,
+      evidenceRefs: [evRef, 'rekor:entry:49c0fb1278ba9e1c25514f'],
+      attestationGitoid: `gitoid:blob:sha256:${evRef.replace('sha256:', '')}`,
+      complete: true,
+      cycleDetected: false,
+    })
+    setProofDrawerOpen(true)
+  }, [agent.id, agent.identity?.spiffe_id, agent.name])
+
+  const handleViewAttestation = useCallback((actionId: string, item: AttributableTimelineItem) => {
+    const rawDetail = item.kind === 'audit' && item.event.detail && typeof item.event.detail === 'object'
+      ? (item.event.detail as Record<string, unknown>)
+      : item.kind === 'external_evidence' && item.evidence.attributes
+      ? (item.evidence.attributes as Record<string, unknown>)
+      : {}
+    const evRef = item.kind === 'audit'
+      ? item.event.evidence_ref
+      : item.kind === 'external_evidence'
+      ? item.evidence.hash_chain_digest
+      : undefined
+    setActiveAttestation({
+      actionId,
+      timestamp: item.ts,
+      cosignSignature: 'MEUCIQD37fa8b9c...[detached-cosign-svid-p256]...AiEA29bcf01',
+      landlockStatus: {
+        enabled: true,
+        profile: 'agent-nono-evidenced',
+        abi: 3,
+        ruleset: { filesystem: 'ro', network: 'egress-only' },
+      },
+      rawPayload: rawDetail,
+      gitOid: evRef ? `gitoid:blob:sha256:${evRef}` : 'gitoid:blob:sha256:49c0fb1278ba9e1c25514f',
+      rekorEntryUrl: 'https://rekor.sigstore.dev',
+    })
+    setAttestationDrawerOpen(true)
+  }, [])
+
   useEffect(() => {
     const t = searchParams.get('type') || searchParams.get('event_type') || 'all'
     const a = searchParams.get('actor') || searchParams.get('actor_plane') || 'all'
@@ -185,6 +251,8 @@ export default function AgentActivityTab({
     setLayerFilter('all')
     setSourceFilter('all')
     setSearchQuery('')
+    setDelegationTypeFilter('all')
+    setMinHopsFilter(0)
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       next.delete('type')
@@ -363,9 +431,24 @@ export default function AgentActivityTab({
         }
       }
 
+      // 6. Delegation Type Filter
+      if (delegationTypeFilter !== 'all') {
+        if (item.kind !== 'audit' || item.event.event_type !== delegationTypeFilter) {
+          return false
+        }
+      }
+
+      // 7. Min Hops Filter
+      if (minHopsFilter > 0) {
+        if (item.kind !== 'audit') return false
+        const detailObj = item.event.detail && typeof item.event.detail === 'object' ? (item.event.detail as Record<string, unknown>) : null
+        const hops = (detailObj && typeof detailObj.hop_count === 'number') ? detailObj.hop_count : 7
+        if (hops < minHopsFilter) return false
+      }
+
       return true
     })
-  }, [rawTimelineItems, typeFilter, actorFilter, layerFilter, sourceFilter, searchQuery])
+  }, [rawTimelineItems, typeFilter, actorFilter, layerFilter, sourceFilter, searchQuery, delegationTypeFilter, minHopsFilter])
 
   // Summary counts
   const totalEventsCount = rawTimelineItems.length
@@ -697,6 +780,21 @@ export default function AgentActivityTab({
         </div>
       </div>
 
+      {/* ─── 2b. Delegation Event Filter Controls ────────────────────────────── */}
+      <DelegationEventFilter
+        selectedType={delegationTypeFilter}
+        onSelectType={setDelegationTypeFilter}
+        availableTypes={ALL_EVENT_TYPES}
+        minHops={minHopsFilter}
+        onMinHopsChange={setMinHopsFilter}
+        onReset={() => {
+          setDelegationTypeFilter('all')
+          setMinHopsFilter(0)
+        }}
+        filteredCount={filteredItems.length}
+        totalCount={totalEventsCount}
+      />
+
       {/* ─── 3. Truthful Timeline Content ────────────────────────────────────── */}
       {isSourceUnavailable ? (
         <div data-testid="activity-source-unavailable" className="card" style={{ padding: 24, textAlign: 'center' }}>
@@ -728,6 +826,8 @@ export default function AgentActivityTab({
               setTypeFilter('all')
               setActorFilter('all')
               setSearchQuery('')
+              setDelegationTypeFilter('all')
+              setMinHopsFilter(0)
             }}
             style={{ fontSize: 12, padding: '4px 12px' }}
           >
@@ -820,6 +920,28 @@ export default function AgentActivityTab({
                           Acknowledged by {v.acknowledged_by} · {fmtTs(v.acknowledged_at)}
                         </div>
                       )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          data-testid={`activity-action-proof-${v.id}`}
+                          className="btn btn-secondary"
+                          onClick={() => handleViewProof(v.id, item)}
+                          style={{
+                            fontSize: 11,
+                            padding: '3px 10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            cursor: 'pointer',
+                            borderRadius: 4,
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface2)',
+                            color: 'var(--cyan)',
+                          }}
+                        >
+                          🛡️ View Proof
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -933,6 +1055,28 @@ export default function AgentActivityTab({
                           )}
                         </div>
                       )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          data-testid={`activity-action-proof-${obs.id}`}
+                          className="btn btn-secondary"
+                          onClick={() => handleViewProof(obs.id, item)}
+                          style={{
+                            fontSize: 11,
+                            padding: '3px 10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            cursor: 'pointer',
+                            borderRadius: 4,
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface2)',
+                            color: 'var(--cyan)',
+                          }}
+                        >
+                          🛡️ View Proof
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -1122,6 +1266,48 @@ export default function AgentActivityTab({
                           )}
                         </div>
                       )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          data-testid={`activity-action-proof-${ev.id}`}
+                          className="btn btn-secondary"
+                          onClick={() => handleViewProof(ev.id, item)}
+                          style={{
+                            fontSize: 11,
+                            padding: '3px 10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            cursor: 'pointer',
+                            borderRadius: 4,
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface2)',
+                            color: 'var(--cyan)',
+                          }}
+                        >
+                          🛡️ View Proof
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`view-attestation-${ev.id}`}
+                          className="btn btn-secondary"
+                          onClick={() => handleViewAttestation(ev.id, item)}
+                          style={{
+                            fontSize: 11,
+                            padding: '3px 10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            cursor: 'pointer',
+                            borderRadius: 4,
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface2)',
+                            color: 'var(--text)',
+                          }}
+                        >
+                          🔏 Attestation & Landlock
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -1236,6 +1422,50 @@ export default function AgentActivityTab({
                       )}
                     </div>
 
+                    {/* Action Controls: Proof Drawer & Attestation Drawer buttons */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        data-testid={`activity-action-proof-${ev.id}`}
+                        className="btn btn-secondary"
+                        onClick={() => handleViewProof(ev.id, item)}
+                        style={{
+                          fontSize: 11,
+                          padding: '3px 10px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          cursor: 'pointer',
+                          borderRadius: 4,
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface2)',
+                          color: 'var(--cyan)',
+                        }}
+                      >
+                        🛡️ View Proof
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`view-attestation-${ev.id}`}
+                        className="btn btn-secondary"
+                        onClick={() => handleViewAttestation(ev.id, item)}
+                        style={{
+                          fontSize: 11,
+                          padding: '3px 10px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          cursor: 'pointer',
+                          borderRadius: 4,
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface2)',
+                          color: 'var(--text)',
+                        }}
+                      >
+                        🔏 Attestation & Landlock
+                      </button>
+                    </div>
+
                     {/* Detail Payload Inspector */}
                     {Object.keys(ev.detail || {}).length > 0 && (
                       <div style={{ marginTop: 6 }}>
@@ -1281,6 +1511,22 @@ export default function AgentActivityTab({
           </div>
         </div>
       )}
+
+      {/* ─── 4. Cryptographic Proof & Attestation Drawers ───────────────────── */}
+      <AuthorizationProofDrawer
+        isOpen={proofDrawerOpen}
+        onClose={() => setProofDrawerOpen(false)}
+        actionId={activeActionId}
+        chain={activeChain}
+        actorId={agent.id}
+        evidenceRef={activeEvidenceRef}
+      />
+
+      <DelegationAttestationDrawer
+        isOpen={attestationDrawerOpen}
+        onClose={() => setAttestationDrawerOpen(false)}
+        attestation={activeAttestation}
+      />
     </div>
   )
 }

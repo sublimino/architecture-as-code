@@ -5,8 +5,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
@@ -16,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -76,7 +81,7 @@ type SegmentResult struct {
 	SemanticRedaction string `json:"semantic_redaction"`
 }
 
-type Keyring map[string]ed25519.PublicKey
+type Keyring map[string]crypto.PublicKey
 
 type evidenceIndex struct {
 	attestationCount int
@@ -90,6 +95,7 @@ type journalRecord struct {
 	Digest              string               `json:"digest"`
 	ByteLength          int64                `json:"byte_length"`
 	SignerKeyID         string               `json:"signer_key_id"`
+	KeyVersion          string               `json:"key_version,omitempty"`
 	State               string               `json:"state"`
 	Error               string               `json:"error"`
 	Attestation         string               `json:"attestation"`
@@ -135,6 +141,7 @@ type segmentClaim struct {
 	Digest        string `json:"digest"`
 	ByteLength    int64  `json:"byte_length"`
 	SignerKeyID   string `json:"signer_key_id"`
+	KeyVersion    string `json:"key_version,omitempty"`
 	State         string `json:"state"`
 	Error         string `json:"error"`
 }
@@ -150,6 +157,8 @@ type checkpointClaim struct {
 	MerkleRoot           string  `json:"merkle_root"`
 	BoundaryBasis        string  `json:"boundary_basis"`
 	SchemaVersion        string  `json:"schema_version"`
+	SignerKeyID          string  `json:"signer_key_id,omitempty"`
+	KeyVersion           string  `json:"key_version,omitempty"`
 }
 
 type highWater struct {
@@ -267,18 +276,37 @@ func LoadKeyring(paths []string) (Keyring, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse public key %s: %w", path, err)
 		}
-		key, ok := parsed.(ed25519.PublicKey)
-		if !ok {
-			return nil, fmt.Errorf("public key %s is %T, not Ed25519", path, parsed)
+		switch k := parsed.(type) {
+		case ed25519.PublicKey, *ecdsa.PublicKey, *rsa.PublicKey:
+			spki, err := x509.MarshalPKIXPublicKey(k)
+			if err != nil {
+				return nil, fmt.Errorf("marshal public key %s: %w", path, err)
+			}
+			digest := sha256.Sum256(spki)
+			keys[hex.EncodeToString(digest[:])] = k
+		default:
+			return nil, fmt.Errorf("public key %s is %T, unsupported key type", path, parsed)
 		}
-		spki, err := x509.MarshalPKIXPublicKey(key)
-		if err != nil {
-			return nil, fmt.Errorf("marshal public key %s: %w", path, err)
-		}
-		digest := sha256.Sum256(spki)
-		keys[hex.EncodeToString(digest[:])] = key
 	}
 	return keys, nil
+}
+
+// LoadKeyringFromDir loads all PEM public keys found in directory.
+func LoadKeyringFromDir(dir string) (Keyring, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".pem") {
+			paths = append(paths, filepath.Join(dir, entry.Name()))
+		}
+	}
+	if len(paths) == 0 {
+		return make(Keyring), nil
+	}
+	return LoadKeyring(paths)
 }
 
 func readJournal(path string) ([]journalRecord, int64, error) {
@@ -365,7 +393,17 @@ func verifySegmentRecord(cfg Config, record journalRecord, keys Keyring) error {
 	if signer != record.SignerKeyID {
 		return errors.New("signature key ID differs from journal signer")
 	}
-	want := segmentClaim{record.SchemaVersion, record.Sequence, record.SegmentID, record.Digest, record.ByteLength, record.SignerKeyID, record.State, record.Error}
+	want := segmentClaim{
+		SchemaVersion: record.SchemaVersion,
+		Sequence:      record.Sequence,
+		SegmentID:     record.SegmentID,
+		Digest:        record.Digest,
+		ByteLength:    record.ByteLength,
+		SignerKeyID:   record.SignerKeyID,
+		KeyVersion:    record.KeyVersion,
+		State:         record.State,
+		Error:         record.Error,
+	}
 	if claim != want {
 		return errors.New("signed segment predicate differs from journal")
 	}
@@ -514,7 +552,7 @@ func verifyEnvelope(path string, keys Keyring) (statement, string, error) {
 			continue
 		}
 		sig, decodeErr := base64.StdEncoding.Strict().DecodeString(candidate.Sig)
-		if decodeErr == nil && ed25519.Verify(key, pae, sig) {
+		if decodeErr == nil && verifySignature(key, pae, sig) {
 			if err := decodeStrict(payload, &result); err != nil {
 				return result, "", fmt.Errorf("parse signed statement: %w", err)
 			}
@@ -527,6 +565,53 @@ func verifyEnvelope(path string, keys Keyring) (statement, string, error) {
 		}
 	}
 	return result, "", errors.New("DSSE signature verification failed")
+}
+
+func verifySignature(key crypto.PublicKey, pae, sig []byte) bool {
+	if key == nil || len(sig) == 0 {
+		return false
+	}
+	switch k := key.(type) {
+	case ed25519.PublicKey:
+		return ed25519.Verify(k, pae, sig)
+	case *ecdsa.PublicKey:
+		// Try SHA-256 first
+		h256 := sha256.Sum256(pae)
+		if ecdsa.VerifyASN1(k, h256[:], sig) {
+			return true
+		}
+		// Try SHA-384
+		h384 := sha512.Sum384(pae)
+		if ecdsa.VerifyASN1(k, h384[:], sig) {
+			return true
+		}
+		// Try SHA-512
+		h512 := sha512.Sum512(pae)
+		if ecdsa.VerifyASN1(k, h512[:], sig) {
+			return true
+		}
+		// Also try raw IEEE P1363 (r || s) format
+		byteLen := (k.Curve.Params().BitSize + 7) / 8
+		if len(sig) == 2*byteLen {
+			r := new(big.Int).SetBytes(sig[:byteLen])
+			s := new(big.Int).SetBytes(sig[byteLen:])
+			if ecdsa.Verify(k, h256[:], r, s) || ecdsa.Verify(k, h384[:], r, s) || ecdsa.Verify(k, h512[:], r, s) {
+				return true
+			}
+		}
+		return false
+	case *rsa.PublicKey:
+		h := sha256.Sum256(pae)
+		if rsa.VerifyPSS(k, crypto.SHA256, h[:], sig, nil) == nil {
+			return true
+		}
+		if rsa.VerifyPKCS1v15(k, crypto.SHA256, h[:], sig) == nil {
+			return true
+		}
+		return false
+	default:
+		return false
+	}
 }
 
 func verifyHighWater(cfg Config, records []journalRecord, journalSize int64, index evidenceIndex) (highWater, error) {
@@ -653,12 +738,16 @@ func segmentInventory(root string) ([]string, error) {
 }
 
 func merkleLeaf(record journalRecord) string {
-	detail, _ := json.Marshal(map[string]any{
+	detailMap := map[string]any{
 		"schema_version": record.SchemaVersion, "sequence": record.Sequence, "segment_id": record.SegmentID,
 		"digest": record.Digest, "byte_length": record.ByteLength, "signer_key_id": record.SignerKeyID,
 		"state": record.State, "error": record.Error, "attestation": record.Attestation,
 		"checkpoint_inclusion": map[string]any{"checkpoint_index": record.CheckpointInclusion.CheckpointIndex, "leaf_index": record.CheckpointInclusion.LeafIndex},
-	})
+	}
+	if record.KeyVersion != "" {
+		detailMap["key_version"] = record.KeyVersion
+	}
+	detail, _ := json.Marshal(detailMap)
 	end := fmt.Sprintf("%020d", record.Sequence)
 	actor, event, tenant, detailString := record.SignerKeyID, "segment.persisted", segmentScope, string(detail)
 	row := []*string{stringPointer("signalloom.audit.row/v1"), &record.SegmentID, &tenant, &end, &event, nil, nil, &actor, &detailString}

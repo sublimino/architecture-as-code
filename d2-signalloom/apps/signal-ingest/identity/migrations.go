@@ -42,6 +42,19 @@ var Migration006TenantIsolationRLS string
 //go:embed migrations/006_tenant_isolation_rls_rollback.sql
 var Migration006Rollback string
 
+// Migration007SegmentReidentificationMap creates the encrypted, tenant-scoped map from segment
+// pseudonyms back to identifiers (SLDP-P3-1). It must run after 006, which defines the
+// app_current_tenant() helper its RLS policy calls.
+//
+//go:embed migrations/007_segment_reidentification_map.sql
+var Migration007SegmentReidentificationMap string
+
+// Migration007Rollback is the rollback script for 007_segment_reidentification_map.sql. Like the
+// 005 rollback it is embedded but NOT executed by ApplyMigrations.
+//
+//go:embed migrations/007_segment_reidentification_map_rollback.sql
+var Migration007Rollback string
+
 // MigrationSQL returns the concatenated forward migration SQL scripts for external inspection or
 // testing. The rollback script is deliberately excluded: including it would make a grep for a
 // dropped index match the rollback's re-creation of it, so a test asserting "the cleartext index
@@ -52,7 +65,8 @@ func MigrationSQL() string {
 		Migration003IdempotentSeeding + "\n" +
 		Migration004DelegationRevocation + "\n" +
 		Migration005PseudonymisationAndEncryption + "\n" +
-		Migration006TenantIsolationRLS
+		Migration006TenantIsolationRLS + "\n" +
+		Migration007SegmentReidentificationMap
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -94,6 +108,12 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	// is not set during a migration.
 	if _, err := tx.ExecContext(ctx, Migration006TenantIsolationRLS); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 006: %w", err)
+	}
+
+	// 007 creates the segment re-identification map. It runs after 006 because its row-level
+	// security policy calls app_current_tenant(), which 006 defines.
+	if _, err := tx.ExecContext(ctx, Migration007SegmentReidentificationMap); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 007: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

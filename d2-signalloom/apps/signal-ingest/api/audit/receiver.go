@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/transform"
 )
 
 // DefaultBufferCapacity is the size of the lock-free audit event ring buffer (64k events).
@@ -267,9 +268,11 @@ func (r *WebhookReceiver) ConvertToObservation(e *K8sEvent) *model.Observation {
 		isImpersonated = true
 	}
 
-	// SA->SPIFFE mapping
-	actingPrincipal, isActingSA := MapSAToSPIFFE(actingRaw)
-	delegatorPrincipal, isDelegatorSA := MapSAToSPIFFE(delegatorRaw)
+	// SA->SPIFFE mapping. The is-a-service-account flags previously selected whether to emit a
+	// spiffe_id / delegator_spiffe_id label; those labels were removed by SLDP-P3-1 because a
+	// SPIFFE ID is a direct identifier and a label becomes a Parquet column in an immutable segment.
+	actingPrincipal, _ := MapSAToSPIFFE(actingRaw)
+	delegatorPrincipal, _ := MapSAToSPIFFE(delegatorRaw)
 
 	resource := ""
 	namespace := ""
@@ -292,26 +295,35 @@ func (r *WebhookReceiver) ConvertToObservation(e *K8sEvent) *model.Observation {
 		id = fmt.Sprintf("k8s-audit-%d-%s", ts.UnixNano(), e.Verb)
 	}
 
+	// SLDP-P3-1. This map previously carried seven direct identifiers — user, acting_principal,
+	// delegator, spiffe_id, delegator_spiffe_id, impersonated_user and delegation — alongside
+	// request_uri and user_agent.
+	//
+	// That mattered more than the static columns did. A label key is materialised verbatim as a
+	// Parquet column `labels.<key>` in a signed, immutable segment, so removing identity from
+	// actor_hint and impersonated_user while the same strings went on flowing through the label
+	// space would have made the whole change cosmetic: the identifiers would simply have arrived
+	// by a different column name, and a fixed-column privacy audit would never have looked.
+	//
+	// Nothing is lost that is not carried better elsewhere. The acting principal travels in
+	// ActorHint / PrincipalID and the impersonated subject in ImpersonatedUser, all of which the
+	// store now writes as keyed pseudonyms. request_uri is a URI whose components are already
+	// present as namespace / resource / name. user_agent is a fingerprinting surface with no
+	// consumer here.
+	//
+	// One genuine loss is recorded rather than papered over: the *delegator* identity has no
+	// column of its own, so after this change it survives in the immutable store only through the
+	// DelegationEdge contribution string, which is not a segment column. See
+	// docs/signalloom/sldp-p3-1-proof.md.
 	labels := map[string]string{
-		"audit_id":         id,
-		"stage":            e.Stage,
-		"verb":             e.Verb,
-		"user":             delegatorRaw,
-		"acting_principal": actingPrincipal,
-		"delegator":        delegatorPrincipal,
-		"namespace":        namespace,
-		"resource":         resource,
-		"name":             name,
-		"api_group":        apiGroup,
-		"status_code":      statusCode,
-		"request_uri":      e.RequestURI,
-		"user_agent":       e.UserAgent,
-	}
-	if isActingSA {
-		labels["spiffe_id"] = actingPrincipal
-	}
-	if isDelegatorSA {
-		labels["delegator_spiffe_id"] = delegatorPrincipal
+		"audit_id":    id,
+		"stage":       e.Stage,
+		"verb":        e.Verb,
+		"namespace":   namespace,
+		"resource":    resource,
+		"name":        name,
+		"api_group":   apiGroup,
+		"status_code": statusCode,
 	}
 
 	var delegationEdge *model.EvidenceLink
@@ -330,8 +342,9 @@ func (r *WebhookReceiver) ConvertToObservation(e *K8sEvent) *model.Observation {
 		impersonatedUserField = actingPrincipal
 		delegationDepth = 1
 
-		labels["impersonated_user"] = actingPrincipal
-		labels["delegation"] = fmt.Sprintf("%s -> %s", delegatorPrincipal, actingPrincipal)
+		// The identity half of this (impersonated_user, delegation) moved out of the label space in
+		// SLDP-P3-1; only the non-identifying basis remains, so a query can still tell an
+		// impersonated request from a direct one without the segment naming anyone.
 		labels["delegation_basis"] = "impersonation"
 	}
 
@@ -349,9 +362,24 @@ func (r *WebhookReceiver) ConvertToObservation(e *K8sEvent) *model.Observation {
 		DelegationEdge:   delegationEdge,
 		RawEvidenceRef:   fmt.Sprintf("k8s-audit://%s/%s/%s", namespace, resource, name),
 		Labels:           labels,
-		Description:      fmt.Sprintf("K8s audit: %s %s/%s by %s", e.Verb, namespace, resource, actingPrincipal),
+		// `description` is the one free-text column that survives into segment schema v2, and this
+		// string interpolated the acting principal directly — so a subject name reached an
+		// immutable segment through prose even once every identifier column was pseudonymised.
+		//
+		// This is also the call site that makes the SLDP-P3-1 redactor patterns real. Before this
+		// line, transform.SecretRedactor and transform.CryptographicSecretScrubber had ZERO
+		// production callers anywhere in the repository — `rg` for every constructor and method
+		// found only their own tests, while eight production sites called store.Append directly.
+		// Adding email / IP / username patterns to a redactor nothing invokes would have been a
+		// control that cannot fail, which is precisely what this card is required not to ship.
+		Description: descriptionRedactor.RedactText(
+			fmt.Sprintf("K8s audit: %s %s/%s by %s", e.Verb, namespace, resource, actingPrincipal)),
 	}
 }
+
+// descriptionRedactor scrubs direct identifiers out of the free-text description before it becomes
+// a column in an immutable segment. It is stateless, so one package-level instance is safe to share.
+var descriptionRedactor = transform.NewSecretRedactor()
 
 // convertToObservation internal compatibility alias.
 func (r *WebhookReceiver) convertToObservation(e *K8sEvent) *model.Observation {

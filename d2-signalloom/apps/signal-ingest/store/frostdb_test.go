@@ -69,8 +69,8 @@ func TestFrostDBStore_AppendMultiple(t *testing.T) {
 
 	now := time.Now().UTC()
 	obs := []model.Observation{
-		{ID: "f1", Timestamp: now, Layer: model.LayerNetworkEgress, Source: "test", Labels: map[string]string{"k": "v1"}},
-		{ID: "f2", Timestamp: now.Add(time.Second), Layer: model.LayerBehavioural, Source: "test", Labels: map[string]string{"k": "v2"}},
+		{ID: "f1", Timestamp: now, Layer: model.LayerNetworkEgress, Source: "test", Labels: map[string]string{"env": "v1"}},
+		{ID: "f2", Timestamp: now.Add(time.Second), Layer: model.LayerBehavioural, Source: "test", Labels: map[string]string{"env": "v2"}},
 		{ID: "f3", Timestamp: now.Add(2 * time.Second), Layer: model.LayerIdentityAuth, Source: "test"},
 	}
 
@@ -140,8 +140,15 @@ func TestFrostDBStore_RoundTrip(t *testing.T) {
 			if o.Confidence != 0.85 {
 				t.Errorf("confidence: want 0.85, got %f", o.Confidence)
 			}
-			if o.ActorHint != "actor-rt" {
-				t.Errorf("actor_hint: want actor-rt, got %s", o.ActorHint)
+			// SLDP-P3-1: actor_hint is no longer a segment column. The round trip must return
+			// its keyed pseudonym and nothing in cleartext — asserting the old cleartext value
+			// here would be asserting that the card did not happen.
+			if o.ActorHint != "" {
+				t.Errorf("actor_hint leaked cleartext %q out of a v2 segment", o.ActorHint)
+			}
+			if o.HMACActorHint != mustPseudonym(t, "actor-rt") {
+				t.Errorf("hmac_actor_hint = %q, want pseudonym of actor-rt = %q",
+					o.HMACActorHint, mustPseudonym(t, "actor-rt"))
 			}
 			if o.Labels["env"] != "staging" {
 				t.Errorf("label env: want staging, got %s", o.Labels["env"])
@@ -293,9 +300,9 @@ func TestFrostDBStore_EquivalenceWithMemory(t *testing.T) {
 
 	base := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
 	obs := []model.Observation{
-		{ID: "eq-1", Timestamp: base, Layer: model.LayerNetworkEgress, Fidelity: model.FidelityStrong, Source: "src-a", Confidence: 0.9, ActorHint: "actor-1", Labels: map[string]string{"k": "v1"}},
+		{ID: "eq-1", Timestamp: base, Layer: model.LayerNetworkEgress, Fidelity: model.FidelityStrong, Source: "src-a", Confidence: 0.9, ActorHint: "actor-1", Labels: map[string]string{"env": "v1"}},
 		{ID: "eq-2", Timestamp: base.Add(time.Minute), Layer: model.LayerBehavioural, Fidelity: model.FidelitySuggestive, Source: "src-b", Confidence: 0.4, ActorHint: "actor-2"},
-		{ID: "eq-3", Timestamp: base.Add(2 * time.Minute), Layer: model.LayerIdentityAuth, Fidelity: model.FidelityDefinitive, Source: "src-a", Confidence: 1.0, ActorHint: "actor-1", Labels: map[string]string{"k": "v2", "env": "prod"}},
+		{ID: "eq-3", Timestamp: base.Add(2 * time.Minute), Layer: model.LayerIdentityAuth, Fidelity: model.FidelityDefinitive, Source: "src-a", Confidence: 1.0, ActorHint: "actor-1", Labels: map[string]string{"env": "prod", "zone": "v2"}},
 	}
 
 	ctx := context.Background()
@@ -423,17 +430,30 @@ func TestFrostDBStore_AdditiveColumnsRoundTrip(t *testing.T) {
 	}
 
 	got := results[0]
-	if got.PrincipalID != obs[0].PrincipalID {
-		t.Errorf("PrincipalID = %q, want %q", got.PrincipalID, obs[0].PrincipalID)
+	// SLDP-P3-1: these four additive resolution fields are no longer segment columns. Each must
+	// come back empty, with its keyed pseudonym carrying the join. Checking only that the cleartext
+	// is empty would be satisfied by a store that wrote nothing, so both halves are asserted.
+	for _, pair := range []struct {
+		name      string
+		cleartext string
+		gotRaw    string
+		gotHMAC   string
+	}{
+		{"PrincipalID", obs[0].PrincipalID, got.PrincipalID, got.HMACPrincipalID},
+		{"ActorID", obs[0].ActorID, got.ActorID, got.HMACActorID},
+		{"SessionID", obs[0].SessionID, got.SessionID, got.HMACSessionID},
+		{"ImpersonatedUser", obs[0].ImpersonatedUser, got.ImpersonatedUser, got.HMACImpersonatedUser},
+	} {
+		if pair.gotRaw != "" {
+			t.Errorf("%s leaked cleartext %q out of a v2 segment", pair.name, pair.gotRaw)
+		}
+		if want := mustPseudonym(t, pair.cleartext); pair.gotHMAC != want {
+			t.Errorf("%s pseudonym = %q, want pseudonym of %q = %q",
+				pair.name, pair.gotHMAC, pair.cleartext, want)
+		}
 	}
-	if got.ActorID != obs[0].ActorID {
-		t.Errorf("ActorID = %q, want %q", got.ActorID, obs[0].ActorID)
-	}
-	if got.SessionID != obs[0].SessionID {
-		t.Errorf("SessionID = %q, want %q", got.SessionID, obs[0].SessionID)
-	}
-	if got.ImpersonatedUser != obs[0].ImpersonatedUser {
-		t.Errorf("ImpersonatedUser = %q, want %q", got.ImpersonatedUser, obs[0].ImpersonatedUser)
+	if got.SchemaVersion != SegmentSchemaV2 {
+		t.Errorf("SchemaVersion = %q, want %q", got.SchemaVersion, SegmentSchemaV2)
 	}
 	if got.DelegationDepth != obs[0].DelegationDepth {
 		t.Errorf("DelegationDepth = %d, want %d", got.DelegationDepth, obs[0].DelegationDepth)
@@ -504,9 +524,37 @@ func TestFrostDBStore_EquivalenceWithMemory_AdditiveColumns(t *testing.T) {
 	for i := range frostRes {
 		f := frostRes[i]
 		m := memRes[i]
-		if f.PrincipalID != m.PrincipalID || f.ActorID != m.ActorID || f.SessionID != m.SessionID ||
-			f.ImpersonatedUser != m.ImpersonatedUser || f.DelegationDepth != m.DelegationDepth {
-			t.Errorf("field mismatch at [%d]: frost=%+v, mem=%+v", i, f, m)
+		// SLDP-P3-1: the two stores are no longer field-identical on identity, and must not be.
+		// MemoryStore is a v1-shaped mirror that keeps cleartext; the FrostDB segment keeps only
+		// keyed pseudonyms. Equivalence is therefore asserted through the pseudonym projection:
+		// the frost row must carry exactly the pseudonym of the cleartext the memory row holds,
+		// and must carry no cleartext of its own. Comparing the raw fields would have been
+		// satisfied by a store that wrote nothing at all.
+		if f.DelegationDepth != m.DelegationDepth {
+			t.Errorf("delegation_depth mismatch at [%d]: frost=%d, mem=%d", i, f.DelegationDepth, m.DelegationDepth)
+		}
+		for _, pair := range []struct {
+			name      string
+			cleartext string
+			frostRaw  string
+			frostHMAC string
+		}{
+			{"principal_id", m.PrincipalID, f.PrincipalID, f.HMACPrincipalID},
+			{"actor_id", m.ActorID, f.ActorID, f.HMACActorID},
+			{"session_id", m.SessionID, f.SessionID, f.HMACSessionID},
+			{"impersonated_user", m.ImpersonatedUser, f.ImpersonatedUser, f.HMACImpersonatedUser},
+		} {
+			if pair.frostRaw != "" {
+				t.Errorf("[%d] %s: frost segment returned cleartext %q", i, pair.name, pair.frostRaw)
+			}
+			want := ""
+			if pair.cleartext != "" {
+				want = mustPseudonym(t, pair.cleartext)
+			}
+			if pair.frostHMAC != want {
+				t.Errorf("[%d] %s: frost pseudonym = %q, want pseudonym of %q = %q",
+					i, pair.name, pair.frostHMAC, pair.cleartext, want)
+			}
 		}
 	}
 }
@@ -558,7 +606,7 @@ func ids(obs []model.Observation) []string {
 // TestFrostDBStore_BuildFilter tests the AST expression generation of buildFilter.
 func TestFrostDBStore_BuildFilter(t *testing.T) {
 	t.Run("empty_query_returns_nil", func(t *testing.T) {
-		expr := buildFilter(Query{})
+		expr := mustBuildFilter(t, Query{})
 		if expr != nil {
 			t.Errorf("want nil expr for empty query, got %v", expr)
 		}
@@ -566,7 +614,7 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 
 	t.Run("time_after_only", func(t *testing.T) {
 		now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
-		expr := buildFilter(Query{After: now})
+		expr := mustBuildFilter(t, Query{After: now})
 		if expr == nil {
 			t.Fatal("want non-nil expr")
 		}
@@ -578,7 +626,7 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 
 	t.Run("time_before_only", func(t *testing.T) {
 		now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
-		expr := buildFilter(Query{Before: now})
+		expr := mustBuildFilter(t, Query{Before: now})
 		if expr == nil {
 			t.Fatal("want non-nil expr")
 		}
@@ -591,7 +639,7 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 	t.Run("time_range_after_and_before", func(t *testing.T) {
 		t1 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 		t2 := time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC)
-		expr := buildFilter(Query{After: t1, Before: t2})
+		expr := mustBuildFilter(t, Query{After: t1, Before: t2})
 		if expr == nil {
 			t.Fatal("want non-nil expr")
 		}
@@ -605,7 +653,7 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 	})
 
 	t.Run("single_layer", func(t *testing.T) {
-		expr := buildFilter(Query{Layers: []model.Layer{model.LayerNetworkEgress}})
+		expr := mustBuildFilter(t, Query{Layers: []model.Layer{model.LayerNetworkEgress}})
 		if expr == nil {
 			t.Fatal("want non-nil expr")
 		}
@@ -616,7 +664,7 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 	})
 
 	t.Run("multiple_layers_or_chain", func(t *testing.T) {
-		expr := buildFilter(Query{Layers: []model.Layer{model.LayerNetworkEgress, model.LayerIdentityAuth}})
+		expr := mustBuildFilter(t, Query{Layers: []model.Layer{model.LayerNetworkEgress, model.LayerIdentityAuth}})
 		if expr == nil {
 			t.Fatal("want non-nil expr")
 		}
@@ -630,11 +678,17 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 	})
 
 	t.Run("actor_id_only", func(t *testing.T) {
-		expr := buildFilter(Query{ActorID: "spiffe://cluster.local/ns/prod/sa/bot"})
+		expr := mustBuildFilter(t, Query{ActorID: "spiffe://cluster.local/ns/prod/sa/bot"})
 		if expr == nil {
 			t.Fatal("want non-nil expr")
 		}
-		expected := colRef("actor_hint").Eq(logicalplan.Literal("spiffe://cluster.local/ns/prod/sa/bot")).String()
+		// The predicate shape is unchanged — one Eq on one STRING column. Only the column and the
+		// literal moved, from cleartext actor_hint to its keyed pseudonym (SLDP-P3-1).
+		wantPseudonym, err := testPseudonymiser(t).Pseudonym("spiffe://cluster.local/ns/prod/sa/bot")
+		if err != nil {
+			t.Fatalf("pseudonym: %v", err)
+		}
+		expected := colRef(ColHMACActorHint).Eq(logicalplan.Literal(wantPseudonym)).String()
 		if expr.String() != expected {
 			t.Errorf("expr = %q, want %q", expr.String(), expected)
 		}
@@ -643,7 +697,7 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 	t.Run("all_predicates_combined", func(t *testing.T) {
 		t1 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 		t2 := time.Date(2026, 9, 5, 13, 0, 0, 0, time.UTC)
-		expr := buildFilter(Query{
+		expr := mustBuildFilter(t, Query{
 			After:   t1,
 			Before:  t2,
 			Layers:  []model.Layer{model.LayerNetworkEgress, model.LayerBehavioural},
@@ -659,7 +713,7 @@ func TestFrostDBStore_BuildFilter(t *testing.T) {
 				colRef("layer").Eq(logicalplan.Literal(string(model.LayerNetworkEgress))),
 				colRef("layer").Eq(logicalplan.Literal(string(model.LayerBehavioural))),
 			),
-			colRef("actor_hint").Eq(logicalplan.Literal("actor-x")),
+			colRef(ColHMACActorHint).Eq(logicalplan.Literal(mustPseudonym(t, "actor-x"))),
 		).String()
 		if expr.String() != expected {
 			t.Errorf("expr = %q, want %q", expr.String(), expected)
@@ -1387,7 +1441,7 @@ func TestFrostDBStore_K8sAudit_VolumeBenchmark_P95(t *testing.T) {
 		}
 		filtered := make([]model.Observation, 0, len(res))
 		for _, o := range res {
-			if matchesQuery(o, selectiveQuery) {
+			if matchesQuery(o, selectiveQuery, frost.Pseudonymiser()) {
 				filtered = append(filtered, o)
 			}
 		}
@@ -1557,7 +1611,7 @@ func TestFrostDBStore_K8sAudit_VolumeBenchmark_RegressionGuard(t *testing.T) {
 		}
 		var matched []model.Observation
 		for _, o := range res {
-			if matchesQuery(o, selectiveQuery) {
+			if matchesQuery(o, selectiveQuery, frost.Pseudonymiser()) {
 				matched = append(matched, o)
 			}
 		}

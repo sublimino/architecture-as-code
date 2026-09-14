@@ -272,8 +272,28 @@ func TestIdentitySpineEndToEndIntegration(t *testing.T) {
 	}
 
 	observations := []model.Observation{obsAlice, obsBob, obsDelegated, obsUnaliased, obsCircumstantial}
-	if err := frostStore.Append(ctx, observations); err != nil {
+
+	// SLDP-P3-1. `src_ip` is not in the segment label allow-list, and deliberately so: a source IP
+	// is personal data (Breyer, C-582/14), and a label key is materialised verbatim as a Parquet
+	// column in a segment that is signed and can never afterwards be rewritten or erased.
+	//
+	// The IP is still available to the correlation engine, which joins on labels["src_ip"]
+	// in-flight (correlation/engine.go:325, correlation/store.go:120) before anything is persisted.
+	// What changes is only what survives into the immutable store. Stripping it here rather than
+	// adding it to the allow-list keeps the fixture honest about that split — the observation the
+	// correlator sees and the row the segment keeps are no longer the same thing.
+	stored := make([]model.Observation, len(observations))
+	for i, o := range observations {
+		o.Labels = nil
+		stored[i] = o
+	}
+	if err := frostStore.Append(ctx, stored); err != nil {
 		t.Fatalf("failed to append observations to frostdb: %v", err)
+	}
+
+	// The allow-list is not advisory: appending the unmodified fixture must be refused outright.
+	if err := frostStore.Append(ctx, observations); err == nil {
+		t.Fatal("appending an observation labelled with a raw source IP must be refused")
 	}
 
 	// 4. Flush to produce immutable Parquet block and trigger write-time Witness attestation

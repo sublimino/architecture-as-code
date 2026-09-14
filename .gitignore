@@ -197,7 +197,7 @@ d2-signalloom/bun/
 
 # Editor session logs
 .nvimlog
-
-# Kanban task runtime state
+# Kanban runtime state written into task worktrees by the runtime.
+# Without this, every card preflight sees `?? .kanban/objectives.json` and fails
+# its clean-tree gate, because the card is forbidden from touching runtime state.
 .kanban/
-

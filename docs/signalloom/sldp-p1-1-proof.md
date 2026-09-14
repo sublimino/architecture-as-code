@@ -1,5 +1,55 @@
 # SLDP-P1-1 execution evidence — failed prerequisite gate
 
+## Resumed attempt — 2026-09-14 12:57:51+01:00
+
+**Current result: FAIL — authoritative object tenant ownership prerequisite.**
+The prior audit blocker documented below is resolved by P1-2 at `fcc72aba`.
+This attempt started from `111ef78bb2059271a8f18ef84d44956ea63e6135`,
+which includes that integration commit. The original failure record below is
+historical, not a claim that the audit prerequisite remains missing.
+
+Implementation review and direct source inspection found:
+
+| Inspected source | Missing enforcement input |
+|---|---|
+| `model/signal.go:99-119` | `Observation` has no authoritative tenant ownership field. Labels are supplied by producers, not authenticated ownership metadata. |
+| `model/actor.go:19-46` | `ProvisionalActor` has no tenant ownership field. |
+| `store/store.go:19-26` | `Query` supports layers, timestamps, actor ID and limit, but no tenant predicate. |
+| `api/handlers.go:392` | Observation retrieval uses this query interface. |
+| `api/handlers.go:613` | SSE replay uses `QueryRange` with time and limit only. |
+
+Paths above are relative to `d2-signalloom/apps/signal-ingest/`.
+Principal-to-tenant authentication does not establish object-to-tenant ownership.
+Completing per-object tenant checks on these paths requires ownership propagation
+through ingestion, persistence, correlation and streams, or an explicitly approved
+alternative isolation architecture. Neither assigning historical data to an
+invented tenant nor trusting a client-supplied label is an acceptable substitute.
+Blanket denial of data routes would not demonstrate the requested useful control.
+
+No implementation or hostile tests were written. Required Go and acceptance
+tests were not run after this prerequisite stop. No application files, shared
+schemas, historical segments or sibling worktrees were changed. A delegated
+implementation reviewer identified the gap; direct Read inspection confirmed
+the model and query fields before this decision.
+
+### Resume errata handoff — not applied to sibling proposal
+
+#### Errata — SLDP-P1-1 Authenticate and authorise the signal-ingest HTTP API
+**Created:** 2026-09-14 12:57:51+01:00
+**Last Updated:** 2026-09-14 12:57:51+01:00
+**Status:** Failed
+**Commit:** [full SHA of the commit containing this resumed-attempt evidence]
+**Blocker:** Authoritative tenant ownership is absent from Observation and ProvisionalActor, and SignalStore.Query cannot scope reads by tenant. The requested cross-tenant object and SSE controls therefore need an additional data-ownership prerequisite or authorised scope expansion.
+**Attempted:** Confirmed merged P1-2, reviewed implementation seams, and directly inspected model and store query definitions. The prior audit blocker is resolved. Stopped rather than inventing tenant ownership or weakening isolation.
+**Evidence:** Git ancestry inspection succeeded at HEAD 111ef78bb2059271a8f18ef84d44956ea63e6135 including fcc72aba; successful source reads show the complete fields in model/signal.go:99-119, model/actor.go:19-46 and store/store.go:19-26. No runtime test failure or success is claimed.
+**Recommended action:** escalate — authorise tenant ownership plumbing as part of P1-1 or schedule an explicit prerequisite covering observations, actors, correlation and SSE before retrying. Resolve shared-schema ownership with the Governor; do not rewrite historical attested bytes.
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+Prepared current Result cell, not applied:
+`fail — authoritative object tenant ownership prerequisite (see resumed SLDP-P1-1 errata)`
+
+## Historical first attempt
+
 Status: **FAIL — implementation stopped at a declared hard blocker.**
 
 Created: 2026-09-14 12:37:07+01:00

@@ -160,7 +160,7 @@ func (h *Handlers) handleExportSubject(w http.ResponseWriter, r *http.Request) {
 		formatStr = "portability"
 	}
 	format := FormatArticle15Access
-	if formatStr == "portability" || formatStr == "art20" {
+	if formatStr == "portability" || formatStr == "art20" || formatStr == "article20_portable" {
 		format = FormatArticle20Portability
 	}
 
@@ -420,19 +420,43 @@ func (h *Handlers) handleExportSubject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, accessResp)
 }
 
+// isDPOSubject returns true if the requester principal identifies a Data Protection Officer service account or role.
+func isDPOSubject(requester string) bool {
+	lower := strings.ToLower(requester)
+	return strings.HasSuffix(lower, "/sa/dpo") ||
+		strings.HasSuffix(lower, "/dpo") ||
+		strings.HasSuffix(lower, ":dpo") ||
+		strings.Contains(lower, "/sa/dpo-") ||
+		strings.Contains(lower, "/dpo-officer")
+}
+
 // verifyRequesterForSubject verifies that the authenticated requester has rights to export data for the subject.
+// Under GDPR Article 15/20 and fail-closed access control, an export request is permitted only if:
+//  1. Self-access: requester matches subjectID directly or as a SPIFFE ID suffix (e.g. ".../<subjectID>"), OR
+//  2. Explicit actor scope: principal holds specific actor authority in ActorIDs for this subject (not wildcard "*"), OR
+//  3. Identity alias match: requester is a verified alias for the subject in the Identity store, OR
+//  4. Administrative DPO rights: principal holds PermissionPrivacyAdmin ("privacy:admin") or DPO credentials.
+//
+// A third-party request lacking explicit actor scope or administrative DPO rights is denied.
 func (h *Handlers) verifyRequesterForSubject(ctx context.Context, subjectID string, tenant TenantContext) error {
 	requester := tenant.Principal
 	if requester == "" {
 		return errors.New("unauthenticated requester; subject export requires verified principal credential")
 	}
 
-	// 1. Direct identity match
+	// 1. Direct identity match (self-access)
 	if requester == subjectID || strings.HasSuffix(requester, "/"+subjectID) || strings.HasSuffix(requester, ":"+subjectID) {
 		return nil
 	}
 
-	// 2. Alias match via Identity repository
+	// 2. Explicit actor scope (principal was explicitly granted rights for this specific subject)
+	if principal, ok := PrincipalFromContext(ctx); ok {
+		if principal.ActorIDs != nil && principal.ActorIDs[subjectID] {
+			return nil
+		}
+	}
+
+	// 3. Alias match via Identity repository (Plane 1)
 	if repo := h.resolveRepository(); repo != nil {
 		aliases, err := repo.GetAliasesForActorAsOf(ctx, subjectID, time.Now().UTC())
 		if err == nil {
@@ -451,8 +475,19 @@ func (h *Handlers) verifyRequesterForSubject(ctx context.Context, subjectID stri
 		}
 	}
 
-	// Requester is authorized if it's an authenticated principal under the tenant with access
-	return nil
+	// 4. Administrative DPO / Privacy Officer verification
+	// Exporting third-party subject data requires administrative DPO authorization.
+	if principal, ok := PrincipalFromContext(ctx); ok {
+		if principal.Permissions != nil && principal.Permissions[PermissionPrivacyAdmin] {
+			return nil
+		}
+	}
+	if isDPOSubject(requester) {
+		return nil
+	}
+
+	return fmt.Errorf("requester %q is not authorized for subject %q: third-party export requires explicit actor scope or administrative DPO rights (%s)",
+		requester, subjectID, PermissionPrivacyAdmin)
 }
 
 // resolvePseudonymRing gets or creates a PseudonymKeyRing for the tenant.

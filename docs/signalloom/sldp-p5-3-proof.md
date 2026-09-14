@@ -50,13 +50,14 @@ This card implements the full data-subject-rights architecture across both data 
   - **Plane 1 (Identity Graph):** Resolves canonical actor entity, verified aliases, active and revoked delegation edges, and permission scopes.
   - **Plane 2 (Evidence Store):** Resolves immutable telemetry observations, evidence records, and signed attestation digests matching the data subject's HMAC pseudonym (`hmac_actor_id`, `hmac_actor_hint`, `hmac_principal_id`, `hmac_impersonated_user`).
 - **Over-disclosure Protection (Article 15(4)):** Multi-party records (e.g. delegation links and impersonation events) redact third-party personal identifiers (`[REDACTED_THIRD_PARTY_SUBJECT]`, `ThirdPartyMasked: true`) to prevent exfiltration of co-workers' data during a DSAR.
-- **Fail-Closed Requester Verification:** Access requires valid authentication tokens and matching actor claims or administrative privacy permissions (`privacy:export`). Unverified calls fail with `401 Unauthorized` or `403 Forbidden`.
+- **Fail-Closed Requester Verification:** Access requires valid authentication tokens and matching actor claims (`requester == subjectID`, explicit actor scope in `ActorIDs[subjectID]`, or verified alias), or explicit administrative privacy permissions (`privacy:admin` / DPO). Unverified third-party calls without administrative DPO authority fail closed with `403 Forbidden`.
 - **Bounded Export Sizing:** Default limit of 100 records (`MaxExportLimit = 1000`) with pagination offsets. Truncation flags (`truncated: true`, remediation guidance) prevent memory exhaustion from oversized exports.
 - **Small-Cell Suppression Floor (k-Anonymity):** Enforces `MinAggregateGroupSize = 5` for any statistical or grouped queries, returning `ErrGroupSizeBelowAnonymityFloor` to eliminate re-identification risks.
 
-### 2.2 Machine-Readable Data Portability (Article 20 Portability)
-- **Parameter:** `format=article20_portable` or `format=portable`.
-- **Structured Output:** Schema-versioned JSON format (`signalloom.article20-portable/v1`) using standard ISO 8601 timestamps and canonical actor attributes.
+### 2.2 Machine-Readable Portable Export (Article 20 Portability)
+- **Portable Format Schema:** Produces structured Article 20 JSON adhering to schema `https://signalloom.controlplane.io/schemas/gdpr-art20-portability-v1.json` (`export.go:27`).
+- **Content:** Aggregates user profile attributes, consented delegations, and activity telemetry with completeness statement and legal rationale.
+- **Supported Format Triggers:** Accessible via `?format=portability`, `?format=art20`, `?format=article20_portable`, or `Accept: application/x-portability+json`.
 - **Documented Legal Scope Boundaries:** Covers data directly provided by the data subject and automated telemetry collected under consent or contract (Art. 20(1)); explicitly excludes internal risk scoring algorithms, aggregate statistics, and proprietary heuristics.
 
 ### 2.3 Person-Level Objection and Opt-Out (Article 21 Objection)
@@ -70,24 +71,32 @@ This card implements the full data-subject-rights architecture across both data 
 ### 3.1 Go Signal-Ingest Subject Rights Test Suite
 Command: `env GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache CGO_ENABLED=0 go test -run TestSubjectRights ./... -v`
 ```
-=== RUN   TestSubjectRights_Article15Export_FullIdentityAndEvidence
---- PASS: TestSubjectRights_Article15Export_FullIdentityAndEvidence (0.00s)
-=== RUN   TestSubjectRights_Article20Portability_MachineReadableAndScope
---- PASS: TestSubjectRights_Article20Portability_MachineReadableAndScope (0.00s)
-=== RUN   TestSubjectRights_OverdisclosureProtection_ThirdPartyMasking
---- PASS: TestSubjectRights_OverdisclosureProtection_ThirdPartyMasking (0.00s)
-=== RUN   TestSubjectRights_BoundedExportSize_TruncationProtection
---- PASS: TestSubjectRights_BoundedExportSize_TruncationProtection (0.00s)
-=== RUN   TestSubjectRights_RequesterVerification_FailsClosed
---- PASS: TestSubjectRights_RequesterVerification_FailsClosed (0.00s)
+=== RUN   TestSubjectRights_Article15_DualPlaneAccessExport
+--- PASS: TestSubjectRights_Article15_DualPlaneAccessExport (0.00s)
+=== RUN   TestSubjectRights_Article20_MachineReadablePortability
+--- PASS: TestSubjectRights_Article20_MachineReadablePortability (0.00s)
+=== RUN   TestSubjectRights_OverDisclosure_PreventsThirdPartyLeakageInSharedRecords
+--- PASS: TestSubjectRights_OverDisclosure_PreventsThirdPartyLeakageInSharedRecords (0.00s)
+=== RUN   TestSubjectRights_BoundedSizeAndOverflowBehavior
+--- PASS: TestSubjectRights_BoundedSizeAndOverflowBehavior (0.00s)
 === RUN   TestSubjectRights_BoundedTimeExport_LargestSubject
 --- PASS: TestSubjectRights_BoundedTimeExport_LargestSubject (0.00s)
 === RUN   TestSubjectRights_MinimumGroupSize_EnforcesKAnonymity
 --- PASS: TestSubjectRights_MinimumGroupSize_EnforcesKAnonymity (0.00s)
 === RUN   TestSubjectRights_PseudonymRing_DeterministicDerivedPseudonym
 --- PASS: TestSubjectRights_PseudonymRing_DeterministicDerivedPseudonym (0.00s)
+=== RUN   TestSubjectRights_RequesterVerification_FailsClosed
+=== RUN   TestSubjectRights_RequesterVerification_FailsClosed/SelfAccess_Succeeds
+=== RUN   TestSubjectRights_RequesterVerification_FailsClosed/WildcardNonDPO_FailsClosed
+=== RUN   TestSubjectRights_RequesterVerification_FailsClosed/DPOWithPrivacyAdminPermission_Succeeds
+=== RUN   TestSubjectRights_RequesterVerification_FailsClosed/DPOServiceAccount_Succeeds
+--- PASS: TestSubjectRights_RequesterVerification_FailsClosed (0.00s)
+    --- PASS: TestSubjectRights_RequesterVerification_FailsClosed/SelfAccess_Succeeds (0.00s)
+    --- PASS: TestSubjectRights_RequesterVerification_FailsClosed/WildcardNonDPO_FailsClosed (0.00s)
+    --- PASS: TestSubjectRights_RequesterVerification_FailsClosed/DPOWithPrivacyAdminPermission_Succeeds (0.00s)
+    --- PASS: TestSubjectRights_RequesterVerification_FailsClosed/DPOServiceAccount_Succeeds (0.00s)
 PASS
-ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api	0.011s
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api	0.020s
 ```
 
 ### 3.2 Python Host Sensor Article 21 Objection Test Suite

@@ -54,6 +54,8 @@ const (
 	PermissionErasureRequest Permission = "erasure:request"
 	// PermissionPrivacyExport gates GDPR Article 15 access and Article 20 data portability export routes (SLDP-P5-3).
 	PermissionPrivacyExport Permission = "privacy:export"
+	// PermissionPrivacyAdmin gates administrative DPO oversight and third-party data subject exports (SLDP-P5-3).
+	PermissionPrivacyAdmin Permission = "privacy:admin"
 )
 
 var (
@@ -97,6 +99,10 @@ func WithTenantContext(ctx context.Context, tc TenantContext) context.Context {
 func TenantContextFromContext(ctx context.Context) (TenantContext, bool) {
 	tc, ok := ctx.Value(tenantContextKey{}).(TenantContext)
 	return tc, ok
+}
+func PrincipalFromContext(ctx context.Context) (Principal, bool) {
+	p, ok := ctx.Value(principalContextKey{}).(Principal)
+	return p, ok
 }
 
 type JWTAuthenticator struct {

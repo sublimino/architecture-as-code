@@ -562,3 +562,165 @@ func TestSubjectRights_PseudonymRing_DeterministicDerivedPseudonym(t *testing.T)
 		t.Errorf("tenant isolation failure: same pseudonym across tenants %s == %s", p1, pOtherTenant)
 	}
 }
+
+func TestSubjectRights_RequesterVerification_FailsClosed(t *testing.T) {
+	now := time.Now().UTC()
+	ctx := context.Background()
+
+	// Seed actor "alice" and actor "mallory" in repo
+	seedAlice := func(t *testing.T, repo *identity.MemoryRepository) {
+		t.Helper()
+		_ = repo.CreateActor(ctx, identity.ActorRecord{
+			ActorID:   "alice",
+			Status:    model.ActorPromoted,
+			CreatedAt: now.Add(-30 * 24 * time.Hour),
+			UpdatedAt: now,
+		})
+		aliasValidTo := now.Add(365 * 24 * time.Hour)
+		_ = repo.AddAlias(ctx, identity.AliasRecord{
+			ActorID:    "alice",
+			AliasType:  "email",
+			AliasValue: "alice@example.com",
+			ValidFrom:  now.Add(-30 * 24 * time.Hour),
+			ValidTo:    &aliasValidTo,
+		})
+	}
+	seedMallory := func(t *testing.T, repo *identity.MemoryRepository) {
+		t.Helper()
+		_ = repo.CreateActor(ctx, identity.ActorRecord{
+			ActorID:   "mallory",
+			Status:    model.ActorPromoted,
+			CreatedAt: now.Add(-10 * 24 * time.Hour),
+			UpdatedAt: now,
+		})
+	}
+
+	// 1. Case A: Self-access principal (alice)
+	t.Run("SelfAccess_Succeeds", func(t *testing.T) {
+		alicePrincipal := api.Principal{
+			Subject:     "spiffe://cluster.local/ns/prod/sa/alice-agent",
+			TenantID:    "tenant-finance",
+			ExpiresAt:   now.Add(time.Hour),
+			Permissions: map[api.Permission]bool{api.PermissionPrivacyExport: true},
+			ActorIDs:    map[string]bool{"alice": true},
+		}
+		server, repo, _ := setupSubjectRightsTestHarness(t, alicePrincipal)
+		seedAlice(t, repo)
+
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/privacy/export/alice", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 OK for self-access, got %d", resp.StatusCode)
+		}
+	})
+
+	// 2. Case B: Wildcard non-DPO principal (mallory) attempting third-party export
+	t.Run("WildcardNonDPO_FailsClosed", func(t *testing.T) {
+		malloryPrincipal := api.Principal{
+			Subject:     "spiffe://cluster.local/ns/prod/sa/mallory-agent",
+			TenantID:    "tenant-finance",
+			ExpiresAt:   now.Add(time.Hour),
+			Permissions: map[api.Permission]bool{api.PermissionPrivacyExport: true},
+			// Wildcard actor scope passes the router, but lacks DPO administrative authority
+			ActorIDs: map[string]bool{"mallory": true, "*": true},
+		}
+		server, repo, _ := setupSubjectRightsTestHarness(t, malloryPrincipal)
+		seedAlice(t, repo)
+		seedMallory(t, repo)
+
+		targetRoutes := []string{
+			"/api/v1/privacy/export/alice",
+			"/api/v1/actors/alice/export",
+			"/api/v1/privacy/export/alice?format=portability",
+			"/api/v1/privacy/export/alice?format=article20_portable",
+		}
+
+		for _, route := range targetRoutes {
+			req, _ := http.NewRequest(http.MethodGet, server.URL+route, nil)
+			req.Header.Set("Authorization", "Bearer token")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request %s failed: %v", route, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("expected 403 Forbidden for route %s, got %d", route, resp.StatusCode)
+			}
+		}
+
+		// Mallory must still be able to export her own data
+		ownReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/privacy/export/mallory", nil)
+		ownReq.Header.Set("Authorization", "Bearer token")
+		ownResp, err := http.DefaultClient.Do(ownReq)
+		if err != nil {
+			t.Fatalf("own export request failed: %v", err)
+		}
+		defer ownResp.Body.Close()
+		if ownResp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 OK for mallory self-export, got %d", ownResp.StatusCode)
+		}
+	})
+
+	// 3. Case C: Administrative DPO principal holding PermissionPrivacyAdmin
+	t.Run("DPOWithPrivacyAdminPermission_Succeeds", func(t *testing.T) {
+		dpoPrincipal := api.Principal{
+			Subject:   "spiffe://cluster.local/ns/prod/sa/dpo-auditor",
+			TenantID:  "tenant-finance",
+			ExpiresAt: now.Add(time.Hour),
+			Permissions: map[api.Permission]bool{
+				api.PermissionPrivacyExport: true,
+				api.PermissionPrivacyAdmin:  true,
+			},
+			ActorIDs: map[string]bool{"*": true},
+		}
+		server, repo, _ := setupSubjectRightsTestHarness(t, dpoPrincipal)
+		seedAlice(t, repo)
+
+		for _, route := range []string{
+			"/api/v1/privacy/export/alice",
+			"/api/v1/actors/alice/export",
+			"/api/v1/privacy/export/alice?format=portability",
+			"/api/v1/privacy/export/alice?format=article20_portable",
+		} {
+			req, _ := http.NewRequest(http.MethodGet, server.URL+route, nil)
+			req.Header.Set("Authorization", "Bearer token")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("dpo request %s failed: %v", route, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("expected 200 OK for DPO on route %s, got %d", route, resp.StatusCode)
+			}
+		}
+	})
+
+	// 4. Case D: DPO Service Account principal
+	t.Run("DPOServiceAccount_Succeeds", func(t *testing.T) {
+		dpoSaPrincipal := api.Principal{
+			Subject:     "spiffe://cluster.local/ns/prod/sa/dpo",
+			TenantID:    "tenant-finance",
+			ExpiresAt:   now.Add(time.Hour),
+			Permissions: map[api.Permission]bool{api.PermissionPrivacyExport: true},
+			ActorIDs:    map[string]bool{"*": true},
+		}
+		server, repo, _ := setupSubjectRightsTestHarness(t, dpoSaPrincipal)
+		seedAlice(t, repo)
+
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/privacy/export/alice", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 OK for DPO SA, got %d", resp.StatusCode)
+		}
+	})
+}

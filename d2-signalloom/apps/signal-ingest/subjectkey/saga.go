@@ -246,6 +246,7 @@ func (s *Saga) DestroySubjectKeys(ctx context.Context, tenantID, subjectID strin
 		OperationID:       receipt.OperationID,
 		ReceiptDigest:     digest,
 		ReceiptSchema:     receipt.Schema,
+		ReceiptNonce:      receipt.Nonce,
 		ResidualPseudonym: string(receipt.ResidualPseudonym),
 		StorageResidual:   string(receipt.StorageResidual),
 		ComplianceNote:    receipt.ComplianceNote,

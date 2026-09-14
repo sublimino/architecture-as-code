@@ -30,6 +30,7 @@ const (
 	TraceEvaluateException = "evaluate_retention_exception"
 	TraceWriteAudit        = "write_audit"
 	TraceDestroyKeys       = "destroy_subject_keys"
+	TracePublishTombstone  = "publish_tombstone"
 )
 
 // Outcome is the machine-readable result of an erasure decision.
@@ -109,12 +110,25 @@ type KeyDestructionReceipt struct {
 	ReceiptSchema string `json:"receipt_schema,omitempty"`
 	// ReceiptDigest is the hex SHA-256 a tombstone references.
 	ReceiptDigest string `json:"receipt_digest,omitempty"`
+	// ReceiptNonce is the hex CSPRNG nonce persisted with the saga record.
+	ReceiptNonce string `json:"receipt_nonce,omitempty"`
 	// ResidualPseudonym states what the destruction could not remove.
 	ResidualPseudonym string `json:"residual_pseudonym,omitempty"`
 	// StorageResidual states which copies of the ciphertext survive.
 	StorageResidual string `json:"storage_residual,omitempty"`
 	// ComplianceNote states which obligation was discharged and which was not.
 	ComplianceNote string `json:"compliance_note,omitempty"`
+}
+
+// TombstonePublication is the metadata returned when a tombstone is minted and attested.
+type TombstonePublication struct {
+	TombstoneID     string `json:"tombstone_id"`
+	ConfirmationKey string `json:"confirmation_key,omitempty"`
+}
+
+// TombstonePublisher mints, attests, and publishes a non-linkable tombstone for an Article 17 erasure.
+type TombstonePublisher interface {
+	PublishTombstone(ctx context.Context, receipt KeyDestructionReceipt, req ErasureRequest) (TombstonePublication, error)
 }
 
 // KeyDestroyer performs the irreversible act this package gates.
@@ -204,6 +218,12 @@ type Decision struct {
 
 	// Receipt is populated only when key destruction actually occurred.
 	Receipt *KeyDestructionReceipt `json:"receipt,omitempty"`
+
+	// ConfirmationKey is the disclosed one-time secret for confirming erasure against public tombstones.
+	ConfirmationKey string `json:"confirmation_key,omitempty"`
+
+	// TombstoneID identifies the public tombstone document minted for this destruction.
+	TombstoneID string `json:"tombstone_id,omitempty"`
 }
 
 // TraceIndex returns the position of phase in the trace, or -1 if it did not execute. Ordering
@@ -225,6 +245,7 @@ type Config struct {
 	Audit         audit.AuditWriter
 	Operators     *OperatorRegistry
 	Pseudonymiser SubjectPseudonymiser
+	Tombstones    TombstonePublisher
 
 	// Now overrides the clock. A nil Now defaults to time.Now, which is a safe default because a
 	// real clock is the conservative choice; contrast Incidents, where no safe default exists and
@@ -239,6 +260,7 @@ type Service struct {
 	audit         audit.AuditWriter
 	operators     *OperatorRegistry
 	pseudonymiser SubjectPseudonymiser
+	tombstones    TombstonePublisher
 	now           func() time.Time
 }
 
@@ -277,6 +299,7 @@ func NewService(cfg Config) (*Service, error) {
 		audit:         cfg.Audit,
 		operators:     cfg.Operators,
 		pseudonymiser: cfg.Pseudonymiser,
+		tombstones:    cfg.Tombstones,
 		now:           now,
 	}, nil
 }
@@ -383,6 +406,19 @@ func (s *Service) Erase(ctx context.Context, req ErasureRequest) (Decision, erro
 		return d, fmt.Errorf("destroy subject keys: %w", err)
 	}
 	d.Receipt = &receipt
+
+	// ---- Phase 6: attested tombstone publication. --------------------------------------------
+	if s.tombstones != nil {
+		d.Trace = append(d.Trace, TracePublishTombstone)
+		pub, pubErr := s.tombstones.PublishTombstone(ctx, receipt, req)
+		if pubErr != nil {
+			slog.Warn("tombstone publication failed after key destruction",
+				"request_id", req.RequestID, "tenant_id", req.TenantID, "error", pubErr)
+		} else {
+			d.TombstoneID = pub.TombstoneID
+			d.ConfirmationKey = pub.ConfirmationKey
+		}
+	}
 	return d, nil
 }
 

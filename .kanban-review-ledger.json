@@ -2189,5 +2189,12 @@
     "reviewer": "Council (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "Council approval for SLDP-P4-2: Non-linkable attested tombstones, projection commitment replacing raw receipt digest oracle, coarse UTC day with fail-closed MinAnonymitySet=5 gating, selective disclosure one-time confirmation key, Ed25519 DSSE envelopes, 76/76 unit tests pass, 24/24 mutations killed, linkage probe with 6 positive controls."
+  },
+  "5f952": {
+    "task_id": "5f952",
+    "reviewed_at": "2026-09-14T19:05:07Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "REJECTED",
+    "reason": "Council certification refusal for SLDP-P4-GOV: 5 of 6 properties pass (per-subject erasure, idempotency, non-joinability, deferred KMS, published residuals), but Property F fails as G1 blocker \u2014 the receipt\u2194tombstone seam is unbound in production and VerifyReceiptCommitment is a tautological self-consistency check. Blocked per charter (proceed=no)."
   }
 }

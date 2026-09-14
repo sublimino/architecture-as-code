@@ -309,7 +309,7 @@ previous phase governor, or on `P0` for phase 1.
 | P4-1 | implementation | Per-subject key hierarchy with idempotent erasure saga | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: 2e576206 (see Errata — SLDP-P4-1) | $0.00 | N/A | 35m | deep |
 | P4-2 | implementation | Non-linkable attested tombstones | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | pass — delivered: 9956a239 (see Errata — SLDP-P4-2) | $0.00 | N/A | 35m | daily |
 | P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified (G1 remediated in 8e94b193, see Errata — SLDP-P4-GOV) | N/A | N/A | ~45m | N/A |
-| P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | pass — delivered (see Errata — SLDP-P5-PRE) | $0.00 | N/A | 15m | antigravity |
 | P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -723,12 +723,27 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 
 **Blocking:** `proceed=yes`. Hard blocker G1 is resolved. Phase 5 preflight is cleared to open.
 
-#### Errata — SLDP-P5-PRE (bootstrap)
-##### Task identity
-- Card: `SLDP-P5-PRE`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P5-PRE: Phase 5 Preflight (KMS Signer & Data-Subject Rights)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 21:05:00+01:00  
+**Last Updated:** 2026-09-14 21:05:00+01:00  
+**Status:** `pass`  
+**Commit:** Pending  
+**Evidence:** `docs/signalloom/sldp-p5-pre-proof.md`  
+
+**Phase 5 Preflight Summary:**
+- **Witness & KMS Signer Compatibility Confirmed (Verdict: PASS):** Analysis of in-toto Witness, Archivista, and `store/verify/verify.go` demonstrates that verification operates strictly over standard DSSE v1 envelopes (`application/vnd.in-toto+json`) using Ed25519 public keys identified by hex SHA-256 SPKI key IDs. A KMS-backed signer (Google Cloud KMS `EC_SIGN_ED25519` or OpenBao/Vault Transit `ed25519`) produces byte-compatible envelopes that pass verification identically to local software keys.
+- **Signer Key & Synchronicity Constraints Characterised:** `store/segment_attestor.go` currently relies on on-disk PKCS#8 private keys parsed into heap memory (`ed25519Signer`). The attestor worker executes sequentially in a single goroutine (`run()`). External KMS RPC latency (15–50ms vs 25µs local) will directly constrain sequential upload throughput and can saturate the default queue (`QueueSize=16`), requiring bounded timeouts, retries, and queue sizing in P5-1.
+- **Claimed-versus-Actual Inventory for GDPR Articles 15, 20, and 21:**
+  - **Article 15 (Access):** Architecture documentation claimed access was served via `GET /api/v1/actors/{id}/authorization` and an export endpoint. In code, `authorization` returns only authority delegations (no observations or personal telemetry), and the export endpoint is completely missing (`api/handlers.go` 0 matches). Must be built in P5-3.
+  - **Article 20 (Data Portability):** Omitted from documentation and completely absent in code. Machine-readable export (JSON/attested Parquet) must be built in P5-3.
+  - **Article 21 (Right to Object):** Architecture documentation claimed workstation sensor filtering. In code, no workstation denylist or backend processing opt-out exists. Ingestion filter and restriction flag must be built in P5-3.
+- **Prototyped Signer Interface:** Designed `StatementSigner` decoupling `SegmentAttestor` from local file paths, enabling drop-in KMS implementations for P5-1.
+
+**Tests:**
+- `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` → **PASS**, 9 matching lines confirming current file key dependencies.
+- `rg -n 'export' d2-signalloom/apps/signal-ingest/api/handlers.go` → **PASS**, 0 matches confirming absence of export endpoint.
+- `cd d2-signalloom/apps/signal-ingest && go test ./store/...` → **PASS**, 41 tests pass (4.018s).
 
 #### Errata — SLDP-P5-1 (bootstrap)
 ##### Task identity

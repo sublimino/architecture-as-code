@@ -3,6 +3,8 @@ package identity
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -51,21 +53,46 @@ func TestEncryption_AESGCM_RoundtripAndTamper(t *testing.T) {
 	}
 }
 
-func TestEncryption_DeterministicHash(t *testing.T) {
-	enc, _ := NewAESGCMEncryptor([]byte("some-passphrase"))
+// TestEncryption_DeterministicPseudonym replaces the former TestEncryption_DeterministicHash.
+//
+// The old test asserted determinism and a 64-character hex shape — both of which an UNKEYED
+// sha256.Sum256 satisfies perfectly. It would have passed unchanged throughout the entire period
+// the defect existed, which is why it is not sufficient on its own. Determinism is asserted here;
+// non-invertibility is asserted in TestAliasPseudonym_ResistsDictionaryAttack.
+func TestEncryption_DeterministicPseudonym(t *testing.T) {
+	enc, err := NewAESGCMEncryptor([]byte("some-passphrase"))
+	if err != nil {
+		t.Fatalf("NewAESGCMEncryptor: %v", err)
+	}
 
 	val := "spiffe://cluster.local/ns/prod/sa/deployer"
-	hash1 := enc.Hash(val)
-	hash2 := enc.Hash(val)
+	p1, err := enc.Pseudonym("tenant-a", val)
+	if err != nil {
+		t.Fatalf("Pseudonym: %v", err)
+	}
+	p2, err := enc.Pseudonym("tenant-a", val)
+	if err != nil {
+		t.Fatalf("Pseudonym: %v", err)
+	}
 
-	if hash1 == "" {
-		t.Fatal("hash should not be empty")
+	if p1 == "" {
+		t.Fatal("pseudonym should not be empty")
 	}
-	if hash1 != hash2 {
-		t.Errorf("deterministic hash mismatch: %s vs %s", hash1, hash2)
+	if p1 != p2 {
+		t.Errorf("deterministic pseudonym mismatch: %s vs %s", p1, p2)
 	}
-	if len(hash1) != 64 { // 256 bits = 64 hex chars
-		t.Errorf("expected 64-char sha256 hex string, got len %d (%s)", len(hash1), hash1)
+	if len(p1) != PseudonymHexLen {
+		t.Errorf("expected %d-char hex string, got len %d (%s)", PseudonymHexLen, len(p1), p1)
+	}
+	if !IsPseudonym(p1) {
+		t.Errorf("pseudonym %q does not have pseudonym shape", p1)
+	}
+
+	// The keyed pseudonym must differ from the unkeyed digest this change removed. If someone
+	// reintroduces sha256.Sum256 as the pseudonym function, this assertion fails.
+	unkeyed := sha256.Sum256([]byte(val))
+	if p1 == hex.EncodeToString(unkeyed[:]) {
+		t.Fatal("pseudonym equals the bare SHA-256 of the value; the key is not being used")
 	}
 }
 

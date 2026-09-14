@@ -5,6 +5,7 @@ package transform
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -12,8 +13,63 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
+// mustScrubber builds a scrubber for tests.
+//
+// SLDP-P2-1 made NewCryptographicSecretScrubber fail closed: it returns an error on an absent or
+// trivially short salt instead of falling back to the compiled-in default that used to live at
+// secrets_scrubber.go:56. The test salts are namespaced to reach the length floor rather than the
+// floor being lowered to suit the tests — a production constructor should not be weakened to keep
+// a fixture convenient.
+func mustScrubber(t *testing.T, salt string) *CryptographicSecretScrubber {
+	t.Helper()
+	s, err := NewCryptographicSecretScrubber("signalloom-test-" + salt)
+	if err != nil {
+		t.Fatalf("NewCryptographicSecretScrubber(%q): %v", salt, err)
+	}
+	return s
+}
+
+// TestScrubber_FailsClosedWithoutSalt pins the removal of the committed default salt.
+// If someone reintroduces a fallback literal, this test fails.
+func TestScrubber_FailsClosedWithoutSalt(t *testing.T) {
+	if _, err := NewCryptographicSecretScrubber(""); !errors.Is(err, ErrScrubberSaltRequired) {
+		t.Fatalf("empty salt must return ErrScrubberSaltRequired, got %v", err)
+	}
+	if _, err := NewCryptographicSecretScrubber("short"); !errors.Is(err, ErrScrubberSaltRequired) {
+		t.Fatalf("under-length salt must return ErrScrubberSaltRequired, got %v", err)
+	}
+	// The removed default must not be reachable by any path.
+	t.Setenv("SIGNAL_SCRUBBER_SALT", "")
+	if _, err := NewCryptographicSecretScrubberFromEnv(); !errors.Is(err, ErrScrubberSaltRequired) {
+		t.Fatalf("unset SIGNAL_SCRUBBER_SALT must return ErrScrubberSaltRequired, got %v", err)
+	}
+
+	good, err := NewCryptographicSecretScrubber("a-properly-sized-cluster-salt")
+	if err != nil {
+		t.Fatalf("valid salt rejected: %v", err)
+	}
+	if good == nil {
+		t.Fatal("valid salt produced a nil scrubber")
+	}
+}
+
+// TestScrubber_DistinctSaltsProduceDistinctPseudonyms proves the salt is actually mixed in.
+// A constructor that ignored its argument would pass every other test in this file.
+func TestScrubber_DistinctSaltsProduceDistinctPseudonyms(t *testing.T) {
+	a := mustScrubber(t, "salt-alpha")
+	b := mustScrubber(t, "salt-bravo")
+
+	const val = "alice@corp.internal"
+	if a.AnonymizeHMAC(val) == b.AnonymizeHMAC(val) {
+		t.Fatal("two scrubbers with different salts produced the same pseudonym; the salt is not being used")
+	}
+	if a.AnonymizeHMAC(val) != a.AnonymizeHMAC(val) {
+		t.Fatal("AnonymizeHMAC is not deterministic")
+	}
+}
+
 func TestScrubber_RegexPatterns(t *testing.T) {
-	scrubber := NewCryptographicSecretScrubber("test-salt-123")
+	scrubber := mustScrubber(t, "test-salt-123")
 
 	cases := []struct {
 		input    string
@@ -54,7 +110,7 @@ func TestScrubber_RegexPatterns(t *testing.T) {
 }
 
 func TestScrubber_AnonymizeHMAC(t *testing.T) {
-	scrubber := NewCryptographicSecretScrubber("cluster-salt-2026")
+	scrubber := mustScrubber(t, "cluster-salt-2026")
 
 	h1 := scrubber.AnonymizeHMAC("accessor-12345")
 	h2 := scrubber.AnonymizeHMAC("accessor-12345")
@@ -75,7 +131,7 @@ func TestScrubber_AnonymizeHMAC(t *testing.T) {
 }
 
 func TestScrubber_ScrubMap_Recursive(t *testing.T) {
-	scrubber := NewCryptographicSecretScrubber("test-salt")
+	scrubber := mustScrubber(t, "test-salt")
 
 	rawMap := map[string]interface{}{
 		"client_token": "s.secret-token-123",
@@ -111,7 +167,7 @@ func TestScrubber_ScrubMap_Recursive(t *testing.T) {
 }
 
 func TestScrubber_ScrubObservation(t *testing.T) {
-	scrubber := NewCryptographicSecretScrubber("obs-salt")
+	scrubber := mustScrubber(t, "obs-salt")
 
 	obs := &model.Observation{
 		ID:             "obs-1",
@@ -122,10 +178,10 @@ func TestScrubber_ScrubObservation(t *testing.T) {
 		ActorHint:      "agent-key: AKIAIOSFODNN7EXAMPLE",
 		RawEvidenceRef: "openbao://auth?token=s.123456789012345678901234",
 		Labels: map[string]string{
-			"accessor":     "acc-test-123",
-			"password":     "admin-pass",
-			"path":         "secret/data/cardvault/keys",
-			"operation":    "read",
+			"accessor":  "acc-test-123",
+			"password":  "admin-pass",
+			"path":      "secret/data/cardvault/keys",
+			"operation": "read",
 		},
 		Description: "Workload authenticated with Bearer 12345678901234567890",
 	}
@@ -153,7 +209,7 @@ func TestScrubber_ScrubObservation(t *testing.T) {
 }
 
 func TestScrubber_MutationPayloads(t *testing.T) {
-	scrubber := NewCryptographicSecretScrubber("mutation-salt")
+	scrubber := mustScrubber(t, "mutation-salt")
 
 	mutationVectors := []string{
 		`{"auth":{"client_token":"s.098765432109876543210987","accessor":"acc-mut-1"}}`,

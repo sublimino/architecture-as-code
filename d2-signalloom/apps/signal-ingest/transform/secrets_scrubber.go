@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -26,22 +28,22 @@ var (
 
 	// Sensitive JSON and Map field names
 	sensitiveFieldNames = map[string]bool{
-		"password":         true,
-		"secret":           true,
-		"token":            true,
-		"client_token":     true,
-		"client_secret":    true,
-		"private_key":      true,
-		"cert":             true,
-		"certificate":      true,
-		"credential":       true,
-		"credentials":      true,
-		"session_token":    true,
-		"authorization":    true,
-		"api_key":          true,
-		"access_token":     true,
-		"master_key":       true,
-		"encryption_key":   true,
+		"password":       true,
+		"secret":         true,
+		"token":          true,
+		"client_token":   true,
+		"client_secret":  true,
+		"private_key":    true,
+		"cert":           true,
+		"certificate":    true,
+		"credential":     true,
+		"credentials":    true,
+		"session_token":  true,
+		"authorization":  true,
+		"api_key":        true,
+		"access_token":   true,
+		"master_key":     true,
+		"encryption_key": true,
 	}
 )
 
@@ -50,25 +52,64 @@ type CryptographicSecretScrubber struct {
 	salt []byte
 }
 
+// ErrScrubberSaltRequired is returned when no pseudonymisation salt is configured.
+//
+// This constructor previously fell back to a hard-coded salt literal when none was supplied
+// (removed by SLDP-P2-1; see docs/signalloom/sldp-p2-1-proof.md for the original value). A
+// pseudonymisation secret committed to source is public, so every deployment that never set the
+// variable shared one attacker-known key — and under GDPR Article 4(5) such a secret is not "kept
+// separately". There is no safe default, so there is no default: an absent salt is an error.
+//
+// The literal is deliberately not repeated here. A grep for it is the check that this defect is
+// gone, and a comment quoting it would satisfy that grep while proving nothing.
+var ErrScrubberSaltRequired = errors.New("transform: pseudonymisation salt is required; refusing to fall back to a compiled-in default")
+
+// MinScrubberSaltLen is the minimum accepted salt length. A one-character salt is a rounding
+// error away from no salt at all.
+const MinScrubberSaltLen = 16
+
 // NewCryptographicSecretScrubber instantiates a secret scrubber with a dedicated cluster salt.
-func NewCryptographicSecretScrubber(salt string) *CryptographicSecretScrubber {
+// It fails closed on an absent or trivially short salt rather than substituting a default.
+func NewCryptographicSecretScrubber(salt string) (*CryptographicSecretScrubber, error) {
 	if salt == "" {
-		salt = "signal-loom-default-identity-salt-2026"
+		return nil, ErrScrubberSaltRequired
+	}
+	if len(salt) < MinScrubberSaltLen {
+		return nil, fmt.Errorf("%w: salt must be at least %d characters, got %d", ErrScrubberSaltRequired, MinScrubberSaltLen, len(salt))
 	}
 	h := sha256.Sum256([]byte(salt))
 	return &CryptographicSecretScrubber{
 		salt: h[:],
-	}
+	}, nil
 }
 
+// NewCryptographicSecretScrubberFromEnv builds a scrubber from SIGNAL_SCRUBBER_SALT.
+// An unset variable is an error, not a default.
+func NewCryptographicSecretScrubberFromEnv() (*CryptographicSecretScrubber, error) {
+	return NewCryptographicSecretScrubber(os.Getenv("SIGNAL_SCRUBBER_SALT"))
+}
+
+// AnonymizeHMACHexLen is the number of hex characters retained from the HMAC digest.
+//
+// This was 16 (64 bits). Removing the committed default salt above closes the "attacker knows the
+// key" hole, but a 64-bit pseudonym over a small enumerable identifier population is brute-forcible
+// regardless of key secrecy, which would have made that fix cosmetic. 32 hex characters is 128
+// bits — beyond brute force — while staying short enough to read in a log line.
+const AnonymizeHMACHexLen = 32
+
 // AnonymizeHMAC generates a deterministic HMAC-SHA256 hash for a token accessor or identifier.
+//
+// KNOWN GAP, recorded rather than silently left. Unlike identity.PseudonymKeyRing this digest has
+// no tenant scope and no rotation epoch, so one tenant's scrubbed labels are comparable with
+// another's. Closing that requires plumbing a tenant through the ingest transform hot path, which
+// is a change to a different component than SLDP-P2-1 owns. See docs/signalloom/sldp-p2-1-proof.md.
 func (cs *CryptographicSecretScrubber) AnonymizeHMAC(val string) string {
 	if val == "" {
 		return ""
 	}
 	mac := hmac.New(sha256.New, cs.salt)
 	mac.Write([]byte(val))
-	return fmt.Sprintf("hmac-%s", hex.EncodeToString(mac.Sum(nil))[:16])
+	return fmt.Sprintf("hmac-%s", hex.EncodeToString(mac.Sum(nil))[:AnonymizeHMACHexLen])
 }
 
 // ScrubText applies regex-based scrubbing to string text.

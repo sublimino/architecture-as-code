@@ -90,7 +90,18 @@ func (s *GraphResolverStore) ResolveObservationAsOf(ctx context.Context, obs mod
 			continue
 		}
 		r, err := ResolveAliasAsOf(ctx, s.repo, hint, asOf)
-		if err == nil && r != nil {
+		if err != nil {
+			// Do not swallow. "No such alias" is ErrAliasNotFound / ErrActorNotFound and is a
+			// legitimate miss that falls through to provisional-actor creation. Anything else —
+			// a decrypt failure, a pseudonym mismatch, a dead connection — previously presented
+			// as "unknown actor" and minted a NEW provisional actor, silently fragmenting the
+			// identity spine while returning 200. A resolution fault must surface as a fault.
+			if errors.Is(err, ErrAliasNotFound) || errors.Is(err, ErrActorNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("alias resolution failed for hint: %w", err)
+		}
+		if r != nil {
 			res = r
 			break
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
@@ -41,16 +42,42 @@ type Repository interface {
 	GetActiveGraphForActorAsOf(ctx context.Context, actorID string, asOf time.Time) (*ActorGraphSnapshot, error)
 }
 
+// DefaultTenantID is the tenant scope applied when no per-record tenant is supplied.
+//
+// The identity schema has no tenant_id column yet — that is SLDP-P2-2, migration 006. Until it
+// lands, the pseudonym key ring is scoped by a single deployment-level tenant read from
+// IDENTITY_TENANT_ID. The key-derivation API is already per-tenant, so P2-2 wires per-row tenants
+// with no change to the crypto.
+const DefaultTenantID = "default"
+
+// TenantIDFromEnv returns the configured deployment tenant, never the empty string.
+// An empty tenant would collapse every tenant into one correlation domain, so it is not a
+// reachable state: the fallback is DefaultTenantID, not "".
+func TenantIDFromEnv() string {
+	if v := os.Getenv("IDENTITY_TENANT_ID"); v != "" {
+		return v
+	}
+	return DefaultTenantID
+}
+
 // PostgresRepository implements Repository on top of PostgreSQL.
 type PostgresRepository struct {
 	db        *sql.DB
 	encryptor Encryptor
+	tenantID  string
 }
 
 // NewPostgresRepository constructs a PostgresRepository sharing the provided sql.DB pool.
 // If encryptor is nil, it requires explicit development opt-in via DevOptInAllowed()
 // rather than silently defaulting to unencrypted cleartext storage in production.
 func NewPostgresRepository(db *sql.DB, encryptor Encryptor) *PostgresRepository {
+	return NewPostgresRepositoryWithTenant(db, encryptor, TenantIDFromEnv())
+}
+
+// NewPostgresRepositoryWithTenant constructs a PostgresRepository bound to an explicit tenant
+// scope for pseudonymisation. An empty tenantID falls back to DefaultTenantID rather than
+// producing an unscoped pseudonym.
+func NewPostgresRepositoryWithTenant(db *sql.DB, encryptor Encryptor, tenantID string) *PostgresRepository {
 	if encryptor == nil {
 		if DevOptInAllowed() {
 			encryptor = NewNoopEncryptor()
@@ -58,10 +85,25 @@ func NewPostgresRepository(db *sql.DB, encryptor Encryptor) *PostgresRepository 
 			panic("identity: NewPostgresRepository requires a non-nil Encryptor in production mode (set IDENTITY_ENCRYPTION_KEY or INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true)")
 		}
 	}
+	if tenantID == "" {
+		tenantID = DefaultTenantID
+	}
 	return &PostgresRepository{
 		db:        db,
 		encryptor: encryptor,
+		tenantID:  tenantID,
 	}
+}
+
+// TenantID returns the tenant scope this repository pseudonymises under.
+func (r *PostgresRepository) TenantID() string { return r.tenantID }
+
+// tenantFor resolves the effective tenant for a record, preferring an explicit per-record scope.
+func (r *PostgresRepository) tenantFor(recordTenant string) string {
+	if recordTenant != "" {
+		return recordTenant
+	}
+	return r.tenantID
 }
 
 // DB exposes the underlying *sql.DB connection pool.
@@ -149,6 +191,10 @@ func (r *PostgresRepository) scanActorRow(row *sql.Row) (*ActorRecord, error) {
 }
 
 // AddAlias records a typed time-valid alias.
+//
+// The alias value is stored as AES-GCM envelope ciphertext in alias_value_encrypted. The cleartext
+// alias_value column is never written. The only indexed representation of the identifier is the
+// keyed pseudonym in alias_value_hash.
 func (r *PostgresRepository) AddAlias(ctx context.Context, alias AliasRecord) error {
 	if alias.ActorID == "" || alias.AliasValue == "" || alias.AliasType == "" {
 		return fmt.Errorf("actor_id, alias_type, and alias_value are required")
@@ -162,18 +208,40 @@ func (r *PostgresRepository) AddAlias(ctx context.Context, alias AliasRecord) er
 	if alias.CreatedAt.IsZero() {
 		alias.CreatedAt = time.Now().UTC()
 	}
-	alias.AliasValueHash = r.encryptor.Hash(alias.AliasValue)
 
+	tenant := r.tenantFor(alias.TenantID)
+	pseudonym, err := r.encryptor.Pseudonym(tenant, alias.AliasValue)
+	if err != nil {
+		return fmt.Errorf("failed to pseudonymise alias value: %w", err)
+	}
+	alias.AliasValueHash = pseudonym
+
+	// The ciphertext is bound to this row's actor, alias type and pseudonym. Copying it into a
+	// different row fails the GCM tag rather than decrypting into a value that silently
+	// contradicts that row's pseudonym.
+	sealed, err := r.encryptor.EncryptEnvelope(
+		[]byte(alias.AliasValue),
+		AliasEnvelopeAAD(alias.ActorID, alias.AliasType, pseudonym),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to envelope-encrypt alias value: %w", err)
+	}
+
+	// The never-merge invariant is enforced by trg_aliases_never_merge inside this statement's
+	// own transaction (migration 005 §6), comparing pseudonym to pseudonym. It is NOT enforced
+	// here: a SELECT-then-INSERT pair in application code is a read-then-write race, and two
+	// concurrent connections — one adding the alias, one adding the delegation — would each read
+	// before the other wrote and both would be admitted.
 	const q = `
-		INSERT INTO aliases (actor_id, alias_type, alias_value, alias_value_hash, edge_fidelity, valid_from, valid_to, created_at)
+		INSERT INTO aliases (actor_id, alias_type, alias_value_encrypted, alias_value_hash, edge_fidelity, valid_from, valid_to, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (actor_id, alias_type, alias_value, valid_from) DO NOTHING
+		ON CONFLICT (actor_id, alias_type, alias_value_hash, valid_from) DO NOTHING
 		RETURNING id`
 
-	err := r.db.QueryRowContext(ctx, q,
+	err = r.db.QueryRowContext(ctx, q,
 		alias.ActorID,
 		alias.AliasType,
-		alias.AliasValue,
+		sealed,
 		alias.AliasValueHash,
 		string(alias.EdgeFidelity),
 		alias.ValidFrom,
@@ -189,19 +257,29 @@ func (r *PostgresRepository) AddAlias(ctx context.Context, alias AliasRecord) er
 	return nil
 }
 
+// aliasSelectColumns is the single source of truth for the alias projection, so the SELECT list
+// and scanAliases cannot drift apart.
+const aliasSelectColumns = `id, actor_id, alias_type, alias_value_encrypted, alias_value_hash, edge_fidelity, valid_from, valid_to, created_at`
+
 // FindAliasesAsOf finds active aliases matching aliasValue at asOf.
 // Half-open interval predicate: valid_from <= asOf AND (valid_to IS NULL OR asOf < valid_to).
+//
+// The lookup matches on the keyed pseudonym only. The former `alias_value = $1` disjunct is gone:
+// it required a cleartext column and a cleartext index, both of which migration 005 removes.
 func (r *PostgresRepository) FindAliasesAsOf(ctx context.Context, aliasValue string, asOf time.Time) ([]AliasRecord, error) {
-	hash := r.encryptor.Hash(aliasValue)
-	const q = `
-		SELECT id, actor_id, alias_type, alias_value, alias_value_hash, edge_fidelity, valid_from, valid_to, created_at
+	pseudonym, err := r.encryptor.Pseudonym(r.tenantID, aliasValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pseudonymise alias lookup value: %w", err)
+	}
+	q := `
+		SELECT ` + aliasSelectColumns + `
 		FROM aliases
-		WHERE (alias_value = $1 OR alias_value_hash = $2)
-		  AND valid_from <= $3
-		  AND (valid_to IS NULL OR $3 < valid_to)
+		WHERE alias_value_hash = $1
+		  AND valid_from <= $2
+		  AND (valid_to IS NULL OR $2 < valid_to)
 		ORDER BY valid_from DESC`
 
-	rows, err := r.db.QueryContext(ctx, q, aliasValue, hash, asOf)
+	rows, err := r.db.QueryContext(ctx, q, pseudonym, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query aliases: %w", err)
 	}
@@ -212,8 +290,8 @@ func (r *PostgresRepository) FindAliasesAsOf(ctx context.Context, aliasValue str
 
 // GetAliasesForActorAsOf returns all aliases active for an actor at asOf.
 func (r *PostgresRepository) GetAliasesForActorAsOf(ctx context.Context, actorID string, asOf time.Time) ([]AliasRecord, error) {
-	const q = `
-		SELECT id, actor_id, alias_type, alias_value, alias_value_hash, edge_fidelity, valid_from, valid_to, created_at
+	q := `
+		SELECT ` + aliasSelectColumns + `
 		FROM aliases
 		WHERE actor_id = $1
 		  AND valid_from <= $2
@@ -235,12 +313,13 @@ func (r *PostgresRepository) scanAliases(rows *sql.Rows) ([]AliasRecord, error) 
 		var (
 			rec         AliasRecord
 			fidelityStr string
+			sealed      []byte
 		)
 		if err := rows.Scan(
 			&rec.ID,
 			&rec.ActorID,
 			&rec.AliasType,
-			&rec.AliasValue,
+			&sealed,
 			&rec.AliasValueHash,
 			&fidelityStr,
 			&rec.ValidFrom,
@@ -249,6 +328,17 @@ func (r *PostgresRepository) scanAliases(rows *sql.Rows) ([]AliasRecord, error) 
 		); err != nil {
 			return nil, fmt.Errorf("scan alias row error: %w", err)
 		}
+		if len(sealed) > 0 {
+			plaintext, err := r.encryptor.DecryptEnvelope(
+				sealed,
+				AliasEnvelopeAAD(rec.ActorID, rec.AliasType, rec.AliasValueHash),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt alias value error: %w", err)
+			}
+			rec.AliasValue = string(plaintext)
+		}
+		rec.TenantID = r.tenantID
 		rec.EdgeFidelity = model.FidelityTier(fidelityStr)
 		aliases = append(aliases, rec)
 	}
@@ -282,9 +372,20 @@ func (r *PostgresRepository) AddDelegation(ctx context.Context, delegation Deleg
 		return fmt.Errorf("failed to encrypt delegation metadata: %w", err)
 	}
 
+	// Both counterparty pseudonyms are written so trg_delegations_never_merge can compare against
+	// pseudonymised aliases without the database ever holding a key. See migration 005 §6b.
+	delegatePseudonym, err := r.encryptor.Pseudonym(r.tenantID, delegation.DelegateActorID)
+	if err != nil {
+		return fmt.Errorf("failed to pseudonymise delegate actor id: %w", err)
+	}
+	principalPseudonym, err := r.encryptor.Pseudonym(r.tenantID, delegation.PrincipalActorID)
+	if err != nil {
+		return fmt.Errorf("failed to pseudonymise principal actor id: %w", err)
+	}
+
 	const q = `
-		INSERT INTO delegations (delegate_actor_id, principal_actor_id, authz_ref, valid_from, valid_to, metadata, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO delegations (delegate_actor_id, principal_actor_id, authz_ref, valid_from, valid_to, metadata, created_at, delegate_actor_pseudonym, principal_actor_pseudonym)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (delegate_actor_id, principal_actor_id, valid_from) DO NOTHING
 		RETURNING id`
 
@@ -296,6 +397,8 @@ func (r *PostgresRepository) AddDelegation(ctx context.Context, delegation Deleg
 		delegation.ValidTo,
 		encryptedMeta,
 		delegation.CreatedAt,
+		delegatePseudonym,
+		principalPseudonym,
 	).Scan(&delegation.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -583,4 +686,3 @@ func (r *PostgresRepository) FindTransitiveDelegations(ctx context.Context, dele
 
 	return delegations, cycleDetected, nil
 }
-

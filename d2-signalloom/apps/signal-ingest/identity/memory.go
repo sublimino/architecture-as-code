@@ -19,11 +19,12 @@ type MemoryRepository struct {
 	aliases     []AliasRecord
 	delegations []DelegationRecord
 	encryptor   Encryptor
+	tenantID    string
 	aliasSeq    int64
 	delegSeq    int64
 }
 
-// NewMemoryRepository constructs a MemoryRepository.
+// NewMemoryRepository constructs a MemoryRepository bound to the environment's tenant scope.
 func NewMemoryRepository(encryptor ...Encryptor) *MemoryRepository {
 	var enc Encryptor
 	if len(encryptor) > 0 && encryptor[0] != nil {
@@ -31,12 +32,37 @@ func NewMemoryRepository(encryptor ...Encryptor) *MemoryRepository {
 	} else {
 		enc = NewNoopEncryptor()
 	}
+	return NewMemoryRepositoryWithTenant(enc, TenantIDFromEnv())
+}
+
+// NewMemoryRepositoryWithTenant constructs a MemoryRepository with an explicit tenant scope for
+// pseudonymisation. An empty tenantID falls back to DefaultTenantID rather than producing an
+// unscoped pseudonym.
+func NewMemoryRepositoryWithTenant(encryptor Encryptor, tenantID string) *MemoryRepository {
+	if encryptor == nil {
+		encryptor = NewNoopEncryptor()
+	}
+	if tenantID == "" {
+		tenantID = DefaultTenantID
+	}
 	return &MemoryRepository{
 		actors:      make(map[string]ActorRecord),
 		aliases:     make([]AliasRecord, 0),
 		delegations: make([]DelegationRecord, 0),
-		encryptor:   enc,
+		encryptor:   encryptor,
+		tenantID:    tenantID,
 	}
+}
+
+// TenantID returns the tenant scope this repository pseudonymises under.
+func (m *MemoryRepository) TenantID() string { return m.tenantID }
+
+// tenantFor resolves the effective tenant for a record, preferring an explicit per-record scope.
+func (m *MemoryRepository) tenantFor(recordTenant string) string {
+	if recordTenant != "" {
+		return recordTenant
+	}
+	return m.tenantID
 }
 
 // CreateActor inserts or updates an actor record.
@@ -102,15 +128,23 @@ func (m *MemoryRepository) AddAlias(ctx context.Context, alias AliasRecord) erro
 	if alias.ValidTo != nil && !alias.ValidFrom.Before(*alias.ValidTo) {
 		return fmt.Errorf("valid_from must be strictly before valid_to")
 	}
-	alias.AliasValueHash = m.encryptor.Hash(alias.AliasValue)
+	tenant := m.tenantFor(alias.TenantID)
+	pseudonym, err := m.encryptor.Pseudonym(tenant, alias.AliasValue)
+	if err != nil {
+		return fmt.Errorf("failed to pseudonymise alias value: %w", err)
+	}
+	alias.AliasValueHash = pseudonym
+	alias.TenantID = tenant
 	alias.ID = atomic.AddInt64(&m.aliasSeq, 1)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Idempotent check: if identical alias exists at valid_from, do not duplicate
+	// Idempotent check: if an identical alias exists at valid_from, do not duplicate.
+	// Matched on the pseudonym, mirroring the UNIQUE index that migration 005 builds on
+	// (actor_id, alias_type, alias_value_hash, valid_from).
 	for _, a := range m.aliases {
-		if a.ActorID == alias.ActorID && a.AliasType == alias.AliasType && a.AliasValue == alias.AliasValue && a.ValidFrom.Equal(alias.ValidFrom) {
+		if a.ActorID == alias.ActorID && a.AliasType == alias.AliasType && a.AliasValueHash == alias.AliasValueHash && a.ValidFrom.Equal(alias.ValidFrom) {
 			return nil
 		}
 	}
@@ -132,15 +166,21 @@ func (m *MemoryRepository) AddAlias(ctx context.Context, alias AliasRecord) erro
 }
 
 // FindAliasesAsOf returns aliases matching aliasValue active at asOf.
+// Matching is on the keyed pseudonym only, mirroring PostgresRepository.FindAliasesAsOf. A
+// cleartext comparison here would let the in-memory path resolve an alias the Postgres path
+// could not, which would make the memory repository a weaker double of the real one.
 func (m *MemoryRepository) FindAliasesAsOf(ctx context.Context, aliasValue string, asOf time.Time) ([]AliasRecord, error) {
-	hash := m.encryptor.Hash(aliasValue)
+	pseudonym, err := m.encryptor.Pseudonym(m.tenantID, aliasValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pseudonymise alias lookup value: %w", err)
+	}
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var result []AliasRecord
 	for _, a := range m.aliases {
-		if (a.AliasValue == aliasValue || a.AliasValueHash == hash) && a.IsActiveAt(asOf) {
+		if a.AliasValueHash == pseudonym && a.IsActiveAt(asOf) {
 			result = append(result, a)
 		}
 	}
@@ -415,4 +455,3 @@ func (m *MemoryRepository) FindTransitiveDelegations(ctx context.Context, delega
 
 	return path, cycleDetected, nil
 }
-

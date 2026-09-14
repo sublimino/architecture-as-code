@@ -293,7 +293,7 @@ previous phase governor, or on `P0` for phase 1.
 | P1-1 | implementation | Authenticate and authorise the signal-ingest HTTP API | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./api/...` | L | deep | pass — delivered: 0e6076ae (see Errata — SLDP-P1-1) | $0.00 | N/A | 45m | antigravity |
 | P1-2 | implementation | Make encryption and audit writers fail closed | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | pass — delivered: f375d731 (see Errata — SLDP-P1-2) | $0.00 | N/A | 25m | antigravity |
 | P1-3 | implementation | Build segment and checkpoint chain verifier; size milestones | P1-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: c3c36f96 (see Errata — SLDP-P1-3) | $0.00 | N/A | 50m | antigravity |
-| P1-GOV | governor | Certify live holes closed and verifier working | P1-1, P1-2, P1-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-GOV | governor | Certify live holes closed and verifier working | P1-1, P1-2, P1-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 53e412b6 (see Errata — SLDP-P1-GOV) | $0.00 | N/A | 15m | antigravity |
 | P2-PRE | preflight | Confirm identity-layer seams and the next free migration sequence | P1-GOV | `ls -1 d2-signalloom/apps/signal-ingest/identity/migrations/` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Keyed HMAC pseudonyms and envelope-encrypted alias values | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Tenant column and enforced row-level security on identity graph | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -379,12 +379,22 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - **Tamper & Negative Test Suite**: Added 17 verification tests in `store/segment_verifier_test.go` and `cmd/segment-verify/main_test.go` exercising corruption of segment Parquet bytes, signature forgery, intermediate symlinks, oversized envelopes, discontinuous journal sequence numbers, broken checkpoint chains, cumulative row count mismatches, schema tampering, highwater tip mutation, and historical key rotation.
 - **Milestone Sizing Published**: Sized M1–M4 in `docs/signalloom/sldp-p1-3-milestone-sizing.md` (Total 75.25–102.25 working days, 126.5–172.5 person-days across 2 core engineers, D+76–103 relative to D0).
 
-#### Errata — SLDP-P1-GOV (bootstrap)
-##### Task identity
-- Card: `SLDP-P1-GOV`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P1-GOV: Phase 1 Governor Certification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 14:28:12+01:00  
+**Last Updated:** 2026-09-14 14:28:12+01:00  
+**Status:** `pass`  
+**Commit:** `53e412b6`  
+**Evidence:** `docs/signalloom/sldp-p1-gov-proof.md`  
+
+**Phase 1 Governor Certification Summary:**
+- **Live Holes Certified Closed**: Verified all 32 HTTP route endpoints and 4 SSE streams in `signal-ingest` enforce SPIFFE JWT-SVID authentication and authorization under `NewProtectedRouter`, rejecting unauthenticated calls with 401/403.
+- **Fail-Closed Controls Verified**: Confirmed missing/empty encryption keys fail startup (`ErrNoopEncryptionNotAllowed`), `NopWriter` returns `ErrAuditDisabled`, and `handlePromoteActor` fails closed (503) on audit persistence failure.
+- **Independent Verifier Operational**: Verified `store/verify` and `cmd/segment-verify` correctly reject corrupted Parquet bytes, signature forgery, intermediate symlinks, and broken checkpoint chains (17 test suites pass 100%).
+- **Milestone Sizing Attached**: Integrated M1–M4 sizing (75.25–102.25 working days, 126.5–172.5 person-days, 2 core consultants, D+76–103).
+- **Tenant-Binding Contract Published**: Published strict downstream contract for `SLDP-P2-2` (Row-Level Security).
+- **Certified Proof**: Documented in `docs/signalloom/sldp-p1-gov-proof.md`.
+
 
 #### Errata — SLDP-P2-PRE (bootstrap)
 ##### Task identity

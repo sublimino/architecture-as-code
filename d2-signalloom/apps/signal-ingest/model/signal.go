@@ -116,6 +116,25 @@ type Observation struct {
 	ImpersonatedUser string        `json:"impersonated_user,omitempty"`
 	DelegationDepth  int           `json:"delegation_depth,omitempty"`
 	DelegationEdge   *EvidenceLink `json:"delegation_edge,omitempty"`
+
+	// Pseudonymous projection (SLDP-P3-1).
+	//
+	// From segment column-schema signalloom.observations/v2 onward the immutable columnar store
+	// holds these instead of the six cleartext identifier fields above. An observation read back
+	// out of a v2 segment therefore has empty ActorHint / ActorID / PrincipalID / SessionID /
+	// ImpersonatedUser / RawEvidenceRef and populated HMAC* fields; one read out of a v1 segment
+	// has the reverse. SchemaVersion says which, so a consumer can tell an erased identifier from
+	// an absent one rather than inferring it from emptiness.
+	//
+	// Every field is omitempty: a v1 observation serialises byte-identically to before this change,
+	// so no existing JSON consumer sees a new key on historical data.
+	SchemaVersion        string `json:"schema_version,omitempty"`
+	HMACActorHint        string `json:"hmac_actor_hint,omitempty"`
+	HMACActorID          string `json:"hmac_actor_id,omitempty"`
+	HMACPrincipalID      string `json:"hmac_principal_id,omitempty"`
+	HMACSessionID        string `json:"hmac_session_id,omitempty"`
+	HMACImpersonatedUser string `json:"hmac_impersonated_user,omitempty"`
+	EvidenceRefDigest    string `json:"evidence_ref_digest,omitempty"`
 }
 
 // Validate checks that all required fields are present and values are in range.

@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/transform"
 	"github.com/polarsignals/frostdb"
 	"github.com/polarsignals/frostdb/query"
 	"github.com/polarsignals/frostdb/query/logicalplan"
@@ -37,15 +39,60 @@ type FrostDBStore struct {
 	droppedBefore time.Time
 	mu            sync.RWMutex
 	attestor      *SegmentAttestor
+	pseudonymiser *SegmentPseudonymiser
+	labelAllow    map[string]struct{}
 }
 
 type frostDBStoreConfig struct {
-	manualFlush bool
-	attestation *SegmentAttestorConfig
+	manualFlush   bool
+	attestation   *SegmentAttestorConfig
+	pseudonymiser *SegmentPseudonymiser
+	labelAllow    map[string]struct{}
+	labelAllowSet bool
+	labelAllowErr error
 }
 
 // FrostDBStoreOption configures persistence behavior without changing queries.
 type FrostDBStoreOption func(*frostDBStoreConfig)
+
+// WithSegmentPseudonymiser supplies the keyed pseudonymiser used to convert direct identifiers
+// into segment columns. Without one — by option or by environment — the store refuses to be
+// constructed; see resolvePseudonymiser.
+func WithSegmentPseudonymiser(p *SegmentPseudonymiser) FrostDBStoreOption {
+	return func(cfg *frostDBStoreConfig) { cfg.pseudonymiser = p }
+}
+
+// WithLabelAllowList replaces the built-in dynamic-label allow-list.
+//
+// A nil or empty set is an error rather than a permit-all. The error is carried on the config and
+// surfaced at construction, because an Option cannot return one and silently ignoring it would
+// produce a store whose label control is configured and inert.
+func WithLabelAllowList(set map[string]struct{}) FrostDBStoreOption {
+	return func(cfg *frostDBStoreConfig) {
+		if err := validateLabelAllowList(set); err != nil {
+			cfg.labelAllowErr = err
+			return
+		}
+		out := make(map[string]struct{}, len(set))
+		for k := range set {
+			out[k] = struct{}{}
+		}
+		cfg.labelAllow = out
+		cfg.labelAllowSet = true
+	}
+}
+
+// resolvePseudonymiser returns the configured pseudonymiser, falling back to the environment.
+//
+// It fails closed. There is no compiled-in default key and no passthrough mode: a process that
+// cannot pseudonymise must refuse to start rather than write cleartext identity into an immutable,
+// signed segment that can never afterwards be erased.
+func resolvePseudonymiser(cfg *frostDBStoreConfig) (*SegmentPseudonymiser, error) {
+	if cfg.pseudonymiser != nil {
+		return cfg.pseudonymiser, nil
+	}
+	return NewSegmentPseudonymiserFromEnv()
+}
 
 // WithManualFlush disables automatic size rotation and exposes Flush as the
 // deterministic immutable-segment boundary used by integration tests.
@@ -59,8 +106,15 @@ func WithSegmentAttestation(cfg SegmentAttestorConfig) FrostDBStoreOption {
 }
 
 // NewFrostDBStore creates a new in-memory FrostDB-backed store.
-func NewFrostDBStore() (*FrostDBStore, error) {
-	return newFrostDBStore(nil)
+//
+// It resolves its pseudonymiser from the environment and returns
+// ErrSegmentPseudonymKeyRequired when no key material is available.
+func NewFrostDBStore(options ...FrostDBStoreOption) (*FrostDBStore, error) {
+	cfg := frostDBStoreConfig{}
+	for _, option := range options {
+		option(&cfg)
+	}
+	return newFrostDBStore(&cfg, nil)
 }
 
 // NewFrostDBStoreWithBucket creates a FrostDB store backed by a filesystem
@@ -92,14 +146,31 @@ func NewFrostDBStoreWithBucket(dir string, options ...FrostDBStoreOption) (*Fros
 	if cfg.manualFlush {
 		frostOptions = append(frostOptions, frostdb.WithManualBlockRotation())
 	}
-	store, err := newFrostDBStore(attestor, frostOptions...)
+	store, err := newFrostDBStore(&cfg, attestor, frostOptions...)
 	if err != nil && attestor != nil {
 		_ = attestor.Close()
 	}
 	return store, err
 }
 
-func newFrostDBStore(attestor *SegmentAttestor, opts ...frostdb.Option) (*FrostDBStore, error) {
+func newFrostDBStore(cfg *frostDBStoreConfig, attestor *SegmentAttestor, opts ...frostdb.Option) (*FrostDBStore, error) {
+	if cfg == nil {
+		cfg = &frostDBStoreConfig{}
+	}
+	// Refuse before allocating anything. A store that cannot pseudonymise, or whose label control
+	// was configured into an inert state, must not exist at all.
+	if cfg.labelAllowErr != nil {
+		return nil, cfg.labelAllowErr
+	}
+	pseudonymiser, err := resolvePseudonymiser(cfg)
+	if err != nil {
+		return nil, err
+	}
+	labelAllow := cfg.labelAllow
+	if !cfg.labelAllowSet {
+		labelAllow = DefaultLabelAllowList()
+	}
+
 	cs, err := frostdb.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("frostdb: new column store: %w", err)
@@ -126,32 +197,53 @@ func newFrostDBStore(attestor *SegmentAttestor, opts ...frostdb.Option) (*FrostD
 	engine := query.NewEngine(pool, db.TableProvider())
 
 	return &FrostDBStore{
-		cs:       cs,
-		db:       db,
-		table:    tbl,
-		engine:   engine,
-		pool:     pool,
-		attestor: attestor,
+		cs:            cs,
+		db:            db,
+		table:         tbl,
+		engine:        engine,
+		pool:          pool,
+		attestor:      attestor,
+		pseudonymiser: pseudonymiser,
+		labelAllow:    labelAllow,
 	}, nil
 }
 
+// Pseudonymiser exposes the store's keyed pseudonymiser so a caller can compute the pseudonym of a
+// query value, and so evidence can record the epoch and tenant scope the segments were written
+// under. It never returns nil on a constructed store.
+func (f *FrostDBStore) Pseudonymiser() *SegmentPseudonymiser { return f.pseudonymiser }
+
+// schemaDef declares the v2 segment column layout (SegmentSchemaV2).
+//
+// SLDP-P3-1 removed the six cleartext identifier columns listed in v1RemovedColumns and replaced
+// them with keyed pseudonyms. Existing v1 segments are NOT rewritten — Parquet segments are signed
+// and chained, so rewriting one breaks its attestation and the checkpoint continuity after it.
+// Segments of both generations therefore coexist in the bucket indefinitely, and
+// recordToObservations decodes whichever it is handed.
 func schemaDef() *schemapb.Schema {
+	str := func(name string) *schemapb.Column {
+		return &schemapb.Column{Name: name, StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}}
+	}
 	return &schemapb.Schema{
 		Columns: []*schemapb.Column{
-			{Name: "id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			str("id"),
 			{Name: "timestamp", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_INT64}},
-			{Name: "layer", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "fidelity", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "source", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			str("layer"),
+			str("fidelity"),
+			str("source"),
 			{Name: "confidence", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_DOUBLE}},
-			{Name: "actor_hint", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "raw_evidence_ref", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "description", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "principal_id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "actor_id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "session_id", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
-			{Name: "impersonated_user", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_STRING}},
+			str("description"),
 			{Name: "delegation_depth", StorageLayout: &schemapb.StorageLayout{Type: schemapb.StorageLayout_TYPE_INT64}},
+			// Self-describing generation marker. A segment without this column is v1.
+			str(SegmentSchemaVersionColumn),
+			// Keyed pseudonyms. Equality on these is equality on the plaintext, so predicate
+			// pushdown is preserved exactly — which is why these are HMACs and not ciphertext.
+			str(ColHMACActorHint),
+			str(ColHMACActorID),
+			str(ColHMACPrincipalID),
+			str(ColHMACSessionID),
+			str(ColHMACImpersonatedUser),
+			str(ColEvidenceRefDigest),
 			{
 				Name: "labels",
 				StorageLayout: &schemapb.StorageLayout{
@@ -163,15 +255,35 @@ func schemaDef() *schemapb.Schema {
 	}
 }
 
-// Append writes observations into FrostDB as Arrow records.
+// Append writes observations into FrostDB as Arrow records under segment schema v2.
+//
+// Two controls run before a single Arrow builder is allocated, because a segment is immutable and
+// signed: once a row is in a Parquet block there is no later pass that can take it out.
+//
+//  1. Every dynamic label key is checked against the allow-list. A disallowed key refuses the
+//     whole batch. Checking at query time instead would be no control at all — the data would
+//     already be in the segment.
+//  2. Every direct identifier is replaced by a keyed pseudonym. Nothing in v1RemovedColumns is
+//     written.
 func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observation) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Collect all dynamic label keys across this batch.
+	if f.pseudonymiser == nil {
+		// Unreachable on a store built through the constructors, which refuse without key
+		// material. Kept as a fail-closed backstop for a zero-valued struct.
+		return ErrSegmentPseudonymKeyRequired
+	}
+
+	// Collect all dynamic label keys across this batch, refusing any key outside the allow-list.
+	// The refusal happens here, ahead of array.NewRecordBuilder, so a rejected key never reaches a
+	// record, a block, a Parquet file or an attestation.
 	dynCols := map[string]struct{}{}
 	for _, o := range observations {
 		for k := range o.Labels {
+			if _, ok := f.labelAllow[k]; !ok {
+				return &DisallowedLabelKeyError{Key: k, ObservationID: o.ID}
+			}
 			dynCols[k] = struct{}{}
 		}
 	}
@@ -179,27 +291,51 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 	for k := range dynCols {
 		dynNames = append(dynNames, k)
 	}
+	sort.Strings(dynNames)
 
-	// Build Arrow schema: static columns + dynamic label columns.
+	// Pseudonymise the whole batch before building anything, so a pseudonymisation failure aborts
+	// with nothing written rather than leaving a partially-identified record.
+	pseudonyms := make([]observationPseudonyms, len(observations))
+	descriptions := make([]string, len(observations))
+	for i, o := range observations {
+		p, err := f.pseudonymiseObservation(o)
+		if err != nil {
+			return err
+		}
+		pseudonyms[i] = p
+		// `description` is the one free-text column surviving into v2, and it is redacted HERE
+		// rather than at any caller.
+		//
+		// Redacting at a caller was the original mistake: `api/audit/receiver.go` was fixed and
+		// the other seven writers were not, so `POST /api/v1/observations` could still put an
+		// attacker-supplied "alice@corp.com from 10.0.0.5" into a signed, unerasable segment while
+		// every schema-level test stayed green — those tests inspect column NAMES and are blind to
+		// the payload. A guard applied by one caller of eight is the same as no guard. Append is
+		// the single chokepoint every writer crosses, so the guard belongs at the chokepoint.
+		descriptions[i] = segmentDescriptionRedactor.RedactText(o.Description)
+	}
+
+	// Build Arrow schema: static columns + dynamic label columns, alphabetically ordered.
+	// "labels." sorts after "id" and before "layer", which is where the dynamic block belongs.
 	fields := []arrow.Field{
-		{Name: "actor_hint", Type: arrow.BinaryTypes.String},
-		{Name: "actor_id", Type: arrow.BinaryTypes.String},
 		{Name: "confidence", Type: arrow.PrimitiveTypes.Float64},
 		{Name: "delegation_depth", Type: arrow.PrimitiveTypes.Int64},
 		{Name: "description", Type: arrow.BinaryTypes.String},
+		{Name: ColEvidenceRefDigest, Type: arrow.BinaryTypes.String},
 		{Name: "fidelity", Type: arrow.BinaryTypes.String},
+		{Name: ColHMACActorHint, Type: arrow.BinaryTypes.String},
+		{Name: ColHMACActorID, Type: arrow.BinaryTypes.String},
+		{Name: ColHMACImpersonatedUser, Type: arrow.BinaryTypes.String},
+		{Name: ColHMACPrincipalID, Type: arrow.BinaryTypes.String},
+		{Name: ColHMACSessionID, Type: arrow.BinaryTypes.String},
 		{Name: "id", Type: arrow.BinaryTypes.String},
-		{Name: "impersonated_user", Type: arrow.BinaryTypes.String},
 	}
-	// Dynamic label columns are inserted alphabetically among other columns.
 	for _, k := range dynNames {
-		fields = append(fields, arrow.Field{Name: "labels." + k, Type: arrow.BinaryTypes.String, Nullable: true})
+		fields = append(fields, arrow.Field{Name: LabelColumnPrefix + k, Type: arrow.BinaryTypes.String, Nullable: true})
 	}
 	fields = append(fields,
 		arrow.Field{Name: "layer", Type: arrow.BinaryTypes.String},
-		arrow.Field{Name: "principal_id", Type: arrow.BinaryTypes.String},
-		arrow.Field{Name: "raw_evidence_ref", Type: arrow.BinaryTypes.String},
-		arrow.Field{Name: "session_id", Type: arrow.BinaryTypes.String},
+		arrow.Field{Name: SegmentSchemaVersionColumn, Type: arrow.BinaryTypes.String},
 		arrow.Field{Name: "source", Type: arrow.BinaryTypes.String},
 		arrow.Field{Name: "timestamp", Type: arrow.PrimitiveTypes.Int64},
 	)
@@ -208,23 +344,30 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 	builder := array.NewRecordBuilder(f.pool, arrowSchema)
 	defer builder.Release()
 
-	for _, o := range observations {
+	for i, o := range observations {
+		p := pseudonyms[i]
 		idx := 0
-		builder.Field(idx).(*array.StringBuilder).Append(o.ActorHint)
-		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.ActorID)
-		idx++
 		builder.Field(idx).(*array.Float64Builder).Append(o.Confidence)
 		idx++
 		builder.Field(idx).(*array.Int64Builder).Append(int64(o.DelegationDepth))
 		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.Description)
+		builder.Field(idx).(*array.StringBuilder).Append(descriptions[i])
+		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(p.EvidenceRefDigest)
 		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(string(o.Fidelity))
 		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.ID)
+		builder.Field(idx).(*array.StringBuilder).Append(p.ActorHint)
 		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.ImpersonatedUser)
+		builder.Field(idx).(*array.StringBuilder).Append(p.ActorID)
+		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(p.ImpersonatedUser)
+		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(p.PrincipalID)
+		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(p.SessionID)
+		idx++
+		builder.Field(idx).(*array.StringBuilder).Append(o.ID)
 		idx++
 		// Dynamic label columns
 		for _, k := range dynNames {
@@ -238,11 +381,7 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 		}
 		builder.Field(idx).(*array.StringBuilder).Append(string(o.Layer))
 		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.PrincipalID)
-		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.RawEvidenceRef)
-		idx++
-		builder.Field(idx).(*array.StringBuilder).Append(o.SessionID)
+		builder.Field(idx).(*array.StringBuilder).Append(SegmentSchemaV2)
 		idx++
 		builder.Field(idx).(*array.StringBuilder).Append(o.Source)
 		idx++
@@ -259,6 +398,49 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 	return nil
 }
 
+// segmentDescriptionRedactor scrubs direct identifiers out of free text on its way into an
+// immutable segment. Stateless, so one shared instance is safe.
+var segmentDescriptionRedactor = transform.NewSecretRedactor()
+
+// observationPseudonyms holds the keyed replacements for one observation's direct identifiers.
+type observationPseudonyms struct {
+	ActorHint         string
+	ActorID           string
+	PrincipalID       string
+	SessionID         string
+	ImpersonatedUser  string
+	EvidenceRefDigest string
+}
+
+// pseudonymiseObservation computes every keyed replacement for one observation.
+//
+// An empty source field yields an empty pseudonym rather than the pseudonym of "": a constant
+// digest written into every identity-free row would be a join key linking all of them, which is a
+// correlation channel invented by the privacy fix.
+func (f *FrostDBStore) pseudonymiseObservation(o model.Observation) (observationPseudonyms, error) {
+	var p observationPseudonyms
+	var err error
+	if p.ActorHint, err = f.pseudonymiser.Pseudonym(o.ActorHint); err != nil {
+		return p, err
+	}
+	if p.ActorID, err = f.pseudonymiser.Pseudonym(o.ActorID); err != nil {
+		return p, err
+	}
+	if p.PrincipalID, err = f.pseudonymiser.Pseudonym(o.PrincipalID); err != nil {
+		return p, err
+	}
+	if p.SessionID, err = f.pseudonymiser.Pseudonym(o.SessionID); err != nil {
+		return p, err
+	}
+	if p.ImpersonatedUser, err = f.pseudonymiser.Pseudonym(o.ImpersonatedUser); err != nil {
+		return p, err
+	}
+	if p.EvidenceRefDigest, err = f.pseudonymiser.EvidenceRefDigest(o.RawEvidenceRef); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
 // QueryRange reads observations from FrostDB using the query engine with pushed-down filters.
 func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observation, error) {
 	f.mu.RLock()
@@ -273,12 +455,16 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 
 	builder := f.engine.ScanTable(tableName).
 		Project(logicalplan.All())
-	if filter := buildFilter(q); filter != nil {
+	filter, err := buildFilter(q, f.pseudonymiser)
+	if err != nil {
+		return nil, fmt.Errorf("frostdb: build filter: %w", err)
+	}
+	if filter != nil {
 		builder = builder.Filter(filter)
 	}
 
 	var results []model.Observation
-	err := builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
+	err = builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
 		if q.Limit > 0 && len(results) >= q.Limit {
 			return nil
 		}
@@ -304,7 +490,13 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 
 // matchesQuery applies query filters to an observation. Retained as a correctness
 // oracle for testing equivalence between pushed-down FrostDB execution and in-memory evaluation.
-func matchesQuery(o model.Observation, q Query) bool {
+//
+// The actor comparison is generation-aware. A v1 observation carries a cleartext ActorHint and is
+// compared against the raw query value; a v2 observation carries only HMACActorHint and is compared
+// against the pseudonym of that value. If the oracle compared one representation only, it would
+// disagree with the engine on exactly half the corpus and the equivalence tests would read as an
+// engine defect.
+func matchesQuery(o model.Observation, q Query, p *SegmentPseudonymiser) bool {
 	if !q.After.IsZero() && o.Timestamp.Before(q.After) {
 		return false
 	}
@@ -323,13 +515,30 @@ func matchesQuery(o model.Observation, q Query) bool {
 			return false
 		}
 	}
-	if q.ActorID != "" && o.ActorHint != q.ActorID {
-		return false
+	if q.ActorID != "" {
+		if o.SchemaVersion == SegmentSchemaV2 || o.HMACActorHint != "" {
+			if p == nil {
+				return false
+			}
+			pseudonym, err := p.Pseudonym(q.ActorID)
+			if err != nil || o.HMACActorHint != pseudonym {
+				return false
+			}
+		} else if o.ActorHint != q.ActorID {
+			return false
+		}
 	}
 	return true
 }
 
 // recordToObservations converts an Arrow record batch to model.Observation slices.
+//
+// It decodes BOTH segment column-schema generations from the same corpus, which is a permanent
+// requirement rather than a migration window: v1 segments are signed and chained, so they are
+// never rewritten and never go away. Detection is by column presence — every lookup below is
+// guarded by `colIdx[name]`, so a v2 record simply has no `actor_hint` to find and a v1 record has
+// no `hmac_actor_hint`. SchemaVersion on the result says which was read, so a consumer can tell a
+// pseudonymised identifier from an absent one instead of inferring it from emptiness.
 func recordToObservations(r arrow.Record) []model.Observation {
 	n := int(r.NumRows())
 	if n == 0 {
@@ -344,10 +553,12 @@ func recordToObservations(r arrow.Record) []model.Observation {
 	}
 
 	results := make([]model.Observation, n)
+	generation := SegmentSchemaOf(r)
 
 	for i := 0; i < n; i++ {
 		o := model.Observation{
-			Labels: make(map[string]string),
+			Labels:        make(map[string]string),
+			SchemaVersion: generation,
 		}
 
 		if idx, ok := colIdx["id"]; ok {
@@ -392,6 +603,31 @@ func recordToObservations(r arrow.Record) []model.Observation {
 		}
 		if idx, ok := colIdx["delegation_depth"]; ok {
 			o.DelegationDepth = int(int64At(r.Column(idx), i))
+		}
+
+		// v2 pseudonym columns. Absent on a v1 record, which is why each is guarded.
+		if idx, ok := colIdx[ColHMACActorHint]; ok {
+			o.HMACActorHint = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx[ColHMACActorID]; ok {
+			o.HMACActorID = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx[ColHMACPrincipalID]; ok {
+			o.HMACPrincipalID = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx[ColHMACSessionID]; ok {
+			o.HMACSessionID = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx[ColHMACImpersonatedUser]; ok {
+			o.HMACImpersonatedUser = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx[ColEvidenceRefDigest]; ok {
+			o.EvidenceRefDigest = stringAt(r.Column(idx), i)
+		}
+		if idx, ok := colIdx[SegmentSchemaVersionColumn]; ok {
+			if v := stringAt(r.Column(idx), i); v != "" {
+				o.SchemaVersion = v
+			}
 		}
 
 		// Extract dynamic label columns (prefixed with "labels.").
@@ -515,24 +751,28 @@ func (f *FrostDBStore) WaitForAttestations(ctx context.Context) error {
 const (
 	colTimestamp = "timestamp"
 	colLayer     = "layer"
-	colActorHint = "actor_hint"
+	// colActorHint is the pushdown column for Query.ActorID. It moved from the cleartext
+	// "actor_hint" to the keyed pseudonym in segment schema v2. The predicate shape is unchanged —
+	// still a single Eq on a STRING column — because a keyed HMAC is deterministic, so equality on
+	// the pseudonym is equality on the plaintext. That property is the entire reason this card
+	// pseudonymises rather than encrypts: an encrypted column would have forced a decrypt-and-scan,
+	// measured at 19.43 ms p95 against a 2.75 ms budget.
+	colActorHint = ColHMACActorHint
 )
 
 // validateFilterColumns ensures that the column names targeted by query pushdown
 // exist in the FrostDB schema definition.
 func validateFilterColumns(schema *schemapb.Schema) error {
-	required := map[string]bool{
-		colTimestamp: false,
-		colLayer:     false,
-		colActorHint: false,
-	}
+	// Ordered, not map-ranged. Ranging a map made the reported column depend on Go's randomised
+	// iteration order, so with two columns missing the message named an arbitrary one — and a test
+	// asserting on the message was flaky in a way that only showed up once a second column moved.
+	required := []string{colTimestamp, colLayer, colActorHint}
+	present := make(map[string]struct{}, len(schema.Columns))
 	for _, col := range schema.Columns {
-		if _, ok := required[col.Name]; ok {
-			required[col.Name] = true
-		}
+		present[col.Name] = struct{}{}
 	}
-	for name, found := range required {
-		if !found {
+	for _, name := range required {
+		if _, ok := present[name]; !ok {
 			return fmt.Errorf("frostdb: required filter column %q not found in schema", name)
 		}
 	}
@@ -544,10 +784,19 @@ func validateFilterColumns(schema *schemapb.Schema) error {
 //   - q.After  -> timestamp >= q.After.UnixNano() (int64)
 //   - q.Before -> timestamp < q.Before.UnixNano() (int64)
 //   - q.Layers -> layer == layer[0] OR layer == layer[1] ...
-//   - q.ActorID -> actor_hint == q.ActorID
+//   - q.ActorID -> hmac_actor_hint == pseudonym(q.ActorID)
+//
 // Multiple predicates are combined with logicalplan.And.
 // An empty query returns nil so the engine performs an unfiltered scan.
-func buildFilter(q Query) logicalplan.Expr {
+//
+// The actor predicate keeps its exact pre-v2 shape — one Eq against one STRING column — so the
+// pushdown plan and its measured latency are unchanged. Only the literal moves, from the caller's
+// cleartext identifier to that identifier's keyed pseudonym.
+//
+// It fails closed: filtering by actor with no pseudonymiser returns an error rather than falling
+// back to emitting the cleartext literal, which would both miss every v2 row and put the caller's
+// identifier into a query plan and any log that records one.
+func buildFilter(q Query, p *SegmentPseudonymiser) (logicalplan.Expr, error) {
 	var exprs []logicalplan.Expr
 
 	if !q.After.IsZero() {
@@ -568,16 +817,23 @@ func buildFilter(q Query) logicalplan.Expr {
 	}
 
 	if q.ActorID != "" {
-		exprs = append(exprs, colRef(colActorHint).Eq(logicalplan.Literal(q.ActorID)))
+		if p == nil {
+			return nil, ErrSegmentPseudonymKeyRequired
+		}
+		pseudonym, err := p.Pseudonym(q.ActorID)
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, colRef(colActorHint).Eq(logicalplan.Literal(pseudonym)))
 	}
 
 	switch len(exprs) {
 	case 0:
-		return nil
+		return nil, nil
 	case 1:
-		return exprs[0]
+		return exprs[0], nil
 	default:
-		return logicalplan.And(exprs...)
+		return logicalplan.And(exprs...), nil
 	}
 }
 

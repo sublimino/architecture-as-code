@@ -463,12 +463,20 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - Comprehensive TestNeverMerge regression suite (7/7 pass) including constraint and index audit.
 
 
-#### Errata — SLDP-P2-GOV (bootstrap)
-##### Task identity
-- Card: `SLDP-P2-GOV`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P2-GOV: Phase 2 Governor Certification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 15:55:00+01:00  
+**Last Updated:** 2026-09-14 15:55:00+01:00  
+**Status:** `pass`  
+**Commit:** `a1aed148`  
+**Evidence:** `docs/signalloom/sldp-p2-gov-proof.md`  
+
+**Phase 2 Governor Certification Summary:**
+- **Remediation Verified**: Unified P2-1 pseudonymisation and P2-2 tenant isolation seams. Bound `tenantID: claim.TenantID` in `WithTenant`, aligned test fixtures, and established session tenant claims in live PostgreSQL tests.
+- **Rollback Completeness**: Authored, verified, and embedded `006_tenant_isolation_rls_rollback.sql` in `migrations.go`.
+- **Live Test Suite Execution**: 28/28 live PostgreSQL RLS tests pass (`make test-identity-rls-live`), 8/8 live PostgreSQL alias tests pass (`TestAliasPG`), combined execution passes 36/36, and all 15 signal-ingest packages pass unit tests (`make test-signal-ingest`).
+- **Invariants Certified**: Verified no bare SHA-256 of personal identifiers, table owner RLS confinement, non-superuser role permissions, pseudonym-space never-merge enforcement, and isolated tenant queries.
+- **Phase 3 Cleared**: Identity privacy contract is frozen. Certified proof recorded in `docs/signalloom/sldp-p2-gov-proof.md`.
 
 #### Errata — SLDP-P3-PRE (bootstrap)
 ##### Task identity

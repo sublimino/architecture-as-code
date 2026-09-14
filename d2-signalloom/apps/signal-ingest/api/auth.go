@@ -47,6 +47,11 @@ const (
 	PermissionAuditWrite       Permission = "audit:write"
 	PermissionRiskRead         Permission = "risk:read"
 	PermissionStream           Permission = "stream:read"
+	// PermissionErasureRequest gates the GDPR Article 17 erasure route (SLDP-P3-2). It is
+	// deliberately its own permission rather than folded into PermissionActorWrite: erasure
+	// destroys forensic attribution, so the set of principals who may request it must be
+	// narrowable independently of the set who may edit an actor.
+	PermissionErasureRequest Permission = "erasure:request"
 )
 
 var (
@@ -299,6 +304,12 @@ func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
 		{"GET", "/api/v1/stream", "GET /api/v1/stream", PermissionStream, false, false, h.handleStream}, {"GET", "/api/v1/observations/stream", "GET /api/v1/observations/stream", PermissionStream, false, false, h.handleStream}, {"GET", "/stream", "GET /stream", PermissionStream, false, false, h.handleStream}, {"GET", "/observations/stream", "GET /observations/stream", PermissionStream, false, false, h.handleStream},
 		{"POST", apiaudit.WebhookPath, "POST " + apiaudit.WebhookPath, PermissionAuditWrite, false, false, h.handleAuditWebhook}, {"POST", "/audit/webhook", "POST /audit/webhook", PermissionAuditWrite, false, false, h.handleAuditWebhook}, {"POST", apiaudit.GKEWebhookPath, "POST " + apiaudit.GKEWebhookPath, PermissionAuditWrite, false, false, h.handleGKECloudLogging}, {"POST", "/audit/gke", "POST /audit/gke", PermissionAuditWrite, false, false, h.handleGKECloudLogging}, {"POST", "/api/v1/audit/nono", "POST /api/v1/audit/nono", PermissionAuditWrite, false, false, h.handleNonoAudit}, {"POST", "/audit/nono", "POST /audit/nono", PermissionAuditWrite, false, false, h.handleNonoAudit},
 		{"GET", "/api/v1/risk/agents/{id}", "GET /api/v1/risk/agents/{id}", PermissionRiskRead, false, true, h.handleGetAgentRisk}, {"GET", "/api/v1/risk/fleet", "GET /api/v1/risk/fleet", PermissionRiskRead, true, false, h.handleGetFleetRisk}, {"GET", "/v1/risk/agents/{id}", "GET /v1/risk/agents/{id}", PermissionRiskRead, false, true, h.handleGetAgentRisk}, {"GET", "/v1/risk/fleet", "GET /v1/risk/fleet", PermissionRiskRead, true, false, h.handleGetFleetRisk},
+		// SLDP-P3-2. actorScoped is true so a principal may only request erasure of actors inside
+		// its own binding; the subject is read from the path so the guard and the erased subject
+		// cannot disagree. Registered here rather than on a bare mux because NewProtectedRouter is
+		// the sole production route-registration boundary, and a gate reachable by an unregistered
+		// route is not a gate.
+		{"POST", "/api/v1/privacy/erasure/{id}", "POST /api/v1/privacy/erasure/{id}", PermissionErasureRequest, false, true, h.handleEraseSubject},
 	}
 	if metrics != nil {
 		r = append(r, routeDefinition{"GET", "/metrics", "GET /metrics", PermissionMetrics, false, false, metrics.ServeHTTP})

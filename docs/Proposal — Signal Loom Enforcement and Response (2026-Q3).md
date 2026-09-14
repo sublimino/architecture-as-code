@@ -296,7 +296,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Validate SLER harness identity and clean monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLER`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P0 | preflight | Validate SLER harness identity and clean monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLER`; repository and board evidence only | S | fast | **pass** — baseline clean at `2fedff06`; 3/3 acceptance suites green (15/15, 15/15, 7/7); doctor exit 1 attributed to repo-wide inherited state, both board-scoped checks green; M1 confirmed from-zero client build; 2 baseline defects recorded (harness cannot fail; stun-sentinel does not compile) → `docs/signalloom/sler-p0-baseline.md` @ `e0b1671d` | $0.00 | N/A | ~11m | N/A |
 | P1-PRE | preflight | Inventory unresolved kickoff decisions and enforcement seams | P0 | Seam inventory; `d2-signalloom/apps/{fleet-manager,stun-sentinel}` inspection | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE, P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -329,15 +329,52 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 
 ### Spec: Errata
 
-#### Errata — SLER-P0 (bootstrap)
+#### Errata — SLER-P0 (preflight)
+- Created: 2026-09-15 00:08:28+01:00
+- Last Updated: 2026-09-15 00:08:28+01:00
+
 ##### Task identity
 - Card: `SLER-P0`
 - Shortcode: `SLER`
-- Commit: Pending
-- Result: Pending
+- Status: **pass**
+- Commit: `e0b1671da3eddc380544fe40374a55ee0a629763`
+- Task base: `2fedff0610b16682128cbcfac42eff9025320a53` (identical to `refs/heads/integration/sler-v0.1.0` at start of run)
+- Worktree branch label: `(detached)`
+- Result: Baseline validated; Phase 1 cleared to start; two pre-existing baseline defects recorded, not fixed
 
 ##### Deliverable verification
-- Verification: Baseline monorepo check and doctor output verified.
+- Deliverable: `docs/signalloom/sler-p0-baseline.md` — every recorded fact carries a `file:line` or command citation.
+- `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLER` → exit code `1`, `Doctor Status: UNHEALTHY`. **Attributed, not blocking.** The doctor does not short-circuit (`scripts/kanban-check.sh:72-126`, verdict at `:134`/`:141`), so all five checks ran; four are green and the single exception is check 3, a **repo-wide** fast-exit sweep over 29 tasks left by prior missions. Only checks 1 and 2 forward `--shortcode` (`:70`, `:78` vs `:90`, `:97`).
+- `scripts/kanban-check.sh link-check --shortcode SLER` → exit code `0`, `✓ all six rules pass`, `CRITICAL=0 FAIL=0 WARN=0`.
+- `scripts/kanban-check.sh progress --shortcode SLER` → SLER board resolves, 30 cards, `SLER-P0` the only card in flight.
+- `bash scripts/run-redteam-suite.sh` → exit code `0`, 15/15 scenarios, 0 escapes, 0 leaks.
+- `bats test/crkc-adversarial-redteam.bats` → exit code `0`, plan `1..15`, 15 ok, 0 not ok, 0 skip.
+- `bats test/acceptance-spec-coverage.bats` → exit code `0`, plan `1..7`, 7 ok, 0 not ok, 0 skip.
+- Working tree clean at `e0b1671da3eddc380544fe40374a55ee0a629763` after reverting a suite-induced mutation (below).
+
+##### Claims checked — including those that held
+- **Held.** `noopFleetClient` at `main.go:215` is the sole `FleetClient` implementation, selected unconditionally at `main.go:250`; `RevokeCredentials` returns `nil` at `main.go:221`; zero `InClusterConfig` and zero `BuildConfigFromFlags` in the module. **M1 is a from-zero client build, not a wiring swap.**
+- **Held.** No root `go.mod` and no `go.work`; 22 independent per-app modules. Every later card must `cd` into the app directory before any `go` command.
+- **Held.** `node-capability-guard` has no Dockerfile, no `base/`, no Deployment and no `ValidatingWebhookConfiguration`; a whole-repo grep finds zero YAML of any kind referencing it.
+- **Held.** `stun-sentinel/pkg/cgroup/freezer.go` exports `Freeze`/`Unfreeze`/`FreezePod`/`UnfreezePod`/`HealthCheck` (722 lines, card said ~720); `signalloom-stun-sentinel/freezer.go` is unexported `freeze`/`unfreeze` with no credential concept at all.
+- **Held.** `demo-signalloom-enforcement-test` does not exist anywhere in the repository. `demo-signalloom-api-test` does, at `Makefile:849`, taking `TIER` (default `contract`).
+
+##### Corrections to the card prompt
+- **The proposal is git-tracked in this repository.** The card prompt's instruction that it "lives in an Obsidian vault, NOT the repo" and must never be committed is incorrect: `git ls-files 'docs/Proposal*'` lists it among nine tracked proposals. Two independent files exist. This errata block is written to the **repo** copy, because that is the copy downstream cards branch from; an errata written only to the vault never reaches the integration branch.
+- **`signalloom-stun-sentinel/freezer.go` is 110 lines, not 98** as the card states.
+- **The "two fabricated Makefile targets in the Milestones table" finding is stale.** Grepping this proposal for `demo-signalloom` returns exactly one hit — `make demo-signalloom-api-test TIER=contract` at line 308 — which exists. `demo-signalloom-purple-test` survives only in `docs/Signal Loom — Next-Phase Proposals — Adversarial Critique (2026-Q3).md:45`, as a recommendation in a critique table, not as a target. The proposal was corrected before this card ran.
+
+##### Baseline defects recorded, not fixed (preflight role forbids remediation)
+- **CRITICAL — the acceptance harness is structurally incapable of failing.** `scripts/run-redteam-suite.sh:25` writes `docs/signalloom/evidence/adversarial-redteam-proof.json` from a heredoc of hardcoded literals (`scenarios_passed: 15`, `process_escapes: 0`, `freeze_latency_p95_ms: 12.0`); the only interpolated value is `$TIMESTAMP` at `:23`. No loop executes any scenario. Its one delegate, `test/bench-redteam-stress.sh`, is self-described as simulated (`:18`, `:23`, `:30`) and **clamps** its result to `1-18ms` at `:41`, writing to `/tmp/crkc-bench-freeze.json` (`:12`) — which nothing reads. `test/crkc-adversarial-redteam.bats:10` then asserts against the fabricated file. **Consequence: P6-1's stated evidence (`assert escape rate = 0`, line 325) is a tautology, and the Published Denial Matrix has no measurement source.** Owner: P6-1.
+- **`stun-sentinel` does not compile at HEAD.** `go build ./...` and `go vet ./...` both fail: `pkg/tc/bpf_embed.go:25:12: pattern tc_drop.bpf.o: no matching files found`. The embedded eBPF object is produced by `bpf/build.sh` and is not in the tree. Owner: P4-PRE.
+- **Two DaemonSets ship different images both named `stun-sentinel`** — `ghcr.io/controlplaneio-in-toto/stun-sentinel:v0.1.0` (`d2-signalloom/deploy/stun-sentinel-daemonset.yaml:113`) and `stun-sentinel:latest` (`d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml:39`). Owner: P4-1.
+- **Sentinel ancestry is inverted from the naive reading.** `signalloom-stun-sentinel/freezer.go` was first committed 2026-08-27 (`70ffed79`); `stun-sentinel/pkg/cgroup/freezer.go` on 2026-09-07 (`9886f3ce`). The 110-line file is the ancestor, not a trim of the 722-line one, and it declares `go 1.22.0` against the others' `go 1.24`.
+
+##### Tree-mutation warning for later cards
+`scripts/run-redteam-suite.sh` writes to the **tracked** file `docs/signalloom/evidence/adversarial-redteam-proof.json`, leaving the tree dirty on every run. The diff was inspected before reverting: the only changed field is `"generated"`; the entire `metrics` object is byte-identical between `HEAD` and the working copy. Reverted with `git checkout --`, not committed. Always inspect the verdict fields before reverting — a genuine regression would hide inside what looks like timestamp churn.
+
+##### Out-of-scope confirmation
+No Go source, Makefile, manifest, or test file was modified. No runtime state (`board.json`, task records) was written. No live customer infrastructure was contacted. No prior errata entry was altered.
 
 #### Errata — SLER-P1-PRE (preflight)
 ##### Task identity

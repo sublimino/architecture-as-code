@@ -157,3 +157,28 @@ certification commit.
 5. **Did not push.** Merging is local-only; the principal pushes after review.
 6. **Did not re-derive each merged card's internal findings from scratch.** Certification is from
    the proof documents plus a full independent re-run of the suites and the falsification probes.
+
+---
+
+## 8. Commissioned audits — what returned and what did not
+
+SLDP-P6-1 recorded that its mandatory E4 cross-vendor audit could not run (GPT-5.4 channel at its
+usage limit until 2026-09-19) and explicitly asked this card to run it before certifying.
+
+| Audit | Purpose | Outcome |
+|---|---|---|
+| **Commitment-boundary advisor** | "Any gaps before declaring done?" | **RETURNED — verdict "not done", four gaps.** Two were confirmed by probe and changed this certification: Property 2 was certified only on rejection tests (fixed by M2c), and every Property-1 kill was blind to the tenant predicate (confirmed by M1d, which SURVIVED). |
+| **Cross-vendor audit (Cato, GPT-5.x)** | Anthropic-family blind spots | **Commissioned; no verdict returned within this card's wall clock.** |
+| **Independent harness review (Forge, GPT-5.4)** | False kills, survivor misreporting, tree hygiene in the falsification harness | **Commissioned; no verdict returned within this card's wall clock.** |
+
+**Neither non-returning audit is reported as a pass, and nothing in this certification rests on
+either.** The cross-vendor blind spot SLDP-P6-1 flagged therefore remains **open across two
+consecutive phases**, and that is the honest state.
+
+What stands in their place is the advisor review above — which did not merely comment, it produced
+the single survivor in nine mutations and narrowed a headline property. The specific failure mode it
+caught (all mutations drawn from the same mental model as the tests they probe) is exactly the class
+a cross-vendor auditor exists to catch, which is the argument for running one, not against.
+
+**Recommendation to the next phase: run the cross-vendor audit against this certification when the
+channel is available, and treat `M1d SURVIVED` as its first input.**

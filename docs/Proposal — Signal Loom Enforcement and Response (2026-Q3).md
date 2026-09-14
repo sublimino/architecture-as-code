@@ -218,7 +218,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 - Shortcode: `SLER`
 - Integration branch: `refs/heads/integration/sler-v0.1.0`
 - Target components: `d2-signalloom/apps/{fleet-manager,stun-sentinel,signalloom-stun-sentinel,node-capability-guard}`
-- Acceptance commands: `make demo-signalloom-enforcement-test`, `make demo-signalloom-purple-test`, `bats test/acceptance-spec-coverage.bats`
+- Acceptance commands: `bash scripts/run-redteam-suite.sh`, `bats test/crkc-adversarial-redteam.bats`, `bats test/acceptance-spec-coverage.bats`
 
 #### Architectural constitution
 - **Unified Enforcer contract**: Fleet Manager orchestrates multi-plane containment via Go interface `Enforcer`:
@@ -246,9 +246,9 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 - `test/acceptance/` — Playwright browser and purple-team containment acceptance specs
 
 #### Testing standards
-- Offline unit and contract tests: `go test ./d2-signalloom/apps/fleet-manager/... ./d2-signalloom/apps/stun-sentinel/...`
-- Multi-plane integration test: `make demo-signalloom-enforcement-test`
-- Purple-team adversarial test: `make demo-signalloom-purple-test`
+- Offline unit and contract tests: `cd d2-signalloom/apps/fleet-manager && go test ./... && cd ../stun-sentinel && go test ./...`
+- Multi-plane integration test: `bash scripts/run-redteam-suite.sh`
+- Purple-team adversarial test: `bats test/crkc-adversarial-redteam.bats`
 - Acceptance coverage gate: `bats test/acceptance-spec-coverage.bats`
 
 #### Anti-patterns
@@ -294,9 +294,9 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Validate SLER harness identity and clean monorepo baseline | None | `kanban-check.sh --repo /home/andy/src/cp/osramp-demo --shortcode SLER doctor`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P0 | preflight | Validate SLER harness identity and clean monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLER`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P1-PRE | preflight | Inventory unresolved kickoff decisions and enforcement seams | P0 | Seam inventory; `d2-signalloom/apps/{fleet-manager,stun-sentinel}` inspection | S | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE | `go test ./d2-signalloom/apps/fleet-manager/...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE | `cd d2-signalloom/apps/fleet-manager && go test ./...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze versioned enforcement wire contracts and governance resume token | P1-1, P1-2 | Contract freeze in docs and Go types; resume token signature spec | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -318,9 +318,9 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P5-2 | implementation | Benchmark and publish per-plane denial matrix | P5-PRE | Latency benchmark test; published denial matrix documentation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-GOV | governor | Merge forensic ledger and prove 100% containment attestation roundtrip | P5-1, P5-2 | Ledger integrity test; zero un-attested containment events | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-PRE | preflight | Confirm purple-team attack harness and end-to-end fixtures | P5-GOV | Purple-team scenario inventory; fixture verification | S | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P6-1 | implementation | Execute purple-team containment escape suite across all planes | P6-PRE | `make demo-signalloom-purple-test`; assert escape rate = 0 | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P6-1 | implementation | Execute purple-team containment escape suite across all planes | P6-PRE | `bats test/crkc-adversarial-redteam.bats`; assert escape rate = 0 | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-2 | implementation | Publish operational runbook and denial matrix reference guide | P6-PRE | Astro docs build check; runbook clarity check | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P6-3 | implementation | Build automated end-to-end acceptance suite for multi-plane containment | P6-PRE | `make demo-signalloom-enforcement-test`; multi-plane containment run | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P6-3 | implementation | Build automated end-to-end acceptance suite for multi-plane containment | P6-PRE | `bash scripts/run-redteam-suite.sh`; multi-plane containment run | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-GOV | governor | Reconcile acceptance wiring, run full test suite, and certify SLER delivery | P6-1, P6-2, P6-3 | All SLER tests pass; SPEC-REGISTRY updated; Alpha evidence | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 
 ### Spec: Errata

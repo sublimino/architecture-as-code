@@ -65,6 +65,9 @@ type Handlers struct {
 	EventBus any
 }
 
+// Handlers contain application behavior only and do not authenticate requests.
+// Production routes must be registered exclusively through NewProtectedRouter.
+
 // readyCheckTimeout bounds the /readyz connectivity check. It must stay under
 // the readinessProbe's own timeoutSeconds (3, in
 // apps/signal-ingest/base/deployment.yaml) so the handler answers with a
@@ -75,45 +78,6 @@ type Handlers struct {
 // hangs the probe instead of failing it.
 const readyCheckTimeout = 2 * time.Second
 
-// RegisterRoutes adds all API routes to the mux.
-func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("GET /health", h.handleHealth)
-	mux.HandleFunc("GET /api/v1/health", h.handleHealth)
-	mux.HandleFunc("GET /readyz", h.handleReadyz)
-	mux.HandleFunc("POST /api/v1/observations", h.handleIngestObservations)
-	mux.HandleFunc("GET /api/v1/observations", h.handleQueryObservations)
-	mux.HandleFunc("GET /api/v1/actors", h.handleListActors)
-	mux.HandleFunc("GET /api/v1/actors/{id}", h.handleGetActor)
-	mux.HandleFunc("GET /api/v1/actors/{id}/authorization", h.handleGetActorAuthorization)
-	mux.HandleFunc("GET /api/v1/authorization", h.handleQueryAuthorization)
-	mux.HandleFunc("POST /api/v1/actors/{id}/promote", h.handlePromoteActor)
-	mux.HandleFunc("POST /api/v1/delegations", h.handleCreateDelegation)
-	mux.HandleFunc("POST /api/v1/delegations/clamp", h.handleClampDelegation)
-	mux.HandleFunc("POST /api/v1/delegations/revoke", h.handleRevokeDelegations)
-	mux.HandleFunc("DELETE /api/v1/delegations", h.handleClampDelegation)
-	mux.HandleFunc("GET /api/v1/coverage", handleCoverage)
-	mux.HandleFunc("POST /api/v1/correlate", h.handleCorrelate)
-	mux.HandleFunc("POST /api/v1/collectors/seed", h.handleSeed)
-	mux.HandleFunc("GET /api/v1/store/stats", h.handleStoreStats)
-	mux.HandleFunc("GET /api/v1/stream", h.handleStream)
-	mux.HandleFunc("GET /api/v1/observations/stream", h.handleStream)
-	mux.HandleFunc("GET /stream", h.handleStream)
-	mux.HandleFunc("GET /observations/stream", h.handleStream)
-	mux.HandleFunc("POST "+apiaudit.WebhookPath, h.handleAuditWebhook)
-	mux.HandleFunc("POST /audit/webhook", h.handleAuditWebhook)
-	mux.HandleFunc("POST "+apiaudit.GKEWebhookPath, h.handleGKECloudLogging)
-	mux.HandleFunc("POST /audit/gke", h.handleGKECloudLogging)
-	mux.HandleFunc("POST /api/v1/audit/nono", h.handleNonoAudit)
-	mux.HandleFunc("POST /audit/nono", h.handleNonoAudit)
-
-	// OpenFAIR quantitative risk routes (CRKC Phase 2)
-	mux.HandleFunc("GET /api/v1/risk/agents/{id}", h.handleGetAgentRisk)
-	mux.HandleFunc("GET /api/v1/risk/fleet", h.handleGetFleetRisk)
-	mux.HandleFunc("GET /v1/risk/agents/{id}", h.handleGetAgentRisk)
-	mux.HandleFunc("GET /v1/risk/fleet", h.handleGetFleetRisk)
-}
-
 func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
 	if h.AuditReceiver == nil {
 		writeError(w, http.StatusServiceUnavailable, "audit webhook receiver not configured")
@@ -121,7 +85,6 @@ func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	h.AuditReceiver.HandleAuditWebhook(w, r)
 }
-
 
 func (h *Handlers) handleNonoAudit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -410,8 +373,11 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, obs)
 }
 
-func (h *Handlers) handleListActors(w http.ResponseWriter, _ *http.Request) {
+func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
 	actors := h.Engine.GetActors()
+	if limit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && limit > 0 && len(actors) > limit {
+		actors = actors[:limit]
+	}
 	if actors == nil {
 		actors = []*model.ProvisionalActor{}
 	}
@@ -464,9 +430,13 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	returnedActors := actors
+	if limit := requestLimit(r, len(actors)); limit < len(returnedActors) {
+		returnedActors = returnedActors[:limit]
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"actors_discovered": len(actors),
-		"actors":            actors,
+		"actors":            returnedActors,
 	})
 }
 
@@ -775,7 +745,7 @@ func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
 		return scoredAgents[i].aleVal > scoredAgents[j].aleVal
 	})
 
-	topLimit := 5
+	topLimit := requestLimit(r, 5)
 	if len(scoredAgents) < topLimit {
 		topLimit = len(scoredAgents)
 	}
@@ -804,3 +774,9 @@ func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func requestLimit(r *http.Request, fallback int) int {
+	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 {
+		return n
+	}
+	return fallback
+}

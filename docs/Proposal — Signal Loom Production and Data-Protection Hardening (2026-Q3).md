@@ -300,8 +300,8 @@ previous phase governor, or on `P0` for phase 1.
 
 | P2-3 | implementation | Pin never-merge invariant across pseudonymisation change | P2-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | M | daily | pass — delivered: de00dbc4 (see Errata — SLDP-P2-3) | $0.00 | N/A | 6m | antigravity |
 
-| P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 31145c0c (see Errata — SLDP-P2-GOV) | $0.00 | N/A | 20m | Council |
+| P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | pass — delivered: 67cbc98b (see Errata — SLDP-P3-PRE) | $0.00 | N/A | 2m | antigravity |
 | P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Gate erasure with legal hold and dual-operator authorisation | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Certify redaction, attestation validity and latency budget | P3-1, P3-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -478,12 +478,20 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - **Invariants Certified**: Verified no bare SHA-256 of personal identifiers, table owner RLS confinement, non-superuser role permissions, pseudonym-space never-merge enforcement, and isolated tenant queries.
 - **Phase 3 Cleared**: Identity privacy contract is frozen. Certified proof recorded in `docs/signalloom/sldp-p2-gov-proof.md`.
 
-#### Errata — SLDP-P3-PRE (bootstrap)
-##### Task identity
-- Card: `SLDP-P3-PRE`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P3-PRE: Confirm columnar schema seams and the attestation chain shape
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 16:01:00+01:00  
+**Last Updated:** 2026-09-14 16:01:00+01:00  
+**Status:** `pass`  
+**Commit:** `67cbc98b`  
+**Evidence:** `docs/signalloom/sldp-p3-pre-proof.md`  
+
+**Phase 3 Preflight Verification Summary:**
+- Columnar Schema Seams Identified: `actor_hint`, `actor_id`, `principal_id`, `impersonated_user`, and dynamic `labels.*` mapped in `frostdb.go`.
+- Checkpoint Chain Invariants Confirmed: `PrevCheckpointDigest`, `CumulativeRowCount`, and Merkle framing verified in `verify.go`.
+- P1-3 Verifier Status: 100% PASS across all 23 verification and tamper-rejection tests.
+- Baseline Query Latency: Benchmarked at N=12,000 observations (p95 latency 1.32ms–2.51ms with Arrow pushdown vs 19.43ms full scan).
+- Risk Mitigations: Documented requirements for deterministic HMAC pushdown and additive schema versioning.
 
 #### Errata — SLDP-P3-1 (bootstrap)
 ##### Task identity

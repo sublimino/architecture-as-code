@@ -89,6 +89,27 @@ distinction between a subject exercising self-access and an operator exporting a
 Under this board's constitution — *"Controls fail closed"*, and the card's hard blocker *"Any
 control that fails OPEN"* — this blocks certification.
 
+**Severity, bounded honestly.** The export path is **not** globally ungated, and this finding should
+not be read as saying so. `api/auth.go:429` is the load-bearing control:
+
+```go
+429  if !principal.Permissions[rd.permission] || (rd.actorScoped && !principal.ActorIDs["*"] && !principal.ActorIDs[r.PathValue("id")]) {
+430      p.deny(w, r, principal, rd.path, rd.method, "authorization_denied", http.StatusForbidden)
+```
+
+Both export routes are registered `actorScoped`, and `ActorIDs` is populated only from the token
+binding's `actor_ids` claim (`auth.go:197-202`). The wildcard `*` is therefore an **explicit
+grant**, not a default — a principal without it cannot reach another subject's export at all
+(probe case A). What is broken is narrower and still real: `verifyRequesterForSubject` is dead code
+that cannot reject, and the second limb the handler documents — *"or hold administrative DPO/tenant
+rights"* — was never implemented, so **there is no distinction between a subject exercising
+self-access and an operator exporting a third party**, in either authorization or audit. Any
+principal holding `privacy:export` plus `actor_ids: ["*"]` is, for GDPR purposes, an unlogged DPO.
+How exposed that leaves a deployment is a function of how `*` is provisioned, which is
+configuration this governor did not inspect. The finding blocks because a control that cannot
+reject is a fail-open control regardless of what sits in front of it — not because the export
+endpoint is open to the world.
+
 **Not claimed.** Probe case C (a principal whose `TenantContext` names a different tenant) also
 returned HTTP 200, but the test harness uses `identity.NewMemoryRepository()`, which is not
 tenant-scoped. That result is a property of the harness, not evidence of a production
@@ -311,6 +332,17 @@ Stated so a later reader can tell a proven property from an accepted one.
 - **Nothing was probed against a live deployment.** All evidence is from the Go and Python test
   harnesses at `5b3c2f4e`. Per the card's out-of-scope rule, no live customer infrastructure was
   contacted.
+- **How `actor_ids: ["*"]` is provisioned in practice was not inspected.** That configuration is
+  what converts G1 from "unimplemented contract" into "unrestricted export", and it lives outside
+  this repository's code path.
+- **Three subagent audits were commissioned and none returned within the window** — a DPIA
+  citation-resolution audit, an adversarial signer audit including the P5-1 mutation test, and the
+  mandatory cross-vendor Cato audit of this refusal. Each was invoked; none produced a verdict
+  before the wall-clock budget closed. **No result from any of them is reported here.** Every
+  property they were assigned was instead verified directly and is cited to source above — except
+  the P5-1 mutation test, which remains outstanding and is recorded as such. In particular, **this
+  refusal has not been cross-vendor audited**, so the possibility that G1's severity is
+  overstated, or that P5-1 or P5-2 was wrongly certified, has not been independently tested.
 
 ## 6. Required tests
 

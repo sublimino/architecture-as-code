@@ -48,9 +48,15 @@ type PostgresRepository struct {
 }
 
 // NewPostgresRepository constructs a PostgresRepository sharing the provided sql.DB pool.
+// If encryptor is nil, it requires explicit development opt-in via DevOptInAllowed()
+// rather than silently defaulting to unencrypted cleartext storage in production.
 func NewPostgresRepository(db *sql.DB, encryptor Encryptor) *PostgresRepository {
 	if encryptor == nil {
-		encryptor = NewNoopEncryptor()
+		if DevOptInAllowed() {
+			encryptor = NewNoopEncryptor()
+		} else {
+			panic("identity: NewPostgresRepository requires a non-nil Encryptor in production mode (set IDENTITY_ENCRYPTION_KEY or INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true)")
+		}
 	}
 	return &PostgresRepository{
 		db:        db,

@@ -79,13 +79,42 @@ var (
 	ErrRefusalNotRecorded = errors.New("erasure was refused but the refusal could not be recorded")
 )
 
-// KeyDestructionReceipt is what a KeyDestroyer returns on success. The per-subject key hierarchy
-// and the real receipt shape belong to SLDP-P4-1; this is the seam it will implement.
+// KeyDestructionReceipt is what a KeyDestroyer returns on success.
+//
+// SLDP-P4-1 filled this in. The first four fields are the original seam and are unchanged; the rest
+// are additive and carry the values SLDP-P4-2's attested tombstone needs. The rich, per-version form
+// lives in package subjectkey as DestructionReceipt — only scalars cross into this package, because
+// privacy declares the KeyDestroyer interface that subjectkey implements and importing it back would
+// be a cycle.
+//
+// ReceiptDigest is the field the tombstone carries. It is a SHA-256 over subjectkey's canonical
+// encoding of the full receipt, salted by a persisted per-operation nonce so the digest cannot be
+// ground out from a guessed subject identifier — which would turn the tombstone into the
+// re-identification oracle SLDP-P4-PRE §6.1 forbids.
+//
+// NOTE for SLDP-P4-2: SubjectID here is CLEARTEXT, because privacy.KeyDestroyer is called with the
+// cleartext subject and this struct is an in-process return value, not an audit row. It must NOT be
+// copied into a tombstone; use SubjectPseudonym from Decision, or nothing at all.
 type KeyDestructionReceipt struct {
 	SubjectID   string    `json:"subject_id"`
 	TenantID    string    `json:"tenant_id"`
 	KeysRemoved int       `json:"keys_removed"`
 	DestroyedAt time.Time `json:"destroyed_at"`
+
+	// OperationID is the deterministic, keyed identifier of the erasure saga. Two erasure requests
+	// naming the same subject resolve to the same operation, and therefore to one destruction and
+	// one tombstone.
+	OperationID string `json:"operation_id,omitempty"`
+	// ReceiptSchema is the version-pinned schema label the digest was computed under.
+	ReceiptSchema string `json:"receipt_schema,omitempty"`
+	// ReceiptDigest is the hex SHA-256 a tombstone references.
+	ReceiptDigest string `json:"receipt_digest,omitempty"`
+	// ResidualPseudonym states what the destruction could not remove.
+	ResidualPseudonym string `json:"residual_pseudonym,omitempty"`
+	// StorageResidual states which copies of the ciphertext survive.
+	StorageResidual string `json:"storage_residual,omitempty"`
+	// ComplianceNote states which obligation was discharged and which was not.
+	ComplianceNote string `json:"compliance_note,omitempty"`
 }
 
 // KeyDestroyer performs the irreversible act this package gates.

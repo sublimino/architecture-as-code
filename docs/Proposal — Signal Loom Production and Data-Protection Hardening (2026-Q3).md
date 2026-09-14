@@ -314,7 +314,7 @@ previous phase governor, or on `P0` for phase 1.
 | P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | pass — delivered: 2ba84a18 (see Errata — SLDP-P5-2) | $0.00 | N/A | 30m | kpai |
 | P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: 67a18142 (see Errata — SLDP-P5-3) | $0.00 | N/A | 35m | deep |
 | P5-GOV | governor | Certify KMS signing, DPIA completeness and data-subject rights | P5-1, P5-2, P5-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | **fail — PHASE 5 DOES NOT CERTIFY.** P5-1 and P5-2 certify; P5-3 does not. G1 `export.go:424-455` requester verification returns `nil` on every path (fails open, proved by probe: wildcard-scope non-DPO principal gets an unrelated subject's Art. 15/20 export, HTTP 200). G2 `sldp-p5-3-proof.md:81-82` quotes a `--- PASS` for a test that does not exist. Proof: `docs/signalloom/sldp-p5-governor-proof.md`; delivered `0d0fe9a7fbf7841c9e0923c11382ded1611c4fdc` | $0.00 | 130,736 out | 24m01s | `82d2f89b-36af-4789-912e-b7c7c35e9781` |
-| P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | pass — delivered: 22f7e3d5 (see Errata — SLDP-P6-PRE) | $0.00 | N/A | 15m | antigravity |
+| P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | pass — delivered: 086ac1f3 (see Errata — SLDP-P6-PRE) | $0.00 | N/A | 15m | antigravity |
 | P6-1 | implementation | Retention controller with deletion receipts across every sink | P6-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-2 | implementation | Customer-self-hosted install proof as primary validation | P6-PRE | `test -f docs/signalloom/sldp-p6-2-selfhost-install-proof.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-GOV | governor | Certify data-protection contract and publish downstream contract | P6-1, P6-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -875,7 +875,7 @@ Two accounting caveats a later reader should not mistake for facts. **SLDP-P5-3 
 **Created:** 2026-09-14 23:05:26+01:00  
 **Last Updated:** 2026-09-14 23:05:26+01:00  
 **Status:** `pass`  
-**Commit:** `22f7e3d5c116bfae8ac7591c49088aad6f4d4d20`  
+**Commit:** `086ac1f3ee5976e93b3f4ed50489d8dc850250ac`  
 **Evidence:** `docs/signalloom/sldp-p6-pre-proof.md`  
 
 **Phase 6 Preflight Verification Summary:**

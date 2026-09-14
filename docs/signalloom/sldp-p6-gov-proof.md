@@ -103,12 +103,12 @@ Full table with observed failure lines: certification §2.
 | Mission certification with per-property evidence | `docs/signalloom/sldp-mission-certification.md` | Delivered |
 | Published downstream contract (5 elements + evidence integrity) | `docs/signalloom/sldp-downstream-contract.md` | Delivered |
 | Reconciled boundary map with per-verdict card attribution | certification §3 — 14 changed, 3 unchanged, 1 ownerless | Delivered |
-| Per-property falsification results | certification §2 — 7/7 killed | Delivered |
-| Consumability check naming each consumer file | contract §8 — 7 rows, all verified present | Delivered |
+| Per-property falsification results | certification §2 — 9 mutations, 8 killed, **1 SURVIVED** | Delivered |
+| Consumability check naming each consumer file | contract §8 — 7 rows, all verified present on disk, plus three binding warnings in §8.1 | Delivered |
 | Errata completeness, probe-derived | certification §5 — 28 cards, 28 covered, 0 missing | Delivered |
-| Headline claims restated with measurement conditions | certification §1 — three figures reconciled for latency | Delivered |
-| Qualifications | certification §6 — Q1, Q2, Q3 | Delivered |
-| Passed downstream unresolved | certification §7 — 9 items | Delivered |
+| Headline claims restated with measurement conditions | certification §1 — four latency figures reconciled; headline restated to the enforced 10 ms | Delivered |
+| Qualifications | certification §6 — Q1 ceiling gap, Q2 allow-list uncompiled, Q3 doctor scope | Delivered |
+| Passed downstream unresolved | certification §7 — 21 items (6 inherited, 5 from P6-1, 7 new, ranked) | Delivered |
 | Assumed rather than tested | certification §8 — 7 items | Delivered |
 | Proposal errata block + Work Decomposition Result | Proposal Appendix `#### Errata — SLDP-P6-GOV` | Delivered |
 

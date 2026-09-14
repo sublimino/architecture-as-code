@@ -302,7 +302,7 @@ previous phase governor, or on `P0` for phase 1.
 
 | P2-GOV | governor | Freeze identity privacy contract; no cleartext identifier remains | P2-1, P2-2, P2-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified: 31145c0c (see Errata — SLDP-P2-GOV) | $0.00 | N/A | 20m | Council |
 | P3-PRE | preflight | Confirm columnar schema seams and the attestation chain shape | P2-GOV | `rg -n 'actor_hint|labels' d2-signalloom/apps/signal-ingest/store/frostdb.go` | S | fast | pass — delivered: 67cbc98b (see Errata — SLDP-P3-PRE) | $0.00 | N/A | 2m | antigravity |
-| P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: 6bc67236 (see Errata — SLDP-P3-1) | $0.00 | N/A | N/A | N/A |
+| P3-1 | implementation | Remove cleartext identity from immutable columnar segments | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | pass — delivered: 6bc67236 (see Errata — SLDP-P3-1) | $0.00 | N/A | 35m | kpai |
 | P3-2 | implementation | Gate erasure with legal hold and dual-operator authorisation | P3-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Certify redaction, attestation validity and latency budget | P3-1, P3-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-PRE | preflight | Confirm key-management seams and erasure preconditions | P3-GOV | `cd d2-signalloom/apps/signal-ingest && go test ./identity/...` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
@@ -493,12 +493,21 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - Baseline Query Latency: Benchmarked at N=12,000 observations (p95 latency 1.32ms–2.51ms with Arrow pushdown vs 19.43ms full scan).
 - Risk Mitigations: Documented requirements for deterministic HMAC pushdown and additive schema versioning.
 
-#### Errata — SLDP-P3-1 (bootstrap)
-##### Task identity
-- Card: `SLDP-P3-1`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P3-1: Remove cleartext identity from immutable columnar segments
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 16:40:00+01:00  
+**Last Updated:** 2026-09-14 16:40:00+01:00  
+**Status:** `pass`  
+**Commit:** `6bc67236`  
+**Evidence:** `docs/signalloom/sldp-p3-1-proof.md`  
+
+**Phase 3 Implementation Verification Summary:**
+- Segment Column Schema v2 (`signalloom.observations/v2`): Replaced 6 cleartext identifier columns with keyed HMAC pseudonyms.
+- Dynamic Label Allow-List: Closed the arbitrary dynamic label key space with write-time allow-list preventing unminimised PII persistence.
+- Attestation Invariant Preserved: DSSE attestation schema (`signalloom.segment/v1`) completely unchanged; Parquet byte hashing and checkpoint chains intact.
+- Re-identification Relocation: Relocated re-identification map to encrypted, tenant-scoped, FORCE-RLS PostgreSQL table (`migration 007`).
+- Query Latency Benchmark: Multi-filter selective pushdown KPI measured at 2.174ms p95 at N=12,000 observations (comfortably within 2.75ms budget).
+- Test Suites: 100% PASS across store, transform, and segment schema v2 test suites.
 
 #### Errata — SLDP-P3-2 (bootstrap)
 ##### Task identity

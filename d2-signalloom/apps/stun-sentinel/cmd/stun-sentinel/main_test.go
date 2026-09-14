@@ -51,12 +51,14 @@ func mockPodCgroup(t *testing.T, root string, frozen bool) string {
 func newTestServer(t *testing.T, root, token string) (*server, *bytes.Buffer) {
 	t.Helper()
 	buf := &bytes.Buffer{}
+	validate := constantTimeTokenValidator(token)
 	return &server{
 		freezer: cgroup.New(root,
 			cgroup.WithDeadline(30*time.Millisecond),
-			cgroup.WithCredentialValidator(constantTimeTokenValidator(token)),
+			cgroup.WithCredentialValidator(validate),
 		),
-		emitter: telemetry.NewEmitter(buf),
+		emitter:  telemetry.NewEmitter(buf),
+		validate: validate,
 	}, buf
 }
 
@@ -252,13 +254,80 @@ func TestHealthzReports503OnUnwritableHierarchy(t *testing.T) {
 // /stun
 // ─────────────────────────────────────────────────────────────────────────────
 
+// authHeader presents the governance credential the way a real caller does — in a
+// header, never in the URL.
+func authHeader(token string) map[string]string {
+	return map[string]string{"Authorization": "Bearer " + token}
+}
+
+// /stun used to accept any caller. Only /resume validated, and it did so inside
+// the cgroup layer, so anyone who could reach this daemon could freeze a pod by
+// UID and could not unfreeze it. On a privileged hostPID DaemonSet with no
+// NetworkPolicy that is an attacker-triggered denial of service, and the
+// freeze-without-unfreeze asymmetry makes it worse than an open pair.
+func TestStunRefusesWithoutCredential(t *testing.T) {
+	root := t.TempDir()
+	mockPodCgroup(t, root, true)
+	srv, telem := newTestServer(t, root, "t")
+
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, nil)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403: %s", rec.Code, rec.Body)
+	}
+	// A refused request must not reach the freezer, so it must emit no halt event.
+	if strings.TrimSpace(telem.String()) != "" {
+		t.Errorf("refused freeze still emitted telemetry: %q", telem.String())
+	}
+}
+
+func TestStunRefusesWrongCredential(t *testing.T) {
+	root := t.TempDir()
+	mockPodCgroup(t, root, true)
+	srv, _ := newTestServer(t, root, "governor-token")
+
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("not-the-token"))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+}
+
+// An unconfigured daemon must refuse to freeze, not accept everything. The
+// dangerous half failing open is the specific defect this guards.
+func TestStunRefusesWhenNoTokenConfigured(t *testing.T) {
+	root := t.TempDir()
+	mockPodCgroup(t, root, true)
+	srv, _ := newTestServer(t, root, "")
+
+	for _, h := range []map[string]string{nil, authHeader(""), authHeader("anything")} {
+		rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, h)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("unconfigured daemon accepted a freeze: status = %d", rec.Code)
+		}
+	}
+}
+
+// Probes carry no credential and must stay reachable, or the kubelet marks the
+// daemon unhealthy and containment capacity disappears.
+func TestHealthRoutesStayOpen(t *testing.T) {
+	srv, _ := newTestServer(t, t.TempDir(), "t")
+	for _, path := range []string{"/healthz", "/readyz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		srv.routes().ServeHTTP(rec, req)
+		if rec.Code == http.StatusForbidden {
+			t.Errorf("%s requires a credential; kubelet probes cannot present one", path)
+		}
+	}
+}
+
 func TestStunFreezesAndEmitsHaltedEvent(t *testing.T) {
 	root := t.TempDir()
 	dir := mockPodCgroup(t, root, true)
 	srv, telem := newTestServer(t, root, "t")
 
 	rec := postJSON(t, srv.routes(), "/stun",
-		`{"pod_uid":"`+uid+`","pod":"agent-arthur","namespace":"fe-signalloom-agents"}`, nil)
+		`{"pod_uid":"`+uid+`","pod":"agent-arthur","namespace":"fe-signalloom-agents"}`, authHeader("t"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
@@ -290,7 +359,7 @@ func TestStunEmitsFailureEventWhenFreezeCannotBeProven(t *testing.T) {
 	mockPodCgroup(t, root, false) // never reports frozen 1
 	srv, telem := newTestServer(t, root, "t")
 
-	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, nil)
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("t"))
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want 504", rec.Code)
 	}
@@ -309,7 +378,7 @@ func TestStunEmitsFailureEventWhenFreezeCannotBeProven(t *testing.T) {
 
 func TestStunUnknownPodIs404(t *testing.T) {
 	srv, _ := newTestServer(t, t.TempDir(), "t")
-	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, nil)
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("t"))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
@@ -317,14 +386,14 @@ func TestStunUnknownPodIs404(t *testing.T) {
 
 func TestStunMalformedBodyIs400(t *testing.T) {
 	srv, _ := newTestServer(t, t.TempDir(), "t")
-	if rec := postJSON(t, srv.routes(), "/stun", `{`, nil); rec.Code != http.StatusBadRequest {
+	if rec := postJSON(t, srv.routes(), "/stun", `{`, authHeader("t")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
 
 func TestStunTraversalPodUIDIs400(t *testing.T) {
 	srv, _ := newTestServer(t, t.TempDir(), "t")
-	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"../../etc"}`, nil)
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"../../etc"}`, authHeader("t"))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
@@ -333,7 +402,9 @@ func TestStunTraversalPodUIDIs400(t *testing.T) {
 func TestStunRejectsNonPost(t *testing.T) {
 	srv, _ := newTestServer(t, t.TempDir(), "t")
 	rec := httptest.NewRecorder()
-	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stun", nil))
+	req := httptest.NewRequest(http.MethodGet, "/stun", nil)
+	req.Header.Set("Authorization", "Bearer t")
+	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
 	}
@@ -410,7 +481,7 @@ func TestResumeWithValidCredentialThawsAndEmits(t *testing.T) {
 
 func TestResumeMalformedBodyIs400(t *testing.T) {
 	srv, _ := newTestServer(t, t.TempDir(), "t")
-	if rec := postJSON(t, srv.routes(), "/resume", `nope`, nil); rec.Code != http.StatusBadRequest {
+	if rec := postJSON(t, srv.routes(), "/resume", `nope`, authHeader("t")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
@@ -418,9 +489,24 @@ func TestResumeMalformedBodyIs400(t *testing.T) {
 func TestResumeRejectsNonPost(t *testing.T) {
 	srv, _ := newTestServer(t, t.TempDir(), "t")
 	rec := httptest.NewRecorder()
-	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/resume", nil))
+	req := httptest.NewRequest(http.MethodGet, "/resume", nil)
+	req.Header.Set("Authorization", "Bearer t")
+	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+// Authentication runs before method and body handling on purpose: an anonymous
+// caller should not reach a JSON decoder. This pins that ordering so a later
+// refactor cannot quietly move the gate behind the parser.
+func TestResumeRefusesUnauthenticatedBeforeParsing(t *testing.T) {
+	srv, _ := newTestServer(t, t.TempDir(), "t")
+	// Malformed body AND wrong method, with no credential: the credential check wins.
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/resume", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 — the gate must precede method and body checks", rec.Code)
 	}
 }
 

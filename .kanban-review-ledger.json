@@ -2238,5 +2238,12 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "SLDP-P6-PRE preflight verified: 23 storage-copy inventory reconciled, zero existing deletion/retention code confirmed, customer-self-hosted settled as primary validation model, cryptographic RetentionDeletionReceipt format specified, test suites 100% green (commit ace7c954)"
+  },
+  "c6d2a": {
+    "task_id": "c6d2a",
+    "reviewed_at": "2026-09-14T22:13:12Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P6-2 verified: customer-self-hosted install proof delivered in docs/signalloom/sldp-p6-2-selfhost-install-proof.md, 0% ControlPlane infrastructure dependency confirmed, decoupled residual risk matrix (CSH-01..04 vs SAS-01..04), networkpolicy strict egress confirmed, 100% tests pass (commits f9b08ace, bbb8d851)"
   }
 }

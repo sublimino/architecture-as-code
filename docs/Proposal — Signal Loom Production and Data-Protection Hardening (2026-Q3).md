@@ -897,7 +897,7 @@ Two accounting caveats a later reader should not mistake for facts. **SLDP-P5-3 
 **Created:** 2026-09-14 23:11:21+01:00  
 **Last Updated:** 2026-09-14 23:11:21+01:00  
 **Status:** Completed  
-**Commit:** `f9b08aceb68019a7ee24bfd27d6d5386d649ae51`  
+**Commit:** `f9b08aceb80539a4505b6e95f962c355edbfec12`  
 **Governor merge:** [pending Governor reconciliation]  
 **Decisions:** Settled Customer-Self-Hosted Kubernetes deployment as the primary validation target in accordance with Section 10 item 1 and CEO Decision 4 ("Customer-Self-Hosted First"); designated Vendor-Operated GKE SaaS deployment as an explicitly secondary reference overlay. Decoupled residual risk matrices completely between Customer-Self-Hosted and SaaS models to prevent cross-contamination of compliance postures.  
 **Deviations:** Replaced the flawed Milestone 4 single-model GKE validation smoke test with a comprehensive customer-self-hosted installation proof from published, signed OCI artefacts, verified with a zero-dependency graph check.  

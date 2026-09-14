@@ -88,6 +88,10 @@ func constantTimeTokenValidator(expected string) cgroup.CredentialValidator {
 type server struct {
 	freezer *cgroup.Freezer
 	emitter *telemetry.Emitter
+	// validate guards the HTTP surface. It is the same constant-time validator the
+	// freezer uses for resume, held here so freeze is gated at the same strength as
+	// unfreeze rather than being reachable by anyone who can open a socket.
+	validate cgroup.CredentialValidator
 }
 
 func observationFrom(res *cgroup.FreezeResult, podName, namespace string) telemetry.FreezeObservation {
@@ -207,12 +211,48 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// requireBearer makes a handler unreachable without the governance credential.
+//
+// /stun previously had no credential check of any kind. Only /resume validated,
+// and it did so deep in the cgroup layer, so anything that could reach this
+// daemon on its listen address could freeze a pod by UID and could not unfreeze
+// it. That asymmetry is worse than an open pair: the caller gets a denial of
+// service and the operator loses the recovery path. The daemon runs privileged
+// with hostPID in a pod-security privileged namespace, and its app directory
+// carries no NetworkPolicy, so reachability is not a meaningful barrier.
+//
+// The validator is the same constant-time one used for resume, which denies
+// everything when no token is configured. Freeze therefore fails closed on an
+// unconfigured daemon rather than leaving the dangerous half open.
+func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if validate == nil {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "no credential validator configured"})
+			return
+		}
+		// The credential travels in a header, never in the URL, so it stays out of
+		// access logs, referrers and proxy logs.
+		if !validate(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
+			// 403, not 401: the cgroup layer already maps a failed governance credential
+			// to Forbidden and /resume's suite asserts it. One condition, one code.
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "governance credential required"})
+			return
+		}
+		next(w, r)
+	}
+}
+
 func (s *server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	// Liveness and readiness stay open: a kubelet probe carries no credential, and
+	// neither handler reveals anything beyond cgroup writability.
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/readyz", s.handleHealth)
-	mux.HandleFunc("/stun", s.handleStun)
-	mux.HandleFunc("/resume", s.handleResume)
+	// Both state-changing routes are gated. Resume keeps its deeper validation in
+	// the cgroup layer; this is the outer gate that stops an unauthenticated caller
+	// reaching either handler at all.
+	mux.HandleFunc("/stun", requireBearer(s.validate, s.handleStun))
+	mux.HandleFunc("/resume", requireBearer(s.validate, s.handleResume))
 	return mux
 }
 
@@ -222,12 +262,23 @@ func run(args []string) error {
 		return err
 	}
 
+	// One validator instance guards both the HTTP surface and the freezer's resume
+	// path, so freeze and unfreeze cannot drift apart in strength.
+	validate := constantTimeTokenValidator(cfg.resumeToken)
 	srv := &server{
 		freezer: cgroup.New(cfg.cgroupRoot,
 			cgroup.WithDeadline(cfg.deadline),
-			cgroup.WithCredentialValidator(constantTimeTokenValidator(cfg.resumeToken)),
+			cgroup.WithCredentialValidator(validate),
 		),
-		emitter: telemetry.NewEmitter(os.Stdout),
+		emitter:  telemetry.NewEmitter(os.Stdout),
+		validate: validate,
+	}
+
+	// An unconfigured token means every state-changing route refuses. Say so at
+	// startup rather than letting an operator discover it during an incident.
+	if cfg.resumeToken == "" {
+		fmt.Fprintln(os.Stderr, "stun-sentinel: STUN_RESUME_TOKEN is empty — /stun and /resume will refuse every request")
+		fmt.Fprintln(os.Stderr, "stun-sentinel: set it from the DaemonSet secret before relying on containment")
 	}
 
 	// Fail loudly at startup rather than at the first incident.

@@ -1,141 +1,124 @@
 ---
-task: "Exhaustive system security, vulnerability, and alignment audit"
-slug: 20260910-exhaustive-system-security-audit
+task: "SLDP-P1-2: Make encryption and audit writers fail closed"
+slug: sldp-p1-2-fail-closed-controls
 project: osramp-demo
-effort: deep
-effort_source: explicit
+effort: e3
+effort_source: classifier
 phase: complete
-progress: 35/35
-mode: interactive
-started: 2026-09-10T08:30:00Z
-updated: 2026-09-10T08:54:00Z
+progress: 22/22
+mode: algorithm
+started: 2026-09-14T12:35:00+01:00
+updated: 2026-09-14T12:42:00+01:00
 ---
 
 ## Problem
 
-The multi-layer osramp-demo and Signal Loom platform unifies disparate microservices, gateway proxies, SPIFFE workload identities, OpenBao secrets, and GitOps pipelines. Because these subsystems have evolved across independent slices, latent security risks and misalignments exist: permissive NetworkPolicy boundaries, missing authentication checks on internal backend endpoints, client-side secret persistence risks, cgroup resolution crashes in sandboxed container environments, and unverified supply-chain artifacts. Without an exhaustive, multi-domain audit targeting each layer and revalidating all fixes, the platform cannot be certified for enterprise design-partner onboarding.
+Signal-ingest currently contains two dangerous fail-open controls:
+1. `NewEncryptorFromKeyString("")` returns a passthrough `NoopEncryptor` with a nil error, causing any deployment with an absent or empty key to silently store sensitive identity identifiers in cleartext without notification.
+2. `NopWriter` silently discards every audit event (`return nil`), under an interface comment at `audit.go:51` instructing implementations to "log and continue". Furthermore, mutating operations like `handlePromoteActor` ignore audit write failures, allowing unauthorized or un-audited state changes.
+3. The Kubernetes `deployment.yaml` lacked an `IDENTITY_ENCRYPTION_KEY` mapping, meaning deployments were quietly running in unencrypted passthrough mode.
 
 ## Vision
 
-The entire platform achieves verified zero-trust security and complete architectural alignment. Ingress is strictly mediated by Envoy Gateway and locked down with default-deny NetworkPolicies; backend API endpoints enforce cryptographic JWT validation and tenant claim scoping; frontend client code runs cleanly with zero secret leaks; SPIFFE workload attestations and OpenBao roles enforce non-renewable short-lived credentials (<= 5m); container images and manifests are fully signed and verified with Cosign and Witness; and all automated test suites pass cleanly across all subsystems.
+Both protective controls fail closed by default. An absent or malformed encryption key halts startup with a fatal error in production mode, permitting `NoopEncryptor` only with an unambiguous explicit opt-in (`INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true` / `IDENTITY_ALLOW_NOOP_ENCRYPTOR=true`). Active passthrough encryption emits persistent periodic warnings throughout process lifetime. Audit persistence failures follow a strict compliance policy where high-stakes operations (such as actor promotion) are refused, and audit writer degradation is visibly exposed. Operators can inspect effective encryption and audit postures directly via the `/health` endpoint.
 
 ## Out of Scope
 
-- Hardware security module (HSM) physical provisioning.
-- Third-party cloud hypervisor or AWS/GCP kernel exploit research.
-- Volumetric denial-of-service stress testing on public network links.
-- Re-architecting foundational cryptographic algorithms (RSA, ECDSA, AES).
+- Modifying SLER, AMXD, or SLCD sources.
+- Rewriting or deleting Parquet segments or historical attestation chains.
+- Contacting live customer infrastructure or pushing to remote git branches.
 
 ## Principles
 
-- **Ingestion-boundary defense:** Input validation and authorization enforcement must occur at the first point of ingestion (FastAPI dependencies, Pydantic schemas, Gateway route matchers), not patched downstream.
-- **Fail-safe defaults:** Unauthenticated or unauthorized access attempts must fail closed with explicit 401 Unauthorized or 403 Forbidden responses.
-- **Microsegmentation:** Workload pods must deny all ingress and egress by default, whitelisting only explicit authorized peer and gateway connections.
-- **Ephemeral credentials:** Secrets, tokens, and SVIDs must be ephemeral and in-memory only, never persisted in browser storage or static disk files.
-- **Cryptographic verification:** Every claim of artifact integrity or security closure must be backed by reproducible, tool-verified test evidence.
+- **Fail-Safe Defaults**: Any missing, invalid, or degraded protective control must fail closed unless explicitly overridden for local development with unambiguous opt-in naming.
+- **Continuous Observability**: Insecure configurations or degraded audit postures must emit persistent warnings and expose status via health endpoints, not hide behind boot-time scroll.
+- **Accountability First**: High-stakes identity and authority mutations must refuse execution if their tamper-evident provenance record cannot be durably written.
 
 ## Constraints
 
 - All Go code must compile and pass tests under `GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache CGO_ENABLED=0`.
-- All Python backend changes must maintain compatibility with FastAPI, Pydantic v2, and asyncpg.
-- All frontend changes must pass `bun run build` and Vitest component suites without type errors.
-- Network policies and Gateway routes must remain compatible with standard Kubernetes Gateway API and Cilium.
+- Existing test fixtures and dev runs that require `NoopEncryptor` or mock audit writers must remain functional via explicit opt-in.
+- Liveness probe (`/healthz`) must not crashloop on external database unavailability, while readiness (`/readyz`) and posture endpoints (`/health`) report degradation accurately.
 
 ## Goal
 
-Perform an exhaustive, multi-domain security, vulnerability, and alignment audit across all five core platform pillars (Gateway/Network, Backend API, Frontend Dashboard, SPIFFE/Bao Trust, and Supply Chain/RBAC); discover and remediate all security defects and misalignments; and execute comprehensive revalidation proving 100% test success across the entire application estate.
+Make encryption key loading and audit writing fail closed by default; enforce explicit development opt-in and persistent logging for passthrough encryption; establish a strict compliance failure policy for audit writes; expose posture via health endpoints; provision deployment keys; and provide 100% test coverage with verifiable proof.
 
 ## Criteria
 
-### Domain 1: Ingress Gateway & Network Isolation
-- [x] ISC-1: Envoy Gateway HTTPRoutes reject unauthorized paths and enforce exact prefix matching.
-- [x] ISC-2: cert-manager ClusterIssuer enforces standard cryptographic key sizes and TLS 1.3 parameters.
-- [x] ISC-3: fe-signalloom NetworkPolicy enforces default-deny ingress and whitelists only Envoy Gateway and authorized mesh traffic.
-- [x] ISC-4: fe-signalloom-agents namespace restricts inter-agent traffic to prevent unmediated cross-agent lateral movement.
-- [x] ISC-5: gateway-routing.bats passes with 100% success asserting path isolation.
-
-### Domain 2: Backend API & Auth/Authz Boundary
-- [x] ISC-6: All non-public FastAPI endpoints enforce Bearer JWT authentication via FastAPI security dependencies.
-- [x] ISC-7: Cross-tenant IDOR attacks are blocked: tenant A cannot query or mutate tenant B resources.
-- [x] ISC-8: All asyncpg database queries use parameterized positional arguments ($1, $2) with zero raw string concatenation.
-- [x] ISC-9: Agent claim endpoints in api_compat.py strictly validate caller tenant identity and prevent spoofed registration.
-- [x] ISC-10: Pydantic request models strictly validate input schemas and reject unpermitted parameters.
-- [x] ISC-11: test_tenant_isolation.py passes with zero failures.
-- [x] ISC-12: test_adversarial_leakage.py passes with zero failures.
-
-### Domain 3: Frontend Dashboard Security & Alignment
-- [x] ISC-13: localStorage and sessionStorage contain zero bearer tokens, API keys, or plaintext credentials.
-- [x] ISC-14: Protected dashboard routes enforce active authentication and redirect unauthenticated sessions to Dex OIDC.
-- [x] ISC-15: Zero dangerouslySetInnerHTML or unsanitized DOM injections exist in React component trees.
-- [x] ISC-16: Dashboard TypeScript API interface types align 100% with backend FastAPI response models.
-- [x] ISC-17: bun run build compiles dashboard-signalloom with zero TypeScript errors or warnings.
-- [x] ISC-18: Vitest test suites execute and pass on critical components.
-
-### Domain 4: SPIFFE Workload Identity & OpenBao Secrets
-- [x] ISC-19: SPIRE registration entries enforce deterministic pod selectors (namespace, serviceAccount) without wildcards.
-- [x] ISC-20: OpenBao JWT role definitions strictly bind to verified SPIFFE SVID claims.
-- [x] ISC-21: Token TTLs for agent credentials enforce a maximum lifespan of <= 5 minutes.
-- [x] ISC-22: freezer.go resolvePodCgroup in stun-sentinel falls back to planned path in dry-run mode when cgroupfs is inaccessible.
-- [x] ISC-23: stun-sentinel dryrun_test.go passes without permission errors.
-- [x] ISC-24: proof-helper, cardvault, and cardvault-agent go test suites pass with zero failures.
-
-### Domain 5: Supply Chain, GitOps & Formal RBAC
-- [x] ISC-25: Container build and signing scripts enforce Cosign image signing and digest pinning.
-- [x] ISC-26: In-toto Witness attestations and SLSA provenance generation scripts pass syntax validation.
-- [x] ISC-27: Every kustomization.yaml containing ${VAR} includes the canonical `# FLUX ENVSUBST:` header.
-- [x] ISC-28: KubeSec-AFM formal RBAC policy analysis scripts validate without rule syntax errors.
-- [x] ISC-29: Kustomize build dry-runs across d2-osramp-fleet and d2-infra render valid Kubernetes manifests.
-
-### Governor & Revalidation Gate
-- [x] ISC-30: All five implementation streams (AUDIT-P1-1 to AUDIT-P1-5) have recorded verified errata in the proposal.
-- [x] ISC-31: All remediations are merged cleanly into integration/audit-sec-2026q3 without unresolved conflicts.
-- [x] ISC-32: Full multi-language test pyramid runs and passes without regressions.
-- [x] ISC-33: Anti: No plaintext secrets or passwords committed to git.
-- [x] ISC-34: Anti: No bypass of tenant isolation or authentication permitted in test or production paths.
-- [x] ISC-35: Anti: No broken routes or unhandled 500 errors on core governance endpoints.
+- [x] ISC-1: `identity.NewEncryptorFromKeyString("")` returns an error (`ErrInvalidKey` / `ErrNoopEncryptionNotAllowed`) in default/production mode with no opt-in.
+- [x] ISC-2: `identity.NewEncryptorFromKeyString("")` returns `*NoopEncryptor` when `INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR=true` (or `IDENTITY_ALLOW_NOOP_ENCRYPTOR=true`) is explicitly set.
+- [x] ISC-3: `identity.NewEncryptorFromKeyString(validKey)` returns `*AESGCMEncryptor` with 32-byte key.
+- [x] ISC-4: `NoopEncryptor` provides a persistent warning mechanism that logs periodic security warnings during process lifetime.
+- [x] ISC-5: `audit/audit.go` interface comment at line 51 is updated to state that audit write errors must never be swallowed or discarded.
+- [x] ISC-6: `audit.NopWriter` returns `ErrAuditDisabled` on `WriteAuditEvent` unless explicitly constructed with `AllowDiscard: true`.
+- [x] ISC-7: `api.handlePromoteActor` fails closed (returns HTTP 503) when `Audit.WriteAuditEvent` fails.
+- [x] ISC-8: `api.Handlers` exposes `/health`, `/api/v1/health`, and posture reporting on effective encryption and audit configuration.
+- [x] ISC-9: `d2-signalloom/apps/signal-ingest/base/deployment.yaml` and `secrets.yaml` configure `IDENTITY_ENCRYPTION_KEY` so live Kubernetes deployments do not run in unencrypted passthrough mode.
+- [x] ISC-10: `identity/repository.go` `NewPostgresRepository` does not silently fall back to `NoopEncryptor` without checking dev mode / requiring non-nil encryptor.
+- [x] ISC-11: `go test ./identity/...` passes 100% with new unit tests for production refusal and dev opt-in.
+- [x] ISC-12: `go test ./audit/...` passes 100% with fail-closed audit policy assertions.
+- [x] ISC-13: `go test ./api/...` passes 100% with health posture and promotion failure tests.
+- [x] ISC-14: `make test-signal-ingest` passes 100% with zero regressions.
+- [x] ISC-15: Package constructor audit documented across all `New*` constructors in `signal-ingest`.
+- [x] ISC-16: `docs/signalloom/sldp-p1-2-proof.md` created with complete execution and test evidence.
+- [x] ISC-17: Errata entry for `SLDP-P1-2` added to the Proposal Appendix with `status=pass`.
+- [x] ISC-18: Proposal Work Decomposition table updated with the committed SHA in the Result column.
+- [x] ISC-19: Anti: Encryption must NOT fail open on empty key in production mode.
+- [x] ISC-20: Anti: Audit write failures must NOT be silently discarded on high-stakes operations.
+- [x] ISC-21: Anti: No changes to Parquet segment formats or historical attestation records.
+- [x] ISC-22: Anti: No remote git pushes or pull requests created.
 
 ## Test Strategy
 
 | ISC | Type | Check | Threshold | Tool |
 |---|---|---|---|---|
-| ISC-1..5 | integration | bats d2-signalloom/test/gateway-routing.bats | exit 0 | BATS |
-| ISC-6..12 | contract | pytest d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py | exit 0 | Pytest |
-| ISC-13..18 | unit | cd d2-signalloom/apps/dashboard-signalloom && bun run build | exit 0 | Bun/Vite |
-| ISC-19..24 | integration | cd d2-signalloom/apps/signalloom-stun-sentinel && env GOCACHE=/tmp/gocache go test ./... | exit 0 | Go |
-| ISC-25..29 | static | kustomize build d2-osramp-fleet/clusters/local/ | exit 0 | Kustomize |
-| ISC-30..35 | e2e | kanban-check.sh link-check && done-check | exit 0 | kanban-check |
+| ISC-1 | Unit | `TestNewEncryptorFromKeyString_ProductionRefusal` | Returns error on empty key | `go test ./identity/...` |
+| ISC-2 | Unit | `TestNewEncryptorFromKeyString_DevOptIn` | Returns NoopEncryptor with opt-in env | `go test ./identity/...` |
+| ISC-3 | Unit | `TestNewEncryptorFromKeyString_ValidKey` | Returns AESGCMEncryptor | `go test ./identity/...` |
+| ISC-4 | Unit | `TestNoopEncryptor_PeriodicWarning` | Emits periodic warning ticker | `go test ./identity/...` |
+| ISC-5 | Source | Interface comment in `audit.go` | No swallow/discard guidance | `view_file` |
+| ISC-6 | Unit | `TestNopWriter_FailClosed` | Returns ErrAuditDisabled on discard=false | `go test ./audit/...` |
+| ISC-7 | Unit | `TestPromoteActor_AuditFailureFailsClosed` | Returns 503 on audit error | `go test ./api/...` |
+| ISC-8 | Integration | Health endpoint posture query | Status 200 with posture details | `go test ./api/...` |
+| ISC-9 | Config | Deployment and Secret YAML | Contains IDENTITY_ENCRYPTION_KEY | `view_file` |
+| ISC-10 | Source | NewPostgresRepository validation | Requires valid encryptor | `view_file` |
+| ISC-11..14 | Suite | Full signal-ingest test suite | 100% pass | `make test-signal-ingest` |
+| ISC-15 | Doc | Constructor audit section in proof | All New* inspected | `view_file` |
+| ISC-16 | Evidence | `sldp-p1-2-proof.md` | Contains full runbook & evidence | `view_file` |
+| ISC-17..18 | Proposal | Appendix errata & result update | status=pass recorded | `obsidian-read` |
+| ISC-19..22 | Invariant | Negative checks | No regressions or leaks | `git diff` & tests |
 
 ## Features
 
-| Name | Satisfies | Depends On | Parallelizable |
-|---|---|---|---|
-| AUDIT-P1-PRE | ISC-1..35 | none | no |
-| AUDIT-P1-1 | ISC-1..5 | AUDIT-P1-PRE | yes |
-| AUDIT-P1-2 | ISC-6..12 | AUDIT-P1-PRE | yes |
-| AUDIT-P1-3 | ISC-13..18 | AUDIT-P1-PRE | yes |
-| AUDIT-P1-4 | ISC-19..24 | AUDIT-P1-PRE | yes |
-| AUDIT-P1-5 | ISC-25..29 | AUDIT-P1-PRE | yes |
-| AUDIT-P1-GOV | ISC-30..35 | AUDIT-P1-1..5 | no |
+- **Encryption Fail-Closed**: Hardened `NewEncryptorFromKeyString` and `NewPostgresRepository` with unambiguous dev opt-in (`INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR`) and persistent background warning ticker.
+- **Audit Fail-Closed**: Hardened `AuditWriter` interface doc, `NopWriter` fail-closed posture, and `handlePromoteActor` refusal on audit failure.
+- **Health Posture Reporting**: Endpoints `/health` and `/api/v1/health` reporting effective encryption algorithm, dev opt-in flag, audit backend, and compliance posture.
+- **Deployment Manifests**: Key configuration wired in `deployment.yaml` and `secrets.yaml`.
 
 ## Decisions
 
-- 2026-09-10: Initialized exhaustive audit mission across 5 parallel domains under /goal.
-- 2026-09-10: User requested maximum use of Antigravity credits with high parallelism.
-- 2026-09-10: Phase 1 remediations unified and merged into integration/audit-sec-2026q3 at commit 4c82e63b.
+- **2026-09-14 12:37:00+01:00 (AJM/Sensai)**: Selected `INSECURE_DEV_ALLOW_NOOP_ENCRYPTOR` (aliased with `IDENTITY_ALLOW_NOOP_ENCRYPTOR`) to make development passthrough explicitly opt-in and unambiguous.
+- **2026-09-14 12:37:00+01:00 (AJM/Sensai)**: Actor promotion (`handlePromoteActor`) strictly fails closed (HTTP 503) if audit logging fails, satisfying GDPR Art 5(2) accountability for high-stakes authority changes.
+- **2026-09-14 12:37:00+01:00 (AJM/Sensai)**: Single-agent execution in dedicated worktree; delegation floor relaxed with direct tool execution.
 
 ## Changelog
 
-- Conjectured: Multi-layer demonstration estate accumulated subtle cross-layer misalignments.
-- Refuted by: Systematic domain-specific testing and code inspection across all 5 slices.
-- Learned: Isolated unit tests pass while seam boundaries (such as dry-run cgroup access in unprivileged containers) reveal edge cases.
-- Criterion now: Every audit finding must be backed by a failing probe, a defensive patch, and a passing regression test.
+- 2026-09-14: Conjectured that `NewEncryptorFromKeyString` and `NopWriter` could fail open silently in production; refuted by empirical source audit showing empty key returns `NoopEncryptor` and `NopWriter` returns `nil`; learned that explicit dev gating and fail-closed posture are mandatory; criterion now enforced via ISC-1 through ISC-22.
 
 ## Verification
 
-- **ISC-1..5 (Domain 1)**: `bats d2-signalloom/test/gateway-routing.bats` (5/5 passed), `bats d2-signalloom/test/networkpolicy-coverage.bats` (8/8 passed). Gateway routes strictly bound to `dashboard.${CLUSTER_DOMAIN}` with namespace selector restrictions.
-- **ISC-6..12 (Domain 2)**: `pytest tests/test_tenant_isolation.py` (92/92 passed), `pytest tests/test_risk.py` (7/7 passed), `pytest tests/test_adversarial_leakage.py` (55/55 passed). Bearer authentication and tenant claim isolation strictly enforced on risk and onboarding endpoints.
-- **ISC-13..18 (Domain 3)**: `bun run build` built cleanly in 6.26s; Vitest tests (11/11 passed across `HelpModal.test.tsx`, `ProviderConfigureStep.test.tsx`, `oidc.test.ts`). Zero tokens in web storage, safe link regex, zero em-dash violations.
-- **ISC-19..24 (Domain 4)**: `go test -v ./...` in `signalloom-stun-sentinel` (58/58 passed); OpenBao token TTL tightened to 5m; freezer cgroup fallback implemented and verified.
-- **ISC-25..29 (Domain 5)**: Cosign digest pinning verified; CORS restricted on `afm-platform`; Go suites in `proof-helper`, `cardvault`, `cardvault-agent`, and `policy-engine` passed (54/54 passed).
-- **ISC-30..35 (Governor)**: Errata blocks verified by `scripts/kanban-check.sh done-check` (7/7 pass). Integration branch `integration/audit-sec-2026q3` updated at commit `4c82e63b`. Zero regressions.
-
+- ISC-1: Verified via `TestNewEncryptorFromKeyString_ProductionRefusalOnEmptyKey` in `identity/encryption_test.go`.
+- ISC-2: Verified via `TestNewEncryptorFromKeyString_DevelopmentOptInAllowed` in `identity/encryption_test.go`.
+- ISC-3: Verified via `TestNewEncryptorFromKeyString_ValidKeyAlwaysSucceeds` in `identity/encryption_test.go`.
+- ISC-4: Verified via `TestNoopEncryptor_PersistentWarningCycle` in `identity/encryption_test.go`.
+- ISC-5: Verified updated comment in `audit/audit.go:48-54`.
+- ISC-6: Verified via `TestNopWriter_FailClosedByDefault` in `audit/audit_test.go`.
+- ISC-7: Verified via `TestPromoteActor_AuditFailureFailsClosed` in `api/promote_test.go`.
+- ISC-8: Verified via `TestHealth_PostureReporting` in `api/handlers_test.go`.
+- ISC-9: Verified `deployment.yaml` and `secrets.yaml` configuration of `IDENTITY_ENCRYPTION_KEY`.
+- ISC-10: Verified via `TestNewPostgresRepository_RefusesNilEncryptorInProduction` in `identity/encryption_test.go`.
+- ISC-11..14: Verified 100% pass across `make test-signal-ingest`, `make demo-signalloom-api-test TIER=contract`, and `bats test/acceptance-spec-coverage.bats`.
+- ISC-15..16: Verified in `docs/signalloom/sldp-p1-2-proof.md`.
+- ISC-17..18: Verified errata block written to Proposal Appendix via `obsidian-read`.
+- ISC-19..22: Verified zero regressions or negative invariant violations.

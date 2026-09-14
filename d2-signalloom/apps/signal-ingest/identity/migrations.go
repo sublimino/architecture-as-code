@@ -64,6 +64,15 @@ var Migration007Rollback string
 //go:embed migrations/008_retention_legal_holds.sql
 var Migration008RetentionLegalHolds string
 
+// Migration009SubjectKeys adds the per-subject key hierarchy and erasure saga journal (SLDP-P4-1).
+//
+// Sequence 009, claimed in writing by SLDP-P4-PRE §5.4 and in the proposal errata before this
+// worktree was created. SLDP-P4-2 runs concurrently in a separate worktree and takes 010. See the
+// note on 008 above for why the claim is documented rather than inferred from the tree.
+//
+//go:embed migrations/009_subject_keys.sql
+var Migration009SubjectKeys string
+
 // MigrationSQL returns the concatenated forward migration SQL scripts for external inspection or
 // testing. The rollback script is deliberately excluded: including it would make a grep for a
 // dropped index match the rollback's re-creation of it, so a test asserting "the cleartext index
@@ -76,7 +85,8 @@ func MigrationSQL() string {
 		Migration005PseudonymisationAndEncryption + "\n" +
 		Migration006TenantIsolationRLS + "\n" +
 		Migration007SegmentReidentificationMap + "\n" +
-		Migration008RetentionLegalHolds
+		Migration008RetentionLegalHolds + "\n" +
+		Migration009SubjectKeys
 }
 
 // ApplyMigrations executes the idempotent identity graph schema migrations on the provided database connection.
@@ -131,6 +141,13 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	// its index are created before ENABLE/FORCE ROW LEVEL SECURITY is applied.
 	if _, err := tx.ExecContext(ctx, Migration008RetentionLegalHolds); err != nil {
 		return fmt.Errorf("failed to execute identity graph migration 008: %w", err)
+	}
+
+	// 009 must run after 006 because both its tables default tenant_id from app_current_tenant() and
+	// both row-level security policies call it. It follows the same ordering discipline: tables and
+	// indexes are created before ENABLE/FORCE ROW LEVEL SECURITY is applied.
+	if _, err := tx.ExecContext(ctx, Migration009SubjectKeys); err != nil {
+		return fmt.Errorf("failed to execute identity graph migration 009: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

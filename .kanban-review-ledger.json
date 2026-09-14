@@ -2161,5 +2161,12 @@
     "reviewer": "Council (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "SLDP-P3-2 verified: Article 17(3) legal hold fails closed, dual-operator authorization engine in privacy/ package, 23/23 controls proven failable by real-source mutation, migration 008 embedded, 100% tests pass"
+  },
+  "8444d": {
+    "task_id": "8444d",
+    "reviewed_at": "2026-09-14T17:03:52Z",
+    "reviewer": "Council (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P3-GOV Phase 3 Certified: Schema v2 with HMAC pseudonyms, dynamic label allow-list, signature validity decoupled from semantic redaction, selective pushdown p95 1.43ms-2.19ms < 2.75ms, legal-hold erasure gate with 23/23 killed mutations, migrations 007 and 008 reconciled, 100% tests pass"
   }
 }

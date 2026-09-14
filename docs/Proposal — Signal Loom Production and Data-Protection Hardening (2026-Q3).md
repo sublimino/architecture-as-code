@@ -677,7 +677,7 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 **Created:** 2026-09-14 19:51:09+01:00  
 **Last Updated:** 2026-09-14 20:43:00+01:00  
 **Status:** `pass`  
-**Commit:** `8e94b193630f9ec3ea29e06ca1492576da6fcb1d`  
+**Commit:** `8e94b19332276206787dc9c0f18e072879eb3530`  
 **Evidence:** `docs/signalloom/sldp-p4-governor-proof.md` (and `docs/signalloom/sldp-p4-gov-proof.md`)  
 
 **Phase 4 Governor Certification Summary:**
@@ -728,7 +728,7 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 **Created:** 2026-09-14 21:01:44+01:00  
 **Last Updated:** 2026-09-14 21:05:00+01:00  
 **Status:** Completed (`pass`)  
-**Commit:** `a6974f6b84ad56da48ebea8960782973fdc8a51e` / `a56986a5` (reconciled with probe prototype)  
+**Commit:** `a56986a584e2694c73b92889ba0bcfbaee0cffb7`  
 **Evidence:** `docs/signalloom/sldp-p5-pre-proof.md`  
 **Prototype:** `docs/signalloom/sldp-p5-pre-kms-probe/`  
 
@@ -820,35 +820,4 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - Commit: Pending
 - Result: Pending
 
-
-#### Errata — SLDP-P3-1 Remove cleartext identity from immutable columnar segments
-**Created:** 2026-09-14 16:31:35+01:00
-**Last Updated:** 2026-09-14 16:39:42+01:00
-**Status:** Completed
-**Commit:** 6bc67236 (3 commits: 94eda33d implementation, 49dbc608 review fixes, 6bc67236 review record)
-**Governor merge:** [pending Governor reconciliation]
-
-**Decisions:**
-- **Column schema versioned as data, not as attestation metadata.** `store/verify/verify.go` hashes `data.parquet` bytes and never parses a Parquet column (four hits for `parquet|column|schema` in that file: the DSSE literal at :28, two comparisons, one path join). The generation marker is therefore a `schema_version` STRING column inside the segment, making the corpus self-describing at read time while leaving `signalloom.segment/v1` and every existing attestation untouched. `git diff --stat -- store/verify/` is empty. Bumping the attestation schema instead would have tripped the card's first hard blocker.
-- **All six identifier columns taken, not the three named in the objective.** The objective names `actor_hint`, `raw_evidence_ref`, `impersonated_user`; the deliverable says the schema must carry "pseudonyms only"; SLDP-P3-PRE §3.2 classifies `actor_id`, `principal_id` and `session_id` as High/Medium-High cleartext identity in the same table. Leaving those three would have made "no cleartext identity in the immutable store" false while every named criterion passed — the card forbids a criterion that passes whether or not the control works.
-- **Pushdown column moved to `hmac_actor_hint` with the query literal pseudonymised.** Equality on a keyed HMAC is equality on the plaintext, so `buildFilter` still emits one `Eq` against one STRING column. Shape unchanged; only the literal moved. `buildFilter` with a nil pseudonymiser and a non-empty `ActorID` returns an error rather than emitting the cleartext literal.
-- **Migration sequence 007 claimed.** 005 is P2-1, 006 is P2-2. The 005 header reserved 007 for P2-3, but P2-3 landed with no migration and `rg '007_'` finds no reference in the tree, so 007 is genuinely next-free. **SLDP-P3-2 is running concurrently and also writes to `identity/migrations/`; by card order it should take 008.** Governor to confirm no collision.
-- **Fail-closed label refusal, with no silent-drop escape.** A disallowed key refuses the whole batch. A drop mode was deliberately not added because a silent drop is the fail-open shape the card forbids — but this means one misbehaving collector can halt ingestion. Flagged for P3-GOV to weigh against ingest availability.
-
-**Deviations:**
-- **Two files outside the objective were changed, because the objective could not otherwise be true.** (1) `api/audit/receiver.go` wrote seven direct identifiers (`user`, `acting_principal`, `delegator`, `spiffe_id`, `delegator_spiffe_id`, `impersonated_user`, `delegation`) into the dynamic label map, where each is materialised verbatim as a Parquet column. Pseudonymising only the static columns would have left the identical strings in the segment under different column names. (2) The same file interpolated the acting principal into `description`, the one free-text column surviving into v2.
-- **The pseudonym primitive moved packages.** `identity` already imports `store`, so `store` importing `identity` is an import cycle. `identity/pseudonym.go` moved to a new leaf package `pseudonym/`; `identity/pseudonym.go` is now type aliases and value re-exports, so `identity.PseudonymKeyRing` *is* `pseudonym.KeyRing`. HKDF domain string, epoch framing and all error identities are byte-identical — no existing pseudonym is invalidated and `errors.Is` is unaffected.
-- **A latent defect was fixed in passing** because this change exposed it: `validateFilterColumns` ranged a map to report the first missing column, so the reported name depended on Go's randomised iteration order. Now ordered.
-- Three existing store tests asserted cleartext round-trip and were rewritten to assert the pseudonym projection — both halves (cleartext empty AND pseudonym correct), since asserting only emptiness would be satisfied by a store that wrote nothing.
-
-**Notes for the next card:**
-- **Latency: KPI passes, one shape regressed.** Selective-multi-filter pushdown p95 at N=12,000 is **2.174 ms** against the 2.75 ms budget (v1 baseline 3.76 ms). But **actor-only pushdown went 1.32 ms → 9.937 ms** and now exceeds the budget alone. Selectivity is unchanged and correctness is asserted against the in-memory oracle, so it is an execution-cost change. The probable mechanism — near-uniform 64-hex values collapsing row-group min/max pruning — is consistent with the numbers but **has not been isolated by a controlled experiment and should not be quoted as established.** Measured on a warm cache (data written immediately before query); not a cold-start figure.
-- **Residual exposures this card did NOT close.** (1) Historical segments keep all six cleartext columns forever — signed and chained, so unrewritable. This card stops the bleeding, it does not clean the history. (2) `transform.SecretRedactor` and `CryptographicSecretScrubber` had **zero production call sites** in the entire repo before this card, while eight sites call `store.Append` directly; only the audit receiver is now wired, so free text from the other seven is still unscrubbed. (3) `signal-ingest` still has no HTTP authentication — `main.go:224` is a bare mux serving the full identity graph openly. (4) `delegator` identity now survives only in the `DelegationEdge` contribution string, which is not a segment column — a genuine information loss. (5) The bucket now holds divergent per-file Parquet schemas, so **any external reader must set `union_by_name=true`** or it binds the first file's schema and silently drops the rest. (6) `weaveApi.ts` / `FeedsExplorerPage.tsx` read `actor_hint`, which is empty for v2 rows — a broken panel will look empty, not broken; `schema_version` is on the wire so consumers can distinguish.
-- **P3-2 correlation note:** `correlation/engine.go:325` and `correlation/store.go:120` join actors on `labels["src_ip"]`. `src_ip` is deliberately NOT allow-listed (personal data per Breyer), so in-flight correlation still works but the IP no longer persists to a segment.
-- **Adversarial review found the central claim initially FALSE, and it was fixed before this errata was finalised.** `Append` wrote `description` verbatim; only `api/audit/receiver.go` redacted its own, so `POST /api/v1/observations` could put an attacker-supplied email and source IP into a signed, unerasable segment. Every schema-level test passed throughout — they inspect column *names* and are blind to the payload. Redaction moved to `Append`, the single chokepoint all eight writers cross, with a payload-level test that is mutation-checked. Fixed in `49dbc608`.
-- **The cross-vendor audit did NOT run.** The `codex exec` path is quota-exhausted until **2026-09-19**, so the review that did run was Claude-family — same-family blind spots were not reduced. **P3-GOV should re-run the cross-vendor pass after that date before certifying this phase.**
-- **Six defects are open and recorded, not fixed.** Schedule **F4 first**: `buildFilter` emits only the pseudonym predicate and is not generation-aware, so `Query{ActorID:…}` over a mixed v1/v2 bucket **silently under-returns with no error** — a correctness defect in the mixed-corpus deliverable this card claims, not a hardening gap. Also open: IPv4 pattern under-matches comma-separated address lists (every second address leaks); IPv6 pattern matches clock times; scrubber-path double-redaction yields two pseudonyms for one identifier and breaks the re-identification join; `usernamePattern` misses the standard RBAC denial string `User "alice" cannot get pods`; `pseudonym_epoch INTEGER` cannot hold the Go-side `uint32` range. Full table with severities in §11 of the proof.
-- **Three comments were false about the code beneath them** and were corrected rather than the code being quietly changed. Most consequential: `SecretRedactor.hashRedact` is **unkeyed SHA-256 truncated to 32 bits**, so a redacted source IP is reversible by exhaustive search over the 2^32 IPv4 space. Keying it rewrites every existing `REDACTED_SHA256` value, so it is a migration, deliberately not done here.
-- Full evidence, probes, measurement conditions and the review table: `docs/signalloom/sldp-p3-1-proof.md`.
-<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

@@ -309,7 +309,7 @@ previous phase governor, or on `P0` for phase 1.
 | P4-1 | implementation | Per-subject key hierarchy with idempotent erasure saga | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: 2e576206 (see Errata — SLDP-P4-1) | $0.00 | N/A | 35m | deep |
 | P4-2 | implementation | Non-linkable attested tombstones | P4-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | M | daily | pass — delivered: 9956a239 (see Errata — SLDP-P4-2) | $0.00 | N/A | 35m | daily |
 | P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified (G1 remediated in 8e94b193, see Errata — SLDP-P4-GOV) | N/A | N/A | ~45m | N/A |
-| P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | pass — delivered (see Errata — SLDP-P5-PRE) | $0.00 | N/A | 15m | antigravity |
+| P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | pass — delivered: a56986a5 (see Errata — SLDP-P5-PRE) | $0.00 | N/A | 15m | antigravity |
 | P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -728,7 +728,7 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 **Created:** 2026-09-14 21:05:00+01:00  
 **Last Updated:** 2026-09-14 21:05:00+01:00  
 **Status:** `pass`  
-**Commit:** Pending  
+**Commit:** `a56986a5`  
 **Evidence:** `docs/signalloom/sldp-p5-pre-proof.md`  
 
 **Phase 5 Preflight Summary:**

@@ -477,8 +477,11 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 		}
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("frostdb: query: %w", err)
+	if q.Offset > 0 {
+		if q.Offset >= len(results) {
+			return nil, nil
+		}
+		results = results[q.Offset:]
 	}
 
 	if q.Limit > 0 && len(results) > q.Limit {
@@ -526,6 +529,32 @@ func matchesQuery(o model.Observation, q Query, p *SegmentPseudonymiser) bool {
 			}
 		} else if o.ActorHint != q.ActorID {
 			return false
+		}
+	}
+	if q.SubjectID != "" {
+		if o.SchemaVersion == SegmentSchemaV2 || o.HMACActorHint != "" {
+			if p == nil {
+				return false
+			}
+			pseudonym, err := p.Pseudonym(q.SubjectID)
+			if err != nil {
+				return false
+			}
+			matchSub := o.HMACActorHint == pseudonym ||
+				o.HMACActorID == pseudonym ||
+				o.HMACPrincipalID == pseudonym ||
+				o.HMACImpersonatedUser == pseudonym
+			if !matchSub {
+				return false
+			}
+		} else {
+			matchSub := o.ActorHint == q.SubjectID ||
+				o.ActorID == q.SubjectID ||
+				o.PrincipalID == q.SubjectID ||
+				o.ImpersonatedUser == q.SubjectID
+			if !matchSub {
+				return false
+			}
 		}
 	}
 	return true
@@ -825,6 +854,23 @@ func buildFilter(q Query, p *SegmentPseudonymiser) (logicalplan.Expr, error) {
 			return nil, err
 		}
 		exprs = append(exprs, colRef(colActorHint).Eq(logicalplan.Literal(pseudonym)))
+	}
+
+	if q.SubjectID != "" {
+		if p == nil {
+			return nil, ErrSegmentPseudonymKeyRequired
+		}
+		pseudonym, err := p.Pseudonym(q.SubjectID)
+		if err != nil {
+			return nil, err
+		}
+		subExprs := []logicalplan.Expr{
+			colRef(ColHMACActorHint).Eq(logicalplan.Literal(pseudonym)),
+			colRef(ColHMACActorID).Eq(logicalplan.Literal(pseudonym)),
+			colRef(ColHMACPrincipalID).Eq(logicalplan.Literal(pseudonym)),
+			colRef(ColHMACImpersonatedUser).Eq(logicalplan.Literal(pseudonym)),
+		}
+		exprs = append(exprs, logicalplan.Or(subExprs...))
 	}
 
 	switch len(exprs) {

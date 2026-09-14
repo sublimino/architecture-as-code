@@ -13,10 +13,12 @@ if str(PKG_DIR) not in sys.path:
 
 try:
     from .collector import ProcessTelemetryCollector
+    from .filter import SubjectObjectionError, SubjectObjectionRegistry
     from .models import HealthState
     from .sensor import HostSensor
 except (ImportError, ValueError):
     from collector import ProcessTelemetryCollector
+    from filter import SubjectObjectionError, SubjectObjectionRegistry
     from models import HealthState
     from sensor import HostSensor
 
@@ -104,6 +106,29 @@ class SensorIntegrationTests(unittest.TestCase):
         self.assertEqual(sample2.attributes.restart_count, 1)
         proc2.wait()
         sensor.record_exit(0)
+
+    def test_article21_opt_out_suppresses_sensor_collection(self) -> None:
+        reg = SubjectObjectionRegistry()
+        reg.register("opted-out-agent-999", reason="Formal objection under GDPR Article 21")
+
+        sensor = HostSensor(
+            session_id="integration-sess-optout",
+            agent_id="opted-out-agent-999",
+            host_id="amx-host-001",
+            objection_registry=reg,
+        )
+
+        self.assertTrue(sensor.is_opted_out())
+
+        with self.assertRaises(SubjectObjectionError):
+            sensor.sample()
+
+        with self.assertRaises(SubjectObjectionError):
+            sensor.record_exit(0)
+
+        # poll_stream immediately terminates without emitting events
+        events = list(sensor.poll_stream(max_samples=5))
+        self.assertEqual(len(events), 0)
 
 
 if __name__ == "__main__":

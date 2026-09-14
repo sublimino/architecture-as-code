@@ -852,3 +852,33 @@ export interface AgentTelemetryResponse {
   pushdown_filters?: Record<string, any>
   source_health: 'healthy' | 'degraded' | 'unavailable'
 }
+
+// ─── External Agent Evidence Projections (AMXO-P5-3 / AMXO-P6-1) ───────────
+
+export interface ExternalEvidenceItem {
+  id: string
+  tenant_id: string
+  agent_id: string
+  session_id: string
+  evidence_type: 'process' | 'artifact' | 'network' | 'collection-limit' | string
+  source: 'nono-0.73.0' | 'host-sensor-v1' | string
+  observed_at: string
+  spiffe_id?: string | null
+  landlock_abi?: number | null
+  observation_state: 'observed' | 'denied' | 'unobserved' | string
+  integrity_state: 'not-integrity-verified' | 'integrity-verified' | 'tampered' | string
+  attributes: Record<string, any>
+  hash_chain_digest?: string | null
+  verified: boolean
+  created_at?: string
+}
+
+export interface ExternalEvidenceResponse {
+  tenant_id: string
+  agent_id: string
+  total: number
+  limit: number
+  offset: number
+  evidence: ExternalEvidenceItem[]
+}
+

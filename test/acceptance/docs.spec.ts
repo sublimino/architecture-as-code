@@ -26,6 +26,7 @@ import { test, expect } from "@playwright/test";
 const BASE = (process.env.DOCS_BASE_URL ?? "http://127.0.0.1:4325/docs").replace(/\/+$/, "");
 
 const PAGES = [
+  { slug: "start/external-linux-agent", heading: "Onboard an external Linux agent" },
   { slug: "onboarding/user-journey", heading: "Onboard as a first user" },
   { slug: "agents/dual-agent-onboarding", heading: "Claim the two demonstration agents" },
   { slug: "security/nono-optionality", heading: "Nono optionality and Landlock confinement" },

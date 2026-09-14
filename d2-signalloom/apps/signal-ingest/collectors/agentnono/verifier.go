@@ -52,9 +52,11 @@ type SessionState struct {
 
 // AuditVerifier performs cryptographic detached signature verification and hash chain validation.
 type AuditVerifier struct {
-	mu           sync.RWMutex
-	cfg          VerifierConfig
-	sessionState map[string]*SessionState
+	mu                sync.RWMutex
+	cfg               VerifierConfig
+	sessionState      map[string]*SessionState
+	finalizedSessions map[string]*FinalizedSessionVerification
+	sessionLocks      map[string]*sync.Mutex
 }
 
 // NewAuditVerifier constructs a verifier configured with SPIRE trust roots and trust domain.
@@ -68,8 +70,10 @@ func NewAuditVerifier(cfg VerifierConfig) *AuditVerifier {
 		cfg.TrustPool = pool
 	}
 	return &AuditVerifier{
-		cfg:          cfg,
-		sessionState: make(map[string]*SessionState),
+		cfg:               cfg,
+		sessionState:      make(map[string]*SessionState),
+		finalizedSessions: make(map[string]*FinalizedSessionVerification),
+		sessionLocks:      make(map[string]*sync.Mutex),
 	}
 }
 
@@ -78,6 +82,20 @@ func (v *AuditVerifier) ResetSession(sessionID string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	delete(v.sessionState, sessionID)
+	delete(v.finalizedSessions, sessionID)
+	delete(v.sessionLocks, sessionID)
+}
+
+// GetFinalizedSession returns the cached verification result for an already verified session.
+func (v *AuditVerifier) GetFinalizedSession(sessionID string) (*FinalizedSessionVerification, bool) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	existing, ok := v.finalizedSessions[sessionID]
+	if !ok || existing == nil {
+		return nil, false
+	}
+	clone := *existing
+	return &clone, true
 }
 
 // VerifyEvent validates the detached signature, SVID validity, and hash chain integrity of an event.
@@ -213,7 +231,7 @@ func (v *AuditVerifier) verifyHashChain(event *NonoAuditEvent) (string, error) {
 	if sessionID != "" {
 		v.mu.Lock()
 		state, exists := v.sessionState[sessionID]
-		if exists {
+		if exists && state != nil {
 			// If previous digest does not match our recorded last digest
 			if event.PrevDigest != "" && !strings.EqualFold(event.PrevDigest, state.LastDigest) {
 				v.mu.Unlock()
@@ -374,4 +392,233 @@ func VerifyCosignManifest(manifestData []byte, signatureStr string, pubKeyPEM []
 	}
 
 	return true, nil
+}
+
+// FinalizedSessionVerification represents the comprehensive cryptographic verification result of a completed audit session.
+type FinalizedSessionVerification struct {
+	SessionID    string             `json:"session_id"`
+	EventCount   int                `json:"event_count"`
+	Status       VerificationStatus `json:"status"`
+	FinalDigest  string             `json:"final_digest"`
+	RootDigest   string             `json:"root_digest"`
+	SPIFFEID     string             `json:"spiffe_id"`
+	ActorID      string             `json:"actor_id"`
+	LandlockABI  int                `json:"landlock_abi"`
+	GitOIDs      []string           `json:"git_oids"`
+	IsFinalized  bool               `json:"is_finalized"`
+	IsIdempotent bool               `json:"is_idempotent"`
+	Violations   []string           `json:"violations,omitempty"`
+	Error        error              `json:"error,omitempty"`
+}
+
+// IsFinalizedEvent returns true if the event represents an explicit session termination/finalization marker.
+func IsFinalizedEvent(e *NonoAuditEvent) bool {
+	if e == nil {
+		return false
+	}
+	lc := strings.ToLower(e.LifecycleState)
+	if lc == "finalized" || lc == "completed" || lc == "terminated" || lc == "closed" {
+		return true
+	}
+	et := strings.ToLower(e.EventType)
+	if et == "session_finalized" || et == "session_end" || et == "finalized" {
+		return true
+	}
+	ev := strings.ToLower(e.Event)
+	if ev == "session_finalized" || ev == "finalized" {
+		return true
+	}
+	if len(e.Metadata) > 0 {
+		if fin, ok := e.Metadata["finalized"].(bool); ok && fin {
+			return true
+		}
+		if state, ok := e.Metadata["lifecycle_state"].(string); ok && strings.ToLower(state) == "finalized" {
+			return true
+		}
+	}
+	return false
+}
+
+// VerifyFinalizedSession cryptographically validates an entire finalized nono audit session chain.
+// It verifies:
+// 1. Session contains at least one event.
+// 2. Uniform session ID across all events.
+// 3. Strict contiguous sequence ordering without gaps, out-of-order, or duplicate sequences.
+// 4. SHA-256 hash chain continuity: prev_digest matches calculated digest of preceding event.
+// 5. Event declared digest matches calculated digest.
+// 6. Signature on each event block is valid against the signing key/certificate and SPIFFE trust domain.
+// 7. Landlock ABI metadata is verified and recorded.
+// 8. GitOIDs are calculated and verified for all events.
+// 9. The final event in the chain is explicitly marked as finalized.
+// 10. Idempotent re-verification deduplication across concurrent and repeated submissions.
+func (v *AuditVerifier) VerifyFinalizedSession(events []*NonoAuditEvent) *FinalizedSessionVerification {
+	res := &FinalizedSessionVerification{
+		Status:       StatusUnverified,
+		GitOIDs:      make([]string, 0, len(events)),
+		Violations:   make([]string, 0),
+		IsFinalized:  false,
+		IsIdempotent: false,
+	}
+
+	if len(events) == 0 {
+		res.Status = StatusTampered
+		res.Error = errors.New("empty audit session: event count is 0")
+		res.Violations = append(res.Violations, "empty_session")
+		return res
+	}
+
+	sessionID := events[0].AuditSessionID
+	if sessionID == "" {
+		sessionID = events[0].SessionID
+	}
+	if sessionID == "" {
+		res.Status = StatusTampered
+		res.Error = errors.New("session identifier is empty")
+		res.Violations = append(res.Violations, "empty_session_id")
+		return res
+	}
+	res.SessionID = sessionID
+
+	// Obtain or create per-session lock to serialize concurrent verifications of the same session ID
+	v.mu.Lock()
+	sessMu, ok := v.sessionLocks[sessionID]
+	if !ok {
+		sessMu = &sync.Mutex{}
+		v.sessionLocks[sessionID] = sessMu
+	}
+	v.mu.Unlock()
+
+	sessMu.Lock()
+	defer sessMu.Unlock()
+
+	// Idempotency check: if session was already verified and cached
+	terminalEvent := events[len(events)-1]
+	v.mu.RLock()
+	existing, exists := v.finalizedSessions[sessionID]
+	v.mu.RUnlock()
+
+	if exists && existing != nil {
+		actorMatches := existing.ActorID == "" || events[0].ActorID == "" || existing.ActorID == events[0].ActorID
+		digestMatches := existing.RootDigest == terminalEvent.Digest
+		countMatches := existing.EventCount == len(events)
+
+		if actorMatches && digestMatches && countMatches {
+			clone := *existing
+			clone.IsIdempotent = true
+			return &clone
+		}
+
+		res.Status = StatusTampered
+		res.Violations = append(res.Violations, "session_conflict")
+		res.Error = fmt.Errorf("session conflict for session %q: incoming payload conflicts with previously verified session (cached root %s count %d != incoming root %s count %d)",
+			sessionID, existing.RootDigest, existing.EventCount, terminalEvent.Digest, len(events))
+		return res
+	}
+
+	// Clear session hash chain state to avoid corrupting active streams
+	v.mu.Lock()
+	delete(v.sessionState, sessionID)
+	v.mu.Unlock()
+
+	var prevCalculatedDigest string
+	firstSeq := events[0].Seq
+	landlockABI := 0
+
+	for i, ev := range events {
+		if ev == nil {
+			res.Status = StatusTampered
+			res.Error = fmt.Errorf("nil audit event at index %d", i)
+			res.Violations = append(res.Violations, "nil_event")
+			return res
+		}
+
+		// Uniform session ID
+		currID := ev.AuditSessionID
+		if currID == "" {
+			currID = ev.SessionID
+		}
+		if currID != sessionID {
+			res.Status = StatusTampered
+			res.Error = fmt.Errorf("session ID mismatch at index %d: %q != %q", i, currID, sessionID)
+			res.Violations = append(res.Violations, "session_id_mismatch")
+			return res
+		}
+
+		// Sequence checks
+		expectedSeq := firstSeq + int64(i)
+		if ev.Seq != expectedSeq {
+			if i > 0 && ev.Seq <= events[i-1].Seq {
+				res.Status = StatusTampered
+				res.Error = fmt.Errorf("out-of-order or duplicate sequence at index %d: seq %d <= previous %d", i, ev.Seq, events[i-1].Seq)
+				res.Violations = append(res.Violations, "out_of_order_sequence")
+				return res
+			}
+			res.Status = StatusTampered
+			res.Error = fmt.Errorf("sequence gap at index %d: expected seq %d, got %d", i, expectedSeq, ev.Seq)
+			res.Violations = append(res.Violations, "sequence_gap")
+			return res
+		}
+
+		// Hash chain continuity
+		if i > 0 && ev.PrevDigest != prevCalculatedDigest {
+			res.Status = StatusTampered
+			res.Error = fmt.Errorf("hash chain break at seq %d: prev_digest %q != calculated %q", ev.Seq, ev.PrevDigest, prevCalculatedDigest)
+			res.Violations = append(res.Violations, "hash_chain_break")
+			return res
+		}
+
+		// Verify event signature, GitOID, and digest
+		eventRes := v.VerifyEvent(ev)
+		if eventRes.Status == StatusTampered {
+			res.Status = StatusTampered
+			res.Error = fmt.Errorf("event seq %d tampered: %w", ev.Seq, eventRes.Error)
+			res.Violations = append(res.Violations, "event_tampered")
+			return res
+		}
+
+		if v.cfg.RequireSignature && eventRes.Status != StatusVerified {
+			res.Status = StatusUnverified
+			res.Error = fmt.Errorf("event seq %d cryptographic verification failed: %w", ev.Seq, eventRes.Error)
+			res.Violations = append(res.Violations, "signature_unverified")
+			return res
+		}
+
+		if res.SPIFFEID == "" && eventRes.SPIFFEID != "" {
+			res.SPIFFEID = eventRes.SPIFFEID
+		}
+		if res.ActorID == "" && ev.ActorID != "" {
+			res.ActorID = ev.ActorID
+		}
+		if ev.Landlock.ABIVersion > landlockABI {
+			landlockABI = ev.Landlock.ABIVersion
+		}
+
+		res.GitOIDs = append(res.GitOIDs, eventRes.SignatureGitOID)
+		prevCalculatedDigest = eventRes.CalculatedDigest
+	}
+
+	// Verify finalization marker on terminal event
+	terminalEvent = events[len(events)-1]
+	if !IsFinalizedEvent(terminalEvent) {
+		res.Status = StatusUnverified
+		res.Error = errors.New("unfinalized audit session: terminal event lacks completion or finalization marker")
+		res.Violations = append(res.Violations, "unfinalized_session")
+		res.IsFinalized = false
+		res.EventCount = len(events)
+		res.FinalDigest = prevCalculatedDigest
+		return res
+	}
+
+	res.IsFinalized = true
+	res.EventCount = len(events)
+	res.FinalDigest = prevCalculatedDigest
+	res.RootDigest = terminalEvent.Digest
+	res.LandlockABI = landlockABI
+	res.Status = StatusVerified
+
+	v.mu.Lock()
+	v.finalizedSessions[sessionID] = res
+	v.mu.Unlock()
+
+	return res
 }

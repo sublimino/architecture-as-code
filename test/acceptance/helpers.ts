@@ -104,22 +104,32 @@ export const config = {
  *
  * Waits for the sidebar "Agents" link as proof of successful auth + SPA render.
  */
-export async function login(page: Page, opts?: { demoMode?: boolean }): Promise<void> {
+export async function login(page: Page, opts?: { demoMode?: boolean; skipOnboarding?: boolean }): Promise<void> {
   const demoMode = opts?.demoMode ?? true;
+  const skipOnboarding = opts?.skipOnboarding ?? true;
   // Pre-seed demo mode so every screen renders from fixtures (unless the
   // spec opted out via { demoMode: false })
-  await page.addInitScript((demo: boolean) => {
-    try {
-      window.localStorage.setItem("sl_demo_mode", demo ? "true" : "false");
-      // Superadmin is a visibility control that defaults off (see
-      // dashboard-signalloom/src/auth/superadmin.ts). Specs that assert on the
-      // superadmin-only sidebar links — RBAC Analysis, RBAC Explorer,
-      // Cryptography, Federated Services, Collusion & Access — need it on.
-      window.localStorage.setItem("signalloom.superadmin", "true");
-    } catch {
-      /* storage unavailable */
-    }
-  }, demoMode);
+  await page.addInitScript(
+    ({ demo, skip }: { demo: boolean; skip: boolean }) => {
+      try {
+        window.localStorage.setItem("sl_demo_mode", demo ? "true" : "false");
+        // Superadmin is a visibility control that defaults off (see
+        // dashboard-signalloom/src/auth/superadmin.ts). Specs that assert on the
+        // superadmin-only sidebar links — RBAC Analysis, RBAC Explorer,
+        // Cryptography, Federated Services, Collusion & Access — need it on.
+        window.localStorage.setItem("signalloom.superadmin", "true");
+        if (skip) {
+          window.localStorage.setItem(
+            "sl_onboarding_skipped",
+            JSON.stringify({ skippedAt: Date.now() }),
+          );
+        }
+      } catch {
+        /* storage unavailable */
+      }
+    },
+    { demo: demoMode, skip: skipOnboarding },
+  );
 
   await page.goto(config.base, { waitUntil: "domcontentloaded" });
 
@@ -164,6 +174,10 @@ export async function loginExpectingDex(page: Page): Promise<void> {
     try {
       window.localStorage.setItem("sl_demo_mode", "true");
       window.localStorage.setItem("signalloom.superadmin", "true");
+      window.localStorage.setItem(
+        "sl_onboarding_skipped",
+        JSON.stringify({ skippedAt: Date.now() }),
+      );
     } catch {
       /* storage unavailable */
     }

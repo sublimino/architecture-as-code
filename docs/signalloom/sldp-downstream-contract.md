@@ -222,9 +222,11 @@ consuming mission that binds to this document.
 
 1. **Cross-tenant erasure isolation is UNFALSIFIED.** Mutation M1d removed the tenant predicate
    from `si/subjectkey/store.go:293` and `TestErasureSaga_ErasesOneSubjectOnly` stayed green.
-   Isolation rests on tenant-keyed pseudonym derivation (§2), not on a tested predicate. **Do not
-   design as though the store enforces a tenant boundary on key lookup.** Certification §1,
-   Property 1.
+   Isolation rests on tenant-keyed pseudonym derivation (§2), not on a tested predicate. Widened
+   (M1e): with that predicate deleted, **every test in `subjectkey`, `privacy` and
+   `privacy/tombstone` still passes** — all three packages report `ok`. This is an untested
+   control, not a weak assertion. **Do not design as though the store enforces a tenant boundary on
+   key lookup; nothing tests that it does.** Certification §1, Property 1.
 2. **The 48-key allow-list in §5 is compiled by exactly one non-default make target.**
    `-tags frostdb` occurs once in the Makefile and nowhere in CI. It is not type-checked by
    `go build ./...` or `go vet ./...`. Treat it as a design intent with a documented gap, not as an

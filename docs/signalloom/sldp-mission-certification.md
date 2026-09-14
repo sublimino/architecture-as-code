@@ -13,22 +13,25 @@
 **The mission CERTIFIES — with one headline property NARROWED, one control found uncompiled, and
 the qualifications in §6.**
 
-Nine mutations were applied across three rounds. **Eight were killed. One SURVIVED**, and it is the
-most important result in this document:
+Ten mutations were applied across three rounds. **Eight were killed. Two SURVIVED**, and they are
+the most important result in this document:
 
-> **Removing the tenant predicate from the subject-key store leaves
-> `TestErasureSaga_ErasesOneSubjectOnly` green.** The test *asserts* cross-tenant isolation at
-> `saga_test.go:158` and that assertion never fires, because the two tenants' pseudonyms are derived
-> under different tenant keys and so cannot collide in a pseudonym-only match. **Cross-tenant
-> erasure isolation is therefore NOT certified.** It is structurally plausible and empirically
-> unfalsified. For a bank, that is the higher-severity half of the property.
+> **The tenant predicate in the subject-key store can be deleted and nothing notices.** Removing
+> `r.TenantID == tenantID` from `MemoryStore.ListVersions` (`si/subjectkey/store.go:293`) leaves
+> `TestErasureSaga_ErasesOneSubjectOnly` green (M1d) — and leaves **every test in `subjectkey`,
+> `privacy` and `privacy/tombstone` green** (M1e, all three packages `ok`). The test *asserts*
+> cross-tenant isolation at `saga_test.go:158`; that assertion never fires, because the two tenants'
+> pseudonyms are derived under different tenant keys and cannot collide in a pseudonym-only match.
+> **Cross-tenant erasure isolation is therefore NOT certified.** Isolation is delivered by
+> pseudonym derivation, and the predicate that would enforce it if derivation ever changed is
+> entirely untested. For a bank, that is the higher-severity half of the property.
 
 What this changes:
 
 | Headline property | Certified? |
 |---|---|
 | Erasure reaches one subject only — **within a tenant** | **YES** — 3 independent kills |
-| Erasure reaches one subject only — **across tenants** | **NO** — M1d survived (§2) |
+| Erasure reaches one subject only — **across tenants** | **NO** — M1d *and* M1e survived (§2) |
 | Historical attestations still verify | **YES, narrowly** — positive and negative controls both live, but against writer-generated corpora, not golden pre-change bytes |
 | Query p95 latency budget holds | **YES, at the enforced ceiling of 10 ms** — not at the 2.75 ms figure in circulation |
 
@@ -355,7 +358,7 @@ implementation or policy decision outside a governor's role boundary:
 
 Added by this governor, ranked by severity for a regulated deployment:
 
-15. **HIGHEST — cross-tenant erasure isolation is unfalsified (M1d survived).** Needed: a test
+15. **HIGHEST — the tenant predicate is untested (M1d and M1e survived).** Needed: a test
     where two tenants' key records share a pseudonym *value*, with an asserted pre-state row count,
     that goes red when the tenant predicate is removed. Under `FORCE ROW LEVEL SECURITY` a
     claim-less query returns zero rows rather than erroring, so a test without a pre-state

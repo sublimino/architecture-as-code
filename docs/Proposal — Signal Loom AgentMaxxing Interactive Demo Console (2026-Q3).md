@@ -320,9 +320,9 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 - Card: `AMXD-P0`
 - Shortcode: `AMXD`
 - Created: 2026-09-14 23:41:11+01:00
-- Last Updated: 2026-09-14 23:41:11+01:00
+- Last Updated: 2026-09-14 23:47:35+01:00
 - Status: `status=pass`
-- Commit: `caa8f4c5d109f6d6e7077f744694ff7cabf13a1f`
+- Commit: `caa8f4c5d109f6d6e7077f744694ff7cabf13a1f` (baseline note), `1d847ac6ee8645891cd39bbbc95e0c120461c6e3` (this errata)
 - Task base: `2fedff0610b16682128cbcfac42eff9025320a53` (detached; `git merge-base --is-ancestor integration/amxd-v0.1.0 HEAD` → exit 0)
 - Integration ref: `refs/heads/integration/amxd-v0.1.0` → `2fedff0610b16682128cbcfac42eff9025320a53`
 - Result: Baseline established and green. Full note committed at `docs/amxd-p0-baseline.md`.
@@ -448,6 +448,21 @@ P0 has no prerequisite, so none were forced by an earlier card. One judgement wa
 - `docs/Proposal — Signal Loom AgentMaxxing Interactive Demo Console (2026-Q3).md` — P0 appended only within its own block; no prior entry altered. Note the baseline is shared with SLER and SLCD, whose cards edit their own proposals in the same tree.
 - `d2-signalloom/apps/dashboard-signalloom/nginx.conf` — untouched by P0; P1-4 owns the route table.
 - `test/acceptance/helpers.ts` — read only; not modified.
+
+##### Advisor pass — four gaps found and closed
+An advisor call at the commitment boundary (`Inference.ts --mode advisor`) returned a **not-done** verdict. All four substantive findings were actioned; one hypothesis it raised was tested and refuted.
+
+1. **"Your green numbers predate your own commits."** Correct in principle. Every check was re-run at the P0 tip `1d847ac6ee8645891cd39bbbc95e0c120461c6e3`: doctor still 1 exception / 29 fast-exit tasks, `link-check` still `✓ all six rules pass` / `CRITICAL=0 FAIL=0 WARN=0`, contract 6/6, host 26/26 bats ok / 0 `not ok`. **Unchanged — P0's commits perturbed nothing.** (Its specific hypothesis that `link-check` might read 7/7 is **refuted**: the six are DAG rules, not documents, so a new doc cannot move the count.)
+2. **"`exit 1 is expected` is an oracle that cannot detect the regression it exists to detect."** Correct and important. The full check-3 failure set is now committed at `docs/amxd-p0-baseline/doctor-fastexit-baseline-set.txt` (29 IDs, sorted), and the acceptance rule for every later card is **set-containment**, not exit code: a task ID absent from that file is a real regression. **With an explicit expiry:** the "no AMXD task can be in the sweep" proof holds only while no AMXD task has finished — from AMXD-P1 onward it is void and the containment rule is the only valid test.
+3. **"Counts where you need identities."** Actioned — three artifacts committed under `docs/amxd-p0-baseline/`: `eslint-baseline.txt` (89 sorted `path:line:severity:rule` rows), `amxo-test-names.txt` (the actual test names behind 6/6 and 73/73), `doctor-fastexit-baseline-set.txt`. Plus toolchain identity in the note: `node v26.8.1`, `npm 11.19.0`, `package-lock.json` sha256 `277cb04ef23263510b6adfd3334ff5e0cadc0b1e3944f6c823cca8a9350fefc6`. Incidental good news for P1-5: `lint` is `eslint src/`, so `test/acceptance/helpers.ts` is **outside** its scope and carries none of the 83 errors.
+4. **"Baseline-of-record and current tip are conflated."** Fair — the phrasing was ambiguous, the facts were not. Both are now stated separately in the note: measurements were taken at `2fedff06`; P0's commits sit on the detached task HEAD; **the `integration/amxd-v0.1.0` ref has not moved** — the Governor advances it.
+
+##### The advisor's sharpest challenge, and what checking it actually showed
+It challenged deviation 2 above — *"you assumed the repo copy and the vault copy are one document; `readlink` returning nothing is evidence of two."* That was the right instinct and the check was run.
+
+**There are indeed two independent files** (distinct inodes, neither a symlink, not hardlinked): the git-tracked `docs/Proposal — … .md`, and `~/Documents/Obsidian/v1/2. Areas/CEO/Enhancement Proposals/Proposal — … .md`. They differ in **exactly two frontmatter lines** — YAML quoting of `obsidianProject:`, and `updated:` (vault `2026-09-14T22:54`, repo `2026-09-13T22:00`). **The body is byte-identical.** So: one document, two homes, drifting only in frontmatter that Obsidian rewrites.
+
+That resolves the question rather than softening it. The card names the **repo path** as the proposal, the repo copy is tracked with 89 commits of `docs(signalloom): record <CARD> … errata in proposal` precedent, and an errata written only to the vault reaches no card branching off the integration branch. The commit stands. The vault copy was mirrored through the Obsidian bridge (`obsidian-bridge-health` → `status: ok`, `eval_ok: true`) rather than by a direct write, per the vault write doctrine. **This remains a flagged decision taken against an explicit card instruction, not a silent one** — it is called out here for the phase Governor rather than folded into the pass.
 
 ##### Reproduction
 ```bash

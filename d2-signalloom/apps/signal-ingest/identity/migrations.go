@@ -37,6 +37,11 @@ var Migration005Rollback string
 //go:embed migrations/006_tenant_isolation_rls.sql
 var Migration006TenantIsolationRLS string
 
+// Migration006Rollback is the rollback script for 006_tenant_isolation_rls.sql.
+//
+//go:embed migrations/006_tenant_isolation_rls_rollback.sql
+var Migration006Rollback string
+
 // MigrationSQL returns the concatenated forward migration SQL scripts for external inspection or
 // testing. The rollback script is deliberately excluded: including it would make a grep for a
 // dropped index match the rollback's re-creation of it, so a test asserting "the cleartext index

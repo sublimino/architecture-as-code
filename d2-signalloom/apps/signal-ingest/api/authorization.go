@@ -289,6 +289,11 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	}
+	totalActors := len(actors)
+	limit := requestLimit(r, totalActors)
+	if limit < len(actors) {
+		actors = actors[:limit]
+	}
 	chains := make([]AuthorizationChainResponse, 0, len(actors))
 	completeCount := 0
 
@@ -307,7 +312,7 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 
 	resp := AuthorizationQueryResponse{
 		Chains:        chains,
-		Total:         len(actors),
+		Total:         totalActors,
 		CompleteCount: completeCount,
 		KPIFraction:   kpiFraction,
 	}

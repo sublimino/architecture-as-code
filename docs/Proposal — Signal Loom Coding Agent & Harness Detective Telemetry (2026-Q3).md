@@ -339,8 +339,9 @@ Funded under Signal Loom Agentic Governance platform investment.
 - Shortcode: `SLCD`
 - Status: **pass (qualified)**
 - Created: 2026-09-15 00:01:57+01:00
-- Last Updated: 2026-09-15 00:14:36+01:00
+- Last Updated: 2026-09-15 00:19:02+01:00
 - Base commit: `2fedff0610b16682128cbcfac42eff9025320a53`
+- Deliverable commit: `cb0d3a645041a314625feb0115e0f29a3e6e3206` (task worktree, detached; merge to `integration/slcd-v0.1.0` is the phase Governor's, not P0's — lifecycle boundary is create-only)
 - Integration ref: `refs/heads/integration/slcd-v0.1.0` = `2fedff0610b16682128cbcfac42eff9025320a53`
 - Branch label at run time: `(detached)`
 - Result: Baseline established; two architectural contradictions escalated; nothing pushed.

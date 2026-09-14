@@ -945,7 +945,7 @@ Two accounting caveats a later reader should not mistake for facts. **SLDP-P5-3 
 **Last Updated:** 2026-09-15 00:27:12+01:00  
 **Status:** Completed  
 **Base commit at start of run:** `37830bba244d02e22028eba0f52ebc98e1ba25e6` · **HEAD when this block was written:** `ce2b40b7ccf5aaa5e46eaba1c064714f3fb1b965` (branch `integration/sldp-v0.1.0`) — the branch advanced twice mid-run via concurrent controller ticks; both SHAs were read with `git rev-parse`, never retyped  
-**Commit:** see `docs/signalloom/sldp-p6-gov-proof.md` §1; this errata block is committed in the same change  
+**Commit:** `0744bc4c0e2f553460ff8a380bf32d28fcd8f17c` (see `docs/signalloom/sldp-p6-gov-proof.md` §1)  
 **Verdict:** **CERTIFIES — with one headline property NARROWED and one control found uncompiled.**  
 
 **Decisions:**

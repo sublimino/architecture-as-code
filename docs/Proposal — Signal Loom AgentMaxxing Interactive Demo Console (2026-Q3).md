@@ -256,7 +256,9 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P1-1 | ripwire-write-tests; FirstPrinciples | Stepper architect | M | 90m | daily | Design 5-stage lifecycle state machine and step-control contract. |
 | P1-2 | ripwire-write-tests; Security | Scenario architect | M | 90m | daily | Define demo scenario presets (Happy Path, Tamper Breach, Revocation Race). |
 | P1-3 | ripwire-before-you-build; Security | Integration architect | L | 150m | deep | Freeze demo mock/live bridge contracts and reset/seed endpoints. |
-| P1-GOV | CodeReview; ripwire-change-check | Architecture Governor | M | 90m | deep | Approve stepper contracts and verify zero unresolved kickoff gates. |
+| P1-4 | ripwire-write-tests; ripwire-security-scan | Implementation | S | 45m | antigravity | nginx.conf contains zero `location /v1/` blocks, and Dockerfile:27-29 copies that config over the built dist, so production serves behind it. The console's integration is broken in the real image, not only in local development. |
+| P1-5 | ripwire-write-tests; ripwire-security-scan | Implementation | M | 90m | kpai | test/acceptance/helpers.ts:108 defaults demoMode to true, so a specification passes with no backend. A 403 is structurally unreachable in demo mode because an unfixtured route throws demoModeError at 501 or 404, never 403, so the headline authorisation assertion can only pass by fabricating the response it claims to verify. Must land before P4-2 depends on that assertion. |
+| P1-GOV | CodeReview; ripwire-change-check | Architecture Governor | M, P1-4, P1-5 | 90m | deep | Approve stepper contracts and verify zero unresolved kickoff gates. |
 | P2-PRE | ripwire-before-you-build; Browser | UI pre-flight engineer | S | 45m | daily | Confirm UI components, styling standards, and routing seams. |
 | P2-1 | Browser; ripwire-write-tests | Frontend engineer | L | 150m | daily | Build Stepper Header and Stage Progression Controller (Stages 1 to 5). |
 | P2-2 | Browser; ripwire-write-tests | Enrollment UI engineer | L | 150m | daily | Implement Stage 1 (Token Issue) & Stage 2 (Ed25519 Enrollment) panels. |
@@ -287,7 +289,9 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P1-1 | implementation | Design 5-stage lifecycle state machine and step-control contract | P1-PRE | Vitest state-machine transitions; `src/components/demos/types.ts` contract | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define demo scenario presets for happy path, tamper breach, and revocation | P1-PRE | Presets schema tests; deterministic scenario fixture data | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze demo mock/live bridge contracts and reset/seed endpoints | P1-1, P1-2 | Contract snapshot; client bridge interface tests; idempotent reset contract | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-4 | implementation | Add the missing /v1/ proxy route to nginx and verify behind the real image | P1-PRE | `rg -n 'location' d2-signalloom/apps/dashboard-signalloom/nginx.conf` | S | antigravity | Pending | $0.00 | N/A | N/A | N/A |
+| P1-5 | implementation | Make the acceptance suite capable of failing | P1-PRE | `bats test/acceptance-spec-coverage.bats` | M | kpai | Pending | $0.00 | N/A | N/A | N/A |
+| P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm UI components, styling standards, and routing seams | P1-GOV | Component library check; `/demos/agentmaxxing` route registration check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Build Stepper Header and Stage Progression Controller | P2-PRE | Vitest stepper unit tests; stage navigation click assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels | P2-PRE | Vitest enrollment panel tests; attributable token generation visual check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -330,3 +334,18 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 
 ##### Deliverable verification
 - Verification: Seam inventory and kick-off gates verified.
+
+#### Errata — AMXD-P1-4 (bootstrap)
+##### Task identity
+- Card: `AMXD-P1-4`
+- Shortcode: `AMXD`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — AMXD-P1-5 (bootstrap)
+##### Task identity
+- Card: `AMXD-P1-5`
+- Shortcode: `AMXD`
+- Commit: Pending
+- Result: Pending
+

@@ -311,8 +311,8 @@ previous phase governor, or on `P0` for phase 1.
 | P4-GOV | governor | Certify per-subject erasure and non-linkable tombstones | P4-1, P4-2 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | pass — certified (G1 remediated in 8e94b193, see Errata — SLDP-P4-GOV) | N/A | N/A | ~45m | N/A |
 | P5-PRE | preflight | Prototype the KMS signer and confirm data-subject-rights surfaces | P4-GOV | `rg -n 'ed25519|PrivateKey' d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | S | fast | pass — delivered: a6974f6b (see Errata — SLDP-P5-PRE) | $0.00 | N/A | ~50m | kpai |
 | P5-1 | implementation | Abstract segment signer for non-exportable KMS keys | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./store/...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: f5261ea3 (see Errata — SLDP-P5-3) | $0.00 | N/A | 35m | deep |
+| P5-2 | implementation | DPIA and legitimate-interest assessment pack | P5-PRE | `test -f docs/signalloom/dpia-reference-pack.md` | M | daily | pass — delivered: 2ba84a18 (see Errata — SLDP-P5-2) | $0.00 | N/A | 30m | kpai |
+| P5-3 | implementation | Build Article 15, 20 and 21 data-subject-rights mechanisms | P5-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | pass — delivered: 67a18142 (see Errata — SLDP-P5-3) | $0.00 | N/A | 35m | deep |
 | P5-GOV | governor | Certify KMS signing, DPIA completeness and data-subject rights | P5-1, P5-2, P5-3 | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLDP` | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-PRE | preflight | Inventory retention sinks and confirm the deployment model | P5-GOV | `rg -c 'EventPartitionDropped' d2-signalloom/apps/signal-ingest/audit/audit.go` | S | fast | Pending | $0.00 | N/A | N/A | N/A |
 | P6-1 | implementation | Retention controller with deletion receipts across every sink | P6-PRE | `cd d2-signalloom/apps/signal-ingest && go test ./...` | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -771,19 +771,27 @@ Preflight checks verified 100% PASS. All 32 HTTP route endpoints for signal-inge
 - Commit: Pending
 - Result: Pending
 
-#### Errata — SLDP-P5-2 (bootstrap)
-##### Task identity
-- Card: `SLDP-P5-2`
-- Shortcode: `SLDP`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLDP-P5-2: DPIA and legitimate-interest assessment pack
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-14 21:28:57+01:00  
+**Last Updated:** 2026-09-14 21:28:57+01:00  
+**Status:** `pass`  
+**Commit:** `2ba84a18018dc3ba0034a747970b556b6c0852e9`  
+**Evidence:** `docs/signalloom/dpia-reference-pack.md` (proof: `docs/signalloom/sldp-p5-2-proof.md`)  
+
+**Phase 5 Implementation Verification Summary:**
+- **Article 28(3)(f) Processor Assistance Pack Delivered:** Authored `docs/signalloom/dpia-reference-pack.md` (827 lines), an evidence-assembled DPIA reference pack tied to the P0 storage-copy inventory, demo-to-hosted threat model, and P1–P4 control proofs.
+- **Article 6(1)(f) Legitimate Interest Assessment (LIA):** Formulated three-limb test (Purpose, Necessity, Balancing) for workstation telemetry, explicitly rejecting network-security Recital 49 as a ground for agent-governance telemetry.
+- **Article 88 & Prior Consultation Critical Paths Mapped:** Recorded national co-determination requirements (DE BetrVG 87(1)(6), FR CSE, NL WOR 27(1)(l), UK DPA 2018) and triggered Article 36 prior consultation (8+6 week clock) based on current measures taken.
+- **45-Row Completeness Checklist:** Delivered structured checklist across all 31 criteria categories.
+- **Required Verification:** `test -f docs/signalloom/dpia-reference-pack.md` verified PASS.
 
 #### Errata — SLDP-P5-3: Build Article 15, 20 and 21 data-subject-rights mechanisms
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-14 21:15:00+01:00  
 **Last Updated:** 2026-09-14 21:15:00+01:00  
 **Status:** `pass`  
-**Commit:** `f5261ea3`  
+**Commit:** `67a181425c41382867b2ae8dc2ba950cd095ce1d`  
 **Evidence:** `docs/signalloom/sldp-p5-3-proof.md`  
 
 **Phase 5 Implementation Verification Summary:**

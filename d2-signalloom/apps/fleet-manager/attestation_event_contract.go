@@ -29,6 +29,10 @@ const (
 	SpireEvictEventName = "spire_evict_attempt"
 	// MeshIsolationEventName discriminates a dynamic mesh network isolation attempt.
 	MeshIsolationEventName = "mesh_isolation_attempt"
+	// AdmissionBlockEventName discriminates an admission controller readmission block attempt.
+	AdmissionBlockEventName = "admission_block_attempt"
+	// AdmissionDecisionEventName discriminates a dynamic admission decision event.
+	AdmissionDecisionEventName = "admission_decision"
 )
 
 // SharedAttestationEventKeys is the intersection of fields SLER-P5-1 requires from

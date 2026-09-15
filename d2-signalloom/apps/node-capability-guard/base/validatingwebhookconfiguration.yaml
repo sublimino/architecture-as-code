@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+
+# ValidatingWebhookConfiguration for Signal Loom Node Capability Guard.
+#
+# CRITICAL SECURITY DESIGN NOTE (SLER-P3-2):
+# failurePolicy is explicitly set to Fail (Fail-Closed).
+# Setting failurePolicy to 'Ignore' constitutes a critical readmission bypass:
+# an attacker could DoS or wait for a webhook outage to reschedule, reconstitute,
+# or restart a contained agent pod without containment policy checks.
+#
+# timeoutSeconds is set to 5s deliberately (not left to Kubernetes defaults)
+# to ensure unresponsive webhook pods cannot stall pod scheduling cluster-wide
+# while guaranteeing prompt fail-closed denial.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: node-capability-guard.signalloom.ai
+  labels:
+    app.kubernetes.io/name: node-capability-guard
+    app.kubernetes.io/component: admission-controller
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/plane: admission
+  annotations:
+    cert-manager.io/inject-ca-from: fe-signalloom/node-capability-guard-tls
+webhooks:
+  - name: node-capability-guard.signalloom.ai
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: node-capability-guard
+        namespace: fe-signalloom
+        path: /validate
+        port: 443
+    # Fail-closed policy: reject admission if the webhook is unreachable.
+    failurePolicy: Fail
+    sideEffects: None
+    timeoutSeconds: 5
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+        scope: Namespaced
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - fe-signalloom-agents
+            - fe-signalloom

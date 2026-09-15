@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-capability-guard
+  namespace: fe-signalloom
+  labels:
+    app.kubernetes.io/name: node-capability-guard
+    app.kubernetes.io/component: admission-controller
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/plane: admission
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: node-capability-guard
+  ports:
+    - name: https-webhook
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+    - name: metrics
+      port: 8443
+      targetPort: 8443
+      protocol: TCP

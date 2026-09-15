@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: node-capability-guard
+  namespace: fe-signalloom
+  labels:
+    app.kubernetes.io/name: node-capability-guard
+    app.kubernetes.io/component: admission-controller
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: node-capability-guard
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow admission review webhook calls from the Kubernetes API server
+    - ports:
+        - protocol: TCP
+          port: 8443
+  egress:
+    # DNS resolution
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # In-cluster API access for metrics scraping and health checks
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8443

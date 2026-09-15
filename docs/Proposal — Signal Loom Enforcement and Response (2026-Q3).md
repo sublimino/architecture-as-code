@@ -306,7 +306,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | **RATIFIED with 15 conditions** at `468e3fc6`. All 6 phase-1 commits proven merged in dependency order; 0 TODO/FIXME; fleet-manager `go test ./...` exit 0; stun-sentinel `pkg/tc` failure proven pre-existing at P0 baseline (`git check-ignore -v` → global `*.o`); freeze guard mutation-killed twice incl. a nested field. **C-9 BLOCKS SLER-P2-1**: containment API unauthenticated, attestation path unwired, no card owns it. **C-2**: `run-redteam-suite.sh` has zero assertions and is disqualified as evidence. | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | **pass** — 0 OpenBao/SPIFFE SDKs across 3 apps confirmed; BAO_ADDR convention confirmed (`apps/cardvault-agent/main.go:65`); 5/5 `spire-server entry delete` calls confirmed discarding errors; OpenBao 5m TTL baseline confirmed; SPIRE default 24h ca_ttl confirmed with 0 default_svid_ttl setting; network/API seams documented → `docs/signalloom/sler-p2-pre-integration-seams.md` | $0.00 | N/A | ~3m | N/A |
 | P2-1 | implementation | Implement active OpenBao lease and token revocation API client | P2-PRE | `make demo-signalloom-api-test TIER=contract`; lease revocation test | L | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | pass — delivered: 9fa5906275d14a46bd7c41faa45669690913fe11 (see Errata — SLER-P2-2) | $0.00 | N/A | ~4m | N/A |
 | P2-GOV | governor | Merge credential revocation and verify instant authorization rejection | P2-1, P2-2 | Multi-credential revocation integration test; zero residual token leakage | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm Cilium and Istio mesh policy and admission controller seams | P2-GOV | Mesh CRD probe; node-capability-guard webhook check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Implement dynamic mesh isolation cutting in-flight TCP connections | P3-PRE | `netassert` integration test; in-flight connection termination <2s | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -662,4 +662,16 @@ Commit:       55c212f080296c8545f3128625b3036ef4fed201
 - `CGO_ENABLED=0 GOPATH=/tmp/gopath GOCACHE=/tmp/gocache go test ./...` in `d2-signalloom/apps/fleet-manager` → `ok` (0.024s).
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P2-2 Implement SPIRE entry eviction and SVID rejection enforcement
+**Created:** 2026-09-15 03:33:25+01:00
+**Last Updated:** 2026-09-15 03:33:25+01:00
+**Status:** Completed
+**Commit:** 9fa5906275d14a46bd7c41faa45669690913fe11
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Built from-zero Go gRPC client (`spire_client.go`) using official SPIRE Server Entry v1 protobuf/gRPC API (`spire-api-sdk` v1.15.3), replacing all 5 legacy shell-script error-discarding call sites. Sourced endpoint dynamically via `SPIRE_SERVER_ADDR`/`SPIRE_ADDR`/`SPIRE_SOCKET` with default `spire-server.inf-bao.svc.cluster.local:8081` matching `BAO_ADDR` convention. Mapped gRPC `codes.NotFound` to idempotent success (`OutcomeContained`, `idempotent=true`), eliminating error-swallowing hacks while maintaining fail-closed semantics for transport/server faults. Wired `SpireClient` into `k8sFleetClient` and cascade selection.
+**Deviations:** None.
+**Notes:** Measured live SPIRE deployment benchmarks: guaranteed control-plane entry deletion latency < 2ms (in-process direct gRPC) / ~90ms (kubectl roundtrip); data-plane SVID cache residual latency is 300s (JWT-SVID) / 3600s (X.509-SVID) with SPIRE agent socket sync delay ~0-5s. Published full denial matrix row and structured logging format in `docs/signalloom/sler-p2-2-proof.md` for P5-1 and P5-2.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

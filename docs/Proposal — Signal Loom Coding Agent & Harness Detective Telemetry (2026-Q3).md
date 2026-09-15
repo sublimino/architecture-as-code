@@ -302,7 +302,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | preflight | Validate SLCD harness identity and clean detective monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLCD`; repository and board evidence only | S | fast | **Pass (qualified)** — board checks green, doctor exits 1 on a workspace-wide fast-exit sweep no SLCD card can clear (Q2); baseline at `docs/signalloom/slcd-p0-baseline.md`; branch not pushed per Safety Rules (Q1); 2 architectural contradictions escalated (E1 socket/`fd`, E2 `cmdline`) | $0.00 | N/A | N/A | N/A |
 | P1-PRE | preflight | Inventory running harness processes, session log formats, and kanban wrappers | P0 | Process snapshot; session log schema inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | pass — delivered: 88d30371369d4143e28bb3fa64e1318508ecb651 (see Errata — SLCD-P1-1) | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze wire contract for host detective probe and signal-ingest consumer | P1-1, P1-2 | Versioned Go/Python schemas; OpenAPI contract freeze | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Pin every prohibited procfs entry before a detector touches them | P1-PRE | `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'` | M | antigravity | Pending | $0.00 | N/A | N/A | N/A |
@@ -455,4 +455,20 @@ interchangeable, and `filter.py` alone cannot stop a payload already read into m
 - Shortcode: `SLCD`
 - Commit: Pending
 - Result: Pending
+
+#### Errata — SLCD-P1-1 Define CodingAgentTelemetry event schema and metadata-only dictionary
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 02:49:12+01:00
+**Last Updated:** 2026-09-15 02:49:12+01:00
+**Status:** Completed
+**Commit:** 88d30371369d4143e28bb3fa64e1318508ecb651
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- Structured fixed-arity tool counts vector with 13 canonical categories (`view_file`, `write_to_file`, `replace_file_content`, `run_command`, `grep_search`, `find_by_name`, `list_dir`, `read_url_content`, `search_web`, `invoke_subagent`, `send_message`, `manage_task`, `ask_question`) and an `other_count` overflow bucket to structurally eliminate dynamic MCP server key expansion.
+- Reused SLDP pseudonym primitive (`signalloom/identity/alias-pseudonym/v1`, 64-character lowercase hex HMAC-SHA256) for `session_id` derivation in Go (`codingagent.DeriveSessionID`) and Python (`derive_session_pseudonym`).
+- Enforced fail-closed validation rejecting overlength strings (e.g. crafted 10KB harness string), invalid character classes in identifiers/endpoints, and prohibited keys with immediate errors rather than silent truncation.
+- Single source of truth established in `d2-signalloom/apps/agentmaxxing-host-sensor/schemas/coding-agent-telemetry.v1.schema.json` with cross-language conformance validation in `scripts/sync_coding_agent_schema.py` and unit conformance tests.
+**Deviations:** None.
+**Notes:** All 50 Python unittests and all Go tests pass 100%. Zero unallowlisted fields.
+
 

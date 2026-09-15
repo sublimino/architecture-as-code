@@ -270,3 +270,38 @@ func TestEmitIsConcurrencySafe(t *testing.T) {
 		t.Fatalf("emitted %d parseable lines, want %d — framing was corrupted", len(lines), workers*each)
 	}
 }
+
+func TestStunExecutionCarriesWitnessAttestationDigest(t *testing.T) {
+	buf := &bytes.Buffer{}
+	e := NewEmitter(buf)
+
+	obs := sampleObservation()
+	obs.AttestationID = "att-20260915-001"
+	obs.WitnessDigest = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	obs.OperatorIDs = []string{"operator-alice@controlplane.io"}
+
+	if err := e.StunExecutionHalted(obs); err != nil {
+		t.Fatalf("StunExecutionHalted: %v", err)
+	}
+	if err := e.StunExecutionResumed(obs); err != nil {
+		t.Fatalf("StunExecutionResumed: %v", err)
+	}
+	if err := e.StunExecutionHaltFailed(obs, "simulated cgroup freeze failure"); err != nil {
+		t.Fatalf("StunExecutionHaltFailed: %v", err)
+	}
+
+	lines := decodeLines(t, buf)
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(lines))
+	}
+
+	for i, line := range lines {
+		if line["attestation_id"] != "att-20260915-001" {
+			t.Errorf("line %d: expected attestation_id 'att-20260915-001', got %v", i, line["attestation_id"])
+		}
+		if line["witness_digest"] != "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210" {
+			t.Errorf("line %d: expected witness_digest, got %v", i, line["witness_digest"])
+		}
+	}
+}
+

@@ -234,6 +234,70 @@ export default defineConfig({
       },
     },
     {
+      // Coding-agent topology rendering (SLCD-P6-3), against a cluster-free
+      // harness — `bun harness/coding-agents-server.ts`, spawned per worker by
+      // the spec on `--port 0`.
+      //
+      // Its own project rather than a home in `smoke`, for the reason
+      // `supercred-log-streaming-harness` gives right below: `smoke` is for
+      // specs that drive the DASHBOARD through the Gateway and log themselves
+      // in. This one boots a bun server and points a browser at 127.0.0.1, so
+      // it shares none of that project's preconditions and would only inherit
+      // ones it cannot meet.
+      //
+      // NOT opt-in on an environment variable, and that is the deliberate
+      // difference from `docs` and `agentmaxxing-demo-console`. Those two are
+      // gated because their preconditions are NOT satisfied in the lane
+      // `scripts/acceptance-test.sh` runs (a served dist; a dashboard image
+      // built from this branch), so an unconditional project would redden
+      // `make acceptance-test` for a reason unrelated to any assertion in the
+      // spec. This project's precondition is `bun` plus the node_modules this
+      // directory already installs — both present wherever Playwright is being
+      // run at all — so gating it would only hide it.
+      name: "coding-agent-topology",
+      testMatch: /coding-agent-topology\.spec\.ts/,
+      // Three minutes, not the global 30s. A cold worker pays `Bun.build` over
+      // the real dashboard component tree once, inside the worker-scoped
+      // harness fixture, and Playwright charges that setup to the first test
+      // that uses it. The steady-state per-test cost is a page load and a few
+      // 2500ms poll cycles.
+      timeout: 3 * 60_000,
+      // Pinned on the PROJECT, not inherited from the estate.
+      //
+      // The spec runs ONE harness process per worker and makes its tests
+      // independent by resetting that process's store in `beforeEach`. That is
+      // only sound while the file's tests do not overlap. `workers: 1` at the
+      // top of this config gives that today, and the file also declares
+      // `mode: "serial"` — but P6-4 owns the lane that will invoke this, and a
+      // `--workers=N` on that invocation would override the estate default.
+      // Declaring it here means the invariant travels with the project rather
+      // than depending on how someone else calls it.
+      fullyParallel: false,
+      // retries: 0, and NOT for the shared-cluster reason its neighbours give —
+      // this project touches no cluster. It is so that a flake is reported as a
+      // flake. The harness store is reset and the reset is asserted in
+      // `beforeEach`, so a second attempt would start from the same state as
+      // the first and could only mask a real ordering defect.
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        // No storageState and no `dependencies: ["setup"]`, both deliberate and
+        // both load-bearing: the setup project drives Dex through the Gateway,
+        // so depending on it would hand this project the cluster requirement it
+        // exists to avoid — and `test-results/.auth-state.json` does not exist
+        // on a machine that has never run against a cluster, which Playwright
+        // reports as a project-level FAILURE rather than a skip.
+        //
+        // No `launchOptions` either. Playwright merges `use` shallowly per key,
+        // so re-declaring it would REPLACE the top-level
+        // --host-resolver-rules and its --no-sandbox/--disable-gpu siblings.
+        // This project never resolves dashboard.osramp.acme.local, but it does
+        // need the sandbox and GPU flags in a container.
+        video: "off",
+      },
+    },
+    {
       // Specs that authenticate themselves, per test, via helpers.ts `login()`.
       // The absence of storageState and of a `setup` dependency is deliberate
       // and must stay: smoke.spec.ts's first case asserts that an

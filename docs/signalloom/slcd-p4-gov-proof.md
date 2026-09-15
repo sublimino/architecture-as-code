@@ -11,7 +11,7 @@ verdict: BLOCKED — the combined-session leak audit passes and is proven able t
 
 > **Verdict: `status=blocked`.** Phase 4's merge is clean and its zero-payload work is the
 > strongest in the mission so far. Three things block: the lawful basis is unresolved (40 open
-> items, 22 blocking, collection disabled), the combined overhead KPI is breached by 35× on CPU
+> items, 22 blocking, collection disabled), the combined overhead KPI is breached by 36× on CPU
 > and 2.4× on RSS, and the mission's headline invariant is **not** proven end-to-end because
 > Phases 5 and 6 have not yet exercised a record through storage and query.
 >
@@ -23,7 +23,7 @@ verdict: BLOCKED — the combined-session leak audit passes and is proven able t
 > | **Governor worktree** | `/home/andy/src/.worktrees/osramp-demo/slcd-v0.1.0/governor` |
 > | **New evidence** | `d2-signalloom/apps/agentmaxxing-host-sensor/test_p4_governor_integration.py` |
 > | **Certification commit** | `6a1f55abde402e489f5eda2075a140e413a609a0` |
-| **Date** | 2026-09-15 |
+> | **Date** | 2026-09-15 |
 
 ---
 

@@ -285,7 +285,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | preflight | Validate AMXD harness identity and clean dashboard build baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode AMXD`; repository and board evidence only | S | fast | **Pass** — baseline `2fedff06`, tree clean; AMXD board-scoped checks green (`link-check` 6/6, `HEALTH: ✓ healthy`); doctor exits 1 on a repo-wide fast-exit sweep provably free of AMXD tasks; `npm ci` + `npx vite build` exit 0 (`✓ built in 2.66s`); `typecheck` exit 0; **`lint` exit 1 on 83 pre-existing errors**; `demo-agentmaxxing-contract-test` 6/6 and `-host-test` 73/73 green. Note `caa8f4c5` | $0.00 | N/A | ~26m | N/A |
-| P1-PRE | preflight | Inventory AMXO API endpoints, route structure, and component library | P0 | Endpoint schema review; `d2-signalloom/apps/dashboard-signalloom` inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-PRE | preflight | Inventory AMXO API endpoints, route structure, and component library | P0 | Endpoint schema review; `d2-signalloom/apps/dashboard-signalloom` inventory | S | daily | **Pass** — AMXO API fact sheet published; verified route mount mismatch (host revoke is mounted bare at `/v1/external-agents/hosts/{host_id}/revoke` on `v1_router` with zero `/api` prefix routes); verified `nginx.conf` has 0 `location /v1/` blocks; verified `client.ts` auto-prefix rules; inventoried 3-tier NAV and demo precedents; confirmed polling-only telemetry contract. | $0.00 | N/A | ~5m | N/A |
 | P1-1 | implementation | Design 5-stage lifecycle state machine and step-control contract | P1-PRE | Vitest state-machine transitions; `src/components/demos/types.ts` contract | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define demo scenario presets for happy path, tamper breach, and revocation | P1-PRE | Presets schema tests; deterministic scenario fixture data | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze demo mock/live bridge contracts and reset/seed endpoints | P1-1, P1-2 | Contract snapshot; client bridge interface tests; idempotent reset contract | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -480,14 +480,154 @@ cd - && make demo-agentmaxxing-contract-test && make demo-agentmaxxing-host-test
 ```
 
 #### Errata — AMXD-P1-PRE (preflight)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 02:26:55+01:00
+**Last Updated:** 2026-09-15 02:26:55+01:00
+
 ##### Task identity
 - Card: `AMXD-P1-PRE`
 - Shortcode: `AMXD`
-- Commit: Pending
-- Result: Pending
+- **Status:** pass
+- **Commit:** Pending
+- Task base: `29466c06528fdbb3fa8f04d0de9d89e301dd835f` (`git merge-base HEAD refs/heads/integration/amxd-v0.1.0` → `29466c06528fdbb3fa8f04d0de9d89e301dd835f`, exit 0)
+- Integration ref: `refs/heads/integration/amxd-v0.1.0` → `10b7bf8db0c6d1806b455bda48da3ba9e47e0fcf`
+- Result: Preflight complete. AMXO API fact sheet, nginx proxy gap analysis, client.ts auto-prefix trace, Sidebar/NAV inventory, and telemetry polling contract published for P1-1 through P1-5.
+- **Phase 1 can proceed:** yes
 
 ##### Deliverable verification
-- Verification: Seam inventory and kick-off gates verified.
+- **D1 — Real AMXO API Endpoint Fact Sheet**: Verified exact mount paths, methods, and router files for all 5 console stages. Identified critical routing anomaly regarding host revocation.
+- **D2 — Nginx Location Inventory**: Confirmed verbatim that `nginx.conf` contains zero `location /v1/` blocks and that unmatched paths fall through to the SPA catch-all (`location /`).
+- **D3 — Client Auto-Prefix Trace**: Traced `client.ts:241` path prefixing rule against backend routes, documenting which endpoints resolve and which return 404/SPA fallthrough.
+- **D4 — Sidebar & NAV Inventory**: Documented the three-tier navigation (`View`, `Control`, `Design`), existing `superadminOnly: true` demo precedents (`/supercred`, `/signal-fusion`, `/distance-latency`), and the `EXTRA_ROUTE_LABELS` mechanism in `App.tsx`.
+- **D5 — Telemetry & Evidence Streaming vs Polling Contract**: Verified `AgentTelemetryResponse` and `types/externalAgent.ts` unions, confirming no SSE/WebSocket stream exists for AgentMaxxing host metrics.
+
+---
+
+### AMXO API Fact Sheet & Seam Inventory (for P1-1 through P1-5)
+
+#### 1. Real API Endpoints for the 5-Stage Stepper
+
+| Stage | Action / Semantics | HTTP Method | Exact Mounted Path | Source File & Line | Router & Invariant |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Stage 1** | Issue/Rotate Enrollment Token | `POST` | `/v1/external-agents/registrations/{agent_id}/token` | `host_enrollment.py:684` | `router` (prefix `/v1/external-agents:38`), included at `api_compat.py:7171` |
+| **Stage 1** | Issue/Rotate Token (API prefix) | `POST` | `/api/v1/external-agents/registrations/{agent_id}/token` | `host_enrollment.py:699` | `api_router` (prefix `/api/v1/external-agents:39`), included at `api_compat.py:7172` |
+| **Stage 1** | Issue/Rotate Token (Alias) | `POST` | `/api/v1/external-agents/{agent_id}/token` | `host_enrollment.py:706` | `api_router` (prefix `/api/v1/external-agents:39`), included at `api_compat.py:7172` |
+| **Stage 1** | Issue/Rotate Token (Compat) | `POST` | `/api/external-agents/registrations/{agent_id}/token` | `host_enrollment.py:721` | `compat_router` (prefix `/api/external-agents:40`), included at `api_compat.py:7173` |
+| **Stage 2** | Host Ed25519 Enrollment | `POST` | `/v1/external-agents/enroll` | `host_enrollment.py:676` | `router` (prefix `/v1/external-agents:38`), included at `api_compat.py:7171` |
+| **Stage 2** | Host Ed25519 Enrollment (API prefix) | `POST` | `/api/v1/external-agents/enroll` | `host_enrollment.py:691` | `api_router` (prefix `/api/v1/external-agents:39`), included at `api_compat.py:7172` |
+| **Stage 2** | Host Ed25519 Enrollment (Compat) | `POST` | `/api/external-agents/enroll` | `host_enrollment.py:713` | `compat_router` (prefix `/api/external-agents:40`), included at `api_compat.py:7173` |
+| **Stages 1-2** | Register External Agent | `POST` | `/api/v1/external-agents/register` & `/registrations` | `external_agent_registration.py:1220-1221` | `router` (prefix `/api/v1/external-agents:40`), included at `api_compat.py:7174` |
+| **Stages 1-2** | List External Agents | `GET` | `/api/v1/external-agents/registrations` | `external_agent_registration.py:1222` | `router` (prefix `/api/v1/external-agents:40`), included at `api_compat.py:7174` |
+| **Stages 1-2** | Get External Agent Registration | `GET` | `/api/v1/external-agents/registrations/{agent_id}` | `external_agent_registration.py:1223` | `router` (prefix `/api/v1/external-agents:40`), included at `api_compat.py:7174` |
+| **Stage 3** | Read External Evidence Timeline | `GET` | `/api/v1/agents/{agent_id}/external-evidence` | `external_agent_evidence.py:404` | `@router.get` (no prefix router:30), included at `api_compat.py:7177` |
+| **Stage 3** | Read External Evidence (Bare v1) | `GET` | `/v1/external-agents/{agent_id}/external-evidence` | `external_agent_evidence.py:412` | `@router.get`, included at `api_compat.py:7177` |
+| **Stage 3** | Ingest External Evidence (API) | `POST` | `/api/v1/agents/{agent_id}/external-evidence` | `external_agent_evidence.py:448` | `@router.post`, included at `api_compat.py:7177` |
+| **Stage 3** | Upload Evidence (Host Scope) | `POST` | `/v1/external-agents/evidence-uploads` | `host_credential.py:519` | `host_router` (prefix `/v1/external-agents:381`), included at `api_compat.py:7169` |
+| **Stage 3** | Upload Evidence (Host Scope Compat) | `POST` | `/api/v1/external-agents/evidence-uploads` | `host_credential.py:548` | `host_compat_router` (prefix `/api/v1/external-agents:382`), included at `api_compat.py:7170` |
+| **Stage 3** | Privacy Policy Contract | `GET` | `/v1/external-agents/privacy` & `/api/v1/...` | `host_credential.py:540, 566` | Returns non-customer payload privacy contract |
+| **Stage 5** | **Revoke Host Credential (Real)** | `POST` | `/v1/external-agents/hosts/{host_id}/revoke` | `external_agent_registration.py:1231` | Mounted ON `v1_router` ONLY (prefix `/v1/external-agents:41`), included at `api_compat.py:7175` |
+| **Stage 5** | Revoke Contract (202 Accepted) | `POST` | `/v1/external-agents/{agent_id}/revocations` | `external_agent_registration.py:1229` | `v1_router` (prefix `/v1/external-agents:41`), included at `api_compat.py:7175` |
+| **Stage 5** | Revoke Agent Registration | `POST` | `/api/v1/external-agents/registrations/{agent_id}/revoke` | `external_agent_registration.py:1225` | `router` (prefix `/api/v1/external-agents:40`), included at `api_compat.py:7174` |
+
+> [!CRITICAL]
+> **Constitution Anomaly Warning for P4-2 & P1-3**:
+> 1. The proposal's architectural constitution cites `POST /api/v1/agentmaxxing/hosts/{host_id}/revoke`. **This endpoint does not exist anywhere in the backend.**
+> 2. The working backend endpoint for host revocation is `POST /v1/external-agents/hosts/{host_id}/revoke` (`external_agent_registration.py:1231`).
+> 3. This route is mounted **exclusively** on `v1_router` (prefix `/v1/external-agents`). It was **never added** to `router` (`/api/v1/external-agents`) or `compat_router` (`/api/external-agents`).
+
+---
+
+#### 2. Nginx Proxy Configuration & The Missing `/v1/` Route (Evidence for P1-4)
+
+Inspection of `d2-signalloom/apps/dashboard-signalloom/nginx.conf`:
+- Verbatim location block list:
+  - `location = /readyz` (line 25)
+  - `location /dex/` (line 30)
+  - `location /dashboard/` (line 40)
+  - `location /afm/` (line 58)
+  - `location /clusters` (line 67)
+  - `location /metrics/` (line 74)
+  - `location /health` (line 81)
+  - `location /jobs` (line 88)
+  - `location /webhooks/` (line 95)
+  - `location /api/` (line 102) -> proxy_pass to `fe-signalloom-api:8000`
+  - `location /supercred-api/` (line 124) -> proxy_pass to `fake-integration-proxy:8080`
+  - `location /demo-api/` (line 181) -> proxy_pass to `fe-signalloom-api:8000`
+  - `location /fleet-api/` (line 283) -> proxy_pass to `fleet-manager:8082`
+  - `location /docs` (line 307) -> proxy_pass to `docs-signalloom:8080`
+  - `location /assets/` (line 315)
+  - `location = /index.html` (line 321)
+  - `location /` (line 325) -> `try_files $uri $uri/ /index.html;` (SPA catch-all)
+
+**Defect Analysis:**
+- There is **ZERO** `location /v1/` block in `nginx.conf`.
+- Any browser request to `/v1/external-agents/hosts/{host_id}/revoke` directly against `dashboard-signalloom` matches `location /` (line 325) and returns `index.html` (HTTP 200 `text/html`) instead of reaching `fe-signalloom-api`.
+- This proves why card **P1-4** is essential to add proxying for `/v1/` or namespace the route under `/api/`.
+
+---
+
+#### 3. Client Path-Prefixing Trace (`client.ts:241`)
+
+The core API request function in `d2-signalloom/apps/dashboard-signalloom/src/api/client.ts:241` applies the rule:
+```typescript
+const url = path.startsWith('/api') ? path : `/api${path}`
+```
+
+**Trace Matrix:**
+1. **Calling `req('/v1/external-agents/hosts/{host_id}/revoke', ...)`**:
+   - `path` does not start with `/api` -> rewritten to `/api/v1/external-agents/hosts/{host_id}/revoke`.
+   - Nginx proxies `/api/...` to `fe-signalloom-api`.
+   - `fe-signalloom-api` has no route registered at `/api/v1/external-agents/hosts/{host_id}/revoke` -> **FastAPI returns 404 Not Found**.
+2. **Calling `fetch('/v1/external-agents/hosts/{host_id}/revoke', ...)` (bypassing `req()`)**:
+   - Path remains `/v1/...`.
+   - Nginx matches `location /` -> **Returns `index.html` (200 text/html)**.
+3. **Calling `req('/v1/external-agents/registrations/{agent_id}/token', ...)`**:
+   - Rewritten to `/api/v1/external-agents/registrations/{agent_id}/token`.
+   - Matches `api_router` (`host_enrollment.py:699`) -> **201 Created (Resolves)**.
+4. **Calling `req('/v1/external-agents/enroll', ...)`**:
+   - Rewritten to `/api/v1/external-agents/enroll`.
+   - Matches `api_router` (`host_enrollment.py:692`) -> **201 Created (Resolves)**.
+5. **Calling `req('/v1/external-agents/evidence-uploads', ...)`**:
+   - Rewritten to `/api/v1/external-agents/evidence-uploads`.
+   - Matches `host_compat_router` (`host_credential.py:548`) -> **202 Accepted (Resolves)**.
+6. **Calling `req('/v1/agents/{agent_id}/external-evidence', ...)`**:
+   - Rewritten to `/api/v1/agents/{agent_id}/external-evidence`.
+   - Matches `@router.get` (`external_agent_evidence.py:404`) -> **200 OK (Resolves)**.
+
+---
+
+#### 4. Sidebar & NAV Structure, Demo Precedents, and Extra Route Labels
+
+- **Sidebar Section Hierarchy** (`Sidebar.tsx:13-125`):
+  - Three distinct sections: `'View'` | `'Control'` | `'Design'`.
+  - Standard items:
+    - `View`: `/discovery` (Discovery), `/agents` (Agents), `/topology` (Topology), `/activity` (Activity), `/risk` (FAIR Risk).
+    - `Control`: `/policies` (Policies), `/compliance` (Compliance), `/collusion-access` (Collusion & Access), `/audit` (Audit Trail).
+    - `Design`: `/federated-services` (Federated Services), `/fleet` (Fleet Config), `/settings` (Settings).
+- **Existing Demo Precedents in NAV (`superadminOnly: true`)**:
+  - `/supercred`: `label: 'SuperCredential Demo'`, `section: 'Control'`, `icon: 'supercred'` (`Sidebar.tsx:118`).
+  - `/signal-fusion`: `label: 'Signal Fusion Demo'`, `section: 'View'`, `icon: 'signalFusion'` (`Sidebar.tsx:119`).
+  - `/distance-latency`: `label: 'Distance Latency Demo'`, `section: 'View'`, `icon: 'distanceLatency'` (`Sidebar.tsx:120`).
+- **Unlinked Route Labeling Mechanism** (`App.tsx:124-175`):
+  - `EXTRA_ROUTE_LABELS` (lines 129-155) maps routes without a sidebar entry to friendly loading titles (e.g. `'/fleet/audience': 'Fleet Demo'`, `'/onboarding': 'Setup'`).
+  - `routeLoadingLabel(pathname)` (lines 167-175) matches active paths against `NAV` + `EXTRA_ROUTE_LABELS` for Suspense fallbacks.
+
+---
+
+#### 5. Telemetry & Evidence Data Models (Streaming vs Polling Contract)
+
+- **Available Wire Models**:
+  - `AgentTelemetryResponse` (`types/api.ts:847-854`): `agent_id`, `tenant_id`, `observations: TelemetryObservationModel[]`, `total_count`, `source_health: 'healthy' | 'degraded' | 'unavailable'`.
+  - `ExternalEvidenceItem` (`types/api.ts:858-865`): `id`, `tenant_id`, `agent_id`, `session_id`, `evidence_type`, `source`, `observed_at`.
+  - `ExternalAgentEvidenceV1*` Unions (`types/externalAgent.ts:1-100`):
+    - `ExternalAgentEvidenceV1Process`: `cpu_time_ms`, `resident_memory_bytes`, `exit_code`, `restart_count`, `health_state`.
+    - `ExternalAgentEvidenceV1Artifact`: `artifact_id`, `root_id`, `sha256`, `size_bytes`, `mtime_ns`.
+    - `ExternalAgentEvidenceV1Network`: `destination_id`, `decision`.
+    - `ExternalAgentEvidenceV1Limit`: `reason_code`, `max_file_size_bytes`, `max_files_per_window`, `max_bytes_per_window`, `window_seconds`.
+- **Streaming Analysis**:
+  - Confirmed via full codebase search (`rg 'EventSource|text/event-stream'`) that SSE is active only for `/demo-api/runs/{run_id}/stream`, `/api/audit/stream`, and `/signal-fusion`.
+  - **Zero WebSocket or SSE streaming endpoints exist for AgentMaxxing host metrics or external evidence.**
+  - Stage 3 Confinement Telemetry UI must poll `GET /api/v1/agents/{agent_id}/external-evidence` or consume the demo state-machine stepper timer events.
 
 #### Errata — AMXD-P1-4 (bootstrap)
 ##### Task identity

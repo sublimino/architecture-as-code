@@ -1,7 +1,7 @@
 # SLER-P1-GOV — Phase 1 decision-freeze certification
 
 **Verdict: CERTIFIED WITH CONDITIONS.** The phase-1 Enforcer contract is complete and internally
-consistent. Thirteen conditions attach (C-1…C-15). **C-9 is blocking on phase-2 entry**: the
+consistent. Fifteen conditions attach (C-1…C-15). **C-9 is blocking on phase-2 entry**: the
 fleet-manager containment API has no authentication and no containment carries an attested decision
 record, and no card on the board owns either. C-2 disqualifies the red-team suite as evidence for the
 remainder of the mission. Phase 2 may start; SLER-P2-1 may not merge until C-9 closes.

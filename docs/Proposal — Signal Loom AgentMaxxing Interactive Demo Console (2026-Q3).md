@@ -293,8 +293,8 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P1-5 | implementation | Make the acceptance suite capable of failing | P1-PRE | `bats test/acceptance-spec-coverage.bats` | M | kpai | pass — delivered: f8776062a378959c33f628f0be081ced82c07b9f (see Errata — AMXD-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | pass — delivered: eed3b0b39ee436a4fa7de2e06fbb774f4ce79a79 (see Errata — AMXD-P1-GOV). Async gate holds by construction (no timer event exists in the closed union). Zero unresolved kickoff gates. Fixed 3 cross-card defects: tautological nginx drift guard, reachability/transport conflation that would have broken revoke, and P1-2/P1-3 reset-scope disagreement. All 3 mutation-falsified. 102 vitest/2 skipped, tsc 0, vite 0, route-collisions 10/10, spec-coverage 7/7, AMXD-P0 baseline green. | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm UI components, styling standards, and routing seams | P1-GOV | Component library check; `/demos/agentmaxxing` route registration check | S | daily | **Pass** — settled NAV decision (`/demos/agentmaxxing` as `superadminOnly: true` NAV entry in 'Control' section); confirmed loading label derivation via `routeLoadingLabel(pathname)` with no EXTRA_ROUTE_LABELS duplication; inventoried component library (`EmptyState`, `NavIcon` glyph set, `AppLoader`/`PixelLoader`); confirmed styling import (`tokens.ts` `colors` module, zero bare hex); confirmed lazy route seam (`<Route path="/demos/agentmaxxing" element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />`). Baseline clean: 166 vitest suites pass, `tsc --noEmit` exit 0. | $0.00 | N/A | ~5m | N/A |
-| P2-1 | implementation | Build Stepper Header and Stage Progression Controller | P2-PRE | Vitest stepper unit tests; stage navigation click assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P2-2 | implementation | Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels | P2-PRE | Vitest enrollment panel tests; attributable token generation visual check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-1 | implementation | Build Stepper Header and Stage Progression Controller | P2-PRE | Vitest stepper unit tests; stage navigation click assertions | L | daily | pass — delivered: 92ac1a79ccbecdb40d2fa659fc381afcdb1df228 (see Errata — AMXD-P2-1) | $0.00 | N/A | N/A | N/A |
+| P2-2 | implementation | Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels | P2-PRE | Vitest enrollment panel tests; attributable token generation visual check | L | daily | pass — delivered: a386350baff51f7816335e4e1e0fa60c915868da (see Errata — AMXD-P2-2) | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge Stage 1-2 UI and verify attributable enrollment display | P2-1, P2-2 | Typecheck + vitest suites pass; zero regression in existing sidebar | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm SSE/websocket telemetry streaming and host metrics contract | P2-GOV | Telemetry fixture probe; host sensor payload schema verification | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Implement Stage 3 Confinement Telemetry panel | P3-PRE | Gauge rendering tests; live CPU/RSS/FD updates; hash comparison table | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -1290,4 +1290,32 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
 - **TypeScript:** `tsc --noEmit` exited 0 with 0 errors.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P2-1 Build Stepper Header and Stage Progression Controller
+**Created:** 2026-09-15 03:56:04+01:00
+**Last Updated:** 2026-09-15 03:56:04+01:00
+**Status:** Completed
+**Commit:** 92ac1a79ccbecdb40d2fa659fc381afcdb1df228
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Placed `/demos/agentmaxxing` as a real `superadminOnly: true` NAV item in `Sidebar.tsx` under the `Control` section with a dedicated, distinct SVG glyph (`agentmaxxing`) and registered the lazy-loaded route wrapped in `ProtectedRoute` in `App.tsx`.
+- Constructed `StepperHeader.tsx` as a pure presentational component reading stage state from `types.ts` with no local network calls, rendering step numbers (1..5), status badges (`idle`, `in_flight`, `confirmed`, `failed`), accessible focus rings, and stable `data-testid` attributes on all stages.
+- Built `StageProgressionController.tsx` owning `useReducer(nextState)`, dispatching transitions through `createDemoBridge()`, and enforcing strict in-flight locking where navigation controls are disabled and rapid clicks are synchronous no-ops.
+- Integrated ARIA live region (`aria-live="polite"`) announcing stage transitions, confirmations, failures, and resets. Added keyboard navigation (left/right arrow keys) on the controller.
+- Persisted active stage progress across reloads via `amxd.demo.currentStage` in `localStorage`, which is cleanly wiped by `bridge.resetEstate()` on Reset Estate.
+**Deviations:** None.
+**Notes:** 169 test files passed (3,270 tests passed, 3 skipped, 0 failed), TypeScript typecheck clean (exit 0), ESLint clean (0 errors, 0 warnings), and CSS variable scanner clean.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P2-2 Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels
+**Created:** 2026-09-15 03:54:16+01:00
+**Last Updated:** 2026-09-15 03:54:16+01:00
+**Status:** Completed
+**Commit:** a386350baff51f7816335e4e1e0fa60c915868da
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:** Built `TokenIssuePanel` (Stage 1) and `EnrollmentPanel` (Stage 2) with full bridge channel wiring across mock and live transports. Implemented 'shown-once' token security via ephemeral component state (verified to not persist secret tokens across remounts), live ticking TTL countdown timer (auto-decrementing per second), attributable issuance records naming the triggering operator/mock principal, double-click protection via `inFlight`/`isSubmitting` gate, read-only Ed25519 badge, and read-only copyable revocation endpoint display.
+**Deviations:** None. All deliverables match the approved contract.
+**Notes:** Stage 1 (`/api/v1/external-agents/registrations/{agent_id}/token`) and Stage 2 (`/api/v1/external-agents/enroll`) routes are verified live-reachable without nginx changes. All 12 unit and contract tests in `TokenIssuePanel.test.tsx` and `EnrollmentPanel.test.tsx` pass cleanly alongside the entire 168-suite dashboard test suite.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

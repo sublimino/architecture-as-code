@@ -2336,5 +2336,19 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: Scenario presets (Happy Path, Tamper Breach, Revocation Race), runtime schema validator, and per-preset reset contracts verified with 20/20 passing tests."
+  },
+  "64014": {
+    "task_id": "64014",
+    "reviewed_at": "2026-09-15T01:42:19Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: location /v1/ reverse proxy in nginx.conf verified with header forwarding and passthrough URI."
+  },
+  "e5b72": {
+    "task_id": "e5b72",
+    "reviewed_at": "2026-09-15T01:42:19Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: guards.agentmaxxingLive verified in helpers.ts with 7/7 passing acceptance spec coverage tests."
   }
 }

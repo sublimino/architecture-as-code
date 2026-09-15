@@ -123,7 +123,47 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeCascadeResult(w, result)
+}
+
+// cascadeStatusCode maps a cascade's aggregate verdict onto an HTTP status.
+//
+// Both handlers previously fell through to an implicit 200 on every path, so a
+// stun in which every credential revoke and every label write failed answered
+// exactly like one in which they all succeeded. A caller checking the status
+// code — which is what callers check — read total enforcement failure as
+// success.
+//
+// The four codes are distinguishable on purpose:
+//
+//	200 contained   every target fully contained (or recovered)
+//	207 partial     some containment achieved, some step failed somewhere
+//	404 not_found   no target resolved; the target IDs are stale, not the planes
+//	500 unavailable nothing was contained anywhere
+//
+// 404 rather than 500 for not_found because it sends the operator to check
+// their targeting rather than to check plane connectivity, and being sent to
+// the wrong one costs time during an active containment.
+func cascadeStatusCode(outcome PlaneOutcome) int {
+	switch outcome {
+	case OutcomeContained:
+		return http.StatusOK
+	case OutcomePartial:
+		return http.StatusMultiStatus
+	case OutcomeNotFound:
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+// writeCascadeResult serialises a cascade result under the status code its own
+// verdict earns. The body is written in full regardless of the code: an
+// operator handed a 500 still needs the per-target breakdown to know which
+// plane failed on which agent.
+func writeCascadeResult(w http.ResponseWriter, result *CascadeResult) {
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(cascadeStatusCode(result.OverallOutcome))
 	json.NewEncoder(w).Encode(result)
 }
 
@@ -162,8 +202,11 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	// Same status mapping as handleStun. A failed recovery unconditionally
+	// answering 200 is the identical defect on the mirror-image operation, and
+	// arguably the worse of the two: it tells an operator that agents are back
+	// in service when their credentials were never restored.
+	writeCascadeResult(w, result)
 }
 
 func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {

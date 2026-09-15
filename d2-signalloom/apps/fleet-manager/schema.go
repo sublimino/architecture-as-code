@@ -22,12 +22,23 @@ const (
 	OutcomePartial PlaneOutcome = "partial"
 	// OutcomeUnavailable indicates the plane enforcement failed completely or the enforcement service was unreachable.
 	OutcomeUnavailable PlaneOutcome = "unavailable"
+	// OutcomeNotFound indicates there was no such target to enforce against.
+	//
+	// Added by SLER-P1-5. This is deliberately NOT a synonym for
+	// OutcomeUnavailable. "Unavailable" tells an operator that the enforcement
+	// plane could not be reached and sends them to check plane connectivity;
+	// "not found" tells them the target ID itself was stale or mistyped and
+	// sends them to check their targeting. Collapsing the two costs the
+	// operator the one distinction that decides where to look, at the moment
+	// they can least afford to look in the wrong place. It is also not a
+	// failure: nothing was contained because there was nothing to contain.
+	OutcomeNotFound PlaneOutcome = "not_found"
 )
 
 // IsValid checks if the PlaneOutcome is one of the recognized values.
 func (o PlaneOutcome) IsValid() bool {
 	switch o {
-	case OutcomeContained, OutcomePartial, OutcomeUnavailable:
+	case OutcomeContained, OutcomePartial, OutcomeUnavailable, OutcomeNotFound:
 		return true
 	default:
 		return false
@@ -139,6 +150,7 @@ func AggregateOutcome(results []PlaneResult) PlaneOutcome {
 	containedCount := 0
 	unavailableCount := 0
 	partialCount := 0
+	notFoundCount := 0
 
 	for _, r := range results {
 		switch r.Outcome {
@@ -148,18 +160,31 @@ func AggregateOutcome(results []PlaneResult) PlaneOutcome {
 			unavailableCount++
 		case OutcomePartial:
 			partialCount++
+		case OutcomeNotFound:
+			// Counted separately and NOT folded into unavailableCount. Falling
+			// through to the default arm here is exactly the coercion
+			// SLER-P1-5 exists to prevent.
+			notFoundCount++
 		default:
+			// An outcome this build does not recognise is treated as a failure,
+			// never as a success. Fail closed on the unknown.
 			unavailableCount++
 		}
 	}
 
-	if containedCount == len(results) {
+	switch {
+	case containedCount == len(results):
 		return OutcomeContained
-	}
-	if unavailableCount == len(results) {
+	case notFoundCount == len(results):
+		return OutcomeNotFound
+	case containedCount == 0 && partialCount == 0:
+		// Nothing was contained anywhere. A not_found entry contributes no
+		// containment, so a mix of not_found and unavailable is still zero
+		// containment achieved and must not read as "partial".
 		return OutcomeUnavailable
+	default:
+		return OutcomePartial
 	}
-	return OutcomePartial
 }
 
 // MeshIsolationRequest defines the wire request for network mesh isolation.

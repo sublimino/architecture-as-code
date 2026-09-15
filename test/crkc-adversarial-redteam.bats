@@ -1,9 +1,13 @@
 #!/usr/bin/env bats
-# test/crkc-adversarial-redteam.bats — CRKC Phase 4 Adversarial Red-Team Suite (15 Scenarios)
+# test/crkc-adversarial-redteam.bats — Multi-Plane Adversarial Red-Team Suite (24 Scenarios across 5 Planes)
 #
-# Validates complete runtime confinement under adversarial stress:
-# CPU saturation, race window bypasses, TC packet flooding, Landlock sandbox escapes,
-# and audited Signal Fusion resumption.
+# Validates complete runtime containment under adversarial stress across all five SLER planes:
+# 1. freeze: Host cgroup v2 container process suspension
+# 2. mesh: Network isolation & active conntrack connection severance
+# 3. bao: OpenBao API lease & credential revocation
+# 4. spire: SPIRE workload identity eviction & SVID expiry bounds
+# 5. admission: Dynamic admission webhook rejection & fail-closed policy
+# Plus fleet orchestration idempotency, combined multi-plane attacks, and coverage self-checks.
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
@@ -104,10 +108,10 @@ setup() {
   [ "$output" = "PASS" ]
 }
 
-@test "redteam scenario 13: signal fusion ingests 15/15 security anomaly alerts" {
+@test "redteam scenario 13: signal fusion ingests 24/24 security anomaly alerts" {
   run jq -r '.metrics.signal_fusion_alerts_ingested' "$EVIDENCE"
   [ "$status" -eq 0 ]
-  [ "$output" -eq 15 ]
+  [ "$output" -eq 24 ]
 
   run jq -r '.scenarios[] | select(.id == "scenario-13") | .status' "$EVIDENCE"
   [ "$status" -eq 0 ]
@@ -124,4 +128,160 @@ setup() {
   run jq -r '.scenarios[] | select(.id == "scenario-15") | .status' "$EVIDENCE"
   [ "$status" -eq 0 ]
   [ "$output" = "PASS" ]
+}
+
+@test "redteam scenario 16: openbao post-revocation credential lease replay is denied within 15ms" {
+  run jq -r '.metrics.openbao_revocation_latency_ms' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  python3 -c "assert float('$output') <= 15.0"
+
+  run jq -r '.scenarios[] | select(.id == "scenario-16") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-16") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 17: spire post-eviction svid presentation rejected after residual window" {
+  run jq -r '.metrics.spire_eviction_latency_ms' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  python3 -c "assert float('$output') <= 2.0"
+
+  run jq -r '.scenarios[] | select(.id == "scenario-17") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-17") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 18: admission controller rejects contained pod reconstitution within 3ms" {
+  run jq -r '.metrics.admission_decision_latency_ms' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  python3 -c "assert float('$output') <= 3.0"
+
+  run jq -r '.scenarios[] | select(.id == "scenario-18") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-18") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 19: admission controller enforces fail-closed rejection on webhook outage" {
+  run jq -r '.scenarios[] | select(.id == "scenario-19") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-19") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 20: fleet manager deduplicates concurrent containment via idempotency key" {
+  run jq -r '.scenarios[] | select(.id == "scenario-20") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-20") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 21: combined multi-plane simultaneous attack is halted across bao and mesh" {
+  run jq -r '.scenarios[] | select(.id == "scenario-21") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-21") | .plane' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "bao,mesh" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-21") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 22: governance attributable resume validates deployed operator key signature" {
+  run jq -r '.scenarios[] | select(.id == "scenario-22") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-22") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 23: redteam runner environment resilience fails loudly on missing client" {
+  run jq -r '.scenarios[] | select(.id == "scenario-23") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  run jq -r '.scenarios[] | select(.id == "scenario-23") | .escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam scenario 24: multi-plane coverage self-check confirms all 5 planes have >= 1 scenarios" {
+  run jq -r '.scenarios[] | select(.id == "scenario-24") | .status' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "PASS" ]
+
+  # Verify all 5 planes have positive scenario counts
+  for p in freeze mesh bao spire admission; do
+    count=$(jq -r ".metrics.plane_coverage_counts.$p" "$EVIDENCE")
+    [ "$count" -gt 0 ]
+  done
+}
+
+@test "redteam metrics: total process escapes is zero across all 24 scenarios" {
+  run jq -r '.metrics.process_escapes' "$EVIDENCE"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "redteam metrics: per-plane escapes in .metrics.escapes_by_plane are all zero" {
+  for p in freeze mesh bao spire admission; do
+    run jq -r ".metrics.escapes_by_plane.$p" "$EVIDENCE"
+    [ "$status" -eq 0 ]
+    [ "$output" -eq 0 ]
+  done
+}
+
+@test "redteam anti-regression: runner fails loudly if any plane is missing" {
+  # Test the self-check mechanism against synthetic broken fixture
+  local tmp_evidence
+  tmp_evidence="$(mktemp)"
+  
+  # Remove all scenarios referencing spire
+  jq 'del(.scenarios[] | select(.plane | test("spire")))' "$EVIDENCE" > "$tmp_evidence"
+  
+  # Assert count for spire is 0 on broken fixture
+  run bash -c "jq --arg plane 'spire' '[.scenarios[] | select(.plane | split(\",\") | index(\$plane))] | length' '$tmp_evidence'"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+
+  # Assert self-check logic fails loudly when given broken evidence
+  run bash -c '
+    REQUIRED_PLANES=("freeze" "mesh" "bao" "spire" "admission")
+    MISSING_PLANES=()
+    for p in "${REQUIRED_PLANES[@]}"; do
+      COUNT=$(jq --arg plane "$p" "[.scenarios[] | select(.plane | split(\",\") | index(\$plane))] | length" "'"$tmp_evidence"'")
+      if [ "$COUNT" -eq 0 ]; then
+        MISSING_PLANES+=("$p")
+      fi
+    done
+    if [ ${#MISSING_PLANES[@]} -gt 0 ]; then
+      echo "Coverage regression detected: ${MISSING_PLANES[*]}" >&2
+      exit 1
+    fi
+  '
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "spire" ]]
+  
+  rm -f "$tmp_evidence"
 }

@@ -1399,10 +1399,11 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
 
 #### Errata — AMXD-P3-GOV Merge telemetry visualization and verify zero customer payload display
 **Created:** 2026-09-15 05:31:52+01:00
-**Last Updated:** 2026-09-15 05:31:52+01:00
-**Status:** Completed — certified with one qualified inherited defect (see *Defect G1*)
-**Commit:** `14d56cef21f4e513e806d8869ce598a25b8341b1` (certification baseline; governor commit appended below)
-**Branch:** `integration/amxd-v0.1.0` → `14d56cef21f4e513e806d8869ce598a25b8341b1`
+**Last Updated:** 2026-09-15 05:34:33+01:00
+**Status:** Completed — certified with two qualified inherited defects (see *Defect G1*, *Defect G2*)
+**Commit:** `bb0b4d5063d95a302bcc52247fe472691f60d03f` (governor certification commit)
+**Certification baseline:** `14d56cef21f4e513e806d8869ce598a25b8341b1` — every measurement in this block was taken against that tree
+**Branch:** `integration/amxd-v0.1.0` → `bb0b4d5063d95a302bcc52247fe472691f60d03f`
 **Governor merge:** AMXD-P3-1 `8cb198f1be1f794a9adcaf699ffd259422eaddac`; AMXD-P3-2 `535539cdcffd68deabf0b21665fb0c94b640dbe3`
 
 **Merge reconciliation.**

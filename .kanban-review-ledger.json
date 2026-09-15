@@ -6,6 +6,13 @@
     "verdict": "APPROVED",
     "reason": "FUSION-P1-GOV: Phase 1 certified 100% PASS across FrostDB, multi-layer collectors, and CEL correlation (commit 49e66553)"
   },
+  "22988": {
+    "task_id": "22988",
+    "reviewed_at": "2026-09-15T00:21:08Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLER-P1-2 containment dispatch schemas verified: schema.go (362 lines), schema_test.go (619 lines), sler-p1-2-schema.md (473 lines), all 13 schema tests pass, 100% fleet-manager tests green (commit 92bc899e)"
+  },
   "23068": {
     "task_id": "23068",
     "reviewed_at": "2026-09-07T21:12:09Z",
@@ -69,6 +76,13 @@
     "verdict": "pass",
     "reason": "AMXO-P3-GOV: Phase 3 Governor certified; reconciled migrations 040 and 041, least privilege credential scope verified, 149/149 host and isolation tests green, proof recorded in docs/signalloom/amxo-p3-gov-proof.md"
   },
+  "58461": {
+    "task_id": "58461",
+    "reviewed_at": "2026-09-15T02:49:13Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Preflight confirmed UI component inventory, styles tokens, route seam /demos/agentmaxxing, and baseline tests clean"
+  },
   "58840": {
     "task_id": "58840",
     "reviewed_at": "2026-09-13T18:41:00Z",
@@ -76,12 +90,26 @@
     "verdict": "pass",
     "reason": "AMXO-P4-GOV: Phase 4 Governor certified; merged host confinement, bounded process telemetry, descriptor-relative anti-escape openat2, and TOCTOU hasher into integration/agentmaxxing-onboarding-v0.1.0 (commit edbf6d0f), unified demo-agentmaxxing-host-test passes 70/70 tests with zero skips or failures, proof in docs/signalloom/amxo-p4-gov-proof.md"
   },
+  "60569": {
+    "task_id": "60569",
+    "reviewed_at": "2026-09-15T02:08:11Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: CodingAgentTelemetry schema, fixed-arity tool counts vector, pseudonym derivation, and metadata dictionary validated across Go and Python"
+  },
   "63150": {
     "task_id": "63150",
     "reviewed_at": "2026-09-13T16:11:24Z",
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "AMXO-P2-GOV: Phase 2 Identity and Registration Governor certified; verified attributable operator lifecycle, negative shared identity, tenant-bound registration, duplicate claim rejection, AST tenant scoping across 14 routes, and 125/125 tests passing"
+  },
+  "64014": {
+    "task_id": "64014",
+    "reviewed_at": "2026-09-15T01:42:19Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: location /v1/ reverse proxy in nginx.conf verified with header forwarding and passthrough URI."
   },
   "67394": {
     "task_id": "67394",
@@ -98,12 +126,33 @@
     "verdict": "pass",
     "reason": "AUDIT-P1-GOV: Phase 1 Governor Gate certified 100% PASS across all 5 audit domains; integration/audit-sec-2026q3 reconciled at commits 4c82e63b and 14b662c5"
   },
+  "81760": {
+    "task_id": "81760",
+    "reviewed_at": "2026-09-14T13:23:12Z",
+    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
+    "verdict": "APPROVED",
+    "reason": "SLDP-P1-3 certified: Independent segment and checkpoint chain verifier (store/verify/verify.go), CLI (cmd/segment-verify), 17 tamper tests (store/segment_verifier_test.go), Makefile targets, milestone sizing (M1-M4: 75.25-102.25 days), and PASS proof verified green; commit c3c36f96 verified"
+  },
+  "85138": {
+    "task_id": "85138",
+    "reviewed_at": "2026-09-15T05:28:47.614Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Forensic memory snapshotting and quarantine state capture implemented; virtual memory layout, process metadata, open FDs, held locks, and network sockets captured with 0700/0600 permissions, size/time budgets enforced, 100% Go unit tests pass"
+  },
   "86279": {
     "task_id": "86279",
     "reviewed_at": "2026-09-10T23:02:00Z",
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "All 17 SFAS cards reconciled and certified with 100% test pass"
+  },
+  "89630": {
+    "task_id": "89630",
+    "reviewed_at": "2026-09-14T23:00:45Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "Retention controller delivered across 35 sinks with 74 tests and 15 mutation kills"
   },
   "97551": {
     "task_id": "97551",
@@ -2092,13 +2141,6 @@
     "verdict": "APPROVED",
     "reason": "SLDP-P1-1 certified: ProtectedRouter default-deny HTTP auth/authz middleware, SPIFFE JWT-SVID authenticator, 14 granular permissions, principal-derived TenantContext, pagination clamping & enumeration rate limiting, SSE expiry deadline context cancellation, and fail-closed pseudonymous audit logging verified green; 100% test pass; commit 0e6076ae verified"
   },
-  "81760": {
-    "task_id": "81760",
-    "reviewed_at": "2026-09-14T13:23:12Z",
-    "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
-    "verdict": "APPROVED",
-    "reason": "SLDP-P1-3 certified: Independent segment and checkpoint chain verifier (store/verify/verify.go), CLI (cmd/segment-verify), 17 tamper tests (store/segment_verifier_test.go), Makefile targets, milestone sizing (M1-M4: 75.25-102.25 days), and PASS proof verified green; commit c3c36f96 verified"
-  },
   "ba34b": {
     "task_id": "ba34b",
     "reviewed_at": "2026-09-14T13:30:57Z",
@@ -2216,7 +2258,7 @@
     "reviewed_at": "2026-09-14T20:35:04Z",
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
-    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc §7.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   },
   "302f6": {
     "task_id": "302f6",
@@ -2246,13 +2288,6 @@
     "verdict": "APPROVED",
     "reason": "SLDP-P6-2 verified: customer-self-hosted install proof delivered in docs/signalloom/sldp-p6-2-selfhost-install-proof.md, 0% ControlPlane infrastructure dependency confirmed, decoupled residual risk matrix (CSH-01..04 vs SAS-01..04), networkpolicy strict egress confirmed, 100% tests pass (commits f9b08ace, bbb8d851)"
   },
-  "89630": {
-    "task_id": "89630",
-    "reviewed_at": "2026-09-14T23:00:45Z",
-    "reviewer": "Council of Agents",
-    "verdict": "APPROVED",
-    "reason": "Retention controller delivered across 35 sinks with 74 tests and 15 mutation kills"
-  },
   "b6e6a": {
     "task_id": "b6e6a",
     "reviewed_at": "2026-09-14T23:40:18Z",
@@ -2273,13 +2308,6 @@
     "reviewer": "Council of Agents",
     "verdict": "APPROVED",
     "reason": "SLER-P1-PRE seam inventory verified: 7 unauthenticated routes on fleet-manager (:256-262), Freezer.Freeze signature gap confirmed, node-capability-guard greenfield status confirmed (0 manifests), 0 mesh policies confirmed, all test suites green (commit 305b034f)"
-  },
-  "22988": {
-    "task_id": "22988",
-    "reviewed_at": "2026-09-15T00:21:08Z",
-    "reviewer": "Council of Agents",
-    "verdict": "APPROVED",
-    "reason": "SLER-P1-2 containment dispatch schemas verified: schema.go (362 lines), schema_test.go (619 lines), sler-p1-2-schema.md (473 lines), all 13 schema tests pass, 100% fleet-manager tests green (commit 92bc899e)"
   },
   "987a8": {
     "task_id": "987a8",
@@ -2337,13 +2365,6 @@
     "verdict": "pass",
     "reason": "Council approval: Scenario presets (Happy Path, Tamper Breach, Revocation Race), runtime schema validator, and per-preset reset contracts verified with 20/20 passing tests."
   },
-  "64014": {
-    "task_id": "64014",
-    "reviewed_at": "2026-09-15T01:42:19Z",
-    "reviewer": "antigravity",
-    "verdict": "pass",
-    "reason": "Council approval: location /v1/ reverse proxy in nginx.conf verified with header forwarding and passthrough URI."
-  },
   "e5b72": {
     "task_id": "e5b72",
     "reviewed_at": "2026-09-15T01:42:19Z",
@@ -2378,13 +2399,6 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: Phase 1 decision freeze certified with 15 conditions documented in sler-p1-gov-review.md; C-9 gating SLER-P2-1; zero placeholders"
-  },
-  "60569": {
-    "task_id": "60569",
-    "reviewed_at": "2026-09-15T02:08:11Z",
-    "reviewer": "antigravity",
-    "verdict": "pass",
-    "reason": "Council approval: CodingAgentTelemetry schema, fixed-arity tool counts vector, pseudonym derivation, and metadata dictionary validated across Go and Python"
   },
   "f39c8": {
     "task_id": "f39c8",
@@ -2434,13 +2448,6 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: AMXD Phase 1 certified with zero kickoff gates, 3 cross-card bridge reachability/transport/reset defects resolved, vitest 102/102 pass, tsc clean, build clean"
-  },
-  "58461": {
-    "task_id": "58461",
-    "reviewed_at": "2026-09-15T02:49:13Z",
-    "reviewer": "antigravity",
-    "verdict": "pass",
-    "reason": "Preflight confirmed UI component inventory, styles tokens, route seam /demos/agentmaxxing, and baseline tests clean"
   },
   "b4bc3": {
     "task_id": "b4bc3",
@@ -2581,5 +2588,40 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Phase 2 governor deliverable completed; 3 critical defects fixed (candidate_pid, session marker removed from sufficient set, unresolvable exe comm spoofing fixed), 26 integration tests added (214 pass), carried defects D, E, F documented and pinned"
+  },
+  "1bc0d": {
+    "task_id": "1bc0d",
+    "reviewed_at": "2026-09-15T05:28:47.614Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Live kanban inventory and read-safety classification confirmed; zero-lock shared read safety over SQLite WAL proven, runtime-paths dynamic resolution established, zero-customer-payload boundary verified"
+  },
+  "09cc7": {
+    "task_id": "09cc7",
+    "reviewed_at": "2026-09-15T05:28:47.614Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Stage 4 Adversarial Simulation panel delivered; 3 independent controls (hash mismatch, symlink escape via openat2 resolve flags, pre-read oversized write rate limits), pure restore helper byte-for-byte tested, anti-G2 invariant respected, 13 vitest unit tests pass"
+  },
+  "2a5c2": {
+    "task_id": "2a5c2",
+    "reviewed_at": "2026-09-15T05:28:47.614Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Stage 5 Attributable Revocation panel delivered; two-endpoint direct fetch flow with agent_revoked 403 error code assertion, mandatory attributable reason selector (5 union members), mock/live parity preserved, 12 vitest unit tests pass"
+  },
+  "d01a2": {
+    "task_id": "d01a2",
+    "reviewed_at": "2026-09-15T05:28:47.614Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Stun-sentinel implementations unified into mature cgroup-v2 freezer engine; hostPID/privileged/hostPath invariants preserved, emptiness gates enforced, full benchmarks and Go unit tests pass"
+  },
+  "1d127": {
+    "task_id": "1d127",
+    "reviewed_at": "2026-09-15T05:28:47.614Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Governance-gated resume with mandatory credential rotation implemented; Ed25519 attributable resume tokens, OpenBao lease and SPIRE SVID credential renewal, replay protection and idempotent retry verified, 100% Go unit tests pass"
   }
 }

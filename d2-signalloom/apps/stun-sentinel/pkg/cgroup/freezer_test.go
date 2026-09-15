@@ -1114,3 +1114,122 @@ func TestErrorsAreDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestDryRunFreezeAndUnfreeze(t *testing.T) {
+	dir := t.TempDir()
+	f := New(dir,
+		WithDryRun(true),
+		WithFreezeCredentialValidator(allowCredential("freeze-secret")),
+		WithCredentialValidator(allowCredential("resume-secret")),
+	)
+
+	if !f.DryRun() {
+		t.Fatal("DryRun() should be true")
+	}
+
+	// HealthCheck in dryRun passes without touching filesystem
+	if err := f.HealthCheck(); err != nil {
+		t.Fatalf("HealthCheck in dry-run mode returned err: %v", err)
+	}
+
+	// ResolvePodCgroup produces a planned burstable path
+	plannedPath, err := f.ResolvePodCgroup("test-pod-uid-1234")
+	if err != nil {
+		t.Fatalf("ResolvePodCgroup in dry-run failed: %v", err)
+	}
+	if !strings.Contains(plannedPath, "test_pod_uid_1234") {
+		t.Fatalf("planned path %q does not contain sanitized UID", plannedPath)
+	}
+
+	// Freeze in dryRun mode with invalid credential fails
+	_, err = f.Freeze(plannedPath, "wrong-cred")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("Freeze with wrong credential: got %v, want ErrUnauthorized", err)
+	}
+
+	// Freeze in dryRun mode with valid credential succeeds
+	freezeRes, err := f.Freeze(plannedPath, "freeze-secret")
+	if err != nil {
+		t.Fatalf("Freeze in dry-run mode failed: %v", err)
+	}
+	if !freezeRes.Frozen || len(freezeRes.PIDs) == 0 {
+		t.Fatalf("Freeze in dry-run mode returned invalid result: %+v", freezeRes)
+	}
+
+	// Unfreeze in dryRun mode with invalid credential fails
+	_, err = f.Unfreeze(plannedPath, "wrong-cred")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("Unfreeze with wrong credential: got %v, want ErrUnauthorized", err)
+	}
+
+	// Unfreeze in dryRun mode with valid credential succeeds
+	unfreezeRes, err := f.Unfreeze(plannedPath, "resume-secret")
+	if err != nil {
+		t.Fatalf("Unfreeze in dry-run mode failed: %v", err)
+	}
+	if unfreezeRes.Frozen {
+		t.Fatalf("Unfreeze in dry-run mode returned Frozen=true: %+v", unfreezeRes)
+	}
+}
+
+func TestPostFreezeHookExecution(t *testing.T) {
+	dir := t.TempDir()
+	cgroupDir := freezableCgroup(t, filepath.Join(dir, "pod-test"))
+	if err := os.WriteFile(filepath.Join(cgroupDir, procsFile), []byte("101\n102\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settleAfter(t, cgroupDir, true, time.Millisecond)
+
+	var hookInvoked bool
+	var capturedPIDs []int
+
+	hook := func(res *FreezeResult) error {
+		hookInvoked = true
+		capturedPIDs = append([]int(nil), res.PIDs...)
+		return nil
+	}
+
+	f := New(dir,
+		WithFreezeCredentialValidator(allowCredential("secret")),
+		WithPostFreezeHook(hook),
+	)
+
+	res, err := f.Freeze(cgroupDir, "secret")
+	if err != nil {
+		t.Fatalf("Freeze failed: %v", err)
+	}
+	if !hookInvoked {
+		t.Fatal("expected postFreezeHook to be invoked, but was not")
+	}
+	if !reflect.DeepEqual(capturedPIDs, []int{101, 102}) {
+		t.Fatalf("captured PIDs = %v, want [101 102]", capturedPIDs)
+	}
+	if !res.Frozen {
+		t.Fatal("Freeze result was not marked frozen")
+	}
+}
+
+func TestPostFreezeHookErrorPropagates(t *testing.T) {
+	dir := t.TempDir()
+	cgroupDir := freezableCgroup(t, filepath.Join(dir, "pod-test"))
+	if err := os.WriteFile(filepath.Join(cgroupDir, procsFile), []byte("101\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settleAfter(t, cgroupDir, true, time.Millisecond)
+
+	hookErr := errors.New("gcore memory snapshot failed")
+	hook := func(res *FreezeResult) error {
+		return hookErr
+	}
+
+	f := New(dir,
+		WithFreezeCredentialValidator(allowCredential("secret")),
+		WithPostFreezeHook(hook),
+	)
+
+	_, err := f.Freeze(cgroupDir, "secret")
+	if err == nil || !strings.Contains(err.Error(), "post-freeze hook") {
+		t.Fatalf("expected error containing 'post-freeze hook', got: %v", err)
+	}
+}
+

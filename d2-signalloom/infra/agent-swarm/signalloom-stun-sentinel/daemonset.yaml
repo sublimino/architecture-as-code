@@ -45,6 +45,18 @@ spec:
               value: "/host-cgroup"
             - name: HEALTH_ADDR
               value: ":8081"
+            - name: STUN_FREEZE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stun-sentinel-governance
+                  key: freeze-token
+                  optional: true
+            - name: STUN_RESUME_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stun-sentinel-governance
+                  key: resume-token
+                  optional: true
           ports:
             - name: health
               containerPort: 8081

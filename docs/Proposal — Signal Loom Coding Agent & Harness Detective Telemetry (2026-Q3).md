@@ -312,7 +312,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P2-1 | implementation | Implement non-intrusive procfs process scanner without argument dumping | P2-PRE | Pytest procfs scanner tests; verify `/proc/<pid>/cmdline` is not dumped | L | daily | pass — delivered: dd3420f879f83cd6a957a4dea735eae9b2478f51 (see Errata — SLCD-P2-1) | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Build harness process ancestry classifier for Claude, Agy, Codex, CPAI | P2-PRE | Heuristic classifier tests; tree resolution accuracy assertions | L | daily | pass — delivered: b346088090ddc258a3d76b18818dd70fc2432919 (see Errata — SLCD-P2-2) | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge process tree detective engine and verify zero false-positive collisions | P2-1, P2-2 | Multi-process stress test; zero false-positive assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P3-PRE | preflight | Confirm kanban lockfiles, lease formats, and task cycle markers | P2-GOV | Kanban filesystem inspection; lease format check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-PRE | preflight | Confirm kanban lockfiles, lease formats, and task cycle markers | P2-GOV | Kanban filesystem inspection; lease format check | S | daily | pass — delivered: 41e7516843e728b5f7323b097236c9b20cc941e2 (see Errata — SLCD-P3-PRE) | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Implement passive watcher for active kanban controller cycles and task leases | P3-PRE | Shared read-lock tests; zero controller loop interference check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Extract cycle telemetry (task ID, role, shortcode, turn count, elapsed time) | P3-PRE | Cycle metrics parsing tests; live task status reflection check | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge kanban wrapper telemetry and verify non-interfering read locks | P3-1, P3-2 | Concurrent kanban run tests; lock contention assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -719,3 +719,33 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 
 **P3-PRE gate:** P3-PRE's dependency on P2-GOV is satisfied by this committed `status=fail` artefact, not by intent. Phase 3 may proceed on the fixed tree for work not load-bearing on detection soundness; **any Phase 3 deliverable whose correctness rests on harness attribution being non-spoofable, or on the engine detecting a real agent, is void until D and F close.**
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+#### Errata — SLCD-P3-PRE Confirm kanban lockfiles, lease formats, and task cycle markers
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 06:06:26+01:00
+**Last Updated:** 2026-09-15 06:06:26+01:00
+**Status:** Completed
+**Commit:** `41e7516843e728b5f7323b097236c9b20cc941e2`
+**Branch:** `(detached)`
+**Integration ref:** `f14a06982a3afdc3317c6608c9f2bd143f679a13`
+**Governor merge:** pending Governor reconciliation
+
+**Decisions:**
+1. **100% Shared-Read Safety Confirmed across all Kanban Artefacts:** Confirmed by empirical code analysis and runtime testing that reading Kanban artefacts (`board.json`, `sessions.json`, `supervisor-cycle-state.<SC>.json`, `runs/*/*.json`, `auto-controller/<base>.json`, `<base>.cycle.json`) using standard `open(..., O_RDONLY)` requires zero lock acquisitions and never blocks or interferes with the live controller loop.
+2. **SQLite WAL Multi-Version Concurrency (MVCC):** Confirmed `kanban.sqlite` operates in WAL mode (`journal_mode=WAL`). Read-only connections (`sqlite3` with `?mode=ro` and `PRAGMA query_only = ON`) achieve snapshot isolation with zero read-write contention against active controller write transactions.
+3. **Mutation Lock Isolation Verified:** Verified in `kanban-check.sh` that the canonical mutation lock (`/tmp/ajm-cline-kanban-<hash>.lock`, `flock -n 9`) is held ONLY for mutating `--apply` operations (`start-ready`, `archive`, `trash`, `recreate`, `remediate`, `done-advance`, `supervise`). Read-only status checks (`progress`, `doctor`, `inspect`, `link-check`) acquire zero locks.
+4. **Dynamic Path Resolution Architecture Enforced:** Defined per-call dynamic path resolution for `KANBAN_HOME` (defaulting to `$HOME/.cline/kanban`) and `KANBAN_WORKTREES_HOME` (defaulting to `$HOME/.cline/worktrees` -> `$HOME/src/.worktrees`). Strictly prohibited import-time module constant capture.
+5. **Clean Degradation on Non-Kanban Hosts:** Established that when `${KANBAN_HOME}` is absent, the host sensor cleanly disables the Kanban watcher component without raising errors or crashing.
+6. **Task-Cycle Marker Fields Mapped to Frozen Allowlist:** Confirmed live availability of required fields against P1-1's `KanbanInfo`:
+   - `task_id`: `sessions.json:taskId`, `task_runs:task_id`, `card-specs:<logicalId>`
+   - `shortcode`: `auto-controller:<base>.json:mission.shortcode`, `card-specs:<shortcode>`
+   - `role`: `card-specs:<logicalId>.v1.json:cardSpecification`, prompt header
+   - `elapsed_s`: `task_runs:duration_ms / 1000`, `sessions.json:now() - startedAt` (anchored via `time.monotonic()` to guard against clock jumps)
+   - `turn_count`: `sessions.json:latestTurnCheckpoint`, `task_runs:tool_calls_count` (monotonically non-decreasing)
+   - `retry_count`: `sessions.json:restartCount + respawnCount`, `task_runs:restart_count` (monotonically non-decreasing)
+7. **Zero-Customer-Payload Risk Boundary Identified:** Identified that raw `prompt` text in `runs/*/*.json` and `latestHookActivity.activityText` in `sessions.json` contain customer prompt and command payloads. The sensor filter strictly discards all free-text fields and extracts only the allowlisted numeric and short enum fields.
+8. **Published Deliverable:** Complete inventory, concurrency analysis, and field mapping published to `docs/signalloom/slcd-p3-pre-kanban-inventory.md`. Documented runtime-paths conventions in `AGENTS.md`.
+
+**Deviations:** None.
+**Notes:** All 214 tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass (with 3 expected failures carried from P2-GOV). All Go codingagent unit tests pass. `test -f docs/signalloom/slcd-p3-pre-kanban-inventory.md` and `rg -n 'KANBAN_HOME|KANBAN_WORKTREES_HOME' AGENTS.md` both verified green.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

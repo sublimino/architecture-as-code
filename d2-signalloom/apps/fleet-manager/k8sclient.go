@@ -28,6 +28,7 @@ import (
 type k8sFleetClient struct {
 	clientset        kubernetes.Interface
 	spireClient      SpireClient
+	meshClient       MeshClient
 	defaultNamespace string
 	degraded         *degradedRegistry
 	baoClient        *OpenBaoClient
@@ -52,6 +53,7 @@ func newK8sFleetClient(clientset kubernetes.Interface, defaultNamespace string) 
 		defaultNamespace: defaultNamespace,
 		degraded:         newDegradedRegistry(),
 		baoClient:        NewOpenBaoClient(OpenBaoConfigFromEnv()),
+		meshClient:       NewCiliumMeshClient(clientset),
 		now:              time.Now,
 	}
 }
@@ -68,6 +70,23 @@ func newK8sFleetClientWithSpire(clientset kubernetes.Interface, defaultNamespace
 	c := newK8sFleetClient(clientset, defaultNamespace)
 	c.spireClient = spireClient
 	return c
+}
+
+// newK8sFleetClientWithMesh constructs a k8sFleetClient with an explicit MeshClient.
+func newK8sFleetClientWithMesh(clientset kubernetes.Interface, defaultNamespace string, meshClient MeshClient) *k8sFleetClient {
+	c := newK8sFleetClient(clientset, defaultNamespace)
+	c.meshClient = meshClient
+	return c
+}
+
+// SetMeshClient configures or replaces the active MeshClient.
+func (c *k8sFleetClient) SetMeshClient(mc MeshClient) {
+	c.meshClient = mc
+}
+
+// MeshClient returns the active MeshClient, if configured.
+func (c *k8sFleetClient) MeshClient() MeshClient {
+	return c.meshClient
 }
 
 // SetSpireClient configures or replaces the active SpireClient.
@@ -585,6 +604,100 @@ func (c *k8sFleetClient) EvictSpireEntry(ctx context.Context, namespace, agentID
 	return resp, nil
 }
 
+// IsolateMeshPlane executes mesh network isolation for a target agent.
+func (c *k8sFleetClient) IsolateMeshPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
+	seq := c.degraded.nextSeq()
+	namespace = c.namespaceOrDefault(namespace)
+
+	if c.meshClient == nil {
+		err := fmt.Errorf("isolate_mesh %s/%s: %w: no mesh client configured",
+			namespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneMesh, namespace, agentID, "isolate_mesh", err)
+		return &PlaneResult{
+			Plane:     PlaneMesh,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	req := MeshIsolationRequest{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: idempotencyKey,
+		AgentID:        agentID,
+		Namespace:      namespace,
+		Timestamp:      c.now().UTC().Format(time.RFC3339),
+	}
+
+	resp, err := c.meshClient.IsolateAgentMesh(ctx, req)
+	if err != nil {
+		c.record(seq, PlaneMesh, namespace, agentID, "isolate_mesh", err)
+		if resp != nil {
+			return MeshIsolationResponseToPlaneResult(resp, namespace, ""), err
+		}
+		return &PlaneResult{
+			Plane:     PlaneMesh,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	res := MeshIsolationResponseToPlaneResult(resp, namespace, "")
+	if resp.Outcome == OutcomeUnavailable {
+		resErr := fmt.Errorf("mesh isolation unavailable: %s: %w", resp.Error, ErrEnforcementUnavailable)
+		c.record(seq, PlaneMesh, namespace, agentID, "isolate_mesh", resErr)
+		return res, resErr
+	}
+
+	c.record(seq, PlaneMesh, namespace, agentID, "isolate_mesh", nil)
+	return res, nil
+}
+
+// RestoreMeshPlane restores mesh network connectivity for a target agent.
+func (c *k8sFleetClient) RestoreMeshPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
+	seq := c.degraded.nextSeq()
+	namespace = c.namespaceOrDefault(namespace)
+
+	if c.meshClient == nil {
+		err := fmt.Errorf("restore_mesh %s/%s: %w: no mesh client configured",
+			namespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneMesh, namespace, agentID, "restore_mesh", err)
+		return &PlaneResult{
+			Plane:     PlaneMesh,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	req := MeshIsolationRequest{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: idempotencyKey,
+		AgentID:        agentID,
+		Namespace:      namespace,
+		Timestamp:      c.now().UTC().Format(time.RFC3339),
+	}
+
+	resp, err := c.meshClient.RestoreAgentMesh(ctx, req)
+	if err != nil {
+		c.record(seq, PlaneMesh, namespace, agentID, "restore_mesh", err)
+		if resp != nil {
+			return MeshIsolationResponseToPlaneResult(resp, namespace, ""), err
+		}
+		return &PlaneResult{
+			Plane:     PlaneMesh,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	res := MeshIsolationResponseToPlaneResult(resp, namespace, "")
+	c.record(seq, PlaneMesh, namespace, agentID, "restore_mesh", nil)
+	return res, nil
+}
+
 // RestoreCredentials is a typed stub owned by SLER-P2-2.
 //
 // Note for the orchestrator: CascadeOrchestrator.Recover logs and continues past
@@ -613,6 +726,11 @@ func (c *k8sFleetClient) Health(ctx context.Context) error {
 	if c.spireClient != nil {
 		if spireErr := c.spireClient.Health(ctx); spireErr != nil {
 			return fmt.Errorf("spire health probe: %w", spireErr)
+		}
+	}
+	if c.meshClient != nil {
+		if meshErr := c.meshClient.Health(ctx); meshErr != nil {
+			return fmt.Errorf("mesh health probe: %w", meshErr)
 		}
 	}
 	return nil

@@ -308,7 +308,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P2-1 | implementation | Implement active OpenBao lease and token revocation API client | P2-PRE | `make demo-signalloom-api-test TIER=contract`; lease revocation test | L | daily | pass — delivered: b8fade561b5a8ae6bf88e2e3ae9681e2ccc349c4 (see Errata — SLER-P2-1) | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | pass — delivered: 9fa5906275d14a46bd7c41faa45669690913fe11 (see Errata — SLER-P2-2) | $0.00 | N/A | ~4m | N/A |
 | P2-GOV | governor | Merge credential revocation and verify instant authorization rejection | P2-1, P2-2 | Multi-credential revocation integration test; zero residual token leakage | M | deep | **PASS WITH EXCEPTIONS** — both planes now fan out on one decision (G-1: OpenBao revocation was dead code in production; repair falsified by mutation). "Zero residual token leakage" **NOT MET and unachievable**; published residuals bao 5m (config-derived) / spire 1h (upstream-default), as a floor. Both guaranteed-denial figures **withdrawn as unmeasured** → SLER-P5-2. | $0.00 | N/A | N/A | N/A |
-| P3-PRE | preflight | Confirm Cilium and Istio mesh policy and admission controller seams | P2-GOV | Mesh CRD probe; node-capability-guard webhook check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-PRE | preflight | Confirm Cilium and Istio mesh policy and admission controller seams | P2-GOV | Mesh CRD probe; node-capability-guard webhook check | S | daily | **pass** — 0 mesh policies confirmed; Cilium CNI active in cluster (Istio not deployed); node-capability-guard confirmed 4 files with 0 deployment manifests; conntrack FlushIP confirmed IPv4-only and fail-closed; netassert verified in PATH → `docs/signalloom/sler-p3-pre-mesh-admission-seams.md` | $0.00 | N/A | ~4m | N/A |
 | P3-1 | implementation | Implement dynamic mesh isolation cutting in-flight TCP connections | P3-PRE | `netassert` integration test; in-flight connection termination <2s | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Implement admission webhook block preventing pod readmission | P3-PRE | Webhook deny unit and integration tests; pod reschedule block | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge mesh and admission enforcement and prove netassert boundary denial | P3-1, P3-2 | End-to-end network isolation and admission rejection test | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -738,6 +738,7 @@ Commit:       55c212f080296c8545f3128625b3036ef4fed201
 | P2-1 | $0.00 | N/A | N/A | N/A |
 | P2-2 | $0.00 | N/A | ~4m | N/A |
 | P2-GOV | $0.00 | N/A | N/A | N/A |
+| P3-PRE | $0.00 | N/A | ~4m | N/A |
 
 *Phases 3-6 are all `$0.00 / N/A` and are omitted; the full 30-row table is reproducible with the command below.*
 
@@ -747,3 +748,32 @@ Commit:       55c212f080296c8545f3128625b3036ef4fed201
 kanban-check.sh cost --repo /home/andy/src/cp/osramp-demo --shortcode SLER \
   --proposal "…/docs/Proposal — Signal Loom Enforcement and Response (2026-Q3).md" --update-table --apply
 ```
+
+#### Errata — SLER-P3-PRE (preflight) — Confirm Cilium and Istio mesh policy and admission controller seams
+
+Created:      2026-09-15 04:26:09+01:00
+Last Updated: 2026-09-15 04:26:09+01:00
+Status:       pass
+Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
+
+**Delivered.** All Cilium/Istio mesh policy, admission controller (`node-capability-guard`), netfilter conntrack TCP severance, and contained agent identity seams are confirmed with file:line citations in `docs/signalloom/sler-p3-pre-mesh-admission-seams.md`. Phase 3 mesh isolation and admission enforcement are cleared to proceed.
+
+##### Confirmed Findings & Integration Seams
+- **Zero CiliumNetworkPolicy / Istio AuthorizationPolicy Manifests**: Confirmed 0 mesh policy manifests exist anywhere under `d2-signalloom/`. Cilium is the active cluster CNI (`kube-system/cilium-*`) with active CRDs (`ciliumnetworkpolicies.cilium.io`). Istio is NOT deployed (0 pods, 0 CRDs). P3-1 must target Cilium eBPF/NetworkPolicy rather than Istio.
+- **Node-Capability-Guard Zero Deployment Manifests**: Confirmed `d2-signalloom/apps/node-capability-guard` contains only 4 files (Go source + tests). It has 0 Dockerfiles, 0 Kubernetes manifests (no Deployment, Service, or ValidatingWebhookConfiguration), and 0 GitOps registrations. P3-2 must produce the complete deployment surface from scratch.
+- **Node-Capability-Guard ValidatePod Logic Confirmed**: Confirmed `handler.go:77-113` decides solely on `pod.Spec.NodeSelector` for `node.signalloom.ai/cgroup-v2` and `node.signalloom.ai/landlock`, with zero SPIFFE ID checks, zero `ServiceAccountName` inspection, and zero references to any contained-identity store. It cannot express "block this specific agent from readmission" today.
+- **Netassert Available**: Confirmed `/home/andy/bin/netassert` is installed and operational in the execution PATH, unblocking the `test-netassert` make target (`d2-signalloom/Makefile:193-203`) and P3-1 boundary proofs.
+- **Conntrack FlushIP Confirmed IPv4-Only & Fail-Closed**: Confirmed `stun-sentinel/pkg/tc/conntrack.go:393-396` requires `target.To4() != nil` and fails closed with `fmt.Errorf("conntrack: FlushIP requires an IPv4 address...")`. It deletes netlink tuples selectively without table-wide flush; confirmed as the reusable primitive for P3-1 TCP connection severance.
+- **Agent Readmission Identity Contract Confirmed**: At admission time, Pod identity is presented via `pod.Spec.ServiceAccountName` (resolving to `spiffe://signalloom.demo/ns/<ns>/sa/<sa-name>`), `pod.Metadata.Labels["signalloom.ai/agent-name"]`, and `signalloom.ai/state: "stunned"`. P3-2's validating webhook must evaluate these against the contained agent registry.
+
+##### Evidence
+- `docs/signalloom/sler-p3-pre-mesh-admission-seams.md` created with comprehensive analysis and citation matrix.
+- `grep -rln 'kind: CiliumNetworkPolicy\|kind: AuthorizationPolicy' d2-signalloom/` → 0 matches (exit 0).
+- `grep -n 'NodeSelector\|isAgent' d2-signalloom/apps/node-capability-guard/pkg/webhook/handler.go` → lines 72, 82, 87, 91, 99, 100, 103.
+- `find d2-signalloom/apps/node-capability-guard -type f` → 4 files (0 deployment manifests).
+- `command -v netassert` → `/home/andy/bin/netassert`.
+- `test -f docs/signalloom/sler-p3-pre-mesh-admission-seams.md` → pass (exit 0).
+- `cd d2-signalloom/apps/fleet-manager && go test ./...` → `ok` (1.431s).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

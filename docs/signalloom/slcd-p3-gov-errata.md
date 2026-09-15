@@ -48,9 +48,12 @@ measures 0.060%, and one of the suite's three expected failures is a carried P2 
 **D1 — timing half: NOT OBTAINED.** Stated plainly rather than substituting the mock's
 `delta=+8.0%`. The instrument is built and validated (2,192 controller records, 1,261 usable
 pairs, counter-reset exclusion exercised, refuses to run against a stale controller), but two
-runs were lost: one killed deliberately after a syscall sweep contaminated its idle baseline,
-one reaped on session teardown because it was spawned with `nohup` but without `setsid`. A
-third is detached correctly and writes `/tmp/slcd-p3-gov-live-concurrency.json`. This does not
+runs did not yield a verdict: one killed deliberately after a syscall sweep contaminated its
+idle baseline; a second which I wrongly reported as reaped on session teardown — it was alive
+the whole time and merely still in its idle phase, and that false forensic claim was published
+in an earlier revision of this block and is corrected here. Acting on it launched a third,
+leaving two probes racing one output path; the improperly-detached one was killed and the
+`setsid` one retained. It writes `/tmp/slcd-p3-gov-live-concurrency.json`. This does not
 change the verdict — D1's lock half is falsified independently at the syscall layer.
 
 **Defects found and repaired (commit `97f859c7e3de7bf531f93541a1397909d36461e4`).** The live controller writes

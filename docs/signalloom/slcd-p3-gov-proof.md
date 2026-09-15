@@ -263,10 +263,20 @@ Two runs were started and neither finished:
 1. **Run 1 — killed deliberately.** A syscall-probe sweep landed inside its idle baseline
    window. A 6 s perturbation in a 180 s baseline biases the load-vs-idle delta *downward*,
    toward passing. A contaminated baseline was not acceptable, so the run was discarded.
-2. **Run 2 — lost to a harness defect of mine.** Spawned with
-   `nohup … > log 2>&1 &`: stdout and stderr redirected but **no `setsid` and no stdin
-   redirection**, so it stayed in the tool's session and was reaped on teardown roughly 3
-   minutes in, during phase A. This is a documented trap and I walked into it.
+2. **Run 2 — NOT lost. My diagnosis was wrong.** I saw no output JSON, concluded the run had
+   been reaped on session teardown because it was spawned with `nohup` but without `setsid`,
+   and recorded that here. It was false: pid 2169588 was alive throughout and simply still in
+   its idle-baseline phase, which had not yet elapsed. I then misread the clock by eleven
+   minutes and expected a result that was not due.
+3. **Run 3 — launched on that false premise**, producing two probes running concurrently and
+   racing the same output path. Both were idle-phase at the time so neither had yet
+   contaminated the other, but one would have entered its load phase inside the other's
+   baseline. The improperly-detached run 2 was killed; run 3 (`setsid`, `sid == pid`) was
+   retained.
+
+A related error: my check that "setsid worked" ran `pgrep … | head -1`, which matched the
+*older* process, so it reported the old run's session id as evidence for the new one. A probe
+that can match the wrong process is the same defect class this whole document is about.
 
 A third run is now detached correctly (`setsid … </dev/null >log 2>&1 & disown`) and will write
 `/tmp/slcd-p3-gov-live-concurrency.json` in ~10 minutes. To reproduce or complete:

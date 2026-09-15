@@ -2560,5 +2560,12 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Phase 3 mesh and admission enforcement certified; failurePolicy Fail verified with namespaceSelector exclusion, SharedAttestationEventKeys unified, 206 Go tests pass, netassert 10/10, redteam 15/15"
+  },
+  "8bd90": {
+    "task_id": "8bd90",
+    "reviewed_at": "2026-09-15T05:01:04Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Traced call chain verified to 403 agent_revoked, router prefix split documented, direct fetch contract for /v1/ revoke identified, 5 upload 403 error codes catalogued"
   }
 }

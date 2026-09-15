@@ -20,7 +20,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOCS_APP="${REPO_ROOT}/d2-signalloom/apps/docs-signalloom"
 TEST_DIR="${REPO_ROOT}/test/acceptance"
-PORT="${DOCS_PREVIEW_PORT:-4325}"
+PORT="${DOCS_PREVIEW_PORT:-}"
+if [[ -z "${PORT}" ]]; then
+  PORT=4325
+  if ss -tln 2>/dev/null | grep -q ":${PORT} "; then
+    for p in $(seq 4326 4399); do
+      if ! ss -tln 2>/dev/null | grep -q ":${p} "; then
+        PORT="${p}"
+        break
+      fi
+    done
+  fi
+fi
 PREVIEW_PID=""
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-/tmp/.config}"
 export BUN_TMPDIR="${BUN_TMPDIR:-/tmp}"

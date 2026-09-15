@@ -30,6 +30,7 @@ export default defineConfig({
           label: "Operate agents",
           items: [
             { label: "Claim the two demonstration agents", slug: "agents/dual-agent-onboarding" },
+            { label: "Coding agent detection runbook", slug: "operate/coding-agent-detection-runbook" },
             { label: "Stun or unstun an agent", slug: "operate/stun-agent" },
             { label: "Containment & response runbook", slug: "operate/containment-runbook" }
           ]
@@ -37,6 +38,8 @@ export default defineConfig({
         {
           label: "Security",
           items: [
+            { label: "Detective telemetry architecture", slug: "security/detective-telemetry-architecture" },
+            { label: "Zero-Customer-Payload privacy", slug: "security/zero-customer-payload" },
             { label: "Nono optionality and Landlock confinement", slug: "security/nono-optionality" }
           ]
         },
@@ -63,6 +66,8 @@ export default defineConfig({
             { label: "Per-plane denial matrix", slug: "reference/denial-matrix" },
             { label: "Operator identity lifecycle", slug: "reference/operator-identity-lifecycle" },
             { label: "External agent wire contracts", slug: "reference/external-agent-wire-contracts" },
+            { label: "Inference provider CIDR ranges", slug: "reference/inference-provider-ranges" },
+            { label: "Lawful basis & GDPR assessment", slug: "reference/lawful-basis-assessment" },
             { label: "Current limits and roadmap", slug: "reference/roadmap" },
             { label: "Glossary", slug: "reference/glossary" },
             { label: "Documentation rules", slug: "reference/documentation-rules" }

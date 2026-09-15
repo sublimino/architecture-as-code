@@ -1,0 +1,109 @@
+---
+title: Lawful Basis & GDPR Legitimate Interests Assessment (LIA)
+description: Comprehensive regulatory analysis under GDPR Article 6(1)(f), Works Council co-determination status, and full disclosure of the 40 OPEN governance items.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+:::note[Mission Version & Provenance]
+**Specification:** `codingagent.v1` | **Release Target:** `SLCD v0.1.0`  
+**Base Commit / Branch:** `refs/heads/integration/slcd-v0.1.0`  
+**Canonical Evidence Artifact:** [`docs/signalloom/slcd-p1-5-lawful-basis.md`](/docs/reference/lawful-basis-assessment/)
+:::
+
+:::caution[Gating Compliance Statement: Workstation Collection Remains DISABLED]
+**Workstation detective telemetry collection is currently DISABLED in all production and real employee workstation environments.**
+
+Under GDPR Article 6(1)(f) and European Works Council co-determination legislation, detective telemetry on employee machines constitutes employee monitoring. Collection must **NOT** be enabled until every blocking open item (`OPEN-SLCD-1` through `OPEN-SLCD-22`) has reached a formally resolved status and jurisdictional Works Council approvals have been executed.
+:::
+
+This document provides a transparent summary of the **Legitimate Interests Assessment (LIA)** and Works Council position conducted under Phase 1-5 (`slcd-p1-5-lawful-basis.md`). Rather than presenting a sanitized "all-clear" claim, this page discloses the actual regulatory state, the three-limb legal assessment, and all 40 tracked open items.
+
+<Mermaid
+  label="GDPR Article 6(1)(f) Three-Limb Assessment and Works Council Gate"
+  diagram={`flowchart TD
+    A["Proposed Workstation Telemetry<br/>(Coding Agent Observability)"] --> B{"Limb 1: Purpose Test"}
+    
+    B -->|Passed| C["Legitimate Interest Established<br/>(Security attribution, agent inventory, supply chain governance)"]
+    
+    C --> D{"Limb 2: Necessity Test"}
+    D -->|OPEN-SLCD-7, 8, 9| E["NOT PASSED / UNRESOLVED<br/>(Is continuous collection & work-rate metrics strictly necessary?)"]
+    
+    E --> F{"Limb 3: Balancing Test"}
+    F -->|Work-Rate & Continuous| G["DOES NOT BALANCE<br/>(Intrusion on data subject exceeds controller interest)"]
+    
+    G --> H{"Works Council Co-Determination<br/>(BetrVG §87 / CSE L2312-38)"}
+    H -->|22 Blocking Items OPEN| I["MANDATORY GATE: DISABLED<br/>Collection prohibited on employee workstations"]`}
+/>
+
+---
+
+## 1. Why this Assessment Exists
+
+Monitoring autonomous coding agents running on developer laptops touches employee personal data (process trees, timestamps, user identifiers, network traffic, and local file access patterns). Under European data protection law (EU/UK GDPR):
+
+1. **Employee Monitoring Classification**: Regardless of whether telemetry is collected for a cybersecurity or platform engineering purpose, monitoring employee device activity constitutes personal data processing under GDPR Article 4(1).
+2. **Consent is Invalid**: In an employment relationship, consent (Article 6(1)(a)) is legally invalid due to the inherent power imbalance between employer and employee (EDPB Guidelines 05/2020).
+3. **Article 6(1)(f) is the Sole Applicable Basis**: Processing must be justified under **Legitimate Interests** (Article 6(1)(f)), requiring a rigorous three-limb test (Purpose, Necessity, Balancing).
+4. **Recital 49 is Narrow**: While Recital 49 recognizes processing strictly necessary for network and information security, it does not provide an unconditional blanket exemption for broad workstation telemetry.
+
+---
+
+## 2. The Three-Limb Legitimate Interests Assessment (LIA)
+
+### 2.1 Limb 1: The Purpose Test — **PASSED**
+- **Controller Interest**: The organization has a legitimate interest in maintaining an accurate inventory of autonomous AI agents executing inside its boundary, ensuring corporate code is not sent to unapproved model endpoints, and meeting regulatory supply-chain obligations (e.g. EU AI Act, DORA Art. 11, NIS2).
+- **Assessment**: The security attribution purpose is legitimate and clearly articulated.
+
+### 2.2 Limb 2: The Necessity Test — **NOT PASSED (OPEN)**
+To satisfy necessity, the controller must demonstrate that no less intrusive means exist to achieve the legitimate purpose. The assessment identified three fundamental open questions:
+
+| Open Item | Question Under Review | Assessment Status |
+|---|---|---|
+| `OPEN-SLCD-7` | **Periodic sampling vs continuous observation**: Is continuous 1-2s polling necessary, or would periodic sampling satisfy security attribution? | **UNRESOLVED** — Continuous sampling directly reconstructs employee working hours. |
+| `OPEN-SLCD-8` | **Necessity of work-rate metrics (`metrics.*`)**: Are `step_count`, `tokens_in`, `tokens_out`, and `tool_counts` necessary for security attribution, or do they serve only work-rate tracking? | **UNRESOLVED** — Attribution is fully satisfied by `harness`, `session_id`, and `kanban.task_id` alone without numeric work-rate fields. |
+| `OPEN-SLCD-9` | **Necessity of transcript parsing**: Can `session_id` and harness identity be derived from the process tree and cgroups without reading on-disk transcript files? | **UNRESOLVED** — Transcript reads introduce proximity risk to customer payloads. |
+
+### 2.3 Limb 3: The Balancing Test — **DOES NOT BALANCE (OPEN)**
+The balancing test weighs the controller's interest against the rights and fundamental freedoms of the employee (Article 8 of the EU Charter of Fundamental Rights).
+
+- **Where it Balances**: Basic agent discovery (attributing an active Claude or Codex session to an authorized Kanban task) with zero payload collection balances in favor of the controller.
+- **Where it DOES NOT Balance**: Collecting continuous work-rate counters (`tokens_in`, `step_count`, tool invocation rates) on an individual developer's machine creates high surveillance pressure and directly reconstructs working rhythms, failing the balancing test.
+
+---
+
+## 3. Summary of the 40 OPEN Governance Items
+
+The Phase 1-5 assessment established a rigorous registry of **40 OPEN items**, of which **22 are hard blockers** preventing deployment on employee workstations:
+
+### 3.1 Key Blocking Open Items (Selection)
+- **`OPEN-SLCD-1` (In-Scope Workstation Roster)**: No formal roster of in-scope machines exists; without a bounded scope, lawful basis cannot be applied.
+- **`OPEN-SLCD-2` (Technical Enforcement of Disabled State)**: The sensor must provide a cryptographic kill-switch ensuring collection cannot be activated remotely without local operator assent.
+- **`OPEN-SLCD-4` (Productivity Inference Prevention)**: Technical controls preventing dashboard or API consumers from running productivity aggregations on individual developers.
+- **`OPEN-SLCD-7` (Sampling Interval Assessment)**: Formal evaluation of periodic vs continuous observation.
+- **`OPEN-SLCD-8` (Removal or Justification of `metrics.*`)**: Formal determination whether work-rate fields must be removed entirely from the schema.
+- **`OPEN-SLCD-12` (German Works Council Co-Determination Agreement)**: Mandatory Betriebsrat formal agreement.
+- **`OPEN-SLCD-13` (French CSE Consultation)**: Mandatory Comité Social et Économique consultation.
+- **`OPEN-SLCD-22` (Data Protection Impact Assessment — DPIA)**: Full formal DPIA signed by Data Protection Officer (DPO).
+
+---
+
+## 4. Multi-Jurisdictional Works Council Position
+
+| Jurisdiction | Legal Basis / Authority | Co-Determination & Consultation Status |
+|---|---|---|
+| **Germany** | BetrVG §87(1) Nr. 6 (Technical systems designed to monitor employee behavior/performance) | **Mandatory Co-Determination Required.** Collection without a formal Betriebsvereinbarung (Works Agreement) is legally void and prohibited by federal labor law. |
+| **France** | French Labor Code (Code du travail) Art. L2312-38 | **Mandatory CSE Consultation Required.** Prior information and consultation with the Social and Economic Committee (CSE) before deployment. |
+| **United Kingdom** | UK GDPR / Data Protection Act 2018 / ICO Employment Practices Guidance | **DPIA & Worker Notice Required.** Requires explicit documentation of legitimate interests and transparent employee privacy notices. |
+| **United States** | State Privacy Laws (e.g. California CPRA §1798.100 et seq., Colorado CPA) | **Employee Notice Required.** Requires notice at collection disclosing categories of telemetry processed. |
+
+---
+
+## 5. Absolute Prohibition on Developer Productivity Inference
+
+Signal Loom governance policies formally prohibit:
+1. **Ranking or Scoring Developers**: Using token counts, tool execution frequencies, or step durations to evaluate developer output or speed.
+2. **Attendance or Working Hour Reconstruction**: Using telemetry timestamps or Kanban duration deltas to measure employee working hours or active desk time.
+3. **Automated Performance Decisions**: Feeding detective telemetry into HR, promotion, or performance management systems.
+
+Any attempt to configure or query Signal Loom for productivity tracking represents a direct breach of system governance and data protection policy.

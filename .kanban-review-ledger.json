@@ -2399,5 +2399,12 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: Mock/live bridge contracts frozen across MockStageOutcome and LiveStageOutcome, 98 unit tests pass, typecheck and eslint clean, idempotent reset/seed"
+  },
+  "a06db": {
+    "task_id": "a06db",
+    "reviewed_at": "2026-09-15T02:22:31Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: Confirmed OpenBao and SPIRE revocation API endpoints, addressing conventions, 5m TTL baseline, and error-discarding anti-patterns"
   }
 }

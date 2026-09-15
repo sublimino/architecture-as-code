@@ -28,6 +28,7 @@ type k8sFleetClient struct {
 	clientset        kubernetes.Interface
 	defaultNamespace string
 	degraded         *degradedRegistry
+	baoClient        *OpenBaoClient
 	// now is injectable so a test can prove the containment timestamp is
 	// preserved across a retry rather than restamped — an assertion that a real
 	// clock makes flaky-or-vacuous depending on how fast the test runs.
@@ -48,8 +49,16 @@ func newK8sFleetClient(clientset kubernetes.Interface, defaultNamespace string) 
 		clientset:        clientset,
 		defaultNamespace: defaultNamespace,
 		degraded:         newDegradedRegistry(),
+		baoClient:        NewOpenBaoClient(OpenBaoConfigFromEnv()),
 		now:              time.Now,
 	}
+}
+
+// newK8sFleetClientWithBao constructs a k8sFleetClient with an explicit OpenBaoClient.
+func newK8sFleetClientWithBao(clientset kubernetes.Interface, defaultNamespace string, baoClient *OpenBaoClient) *k8sFleetClient {
+	c := newK8sFleetClient(clientset, defaultNamespace)
+	c.baoClient = baoClient
+	return c
 }
 
 func (c *k8sFleetClient) namespaceOrDefault(namespace string) string {
@@ -267,18 +276,31 @@ func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, st
 	return classified
 }
 
-// RevokeCredentials is a typed stub owned by SLER-P2-1.
-//
-// It returns ErrEnforcementUnavailable and marks the target degraded. Returning
-// nil would tell the orchestrator that an agent's OpenBao leases were revoked
-// when no call was made — the single most dangerous lie this service can tell,
-// because a held-but-believed-revoked token is indistinguishable from a clean
-// containment until the agent uses it.
-func (c *k8sFleetClient) RevokeCredentials(_ context.Context, agentID string) error {
-	err := fmt.Errorf("revoke_credentials %s/%s: %w: OpenBao lease revocation not implemented (SLER-P2-1)",
-		c.defaultNamespace, agentID, ErrEnforcementUnavailable)
-	c.record(c.degraded.nextSeq(), PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", err)
-	return err
+// RevokeCredentials performs active OpenBao lease and token revocation for the agent.
+// It maps the OpenBao client result to the fail-closed degraded registry and returns
+// ErrEnforcementUnavailable if revocation fails.
+func (c *k8sFleetClient) RevokeCredentials(ctx context.Context, agentID string) error {
+	seq := c.degraded.nextSeq()
+	if c.baoClient == nil {
+		err := fmt.Errorf("revoke_credentials %s/%s: %w: openbao client not configured",
+			c.defaultNamespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", err)
+		return err
+	}
+
+	planeRes, err := c.baoClient.RevokeAgentCredentials(ctx, c.defaultNamespace, agentID, "")
+	if err != nil {
+		c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", err)
+		return err
+	}
+	if planeRes.Outcome == OutcomeUnavailable {
+		resErr := fmt.Errorf("revoke_credentials %s/%s: %w: %s",
+			c.defaultNamespace, agentID, ErrEnforcementUnavailable, planeRes.Error)
+		c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", resErr)
+		return resErr
+	}
+	c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", nil)
+	return nil
 }
 
 // RestoreCredentials is a typed stub owned by SLER-P2-2.

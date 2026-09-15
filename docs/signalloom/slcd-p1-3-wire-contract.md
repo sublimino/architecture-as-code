@@ -231,9 +231,9 @@ byte-identical to P1-1's allow-list and the detection shape is frozen as the rej
 
 ---
 
-## 5. ROUTING GAP — open, owned by SLCD-P5-1
+## 5. ROUTING GAP — CLOSED (SLCD-P5-1)
 
-**`/api/v1/telemetry/coding-agents` does not reach signal-ingest today.**
+**`/api/v1/telemetry/coding-agents` routing resolved via Option 1 (FastAPI BFF Proxy).**
 
 `d2-signalloom/apps/dashboard-signalloom/nginx.conf:102-104`:
 
@@ -243,28 +243,11 @@ location /api/ {
   proxy_pass $api$request_uri;
 ```
 
-**The path is not unrouted — it is routed to the wrong backend.** `/api/` is proxied, to
-`fe-signalloom-api`, which is a different service from signal-ingest. A request to the frozen path
-crosses the wire, reaches FastAPI, and 404s *there*.
-
-That distinction changes the fix and the diagnosis:
-
-- **The 404 is FastAPI's, not nginx's.** A genuinely unproxied POST hits the SPA catch-all
-  (`nginx.conf:341`, `try_files … /index.html`) and nginx answers **405**. So "did the request
-  cross the wire" does *not* disambiguate a missing route here.
-- **"Add an nginx route" is not sufficient on its own.** Either signal-ingest gains a route
-  reachable under the existing `/api/` proxy, or a new proxy prefix is added — and the dashboard
-  client's auto-`/api` prefix (`src/api/client.ts:241`) has to be accounted for either way.
-
-No route for this path is registered anywhere in signal-ingest today. Asserted, not assumed:
-`TestCodingAgentWireContract_RoutingGapIsStillOpen` pins `location /api/` to line 102, pins its
-upstream to `fe-signalloom-api`, and greps `api/auth.go` and `api/handlers.go` for the frozen path.
-**That test fails when SLCD-P5-1 closes the gap** — at which point it and this section are updated
-together, rather than this document quietly going stale.
-
-**Diff against the current surface:** the OpenAPI document declares one path, one verb, and one new
-request schema. Every one of them is new. There is no coding-agent-telemetry route in the codebase
-to diff against.
+**Architecture and Resolution (SLCD-P5-1):**
+- In `fe-signalloom` (FastAPI BFF): mounted `/api/v1/telemetry/coding-agents` (`src/coding_agent_telemetry.py`), proxying upstream to `http://signal-ingest:8082/api/v1/telemetry/coding-agents` with `Authorization` bearer token and `X-SignalLoom-Contract` headers.
+- In `signal-ingest`: mounted `POST /api/v1/telemetry/coding-agents` behind `NewProtectedRouter` in `api/auth.go` and implemented in `api/telemetry_handler.go`.
+- Preserves the zero-trust NetworkPolicy invariant (`allow-signal-ingest-ingress` admits only `fe-signalloom` and runner pods; `dashboard-signalloom` is intentionally not admitted directly to `signal-ingest`).
+- Documented in detail in `docs/signalloom/slcd-p5-1-ingestion.md`.
 
 ---
 
@@ -319,11 +302,11 @@ call.*
 
 ## 8. Open items handed on
 
-| # | Item | Owner |
-|---|---|---|
-| 1 | `/api/` reaches `fe-signalloom-api`, not signal-ingest — §5 | **SLCD-P5-1** |
-| 2 | No handler or `ProtectedRouter` route exists for the frozen path; this card deliberately registered none | SLCD-P5-1 |
-| 3 | `network.inference_endpoint` is a 128-byte caller-influenceable channel — §3.1 | **SLCD-P1-GOV** to accept explicitly |
-| 3b | **`OPEN-SLCD-8` necessity collision.** SLCD-P1-5 finds `metrics.step_count`, `tokens_in`, `tokens_out` and `tool_counts` serve no interest named at its §5, fail Limb 2, and engage Art. 5(1)(c) — i.e. the envelope should be *smaller*. This card was instructed not to remove a field at freeze time, so all 17 `metrics.*` paths are frozen as P1-1 defined them. **Recorded structurally in the schema at `x-pending-necessity-review`**, so it travels with the artefact rather than living only in prose. Two facts P1-GOV must price: removing them is `incompatible` by this contract's own classifier and therefore **takes `codingagent.v2`**; and exposure is currently **zero**, because collection stays gated behind P1-5's unmet lawful-basis condition, so "hold and rule" costs nothing. Amending this card's scope is a live option — "my instructions said don't remove" is a reason to escalate, not a reason the answer is no. | **SLCD-P1-GOV** |
-| 4 | Lawful basis for workstation collection is **not** established; this contract must not be enabled against workstations until it is | SLCD-P1-5 |
-| 5 | `X-SignalLoom-Tenant` is reserved but unenforced until P2-2 lands | SLCD-P2-2 |
+| # | Item | Owner | Status |
+|---|---|---|---|
+| 1 | `/api/` reaches `fe-signalloom-api`, not signal-ingest — §5 | **SLCD-P5-1** | **CLOSED** (Option 1 BFF Proxy) |
+| 2 | No handler or `ProtectedRouter` route exists for the frozen path | **SLCD-P5-1** | **CLOSED** (`api/telemetry_handler.go`) |
+| 3 | `network.inference_endpoint` is a 128-byte caller-influenceable channel — §3.1 | **SLCD-P1-GOV** to accept explicitly | Open |
+| 3b | **`OPEN-SLCD-8` necessity collision.** SLCD-P1-5 finds `metrics.step_count`, `tokens_in`, `tokens_out` and `tool_counts` serve no interest named at its §5, fail Limb 2, and engage Art. 5(1)(c) — i.e. the envelope should be *smaller*. This card was instructed not to remove a field at freeze time, so all 17 `metrics.*` paths are frozen as P1-1 defined them. **Recorded structurally in the schema at `x-pending-necessity-review`**, so it travels with the artefact rather than living only in prose. Two facts P1-GOV must price: removing them is `incompatible` by this contract's own classifier and therefore **takes `codingagent.v2`**; and exposure is currently **zero**, because collection stays gated behind P1-5's unmet lawful-basis condition, so "hold and rule" costs nothing. Amending this card's scope is a live option — "my instructions said don't remove" is a reason to escalate, not a reason the answer is no. | **SLCD-P1-GOV** | Open |
+| 4 | Lawful basis for workstation collection is **not** established; this contract must not be enabled against workstations until it is | SLCD-P1-5 | Open |
+| 5 | `X-SignalLoom-Tenant` is reserved but unenforced until P2-2 lands | SLCD-P2-2 | Closed |

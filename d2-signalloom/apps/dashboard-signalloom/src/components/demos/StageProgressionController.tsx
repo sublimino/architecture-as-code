@@ -15,6 +15,7 @@ import {
   type AutoPlayPacing,
   type DemoStepperState,
   type StageId,
+  type StagePayloadMap,
 } from './types'
 import {
   createDemoBridge,
@@ -42,6 +43,16 @@ export interface StageProgressionContextValue {
   readonly jumpToStage: (stage: StageId) => Promise<void>
   readonly resetEstate: () => void
   readonly selectViewStage: (stage: StageId) => void
+  /**
+   * Record a payload a stage panel resolved on its own. Stage 1 (`operator_init`) is
+   * pre-confirmed at boot and is never a target of `advance()`, so a panel that performs
+   * it has no other way to get its result into the reducer. Without this seam the header
+   * reports the stage confirmed while `state.stagePayloads` stays empty.
+   */
+  readonly recordStagePayload: (
+    stage: StageId,
+    payload: Partial<StagePayloadMap[StageId]>,
+  ) => void
 }
 
 export interface StageProgressionControllerProps {
@@ -272,6 +283,13 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
     [canAdvance, canRetreat, advance, retreat],
   )
 
+  const recordStagePayload = useCallback(
+    (stage: StageId, payload: Partial<StagePayloadMap[StageId]>) => {
+      dispatch({ type: 'UPDATE_STAGE_PAYLOAD', stage, payload })
+    },
+    [],
+  )
+
   const contextValue: StageProgressionContextValue = useMemo(
     () => ({
       state,
@@ -287,6 +305,7 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
       jumpToStage,
       resetEstate,
       selectViewStage: setActiveViewStage,
+      recordStagePayload,
     }),
     [
       state,
@@ -298,6 +317,7 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
       retreat,
       jumpToStage,
       resetEstate,
+      recordStagePayload,
     ],
   )
 

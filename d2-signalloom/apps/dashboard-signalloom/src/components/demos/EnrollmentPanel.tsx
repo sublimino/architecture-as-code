@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { colors } from '../../styles/tokens'
 import {
   type DemoBridge,
@@ -9,7 +9,7 @@ import {
   HAPPY_PATH_PRESET,
   type ScenarioPreset,
 } from './scenarios'
-import type { HostEnrolledPayload } from './types'
+import { UNATTRIBUTED_OPERATOR_LABEL, type HostEnrolledPayload } from './types'
 
 export interface EnrollmentPanelProps {
   readonly bridge: DemoBridge
@@ -31,6 +31,12 @@ export function EnrollmentPanel({
   onEnrolled,
 }: EnrollmentPanelProps): React.JSX.Element {
   const [payload, setPayload] = useState<HostEnrolledPayload | null>(initialPayload)
+
+  // When a controller owns the transition the resolved payload arrives as a prop after
+  // this component has already mounted, so seeding state once at mount is not enough.
+  useEffect(() => {
+    if (initialPayload) setPayload(initialPayload)
+  }, [initialPayload])
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [copiedField, setCopiedField] = useState<string | null>(null)
@@ -48,13 +54,18 @@ export function EnrollmentPanel({
     })
   }, [bridge.channelKind, preset.id])
 
-  // Attributable enrollment: names triggering operator or explicit mock principal
+  // Attributable enrollment: names the triggering operator or the explicit mock principal.
+  // The live branch must name a principal the session authenticated; when none is
+  // available it renders UNATTRIBUTED_OPERATOR_LABEL rather than inventing an account.
   const operatorAttribution = useMemo(() => {
     if (bridge.channelKind === 'mock') {
       return `Mock Operator (${preset.tenant_id})`
     }
-    return operatorId || 'operator-admin@signalloom.internal'
+    return operatorId?.trim() || UNATTRIBUTED_OPERATOR_LABEL
   }, [bridge.channelKind, preset.tenant_id, operatorId])
+
+  const isAttributed =
+    bridge.channelKind === 'mock' || Boolean(operatorId?.trim())
 
   // Key algorithm and revocation endpoint derived from real schema / preset
   const keyAlgorithm = 'Ed25519'
@@ -215,7 +226,15 @@ export function EnrollmentPanel({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: colors.muted }}>Triggering Operator:</span>
-              <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+              <span
+                data-testid="enrollment-attribution-principal"
+                data-attributed={isAttributed ? 'true' : 'false'}
+                style={{
+                  fontFamily: 'monospace',
+                  fontWeight: 600,
+                  color: isAttributed ? colors.electricWhite : colors.amber,
+                }}
+              >
                 {operatorAttribution}
               </span>
             </div>

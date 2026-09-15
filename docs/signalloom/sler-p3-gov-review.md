@@ -40,7 +40,7 @@ code exists. Whether it *runs* is section 4.
 | :- | :--------------------- | :------ | :---- |
 | C1 | Admission webhook `failurePolicy` is `Fail` and documented | **PASS** | Literal `failurePolicy: Fail` at `validatingwebhookconfiguration.yaml`, with an 8-line block comment naming the readmission-bypass consequence of `Ignore`. Explicit, not defaulted. |
 | C2 | Mesh isolation targets a confirmed mesh technology | **PASS** | Cilium, confirmed present in P3-PRE. `cilium-isolation-policy.yaml` selects `signalloom.ai/agent=true` + `signalloom.ai/state=stunned`. No speculative Istio/Linkerd superset. |
-| C3 | Both planes share one contained-identity notion | **PASS (by shape), FAIL (by reach)** | See section 3. |
+| C3 | Both planes share one contained-identity notion | **QUALIFIED PASS** | Field-identical at `14d56cef` over one ConfigMap; no drift barrier and no round-trip test exists. See section 3. |
 | C4 | netassert boundary proof ran, did not skip | **PASS as executed, DOES NOT PROVE CONTAINMENT** | See section 5. |
 | C5 | End-to-end admission-deny test proving a contained pod cannot be recreated | **FAIL** | Not possible: the webhook is not deployed and no orchestrator writes to the store. Section 4. |
 | C6 | IPv4-only mesh scope stated honestly, IPv6 named as residual | **PASS** | Section 6. Carried forward into this report, which is the artefact P5-2 reads. |
@@ -75,6 +75,27 @@ fleet-manager K8sAdmissionClient.syncConfigMapEntry
 ```
 
 That is a genuine shared definition and it is the right design.
+
+**The precise claim, and its limit.** What is verified is that the two types are *field-identical at
+`14d56cef`* and that the writer's ConfigMap is the reader's mounted file. That is shape agreement at
+one commit, established by struct-tag comparison and the volume mount — not by a round-trip test.
+Three things it does not establish, all cheap to close and none closed today:
+
+- **No compile-time linkage.** Two structurally identical types in different modules with nothing
+  binding them will drift, and both halves will stay green while drifting, because each tests
+  against its own notion of the record. Make `ContainedEntry` an alias of `StoredContainedAgent`, or
+  add a round-trip contract test (marshal one, unmarshal the other, deep-equal a committed golden
+  fixture).
+- **Semantics are unverified.** `contained_at` is a free-form string on both sides with no format
+  assertion; nothing pins RFC3339, and nothing pins whether it is absolute or relative.
+- **Removal semantics are unverified end-to-end.** `syncConfigMapEntry` is the only writer and its
+  delete path has not been exercised against a live ConfigMap. A merge-style update that leaves a
+  stale row behind would make resume silently fail to resume — a reversibility defect that struct-tag
+  comparison structurally cannot see.
+
+So: **"field-identical at `14d56cef`, one physical store, no drift barrier, no round-trip test"** is
+the defensible statement. "Genuinely shared" without those qualifiers is not, and is downgraded here
+accordingly.
 
 **However, containment is represented twice at a level above the store.** The mesh plane does not
 consult the store at all — it enforces on the *pod label* `signalloom.ai/state=stunned`, written by
@@ -143,7 +164,33 @@ $ kubectl -n fe-signalloom get deploy,cm | rg -i 'capability|contained'
 P3-2's card title claims "admission webhook block **and deployment surface**". The manifests were
 authored; the deployment surface was not connected.
 
-### 4c. Why C5 and C7 cannot pass
+### 4c. The webhook, once wired, blocks its own restart
+
+This is the finding that makes residual 2 dangerous to close naively, and it is currently invisible
+precisely because the guard is not deployed.
+
+- The guard Deployment runs in `namespace: fe-signalloom` (`deployment.yaml:12`), `replicas: 1`, no
+  PodDisruptionBudget.
+- The webhook's `namespaceSelector` matches `kubernetes.io/metadata.name In [fe-signalloom-agents,
+  fe-signalloom]` — i.e. **it includes the guard's own namespace**.
+- There is **no `objectSelector`** excluding the guard's own pod (`rg -c objectSelector` → 0).
+- `failurePolicy: Fail`, correctly, denies on webhook unreachability.
+
+Compose those four and the guard is a fail-closed control that gates its own rollback. The moment
+the single replica is gone — rolling update, node drain, eviction, OOM — the replacement pod's
+CREATE is validated by a webhook that cannot answer, so it is denied, so the guard never comes back.
+Recovery requires manually deleting the `ValidatingWebhookConfiguration`, which is the one action
+an operator under incident pressure is least likely to reach for and which disables the control
+entirely.
+
+`failurePolicy: Fail` is the right choice and must stay. The fix is scoping, not policy: add an
+`objectSelector` excluding `app.kubernetes.io/name: node-capability-guard`, or drop `fe-signalloom`
+from the `namespaceSelector` so the webhook governs only the agents namespace, and raise `replicas`
+above 1 with a PDB. **Whoever closes residual 2 must close this in the same change** — wiring the
+kustomization without it converts an inert manifest into a self-inflicted outage on the first
+guard restart.
+
+### 4d. Why C5 and C7 cannot pass
 
 An end-to-end admission-deny proof requires a deployed webhook and a populated store. Neither
 exists. A combined reversibility test requires a single call path that reverses both planes.
@@ -267,6 +314,14 @@ ConfigMap propagation to a mounted volume is not instantaneous; the interval bet
 worst-case residual, and it is bounded by kubelet sync behaviour, not by zero. During that window a
 pod for a just-contained agent is admitted.
 
+**The read path was checked, and it bounds the damage.** A worse variant of this defect would be a
+guard that loads the store once at startup, which would make the residual unbounded until pod
+restart rather than merely propagation-delayed. That is **not** the case:
+`FileIdentityStore.IsContained` (`store.go:259`) calls `reload()` on every admission request, and
+`reload()` is mtime-gated so the cost is a `stat` in the common case. The residual is therefore
+genuinely bounded by kubelet ConfigMap propagation and nothing longer. The finding stands; its
+magnitude is a propagation window, not a pod lifetime.
+
 Publishing 0 ms would overstate the guarantee in exactly the way `SharedAttestationEventKeys`'
 own comment warns against. The honest options are (a) measure the propagation delay on the target
 cluster and publish it with `measured` provenance, or (b) have the guard read the ConfigMap through
@@ -362,6 +417,12 @@ an eBPF ELF.
 6. **`ipv4_scoped` is a hardcoded constant** in the mesh plane result. (§6)
 7. **Two representations of "contained"** — pod label vs store entry — with no invariant asserting
    they agree. Latent while §4 holds; live the moment it is fixed. (§3)
+8. **The webhook blocks its own restart once wired.** `failurePolicy: Fail` + a `namespaceSelector`
+   including the guard's own `fe-signalloom` + no `objectSelector` + `replicas: 1` + no PDB. Must be
+   fixed in the *same change* that closes residual 2, or wiring the kustomization causes an outage
+   on the first guard restart. (§4c)
+9. **The two identity types have no compile-time linkage and no round-trip test**, so they can drift
+   with both halves staying green. Cheap to close; not closed. (§3)
 
 ---
 

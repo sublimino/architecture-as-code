@@ -59,6 +59,82 @@ export const guards = {
   grafanaDeployed(): boolean {
     return guards.exists("service", "kube-prometheus-stack-grafana", "monitoring");
   },
+
+  /**
+   * AgentMaxxing backend — the FastAPI app that serves external-agent
+   * enrollment, evidence upload, and host revocation.
+   *
+   * @consumedBy AMXD-P4-2 — the revoke-then-upload dispatch test.
+   * @consumedBy AMXD-P6-1 — the live-mode spec block in the demo-console spec.
+   *
+   * ─── Why this guard exists ──────────────────────────────────────────────
+   *
+   * `login()` below defaults to `demoMode: true` (see its `opts?.demoMode ??
+   * true`). In demo mode `dashboard-signalloom/src/api/client.ts:227`
+   * short-circuits `req()` into `resolveFake()` BEFORE any network call is
+   * attempted, so no assertion downstream of that call can ever observe a real
+   * HTTP response. Worse, a 403 is not merely unlikely under demo mode — it is
+   * structurally unreachable: when a route has no fixture, `client.ts:233-239`
+   * throws `demoModeError` with status **404** (route known, fixture missing)
+   * or **501** (route not implemented), and those are the only two statuses
+   * that path can produce. A spec that asserts `403` while demo mode is on can
+   * therefore only pass by fabricating the very response it claims to verify.
+   *
+   * So a live-403 spec needs BOTH halves, and the guard is only one of them:
+   *
+   *   test.skip(!guards.agentmaxxingLive(), 'requires live AgentMaxxing backend');
+   *   await login(page, { demoMode: false });
+   *
+   * Copy both lines. `guards.agentmaxxingLive()` without `{ demoMode: false }`
+   * still short-circuits into fixtures at `client.ts:227` and the guard will
+   * have bought you nothing.
+   *
+   * ─── The 404 collision — read this before "fixing" a red P4-2 ───────────
+   *
+   * A missing nginx `/v1/` proxy route ALSO returns 404, and
+   * `apps/dashboard-signalloom/nginx.conf` has no `location /v1/` block until
+   * AMXD-P1-4 lands. So the first run of a live-403 spec will most likely read
+   * `expected 403, got 404`, from either cause, and the two are
+   * indistinguishable by status code alone. Distinguish before assuming:
+   *
+   *   - Demo mode still on  → `localStorage.sl_demo_mode === 'true'`, and no
+   *     matching entry appears in `page.on('response')`, because nothing was
+   *     ever sent.
+   *   - Proxy route absent  → the request IS on the wire and carries real
+   *     server response headers.
+   *
+   * Assert that the response crossed the wire (a `page.on('response')` hit for
+   * the revoke URL, or a header only a real server emits) rather than reading
+   * the status alone — a status code is not a liveness claim. Adding a demo
+   * fixture to make the red go green re-creates exactly the defect this guard
+   * was written to remove.
+   *
+   * ─── Which object, and why this one ─────────────────────────────────────
+   *
+   * `service/fe-signalloom-api` in namespace `fe-signalloom`
+   * (`d2-signalloom/apps/fe-signalloom/base/api-service.yaml`). That Service
+   * fronts the FastAPI app which registers
+   * `POST /v1/external-agents/hosts/{host_id}/revoke`
+   * (`src/external_agent_registration.py:1231`) and raises
+   * `APIError(403, "host_revoked", …)` on the subsequent upload (same file,
+   * lines 1120 and 1142). It is the workload that produces the 403, so it is
+   * the workload whose absence justifies a SKIP.
+   *
+   * It deliberately does NOT probe the route, the nginx proxy, or a Pod. Per
+   * the block at the top of this section, a guard separates "never provisioned"
+   * from "provisioned and broken"; a missing route on a deployed backend is the
+   * second kind, and a guard that went false for it would SKIP precisely when
+   * the route regressed — the crashed-Pod anti-pattern in a new costume. A
+   * deployed-but-broken AgentMaxxing backend still runs its assertions and
+   * still fails.
+   *
+   * Never throws: it inherits `guards.exists`'s try/catch, so a missing object,
+   * an unreachable API server, and a `kubectl` absent from PATH all return
+   * false rather than converting a legitimate SKIP into a hard failure.
+   */
+  agentmaxxingLive(): boolean {
+    return guards.exists("service", "fe-signalloom-api", "fe-signalloom");
+  },
 } as const;
 
 // ── Configuration ───────────────────────────────────────────────────────────

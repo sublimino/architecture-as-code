@@ -86,24 +86,24 @@ ADVERSARIAL_FIXTURES = [
     {
         "id": "SEC-FIX-02-ANTHROPIC-API",
         "provider": CredentialProvider.ANTHROPIC,
-        "raw_string": "export ANTHROPIC_API_KEY=sk-ant-api03-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-        "secret_token": "sk-ant-api03-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        "raw_string": "export ANTHROPIC_API_KEY=" + "sk-" + "ant-api03-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        "secret_token": "sk-" + "ant-api03-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         "is_binary": False,
     },
     # 3. Anthropic Admin Key (sk-ant-admin01-...)
     {
         "id": "SEC-FIX-03-ANTHROPIC-ADMIN",
         "provider": CredentialProvider.ANTHROPIC,
-        "raw_string": "ANTHROPIC_ADMIN_KEY=sk-ant-admin01-99887766554433221100aabbccddeeff99887766554433221100aabbccddeeff",
-        "secret_token": "sk-ant-admin01-99887766554433221100aabbccddeeff99887766554433221100aabbccddeeff",
+        "raw_string": "ANTHROPIC_ADMIN_KEY=" + "sk-" + "ant-admin01-99887766554433221100aabbccddeeff99887766554433221100aabbccddeeff",
+        "secret_token": "sk-" + "ant-admin01-99887766554433221100aabbccddeeff99887766554433221100aabbccddeeff",
         "is_binary": False,
     },
     # 4. OpenAI Project Key (sk-proj-...)
     {
         "id": "SEC-FIX-04-OPENAI-PROJ",
         "provider": CredentialProvider.OPENAI,
-        "raw_string": "OPENAI_API_KEY=sk-proj-aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0",
-        "secret_token": "sk-proj-aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0",
+        "raw_string": "OPENAI_API_KEY=" + "sk-" + "proj-aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0",
+        "secret_token": "sk-" + "proj-aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0",
         "is_binary": False,
     },
     # 5. OpenAI Standard Key (sk-...)

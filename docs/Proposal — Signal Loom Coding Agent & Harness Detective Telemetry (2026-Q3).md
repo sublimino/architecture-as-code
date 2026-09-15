@@ -321,7 +321,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P4-2 | implementation | Build outbound LLM network socket detector via procfs without TLS interception | P4-PRE | Socket mapping tests; IP/endpoint correlation checks | L | deep | pass — delivered: 206a7fea70a2472836b47f49dab4316da01ca41b (see Errata — SLCD-P4-2) | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Merge transcript and socket detectors and prove zero payload harvesting | P4-1, P4-2 | End-to-end leak audit; zero prompt/code emission verified | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-PRE | preflight | Confirm signal-ingest API endpoints and Topology UI agent models | P4-GOV | API schema check; UI model contract verification | S | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P5-1 | implementation | Wire telemetry dispatcher into Signal Loom ingestion pipeline | P5-PRE | Ingestion contract tests; event deduplication and tenant isolation checks | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P5-1 | implementation | Wire telemetry dispatcher into Signal Loom ingestion pipeline | P5-PRE | Ingestion contract tests; event deduplication and tenant isolation checks | L | daily | pass — delivered: 014effd562d783607f6969b975a7a70f6abb24b9 (see Errata — SLCD-P5-1) | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | Render detected coding agents in Dashboard Topology and Agent Swarm views | P5-PRE | Vitest UI component tests; coding agent card and status badge assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-GOV | governor | Merge ingestion and UI rendering and prove end-to-end telemetry streaming | P5-1, P5-2 | Full ingestion -> UI render integration test; latency assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-PRE | preflight | Confirm end-to-end fixture harnesses, test runners, and SPEC-REGISTRY | P5-GOV | Fixture verification; runner command availability check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -750,7 +750,6 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 **Notes:** All 214 tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass (with 3 expected failures carried from P2-GOV). All Go codingagent unit tests pass. `test -f docs/signalloom/slcd-p3-pre-kanban-inventory.md` and `rg -n 'KANBAN_HOME|KANBAN_WORKTREES_HOME' AGENTS.md` both verified green.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-<<<<<<< HEAD
 #### Errata — SLCD-P3-1 Implement passive watcher for active kanban controller cycles and task leases
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-15 06:36:36+01:00
@@ -829,3 +828,26 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 - **Sandbox note for the Governor:** the principal checkout at `/home/andy/src/cp/osramp-demo/docs/` is write-denied (`EACCES`, Landlock — `test -w` reports writable because it checks POSIX mode only). This errata and the Result cell were written to the worktree copy, which was byte-identical to the principal copy beforehand, and are left **uncommitted** per the card. The Governor must carry them across.
 - Lawful-basis gate untouched. This card builds the detector; it does not enable collection.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+
+#### Errata — SLCD-P5-1 Wire telemetry dispatcher into Signal Loom ingestion pipeline
+**Created:** 2026-09-15 10:16:37+01:00
+**Last Updated:** 2026-09-15 10:16:37+01:00
+**Status:** Completed
+**Commit:** 014effd562d783607f6969b975a7a70f6abb24b9
+**Governor merge:** [pending Governor reconciliation]
+
+**Decisions:**
+1. **Routing Decision — Option 1 (FastAPI BFF Proxy in fe-signalloom) selected and implemented.** Requests to `/api/v1/telemetry/coding-agents` are routed via Envoy Ingress Gateway / nginx `/api/` to `fe-signalloom-api:8000`, which proxies them internally to `http://signal-ingest:8082`. Dedicated nginx proxy (Option 2) was rejected because `signal-ingest` NetworkPolicy allows ingress only from `fe-signalloom` pods, preserving zero-trust boundary.
+2. **Tenant Isolation via Cryptographic SPIFFE JWT Context.** Ingestion endpoints are registered under `NewProtectedRouter` in `api/auth.go`. Tenant identity is extracted solely from verified JWT claims in context via `tenant_bridge.go`. Forged `X-Tenant-ID` or `X-SignalLoom-Tenant` headers are strictly ignored and verified hostile-resistant.
+3. **Closed-World Wire Contract Enforcement.** Ingestion strictly enforces `codingagent.v1` frozen wire contract with `DisallowUnknownFields()`, rejecting malformed or out-of-schema payloads immediately.
+4. **Monotonic Deduplication.** Duplicate event detection is anchored on `(session_id, task_id, elapsed_s, step_count)` rather than jitter-prone wall-clock timestamps. Duplicate submissions return HTTP 200 with `deduplicated: true`.
+5. **Clock-Skew Estimation and Skew-Bounded Causal Ordering.** Workstation clock skew is estimated on ingestion (`ObservedAt - Timestamp`) without modifying the original timestamp. Cross-workstation causal order queries return `uncertain: true` when $|t_1 - t_2| \le \max(|\text{skew}_1|, |\text{skew}_2|)$.
+6. **Small-Group Privacy Floor ($k \ge 5$).** Aggregate queries enforce a hard floor of $k \ge 5$ distinct workstations, returning HTTP 422 (`ErrGroupSizeBelowAnonymityFloor`) if cohort size is below 5.
+7. **Host Sensor Lawful-Basis Gate.** `CodingAgentTelemetryDispatcher` executes `lawful_basis.assert_workstation_collection_permitted("dispatcher.dispatch")` before serializing or dispatching any event.
+8. **Published Deliverable:** Architecture, routing decision, and mathematical privacy/ordering proofs documented in `docs/signalloom/slcd-p5-1-ingestion.md`.
+
+**Deviations:** None.
+**Notes:** All unit and integration test suites pass (Go signal-ingest 27/27 packages, Python fe-signalloom pytest 2/2, Python host sensor pytest 4/4, bats dashboard collision suite 10/10).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

@@ -68,7 +68,7 @@ setup() {
 
 @test "Docs content covers the requested user journeys" {
   for page in \
-    start/quick-start.md \
+    start/quick-start.mdx \
     start/first-agent.md \
     start/external-linux-agent.mdx \
     operate/stun-agent.mdx \

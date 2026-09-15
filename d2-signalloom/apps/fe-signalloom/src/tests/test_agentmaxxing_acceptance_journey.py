@@ -86,7 +86,6 @@ def configure_acceptance_test_env() -> None:
     settings.api_jwt_authorized_party = "signalloom-dashboard"
     settings.api_jwks_url = "https://issuer.test/keys"
     settings.api_subject_tenants = dict(SUBJECT_TENANTS)
-    settings.api_attributable_operator_tenants = dict(SUBJECT_TENANTS)
     api_compat._jwk_client = lambda _url: _TestJWKClient()
 
     async def _no_pool() -> None:
@@ -114,10 +113,34 @@ def teardown_acceptance_test_env() -> None:
 
 
 @pytest.fixture(autouse=True)
-def setup_acceptance_env():
-    configure_acceptance_test_env()
+def setup_acceptance_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test/dex")
+    monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
+    monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
+    monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
+    monkeypatch.setattr(settings, "api_subject_tenants", dict(SUBJECT_TENANTS))
+    monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _TestJWKClient())
+
+    async def _no_pool() -> None:
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", _no_pool)
+    api_compat.reset_tenant_state(TENANT_ID)
+    reset_external_agent_state()
+    reset_host_enrollment_state()
+    _clear_sessions_for_testing()
+    _clear_evidence_for_testing()
+    with api_compat._STORE_LOCK:
+        api_compat._AUDIT_EVENTS.clear()
+        api_compat._CLAIMS.clear()
+    set_pool_for_testing(_ReadyPool())
     yield
-    teardown_acceptance_test_env()
+    api_compat.reset_tenant_state(TENANT_ID)
+    reset_external_agent_state()
+    reset_host_enrollment_state()
+    _clear_sessions_for_testing()
+    _clear_evidence_for_testing()
+    set_pool_for_testing(None)
 
 
 @pytest.fixture

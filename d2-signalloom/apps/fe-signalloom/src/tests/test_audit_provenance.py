@@ -752,6 +752,15 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "cryptographically bound to an audited session and persisted to external_agent_evidence; "
         "recording a redundant audit row in audit_events is not needed."
     ),
+    ("coding_agent_telemetry.py", "ingest_coding_agent_telemetry"): (
+        "Telemetry event ingestion for coding agent detective monitoring. High-frequency sensor "
+        "telemetry forwarded to backend broker/store; recording a separate synchronous audit_events row "
+        "for every telemetry ping would overwhelm the audit log with sensor heartbeats."
+    ),
+    ("coding_agent_telemetry.py", "evaluate_coding_agent_ordering"): (
+        "Stateless causal ordering and lamport clock evaluation probe for coding agent events; "
+        "computes causal dependency validation without mutating persistent tenant audit state."
+    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate

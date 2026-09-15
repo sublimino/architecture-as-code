@@ -19,3 +19,17 @@
 {"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T09:44:18.094266628Z","scenario":"acc-05"}
 {"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T09:44:18.09491657Z","scenario":"acc-runtime-probe"}
 {"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-15T09:44:18.094996319Z","scenario":"acc-ledger-selftest"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:31:56.166981982Z","scenario":"acc-01"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-15T20:31:56.168744956Z","scenario":"acc-02"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:31:56.169529518Z","scenario":"acc-03"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:31:56.169840247Z","scenario":"acc-04"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:31:56.170247426Z","scenario":"acc-05"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:31:56.170972446Z","scenario":"acc-runtime-probe"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-15T20:31:56.17105513Z","scenario":"acc-ledger-selftest"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":2,"recorded_at":"2026-09-15T20:59:28.713814395Z","scenario":"acc-01"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-15T20:59:28.715425741Z","scenario":"acc-02"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:59:28.716502318Z","scenario":"acc-03"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:59:28.716869563Z","scenario":"acc-04"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-15T20:59:28.71790278Z","scenario":"acc-05"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-15T20:59:28.719625022Z","scenario":"acc-runtime-probe"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-15T20:59:28.719792905Z","scenario":"acc-ledger-selftest"}

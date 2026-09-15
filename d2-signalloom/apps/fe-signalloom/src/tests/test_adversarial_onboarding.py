@@ -92,6 +92,7 @@ from fastapi.testclient import TestClient
 import api_compat
 import audit_ingest
 import demo_runner
+import external_agent_evidence
 import onboarding
 from api_compat import settings, reset_tenant_state
 from audit_ingest import compute_expected_entry_hash
@@ -425,7 +426,7 @@ def onboarding_rows() -> dict[str, list[dict[str, Any]]]:
 # cross-tenant test comes out green while testing nothing.  ``demo_runner`` is
 # not one of this card's surfaces and was found by the self-check below rather
 # than by inspection -- which is the point of having the self-check.
-POOL_IMPORTERS = (api_compat, onboarding, audit_ingest, demo_runner)
+POOL_IMPORTERS = (api_compat, onboarding, audit_ingest, demo_runner, external_agent_evidence)
 
 
 def _patch_pool(monkeypatch, pool: Any) -> None:

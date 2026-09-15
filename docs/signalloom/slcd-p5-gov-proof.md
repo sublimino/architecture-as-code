@@ -176,6 +176,13 @@ This is worse than the crash the card told me to look for. A crash is visible. T
 silently answers the question the privacy control exists to refuse, while asserting the
 control is active.
 
+**Both halves are asserted, not just the UI's.** The committed test pins the server's
+refusal specifically — HTTP **422** with an error matching `k-anonymity floor` — before
+it looks at the DOM. An earlier draft asserted only that the promise rejected, which a
+connection failure or a timeout would also satisfy; that would have proved the caller's
+half ("the UI stopped inventing a number") while leaving the half that actually carries
+the privacy claim ("the server declined to disclose") untested.
+
 **Proven live, not by inspection.** Against a tenant holding 2 sessions and a confirmed
 422 from the aggregate endpoint, the rendered card read:
 
@@ -278,6 +285,38 @@ detached worktree, giving **28.64%** and **36.34%**. Merged-tree figures are wit
 noise of baseline, so Phase 5 adds nothing measurable to the breach. SLCD-P4-GOV
 already recorded it (§7 of `slcd-p4-governor-proof.md`, "KPI BREACHED, 36×").
 
+**The meter demonstrably moves, so "identical to baseline" is a measurement and not a
+stuck constant.** Worth stating, because a baseline comparison that agrees perfectly is
+equally consistent with an instrument reporting a fixed number. It discriminates on
+both axes here: across subsystem count within one tree (28.17% for P2+P3 vs 36.44% for
+four subsystems, the +8.4 point Phase 4 apportionment P4-GOV recorded), and across
+trees for the same test (28.17 vs 28.64; 36.44 vs 36.34). Different inputs produce
+different readings, so the agreement is informative.
+
+**Attribution is not conformance, and this card does not pretend otherwise.** "Phase 5
+did not cause it" answers causation; "36× over KPI" is a conformance failure whoever
+caused it. The distinction matters because the two claims are easy to blur into a
+dismissal. This breach is *not* among SLCD-P5-GOV's required tests (which are the
+kanban doctor, `go test ./...`, the `CodingAgentsTab` vitest suite and
+`dashboard-route-collisions.bats`) — it belongs to Phase 3/4 scope, and this card has
+no authority to close it. It is therefore reported as **open and uncleared**, not as
+resolved, and §13 hands it forward explicitly.
+
+**A `proceed=no` gate is open upstream at Phase 2, and three phases have passed it.**
+Surfaced by grepping the board's own machine-readable markers rather than reading
+prose. Across the whole proposal there are 22 `status=pass proceed=yes`, 3
+`status=blocked proceed=yes`, and **2 `status=fail proceed=no blocking_drift=yes`** —
+and both of the latter belong to **SLCD-P2-GOV** (its errata block spans lines 681–722;
+the markers sit at 682 and 721). Phases 3, 4 and 5 all proceeded regardless.
+
+This matters for reading the rest of this document: the three `blocked` markers
+(including SLCD-P4-GOV's) carry **`proceed=yes`**, so the board explicitly sanctions
+continuing past them — which is why a qualified pass here is a defensible verdict
+rather than an evasion. `proceed=no` is a different instrument and it is **not**
+satisfied. SLCD-P5-GOV has no authority to close a Phase 2 gate and does not attempt
+to; it records that the gate is open so the decision to continue is taken knowingly
+rather than by default. **P6-PRE should resolve or explicitly waive it before starting.**
+
 **Phase 4's verdict was `BLOCKED`.** SLCD-P4-GOV did not certify, citing the overhead
 breach, an unresolved lawful basis, and the zero-payload invariant not being proven
 through storage and query. Phase 5 nevertheless proceeded and merged. Phase 5's own
@@ -321,6 +360,21 @@ infrastructure as product failure.
   timestamps and latency figures. Its verdict fields were checked first (24/24 caught,
   0 missed, `resolution_rate: 1`, `false_merges: 0` — all unchanged) and the file was
   then reverted, so it is deliberately absent from this card's commit.
+- **The two proposal copies have diverged and need controller reconciliation.** The
+  principal checkout at `/home/andy/src/cp/osramp-demo/docs/` is write-denied
+  (`EACCES`, Landlock — `test -w` reports writable because it checks POSIX mode only),
+  so errata are written to the worktree copy and left uncommitted, as SLCD-P4-GOV also
+  recorded. The copies are no longer byte-identical: the **worktree** copy holds the
+  SLCD-P4-GOV errata, the **principal** copy holds the SLCD-P5-1 errata, and neither
+  holds both. The principal copy also still contains 1 committed conflict marker. This
+  card appended only its own block and altered no prior entry, per the shared-file
+  rule; reconciling the two is handed to the controller.
+- **`kanban-check.sh cost` is broken by E2BIG.** The mandated invocation dies with
+  `/usr/bin/python3: Argument list too long`: line 2772 passes the whole board's card
+  JSON to the Python heredoc via the environment (`COST_BOARD_CARDS`), and envp is
+  bound by the same 131,072-byte `MAX_ARG_STRLEN` per-entry kernel limit as argv. The
+  figures were obtained from a patched private copy passing it via a file; the shared
+  skill was not modified, being outside this repo and shared with every other board.
 - Go 1.26.2, vitest 3.2.7, Linux.
 
 ## 13. What P6 inherits

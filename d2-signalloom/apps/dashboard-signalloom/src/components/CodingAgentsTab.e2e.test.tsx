@@ -340,8 +340,24 @@ describe('SLCD-P5-GOV end-to-end: host event -> ingestion -> UI render', () => {
       telemetryRecord({ sessionId: sessionId(70), taskId: betaTask, harnessName: 'aider' }) as any,
     )
 
-    const agg = api.codingAgents.aggregate(TOKEN_BETA)
-    await expect(agg).rejects.toThrow()
+    // Assert the SERVER refused, not merely that the promise rejected.
+    //
+    // `rejects.toThrow()` alone would also be satisfied by a connection
+    // failure, a timeout, or a demo-mode error — none of which prove the
+    // k-anonymity control ran. That would leave this test proving only the
+    // caller's half: "the UI stopped inventing a number". The half that
+    // matters for the privacy claim is that signal-ingest actively declined,
+    // so pin the status code and the reason.
+    const refusal = await api.codingAgents.aggregate(TOKEN_BETA).then(
+      () => null,
+      (e: unknown) => e as { response?: { status?: number; data?: { error?: string } } },
+    )
+    expect(refusal, 'the aggregate must be refused, not fulfilled').not.toBeNull()
+    expect(
+      refusal!.response?.status,
+      'the refusal must come from the server as HTTP 422, not from a transport failure',
+    ).toBe(422)
+    expect(String(refusal!.response?.data?.error ?? '')).toMatch(/k-anonymity floor/i)
 
     render(<CodingAgentsTab />)
     // Not crashing is necessary but not sufficient.

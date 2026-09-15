@@ -42,6 +42,7 @@ type failingClient struct {
 	setStateErr error
 	revokeErr   error
 	restoreErr  error
+	healthErr   error
 
 	states map[string]string
 
@@ -101,6 +102,12 @@ func (c *failingClient) RestoreCredentials(_ context.Context, _ string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.restoreErr
+}
+
+func (c *failingClient) Health(_ context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.healthErr
 }
 
 func (c *failingClient) namespaceFor(key string) string {

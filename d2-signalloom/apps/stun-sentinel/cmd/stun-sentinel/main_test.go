@@ -5,6 +5,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/auth"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/telemetry"
 )
@@ -52,7 +55,8 @@ func newTestServer(t *testing.T, root, freezeToken, resumeToken string) (*server
 	t.Helper()
 	buf := &bytes.Buffer{}
 	freezeValidate := constantTimeTokenValidator(freezeToken)
-	resumeValidate := constantTimeTokenValidator(resumeToken)
+	policy := auth.DefaultResumeTokenPolicy("osramp-fleet", "sler-root-2026")
+	resumeValidate := ed25519ResumeValidator(nil, policy, resumeToken)
 	return &server{
 		freezer: cgroup.New(root,
 			cgroup.WithDeadline(30*time.Millisecond),
@@ -62,6 +66,29 @@ func newTestServer(t *testing.T, root, freezeToken, resumeToken string) (*server
 		emitter:        telemetry.NewEmitter(buf),
 		freezeValidate: freezeValidate,
 		resumeValidate: resumeValidate,
+		policy:         policy,
+		replayLedger:   auth.NewReplayLedger(),
+	}, buf
+}
+
+func newTestServerWithRegistry(t *testing.T, root, freezeToken string, reg auth.OperatorKeyRegistry) (*server, *bytes.Buffer) {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	freezeValidate := constantTimeTokenValidator(freezeToken)
+	policy := auth.DefaultResumeTokenPolicy("osramp-fleet", "sler-root-2026")
+	resumeValidate := ed25519ResumeValidator(reg, policy, "")
+	return &server{
+		freezer: cgroup.New(root,
+			cgroup.WithDeadline(30*time.Millisecond),
+			cgroup.WithFreezeCredentialValidator(freezeValidate),
+			cgroup.WithCredentialValidator(resumeValidate),
+		),
+		emitter:        telemetry.NewEmitter(buf),
+		freezeValidate: freezeValidate,
+		resumeValidate: resumeValidate,
+		keyRegistry:    reg,
+		policy:         policy,
+		replayLedger:   auth.NewReplayLedger(),
 	}, buf
 }
 
@@ -616,5 +643,275 @@ func TestRunRefusesToStartOnUnwritableHierarchy(t *testing.T) {
 func TestRunPropagatesConfigError(t *testing.T) {
 	if err := run([]string{"--nope"}); err == nil {
 		t.Fatal("run() ignored a config error")
+	}
+}
+
+func makeSignedTestToken(t *testing.T, opID string, priv ed25519.PrivateKey, agentID, namespace string) auth.ResumeToken {
+	t.Helper()
+	now := time.Now().UTC()
+	token := auth.ResumeToken{
+		SchemaVersion:         auth.FrozenSchemaVersion,
+		TokenID:               fmt.Sprintf("tok-test-%d", time.Now().UnixNano()),
+		Algorithm:             auth.ResumeTokenAlgEd25519,
+		AgentID:               agentID,
+		Namespace:             namespace,
+		Audience:              "osramp-fleet",
+		OperatorID:            opID,
+		GovernanceApprovalRef: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		IssuedAt:              now.Add(-1 * time.Minute).Format(time.RFC3339),
+		ExpiresAt:             now.Add(10 * time.Minute).Format(time.RFC3339),
+		Nonce:                 "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+		TrustRootID:           "sler-root-2026",
+		RequiredSignatures:    1,
+	}
+	signed, err := auth.SignResumeToken(token, opID, priv, now)
+	if err != nil {
+		t.Fatalf("SignResumeToken: %v", err)
+	}
+	return signed
+}
+
+func TestResumeWithValidEd25519TokenAttributesOperatorInTelemetry(t *testing.T) {
+	root := t.TempDir()
+	dir := mockPodCgroup(t, root, false)
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opID := "spiffe://signalloom.demo/operator/alice"
+	agentID := "agent-payment-audit"
+	ns := "fe-signalloom-agents"
+
+	reg := auth.NewStaticOperatorKeyRegistry(auth.OperatorKeyEntry{
+		OperatorID: opID,
+		KeyID:      auth.ComputeKeyID(pub),
+		PublicKey:  pub,
+	})
+
+	srv, telem := newTestServerWithRegistry(t, root, "freeze-token", reg)
+	signedToken := makeSignedTestToken(t, opID, priv, agentID, ns)
+	tokenJSON, _ := json.Marshal(signedToken)
+
+	reqBody := map[string]any{
+		"pod_uid":         uid,
+		"pod":             "payment-audit-xyz",
+		"namespace":       ns,
+		"agent_id":        agentID,
+		"idempotency_key": "idem-key-001",
+		"token":           signedToken,
+	}
+	reqBodyJSON, _ := json.Marshal(reqBody)
+
+	rec := postJSON(t, srv.routes(), "/resume", string(reqBodyJSON),
+		map[string]string{"Authorization": "Bearer " + string(tokenJSON)})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, "cgroup.freeze"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "0" {
+		t.Errorf("cgroup.freeze = %q, want \"0\"", body)
+	}
+
+	var ev telemetry.Event
+	if err := json.Unmarshal([]byte(strings.TrimSpace(telem.String())), &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.Event != telemetry.EventStunExecutionResumed || ev.Frozen != false {
+		t.Errorf("telemetry event: %+v", ev)
+	}
+	if ev.OperatorID != opID {
+		t.Errorf("telemetry OperatorID = %q, want %q", ev.OperatorID, opID)
+	}
+	if len(ev.OperatorIDs) != 1 || ev.OperatorIDs[0] != opID {
+		t.Errorf("telemetry OperatorIDs = %v, want [%s]", ev.OperatorIDs, opID)
+	}
+	if ev.TokenID != signedToken.TokenID {
+		t.Errorf("telemetry TokenID = %q, want %q", ev.TokenID, signedToken.TokenID)
+	}
+}
+
+func TestResumeWithInvalidSignatureRejected(t *testing.T) {
+	root := t.TempDir()
+	dir := mockPodCgroup(t, root, false)
+	_ = os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte("1"), 0o644)
+
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	_, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
+	opID := "spiffe://signalloom.demo/operator/alice"
+	agentID := "agent-payment-audit"
+	ns := "fe-signalloom-agents"
+
+	reg := auth.NewStaticOperatorKeyRegistry(auth.OperatorKeyEntry{
+		OperatorID: opID,
+		KeyID:      auth.ComputeKeyID(pub),
+		PublicKey:  pub,
+	})
+
+	srv, _ := newTestServerWithRegistry(t, root, "freeze-token", reg)
+	// Sign with unauthorized key
+	signedToken := makeSignedTestToken(t, opID, otherPriv, agentID, ns)
+	tokenJSON, _ := json.Marshal(signedToken)
+
+	reqBody := map[string]any{
+		"pod_uid":   uid,
+		"namespace": ns,
+		"agent_id":  agentID,
+		"token":     signedToken,
+	}
+	reqBodyJSON, _ := json.Marshal(reqBody)
+
+	rec := postJSON(t, srv.routes(), "/resume", string(reqBodyJSON),
+		map[string]string{"Authorization": "Bearer " + string(tokenJSON)})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 Unauthorized for invalid signature: %s", rec.Code, rec.Body)
+	}
+}
+
+func TestResumeWithRevokedOperatorKeyRejected(t *testing.T) {
+	root := t.TempDir()
+	dir := mockPodCgroup(t, root, false)
+	_ = os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte("1"), 0o644)
+
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	opID := "spiffe://signalloom.demo/operator/alice"
+	agentID := "agent-payment-audit"
+	ns := "fe-signalloom-agents"
+
+	reg := auth.NewStaticOperatorKeyRegistry(auth.OperatorKeyEntry{
+		OperatorID: opID,
+		KeyID:      auth.ComputeKeyID(pub),
+		PublicKey:  pub,
+		Revoked:    true,
+	})
+
+	srv, _ := newTestServerWithRegistry(t, root, "freeze-token", reg)
+	signedToken := makeSignedTestToken(t, opID, priv, agentID, ns)
+	tokenJSON, _ := json.Marshal(signedToken)
+
+	reqBody := map[string]any{
+		"pod_uid":   uid,
+		"namespace": ns,
+		"agent_id":  agentID,
+		"token":     signedToken,
+	}
+	reqBodyJSON, _ := json.Marshal(reqBody)
+
+	rec := postJSON(t, srv.routes(), "/resume", string(reqBodyJSON),
+		map[string]string{"Authorization": "Bearer " + string(tokenJSON)})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 Unauthorized for revoked key: %s", rec.Code, rec.Body)
+	}
+}
+
+func TestResumeIdempotentRetrySameIdempotencyKey(t *testing.T) {
+	root := t.TempDir()
+	dir := mockPodCgroup(t, root, false)
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	opID := "spiffe://signalloom.demo/operator/alice"
+	agentID := "agent-payment-audit"
+	ns := "fe-signalloom-agents"
+
+	reg := auth.NewStaticOperatorKeyRegistry(auth.OperatorKeyEntry{
+		OperatorID: opID,
+		KeyID:      auth.ComputeKeyID(pub),
+		PublicKey:  pub,
+	})
+
+	srv, _ := newTestServerWithRegistry(t, root, "freeze-token", reg)
+	signedToken := makeSignedTestToken(t, opID, priv, agentID, ns)
+	tokenJSON, _ := json.Marshal(signedToken)
+
+	reqBody := map[string]any{
+		"pod_uid":         uid,
+		"namespace":       ns,
+		"agent_id":        agentID,
+		"idempotency_key": "idemp-test-999",
+		"token":           signedToken,
+	}
+	reqBodyJSON, _ := json.Marshal(reqBody)
+
+	// First presentation -> 200 OK
+	rec1 := postJSON(t, srv.routes(), "/resume", string(reqBodyJSON),
+		map[string]string{"Authorization": "Bearer " + string(tokenJSON)})
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first call status = %d, want 200: %s", rec1.Code, rec1.Body)
+	}
+
+	// Retry presentation with SAME idempotency_key -> 200 OK
+	rec2 := postJSON(t, srv.routes(), "/resume", string(reqBodyJSON),
+		map[string]string{"Authorization": "Bearer " + string(tokenJSON)})
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200: %s", rec2.Code, rec2.Body)
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec2.Body.Bytes(), &resp)
+	if resp["idempotent"] != true {
+		t.Errorf("expected idempotent=true in response, got %v", resp)
+	}
+}
+
+func TestResumeReplayWithDifferentKeyRejected(t *testing.T) {
+	root := t.TempDir()
+	dir := mockPodCgroup(t, root, false)
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	opID := "spiffe://signalloom.demo/operator/alice"
+	agentID := "agent-payment-audit"
+	ns := "fe-signalloom-agents"
+
+	reg := auth.NewStaticOperatorKeyRegistry(auth.OperatorKeyEntry{
+		OperatorID: opID,
+		KeyID:      auth.ComputeKeyID(pub),
+		PublicKey:  pub,
+	})
+
+	srv, _ := newTestServerWithRegistry(t, root, "freeze-token", reg)
+	signedToken := makeSignedTestToken(t, opID, priv, agentID, ns)
+	tokenJSON, _ := json.Marshal(signedToken)
+
+	// First presentation with key A
+	req1 := map[string]any{
+		"pod_uid":         uid,
+		"namespace":       ns,
+		"agent_id":        agentID,
+		"idempotency_key": "key-A",
+		"token":           signedToken,
+	}
+	r1, _ := json.Marshal(req1)
+	rec1 := postJSON(t, srv.routes(), "/resume", string(r1),
+		map[string]string{"Authorization": "Bearer " + string(tokenJSON)})
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first call status = %d, want 200: %s", rec1.Code, rec1.Body)
+	}
+
+	// Second presentation with key B (replay attack)
+	req2 := map[string]any{
+		"pod_uid":         uid,
+		"namespace":       ns,
+		"agent_id":        agentID,
+		"idempotency_key": "key-B-attacker",
+		"token":           signedToken,
+	}
+	r2, _ := json.Marshal(req2)
+	rec2 := postJSON(t, srv.routes(), "/resume", string(r2),
+		map[string]string{"Authorization": "Bearer " + string(tokenJSON)})
+	if rec2.Code != http.StatusUnauthorized {
+		t.Fatalf("replay call status = %d, want 401 Unauthorized: %s", rec2.Code, rec2.Body)
 	}
 }

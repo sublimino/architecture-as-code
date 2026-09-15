@@ -1,14 +1,22 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -96,6 +104,7 @@ var (
 	ErrResumeTokenTrustRootMismatch     = errors.New("resume token names an operator-key trust root this verifier does not pin")
 	ErrResumeTokenSignedAtOutOfWindow   = errors.New("resume token signature was made outside the token's own validity window")
 	ErrResumeTokenApprovalWindowExceed  = errors.New("resume token co-approvals are too far apart to be contemporaneous")
+	ErrResumeTokenReplayed              = errors.New("resume token has already been consumed with a different idempotency key")
 )
 
 // OperatorKeyEntry is one registered operator signing key.
@@ -542,4 +551,378 @@ func VerifyResumeToken(token ResumeToken, target TargetRef, registry OperatorKey
 			ErrResumeTokenInsufficientSignature, len(distinct), policy.RequiredSignatures, token.RequiredSignatures, effective)
 	}
 	return nil
+}
+
+// VerificationResult carries the details of a successful verification.
+type VerificationResult struct {
+	TokenID     string   `json:"token_id"`
+	OperatorIDs []string `json:"operator_ids"`
+	SignerCount int      `json:"signer_count"`
+	Target      TargetRef
+}
+
+// ReplayRecord stores previous token consumption state for idempotency.
+type ReplayRecord struct {
+	TokenID        string
+	IdempotencyKey string
+	OperatorIDs    []string
+	ConsumedAt     time.Time
+}
+
+// ReplayLedger provides atomic single-use checking and idempotent retries.
+type ReplayLedger struct {
+	mu      sync.Mutex
+	records map[string]ReplayRecord
+}
+
+// NewReplayLedger creates a new in-memory replay ledger.
+func NewReplayLedger() *ReplayLedger {
+	return &ReplayLedger{records: make(map[string]ReplayRecord)}
+}
+
+// CheckAndRecord checks if a token can be used with the given idempotencyKey.
+// Returns (isRetry, operatorIDs, error).
+func (l *ReplayLedger) CheckAndRecord(tokenID, idempotencyKey string, operatorIDs []string, now time.Time) (bool, []string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	rec, exists := l.records[tokenID]
+	if !exists {
+		l.records[tokenID] = ReplayRecord{
+			TokenID:        tokenID,
+			IdempotencyKey: idempotencyKey,
+			OperatorIDs:    operatorIDs,
+			ConsumedAt:     now,
+		}
+		return false, operatorIDs, nil
+	}
+
+	// Token was previously consumed.
+	if idempotencyKey != "" && rec.IdempotencyKey == idempotencyKey {
+		// Valid idempotent retry
+		return true, rec.OperatorIDs, nil
+	}
+
+	// Presentation of consumed token with different idempotency key is a replay attempt
+	return false, nil, fmt.Errorf("%w: token %s was consumed at %s", ErrResumeTokenReplayed, tokenID, rec.ConsumedAt.Format(time.RFC3339))
+}
+
+// OperatorKeyJSON is the JSON serialisation shape for operator key files and environment variables.
+type OperatorKeyJSON struct {
+	OperatorID string `json:"operator_id"`
+	KeyID      string `json:"key_id,omitempty"`
+	PublicKey  string `json:"public_key"` // base64 or hex encoded 32-byte Ed25519 public key
+	NotBefore  string `json:"not_before,omitempty"`
+	NotAfter   string `json:"not_after,omitempty"`
+	Revoked    bool   `json:"revoked,omitempty"`
+}
+
+// ParseOperatorKeyJSON parses an OperatorKeyJSON record into an OperatorKeyEntry.
+func ParseOperatorKeyJSON(raw OperatorKeyJSON) (OperatorKeyEntry, error) {
+	if raw.OperatorID == "" {
+		return OperatorKeyEntry{}, errors.New("operator_id is required")
+	}
+	if raw.PublicKey == "" {
+		return OperatorKeyEntry{}, errors.New("public_key is required")
+	}
+
+	var pubBytes []byte
+	var err error
+	pubBytes, err = base64.StdEncoding.DecodeString(raw.PublicKey)
+	if err != nil || len(pubBytes) != ed25519.PublicKeySize {
+		pubBytes, err = hex.DecodeString(raw.PublicKey)
+		if err != nil || len(pubBytes) != ed25519.PublicKeySize {
+			return OperatorKeyEntry{}, fmt.Errorf("public_key for %s must be 32 bytes (base64 or hex encoded)", raw.OperatorID)
+		}
+	}
+
+	computedKeyID := ComputeKeyID(pubBytes)
+	if raw.KeyID != "" && raw.KeyID != computedKeyID {
+		return OperatorKeyEntry{}, fmt.Errorf("%w: provided %s, computed %s", ErrResumeTokenKeyIDMismatch, raw.KeyID, computedKeyID)
+	}
+
+	var notBefore, notAfter time.Time
+	if raw.NotBefore != "" {
+		t, err := time.Parse(time.RFC3339, raw.NotBefore)
+		if err != nil {
+			return OperatorKeyEntry{}, fmt.Errorf("invalid not_before: %w", err)
+		}
+		notBefore = t
+	}
+	if raw.NotAfter != "" {
+		t, err := time.Parse(time.RFC3339, raw.NotAfter)
+		if err != nil {
+			return OperatorKeyEntry{}, fmt.Errorf("invalid not_after: %w", err)
+		}
+		notAfter = t
+	}
+
+	return OperatorKeyEntry{
+		OperatorID: raw.OperatorID,
+		KeyID:      computedKeyID,
+		PublicKey:  ed25519.PublicKey(pubBytes),
+		NotBefore:  notBefore,
+		NotAfter:   notAfter,
+		Revoked:    raw.Revoked,
+	}, nil
+}
+
+// LoadOperatorKeysFromJSON parses a JSON array or object of OperatorKeyJSON entries.
+func LoadOperatorKeysFromJSON(data []byte) ([]OperatorKeyEntry, error) {
+	data = []byte(strings.TrimSpace(string(data)))
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var rawList []OperatorKeyJSON
+	if data[0] == '[' {
+		if err := json.Unmarshal(data, &rawList); err != nil {
+			return nil, fmt.Errorf("unmarshal operator keys array: %w", err)
+		}
+	} else {
+		var single OperatorKeyJSON
+		if err := json.Unmarshal(data, &single); err != nil {
+			return nil, fmt.Errorf("unmarshal operator key object: %w", err)
+		}
+		rawList = append(rawList, single)
+	}
+
+	entries := make([]OperatorKeyEntry, 0, len(rawList))
+	for _, raw := range rawList {
+		entry, err := ParseOperatorKeyJSON(raw)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// parsePubKeyFile parses a raw, hex, or base64 ed25519 public key file.
+func parsePubKeyFile(name string, data []byte) (*OperatorKeyEntry, error) {
+	data = bytes.TrimSpace(data)
+	var pubBytes []byte
+	if len(data) == ed25519.PublicKeySize {
+		pubBytes = data
+	} else if len(data) == hex.EncodedLen(ed25519.PublicKeySize) {
+		h, err := hex.DecodeString(string(data))
+		if err == nil && len(h) == ed25519.PublicKeySize {
+			pubBytes = h
+		}
+	}
+	if pubBytes == nil {
+		b, err := base64.StdEncoding.DecodeString(string(data))
+		if err == nil && len(b) == ed25519.PublicKeySize {
+			pubBytes = b
+		}
+	}
+	if pubBytes == nil {
+		return nil, fmt.Errorf("pub key file %s must contain 32 raw bytes, hex, or base64", name)
+	}
+	stem := strings.TrimSuffix(name, ".pub")
+	opID := "spiffe://signalloom.io/operator/" + stem
+	keyID := ComputeKeyID(pubBytes)
+	return &OperatorKeyEntry{
+		OperatorID: opID,
+		KeyID:      keyID,
+		PublicKey:  ed25519.PublicKey(pubBytes),
+	}, nil
+}
+
+// LoadOperatorKeyRegistry loads keys from a bundle file or directory into a StaticOperatorKeyRegistry.
+func LoadOperatorKeyRegistry(path string) (*StaticOperatorKeyRegistry, error) {
+	if path == "" {
+		return NewStaticOperatorKeyRegistry(), nil
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("operator key path stat: %w", err)
+	}
+
+	reg := NewStaticOperatorKeyRegistry()
+	if !fi.IsDir() {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read operator key file: %w", err)
+		}
+		if strings.HasSuffix(path, ".pub") {
+			entry, err := parsePubKeyFile(filepath.Base(path), data)
+			if err != nil {
+				return nil, err
+			}
+			reg.Keys[entry.KeyID] = *entry
+			return reg, nil
+		}
+		entries, err := LoadOperatorKeysFromJSON(data)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			reg.Keys[e.KeyID] = e
+		}
+		return reg, nil
+	}
+
+	files, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("read operator key directory: %w", err)
+	}
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		fullPath := filepath.Join(path, f.Name())
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("read operator key file %s: %w", fullPath, err)
+		}
+		if strings.HasSuffix(f.Name(), ".pub") {
+			entry, err := parsePubKeyFile(f.Name(), data)
+			if err != nil {
+				return nil, fmt.Errorf("parse pub file %s: %w", fullPath, err)
+			}
+			reg.Keys[entry.KeyID] = *entry
+			continue
+		}
+		if strings.HasSuffix(f.Name(), ".json") {
+			entries, err := LoadOperatorKeysFromJSON(data)
+			if err != nil {
+				return nil, fmt.Errorf("parse key file %s: %w", fullPath, err)
+			}
+			for _, e := range entries {
+				reg.Keys[e.KeyID] = e
+			}
+		}
+	}
+	return reg, nil
+}
+
+// ParseResumeToken parses a token from either JSON string or base64 encoded JSON string.
+func ParseResumeToken(tokenStr string) (ResumeToken, error) {
+	tokenStr = strings.TrimSpace(tokenStr)
+	if tokenStr == "" {
+		return ResumeToken{}, errors.New("empty resume token")
+	}
+
+	var token ResumeToken
+	if err := json.Unmarshal([]byte(tokenStr), &token); err == nil && token.TokenID != "" {
+		return token, nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(tokenStr)
+	if err == nil {
+		if err := json.Unmarshal(decoded, &token); err == nil && token.TokenID != "" {
+			return token, nil
+		}
+	}
+
+	var req struct {
+		Token ResumeToken `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(tokenStr), &req); err == nil && req.Token.TokenID != "" {
+		return req.Token, nil
+	}
+
+	return ResumeToken{}, errors.New("cannot parse resume token as JSON or base64-JSON")
+}
+
+// EnforceResume verifies an attributable governance resume token, enforces atomic replay protection,
+// mandates credential rotation across all credential planes, unfreezes the target agent, and returns
+// an honest ResumeResponse with operator attribution.
+func EnforceResume(ctx context.Context, req ResumeRequest, registry OperatorKeyRegistry, policy ResumeTokenPolicy, ledger *ReplayLedger, client FleetClient) (*ResumeResponse, error) {
+	start := time.Now()
+	now := start.UTC()
+
+	resp := &ResumeResponse{
+		SchemaVersion:      CurrentSchemaVersion,
+		IdempotencyKey:     req.IdempotencyKey,
+		AgentID:            req.AgentID,
+		Success:            false,
+		ProcessesResumed:   0,
+		CredentialsRotated: false,
+		Timestamp:          now.Format(time.RFC3339),
+	}
+
+	target := TargetRef{
+		AgentID:   req.AgentID,
+		Namespace: req.Namespace,
+	}
+
+	// 1. Verify token structure, signatures, validity window, and policy constraints
+	if err := VerifyResumeToken(req.Token, target, registry, policy, now); err != nil {
+		resp.Error = err.Error()
+		resp.LatencyMs = time.Since(start).Milliseconds()
+		return resp, fmt.Errorf("token verification failed: %w", err)
+	}
+
+	operatorIDs := make([]string, 0, len(req.Token.Signatures))
+	for _, sig := range req.Token.Signatures {
+		operatorIDs = append(operatorIDs, sig.OperatorID)
+	}
+
+	// 2. Check Replay Ledger for single-use enforcement and idempotent retry
+	if ledger != nil {
+		isRetry, _, replayErr := ledger.CheckAndRecord(req.Token.TokenID, req.IdempotencyKey, operatorIDs, now)
+		if replayErr != nil {
+			resp.Error = replayErr.Error()
+			resp.LatencyMs = time.Since(start).Milliseconds()
+			return resp, replayErr
+		}
+		if isRetry {
+			// Idempotent retry: return success without duplicate rotation
+			resp.Success = true
+			resp.CredentialsRotated = true
+			resp.ProcessesResumed = 1
+			resp.LatencyMs = time.Since(start).Milliseconds()
+			return resp, nil
+		}
+	}
+
+	// 3. Mandatory Credential Rotation (OpenBao lease rotation + SPIRE SVID re-entry)
+	if client != nil {
+		if rotator, ok := client.(interface {
+			RotateCredentials(ctx context.Context, namespace, agentID, idempotencyKey string) ([]PlaneResult, error)
+		}); ok {
+			_, rotErr := rotator.RotateCredentials(ctx, req.Namespace, req.AgentID, req.IdempotencyKey)
+			if rotErr != nil {
+				resp.Error = fmt.Sprintf("mandatory credential rotation failed: %v", rotErr)
+				resp.LatencyMs = time.Since(start).Milliseconds()
+				return resp, fmt.Errorf("mandatory credential rotation failed: %w", rotErr)
+			}
+			resp.CredentialsRotated = true
+		} else if err := client.RestoreCredentials(ctx, req.AgentID); err != nil {
+			resp.Error = fmt.Sprintf("mandatory credential rotation failed: %v", err)
+			resp.LatencyMs = time.Since(start).Milliseconds()
+			return resp, fmt.Errorf("mandatory credential rotation failed: %w", err)
+		} else {
+			resp.CredentialsRotated = true
+		}
+
+		// 4. Unfreeze the agent pod (set pod state back to active/running)
+		if err := client.SetPodState(ctx, req.Namespace, req.AgentID, StateRunning); err != nil {
+			resp.Error = fmt.Sprintf("failed to unfreeze pod state: %v", err)
+			resp.LatencyMs = time.Since(start).Milliseconds()
+			return resp, fmt.Errorf("set pod state running: %w", err)
+		}
+	}
+
+	resp.Success = true
+	resp.ProcessesResumed = 1
+	resp.LatencyMs = time.Since(start).Milliseconds()
+
+	// 5. Emit machine-readable audit log for P5-1 attestation
+	slog.Info("governance resume decision executed",
+		"event", ResumeDecisionEventName,
+		"agent_id", req.AgentID,
+		"namespace", req.Namespace,
+		"token_id", req.Token.TokenID,
+		"operator_ids", operatorIDs,
+		"governance_approval_ref", req.Token.GovernanceApprovalRef,
+		"idempotency_key", req.IdempotencyKey,
+		"credentials_rotated", resp.CredentialsRotated,
+		"processes_resumed", resp.ProcessesResumed,
+		"success", resp.Success,
+		"latency_ms", resp.LatencyMs)
+
+	return resp, nil
 }

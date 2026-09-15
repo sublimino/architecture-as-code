@@ -6,11 +6,10 @@
 // cgroup-v2 hierarchy, and halts a compromised agent container's execution
 // in-kernel on demand.
 //
-// Structure note for CRKC-P1-3: this file is deliberately thin. It owns
-// flag parsing, the HTTP surface, and wiring — nothing else. Enforcement
-// logic lives behind an interface in pkg/, so the network-containment half
-// can be added by registering another handler and another emitter
-// constructor without touching the code below.
+// Structure note for CRKC-P1-3 / SLER-P4-3: this file owns flag parsing, the
+// HTTP surface, and wiring. Governance-gated resume verifies Ed25519-signed
+// resume tokens against a node-local operator key registry and attributes the
+// operator identity in forensic telemetry records.
 package main
 
 import (
@@ -26,16 +25,22 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/auth"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/telemetry"
 )
 
 type config struct {
-	cgroupRoot  string
-	listenAddr  string
-	deadline    time.Duration
-	freezeToken string
-	resumeToken string
+	cgroupRoot         string
+	listenAddr         string
+	deadline           time.Duration
+	freezeToken        string
+	resumeToken        string
+	operatorKeyPath    string
+	operatorKeysJSON   string
+	audience           string
+	trustRootID        string
+	requiredSignatures int
 }
 
 func loadConfig(args []string) (*config, error) {
@@ -43,17 +48,26 @@ func loadConfig(args []string) (*config, error) {
 	root := fs.String("cgroup-root", envOr("CGROUP_ROOT", cgroup.DefaultCgroupRoot), "cgroup-v2 unified hierarchy root")
 	addr := fs.String("listen-addr", envOr("LISTEN_ADDR", ":8080"), "HTTP listen address")
 	deadline := fs.Duration("freeze-deadline", cgroup.DefaultFreezeDeadline, "hard deadline for observing the frozen state")
+	keyPath := fs.String("operator-key-path", envOr("OPERATOR_KEY_BUNDLE_FILE", envOr("OPERATOR_KEY_PATH", envOr("OPERATOR_KEY_DIR", ""))), "path to operator public key JSON bundle or directory")
+	audience := fs.String("audience", envOr("AUDIENCE", "osramp-fleet"), "target fleet audience for resume tokens")
+	trustRootID := fs.String("trust-root-id", envOr("TRUST_ROOT_ID", "sler-root-2026"), "pinned operator key trust root ID")
+	reqSigs := fs.Int("required-signatures", 1, "minimum required distinct operator signatures")
+
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
-	// The freeze and resume credentials are read from the environment only. Putting them on
-	// the command line would publish them in every `ps` and in the pod spec.
+	// The freeze and resume credentials are read from the environment only.
 	return &config{
-		cgroupRoot:  *root,
-		listenAddr:  *addr,
-		deadline:    *deadline,
-		freezeToken: os.Getenv("STUN_FREEZE_TOKEN"),
-		resumeToken: os.Getenv("STUN_RESUME_TOKEN"),
+		cgroupRoot:         *root,
+		listenAddr:         *addr,
+		deadline:           *deadline,
+		freezeToken:        os.Getenv("STUN_FREEZE_TOKEN"),
+		resumeToken:        os.Getenv("STUN_RESUME_TOKEN"),
+		operatorKeyPath:    *keyPath,
+		operatorKeysJSON:   os.Getenv("OPERATOR_KEYS_JSON"),
+		audience:           *audience,
+		trustRootID:        *trustRootID,
+		requiredSignatures: *reqSigs,
 	}, nil
 }
 
@@ -86,11 +100,39 @@ func constantTimeTokenValidator(expected string) cgroup.CredentialValidator {
 	}
 }
 
+// ed25519ResumeValidator verifies an Ed25519 token or falls back to legacy shared secret.
+func ed25519ResumeValidator(registry auth.OperatorKeyRegistry, policy auth.ResumeTokenPolicy, fallbackToken string) cgroup.CredentialValidator {
+	return func(got string) bool {
+		if got == "" {
+			return false
+		}
+		// Attempt Ed25519 token verification
+		token, err := auth.ParseResumeToken(got)
+		if err == nil {
+			if registry != nil {
+				_, vErr := auth.VerifyResumeToken(token, auth.TargetRef{}, registry, policy, time.Now().UTC())
+				if vErr == nil {
+					return true
+				}
+			}
+		}
+
+		// Fallback to symmetric token validator if configured (legacy compatibility)
+		if fallbackToken != "" {
+			return constantTimeTokenValidator(fallbackToken)(got)
+		}
+		return false
+	}
+}
+
 type server struct {
 	freezer        *cgroup.Freezer
 	emitter        *telemetry.Emitter
 	freezeValidate cgroup.CredentialValidator
 	resumeValidate cgroup.CredentialValidator
+	keyRegistry    auth.OperatorKeyRegistry
+	policy         auth.ResumeTokenPolicy
+	replayLedger   *auth.ReplayLedger
 }
 
 func observationFrom(res *cgroup.FreezeResult, podName, namespace string) telemetry.FreezeObservation {
@@ -119,17 +161,34 @@ func statusFor(err error) int {
 	switch {
 	case errors.Is(err, cgroup.ErrInvalidPodUID):
 		return http.StatusBadRequest
-	case errors.Is(err, cgroup.ErrUnauthorized):
+	case errors.Is(err, cgroup.ErrUnauthorized),
+		errors.Is(err, auth.ErrResumeTokenMalformed),
+		errors.Is(err, auth.ErrResumeTokenSchemaVersion),
+		errors.Is(err, auth.ErrResumeTokenUnsupportedAlgorithm),
+		errors.Is(err, auth.ErrResumeTokenProjectionMismatch),
+		errors.Is(err, auth.ErrResumeTokenShortNonce),
+		errors.Is(err, auth.ErrResumeTokenTargetMismatch),
+		errors.Is(err, auth.ErrResumeTokenAudienceMismatch),
+		errors.Is(err, auth.ErrResumeTokenExpired),
+		errors.Is(err, auth.ErrResumeTokenNotYetValid),
+		errors.Is(err, auth.ErrResumeTokenLifetimeTooLong),
+		errors.Is(err, auth.ErrResumeTokenUnknownKey),
+		errors.Is(err, auth.ErrResumeTokenRevokedKey),
+		errors.Is(err, auth.ErrResumeTokenKeyIDMismatch),
+		errors.Is(err, auth.ErrResumeTokenOperatorMismatch),
+		errors.Is(err, auth.ErrResumeTokenBadSignature),
+		errors.Is(err, auth.ErrResumeTokenDuplicateSigner),
+		errors.Is(err, auth.ErrResumeTokenInsufficientSignature),
+		errors.Is(err, auth.ErrResumeTokenTrustRootMismatch),
+		errors.Is(err, auth.ErrResumeTokenSignedAtOutOfWindow),
+		errors.Is(err, auth.ErrResumeTokenApprovalWindowExceed),
+		errors.Is(err, auth.ErrResumeTokenReplayed):
 		return http.StatusUnauthorized
 	case errors.Is(err, cgroup.ErrCgroupNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, cgroup.ErrPermission):
-		// The daemon is misconfigured, not the request.
 		return http.StatusInternalServerError
 	case errors.Is(err, cgroup.ErrFreezeDeadline):
-		// Containment was attempted and could not be proven. 504 rather than
-		// 500: the distinction matters to whoever is deciding whether to
-		// escalate to eviction.
 		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
@@ -169,30 +228,122 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		PodUID    string `json:"pod_uid"`
-		PodName   string `json:"pod"`
-		Namespace string `json:"namespace"`
+		PodUID         string            `json:"pod_uid"`
+		PodName        string            `json:"pod"`
+		Namespace      string            `json:"namespace"`
+		AgentID        string            `json:"agent_id"`
+		IdempotencyKey string            `json:"idempotency_key"`
+		Token          *auth.ResumeToken `json:"token,omitempty"`
+		TokenString    string            `json:"token_string,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
 		return
 	}
-	// The governance credential travels in a header, never in the URL.
-	credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	// The governance credential travels in a header or request body
+	headerCred := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
-	res, err := s.freezer.UnfreezePod(req.PodUID, credential)
+	var token auth.ResumeToken
+	var tokenParsed bool
+
+	if req.Token != nil && req.Token.TokenID != "" {
+		token = *req.Token
+		tokenParsed = true
+	} else if req.TokenString != "" {
+		if t, err := auth.ParseResumeToken(req.TokenString); err == nil {
+			token = t
+			tokenParsed = true
+		}
+	} else if headerCred != "" {
+		if t, err := auth.ParseResumeToken(headerCred); err == nil {
+			token = t
+			tokenParsed = true
+		}
+	}
+
+	var operatorIDs []string
+	var tokenID string
+
+	// Perform Ed25519 verification if token was provided and registry is configured
+	if tokenParsed {
+		target := auth.TargetRef{
+			AgentID:   req.AgentID,
+			Namespace: req.Namespace,
+			PodUID:    req.PodUID,
+		}
+		vRes, err := auth.VerifyResumeToken(token, target, s.keyRegistry, s.policy, time.Now().UTC())
+		if err != nil {
+			writeJSON(w, statusFor(err), map[string]any{
+				"error":     fmt.Sprintf("resume token verification failed: %v", err),
+				"error_tag": err.Error(),
+			})
+			return
+		}
+		operatorIDs = vRes.OperatorIDs
+		tokenID = token.TokenID
+
+		// Replay & Idempotency check
+		if s.replayLedger != nil {
+			isRetry, cachedOps, repErr := s.replayLedger.CheckAndRecord(token.TokenID, req.IdempotencyKey, operatorIDs, time.Now().UTC())
+			if repErr != nil {
+				writeJSON(w, statusFor(repErr), map[string]any{
+					"error": fmt.Sprintf("replay protection: %v", repErr),
+				})
+				return
+			}
+			if isRetry {
+				// Idempotent retry: do not re-unfreeze cgroup, return cached state
+				writeJSON(w, http.StatusOK, map[string]any{
+					"pod_uid":      req.PodUID,
+					"cgroup_path":  "",
+					"frozen":       false,
+					"operator_ids": cachedOps,
+					"operator_id":  token.OperatorID,
+					"token_id":     token.TokenID,
+					"idempotent":   true,
+				})
+				return
+			}
+		}
+	}
+
+	// Always pass validation check to freezer.UnfreezePod
+	credToValidate := headerCred
+	if credToValidate == "" && tokenParsed {
+		tokenJSON, _ := json.Marshal(token)
+		credToValidate = string(tokenJSON)
+	}
+
+	res, err := s.freezer.UnfreezePod(req.PodUID, credToValidate)
 	if err != nil {
 		writeJSON(w, statusFor(err), map[string]any{"error": err.Error(), "result": res})
 		return
 	}
-	_ = s.emitter.StunExecutionResumed(observationFrom(res, req.PodName, req.Namespace))
-	writeJSON(w, http.StatusOK, res)
+
+	obs := observationFrom(res, req.PodName, req.Namespace)
+	obs.OperatorIDs = operatorIDs
+	if len(operatorIDs) > 0 {
+		obs.OperatorID = operatorIDs[0]
+	}
+	obs.TokenID = tokenID
+	_ = s.emitter.StunExecutionResumed(obs)
+
+	respBody := map[string]any{
+		"pod_uid":      res.PodUID,
+		"cgroup_path":  res.CgroupPath,
+		"frozen":       res.Frozen,
+		"latency_ms":   res.LatencyMS,
+		"polls":        res.Polls,
+		"pids":         res.PIDs,
+		"operator_ids": operatorIDs,
+		"token_id":     tokenID,
+	}
+	if len(operatorIDs) > 0 {
+		respBody["operator_id"] = operatorIDs[0]
+	}
+	writeJSON(w, http.StatusOK, respBody)
 }
 
-// handleHealth proves the daemon can write the host cgroup hierarchy. A
-// read-only hostPath mount passes every other check and fails only here,
-// which is exactly the misconfiguration this endpoint exists to surface —
-// before an incident rather than during one.
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	if err := s.freezer.HealthCheck(); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
@@ -203,28 +354,27 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		})
 		return
 	}
+	keyCount := 0
+	if s.keyRegistry != nil {
+		keyCount = len(s.keyRegistry.AllKeys())
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":       "ok",
-		"cgroup_root":  s.freezer.Root(),
-		"cgroup_write": true,
-		"deadline_ms":  float64(s.freezer.Deadline().Nanoseconds()) / 1e6,
+		"status":                 "ok",
+		"cgroup_root":            s.freezer.Root(),
+		"cgroup_write":           true,
+		"deadline_ms":            float64(s.freezer.Deadline().Nanoseconds()) / 1e6,
+		"operator_keys_enrolled": keyCount,
 	})
 }
 
 // requireBearer makes a handler unreachable without a valid governance credential.
-//
-// Both /stun and /resume are gated on distinct credentials. The validator is
-// constant-time and denies everything when no token is configured. An invalid or
-// missing credential results in HTTP 401 Unauthorized before any cgroup operations
-// or request body decodings take place.
 func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if validate == nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no credential validator configured"})
 			return
 		}
-		// The credential travels in a header, never in the URL, so it stays out of
-		// access logs, referrers and proxy logs.
+		// The credential travels in a header, never in the URL.
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !validate(token) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "governance credential required"})
@@ -236,13 +386,8 @@ func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) h
 
 func (s *server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
-	// Liveness and readiness stay open: a kubelet probe carries no credential, and
-	// neither handler reveals anything beyond cgroup writability.
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/readyz", s.handleHealth)
-	// Both state-changing routes are gated on distinct tokens. Freeze and resume
-	// keep their deeper validation in the cgroup layer; this is the outer gate
-	// that stops an unauthenticated caller reaching either handler at all.
 	mux.HandleFunc("/stun", requireBearer(s.freezeValidate, s.handleStun))
 	mux.HandleFunc("/resume", requireBearer(s.resumeValidate, s.handleResume))
 	return mux
@@ -259,17 +404,40 @@ func run(args []string) error {
 	if cfg.freezeToken == "" {
 		return errors.New("stun-sentinel: STUN_FREEZE_TOKEN is required and cannot be empty")
 	}
-	// 2. STUN_RESUME_TOKEN must be configured and non-empty.
-	if cfg.resumeToken == "" {
+
+	// Load operator key registry if path or JSON is provided
+	var registry auth.OperatorKeyRegistry
+	if cfg.operatorKeyPath != "" {
+		reg, err := auth.LoadOperatorKeyRegistry(cfg.operatorKeyPath)
+		if err != nil {
+			return fmt.Errorf("stun-sentinel: load operator key registry: %w", err)
+		}
+		registry = reg
+	} else if cfg.operatorKeysJSON != "" {
+		entries, err := auth.LoadOperatorKeysFromJSON([]byte(cfg.operatorKeysJSON))
+		if err != nil {
+			return fmt.Errorf("stun-sentinel: parse OPERATOR_KEYS_JSON: %w", err)
+		}
+		registry = auth.NewStaticOperatorKeyRegistry(entries...)
+	}
+
+	// 2. Either an operator key registry or STUN_RESUME_TOKEN must be configured.
+	if registry == nil && cfg.resumeToken == "" {
 		return errors.New("stun-sentinel: STUN_RESUME_TOKEN is required and cannot be empty")
 	}
+
 	// 3. STUN_FREEZE_TOKEN and STUN_RESUME_TOKEN must not share the same value.
-	if cfg.freezeToken == cfg.resumeToken {
+	if cfg.resumeToken != "" && cfg.freezeToken == cfg.resumeToken {
 		return errors.New("stun-sentinel: STUN_FREEZE_TOKEN and STUN_RESUME_TOKEN must be distinct credentials")
 	}
 
+	policy := auth.DefaultResumeTokenPolicy(cfg.audience, cfg.trustRootID)
+	policy.RequiredSignatures = cfg.requiredSignatures
+
 	freezeValidate := constantTimeTokenValidator(cfg.freezeToken)
-	resumeValidate := constantTimeTokenValidator(cfg.resumeToken)
+	resumeValidate := ed25519ResumeValidator(registry, policy, cfg.resumeToken)
+	ledger := auth.NewReplayLedger()
+
 	srv := &server{
 		freezer: cgroup.New(cfg.cgroupRoot,
 			cgroup.WithDeadline(cfg.deadline),
@@ -279,6 +447,9 @@ func run(args []string) error {
 		emitter:        telemetry.NewEmitter(os.Stdout),
 		freezeValidate: freezeValidate,
 		resumeValidate: resumeValidate,
+		keyRegistry:    registry,
+		policy:         policy,
+		replayLedger:   ledger,
 	}
 
 	// Fail loudly at startup rather than at the first incident.
@@ -299,8 +470,6 @@ func run(args []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		fmt.Fprintf(os.Stderr, "stun-sentinel: listening on %s, cgroup root %s, freeze deadline %s\n",
-			cfg.listenAddr, cfg.cgroupRoot, cfg.deadline)
 		errCh <- httpServer.ListenAndServe()
 	}()
 

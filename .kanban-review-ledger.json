@@ -2378,5 +2378,19 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: Phase 1 decision freeze certified with 15 conditions documented in sler-p1-gov-review.md; C-9 gating SLER-P2-1; zero placeholders"
+  },
+  "60569": {
+    "task_id": "60569",
+    "reviewed_at": "2026-09-15T02:08:11Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: CodingAgentTelemetry schema, fixed-arity tool counts vector, pseudonym derivation, and metadata dictionary validated across Go and Python"
+  },
+  "f39c8": {
+    "task_id": "f39c8",
+    "reviewed_at": "2026-09-15T02:08:11Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: Zero-customer-payload validator, RFC 5869 HKDF/HMAC pseudonym, and adversarial leak falsification tests verified with 100% rejection"
   }
 }

@@ -19,6 +19,17 @@ try:
         ObservationState,
         ProcessTelemetryEvent,
     )
+    from .coding_agent_models import (
+        CodingAgentTelemetry,
+        Harness,
+        ProcessInfo,
+        KanbanInfo,
+        MetricsInfo,
+        ToolCounts,
+        NetworkInfo,
+        CANONICAL_TOOL_KEYS,
+        normalize_tool_name,
+    )
 except (ImportError, ValueError):
     from models import (
         BoundedProcessAttributes,
@@ -28,6 +39,17 @@ except (ImportError, ValueError):
         IntegrityState,
         ObservationState,
         ProcessTelemetryEvent,
+    )
+    from coding_agent_models import (
+        CodingAgentTelemetry,
+        Harness,
+        ProcessInfo,
+        KanbanInfo,
+        MetricsInfo,
+        ToolCounts,
+        NetworkInfo,
+        CANONICAL_TOOL_KEYS,
+        normalize_tool_name,
     )
 
 # Attributes permitted in process lifecycle export
@@ -62,6 +84,51 @@ ALLOWLISTED_ENVELOPE_FIELDS: Set[str] = {
     "host_id",
     "attributes",
     "tenant_id",
+}
+
+# Allowlisted fields for CodingAgentTelemetry event schema
+ALLOWLISTED_CODING_AGENT_ENVELOPE_FIELDS: Set[str] = {
+    "schema_version",
+    "harness",
+    "session_id",
+    "timestamp",
+    "observed_at",
+    "tenant_id",
+    "agent_id",
+    "host_id",
+    "process",
+    "kanban",
+    "metrics",
+    "network",
+}
+
+ALLOWLISTED_CODING_AGENT_PROCESS_FIELDS: Set[str] = {
+    "pid",
+    "ppid",
+    "comm",
+    "rss_bytes",
+    "cpu_ticks",
+}
+
+ALLOWLISTED_CODING_AGENT_KANBAN_FIELDS: Set[str] = {
+    "task_id",
+    "shortcode",
+    "role",
+    "elapsed_s",
+}
+
+ALLOWLISTED_CODING_AGENT_METRICS_FIELDS: Set[str] = {
+    "step_count",
+    "tokens_in",
+    "tokens_out",
+    "tool_counts",
+}
+
+ALLOWLISTED_CODING_AGENT_TOOL_COUNTS_FIELDS: Set[str] = set(CANONICAL_TOOL_KEYS)
+
+ALLOWLISTED_CODING_AGENT_NETWORK_FIELDS: Set[str] = {
+    "inference_endpoint",
+    "egress_bytes",
 }
 
 # Forbidden keys that must NEVER appear in exported evidence records
@@ -204,7 +271,8 @@ class AllowlistFilter:
         if isinstance(data, dict):
             for key, val in data.items():
                 k_str = str(key).lower()
-                if key in PROHIBITED_EXPORT_KEYS or "secret" in k_str or "password" in k_str or "token" in k_str:
+                is_token_secret = "token" in k_str and k_str not in {"tokens_in", "tokens_out"}
+                if key in PROHIBITED_EXPORT_KEYS or "secret" in k_str or "password" in k_str or is_token_secret:
                     found.append(f"key:{key}")
                 if isinstance(val, (dict, list)):
                     sub_found, sub_keys = AllowlistFilter.contains_prohibited_data(val)
@@ -281,6 +349,53 @@ class AllowlistFilter:
 
         return filtered_event
 
+    @staticmethod
+    def filter_coding_agent_event(
+        raw_event: Dict[str, Any],
+        include_tenant: bool = True,
+        objection_registry: Optional[SubjectObjectionRegistry] = None,
+    ) -> Dict[str, Any]:
+        """Produce clean, allowlisted, type-safe CodingAgentTelemetry export dictionary.
+
+        Enforces zero-customer-payload boundary, GDPR Art. 21 objections, and fixed-arity tool counts.
+        """
+        # Check prohibited payload keys
+        has_prohibited, prohibited_keys = AllowlistFilter.contains_prohibited_data(raw_event)
+        if has_prohibited:
+            raise ValueError(f"Prohibited payload keys detected in coding agent event: {prohibited_keys}")
+
+        # Check person-level Article 21 objection
+        actor_id = raw_event.get("actor_id") or raw_event.get("agent_id") or raw_event.get("host_id")
+        reg = objection_registry or DEFAULT_OBJECTION_REGISTRY
+        if actor_id and reg.is_opted_out(actor_id):
+            raise SubjectObjectionError(str(actor_id))
+
+        # Validate through strict CodingAgentTelemetry model
+        event = CodingAgentTelemetry.from_dict(raw_event)
+        event.validate()
+
+        filtered: Dict[str, Any] = {
+            "schema_version": event.schema_version,
+            "harness": event.harness.value,
+            "session_id": event.session_id,
+            "timestamp": event.timestamp,
+            "process": event.process.to_dict(),
+            "kanban": event.kanban.to_dict(),
+            "metrics": event.metrics.to_dict(),
+            "network": event.network.to_dict(),
+        }
+
+        if event.observed_at is not None:
+            filtered["observed_at"] = event.observed_at
+        if include_tenant and event.tenant_id is not None:
+            filtered["tenant_id"] = event.tenant_id
+        if event.agent_id is not None:
+            filtered["agent_id"] = event.agent_id
+        if event.host_id is not None:
+            filtered["host_id"] = event.host_id
+
+        return filtered
+
 
 def filter_process_attributes(
     raw_attrs: Dict[str, Any],
@@ -300,5 +415,18 @@ def sanitize_evidence_record(
         raw_event,
         include_tenant=include_tenant,
         include_extended=False,
+        objection_registry=objection_registry,
+    )
+
+
+def filter_coding_agent_telemetry(
+    raw_event: Dict[str, Any],
+    include_tenant: bool = True,
+    objection_registry: Optional[SubjectObjectionRegistry] = None,
+) -> Dict[str, Any]:
+    """Helper to sanitize and validate raw coding agent telemetry."""
+    return AllowlistFilter.filter_coding_agent_event(
+        raw_event,
+        include_tenant=include_tenant,
         objection_registry=objection_registry,
     )

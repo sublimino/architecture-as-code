@@ -43,7 +43,8 @@ export default defineConfig({
           label: "Run demonstrations",
           items: [
             { label: "Run the partner demonstration", slug: "operations/demo-walkthrough" },
-            { label: "Superadmin demonstrations", slug: "demos/superadmin" }
+            { label: "Superadmin demonstrations", slug: "demos/superadmin" },
+            { label: 'AgentMaxxing interactive demo', slug: 'demos/agentmaxxing' }
           ]
         },
         {

@@ -2301,5 +2301,19 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Council of Agents APPROVED: real client-go FleetClient delivered, retires no-op silent fallback, 18/18 mutations killed, collision with P1-5 cleanly resolved, 114/114 tests pass"
+  },
+  "0df99": {
+    "task_id": "0df99",
+    "reviewed_at": "2026-09-15T01:23:37Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Council of Agents APPROVED: SLCD-P0 baseline established, 41 sensor unit tests ok, 24 Go packages ok, 7/7 acceptance spec ok, errata and fast-exit baseline committed"
+  },
+  "7a62a": {
+    "task_id": "7a62a",
+    "reviewed_at": "2026-09-15T01:24:07Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Council of Agents APPROVED: AMXD-P0 baseline established, dashboard build passes (2.66s), contract 6/6 ok, host tests 73/73 ok, errata and baseline files committed"
   }
 }

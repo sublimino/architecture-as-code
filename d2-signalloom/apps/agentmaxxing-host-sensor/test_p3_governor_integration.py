@@ -153,7 +153,10 @@ class CleanDisableOnMergedTreeTests(unittest.TestCase):
             self.assertEqual(e.extract_sessions_from_sqlite(), [])
             self.assertEqual(e.extract_task_runs_sqlite(), [])
             self.assertEqual(e.extract_cycle_ring("SLCD"), [])
-            self.assertEqual(e.extract_supervisor_state("SLCD"), [])
+            # extract_supervisor_state is a single-dict getter declared
+            # -> Optional[Dict[str, Any]]; None is its documented absent value,
+            # not an inconsistency with the list-returning siblings.
+            self.assertIsNone(e.extract_supervisor_state("SLCD"))
 
     def test_extractor_does_not_assume_watcher_returned_something(self) -> None:
         """The regression P3-2's extraction logic could have introduced."""
@@ -276,10 +279,10 @@ class CombinedP2P3OverheadTests(unittest.TestCase):
 
     @unittest.skipUnless(LIVE_KANBAN.is_dir(), "no live kanban home")
     def test_combined_engines_within_cpu_and_rss_budget(self) -> None:
-        from collector import CodingAgentCollector  # noqa: E402
+        from collector import ProcessTelemetryCollector  # noqa: E402
 
         watcher = KanbanWatcher()
-        collector = CodingAgentCollector(kanban_watcher=watcher)
+        collector = ProcessTelemetryCollector(kanban_watcher=watcher)
         extractor = KanbanCycleExtractor()
 
         # warm both engines so import/compile cost is not charged to the measurement

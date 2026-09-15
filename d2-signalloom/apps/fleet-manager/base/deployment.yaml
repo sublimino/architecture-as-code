@@ -42,6 +42,19 @@ spec:
               value: /etc/fleet/fleet.yaml
             - name: STEP_DELAY_MS
               value: "200"
+            # Stated explicitly even though it is the default, so `kubectl get
+            # deploy -o yaml` shows which FleetClient this deployment runs. The
+            # only other accepted values are "auto" (identical) and the literal
+            # "noop-test-only", which enforces NOTHING and logs a WARN saying so.
+            # Any unrecognised value falls through to the real client, never to
+            # the no-op — see apps/fleet-manager/fleetclient_select.go.
+            - name: FLEET_CLIENT
+              value: "kubernetes"
+            # The namespace the agent pods run in, which is NOT the namespace
+            # fleet-manager runs in and is the namespace the pod-reader Role is
+            # scoped to. Used when a fleet-config entry omits its own namespace.
+            - name: AGENT_NAMESPACE
+              value: "fe-signalloom-agents"
           startupProbe:
             httpGet:
               path: /health

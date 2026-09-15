@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import { configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
@@ -17,5 +18,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // SLCD-P5-GOV: the end-to-end suite spawns a real Go server and binds a
+    // real socket, so it cannot run in the default unit lane. It is included
+    // only by vitest.e2e.config.ts, via scripts/slcd-p5-e2e.sh.
+    exclude: [...configDefaults.exclude, '**/*.e2e.test.tsx'],
   },
 })

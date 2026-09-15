@@ -181,10 +181,33 @@ export function CodingAgentsTab({ initialHarness, initialTaskId, onSelectAgent }
           sub="Autonomous iteration turns"
           accent="var(--violet)"
         />
+        {/*
+          SLCD-P5-GOV: when the aggregate is absent the cohort figure is
+          WITHHELD, never substituted.
+
+          `aggregate` is null precisely when signal-ingest REFUSED to compute
+          it — HTTP 422, cohort below the k=5 anonymity floor (see
+          codingagent/store.go:268). fetchTelemetry() uses Promise.allSettled,
+          so that refusal lands here silently as a null with no error set.
+
+          This card previously fell back to `${stats.totalSessions} sessions`,
+          a client-side count of the rows already in hand. That re-disclosed
+          the exact quantity the server had just withheld to prevent
+          re-identification, under a heading asserting k-anonymity — i.e. the
+          UI answered the question the privacy control exists to refuse.
+          Proven live in CodingAgentsTab.e2e.test.tsx, which rendered
+          "2 sessions" against a 422.
+        */}
         <StatCard
           label="Anonymity Cohort"
-          value={aggregate?.group_size ? `${aggregate.group_size} entities` : `${stats.totalSessions} sessions`}
-          sub={aggregate?.avg_clock_skew_ms ? `avg skew ${aggregate.avg_clock_skew_ms.toFixed(1)}ms` : 'clock skew bounded'}
+          value={aggregate ? `${aggregate.group_size} entities` : 'Withheld'}
+          sub={
+            aggregate
+              ? aggregate.avg_clock_skew_ms
+                ? `avg skew ${aggregate.avg_clock_skew_ms.toFixed(1)}ms`
+                : 'clock skew bounded'
+              : 'below k=5 anonymity floor'
+          }
           accent="var(--amber)"
         />
       </div>

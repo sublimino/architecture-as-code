@@ -289,6 +289,63 @@ export default defineConfig({
         video: "off",
       },
     }] : []),
+    // The AgentMaxxing Interactive Demo Console (AMXD-P6-1).
+    //
+    // Opt-in on AMXD_DEMO_CONSOLE, for exactly the reason the docs project
+    // above is opt-in on DOCS_BASE_URL: scripts/acceptance-test.sh runs
+    // `bunx playwright test` with no --project, so EVERY project here is
+    // claimed by `make acceptance-test`. This one's precondition is not the
+    // precondition the cluster projects share. `make demo-signalloom-up`
+    // deploys the dashboard IMAGE, and the image currently published to the
+    // demo cluster predates this console entirely: probed 2026-09-15, the
+    // served bundle carries 0 matches for `AgentMaxxingDemoPage` and lists 33
+    // lazy page chunks, none of them this page, while App.tsx:436 registers
+    // the route in source. An unconditional project would therefore turn a
+    // green `make acceptance-test` red for a reason unrelated to any assertion
+    // in the spec — which is precisely the trap the docs project's comment
+    // records. AMXD-P6-2 owns the make target that supplies this variable.
+    //
+    // The spec-coverage guard parses this file as TEXT, so the testMatch below
+    // is visible to it whether or not the ternary includes the project: the
+    // spec reads as wired, which it is whenever it is meant to run. Prove both
+    // directions with `bunx playwright test --list` and
+    // `AMXD_DEMO_CONSOLE=1 bunx playwright test --list`.
+    ...(process.env.AMXD_DEMO_CONSOLE ? [{
+      name: "agentmaxxing-demo-console",
+      testMatch: /agentmaxxing-demo-console\.spec\.ts/,
+      // Ten minutes, not the global 30s, and not a round number picked for
+      // looks. The mock block's auto-play case alone drives three full passes
+      // whose dwell floors are contractual: 4 transitions x 4000ms at 1x plus
+      // 4 x 2000ms at 2x is 24s of MANDATORY waiting before a single
+      // confirmation round-trip is counted, and AMXD-P5-GOV measured the three
+      // real passes at 16,120 / 8,105 / 589 ms in a browser. The live block
+      // then walks all five stages against the real FastAPI backend through
+      // the Gateway and waits on two specific network responses. 30s could not
+      // finish the auto-play case on a working console, so the global default
+      // would fail this spec for being correct.
+      timeout: 10 * 60_000,
+      // retries: 0 like the supercred projects, and for their reason: the live
+      // block REVOKES a host on the one shared demo cluster. A retry would
+      // resume against its own leftovers, where the revoke answers 200 with
+      // count:0 and the test fails for an unrelated reason that reads like a
+      // denial defect.
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        // No storageState and no `dependencies: ["setup"]`, matching `smoke`:
+        // every test here authenticates itself through helpers.ts `login()`,
+        // and the live block specifically needs `login(page, { demoMode:
+        // false })`, which a pre-seeded demo-mode auth state would defeat.
+        //
+        // No `launchOptions` either — Playwright merges `use` shallowly per
+        // key, so re-declaring it would REPLACE the top-level
+        // --host-resolver-rules and kill every navigation with
+        // net::ERR_NAME_NOT_RESOLVED, exactly as it did to `smoke` (18/18) once
+        // before.
+        video: "off",
+      },
+    }] : []),
   ],
   // The junit reporter is added only when CI asks for it by setting
   // PLAYWRIGHT_JUNIT_OUTPUT_FILE, so local runs keep the list + html output

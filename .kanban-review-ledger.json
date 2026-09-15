@@ -2728,5 +2728,19 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Outbound LLM socket detector implemented via NETLINK_SOCK_DIAG and cgroup inode correlation without reading /proc/<pid>/fd/ (69 tests pass, zero prohibited procfs access, tiered CIDR attribution measured at 8.3% upper bound false-positive rate)"
+  },
+  "2eb6f": {
+    "task_id": "2eb6f",
+    "reviewed_at": "2026-09-15T07:41:00.000000Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Preflight test harness, mock fixtures inventory, and SPEC-REGISTRY.tsv contract verified green; Makefile:863-864 Vitest mismatch identified and documented for P6-2 Playwright wiring"
+  },
+  "ff5c8": {
+    "task_id": "ff5c8",
+    "reviewed_at": "2026-09-15T07:41:00.000000Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Phase 5 Governor certified 100% containment action attestation, zero un-attested events, denial matrix measurement traceability across 5 planes, and combined fleet benchmarks (1.0-35.2ms, 0 escapes across 15 scenarios)"
   }
 }

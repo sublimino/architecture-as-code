@@ -1138,8 +1138,8 @@ export default function AgentActivityTab({
                           fontWeight: 600,
                           padding: '2px 8px',
                           borderRadius: 3,
-                          background: 'rgba(59, 130, 246, 0.15)',
-                          color: '#3b82f6',
+                          background: 'rgba(6, 182, 212, 0.15)',
+                          color: colors.cyanLoom,
                         }}>
                           EVIDENCE: {ev.evidence_type}
                         </span>

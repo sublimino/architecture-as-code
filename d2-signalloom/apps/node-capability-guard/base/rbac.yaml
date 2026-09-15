@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-capability-guard
+  namespace: fe-signalloom
+  labels:
+    app.kubernetes.io/name: node-capability-guard
+    app.kubernetes.io/component: admission-controller
+    app.kubernetes.io/part-of: signalloom
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-capability-guard-reader
+  labels:
+    app.kubernetes.io/name: node-capability-guard
+    app.kubernetes.io/part-of: signalloom
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-capability-guard-reader-binding
+  labels:
+    app.kubernetes.io/name: node-capability-guard
+    app.kubernetes.io/part-of: signalloom
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-capability-guard-reader
+subjects:
+  - kind: ServiceAccount
+    name: node-capability-guard
+    namespace: fe-signalloom

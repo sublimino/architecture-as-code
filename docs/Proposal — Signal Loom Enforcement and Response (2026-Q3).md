@@ -307,7 +307,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | **pass** — 0 OpenBao/SPIFFE SDKs across 3 apps confirmed; BAO_ADDR convention confirmed (`apps/cardvault-agent/main.go:65`); 5/5 `spire-server entry delete` calls confirmed discarding errors; OpenBao 5m TTL baseline confirmed; SPIRE default 24h ca_ttl confirmed with 0 default_svid_ttl setting; network/API seams documented → `docs/signalloom/sler-p2-pre-integration-seams.md` | $0.00 | N/A | ~3m | N/A |
 | P2-1 | implementation | Implement active OpenBao lease and token revocation API client | P2-PRE | `make demo-signalloom-api-test TIER=contract`; lease revocation test | L | daily | pass — delivered: b8fade561b5a8ae6bf88e2e3ae9681e2ccc349c4 (see Errata — SLER-P2-1) | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | pass — delivered: 9fa5906275d14a46bd7c41faa45669690913fe11 (see Errata — SLER-P2-2) | $0.00 | N/A | ~4m | N/A |
-| P2-GOV | governor | Merge credential revocation and verify instant authorization rejection | P2-1, P2-2 | Multi-credential revocation integration test; zero residual token leakage | M | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P2-GOV | governor | Merge credential revocation and verify instant authorization rejection | P2-1, P2-2 | Multi-credential revocation integration test; zero residual token leakage | M | deep | **PASS WITH EXCEPTIONS** — both planes now fan out on one decision (G-1: OpenBao revocation was dead code in production; repair falsified by mutation). "Zero residual token leakage" **NOT MET and unachievable**; published residuals bao 5m (config-derived) / spire 1h (upstream-default), as a floor. Both guaranteed-denial figures **withdrawn as unmeasured** → SLER-P5-2. | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm Cilium and Istio mesh policy and admission controller seams | P2-GOV | Mesh CRD probe; node-capability-guard webhook check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Implement dynamic mesh isolation cutting in-flight TCP connections | P3-PRE | `netassert` integration test; in-flight connection termination <2s | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Implement admission webhook block preventing pod readmission | P3-PRE | Webhook deny unit and integration tests; pod reschedule block | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -686,3 +686,64 @@ Commit:       55c212f080296c8545f3128625b3036ef4fed201
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 
+
+#### Errata — SLER-P2-GOV (governor) — Merge credential revocation and verify instant authorization rejection
+**Created:** 2026-09-15 04:04:44+01:00
+**Last Updated:** 2026-09-15 04:04:44+01:00
+**Status:** Completed
+**Commit:** `51a53183b4bd4a31b9fa9e64a5b78bc58b0a4bcd`
+**Branch:** `integration/sler-v0.1.0`
+**Integration ref at certification:** `51a53183b4bd4a31b9fa9e64a5b78bc58b0a4bcd`
+**Merged parents verified by ancestry:** `ebb299e88b298defbe9ace22de113515b025e65d` (SLER-P2-1) · `ff6e7fdea9e4a9d7f01a37b77ec335b25da230a2` (SLER-P2-2) — both confirmed via `git merge-base --is-ancestor`, not by reading the log.
+**Governor merge:** complete — both parents were already ancestors when this card opened, so this card's weight is certification, not integration.
+
+**Verdict: PASS WITH EXCEPTIONS.** The exceptions rank equally with the PASS and are not footnotes.
+
+- **Original phase-2 metric "zero residual token leakage": NOT MET, and not achievable by construction.** Revoking an OpenBao lease does not invalidate a credential already minted from it; SPIFFE has no CRL and no OCSP, so nothing short of TTL expiry removes a trusted SVID. Revocation and expiry are two different clocks and the security claim belongs to the slower one. **Substituted and MET:** *active revocation with a published, provenance-labelled residual*. The substitution is recorded rather than laundered.
+- **Both guaranteed-denial figures are WITHDRAWN as unmeasured.** P2-1's 10.29 ms is the `time.Sleep(10 * time.Millisecond)` inside an `httptest` handler at `openbao_client_test.go:561` — the figure *is* the constant, and the `p99 > 2000ms` assertion guarding it cannot fail. P2-2's `< 2.0 ms` p99 is worse: a search for `p50|p90|p99|percentile|0.02|1.23|77.56|225.57` in `spire_client_test.go` returns **no matches** — there is **no producing artefact in the tree**. Per P2-2's own proof line 194, the 1.23 ms is the total elapsed for 50 goroutines against `mockEntryServer`, republished as a live-cluster p99. Owner for both: SLER-P5-2, which must benchmark rather than inherit.
+- **Published residuals are a FLOOR, not a bound.** `bao` 300 000 ms is `config-derived` from `openbao-agent-generic-role.yaml:68-69` (`token_ttl`/`token_max_ttl` 5m). `spire` 3 600 000 ms is `upstream-default` (no `default_svid_ttl` anywhere in `d2-signalloom/`; `ca_ttl` 24 h rotating at 20 h per `spire-openbao-sync-cronjob.yaml:3`). Both assume a relying party re-validates at expiry; this repository has already been bitten by OpenBao `jwks_url` caching, which extends real exposure past TTL.
+
+**BLOCKING DEFECT FOUND AND REPAIRED (G-1): OpenBao revocation was dead code on the production containment path.** `k8sclient.go:297` was an if/else-if chain whose SPIRE branch ended `return nil`. `newK8sFleetClient` sets `baoClient` unconditionally (`:53`); `newK8sFleetClientWithSpire` then adds `spireClient`; production wires both at `fleetclient_select.go:282`. The SPIRE branch therefore always won and the OpenBao plane never ran — while returning `nil`, which `cascade.go` reads as `Credential.Succeeded` and `classifyOutcome` turns into `OutcomeContained`. **The P1-5 honesty machinery was intact and was faithfully certifying half-revocations as fully contained.** `git blame` attributes the bao block to merge commit `ff6e7fde`, not to either card: P2-2 branched from `96a3abe1` before P2-1 merged, and the merge was resolved by concatenation with no control-flow reconciliation. Both suites stayed green because each card's **assertion set enumerates only its own plane** — note that three tests at `spire_client_test.go:737/774/797` already *configured* both, so a shared fixture would not have caught this; only a shared assertion would.
+
+**SECOND DEFECT REPAIRED (G-2): typed-nil `SpireClient` made "fail closed" a panic.** `NewGRPCSpireClient` returns the concrete `*grpcSpireClient` and `(nil, err)` on failure; `fleetclient_select.go:266` logged *"will fail closed on spire operations"* and assigned it into the interface, producing a typed nil that compares non-nil. `EvictAgent` then dereferenced a nil receiver. Guarding only the construction site **inherits the defect's own blind spot** — proven, because the injected-typed-nil test panicked against that fix alone. Nil-receiver guards now sit at `EvictAgent` and `Health`, where they cannot be routed around.
+
+**Deviations:**
+- **Repaired merged sibling work rather than stopping.** The hard-blocker list includes *"any result type that cannot represent a partial or failed containment"*, and `RevokeCredentials(ctx, agentID) error` genuinely cannot. Resolved within the existing contract by adding `RevokeCredentialsPlanes(ctx, agentID) ([]PlaneResult, error)` plus `AggregateCredentialOutcome`, leaving the `FleetClient` interface in `cascade.go` — a declared shared-file collision risk — byte-unchanged and untouched. Governor reconciliation of two cards' independently-built halves, recorded because it is a repair to already-merged work.
+- **The MAJOR contract bump authorised in SLER-P1-GOV's errata was not delivered by P2-1.** That errata authorised `RevokeCredentials(ctx, namespace, agentID, idempotencyKey)`; the shipped interface is still `(ctx, agentID)`, and `k8sclient.go:328` passed `""` as the bao idempotency key while handing SPIRE a real one. Rather than spend a second MAJOR bump, one decision-scoped key is now generated once and threaded to both planes. **The authorised-but-undelivered bump is handed to SLER-P3-GOV.**
+- **`/goal` could not be invoked.** It is a harness UI command and is not Skill-reachable (`goal is a UI command, not a skill`). The stated 200 000-token budget and 180-minute ceiling were honoured as written.
+- **This errata block could not be written to the path the card names.** The Task Contract points at `/home/andy/src/cp/osramp-demo/docs/Proposal — …md` and states the proposal "lives in an Obsidian vault, NOT the repo". On disk it is a **tracked git file**, byte-identical in both locations, and the P2-1 and P2-2 merge commits both include changes to it. Writes to the principal checkout are sandbox-denied (`EACCES`, while filesystem perms are `andy:andy rw`). This block was therefore written to the governor worktree's copy of the same tracked file and **deliberately left unstaged**, honouring "never `git add` or commit the proposal file". **A human must reconcile the contract with the repository's actual practice** — the two disagree, and sibling cards have followed the practice rather than the contract.
+- **Delegation floor relaxed to zero (show your math).** An explicit session instruction forbids the Agent tool, removing Forge and the E4-mandatory Cato cross-vendor audit. Compensating controls: seven thinking capabilities against a hard floor of six, a live advisor call at the commitment boundary whose findings produced four additional tests and three corrections to this verdict, and a mutation-falsified positive control. **Cato did not run; a cross-vendor audit of this certification remains outstanding.**
+
+**Evidence:** `go test ./...` green; `go test -race ./...` green with no data races; `go vet` clean; `bash scripts/run-redteam-suite.sh` **15/15 scenarios, 0 escapes, 0 leaks**; `make demo-signalloom-api-test TIER=contract` **56 passed**. 15 new combined-plane tests. **The fan-out repair is falsified, not merely exercised**: the control flow was reverted in place, `TestCombinedRevocation_BothPlanesFireOnOneDecision` observed FAILING with `MUTATED_EXIT=1`, and the file restored with `RESTORED_BYTE_EXACT=YES`. Full report: `docs/signalloom/sler-p2-gov-review.md`. Governor corrections appended to `docs/signalloom/sler-p2-1-proof.md` and `sler-p2-2-proof.md` as Appendix A, with all prior text unaltered.
+
+**Handed forward:** (1) both guaranteed-denial figures to SLER-P5-2; (2) `RestoreCredentials` is still a stub — stun is now partially real while un-stun has never been implemented, relevant to SLER-P4-3; (3) a concurrent fan-out structurally cannot prevent re-mint from a still-live SVID during the window — proposed probe for SLER-P6-1; (4) the undelivered MAJOR bump to SLER-P3-GOV; (5) process: any card adding a branch to a shared dispatch function should ship a mutation proof deleting the *sibling* branch — the mechanism exists (27 mutation-proof scripts) with no cross-card instance.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+##### SLER-P2-GOV — Spend and token use
+
+**Spend and token use:**
+
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P0 | $0.00 | N/A | ~11m | N/A |
+| P1-PRE | $0.00 | N/A | ~4m | N/A |
+| P1-1 | $0.00 | N/A | N/A | N/A |
+| P1-2 | $0.00 | N/A | ~4m | N/A |
+| P1-3 | $0.00 | N/A | N/A | N/A |
+| P1-4 | $0.00 | N/A | ~5m | N/A |
+| P1-5 | $0.00 | N/A | N/A | N/A |
+| P1-GOV | $0.00 | N/A | N/A | N/A |
+| P2-PRE | $0.00 | N/A | ~3m | N/A |
+| P2-1 | $0.00 | N/A | N/A | N/A |
+| P2-2 | $0.00 | N/A | ~4m | N/A |
+| P2-GOV | $0.00 | N/A | N/A | N/A |
+
+*Phases 3-6 are all `$0.00 / N/A` and are omitted; the full 30-row table is reproducible with the command below.*
+
+**Caveat on these figures — they are not a measurement, and this card's whole subject is not mislabelling those.** `kanban-check.sh cost --update-table --apply` computed the table above but **could not write it**: `PermissionError: [Errno 13]` on the principal-checkout proposal path, the same sandbox denial that redirected this errata block. Every cost is `$0.00` and every token count `N/A` because the board carries no usage telemetry for this mission — not because the work was free. Reproduce with:
+
+```
+kanban-check.sh cost --repo /home/andy/src/cp/osramp-demo --shortcode SLER \
+  --proposal "…/docs/Proposal — Signal Loom Enforcement and Response (2026-Q3).md" --update-table --apply
+```

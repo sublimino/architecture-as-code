@@ -302,7 +302,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | **pass** — delivered: `92bc899e770296960f9dd7993e9152c263b1da84` (see Errata — SLER-P1-2) | $0.00 | N/A | ~4m | N/A |
 | P1-3 | implementation | Freeze versioned enforcement wire contracts and governance resume token | P1-1, P1-2 | Contract freeze in docs and Go types; resume token signature spec | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Authenticate the sentinel /stun endpoint and add its NetworkPolicy | P1-PRE | `cd d2-signalloom/apps/stun-sentinel && go test ./...` | M | antigravity | **pass** — delivered: `62376453e2cfceb6578fd65fc48f8ba2329656bd` (see Errata — SLER-P1-4) | $0.00 | N/A | ~5m | N/A |
-| P1-5 | implementation | Stop the cascade fabricating success; carry per-plane status and error | P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | L | kpai | Pending | $0.00 | N/A | N/A | N/A |
+| P1-5 | implementation | Stop the cascade fabricating success; carry per-plane status and error | P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | L | kpai | pass — delivered: b53d7d2131721049175ce3bae199fcd5d43c970e (see Errata — SLER-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Implement active OpenBao lease and token revocation API client | P2-PRE | `make demo-signalloom-api-test TIER=contract`; lease revocation test | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -477,10 +477,42 @@ No other app directories, runtime state (`board.json`), or unrelated manifests w
 ##### Out-of-scope confirmation
 No other app directories, runtime state (`board.json`), or unrelated manifests were modified.
 
-#### Errata — SLER-P1-5 (bootstrap)
+#### Errata — SLER-P1-5 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15T01:36:29+01:00
+**Last Updated:** 2026-09-15T01:42:10+01:00
+
 ##### Task identity
 - Card: `SLER-P1-5`
 - Shortcode: `SLER`
-- Commit: Pending
-- Result: Pending
+**Status:** pass
+**Commit:** `b53d7d2131721049175ce3bae199fcd5d43c970e`
+**Governor merge:** [pending Governor reconciliation]
+**Phase 1 can proceed:** yes
+
+**Decisions:**
+- **Label write still attempted after a failed credential revoke.** The card permits either arm "unless the design explicitly allows partial containment with that residual documented". Skipping the write would leave the agent both credentialed *and* unlabelled — strictly less containment than credentialed and labelled, and `node-capability-guard` keys its admission block off the label. Under the fail-closed constitution, applying more containment is correct. The residual (a live OpenBao lease behind a stunned label) is recorded as R-1 in the proof and is no longer invisible: that target reports `outcome: partial` with the revoke error attached, and the endpoint answers 207, not 200.
+- **`OutcomeNotFound` added to P1-2's `PlaneOutcome`** rather than to a parallel enum, with an explicit arm in `AggregateOutcome` so it is never coerced into `unavailable`. `schema.go` is nominally P1-2's, but P1-2 is merged and a sibling enum would have put two outcome vocabularies on one wire. All four pre-existing `TestAggregateOutcome` cases are unchanged and pass.
+- **HTTP mapping: 200 contained / 207 partial / 404 not_found / 500 unavailable**, failing closed to 500 on an unrecognised outcome. 404 for not_found sends the operator to check their targeting rather than plane connectivity — the one distinction that decides where they look.
+- **The independence test does not name `noopFleetClient`.** SLER-P1-1 is retiring that symbol concurrently; referencing it would have created a compile-time collision. `TestHonestyFix_IsIndependentOfTheClientImplementation` asserts the property through the `FleetClient` interface instead, so it holds whichever implementations exist.
+
+**Deviations:**
+- **`TestStun_ClientErrors_AreTolerated` was rewritten, not extended.** Its comment read "client failures are logged but tolerated" and it asserted only that the cascade returned no error and emitted one event — both of which a wholly-failed containment also does. It was green for the entire life of the bug. It is now `TestStun_ClientErrors_AreRecordedNotTolerated`: keeps the contract worth keeping (one target's failure must not abort the cascade for the others), adds the one that was missing.
+- **`Recover` now reads the pre-state** instead of hard-coding `FromState: StateStunned`, which asserted the precondition a recovery exists to verify. Costs one extra Kubernetes API call per target (2 per agent → 3). Deliberate and quantified in §4 of the proof; a future card finding it too expensive at fleet scale should batch the list call, not reinstate the guess.
+- **Two pre-existing `gofmt` misalignments left alone** (`main.go:261`, the `mockFleetClient` error-field block in `cascade_test.go`). Both were already unformatted at `4a70a293`, verified with `git show HEAD:...`. Reformatting `main.go` would collide with P1-1's concurrent edit to that exact block.
+- **Benchmark regression is real and is reported, not dismissed.** +21.3% at fleet 64, +19.1% at fleet 256, +44.5% on recover at fleet 64, all p=0.002 (n=6). At fleet 256 that is +64.8 µs across 256 targets — +253 ns per target — against a shipped `STEP_DELAY_MS` default of 200 ms *per agent* (51.2 s for that cascade). The material cost is the extra apiserver read on recovery, not the CPU.
+- **This errata was committed to the worktree, not written to the principal checkout.** The card text states the proposal lives in an Obsidian vault outside the repo and must never be committed. That premise does not hold for this file: it is a tracked regular file at `docs/`, `readlink -f` resolves to itself, and the principal checkout is write-denied to this sandbox (`touch` → `Permission denied`). The branch's own practice is to commit it — `a598e4dd` "docs(signalloom): record SLER-P1-4 delivery in proposal errata and work decomposition". Followed that.
+
+**Evidence:**
+- `cd d2-signalloom/apps/fleet-manager && go test ./...` → **ok**, 69 pass / 0 fail (19 new in `cascade_honesty_test.go`).
+- `grep -n 'assume running' .../cascade.go` → **exit 1, zero matches**.
+- `bash scripts/run-redteam-suite.sh` → exit 0, 15/15. **Reported because the card requires the command, not as evidence — it is non-discriminating.** `scripts/run-redteam-suite.sh:25` writes `docs/signalloom/evidence/adversarial-redteam-proof.json` entirely from hardcoded heredoc literals (`scenarios_passed: 15`, `process_escapes: 0`; only `$TIMESTAMP` is interpolated) and `test/crkc-adversarial-redteam.bats:10` asserts against that same file. It never invokes fleet-manager, so it cannot tell the pre-fix cascade from the post-fix one, and would pass on a cluster with no enforcement at all. Established at SLER-P0 (`843fea40`), remediation owned by P6-1. Claiming it as proof here would repeat the very defect this card removes. Its timestamp rewrite of the CRKC-P4-1 artefact was reverted, not committed.
+- **Mutation falsification: 12/12 killed.** Each defect reintroduced into the fixed code one at a time. The harness asserts each anchor matches exactly once before writing, refuses to score a zero-match `-run` regex or a non-compiling mutant, and restores from a `mktemp` backup on `EXIT INT TERM`.
+- Full write-up, benchmark tables and fleet-size comparison: `docs/signalloom/sler-p1-5-proof.md`.
+
+**Notes:**
+- **Two mutations survived the first sweep (M7, M9) and that is the most useful finding here.** The recovery path was covered only by status-code tests, and the status code derives from the *step* outcomes, so it is structurally blind to a fabricated `to_state`/`from_state`. `TestRecover_SetStateFailure_DoesNotReportRunning` and `TestRecover_UnreadableState_ReportsUnknownNotStunned` close it. Same defect class as the card itself — an assertion that looks like a check but cannot see the field it guards.
+- **No P0 or P1-1 cascade wall-time baseline exists to be consistent with.** P0 measured *freeze* latency (avg 4 ms, p95 12 ms) and `sler-p0-baseline.md:426-428` records that even those are claimed "at no measured fleet size", already violating the mission's own out-of-scope rule. P1-1 was `in_progress` at measurement time with no benchmark artefact on the integration branch. This card therefore *establishes* the baseline at fleet sizes 5 / 64 / 256; later cards on this path should quote 64 and 256 to be comparable.
+- **For P1-GOV:** `CascadeResult.Planes` is still empty — this card fixes per-*target* honesty, not per-*plane* reporting, so the Published Denial Matrix remains unsatisfied. R-1 (a live credential behind a stunned label) needs P2-1's active OpenBao revocation with retry to close properly.
+- **Shared-file collision:** `cascade.go`, `main.go` and `schema.go` were all touched. SLER-P1-1 was `in_progress` in a sibling worktree throughout and owns `noopFleetClient` in `main.go:255-263`; this card did not touch that block. Serialise through the phase Governor.
 

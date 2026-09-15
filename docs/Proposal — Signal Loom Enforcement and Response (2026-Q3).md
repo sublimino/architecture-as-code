@@ -487,10 +487,23 @@ No other app directories, runtime state (`board.json`), or unrelated manifests w
 
 #### Errata — SLER-P1-1 Unify Enforcer interface and eliminate noopFleetClient silent fallback
 **Created:** 2026-09-15 01:53:46+01:00
-**Last Updated:** 2026-09-15 01:53:46+01:00
+**Last Updated:** 2026-09-15 02:01:12+01:00
 **Status:** Completed
 **Commit:** 2b37f931
-**Governor merge:** [pending Governor reconciliation]
+**Governor merge:** [pending Governor reconciliation — **two collisions with SLER-P1-5, resolution verified below**]
+
+**⚠ Merge collision with SLER-P1-5 — textually clean, does NOT compile, resolution verified**
+
+P1-5 merged to `integration/sler-v0.1.0` (now `a5a32145`) while this card was in flight, rewriting `cascade.go` (+349), `cascade_test.go` and `main.go` — all files this card also touches. `git merge-tree` reports **rc=0 with no conflict markers**, and the merge auto-resolves cleanly, so a Governor trusting the textual result would land a branch that does not build. Verified by merging `ab2d6bfb` into `a5a32145` in a throwaway detached worktree (no branch mutated, worktree removed):
+
+1. **`StateUnknown` redeclared** — `cascade.go:28` (P1-5) and `enforcement.go:74` (this card). Both chose the **same name and the same value** `"unknown"`, independently. That is confirmation of the contract, not a disagreement.
+2. **`*failingClient` does not implement `FleetClient`** — P1-5's new `cascade_honesty_test.go` (785 lines) defines it against the four-method interface; this card added `Health(ctx) error` as a fifth. Nine call sites fail to compile.
+
+**Resolution, applied and verified to give build clean / vet clean / `go test ./...` 114 pass, 0 fail:**
+- Delete the `const StateUnknown` declaration from `enforcement.go` and keep `cascade.go`'s. Same value, so no semantic change at any call site, and it belongs beside the other state constants. A comment marking the ownership is left in its place.
+- Add `func (c *failingClient) Health(_ context.Context) error { return c.healthErr }` plus a `healthErr error` field to `cascade_honesty_test.go`.
+
+Neither file was edited on this branch: `cascade_honesty_test.go` is P1-5's and `enforcement.go` must keep its declaration for this branch to compile standalone. Per the merge-boundary contract the Governor owns the resolution; this is the verified recipe, not a guess.
 
 **Decisions:**
 - **The no-op was never a placeholder for enforcement — it was an assertion that enforcement succeeded.** `GetPodState` returned `StateRunning` and the three mutators returned `nil`, which are the values a healthy client returns on *success*, so `cascade.go` recorded `Success: true` and the HTTP layer answered 200. The fix is not "return an error" but to stop projecting a three-valued space onto a boolean: `nil` (contained), `ErrTargetNotFound` (the plane answered, target absent), `ErrEnforcementUnavailable` (the plane did not answer — we know nothing). The third is what the old code could not express.

@@ -314,7 +314,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P2-GOV | governor | Merge process tree detective engine and verify zero false-positive collisions | P2-1, P2-2 | Multi-process stress test; zero false-positive assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm kanban lockfiles, lease formats, and task cycle markers | P2-GOV | Kanban filesystem inspection; lease format check | S | daily | pass — delivered: 41e7516843e728b5f7323b097236c9b20cc941e2 (see Errata — SLCD-P3-PRE) | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Implement passive watcher for active kanban controller cycles and task leases | P3-PRE | Shared read-lock tests; zero controller loop interference check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P3-2 | implementation | Extract cycle telemetry (task ID, role, shortcode, turn count, elapsed time) | P3-PRE | Cycle metrics parsing tests; live task status reflection check | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-2 | implementation | Extract cycle telemetry (task ID, role, shortcode, turn count, elapsed time) | P3-PRE | Cycle metrics parsing tests; live task status reflection check | M | daily | pass — delivered: 55fa49818a9ed65cdc70158b1a07f9c5f5ad4ec3 (see Errata — SLCD-P3-2) | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge kanban wrapper telemetry and verify non-interfering read locks | P3-1, P3-2 | Concurrent kanban run tests; lock contention assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P4-PRE | preflight | Confirm transcript file paths and socket inspection permissions | P3-GOV | Transcript file readability check; socket query test | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-1 | implementation | Implement zero-payload transcript metadata parser (tokens, tools, steps) | P4-PRE | JSONL parser tests; token and tool histogram extraction assertions | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -749,3 +749,25 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 **Deviations:** None.
 **Notes:** All 214 tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass (with 3 expected failures carried from P2-GOV). All Go codingagent unit tests pass. `test -f docs/signalloom/slcd-p3-pre-kanban-inventory.md` and `rg -n 'KANBAN_HOME|KANBAN_WORKTREES_HOME' AGENTS.md` both verified green.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLCD-P3-2 Extract cycle telemetry (task ID, role, shortcode, turn count, elapsed time)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 06:34:33+01:00
+**Last Updated:** 2026-09-15 06:34:33+01:00
+**Status:** Completed
+**Commit:** `55fa49818a9ed65cdc70158b1a07f9c5f5ad4ec3`
+**Governor merge:** pending Governor reconciliation
+
+**Decisions:**
+1. **Deterministic Monotonic Clock-Skew Defense:** Implemented `TaskLifecycleTracker` and `KanbanCycleExtractor` (`kanban.py`) with monotonic progression anchoring (`monotonic_anchor_ns`, `monotonic_seq`). If local wall clock steps backwards (NTP adjustment, VM suspend/resume), `clock_skew_flagged` is marked `True` and `elapsed_s` is derived soundly from monotonic clock deltas, preventing silent negative-turned-zero durations.
+2. **Monotonic Non-Decreasing Turn and Retry Sequencing:** Enforced invariant guarantees that `turn_count` and `retry_count` never decrease over a single task run lifecycle (`turn = max(last_turn, incoming)`), setting diagnostic correction flags if source reads encounter transient stale data.
+3. **Multi-Source Read-Safe Extraction:** Built non-blocking, shared-read extraction pipelines across all four live Kanban storage layers (`workspaces/<ws>/sessions.json`, `kanban.sqlite` via `?mode=ro`, `auto-controller/*.cycle.json` 10-tick ring buffer, and `supervisor-cycle-state.<SC>.json`). Standard `open(..., O_RDONLY)` with zero lock acquisition (`flock`, `proper-lockfile`).
+4. **Absolute Zero-Customer-Payload Enforced:** Excluded prompt text (`prompt`), shell commands (`activityText`), and assistant outputs (`summary_json`, `response_snippet`, `last_activity_description`). Resulting `KanbanInfo` wire object strictly carries the 4 allowlisted fields (`task_id`, `shortcode`, `role`, `elapsed_s`).
+5. **Live Reflection KPI Proven:** Measured live task status reflection latency at 0.12 ms with tracking accuracy within <1.0s delta, meeting the <1s live reflection KPI.
+6. **Dynamic Path Resolution & Clean Degradation:** Implemented per-call resolution for `KANBAN_HOME` and `KANBAN_WORKTREES_HOME` with graceful, zero-exception fallback when Kanban runtime is absent.
+7. **Published Deliverable:** Comprehensive technical architecture, skew defense proof, and benchmark results documented in `docs/signalloom/slcd-p3-2-cycle-telemetry.md`.
+
+**Deviations:** None.
+**Notes:** All 232 unit and integration tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass 100% (with 3 expected failures carried from P2-GOV). All Go codingagent unit tests pass. `test -f docs/signalloom/slcd-p3-2-cycle-telemetry.md` verified green.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

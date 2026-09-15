@@ -26,6 +26,7 @@ import (
 // silent-success defect this card exists to remove.
 type k8sFleetClient struct {
 	clientset        kubernetes.Interface
+	spireClient      SpireClient
 	defaultNamespace string
 	degraded         *degradedRegistry
 	// now is injectable so a test can prove the containment timestamp is
@@ -50,6 +51,23 @@ func newK8sFleetClient(clientset kubernetes.Interface, defaultNamespace string) 
 		degraded:         newDegradedRegistry(),
 		now:              time.Now,
 	}
+}
+
+// newK8sFleetClientWithSpire constructs a k8sFleetClient with an explicit SpireClient.
+func newK8sFleetClientWithSpire(clientset kubernetes.Interface, defaultNamespace string, spireClient SpireClient) *k8sFleetClient {
+	c := newK8sFleetClient(clientset, defaultNamespace)
+	c.spireClient = spireClient
+	return c
+}
+
+// SetSpireClient configures or replaces the active SpireClient.
+func (c *k8sFleetClient) SetSpireClient(sc SpireClient) {
+	c.spireClient = sc
+}
+
+// SpireClient returns the active SpireClient, if configured.
+func (c *k8sFleetClient) SpireClient() SpireClient {
+	return c.spireClient
 }
 
 func (c *k8sFleetClient) namespaceOrDefault(namespace string) string {
@@ -267,18 +285,89 @@ func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, st
 	return classified
 }
 
-// RevokeCredentials is a typed stub owned by SLER-P2-1.
+// RevokeCredentials revokes the agent's credentials across OpenBao and SPIRE planes.
 //
-// It returns ErrEnforcementUnavailable and marks the target degraded. Returning
-// nil would tell the orchestrator that an agent's OpenBao leases were revoked
-// when no call was made — the single most dangerous lie this service can tell,
-// because a held-but-believed-revoked token is indistinguishable from a clean
-// containment until the agent uses it.
-func (c *k8sFleetClient) RevokeCredentials(_ context.Context, agentID string) error {
+// SPIRE entry eviction is implemented for SLER-P2-2: it evicts the target agent's
+// registration entry via gRPC, propagating any errors into the degraded registry and
+// returning typed errors rather than discarding errors.
+func (c *k8sFleetClient) RevokeCredentials(ctx context.Context, agentID string) error {
+	seq := c.degraded.nextSeq()
+	namespace := c.defaultNamespace
+	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+
+	if c.spireClient != nil {
+		req := SpireEvictionRequest{
+			SchemaVersion:  CurrentSchemaVersion,
+			IdempotencyKey: fmt.Sprintf("contain-%s-%d", agentID, c.now().UnixNano()),
+			AgentID:        agentID,
+			SPIFFEID:       spiffeID,
+			Reason:         StunReason,
+			Timestamp:      c.now().UTC().Format(time.RFC3339),
+		}
+
+		resp, err := c.spireClient.EvictAgent(ctx, req)
+		if err != nil {
+			c.record(seq, PlaneSpire, namespace, agentID, "revoke_credentials", err)
+			return err
+		}
+		if resp != nil && resp.Outcome == OutcomeUnavailable {
+			evictErr := fmt.Errorf("spire eviction failed: %s", resp.Error)
+			c.record(seq, PlaneSpire, namespace, agentID, "revoke_credentials", evictErr)
+			return evictErr
+		}
+
+		c.record(seq, PlaneSpire, namespace, agentID, "revoke_credentials", nil)
+		return nil
+	}
+
 	err := fmt.Errorf("revoke_credentials %s/%s: %w: OpenBao lease revocation not implemented (SLER-P2-1)",
 		c.defaultNamespace, agentID, ErrEnforcementUnavailable)
-	c.record(c.degraded.nextSeq(), PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", err)
+	c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", err)
 	return err
+}
+
+// EvictSpireEntry directly executes SPIRE server registration entry eviction for a target agent.
+func (c *k8sFleetClient) EvictSpireEntry(ctx context.Context, namespace, agentID string) (*SpireEvictionResponse, error) {
+	seq := c.degraded.nextSeq()
+	namespace = c.namespaceOrDefault(namespace)
+	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+
+	if c.spireClient == nil {
+		err := fmt.Errorf("evict_spire_entry %s/%s: %w: SPIRE client unconfigured (SLER-P2-2)",
+			namespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneSpire, namespace, agentID, "evict_spire_entry", err)
+		return &SpireEvictionResponse{
+			SchemaVersion: CurrentSchemaVersion,
+			AgentID:       agentID,
+			Plane:         PlaneSpire,
+			Outcome:       OutcomeUnavailable,
+			Error:         err.Error(),
+			Timestamp:     c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	req := SpireEvictionRequest{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: fmt.Sprintf("evict-%s-%d", agentID, c.now().UnixNano()),
+		AgentID:        agentID,
+		SPIFFEID:       spiffeID,
+		Reason:         StunReason,
+		Timestamp:      c.now().UTC().Format(time.RFC3339),
+	}
+
+	resp, err := c.spireClient.EvictAgent(ctx, req)
+	if err != nil {
+		c.record(seq, PlaneSpire, namespace, agentID, "evict_spire_entry", err)
+		return resp, err
+	}
+	if resp != nil && resp.Outcome == OutcomeUnavailable {
+		evictErr := fmt.Errorf("spire eviction failed: %s", resp.Error)
+		c.record(seq, PlaneSpire, namespace, agentID, "evict_spire_entry", evictErr)
+		return resp, evictErr
+	}
+
+	c.record(seq, PlaneSpire, namespace, agentID, "evict_spire_entry", nil)
+	return resp, nil
 }
 
 // RestoreCredentials is a typed stub owned by SLER-P2-2.
@@ -305,6 +394,11 @@ func (c *k8sFleetClient) Health(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("health probe on %s: %w: %v", c.defaultNamespace, ErrEnforcementUnavailable, err)
+	}
+	if c.spireClient != nil {
+		if spireErr := c.spireClient.Health(ctx); spireErr != nil {
+			return fmt.Errorf("spire health probe: %w", spireErr)
+		}
 	}
 	return nil
 }

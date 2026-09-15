@@ -2,7 +2,7 @@
   "artifact": "adversarial-redteam-proof",
   "phase": "Phase 4",
   "card": "CRKC-P4-1",
-  "generated": "2026-09-15T05:32:18Z",
+  "generated": "2026-09-15T06:31:57Z",
   "scenarios_total": 15,
   "scenarios_passed": 15,
   "scenarios_failed": 0,

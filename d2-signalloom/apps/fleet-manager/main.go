@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
 )
 
 // TopologyResponse is the wire format for GET /api/v1/fleet/topology.
@@ -65,16 +67,17 @@ type ErrorResponse struct {
 
 // server holds the shared state for all HTTP handlers.
 type server struct {
-	dag          *DAG
-	orchestrator *CascadeOrchestrator
+	dag               *DAG
+	orchestrator      *CascadeOrchestrator
 	// enforcement records which FleetClient implementation was installed at
 	// startup, so /health can report it rather than infer it. Nil in unit tests
 	// that construct a server directly; handleHealth treats that as
 	// "unconfigured" rather than assuming enforcement works.
-	enforcement  *fleetClientSelection
-	keyRegistry  OperatorKeyRegistry
-	replayLedger *ReplayLedger
-	resumePolicy ResumeTokenPolicy
+	enforcement       *fleetClientSelection
+	keyRegistry       OperatorKeyRegistry
+	replayLedger      *ReplayLedger
+	resumePolicy      ResumeTokenPolicy
+	attestationEngine *attestation.AttestationEngine
 }
 
 // degradedReporter is implemented by the clients that keep a fail-closed
@@ -326,7 +329,7 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		policy = DefaultResumeTokenPolicy(policy.Audience, policy.TrustRootID)
 	}
 
-	resp, err := EnforceResume(r.Context(), req, s.keyRegistry, policy, s.replayLedger, client)
+	resp, err := EnforceResumeWithAttestation(r.Context(), req, s.keyRegistry, policy, s.replayLedger, client, s.attestationEngine)
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		if errors.Is(err, ErrResumeTokenReplayed) {
@@ -492,15 +495,70 @@ func main() {
 	replayLedger := NewReplayLedger()
 	resumePolicy := DefaultResumeTokenPolicy(os.Getenv("FLEET_AUDIENCE"), os.Getenv("OPERATOR_TRUST_ROOT_ID"))
 
+	// Witness Attestation Engine initialization (SLER-P5-1)
+	witnessKeyPath := os.Getenv("WITNESS_KEY_PATH")
+	if witnessKeyPath == "" {
+		for _, p := range []string{".keys/witness.pem", "/etc/witness/witness.pem", "../../../.keys/witness.pem"} {
+			if _, err := os.Stat(p); err == nil {
+				witnessKeyPath = p
+				break
+			}
+		}
+	}
+
+	var witnessSigner attestation.Signer
+	if witnessKeyPath != "" {
+		if s, err := attestation.NewLocalEd25519Signer(witnessKeyPath); err == nil {
+			witnessSigner = s
+			slog.Info("loaded witness attestation key from file", "key_id", s.KeyID(), "path", witnessKeyPath)
+		} else {
+			slog.Warn("failed to load witness key from file; falling back to in-memory key", "path", witnessKeyPath, "error", err)
+		}
+	} else if pemEnv := os.Getenv("WITNESS_KEY_PEM"); pemEnv != "" {
+		if s, err := attestation.NewLocalEd25519SignerFromPEM([]byte(pemEnv)); err == nil {
+			witnessSigner = s
+			slog.Info("loaded witness attestation key from env PEM", "key_id", s.KeyID())
+		}
+	}
+
+	if witnessSigner == nil {
+		inMemSigner, err := attestation.GenerateInMemoryEd25519Signer("witness-inmem-v1")
+		if err != nil {
+			slog.Error("failed to generate in-memory witness signer", "error", err)
+		} else {
+			witnessSigner = inMemSigner
+			slog.Info("initialized in-memory witness attestation signer", "key_id", inMemSigner.KeyID())
+		}
+	}
+
+	var attEngine *attestation.AttestationEngine
+	if witnessSigner != nil {
+		historyStore := attestation.NewKeyHistoryStore()
+		if pubDir := os.Getenv("WITNESS_KEY_HISTORY_DIR"); pubDir != "" {
+			count, _ := historyStore.LoadPublicKeysFromDir(pubDir)
+			slog.Info("loaded historical witness public keys", "count", count, "dir", pubDir)
+		}
+		if eng, err := attestation.NewAttestationEngine(witnessSigner, historyStore, "sler-fleet-manager"); err == nil {
+			attEngine = eng
+			slog.Info("witness attestation engine initialized", "key_id", eng.KeyID())
+		} else {
+			slog.Error("failed to initialize attestation engine", "error", err)
+		}
+	}
+
 	orchestrator := NewCascadeOrchestrator(dag, selection.Client, time.Duration(stepDelayMs)*time.Millisecond)
+	if attEngine != nil {
+		orchestrator.SetAttestationEngine(attEngine)
+	}
 
 	s := &server{
-		dag:          dag,
-		orchestrator: orchestrator,
-		enforcement:  &selection,
-		keyRegistry:  keyReg,
-		replayLedger: replayLedger,
-		resumePolicy: resumePolicy,
+		dag:               dag,
+		orchestrator:      orchestrator,
+		enforcement:       &selection,
+		keyRegistry:       keyReg,
+		replayLedger:      replayLedger,
+		resumePolicy:      resumePolicy,
+		attestationEngine: attEngine,
 	}
 
 	mux := http.NewServeMux()

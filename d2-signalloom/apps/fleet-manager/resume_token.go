@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
 )
 
 // ── Why this file exists ─────────────────────────────────────────────────────
@@ -827,9 +829,15 @@ func ParseResumeToken(tokenStr string) (ResumeToken, error) {
 }
 
 // EnforceResume verifies an attributable governance resume token, enforces atomic replay protection,
+// EnforceResume verifies an attributable governance resume token, enforces atomic replay protection,
 // mandates credential rotation across all credential planes, unfreezes the target agent, and returns
 // an honest ResumeResponse with operator attribution.
 func EnforceResume(ctx context.Context, req ResumeRequest, registry OperatorKeyRegistry, policy ResumeTokenPolicy, ledger *ReplayLedger, client FleetClient) (*ResumeResponse, error) {
+	return EnforceResumeWithAttestation(ctx, req, registry, policy, ledger, client, nil)
+}
+
+// EnforceResumeWithAttestation extends EnforceResume to emit cryptographically attested forensic ledger records (SLER-P5-1).
+func EnforceResumeWithAttestation(ctx context.Context, req ResumeRequest, registry OperatorKeyRegistry, policy ResumeTokenPolicy, ledger *ReplayLedger, client FleetClient, attEngine *attestation.AttestationEngine) (*ResumeResponse, error) {
 	start := time.Now()
 	now := start.UTC()
 
@@ -910,7 +918,66 @@ func EnforceResume(ctx context.Context, req ResumeRequest, registry OperatorKeyR
 	resp.ProcessesResumed = 1
 	resp.LatencyMs = time.Since(start).Milliseconds()
 
-	// 5. Emit machine-readable audit log for P5-1 attestation
+	// 5. Cryptographic Attestation (SLER-P5-1)
+	if attEngine != nil {
+		attReq := attestation.ResumeAttestationRequest{
+			EventID:        fmt.Sprintf("resume-%s-%d", req.AgentID, time.Now().UnixNano()),
+			EventType:      attestation.EventContainmentResumed,
+			IdempotencyKey: req.IdempotencyKey,
+			Authorization: attestation.AuthorizationEvidence{
+				DecisionID:            req.Token.GovernanceApprovalRef,
+				TriggerReason:         "attributable_governance_resume",
+				TriggerDescription:    "Dual-operator attributable governance token presented and verified",
+				TriggeredBy:           strings.Join(operatorIDs, ","),
+				DelegationEdgeRevoked: false,
+			},
+			Target: attestation.TargetIdentity{
+				AgentID:   req.AgentID,
+				Namespace: req.Namespace,
+			},
+			Execution: attestation.ExecutionEvidence{
+				OverallOutcome: "contained",
+				TotalLatencyMs: resp.LatencyMs,
+				Planes: []attestation.PlaneExecutionEvidence{
+					{Plane: "freeze", Outcome: "contained", LatencyMs: resp.LatencyMs},
+				},
+			},
+			GovernanceResume: attestation.GovernanceResumeEvidence{
+				TokenID:               req.Token.TokenID,
+				OperatorIDs:           operatorIDs,
+				GovernanceApprovalRef: req.Token.GovernanceApprovalRef,
+				CredentialsRotated:    resp.CredentialsRotated,
+				ProcessesResumed:      resp.ProcessesResumed,
+				UnfreezeLatencyMs:     resp.LatencyMs,
+			},
+			Timestamp: now,
+		}
+		record, _, err := attEngine.AttestResume(ctx, attReq)
+		if err != nil {
+			slog.Error("witness attestation signing failed for resume", "agent", req.AgentID, "error", err)
+			resp.Success = false
+			resp.Error = fmt.Sprintf("attestation failed: %v", err)
+			return resp, fmt.Errorf("resume attestation failure: %w: %v", attestation.ErrAttestationFailed, err)
+		}
+
+		slog.Info("governance resume decision executed",
+			"event", ResumeDecisionEventName,
+			"agent_id", req.AgentID,
+			"namespace", req.Namespace,
+			"token_id", req.Token.TokenID,
+			"operator_ids", operatorIDs,
+			"governance_approval_ref", req.Token.GovernanceApprovalRef,
+			"idempotency_key", req.IdempotencyKey,
+			"credentials_rotated", resp.CredentialsRotated,
+			"processes_resumed", resp.ProcessesResumed,
+			"success", resp.Success,
+			"latency_ms", resp.LatencyMs,
+			"attested_record_digest", record.Attestation.StatementDigest)
+
+		return resp, nil
+	}
+
+	// 6. Emit machine-readable audit log for un-attested resume (if engine omitted)
 	slog.Info("governance resume decision executed",
 		"event", ResumeDecisionEventName,
 		"agent_id", req.AgentID,
@@ -922,7 +989,8 @@ func EnforceResume(ctx context.Context, req ResumeRequest, registry OperatorKeyR
 		"credentials_rotated", resp.CredentialsRotated,
 		"processes_resumed", resp.ProcessesResumed,
 		"success", resp.Success,
-		"latency_ms", resp.LatencyMs)
+		"latency_ms", resp.LatencyMs,
+		"attested_record_digest", "")
 
 	return resp, nil
 }

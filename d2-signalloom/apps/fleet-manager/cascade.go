@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
 )
 
 // AgentState constants used as pod label values.
@@ -111,11 +113,11 @@ type CascadeResult struct {
 	Events         []StateChangeEvent `json:"events"`
 	// Targets carries the per-target honest record. Events is the lossy
 	// dashboard view of the same data; Targets is the one to assert against.
-	Targets        []TargetOutcome `json:"targets"`
-	Planes         []PlaneResult   `json:"planes,omitempty"`
-	DurationMs     int64           `json:"duration_ms"`
-	RecoveryOrder  []string        `json:"recovery_order,omitempty"`
-	OverallOutcome PlaneOutcome    `json:"overall_outcome,omitempty"`
+	Targets        []TargetOutcome    `json:"targets"`
+	Planes         []PlaneResult      `json:"planes,omitempty"`
+	DurationMs     int64              `json:"duration_ms"`
+	RecoveryOrder  []string           `json:"recovery_order,omitempty"`
+	OverallOutcome PlaneOutcome       `json:"overall_outcome,omitempty"`
 }
 
 // FailedTargets returns the agent IDs whose containment or recovery did not
@@ -168,9 +170,10 @@ type FleetClient interface {
 
 // CascadeOrchestrator sequences stun and recovery operations using the DAG.
 type CascadeOrchestrator struct {
-	dag       *DAG
-	client    FleetClient
-	stepDelay time.Duration
+	dag               *DAG
+	client            FleetClient
+	stepDelay         time.Duration
+	attestationEngine *attestation.AttestationEngine
 }
 
 // NewCascadeOrchestrator creates a new orchestrator.
@@ -180,6 +183,16 @@ func NewCascadeOrchestrator(dag *DAG, client FleetClient, stepDelay time.Duratio
 		client:    client,
 		stepDelay: stepDelay,
 	}
+}
+
+// SetAttestationEngine configures the cryptographic attestation engine.
+func (o *CascadeOrchestrator) SetAttestationEngine(engine *attestation.AttestationEngine) {
+	o.attestationEngine = engine
+}
+
+// AttestationEngine returns the active attestation engine.
+func (o *CascadeOrchestrator) AttestationEngine() *attestation.AttestationEngine {
+	return o.attestationEngine
 }
 
 // classifyOutcome derives the per-target verdict from the three step results.
@@ -367,6 +380,73 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID string) (*Cascad
 	// Include recovery order in result for UI consumption
 	result.RecoveryOrder = o.dag.RecoveryOrder(targets)
 	result.finish(start)
+
+	// Cryptographic Witness Attestation (SLER-P5-1)
+	if o.attestationEngine != nil {
+		planeEvidences := make([]attestation.PlaneExecutionEvidence, 0, len(result.Planes))
+		for _, pr := range result.Planes {
+			planeEvidences = append(planeEvidences, attestation.PlaneExecutionEvidence{
+				Plane:     string(pr.Plane),
+				Outcome:   string(pr.Outcome),
+				LatencyMs: pr.LatencyMs,
+				Error:     pr.Error,
+				Details:   pr.Details,
+			})
+		}
+		if len(planeEvidences) == 0 {
+			for _, t := range result.Targets {
+				planeEvidences = append(planeEvidences, attestation.PlaneExecutionEvidence{
+					Plane:     "freeze",
+					Outcome:   string(t.Outcome),
+					LatencyMs: result.DurationMs,
+					Error:     strings.Join(t.Errors(), "; "),
+				})
+			}
+		}
+
+		targetRef := TargetRef{AgentID: agentID}
+		if a := o.dag.GetAgent(agentID); a != nil {
+			targetRef.Namespace = a.Namespace
+		}
+
+		attReq := attestation.ContainmentAttestationRequest{
+			EventID:        fmt.Sprintf("containment-%s-%d", agentID, time.Now().UnixNano()),
+			EventType:      attestation.EventContainmentCompleted,
+			IdempotencyKey: fmt.Sprintf("contain-%s-%d", agentID, start.UnixNano()),
+			Authorization: attestation.AuthorizationEvidence{
+				DecisionID:            fmt.Sprintf("decision-contain-%s", agentID),
+				TriggerReason:         "cascade_containment_execution",
+				TriggerDescription:    fmt.Sprintf("Autonomous containment cascade executed against agent %s", agentID),
+				TriggeredBy:           "sler-fleet-manager",
+				DelegationEdgeRevoked: true,
+			},
+			Target: attestation.TargetIdentity{
+				AgentID:   targetRef.AgentID,
+				Namespace: targetRef.Namespace,
+			},
+			Execution: attestation.ExecutionEvidence{
+				OverallOutcome: string(result.OverallOutcome),
+				TotalLatencyMs: result.DurationMs,
+				Planes:         planeEvidences,
+			},
+			Timestamp: start.UTC(),
+		}
+
+		record, _, err := o.attestationEngine.AttestContainment(ctx, attReq)
+		if err != nil {
+			slog.Error("witness attestation signing failed for containment", "agent", agentID, "error", err)
+			if result.OverallOutcome == OutcomeContained {
+				result.OverallOutcome = OutcomeUnavailable
+			}
+			return result, fmt.Errorf("attestation failure: %w: %v", attestation.ErrAttestationFailed, err)
+		}
+
+		slog.Info("witness containment attestation record emitted",
+			"agent_id", agentID,
+			"statement_digest", record.Attestation.StatementDigest,
+			"key_id", record.Attestation.KeyID,
+			"overall_outcome", result.OverallOutcome)
+	}
 
 	return result, nil
 }

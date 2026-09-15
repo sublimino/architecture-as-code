@@ -153,20 +153,22 @@ func (e *Emitter) Emit(ev Event) error {
 
 // FreezeObservation is the subset of a cgroup freeze result this package needs.
 type FreezeObservation struct {
-	PodUID      string
-	PodName     string
-	Namespace   string
-	CgroupPath  string
-	Frozen      bool
-	DryRun      bool
-	LatencyMS   float64
-	DeadlineMS  float64
-	Polls       int
-	PIDs        []int
-	HostVeth    string
-	OperatorID  string
-	OperatorIDs []string
-	TokenID     string
+	PodUID        string
+	PodName       string
+	Namespace     string
+	CgroupPath    string
+	Frozen        bool
+	DryRun        bool
+	LatencyMS     float64
+	DeadlineMS    float64
+	Polls         int
+	PIDs          []int
+	HostVeth      string
+	OperatorID    string
+	OperatorIDs   []string
+	TokenID       string
+	AttestationID string
+	WitnessDigest string
 }
 
 // StunExecutionHalted publishes a proven execution halt.
@@ -176,19 +178,21 @@ func (e *Emitter) StunExecutionHalted(obs FreezeObservation) error {
 		decision = "containment_planned_dry_run"
 	}
 	return e.Emit(Event{
-		Event:      EventStunExecutionHalted,
-		PodUID:     obs.PodUID,
-		PodName:    obs.PodName,
-		Namespace:  obs.Namespace,
-		CgroupPath: obs.CgroupPath,
-		Frozen:     true,
-		DryRun:     obs.DryRun,
-		Decision:   decision,
-		LatencyMS:  obs.LatencyMS,
-		DeadlineMS: obs.DeadlineMS,
-		Polls:      obs.Polls,
-		PIDs:       obs.PIDs,
-		HostVeth:   obs.HostVeth,
+		Event:         EventStunExecutionHalted,
+		PodUID:        obs.PodUID,
+		PodName:       obs.PodName,
+		Namespace:     obs.Namespace,
+		CgroupPath:    obs.CgroupPath,
+		Frozen:        true,
+		DryRun:        obs.DryRun,
+		Decision:      decision,
+		LatencyMS:     obs.LatencyMS,
+		DeadlineMS:    obs.DeadlineMS,
+		Polls:         obs.Polls,
+		PIDs:          obs.PIDs,
+		HostVeth:      obs.HostVeth,
+		AttestationID: obs.AttestationID,
+		WitnessDigest: obs.WitnessDigest,
 	})
 }
 
@@ -203,43 +207,47 @@ func (e *Emitter) StunExecutionResumed(obs FreezeObservation) error {
 		opID = obs.OperatorIDs[0]
 	}
 	return e.Emit(Event{
-		Event:       EventStunExecutionResumed,
-		PodUID:      obs.PodUID,
-		PodName:     obs.PodName,
-		Namespace:   obs.Namespace,
-		CgroupPath:  obs.CgroupPath,
-		Frozen:      false,
-		DryRun:      obs.DryRun,
-		Decision:    decision,
-		LatencyMS:   obs.LatencyMS,
-		DeadlineMS:  obs.DeadlineMS,
-		Polls:       obs.Polls,
-		PIDs:        obs.PIDs,
-		HostVeth:    obs.HostVeth,
-		OperatorID:  opID,
-		OperatorIDs: obs.OperatorIDs,
-		TokenID:     obs.TokenID,
+		Event:         EventStunExecutionResumed,
+		PodUID:        obs.PodUID,
+		PodName:       obs.PodName,
+		Namespace:     obs.Namespace,
+		CgroupPath:    obs.CgroupPath,
+		Frozen:        false,
+		DryRun:        obs.DryRun,
+		Decision:      decision,
+		LatencyMS:     obs.LatencyMS,
+		DeadlineMS:    obs.DeadlineMS,
+		Polls:         obs.Polls,
+		PIDs:          obs.PIDs,
+		HostVeth:      obs.HostVeth,
+		OperatorID:    opID,
+		OperatorIDs:   obs.OperatorIDs,
+		TokenID:       obs.TokenID,
+		AttestationID: obs.AttestationID,
+		WitnessDigest: obs.WitnessDigest,
 	})
 }
 
 // StunExecutionHaltFailed publishes a containment failure with its cause.
 func (e *Emitter) StunExecutionHaltFailed(obs FreezeObservation, reason string) error {
 	return e.Emit(Event{
-		Event:      EventStunExecutionHaltFailed,
-		PodUID:     obs.PodUID,
-		PodName:    obs.PodName,
-		Namespace:  obs.Namespace,
-		CgroupPath: obs.CgroupPath,
-		Frozen:     obs.Frozen,
-		DryRun:     obs.DryRun,
-		Decision:   "containment_failed",
-		LatencyMS:  obs.LatencyMS,
-		DeadlineMS: obs.DeadlineMS,
-		Polls:      obs.Polls,
-		PIDs:       obs.PIDs,
-		HostVeth:   obs.HostVeth,
-		Reason:     reason,
-		Error:      reason,
+		Event:         EventStunExecutionHaltFailed,
+		PodUID:        obs.PodUID,
+		PodName:       obs.PodName,
+		Namespace:     obs.Namespace,
+		CgroupPath:    obs.CgroupPath,
+		Frozen:        obs.Frozen,
+		DryRun:        obs.DryRun,
+		Decision:      "containment_failed",
+		LatencyMS:     obs.LatencyMS,
+		DeadlineMS:    obs.DeadlineMS,
+		Polls:         obs.Polls,
+		PIDs:          obs.PIDs,
+		HostVeth:      obs.HostVeth,
+		Reason:        reason,
+		Error:         reason,
+		AttestationID: obs.AttestationID,
+		WitnessDigest: obs.WitnessDigest,
 	})
 }
 

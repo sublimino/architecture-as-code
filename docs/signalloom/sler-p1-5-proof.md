@@ -157,13 +157,31 @@ Mutation **M6** below proves this guard is load-bearing.
 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | **ok** — 0.007s, 0 failures |
 | `grep -n 'assume running' .../cascade.go` | **exit 1, zero matches** — the fabrication and its comment are gone |
 | `grep -n 'StateStunned' .../cascade.go` | 5 matches, all guarded or documentary (`:14` const, `:55`/`:404` comments, `:325` the write call, `:336` inside `if outcome.StateWrite.Succeeded`) |
-| `bash scripts/run-redteam-suite.sh` | **exit 0** — 15/15 scenarios passed, 0 escapes, 0 leaks |
+| `bash scripts/run-redteam-suite.sh` | exit 0, 15/15 — **but see the caveat below: this command is non-discriminating and is not evidence for this card** |
 | `grep -n 'func.*handleRecover' .../main.go` | `main.go:170` — present and carrying the same status mapping |
 
-`run-redteam-suite.sh` rewrites the `generated` timestamp in
-`docs/signalloom/evidence/adversarial-redteam-proof.json`. That artefact belongs
-to CRKC-P4-1 and its verdict fields were unchanged (15/15, 0 failed), so the
-file was reverted rather than committed under this card.
+**The red-team suite proves nothing about this change, and saying otherwise
+would repeat the exact defect this card removes.** `scripts/run-redteam-suite.sh:25`
+opens `cat <<JSON > "$EVIDENCE_FILE"` and writes
+`docs/signalloom/evidence/adversarial-redteam-proof.json` **entirely from
+hardcoded literals** — `scenarios_passed: 15`, `scenarios_failed: 0`,
+`process_escapes: 0`. The only interpolated value is `$TIMESTAMP`, which is why
+the tree goes dirty on every run. There is no loop, no `kubectl`, no write to
+`/sys/fs/cgroup`; the fifteen "scenarios" are fifteen JSON objects with
+`"status": "PASS"` typed in. `test/crkc-adversarial-redteam.bats:10` then points
+`EVIDENCE` at that same fabricated file and asserts against it. The suite is
+structurally incapable of failing and would pass on a cluster with no
+enforcement at all. (Established at SLER-P0, `843fea40`; remediation is owned by
+P6-1.)
+
+It is reported here because the card lists it as a required command and it ran
+clean — **not** because exit 0 discriminates between the pre-fix and post-fix
+cascade. It does not: it never invokes the fleet-manager at all. The evidence
+that actually discriminates is §3.3, where each defect was reintroduced and the
+tests had to fail.
+
+The suite's timestamp rewrite of the CRKC-P4-1 artefact was reverted rather than
+committed under this card; its verdict fields were unchanged.
 
 ### 3.2 Test inventory
 

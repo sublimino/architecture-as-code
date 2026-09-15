@@ -486,7 +486,7 @@ No other app directories, runtime state (`board.json`), or unrelated manifests w
 
 #### Errata — SLER-P1-5 Stop the cascade fabricating success; carry per-plane status and error
 **Created:** 2026-09-15 01:36:29+01:00
-**Last Updated:** 2026-09-15 01:36:29+01:00
+**Last Updated:** 2026-09-15 01:42:10+01:00
 **Status:** Completed
 **Commit:** b53d7d2131721049175ce3bae199fcd5d43c970e
 **Governor merge:** [pending Governor reconciliation]
@@ -507,7 +507,7 @@ No other app directories, runtime state (`board.json`), or unrelated manifests w
 **Evidence:**
 - `cd d2-signalloom/apps/fleet-manager && go test ./...` → **ok**, 69 pass / 0 fail (19 new in `cascade_honesty_test.go`).
 - `grep -n 'assume running' .../cascade.go` → **exit 1, zero matches**.
-- `bash scripts/run-redteam-suite.sh` → **exit 0**, 15/15 scenarios, 0 escapes, 0 leaks. It rewrites the `generated` timestamp in `docs/signalloom/evidence/adversarial-redteam-proof.json`; that artefact is CRKC-P4-1's and its verdict fields were unchanged, so it was reverted rather than committed under this card.
+- `bash scripts/run-redteam-suite.sh` → exit 0, 15/15. **Reported because the card requires the command, not as evidence — it is non-discriminating.** `scripts/run-redteam-suite.sh:25` writes `docs/signalloom/evidence/adversarial-redteam-proof.json` entirely from hardcoded heredoc literals (`scenarios_passed: 15`, `process_escapes: 0`; only `$TIMESTAMP` is interpolated) and `test/crkc-adversarial-redteam.bats:10` asserts against that same file. It never invokes fleet-manager, so it cannot tell the pre-fix cascade from the post-fix one, and would pass on a cluster with no enforcement at all. Established at SLER-P0 (`843fea40`), remediation owned by P6-1. Claiming it as proof here would repeat the very defect this card removes. Its timestamp rewrite of the CRKC-P4-1 artefact was reverted, not committed.
 - **Mutation falsification: 12/12 killed.** Each defect reintroduced into the fixed code one at a time. The harness asserts each anchor matches exactly once before writing, refuses to score a zero-match `-run` regex or a non-compiling mutant, and restores from a `mktemp` backup on `EXIT INT TERM`.
 - Full write-up, benchmark tables and fleet-size comparison: `docs/signalloom/sler-p1-5-proof.md`.
 

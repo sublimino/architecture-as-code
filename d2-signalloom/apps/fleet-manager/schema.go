@@ -324,15 +324,111 @@ type FreezeResponse struct {
 	Timestamp       string           `json:"timestamp"`
 }
 
+// ResumeTokenSignature is one operator's Ed25519 signature over a ResumeToken.
+//
+// The signature covers the token body AND this entry's own OperatorID, KeyID and
+// SignedAt — see SigningInputFor in resume_token.go. Binding the signer's
+// identity into the signed bytes is what makes the token *attributable* rather
+// than merely authentic. If the signature covered only the body, an attacker
+// holding one valid token could move the signature bytes into a different
+// signatures[] entry and rewrite operator_id to name somebody else; the
+// signature would still verify and the forensic record would name the wrong
+// human. That is the exact property this card exists to deliver, so it is
+// cryptographic, not conventional.
+type ResumeTokenSignature struct {
+	// OperatorID is the signer's identity, normatively a SPIFFE ID.
+	OperatorID string `json:"operator_id"`
+	// KeyID is the self-certifying key handle "sha256:<hex>" over the raw
+	// 32-byte Ed25519 public key. Self-certifying so a verifier can detect a
+	// registry that has been re-pointed at an attacker's key.
+	KeyID string `json:"key_id"`
+	// Algorithm MUST be ResumeTokenAlgEd25519. Present so an unknown algorithm
+	// is rejected explicitly rather than assumed, and so a post-quantum
+	// migration is representable without a breaking change.
+	Algorithm string `json:"alg"`
+	// SignedAt is RFC3339 UTC, covered by the signature.
+	SignedAt string `json:"signed_at"`
+	// Signature is the raw 64-byte Ed25519 signature, base64 std-encoded
+	// (with padding). See ResumeTokenSignatureEncoding.
+	Signature string `json:"signature"`
+}
+
 // ResumeToken carries an attributable governance token required to reverse a stun.
+//
+// Every field below is part of the signed body except Signatures itself and the
+// two scalar projections. The claim set is deliberately explicit: a claim that
+// is not signed cannot be relied on, and a claim that is not present cannot be
+// checked.
+//
+// The scalar OperatorID/Signature pair predates SLER-P1-3 and is retained: it is
+// the FIRST signer's projection, so a single-operator break-glass token remains
+// representable without an array, and a field a sibling card shipped one commit
+// ago is not removed for tidiness. The duplication is made safe by an enforced
+// invariant (ValidateStructure) rather than by convention — Signatures[0] must
+// agree with both scalars or the token is malformed.
 type ResumeToken struct {
-	TokenID               string `json:"token_id"`
-	AgentID               string `json:"agent_id"`
+	// SchemaVersion makes a detached token self-describing. ResumeRequest also
+	// carries one; a token lifted out of its request must still be checkable.
+	SchemaVersion string `json:"schema_version"`
+	TokenID       string `json:"token_id"`
+	// Algorithm MUST be ResumeTokenAlgEd25519 and must agree with every entry
+	// in Signatures.
+	Algorithm string `json:"alg"`
+	// AgentID and Namespace together are the target binding. Namespace is not
+	// optional: without it a token minted for agent-x in a staging namespace
+	// resumes agent-x in production.
+	AgentID   string `json:"agent_id"`
+	Namespace string `json:"namespace"`
+	// Audience names the cluster or sentinel fleet the token is valid at.
+	Audience string `json:"audience"`
+	// OperatorID is the first signer's identity — see Signatures.
 	OperatorID            string `json:"operator_id"`
 	GovernanceApprovalRef string `json:"governance_approval_ref"`
 	IssuedAt              string `json:"issued_at"`
 	ExpiresAt             string `json:"expires_at"`
-	Signature             string `json:"signature"`
+	// Nonce is base64 std-encoded and MUST decode to at least
+	// ResumeTokenMinNonceBytes of entropy. One encoding, not "hex or base64":
+	// an alternative permitted by the spec is an alternative two
+	// implementations can disagree about. It makes two otherwise-identical
+	// tokens distinguishable, which
+	// is what lets a verifier keep a single-use ledger without that ledger
+	// collapsing legitimate retries — see the replay rule in the frozen
+	// contract document.
+	Nonce string `json:"nonce"`
+	// TrustRootID names the operator-key trust root under which the minter
+	// expects this token to be verified. The verifier MUST reject a token
+	// naming a trust root other than its own pinned one.
+	//
+	// It exists because the self-certifying KeyID closes registry MIS-INDEXING
+	// (an entry re-pointed at another key) but NOT a registry-WRITE adversary:
+	// someone who can add a whole entry binding their own key to a victim's
+	// operator_id passes every other check cleanly. No token format can close
+	// that — it is a trust-root problem — but naming the root in the signed
+	// body makes the pinning obligation part of the wire contract instead of an
+	// assumption, and converts a silent substitution under a different root
+	// into an explicit rejection. See the residual recorded in
+	// docs/signalloom/sler-p1-3-frozen-contract.md §7.
+	TrustRootID string `json:"trust_root_id"`
+	// RequiredSignatures is the approval threshold recorded AT MINT TIME, from
+	// the governance approval this token executes.
+	//
+	// The verifier enforces max(its own policy, this value), never this value
+	// alone. That asymmetry is the whole point: the token may RAISE the bar but
+	// can never lower it, so an attacker minting a token that claims 1 gains
+	// nothing, while a genuine two-approval token that has had a signature
+	// STRIPPED now fails — because the surviving body still says two were
+	// required. Without this claim, "every signature must verify" is a validity
+	// predicate and not a quorum predicate, and a stripped token is
+	// indistinguishable from a legitimate single-operator one in the attested
+	// record.
+	RequiredSignatures int `json:"required_signatures"`
+	// Signature is the first signer's signature — see Signatures.
+	Signature string `json:"signature"`
+	// Signatures carries every signer. A dual-control policy requires at least
+	// two entries with DISTINCT OperatorID and DISTINCT KeyID; counting
+	// signatures rather than distinct operators would be satisfied by one
+	// operator holding two keys, which is not dual control.
+	Signatures []ResumeTokenSignature `json:"signatures"`
 }
 
 // ResumeRequest defines the wire request to unfreeze a stunned agent.

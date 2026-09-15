@@ -1,0 +1,1022 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalloom.io/schemas/sler.signalloom.io/v1alpha1/sler-enforcement-wire-contract.json",
+  "title": "SLER enforcement wire contract (FROZEN)",
+  "description": "Machine-readable form of the SLER enforcement wire contract, frozen by SLER-P1-3 at sler.signalloom.io/v1alpha1. Normative prose: docs/signalloom/sler-p1-3-frozen-contract.md. Generated once from the Go types and thereafter static; d2-signalloom/apps/fleet-manager/contract_freeze_test.go diffs this file against those types on every run, so drift fails the build rather than surviving as an out-of-date artefact. Any field addition needs a MINOR bump (v1alpha2) and any rename, removal or retype needs a MAJOR bump (v1), both approved by the P1-GOV governor.",
+  "x-schema-version": "sler.signalloom.io/v1alpha1",
+  "x-frozen-by": "SLER-P1-3",
+  "x-signature-encoding": "base64(std,padded) of raw 64-byte ed25519 signature",
+  "x-resume-token-signing-domain": "sler.signalloom.io/resume-token/v1alpha1",
+  "$defs": {
+    "PlaneOutcome": {
+      "description": "Tri-state-plus outcome of one enforcement action. 'unavailable' means the plane did not answer and the target's state is UNKNOWN; 'not_found' means the plane answered and there was nothing to contain. They are deliberately distinct: the first sends an operator to check plane connectivity, the second sends them to check their targeting.",
+      "type": "string",
+      "enum": [
+        "contained",
+        "partial",
+        "unavailable",
+        "not_found"
+      ]
+    },
+    "EnforcementPlane": {
+      "description": "The five enforcement planes a containment decision fans out to. Frozen complete: mesh (network isolation), bao (OpenBao lease revocation), spire (SVID entry eviction), admission (readmission block), freeze (cgroup v2 process freeze).",
+      "type": "string",
+      "enum": [
+        "mesh",
+        "bao",
+        "spire",
+        "admission",
+        "freeze"
+      ]
+    },
+    "PlaneResult": {
+      "description": "Per-plane containment result. Carries its own outcome and error so a partial containment is representable.",
+      "type": "object",
+      "properties": {
+        "plane": {
+          "$ref": "#/$defs/EnforcementPlane"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "error": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "plane",
+        "outcome",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "TargetRef": {
+      "description": "Identifies the workload being contained.",
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "pod_name": {
+          "type": "string"
+        },
+        "spiffe_id": {
+          "type": "string"
+        },
+        "node_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "namespace"
+      ],
+      "additionalProperties": false
+    },
+    "ContainmentReason": {
+      "description": "Why containment fired, including the attested evidence digest.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "triggered_by": {
+          "type": "string"
+        },
+        "delegation_edge_revoked": {
+          "type": "boolean"
+        },
+        "attestation_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "description",
+        "triggered_by",
+        "delegation_edge_revoked"
+      ],
+      "additionalProperties": false
+    },
+    "ContainmentDecision": {
+      "description": "Top-level dispatch and aggregation envelope for a multi-plane containment.",
+      "type": "object",
+      "properties": {
+        "decision_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/TargetRef"
+        },
+        "reason": {
+          "$ref": "#/$defs/ContainmentReason"
+        },
+        "requested_planes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnforcementPlane"
+          }
+        },
+        "plane_results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlaneResult"
+          }
+        },
+        "overall_outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "attested_record_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision_id",
+        "schema_version",
+        "idempotency_key",
+        "target",
+        "reason",
+        "requested_planes",
+        "plane_results",
+        "overall_outcome",
+        "duration_ms",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "MeshIsolationRequest": {
+      "description": "Wire request to the mesh plane (Cilium / Istio / Envoy Gateway AuthorizationPolicy).",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "pod_name": {
+          "type": "string"
+        },
+        "spiffe_id": {
+          "type": "string"
+        },
+        "target_ips": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "namespace",
+        "reason",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "MeshIsolationResponse": {
+      "description": "Wire response from the mesh plane.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/EnforcementPlane"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "policy_applied": {
+          "type": "boolean"
+        },
+        "connections_cut": {
+          "type": "integer"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "plane",
+        "outcome",
+        "policy_applied",
+        "connections_cut",
+        "latency_ms",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "BaoRevokeRequest": {
+      "description": "Wire request to OpenBao for active lease and token revocation.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "lease_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "token_accessor": {
+          "type": "string"
+        },
+        "revoke_all_tokens": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "reason",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "BaoRevokeResponse": {
+      "description": "Wire response from OpenBao revocation.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/EnforcementPlane"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "revoked_leases": {
+          "type": "integer"
+        },
+        "tokens_invalidated": {
+          "type": "integer"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "plane",
+        "outcome",
+        "revoked_leases",
+        "tokens_invalidated",
+        "latency_ms",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "SpireEvictionRequest": {
+      "description": "Wire request to evict SPIRE registration entries and invalidate SVIDs.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "spiffe_id": {
+          "type": "string"
+        },
+        "entry_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "spiffe_id",
+        "reason",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "SpireEvictionResponse": {
+      "description": "Wire response from SPIRE entry eviction.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/EnforcementPlane"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "entries_evicted": {
+          "type": "integer"
+        },
+        "svids_invalidated": {
+          "type": "integer"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "plane",
+        "outcome",
+        "entries_evicted",
+        "svids_invalidated",
+        "latency_ms",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "AdmissionBlockRequest": {
+      "description": "Wire request to block pod reconstitution at the admission webhook.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "spiffe_id": {
+          "type": "string"
+        },
+        "match_labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "ttl_seconds": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "namespace",
+        "reason",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "AdmissionBlockResponse": {
+      "description": "Wire response from the admission controller.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/EnforcementPlane"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "block_enforced": {
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "plane",
+        "outcome",
+        "block_enforced",
+        "latency_ms",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "FreezeRequest": {
+      "description": "Wire request to the stun sentinel for an in-place cgroup v2 / SIGSTOP freeze.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "pod_name": {
+          "type": "string"
+        },
+        "container_id": {
+          "type": "string"
+        },
+        "cgroup_path": {
+          "type": "string"
+        },
+        "freeze_method": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "namespace",
+        "reason",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "FreezeResponse": {
+      "description": "Wire response from the stun sentinel freeze engine.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/EnforcementPlane"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "processes_frozen": {
+          "type": "integer"
+        },
+        "cgroup_state": {
+          "type": "string"
+        },
+        "memory_preserved": {
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "plane",
+        "outcome",
+        "processes_frozen",
+        "memory_preserved",
+        "latency_ms",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "ResumeTokenSignature": {
+      "description": "One operator's Ed25519 signature. The signature covers the token body AND this entry's own operator_id, key_id, alg and signed_at, so a signature cannot be transplanted onto a different signer's entry.",
+      "type": "object",
+      "properties": {
+        "operator_id": {
+          "description": "Signer identity, normatively a SPIFFE ID. The verifier MUST confirm the registry agrees this key belongs to this operator.",
+          "type": "string"
+        },
+        "key_id": {
+          "description": "Self-certifying handle \"sha256:<lowercase hex of SHA-256 over the raw 32-byte public key>\". The verifier MUST recompute it.",
+          "type": "string"
+        },
+        "alg": {
+          "description": "MUST be \"ed25519\".",
+          "type": "string"
+        },
+        "signed_at": {
+          "description": "RFC3339 UTC. Covered by this signature.",
+          "type": "string"
+        },
+        "signature": {
+          "description": "Raw 64-byte Ed25519 signature (RFC 8032 R||S), base64 std-encoded with padding: exactly 88 characters. Not hex, not base64url, not DER.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operator_id",
+        "key_id",
+        "alg",
+        "signed_at",
+        "signature"
+      ],
+      "additionalProperties": false
+    },
+    "ResumeToken": {
+      "description": "Attributable governance token required to reverse a stun. Replaces the shared-secret bearer credential (STUN_RESUME_TOKEN), which is structurally incapable of attribution because every operator presents identical bytes.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "description": "MUST be \"sler.signalloom.io/v1alpha1\". A detached token must still be checkable.",
+          "type": "string"
+        },
+        "token_id": {
+          "description": "Unique token identity. The verifier MUST enforce single use on this value.",
+          "type": "string"
+        },
+        "alg": {
+          "description": "MUST be \"ed25519\". Carried so an unknown algorithm is rejected rather than assumed.",
+          "type": "string"
+        },
+        "agent_id": {
+          "description": "Target agent. Bound by the signature.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Target namespace. Not optional: without it a staging token resumes a production agent of the same name.",
+          "type": "string"
+        },
+        "audience": {
+          "description": "The cluster or sentinel fleet this token is valid at.",
+          "type": "string"
+        },
+        "operator_id": {
+          "description": "First signer's identity, normatively a SPIFFE ID. MUST equal signatures[0].operator_id.",
+          "type": "string"
+        },
+        "governance_approval_ref": {
+          "description": "Reference to the governance approval this resume is executing.",
+          "type": "string"
+        },
+        "issued_at": {
+          "description": "RFC3339 UTC. Covered by the signature.",
+          "type": "string"
+        },
+        "expires_at": {
+          "description": "RFC3339 UTC. Covered by the signature. The verifier caps expires_at - issued_at by policy.",
+          "type": "string"
+        },
+        "nonce": {
+          "description": "base64(std) and MUST decode to at least 16 bytes of entropy.",
+          "type": "string"
+        },
+        "trust_root_id": {
+          "description": "Names the operator-key trust root the minter expects the verifier to pin. The verifier MUST reject a token naming a different root. Closes silent registry substitution under a different root; does NOT close an adversary who can write the pinned registry — see frozen-contract section 7.",
+          "type": "string"
+        },
+        "required_signatures": {
+          "description": "The approval threshold recorded at mint time. The verifier enforces max(its own policy, this value) — the token may RAISE the bar, never lower it. Without it, stripping one signature from a genuine dual-approval token yields something indistinguishable from a legitimate single-operator resume.",
+          "type": "integer"
+        },
+        "signature": {
+          "description": "First signer's signature. MUST equal signatures[0].signature.",
+          "type": "string"
+        },
+        "signatures": {
+          "description": "Every signer. A dual-control policy requires at least two entries with DISTINCT operator_id AND DISTINCT key_id — counting signatures rather than distinct operators is satisfied by one operator holding two keys.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResumeTokenSignature"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "token_id",
+        "alg",
+        "agent_id",
+        "namespace",
+        "audience",
+        "operator_id",
+        "governance_approval_ref",
+        "issued_at",
+        "expires_at",
+        "nonce",
+        "trust_root_id",
+        "required_signatures",
+        "signature",
+        "signatures"
+      ],
+      "additionalProperties": false
+    },
+    "ResumeRequest": {
+      "description": "Wire request to unfreeze a contained agent.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "token": {
+          "$ref": "#/$defs/ResumeToken"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "namespace",
+        "token",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "ResumeResponse": {
+      "description": "Wire response after unfreezing. credentials_rotated MUST be true before success is reported.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "processes_resumed": {
+          "type": "integer"
+        },
+        "credentials_rotated": {
+          "description": "MUST be true before success is reported. Resuming an agent on the credentials that were live when it misbehaved defeats the revocation half of containment.",
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "idempotency_key",
+        "agent_id",
+        "success",
+        "processes_resumed",
+        "credentials_rotated",
+        "latency_ms",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "StepResult": {
+      "description": "One step of a per-target attempt. 'attempted' and 'succeeded' are separate so 'we did not try' never reads as 'it did not work'.",
+      "type": "object",
+      "properties": {
+        "attempted": {
+          "type": "boolean"
+        },
+        "succeeded": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempted",
+        "succeeded"
+      ],
+      "additionalProperties": false
+    },
+    "TargetOutcome": {
+      "description": "Honest per-target record of a containment or recovery attempt.",
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "from_state": {
+          "type": "string"
+        },
+        "to_state": {
+          "type": "string"
+        },
+        "state_read": {
+          "$ref": "#/$defs/StepResult"
+        },
+        "credential": {
+          "$ref": "#/$defs/StepResult"
+        },
+        "state_write": {
+          "$ref": "#/$defs/StepResult"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "operation",
+        "outcome",
+        "from_state",
+        "to_state",
+        "state_read",
+        "credential",
+        "state_write",
+        "timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "StateChangeEvent": {
+      "description": "Lossy dashboard-facing view of one state transition. Assert against TargetOutcome, not this.",
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "from_state": {
+          "type": "string"
+        },
+        "to_state": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "from_state",
+        "to_state",
+        "timestamp",
+        "success"
+      ],
+      "additionalProperties": false
+    },
+    "CascadeResult": {
+      "description": "Response payload of /api/v1/fleet/stun and /api/v1/fleet/recover.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "target_agent": {
+          "type": "string"
+        },
+        "affected_agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StateChangeEvent"
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TargetOutcome"
+          }
+        },
+        "planes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlaneResult"
+          }
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "recovery_order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "overall_outcome": {
+          "$ref": "#/$defs/PlaneOutcome"
+        }
+      },
+      "required": [
+        "target_agent",
+        "affected_agents",
+        "events",
+        "targets",
+        "duration_ms"
+      ],
+      "additionalProperties": false
+    },
+    "DegradedTarget": {
+      "description": "Fail-closed record written when a plane could not be reached for a specific target.",
+      "type": "object",
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/TargetRef"
+        },
+        "result": {
+          "$ref": "#/$defs/PlaneResult"
+        }
+      },
+      "required": [
+        "target",
+        "result"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

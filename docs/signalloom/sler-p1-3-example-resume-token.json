@@ -1,0 +1,32 @@
+{
+  "schema_version": "sler.signalloom.io/v1alpha1",
+  "token_id": "rt-2026-09-15-0001",
+  "alg": "ed25519",
+  "agent_id": "agent-llm-classifier",
+  "namespace": "fe-signalloom-agents",
+  "audience": "signalloom-fleet/local",
+  "operator_id": "spiffe://signalloom.io/operator/alice",
+  "governance_approval_ref": "CHG-2026-09-15-0042",
+  "issued_at": "2026-09-15T11:58:00Z",
+  "expires_at": "2026-09-15T12:08:00Z",
+  "nonce": "c2xlci1wMS0zLW5vbmNlIQ==",
+  "trust_root_id": "signalloom-operator-root/2026-q3",
+  "required_signatures": 2,
+  "signature": "hr61z8XnzSZXGbh3PwB7eiI/FBbt3Ng5DAx9yQi4rkSUEkSVezIRM0zLS34UXDsmgY3tETs3zj5J8KgOV6RyDA==",
+  "signatures": [
+    {
+      "operator_id": "spiffe://signalloom.io/operator/alice",
+      "key_id": "sha256:4cb7276c1f5758db38e433493ade1e12014c6449780fe8180b2e5737384d3c33",
+      "alg": "ed25519",
+      "signed_at": "2026-09-15T11:58:00Z",
+      "signature": "hr61z8XnzSZXGbh3PwB7eiI/FBbt3Ng5DAx9yQi4rkSUEkSVezIRM0zLS34UXDsmgY3tETs3zj5J8KgOV6RyDA=="
+    },
+    {
+      "operator_id": "spiffe://signalloom.io/operator/bob",
+      "key_id": "sha256:21a8dda46660921e112362713bb26d1602bf6a103a8a627b0f5eb85939038fc3",
+      "alg": "ed25519",
+      "signed_at": "2026-09-15T11:58:30Z",
+      "signature": "lJBkOdq3rGkBqzo9Wufp8fsijNPofz/VZ/8XPBXLNKdX3MdDB9BzP5hbFjZADYjDOOAkHtb1MVxRXJi7H0I/AA=="
+    }
+  ]
+}

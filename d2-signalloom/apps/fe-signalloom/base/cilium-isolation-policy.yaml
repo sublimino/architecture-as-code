@@ -1,0 +1,32 @@
+# CiliumNetworkPolicy for dynamic mesh isolation of contained/stunned agents.
+#
+# Part of Signal Loom Enforcement and Response (SLER-P3-1).
+# Applied declaratively via Flux GitOps reconciliation.
+#
+# Scoped specifically to agents in fe-signalloom-agents carrying the stunned state
+# (signalloom.ai/agent: "true" AND signalloom.ai/state: "stunned").
+# When an agent is contained, fleet-manager patches the state label to "stunned",
+# causing Cilium eBPF to immediately enforce default-deny ingress and egress
+# on the matching pod endpoint. In-flight TCP connections are severed via
+# conntrack.FlushIP.
+#
+# When an agent is resumed/un-stunned, the state label transitions back to "active"
+# or "idle", removing the pod from this policy selector and restoring connectivity.
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: agent-containment-mesh-isolation
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-mesh-isolation
+    app.kubernetes.io/component: containment
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/managed-by: fleet-manager
+spec:
+  description: "Denies all ingress and egress network traffic for contained/stunned agents"
+  endpointSelector:
+    matchLabels:
+      signalloom.ai/agent: "true"
+      signalloom.ai/state: "stunned"
+  ingress: []
+  egress: []

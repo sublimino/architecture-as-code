@@ -22,6 +22,9 @@ DOCS_APP="${REPO_ROOT}/d2-signalloom/apps/docs-signalloom"
 TEST_DIR="${REPO_ROOT}/test/acceptance"
 PORT="${DOCS_PREVIEW_PORT:-4325}"
 PREVIEW_PID=""
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-/tmp/.config}"
+export BUN_TMPDIR="${BUN_TMPDIR:-/tmp}"
+export PW_CHANNEL="${PW_CHANNEL:-chromium}"
 
 cleanup() {
   if [[ -n "${PREVIEW_PID}" ]]; then
@@ -42,7 +45,7 @@ echo "==> [3/4] Serving dist on 127.0.0.1:${PORT}"
 # setsid plus all three fds redirected. Without setsid the child dies with this
 # shell's session; without the fd redirection it keeps writing into whatever
 # stream the caller handed us, which makes a harness read the run as unfinished.
-setsid env ASTRO_TELEMETRY_DISABLED=1 bunx astro preview \
+setsid env ASTRO_TELEMETRY_DISABLED=1 XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-/tmp/.config}" bun run --cwd "${DOCS_APP}" astro preview \
   --root "${DOCS_APP}" --port "${PORT}" --host 127.0.0.1 \
   </dev/null >/dev/null 2>&1 &
 PREVIEW_PID=$!

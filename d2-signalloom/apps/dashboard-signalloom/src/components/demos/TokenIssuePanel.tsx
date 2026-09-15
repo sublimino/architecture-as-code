@@ -9,7 +9,7 @@ import {
   HAPPY_PATH_PRESET,
   type ScenarioPreset,
 } from './scenarios'
-import type { OperatorInitPayload } from './types'
+import { UNATTRIBUTED_OPERATOR_LABEL, type OperatorInitPayload } from './types'
 
 export interface TokenIssuePanelProps {
   readonly bridge: DemoBridge
@@ -53,13 +53,18 @@ export function TokenIssuePanel({
     })
   }, [bridge.channelKind, preset.id, preset.agent_id])
 
-  // Attributable issuance: names triggering operator or explicit mock principal
+  // Attributable issuance: names the triggering operator or the explicit mock principal.
+  // The live branch must name a principal the session authenticated; when none is
+  // available it renders UNATTRIBUTED_OPERATOR_LABEL rather than inventing an account.
   const operatorAttribution = useMemo(() => {
     if (bridge.channelKind === 'mock') {
       return `Mock Operator (${preset.tenant_id})`
     }
-    return operatorId || 'operator-admin@signalloom.internal'
+    return operatorId?.trim() || UNATTRIBUTED_OPERATOR_LABEL
   }, [bridge.channelKind, preset.tenant_id, operatorId])
+
+  const isAttributed =
+    bridge.channelKind === 'mock' || Boolean(operatorId?.trim())
 
   // Live ticking countdown for token TTL
   useEffect(() => {
@@ -258,7 +263,15 @@ export function TokenIssuePanel({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: colors.muted }}>Triggering Operator:</span>
-              <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+              <span
+                data-testid="token-attribution-principal"
+                data-attributed={isAttributed ? 'true' : 'false'}
+                style={{
+                  fontFamily: 'monospace',
+                  fontWeight: 600,
+                  color: isAttributed ? colors.electricWhite : colors.amber,
+                }}
+              >
                 {operatorAttribution}
               </span>
             </div>

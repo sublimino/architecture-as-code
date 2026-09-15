@@ -1,10 +1,39 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import StageProgressionController from '../components/demos/StageProgressionController'
+import { TokenIssuePanel } from '../components/demos/TokenIssuePanel'
+import { EnrollmentPanel } from '../components/demos/EnrollmentPanel'
 import {
   STAGE_METADATA,
 } from '../components/demos/types'
+import { useAuth0 } from '../auth/oidc'
+
+/**
+ * The principal a live-channel issuance or enrollment record is attributed to.
+ *
+ * Read from the authenticated OIDC profile, never from a constant. Returns `undefined`
+ * when the session has authenticated nobody, which the panels render as an explicit
+ * unattributed marker — a demo console that fabricates an operator name is indisputably
+ * worse than one that admits it has none.
+ */
+export function deriveOperatorPrincipal(
+  profile: Record<string, unknown> | undefined,
+): string | undefined {
+  const claim = (key: string): string =>
+    typeof profile?.[key] === 'string' ? (profile[key] as string).trim() : ''
+  return claim('email') || claim('preferred_username') || claim('sub') || undefined
+}
+
+function useOperatorPrincipal(): string | undefined {
+  const { user } = useAuth0()
+  return useMemo(
+    () => deriveOperatorPrincipal(user as Record<string, unknown> | undefined),
+    [user],
+  )
+}
 
 export const AgentMaxxingDemoPage: React.FC = () => {
+  const operatorPrincipal = useOperatorPrincipal()
+
   return (
     <div
       data-testid="agentmaxxing-demo-page"
@@ -43,7 +72,15 @@ export const AgentMaxxingDemoPage: React.FC = () => {
       {/* Main Interactive Progression Controller */}
       <main className="space-y-6">
         <StageProgressionController>
-          {({ activeViewStage, state, bridge, inFlight, canAdvance, advance }) => {
+          {({
+            activeViewStage,
+            state,
+            bridge,
+            inFlight,
+            canAdvance,
+            advance,
+            recordStagePayload,
+          }) => {
             const meta = STAGE_METADATA[activeViewStage]
             const isConfirmed = state.stageStatuses[activeViewStage] === 'confirmed'
             const isInFlight = state.stageStatuses[activeViewStage] === 'in_flight'
@@ -86,7 +123,47 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Stage Specific Panel Placeholder / Telemetry Frame */}
+                {/* Stage 1 — AMXD-P2-2 TokenIssuePanel.
+                    `operator_init` is pre-confirmed at boot and is never a target of the
+                    controller's advance(), so this panel performs the stage itself and
+                    hands the result back through recordStagePayload — otherwise the
+                    header reports the stage confirmed while stagePayloads stays empty. */}
+                {activeViewStage === 'operator_init' && (
+                  <TokenIssuePanel
+                    bridge={bridge}
+                    preset={bridge.preset}
+                    inFlight={inFlight}
+                    operatorId={operatorPrincipal}
+                    initialPayload={state.stagePayloads.operator_init ?? null}
+                    onIssued={(issued) => recordStagePayload('operator_init', issued)}
+                  />
+                )}
+
+                {/* Stage 2 — AMXD-P2-2 EnrollmentPanel, rendered as the RESULT of the
+                    transition. `host_enrolled` is a controller advance target, so by the
+                    time this panel mounts the controller has already run
+                    bridge.advance('host_enrolled') and the resolved payload is in the
+                    reducer; the panel reads it back through initialPayload.
+
+                    KNOWN OPEN DEFECT (AMXD-P2-GOV, handed to AMXD-P3-GOV): the panel's own
+                    "Enroll Host" button still calls bridge.advance('host_enrolled')
+                    directly, so a second click re-advances the bridge without the reducer
+                    knowing. It is NOT wired to the controller here because the controller's
+                    advance() means "go to the NEXT stage", which is the wrong verb for an
+                    enroll button. Fixing it needs a controlled/read-only mode on the panel,
+                    which is a P2-2 component change beyond this governor's surgical scope. */}
+                {activeViewStage === 'host_enrolled' && (
+                  <EnrollmentPanel
+                    bridge={bridge}
+                    preset={bridge.preset}
+                    inFlight={inFlight}
+                    operatorId={operatorPrincipal}
+                    initialPayload={state.stagePayloads.host_enrolled ?? null}
+                  />
+                )}
+
+                {/* Stages 3-5 — generic telemetry frame. AMXD-P3/P4 own these panels. */}
+                {activeViewStage !== 'operator_init' && activeViewStage !== 'host_enrolled' && (
                 <div className="min-h-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5 flex flex-col justify-between">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-xs font-mono text-[var(--muted)] border-b border-[var(--border)]/50 pb-2">
@@ -96,8 +173,6 @@ export const AgentMaxxingDemoPage: React.FC = () => {
 
                     <div className="py-4 space-y-2">
                       <div className="text-sm font-medium text-[var(--text)]">
-                        {activeViewStage === 'operator_init' && 'Operator Token Issuance & Attribution'}
-                        {activeViewStage === 'host_enrolled' && 'Ed25519 Cryptographic Host Sensor Enrollment'}
                         {activeViewStage === 'confinement_streaming' && 'Landlock LSM Telemetry & SHA-256 Hashing'}
                         {activeViewStage === 'adversarial_tamper' && 'Simulated Hash Mismatch & Boundary Alert'}
                         {activeViewStage === 'revocation_denied' && 'Attributable Revocation & 403 Forbidden Upload Denial'}
@@ -137,6 +212,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                     )}
                   </div>
                 </div>
+                )}
               </section>
             )
           }}

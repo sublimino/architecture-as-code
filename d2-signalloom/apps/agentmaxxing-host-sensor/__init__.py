@@ -55,6 +55,15 @@ try:
         ObservationState,
         ProcessTelemetryEvent,
     )
+    from .kanban import (
+        CycleObservation,
+        CycleObservationSource,
+        KanbanCycleExtractor,
+        TaskLifecycleTracker,
+        get_kanban_home,
+        get_kanban_worktrees_home,
+        is_kanban_available,
+    )
     from .openat2 import get_statx_mnt_id, open_beneath, query_statx
     from .proc import ProcReader
     from .ratelimit import RateLimiter
@@ -99,6 +108,15 @@ except (ImportError, ValueError):
         ObservationState,
         ProcessTelemetryEvent,
     )
+    from kanban import (
+        CycleObservation,
+        CycleObservationSource,
+        KanbanCycleExtractor,
+        TaskLifecycleTracker,
+        get_kanban_home,
+        get_kanban_worktrees_home,
+        is_kanban_available,
+    )
     from openat2 import get_statx_mnt_id, open_beneath, query_statx
     from proc import ProcReader
     from ratelimit import RateLimiter
@@ -114,6 +132,8 @@ __all__ = [
     "CgroupV2Reader",
     "ClassificationClaim",
     "CollectionLimitRecord",
+    "CycleObservation",
+    "CycleObservationSource",
     "EligibilityStatus",
     "EvidenceType",
     "ExportSource",
@@ -127,6 +147,7 @@ __all__ = [
     "HostSensor",
     "IntegrityState",
     "InvalidArtifactError",
+    "KanbanCycleExtractor",
     "NullProtocolCorroborator",
     "ObservationState",
     "PinnedRoot",
@@ -139,9 +160,13 @@ __all__ = [
     "RejectionReason",
     "SessionMarkerCorroborator",
     "TOCTOURaceDetectedError",
+    "TaskLifecycleTracker",
     "ValidationResult",
     "filter_process_attributes",
+    "get_kanban_home",
+    "get_kanban_worktrees_home",
     "get_statx_mnt_id",
+    "is_kanban_available",
     "open_beneath",
     "query_statx",
     "sanitize_evidence_record",

@@ -1319,3 +1319,20 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 
+
+#### Errata — AMXD-P2-GOV Merge Stage 1-2 UI and verify attributable enrollment display
+**Created:** 2026-09-15 04:20:00+01:00
+**Last Updated:** 2026-09-15 04:20:00+01:00
+**Status:** Completed
+**Commit:** 7485aaf15395b997d58ccfea9e75d566335ae06e
+**Governor merge:** 90c9c990
+**Decisions:**
+- Reconciled AMXD-P2-1 and AMXD-P2-2 deliverables. Fixed two critical integration defects at the boundary:
+  1. Stage 1/2 panels were dead code on the route. Wired `TokenIssuePanel` and `EnrollmentPanel` directly into `AgentMaxxingDemoPage.tsx` at stages 1 and 2, leaving generic frames for Stages 3-5.
+  2. Fixed fabricated fallback operator ID (`operator-admin@signalloom.internal`). Principal is now derived strictly from authenticated OIDC profile (`email`, `preferred_username`, `sub`). Unauthenticated session renders `UNATTRIBUTED_OPERATOR_LABEL` with distinct styling and `data-attributed="false"`. Fabricated account literal eliminated.
+- Added `recordStagePayload` to controller context so Stage 1 (`operator_init`) payload correctly enters the reducer.
+- Delivered `AgentMaxxingDemoPage.composed.test.tsx` with 14 comprehensive tests verifying component composition, real attribution, and route wiring.
+- Documented known residual defect for AMXD-P3-GOV (Stage 2 enroll double-advance) with reproducing test.
+**Deviations:** None.
+**Notes:** `tsc --noEmit` 0; App.test.tsx 13/13; Sidebar suites 90/90; demos 132 passed/2 skipped; composed 14/14; `vite build` 0 clean chunk output.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

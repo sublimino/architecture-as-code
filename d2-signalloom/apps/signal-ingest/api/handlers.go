@@ -16,6 +16,7 @@ import (
 
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/codingagent"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
@@ -32,6 +33,9 @@ type Handlers struct {
 	Engine    *correlation.Engine
 	Audit     audit.AuditWriter
 	Encryptor identity.Encryptor
+
+	// CodingAgentStore provides persistence and analysis for CodingAgentTelemetry (SLCD-P5-1).
+	CodingAgentStore codingagent.TelemetryStore
 
 	// AuditReady, when non-nil, is called on every /readyz probe to verify
 	// the audit backend is actually reachable. nil means there is nothing to

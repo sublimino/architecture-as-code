@@ -321,6 +321,12 @@ func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
 		// SLDP-P5-3. Data subject rights export under GDPR Article 15 (access) and Article 20 (portability).
 		{"GET", "/api/v1/privacy/export/{id}", "GET /api/v1/privacy/export/{id}", PermissionPrivacyExport, false, true, h.handleExportSubject},
 		{"GET", "/api/v1/actors/{id}/export", "GET /api/v1/actors/{id}/export", PermissionPrivacyExport, false, true, h.handleExportSubject},
+		// SLCD-P5-1. CodingAgentTelemetry ingestion and analytical routes behind ProtectedRouter.
+		{"POST", "/api/v1/telemetry/coding-agents", "POST /api/v1/telemetry/coding-agents", PermissionObservationWrite, false, false, h.handleCodingAgentTelemetry},
+		{"GET", "/api/v1/telemetry/coding-agents", "GET /api/v1/telemetry/coding-agents", PermissionObservationRead, true, false, h.handleQueryCodingAgentTelemetry},
+		{"GET", "/api/v1/telemetry/coding-agents/aggregate", "GET /api/v1/telemetry/coding-agents/aggregate", PermissionObservationRead, true, false, h.handleAggregateCodingAgentTelemetry},
+		{"POST", "/api/v1/telemetry/coding-agents/aggregate", "POST /api/v1/telemetry/coding-agents/aggregate", PermissionObservationRead, true, false, h.handleAggregateCodingAgentTelemetry},
+		{"POST", "/api/v1/telemetry/coding-agents/ordering", "POST /api/v1/telemetry/coding-agents/ordering", PermissionObservationRead, false, false, h.handleCodingAgentOrdering},
 	}
 	if metrics != nil {
 		r = append(r, routeDefinition{"GET", "/metrics", "GET /metrics", PermissionMetrics, false, false, metrics.ServeHTTP})

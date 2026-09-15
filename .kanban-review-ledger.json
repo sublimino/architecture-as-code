@@ -2322,5 +2322,19 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: Preflight inventory complete, nginx proxy gap analyzed, client.ts auto-prefix documented, routes and evidence models fully mapped."
+  },
+  "f1a85": {
+    "task_id": "f1a85",
+    "reviewed_at": "2026-09-15T01:41:07Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: 5-stage lifecycle state machine, pure reducer nextState, and dual-lock async gate verified with 27/27 passing tests."
+  },
+  "cae22": {
+    "task_id": "cae22",
+    "reviewed_at": "2026-09-15T01:41:07Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: Scenario presets (Happy Path, Tamper Breach, Revocation Race), runtime schema validator, and per-preset reset contracts verified with 20/20 passing tests."
   }
 }

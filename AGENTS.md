@@ -12,6 +12,40 @@ This monorepo hosts the OSRAMP and Signal Loom demonstration platform. It hosts
 independent D2 delivery slices that share a Kind cluster foundation, Flux GitOps
 control plane, and Envoy Ingress Gateway.
 
+## Platform Architecture
+
+```mermaid
+flowchart TB
+  subgraph FOUNDATION["Shared Foundation Stack (Kind: osramp)"]
+    KIND["Kind Single-Node Cluster"]
+    FLUX["Flux Operator + ResourceSets"]
+    INGRESS["Envoy Ingress Gateway (TLS)"]
+    ZOT["In-Cluster Zot OCI Registry"]
+    CERT["cert-manager (Self-Signed Issuer)"]
+    MON["kube-prometheus-stack + Grafana"]
+    SIGN["Cosign + Witness Signing Keys"]
+  end
+
+  subgraph SLICES["D2 Delivery Slices"]
+    SL["d2-signalloom/<br/>Agent Governance Platform<br/>(Dashboard, Fleet Manager, Docs, Host Sensor)"]
+    OA["d2-osramp-apps/<br/>OSRAMP Apps<br/>(Archiver, Listener, Processor)"]
+    AFM["d2-k8s-afm/<br/>KubeSec-AFM<br/>(Formal-Methods RBAC Analysis)"]
+    FLT["d2-osramp-fleet/<br/>Flux Fleet Definitions<br/>(Clusters, Tenants, ResourceSets)"]
+    INF["d2-infra/<br/>Shared Infrastructure<br/>(Gateway API, Monitoring)"]
+    AGT["d2-agent-trust/<br/>SPIFFE Agent Trust<br/>(A2A, OpenBao JWT, NetPol)"]
+    CPAI["d2-cpai/<br/>CPAI Runtime Proxy<br/>(OpenAI-Compatible Vertex AI Proxy)"]
+    OLLY["olly-replica/<br/>Olly Sentinel AI SRE Replica"]
+    KAG["d2-signalloom/infra/kagent/<br/>Kagent AI Agent Swarm (D5)"]
+  end
+
+  FOUNDATION --> SLICES
+
+  classDef found fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+  classDef slice fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
+  class KIND,FLUX,INGRESS,ZOT,CERT,MON,SIGN found;
+  class SL,OA,AFM,FLT,INF,AGT,CPAI,OLLY,KAG slice;
+```
+
 ## Shared Foundation Stack
 
 | Layer | Technology | Location |
@@ -32,14 +66,15 @@ each slice owns its namespaces, images, tests, and lifecycle.
 | Slice | Purpose | Deploy | AGENTS.md |
 |-------|---------|--------|-----------|
 | `d2-signalloom/` | Signal Loom agent governance platform (dashboard, docs, API, identity, infra) | `make demo-signalloom-up` | `d2-signalloom/AGENTS.md` |
+| `d2-signalloom/apps/docs-signalloom/` | User documentation service (Astro Starlight at `/docs`) | `make demo-signalloom-up` | `d2-signalloom/AGENTS.md` |
 | `d2-osramp-apps/` | OSRAMP application services (archiver, listener, processor) | `make demo-osramp-up` | `d2-osramp-apps/AGENTS.md` |
 | `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `make demo-k8s-afm-up` | `d2-k8s-afm/AGENTS.md` |
 | `d2-osramp-fleet/` | Flux fleet definitions (clusters, tenants, ResourceSets) | `make up` (foundation) | `d2-osramp-fleet/AGENTS.md` |
 | `d2-infra/` | Shared infrastructure components | `make up` (foundation) | `d2-infra/AGENTS.md` |
 | `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy (A2A identity, OpenBao JWT roles, NetworkPolicies) | `make demo-agent-trust-up` | `d2-agent-trust/AGENTS.md` |
-| `d2-cpai/` | CPAI runtime (aichat conversation demo) | `make demo-cpai-up` | `d2-cpai/README.md` |
+| `d2-cpai/` | CPAI runtime proxy (OpenAI-compatible Vertex AI proxy) | `make demo-cpai-up` | `d2-cpai/AGENTS.md` |
 | `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | `olly-replica/README.md` |
-| `d2-kagent` (D5) | CNCF Kagent AI Agent framework (CRDs, declarative swarm, SPIFFE/OpenBao) | `make swarm-kagent-up` && `make demo-kagent-up` | `docs/kagent-d5.md` |
+| `d2-signalloom/infra/kagent/` (D5) | CNCF Kagent AI agent framework (CRDs, declarative swarm, SPIFFE/OpenBao) | `make swarm-kagent-up` && `make demo-kagent-up` | `docs/kagent-d5.md` |
 
 One optional service deploys outside the Signal Loom `-up` target:
 
@@ -77,12 +112,13 @@ make up
 
 # 2. Start a demo slice (or combine them):
 make demo-signalloom-up    # Signal Loom
+make demo-agentmaxxing-up  # AgentMaxxing interactive console
 make demo-osramp-up        # OSRAMP apps
 make demo-k8s-afm-up       # KubeSec-AFM
 make demo-olly-up           # Olly Sentinel
 make demo-bao-up            # OpenBao and SPIRE only
 make demo-agent-trust-up    # SPIFFE agent trust (requires inf-bao first)
-make demo-cpai-up           # CPAI runtime
+make demo-cpai-up           # CPAI runtime proxy
 make swarm-kagent-up        # Kagent CRDs and Control Plane (D5)
 make demo-kagent-up         # Kagent Declarative Agents (D5)
 make demo-signalloom-fleet-up  # Fleet Manager direct-apply test escape hatch
@@ -131,6 +167,8 @@ Foundation slices and Kagent use the explicit commands in the slice table.
 | `make test` | Run end-to-end BATS tests on running cluster |
 | `make acceptance-test` | Run Playwright browser tests (Signal Loom and KubeSec-AFM) |
 | `make demo-signalloom-api-test` | Run FastAPI contract and integration tests |
+| `make demo-agentmaxxing-test` | Run AgentMaxxing acceptance test suite |
+| `make demo-signalloom-coding-agent-topology` | Validate coding agent detective telemetry |
 | `make attested-test` | Run test suite under witness attestation |
 
 Do not write a manual test count for the acceptance suite. Written counts become
@@ -148,7 +186,7 @@ spec as `unwired` to make the omission visible.
 ## The GCP Estate — Four Lanes
 
 The repository also runs on GCP across four independent lanes: `demo-1`,
-`demo-2`, `ci-1`, and `ci-2`. Terraform provisions each lane. A separate step
+`demo-2`, `ci-1`, and `ci-2`. Terraform sets up each lane. A separate step
 builds the estate on the lane. Pass `ENV=<lane>` with each command.
 
 ```bash
@@ -235,16 +273,20 @@ osramp-demo/
 ├── .cache/zot/              # Persistent Zot OCI cache (gitignored)
 │
 ├── d2-signalloom/           # Signal Loom slice → d2-signalloom/AGENTS.md
-│   └── apps/docs-signalloom/ # User documentation service at /docs
+│   ├── apps/docs-signalloom/ # User documentation service at /docs
+│   └── infra/kagent/         # Kagent AI agent swarm control plane (D5)
 ├── d2-osramp-apps/          # OSRAMP apps slice → d2-osramp-apps/AGENTS.md
 ├── d2-k8s-afm/              # KubeSec-AFM slice → d2-k8s-afm/AGENTS.md
 ├── d2-osramp-fleet/         # Flux fleet → d2-osramp-fleet/AGENTS.md
 ├── d2-infra/                # Shared infra → d2-infra/AGENTS.md
 ├── d2-agent-trust/          # SPIFFE agent trust → d2-agent-trust/AGENTS.md
-├── d2-cpai/                 # CPAI runtime → d2-cpai/README.md
+├── d2-cpai/                 # CPAI runtime proxy → d2-cpai/AGENTS.md
 ├── olly-replica/            # Olly Sentinel replica
 │
 ├── tools/demo-console/      # Go: Estate 95 broker + API contract fixtures
+├── tools/audit-gen/         # Multi-plane audit log generator
+├── tools/harness-dash/      # Coding agent harness telemetry dashboard
+├── tools/riskctl/           # FAIR risk engine CLI tool
 ├── test/acceptance/          # Playwright browser tests (cross-slice)
 ├── docs/                    # Per-slice documentation + evidence
 └── .github/workflows/       # CI: e2e-local, push-artifacts/images, release
@@ -319,7 +361,7 @@ variables across the entire manifest text. It affects `spec.inputs` and
 `spec.resources`.
 
 To prevent race conditions, add `dependsOn: [{name: flux-system}]` to
-`clusters/<env>/tenants.yaml`. This ensures the ConfigMap `flux-runtime-info`
+`clusters/<env>/tenants.yaml`. This makes sure the ConfigMap `flux-runtime-info`
 is ready before variable substitution occurs.
 
 If a manifest contains unresolved `${VAR}` strings, run:
@@ -339,7 +381,7 @@ This command re-renders the manifests with current ConfigMap values.
 
 ## Conventions
 
-- **Commits**: Use Conventional Commits with a slice scope (for example, `feat(signalloom):`, `fix(osramp):`, `test(k8s-afm):`).
+- **Commits**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`). Match existing repository git log conventions.
 - **Image Signing**: Sign all images and OCI artifacts with Cosign. Flux rejects unsigned artifacts.
 - **Commit Signing**: Check recent git log signatures before you commit. If the branch history is unsigned, use `git commit --no-gpg-sign`.
 - **Supply Chain**: Include SBOMs (SPDX), SLSA provenance, and digest checks.

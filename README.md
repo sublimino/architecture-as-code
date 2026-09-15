@@ -101,7 +101,61 @@ flowchart TB
   class ART,IMG reg;
 ```
 
-> **Interactive system map.** For a visual overview of all 28 services, their ports, namespaces, and the control/data/identity/GitOps paths between them, see the [isometric system map](docs/system-map/). Serve with `python3 -m http.server 8901 -d docs/system-map`.
+### Signal Loom Agent Governance Platform
+
+Signal Loom enforces runtime security, data protection, and containment for AI agents:
+
+```mermaid
+flowchart TB
+  subgraph AGENTS["Agent Workloads & Host Sensor"]
+    CLAUDE["Coding Agents<br/>(Claude Code, Aider, OpenCode)"]
+    SENSOR["agentmaxxing-host-sensor<br/>(procfs, netlink, CIDR attribution)"]
+    CLAUDE --> SENSOR
+  end
+
+  subgraph CONTROL["Signal Loom Governance Plane"]
+    API["fe-signalloom (API Backend)"]
+    FM["fleet-manager (Multi-Plane Containment)"]
+    PE["policy-engine (CEL / OPA)"]
+    INGEST["signal-ingest"]
+    SENSOR -- "zero-payload telemetry" --> INGEST
+    INGEST --> API
+    API --> FM
+  end
+
+  subgraph PLANES["Multi-Plane Containment (SLER)"]
+    P_MESH["1 · Service Mesh (Envoy / Cilium)"]
+    P_ADM["2 · Admission Control (Kyverno / Gatekeeper)"]
+    P_BAO["3 · Secret Engine (OpenBao Lease Revocation)"]
+    P_SPIRE["4 · Workload Identity (SPIRE SVID Invalidation)"]
+    P_FREEZE["5 · Host Freeze (cgroups v2 / eBPF tc-drop)"]
+    FM --> P_MESH
+    FM --> P_ADM
+    FM --> P_BAO
+    FM --> P_SPIRE
+    FM --> P_FREEZE
+  end
+
+  subgraph UI["Console & Documentation"]
+    DASH["dashboard-signalloom (:5173)"]
+    AMXD["AgentMaxxing Console (:8675)"]
+    DOCS["docs-signalloom (/docs)"]
+  end
+
+  API --> DASH
+  FM --> AMXD
+
+  classDef agent fill:#fff3e0,stroke:#f57c00,color:#e65100;
+  classDef ctrl fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+  classDef plane fill:#fce4ec,stroke:#c2185b,color:#880e4f;
+  classDef ui fill:#e1f5fe,stroke:#0288d1,color:#01579b;
+  class CLAUDE,SENSOR agent;
+  class API,FM,PE,INGEST ctrl;
+  class P_MESH,P_ADM,P_BAO,P_SPIRE,P_FREEZE plane;
+  class DASH,AMXD,DOCS ui;
+```
+
+> **Interactive system map.** For a visual overview of all 28 services, ports, namespaces, and communication paths, see the [isometric system map](docs/system-map/). Serve with `python3 -m http.server 8901 -d docs/system-map`.
 
 ### The Ingestion Flow, Step by Step
 
@@ -141,15 +195,20 @@ Local mode keeps this model intact without GitHub:
 
 | Path | Description |
 | --- | --- |
-| `d2-osramp-apps/` | Application logical source directory: Go services (`apps/`), Kubernetes manifests (`components/`), BATS e2e tests (`test/`), and workflows. |
-| `d2-infra/` | Infrastructure directory: cluster add-ons (cert-manager, Envoy Gateway, monitoring stack). |
-| `d2-osramp-fleet/` | Platform directory: cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), and Terraform bootstrap (`terraform/`). |
-| `d2-signalloom/` | Signal Loom slice: dashboard SPA, FastAPI backend, and identity plane (`infra/inf-bao`: OpenBao and SPIRE). See [d2-signalloom/AGENTS.md](d2-signalloom/AGENTS.md). |
+| `d2-signalloom/` | Signal Loom agent governance slice: dashboard SPA, FastAPI backend, Fleet Manager multi-plane containment, host sensors, and identity plane (`infra/inf-bao`, `infra/kagent`). See [d2-signalloom/AGENTS.md](d2-signalloom/AGENTS.md). |
 | `d2-signalloom/apps/docs-signalloom/` | User documentation service: Astro Starlight site served from a separate container at `/docs`. |
+| `d2-osramp-apps/` | Application logical source directory: Go services (`apps/`), Kubernetes manifests (`components/`), BATS e2e tests (`test/`), and workflows. |
+| `d2-k8s-afm/` | KubeSec-AFM slice: formal-methods RBAC privilege escalation analysis platform. See [d2-k8s-afm/AGENTS.md](d2-k8s-afm/AGENTS.md). |
+| `d2-osramp-fleet/` | Platform directory: cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), and Terraform bootstrap (`terraform/`). |
+| `d2-infra/` | Infrastructure directory: cluster add-ons (cert-manager, Envoy Gateway, monitoring stack). |
 | `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy (A2A identity, OpenBao JWT roles, NetworkPolicies). See [d2-agent-trust/AGENTS.md](d2-agent-trust/AGENTS.md). |
+| `d2-cpai/` | CPAI runtime proxy: OpenAI-compatible server fronting Vertex AI `gemini-2.5-flash`. See [d2-cpai/AGENTS.md](d2-cpai/AGENTS.md). |
 | `olly-replica/` | Olly Sentinel replica tenant: data plane manifests, contracts, seed data, and eval harness. See [olly-replica/README.md](olly-replica/README.md). |
 | `docs/system-map/` | Interactive system map. 28 services with control, data, and identity paths. Run `python3 -m http.server 8901 -d docs/system-map` to view. |
-| `ui/` + `tools/demo-console/` | The interactive architecture map (plain HTML/CSS/JS) and the Go service that executes its actions with streamed output. |
+| `ui/` + `tools/demo-console/` | The interactive architecture map (plain HTML/CSS/JS) and the Go service that runs commands with streamed output. |
+| `tools/audit-gen/` | Multi-plane audit log generator producing synthetic containment telemetry. |
+| `tools/harness-dash/` | Coding agent harness detective telemetry dashboard. |
+| `tools/riskctl/` | FAIR quantitative risk assessment CLI engine. |
 | `scripts/` | The orchestration behind the make targets: `setup.sh` (tool install plus full build), local publish and sign, the VEX, promotion, admission, and revocation demos, attested tests, VEX retrieval. |
 | `policy/` | The witness promotion policy generator output and the Kyverno image verification policy. |
 | `agent/` | The Phase 4 remediation harness and its guardrails document. |
@@ -240,7 +299,7 @@ make console    # Open http://localhost:8675
 
 The console shows the architecture map across three lanes: Deliver, Operate, and Assure.
 Each card corresponds to one step. Click a card to see details and run buttons.
-Each button executes the underlying CLI command and streams the output.
+Each button runs the underlying CLI command and streams the output.
 
 ### The VEX Triage Demo (Phase 1)
 
@@ -308,7 +367,7 @@ Read [olly-replica/README.md](olly-replica/README.md) for component instructions
 ### Running on GCP (Four Lanes)
 
 The stack runs on Google Cloud across four independent lanes: `demo-1`, `demo-2`, `ci-1`, and `ci-2`.
-Terraform provisions each lane VM. A second step deploys the software estate to the VM.
+Terraform creates each lane VM. A second step deploys the software estate to the VM.
 
 ```bash
 export TF_STATE_BUCKET=<your-state-bucket>
@@ -352,11 +411,15 @@ Working features:
 - Ingestion pipeline from purl to syft SBOM, Archivista, and PostgreSQL.
 - Phase 1 VEX workflow with `vexctl` triage.
 - Phase 2 evidence collection with attested tests and VEX retrieval.
-- Interactive console with live command execution and output streaming.
+- Interactive architecture console with live command execution and output streaming.
 - Phase 3 governance demos (admission policy and trust revocation).
 - Phase 4 remediation agent under `nono` sandbox.
+- Signal Loom Enforcement & Response (SLER): five-plane containment (mesh, admission, OpenBao, SPIRE, cgroups/freeze).
+- AgentMaxxing Interactive Console (AMXD): browser scenario execution with proof ledger and automated verification.
+- Coding Agent Detective Telemetry (SLCD): host sensor, inference CIDR attribution, and zero-customer-payload privacy.
+- Signal Loom Data Protection (SLDP): cryptographic data erasing, soft-tombstoning, and KMS retention control.
 
 Planned refinements:
 1. Admission-time Witness attestation verification with Kyverno.
 2. Keyless workload signing via Fulcio and Kubernetes OIDC.
-3. KPI dashboard connected to PostgreSQL.
+3. Production Works Council and GDPR Article 6(1)(f) lawful basis finalisation.

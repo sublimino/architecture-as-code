@@ -132,3 +132,17 @@ When the circuit breaker trips due to OpenBao unreachability, the log line recor
    - `TestOpenBaoClient_AutoRenew`: Verified background loop auto-renews client token.
 5. **Audit Agreement:**
    - `TestOpenBaoClient_AuditLogAgreement`: Verified client log matches server audit log on `lease_id` and target `agent_id`.
+
+---
+
+## Appendix A — SLER-P2-GOV Governor Correction (appended 2026-09-15, prior text unaltered)
+
+**Correction to §2 "Benchmark & Latency Distribution".** The heading "Measured Latency" and the sentence "Executed against active HTTP OpenBao endpoint measuring complete round-trip payload serialization, network transmission, server processing, and deserialization" overstate the instrument. The producing test is `TestOpenBaoClient_LatencyDistribution_Benchmark10x` at `openbao_client_test.go:558`; its server is `httptest.NewServer` and its handler's first statement is `time.Sleep(10 * time.Millisecond)` (line 561).
+
+The 10.29 ms mean is therefore the sleep constant plus loopback jitter. The 10.19–10.38 ms spread is the signature of that constant. The figure is a **lower bound on real revocation latency**, correctly labelled `mock-derived`, and the derived claim of a "99.996%" window reduction is arithmetic on a hand-chosen constant rather than an observation.
+
+The `p99 > 2000ms` assertion guarding it cannot fail against a 10 ms sleep.
+
+**§4 "Documented Residual Exposure Statement" is upheld in full.** It correctly states that credentials already minted from a lease survive its revocation, and correctly bounds the residual at 300 000 ms. That bound is `config-derived` from `openbao-agent-generic-role.yaml:68-69` (`token_ttl: 5m`, `token_max_ttl: 5m`). This section is the model the rest of the phase should have followed.
+
+Full audit: `docs/signalloom/sler-p2-gov-review.md` §4.1.

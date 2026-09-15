@@ -325,14 +325,22 @@ func (c *grpcSpireClient) BatchDeleteEntries(ctx context.Context, entryIDs []str
 
 		results[i] = result
 
-		// Structured machine-readable audit logging for every entry deletion
+		// Structured machine-readable audit logging for every entry deletion.
+		//
+		// The "event" and "worst_case_residual_ms" keys are the shared contract
+		// with the OpenBao client's bao_revoke_attempt record. SLER-P5-1 consumes
+		// both planes' events into one attestation pipeline and was not scoped to
+		// reconcile two shapes; keying on "msg" here and "event" there would have
+		// forced exactly that. See SharedAttestationEventKeys.
 		slog.Info("spire entry deletion",
+			"event", SpireRevokeEventName,
 			"entry_id", id,
 			"grpc_code", int32(statusCode),
 			"grpc_code_name", statusCode.String(),
 			"outcome", string(outcome),
 			"idempotent", isIdempotent,
 			"latency_ms", elapsedMs,
+			"worst_case_residual_ms", SpireX509SVIDResidualMs,
 			"error", result.Error)
 	}
 
@@ -395,6 +403,17 @@ func (c *grpcSpireClient) ListEntriesBySPIFFEID(ctx context.Context, rawSPIFFEID
 // EvictAgent executes complete SPIRE eviction for an agent, resolving entries by SPIFFE ID if entry IDs
 // are not explicitly provided.
 func (c *grpcSpireClient) EvictAgent(ctx context.Context, req SpireEvictionRequest) (*SpireEvictionResponse, error) {
+	// SLER-P2-GOV nil-receiver guard. NewGRPCSpireClient returns the CONCRETE
+	// *grpcSpireClient, so a failed construction boxed into a SpireClient interface
+	// is a TYPED nil: the interface compares non-nil while the pointer is nil, and
+	// `c.spireClient != nil` at the call site is satisfied. The selector is now
+	// staged to avoid producing one, but a guard at the CONSTRUCTION site alone
+	// inherits the very blind spot that caused this defect — any other construction
+	// path reintroduces it. Fail closed here, at the dereference, where it cannot
+	// be routed around.
+	if c == nil {
+		return nil, fmt.Errorf("spire client not initialised: %w", ErrEnforcementUnavailable)
+	}
 	start := c.now()
 
 	response := &SpireEvictionResponse{
@@ -467,11 +486,13 @@ func (c *grpcSpireClient) EvictAgent(ctx context.Context, req SpireEvictionReque
 
 	response.Outcome = OutcomeContained
 	slog.Info("spire eviction completed",
+		"event", SpireEvictEventName,
 		"agent_id", req.AgentID,
 		"spiffe_id", req.SPIFFEID,
 		"entries_evicted", evictedCount,
 		"outcome", string(response.Outcome),
 		"latency_ms", response.LatencyMs,
+		"worst_case_residual_ms", SpireX509SVIDResidualMs,
 		"idempotency_key", req.IdempotencyKey)
 
 	return response, nil
@@ -479,6 +500,11 @@ func (c *grpcSpireClient) EvictAgent(ctx context.Context, req SpireEvictionReque
 
 // Health checks if SPIRE Server is responding to API queries.
 func (c *grpcSpireClient) Health(ctx context.Context) error {
+	// Same typed-nil guard as EvictAgent — /health must report unavailable rather
+	// than crash the process that answers the readiness probe.
+	if c == nil {
+		return fmt.Errorf("spire client not initialised: %w", ErrEnforcementUnavailable)
+	}
 	client, err := c.getEntryClient()
 	if err != nil {
 		return fmt.Errorf("spire health check failed: %w", err)

@@ -29,6 +29,7 @@ export type IconKind =
   | 'workspaces' | 'connectors' | 'fleet' | 'settings'
   | 'crypto' | 'credentials' | 'federation' | 'collusion'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred'
+  | 'agentmaxxing'
   | 'signalFusion' | 'distanceLatency' | 'signalStore' | 'feeds'
   | 'designSystem' | 'designSystemHeaders'
   | 'onboarding' | 'docs'
@@ -76,6 +77,7 @@ function NavIcon({ kind }: { kind: IconKind }) {
     rbacExplorer: <><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" /><circle cx="16.5" cy="16.5" r="3" /><path d="m18.8 18.8 2.2 2.2" /></>,
     network: <><path d="M4.5 9.5a11 11 0 0 1 15 0" /><path d="M7.5 12.8a7 7 0 0 1 9 0" /><path d="M10.3 16a3 3 0 0 1 3.4 0" /><path d="M12 19.2h.01" /></>,
     supercred: <><path d="M7 10V7a5 5 0 0 1 10 0v3" /><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M12 14v2" /></>,
+    agentmaxxing: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m8 10 2 2-2 2" /><path d="M12 14h4" /></>,
     signalFusion: <><path d="M4 7h5l3 5-3 5H4" /><path d="M4 12h8" /><path d="M14 7l4 5-4 5" /><circle cx="19" cy="12" r="2" /></>,
     distanceLatency: <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /><path d="M4 12h2M18 12h2" /></>,
     signalStore: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" /><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" /></>,
@@ -116,6 +118,7 @@ export const NAV: NavItem[] = [
   { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true },
   { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
   { to: '/supercred', label: 'SuperCredential Demo', section: 'Control', icon: 'supercred', superadminOnly: true },
+  { to: '/demos/agentmaxxing', label: 'AgentMaxxing Demo', section: 'Control', icon: 'agentmaxxing', superadminOnly: true },
   { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'View', icon: 'signalFusion', superadminOnly: true },
   { to: '/distance-latency', label: 'Distance Latency Demo', section: 'View', icon: 'distanceLatency', superadminOnly: true },
   { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },

@@ -304,7 +304,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P4-1 | implementation | Implement Stage 4 Adversarial Simulation panel | P4-PRE | Hash tamper test; symlink escape test; breach alert trigger assertion | L | daily | pass — delivered: 9385e6c9fb57b372382b6035dbf99058354ec714 (see Errata — AMXD-P4-1) | $0.00 | N/A | N/A | N/A |
 | P4-2 | implementation | Implement Stage 5 Attributable Revocation and live 403 denial verification panel | P4-PRE | Revocation dispatch test; 403 denial badge assertion; audit timeline check | L | daily | pass — delivered: a777d180b850cafcbb877bdcb106333a3a39c741 (see Errata — AMXD-P4-2) | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Merge adversarial and revocation panels and verify deterministic denial feedback | P4-1, P4-2 | Combined tamper + revocation test; zero visual flakiness | L | deep | **FAIL — Phase 4 NOT certified; declared hard blocker fired** (an acceptance assertion that can only pass against a fixture). All other gates passed: merge verified (`2fa6a3928505cfca29850e33caadabbc514873b9`, `319d1d013e1ed01c95a423041b8cc4df96c6463f`), no conflict in the shared state machine; 10/10 runs flake-free; typecheck + 177 files / 3362 tests + `vite build` all green; 0 `data-testid` collisions; estate byte-for-byte clean after a full Stage 4→5→Reset. **Refuted on the wire: the live 403 is `insufficient_scope`, not `agent_revoked`**, and the attributable dispatch controls do not render on the composed route. Governor test committed `adfdc7cb4679e8b71a4c9a50888cfc0a1c38315c`. (see Errata — AMXD-P4-GOV) | $0.00 | N/A | ~95m | N/A |
-| P5-PRE | preflight | Confirm automated stepping timers and docs integration seams | P4-GOV | Timer mock verification; docs navigation link inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P5-PRE | preflight | Confirm automated stepping timers and docs integration seams | P4-GOV | Timer mock verification; docs navigation link inventory | S | daily | **Pass** — confirmed async-gate dual-lock callable contract (`executeAsyncGate`, `types.ts:527-645`); confirmed Vitest fake-timer pattern (`vi.useFakeTimers`/`vi.advanceTimersByTimeAsync`, `TokenIssuePanel.test.tsx:202`, `ConfinementTelemetryPanel.test.tsx:217`); confirmed docs sidebar seam ('Run demonstrations' in `astro.config.mjs:43-47`) and content directory `src/content/docs/demos/`; verified docs build (`ASTRO_TELEMETRY_DISABLED=1 bun run build`) and link audit (`bun run audit:links`, 0 broken links). (see Errata — AMXD-P5-PRE) | $0.00 | N/A | ~5m | N/A |
 | P5-1 | implementation | Implement Auto-Play mode, speed toggles, and state reset engine | P5-PRE | Auto-stepping timer tests (1x, 2x, instant); reset idempotency test | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | Publish interactive demo walkthrough guide in apps/docs-signalloom | P5-PRE | Astro docs build passes; demo guide content verified | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-GOV | governor | Merge demo automation and docs and verify presentation readiness | P5-1, P5-2 | Full auto-play pass verification; docs link check | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -1689,3 +1689,108 @@ The proposal's constitution promises an operator-selected attribution reason and
 **Handoff to AMXD-P5-GOV.** Phase 5 inherits both residual defects. Defect 1 is not a UI bug and must not be patched in the envelope: it needs a credential-bootstrap endpoint (or an explicit decision that the demo asserts denial in mock only, with the live claim withdrawn from the constitution and the CEO delivery report). Defect 2 is a composition bug and is fixable inside the dashboard, by giving `RevocationPanel` a controlled mode so the stepper does not settle the stage before the operator selects a reason — the same shape of fix Phase 3 applied to the Stage 2 double-advance defect.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+#### Errata — AMXD-P5-PRE (preflight) — status=pass
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 07:04:16+01:00
+**Last Updated:** 2026-09-15 07:04:16+01:00
+
+##### Task identity
+- Card: `AMXD-P5-PRE`
+- Shortcode: `AMXD`
+- Status: `pass`
+- Commit: `413ec5d60c626b9a1908d6511bdc1b86159187ed`
+- Integration branch: `integration/amxd-v0.1.0` (`f96b7d14fd67b782b278fe8c1aa42d7cc76d51f5`)
+- Result: Confirmed the callable surface of the async-gate dual-lock timer/confirmation contract, the Vitest fake-timer pattern for 1x/2x/instant Auto-Play testing, the docs-signalloom navigation sidebar seam in `astro.config.mjs`, and the docs build & link-audit pipeline commands.
+
+##### 1. Callable Surface of AMXD-P1-1 Async-Gate Contract
+Confirmed that the async-gate contract in `d2-signalloom/apps/dashboard-signalloom/src/components/demos/types.ts` is fully exported and callable for AMXD-P5-1's Auto-Play driver:
+- **`executeAsyncGate<T>(options: AsyncGateOptions<T>): Promise<AsyncGateResult<T>>`** (`types.ts:527-645`):
+  - Structurally enforces dual-lock: `Promise.all([dwellPromise, wrappedConfirmationPromise])` raced against timeout and `AbortSignal`.
+  - Guarantees that Auto-Play cannot advance purely on timer expiration if the backend confirmation promise is still pending. In instant mode (100ms dwell), even when dwell settles in 100ms, the gate continues awaiting the confirmation promise (e.g. up to 2000ms SLA for Stage 5 403 proof).
+  - Handles rejections cleanly without throwing: settled rejections produce `{ status: 'failed', reason: string, error: unknown }`, and cancellations produce `{ status: 'aborted', reason: string }`.
+- **Exported Pacing & Timing Constants**:
+  - `AutoPlayPacing` union: `'1x' | '2x' | 'instant'` (`types.ts:470`).
+  - `AUTO_PLAY_DWELL_MS: Readonly<Record<AutoPlayPacing, number>> = { '1x': 4000, '2x': 2000, instant: 100 }` (`types.ts:472-476`).
+- **Bridge Integration**:
+  - Both `MockDemoBridge.advance` (`bridge.ts:996-1050`) and `LiveDemoBridge.advance` (`bridge.ts:1133-1213`) invoke `executeAsyncGate`, passing `dwellMs: options?.dwellMs`, `timeoutMs: options?.timeoutMs`, `signal: options?.signal`, and `confirmationPromise: ...`.
+- **Pure Reducer & Navigation Query Functions**:
+  - `nextState(state, event)` (`types.ts:346-464`), `isValidTransition(from, to)` (`types.ts:247-249`), `getLegalNextStages(current)` (`types.ts:251-253`), `getStageIndex(stage)` (`types.ts:255-257`), `isNavigationDisabled(state)` (`types.ts:651-653`), `canNavigateTo(state, target)` (`types.ts:655-658`), `isStageComplete(state, stage)` (`types.ts:660-662`), `isStageFailed(state, stage)` (`types.ts:664-666`).
+
+##### 2. Vitest Fake-Timer Pattern for Deterministic Auto-Play Testing
+Confirmed Vitest fake-timer mechanisms in `dashboard-signalloom` test suites:
+- **Established Patterns**:
+  - `TokenIssuePanel.test.tsx:202`: `vi.useFakeTimers()`, `:225`: `vi.advanceTimersByTime(5000)`.
+  - `ConfinementTelemetryPanel.test.tsx:217, 242, 276, 312`: `vi.useFakeTimers()`, `:230, 259, 268, 294, 300, 306, 351, 356`: `await vi.advanceTimersByTimeAsync(...)`.
+  - `FleetRiskGauge.test.tsx:10, 96, 106`: `vi.useFakeTimers()`, `act(() => { vi.advanceTimersByTime(100) })`.
+- **Mandate for AMXD-P5-1**:
+  - AMXD-P5-1 Auto-Play tests must use `vi.useFakeTimers()` with `await vi.advanceTimersByTimeAsync(AUTO_PLAY_DWELL_MS[pacing])` or `act(() => vi.advanceTimersByTime(...))` to deterministically step through all 5 stages in 1x (4s), 2x (2s), and instant (100ms) pacing modes with zero real wall-clock sleep.
+
+##### 3. Docs Navigation Sidebar Seam & Content Directory
+- **Sidebar Integration Location**:
+  - `d2-signalloom/apps/docs-signalloom/astro.config.mjs:43-48`:
+    ```javascript
+            label: "Run demonstrations",
+            items: [
+              { label: "Run the partner demonstration", slug: "operations/demo-walkthrough" },
+              { label: "Superadmin demonstrations", slug: "demos/superadmin" }
+            ]
+    ```
+  - AMXD-P5-2 must add `{ label: "AgentMaxxing demonstration", slug: "demos/agentmaxxing" }` to the existing `Run demonstrations` section. No new top-level sidebar section should be created.
+- **Content Directory**:
+  - `d2-signalloom/apps/docs-signalloom/src/content/docs/demos/` exists and contains `superadmin.md`.
+  - AMXD-P5-2's guide file will be created at `d2-signalloom/apps/docs-signalloom/src/content/docs/demos/agentmaxxing.mdx`.
+
+##### 4. Docs Build & Link-Audit Pipeline Verification
+- **Package Scripts** (`d2-signalloom/apps/docs-signalloom/package.json`):
+  - `"build": "astro check && astro build"`
+  - `"check": "astro check"`
+  - `"audit:links": "node scripts/link-audit.mjs --dist dist --base /docs --self-test"`
+- **Pipeline Execution Confirmation**:
+  - `ASTRO_TELEMETRY_DISABLED=1 bun run build`: Executed cleanly (0 errors, 0 warnings, 20 static pages generated in 2.10s). Note: `ASTRO_TELEMETRY_DISABLED=1` is required in sandbox/headless environments where writing to `~/.config/astro/` is restricted.
+  - `bun run audit:links`: Executed cleanly (568 internal links checked across 20 pages, 0 broken links).
+
+##### 5. Required Command Outputs
+- `grep -n -E "vi\.useFakeTimers|vi\.advanceTimersByTime" -r d2-signalloom/apps/dashboard-signalloom/src`:
+  - `d2-signalloom/apps/dashboard-signalloom/src/components/demos/TokenIssuePanel.test.tsx:202:    vi.useFakeTimers()`
+  - `d2-signalloom/apps/dashboard-signalloom/src/components/demos/TokenIssuePanel.test.tsx:225:      vi.advanceTimersByTime(5000)`
+  - `d2-signalloom/apps/dashboard-signalloom/src/components/demos/ConfinementTelemetryPanel.test.tsx:217:      vi.useFakeTimers()`
+  - `d2-signalloom/apps/dashboard-signalloom/src/components/demos/ConfinementTelemetryPanel.test.tsx:230:        await vi.advanceTimersByTimeAsync(10)`
+  - `d2-signalloom/apps/dashboard-signalloom/src/components/demos/ConfinementTelemetryPanel.test.tsx:259:        await vi.advanceTimersByTimeAsync(2000)`
+  - `d2-signalloom/apps/dashboard-signalloom/src/components/fleet/FleetRiskGauge.test.tsx:10:    vi.useFakeTimers()`
+  - `d2-signalloom/apps/dashboard-signalloom/src/components/fleet/FleetRiskGauge.test.tsx:96:    act(() => { vi.advanceTimersByTime(100) })`
+- `grep -n "Run demonstrations" -A 6 d2-signalloom/apps/docs-signalloom/astro.config.mjs`:
+  - `43:          label: "Run demonstrations",`
+  - `44-          items: [`
+  - `45-            { label: "Run the partner demonstration", slug: "operations/demo-walkthrough" },`
+  - `46-            { label: "Superadmin demonstrations", slug: "demos/superadmin" }`
+  - `47-          ]`
+  - `48-        },`
+- `ls d2-signalloom/apps/docs-signalloom/src/content/docs/demos/`:
+  - `superadmin.md`
+- `cat d2-signalloom/apps/docs-signalloom/package.json`:
+  ```json
+  {
+    "name": "docs-signalloom",
+    "private": true,
+    "type": "module",
+    "version": "0.1.0",
+    "scripts": {
+      "build": "astro check && astro build",
+      "check": "astro check",
+      "audit:links": "node scripts/link-audit.mjs --dist dist --base /docs --self-test",
+      "dev": "astro dev",
+      "preview": "astro preview"
+    },
+    "dependencies": {
+      "@astrojs/check": "0.9.4",
+      "@astrojs/starlight": "0.42.0",
+      "astro": "7.2.10",
+      "mermaid": "11.17.2",
+      "typescript": "5.7.3"
+    }
+  }
+  ```
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

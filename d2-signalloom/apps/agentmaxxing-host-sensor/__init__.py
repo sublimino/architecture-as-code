@@ -59,6 +59,14 @@ try:
     from .proc import ProcReader
     from .ratelimit import RateLimiter
     from .sensor import HostSensor
+    from .kanban_watcher import (
+        KanbanTaskSnapshot,
+        KanbanWatcher,
+        get_kanban_home,
+        get_kanban_worktrees_home,
+        is_kanban_available,
+        read_json_safe,
+    )
 except (ImportError, ValueError):
     from cgroups import CgroupV2Reader
     from classifier import (
@@ -89,6 +97,14 @@ except (ImportError, ValueError):
         InvalidArtifactError,
         RateLimitExceededError,
         TOCTOURaceDetectedError,
+    )
+    from kanban_watcher import (
+        KanbanTaskSnapshot,
+        KanbanWatcher,
+        get_kanban_home,
+        get_kanban_worktrees_home,
+        is_kanban_available,
+        read_json_safe,
     )
     from models import (
         BoundedProcessAttributes,
@@ -127,6 +143,8 @@ __all__ = [
     "HostSensor",
     "IntegrityState",
     "InvalidArtifactError",
+    "KanbanTaskSnapshot",
+    "KanbanWatcher",
     "NullProtocolCorroborator",
     "ObservationState",
     "PinnedRoot",
@@ -141,9 +159,13 @@ __all__ = [
     "TOCTOURaceDetectedError",
     "ValidationResult",
     "filter_process_attributes",
+    "get_kanban_home",
+    "get_kanban_worktrees_home",
     "get_statx_mnt_id",
+    "is_kanban_available",
     "open_beneath",
     "query_statx",
+    "read_json_safe",
     "sanitize_evidence_record",
     "validate_and_hash_artifact",
 ]

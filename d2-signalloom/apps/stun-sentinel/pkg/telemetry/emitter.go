@@ -38,39 +38,58 @@ const (
 	EventStunProbePreserved = "StunProbePreserved"
 	// EventStunProbeReleased is emitted when probe interception is deactivated.
 	EventStunProbeReleased = "StunProbeReleased"
+	// EventQuarantineSnapshotCaptured is published when forensic memory and held-resource
+	// state has been successfully captured and persisted.
+	EventQuarantineSnapshotCaptured = "QuarantineSnapshotCaptured"
+	// EventQuarantineSnapshotPartial is published when forensic capture exceeded size or time
+	// budgets and recorded a partial snapshot.
+	EventQuarantineSnapshotPartial = "QuarantineSnapshotPartial"
+	// EventQuarantineSnapshotFailed is published when forensic state capture encountered an error.
+	EventQuarantineSnapshotFailed = "QuarantineSnapshotFailed"
 )
 
 // Tier identifies the containment tier for cross-referencing with the
 // two-tier lifetime invariant (SP-2).
 const TierKernelExecutionState = "tier-0-kernel-execution-state"
+const TierForensicQuarantine = "tier-0-forensic-quarantine"
 
 // Event is a single Signal Loom telemetry and audit record.
 type Event struct {
-	Timestamp       string                 `json:"timestamp"`
-	Event           string                 `json:"event"`
-	Tier            string                 `json:"tier"`
-	PodUID          string                 `json:"pod_uid,omitempty"`
-	PodName         string                 `json:"pod,omitempty"`
-	Namespace       string                 `json:"namespace,omitempty"`
-	CgroupPath      string                 `json:"cgroup_path,omitempty"`
-	Frozen          bool                   `json:"frozen"`
-	DryRun          bool                   `json:"dry_run,omitempty"`
-	Decision        string                 `json:"decision,omitempty"`
-	LatencyMS       float64                `json:"latency_ms"`
-	DeadlineMS      float64                `json:"deadline_ms,omitempty"`
-	Polls           int                    `json:"polls,omitempty"`
-	PIDs            []int                  `json:"pids"`
-	PIDCount        int                    `json:"pid_count"`
-	HostVeth        string                 `json:"host_veth,omitempty"`
-	TCIngressFilter string                 `json:"tc_ingress_filter,omitempty"`
-	TCEgressFilter  string                 `json:"tc_egress_filter,omitempty"`
-	ProbesCount     int                    `json:"probes_count,omitempty"`
-	ReconcileCount  int64                  `json:"reconcile_count,omitempty"`
-	Reason          string                 `json:"reason,omitempty"`
-	Error           string                 `json:"error,omitempty"`
-	AttestationID   string                 `json:"attestation_id,omitempty"`
-	WitnessDigest   string                 `json:"witness_digest,omitempty"`
-	Details         map[string]interface{} `json:"details,omitempty"`
+	Timestamp          string                 `json:"timestamp"`
+	Event              string                 `json:"event"`
+	Tier               string                 `json:"tier"`
+	PodUID             string                 `json:"pod_uid,omitempty"`
+	PodName            string                 `json:"pod,omitempty"`
+	Namespace          string                 `json:"namespace,omitempty"`
+	CgroupPath         string                 `json:"cgroup_path,omitempty"`
+	Frozen             bool                   `json:"frozen"`
+	DryRun             bool                   `json:"dry_run,omitempty"`
+	Decision           string                 `json:"decision,omitempty"`
+	LatencyMS          float64                `json:"latency_ms"`
+	DeadlineMS         float64                `json:"deadline_ms,omitempty"`
+	Polls              int                    `json:"polls,omitempty"`
+	PIDs               []int                  `json:"pids"`
+	PIDCount           int                    `json:"pid_count"`
+	HostVeth           string                 `json:"host_veth,omitempty"`
+	TCIngressFilter    string                 `json:"tc_ingress_filter,omitempty"`
+	TCEgressFilter     string                 `json:"tc_egress_filter,omitempty"`
+	ProbesCount        int                    `json:"probes_count,omitempty"`
+	ReconcileCount     int64                  `json:"reconcile_count,omitempty"`
+	Reason             string                 `json:"reason,omitempty"`
+	Error              string                 `json:"error,omitempty"`
+	AttestationID      string                 `json:"attestation_id,omitempty"`
+	WitnessDigest      string                 `json:"witness_digest,omitempty"`
+	SnapshotID         string                 `json:"snapshot_id,omitempty"`
+	SnapshotPath       string                 `json:"snapshot_path,omitempty"`
+	SnapshotSizeBytes  int64                  `json:"snapshot_size_bytes,omitempty"`
+	CaptureDurationMS  float64                `json:"capture_duration_ms,omitempty"`
+	ProcessCount       int                    `json:"process_count,omitempty"`
+	FDCount            int                    `json:"fd_count,omitempty"`
+	SocketCount        int                    `json:"socket_count,omitempty"`
+	LockCount          int                    `json:"lock_count,omitempty"`
+	Partial            bool                   `json:"partial,omitempty"`
+	PartialReason      string                 `json:"partial_reason,omitempty"`
+	Details            map[string]interface{} `json:"details,omitempty"`
 }
 
 // Emitter serialises events onto a writer. It is safe for concurrent use: the
@@ -224,4 +243,87 @@ func ValidateAuditEvent(data []byte) (*Event, error) {
 		return nil, fmt.Errorf("audit event missing mandatory 'event' field")
 	}
 	return &ev, nil
+}
+
+// QuarantineObservation describes a completed forensic snapshot capture.
+type QuarantineObservation struct {
+	PodUID            string
+	PodName           string
+	Namespace         string
+	CgroupPath        string
+	SnapshotID        string
+	SnapshotPath      string
+	SnapshotSizeBytes int64
+	CaptureDurationMS float64
+	ProcessCount      int
+	FDCount           int
+	SocketCount       int
+	LockCount         int
+	Partial           bool
+	PartialReason     string
+	PIDs              []int
+}
+
+// QuarantineSnapshotCaptured publishes a complete forensic capture event.
+func (e *Emitter) QuarantineSnapshotCaptured(obs QuarantineObservation) error {
+	return e.Emit(Event{
+		Event:             EventQuarantineSnapshotCaptured,
+		Tier:              TierForensicQuarantine,
+		PodUID:            obs.PodUID,
+		PodName:           obs.PodName,
+		Namespace:         obs.Namespace,
+		CgroupPath:        obs.CgroupPath,
+		SnapshotID:        obs.SnapshotID,
+		SnapshotPath:      obs.SnapshotPath,
+		SnapshotSizeBytes: obs.SnapshotSizeBytes,
+		CaptureDurationMS: obs.CaptureDurationMS,
+		ProcessCount:      obs.ProcessCount,
+		FDCount:           obs.FDCount,
+		SocketCount:       obs.SocketCount,
+		LockCount:         obs.LockCount,
+		Partial:           false,
+		PIDs:              obs.PIDs,
+	})
+}
+
+// QuarantineSnapshotPartial publishes an over-budget or partial forensic capture event.
+func (e *Emitter) QuarantineSnapshotPartial(obs QuarantineObservation) error {
+	return e.Emit(Event{
+		Event:             EventQuarantineSnapshotPartial,
+		Tier:              TierForensicQuarantine,
+		PodUID:            obs.PodUID,
+		PodName:           obs.PodName,
+		Namespace:         obs.Namespace,
+		CgroupPath:        obs.CgroupPath,
+		SnapshotID:        obs.SnapshotID,
+		SnapshotPath:      obs.SnapshotPath,
+		SnapshotSizeBytes: obs.SnapshotSizeBytes,
+		CaptureDurationMS: obs.CaptureDurationMS,
+		ProcessCount:      obs.ProcessCount,
+		FDCount:           obs.FDCount,
+		SocketCount:       obs.SocketCount,
+		LockCount:         obs.LockCount,
+		Partial:           true,
+		PartialReason:     obs.PartialReason,
+		PIDs:              obs.PIDs,
+	})
+}
+
+// QuarantineSnapshotFailed publishes a failure to capture forensic state.
+func (e *Emitter) QuarantineSnapshotFailed(obs QuarantineObservation, reason string) error {
+	return e.Emit(Event{
+		Event:             EventQuarantineSnapshotFailed,
+		Tier:              TierForensicQuarantine,
+		PodUID:            obs.PodUID,
+		PodName:           obs.PodName,
+		Namespace:         obs.Namespace,
+		CgroupPath:        obs.CgroupPath,
+		SnapshotID:        obs.SnapshotID,
+		SnapshotPath:      obs.SnapshotPath,
+		CaptureDurationMS: obs.CaptureDurationMS,
+		Reason:            reason,
+		Partial:           true,
+		PartialReason:     reason,
+		PIDs:              obs.PIDs,
+	})
 }

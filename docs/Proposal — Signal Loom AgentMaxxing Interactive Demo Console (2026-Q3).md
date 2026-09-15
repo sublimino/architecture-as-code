@@ -296,7 +296,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P2-1 | implementation | Build Stepper Header and Stage Progression Controller | P2-PRE | Vitest stepper unit tests; stage navigation click assertions | L | daily | pass — delivered: 92ac1a79ccbecdb40d2fa659fc381afcdb1df228 (see Errata — AMXD-P2-1) | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels | P2-PRE | Vitest enrollment panel tests; attributable token generation visual check | L | daily | pass — delivered: a386350baff51f7816335e4e1e0fa60c915868da (see Errata — AMXD-P2-2) | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge Stage 1-2 UI and verify attributable enrollment display | P2-1, P2-2 | Typecheck + vitest suites pass; zero regression in existing sidebar | M | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P3-PRE | preflight | Confirm SSE/websocket telemetry streaming and host metrics contract | P2-GOV | Telemetry fixture probe; host sensor payload schema verification | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-PRE | preflight | Confirm SSE/websocket telemetry streaming and host metrics contract | P2-GOV | Telemetry fixture probe; host sensor payload schema verification | S | daily | **Pass** — verified host telemetry contract: zero file-descriptor fields exist across all `agentmaxxing-host-sensor` models/code (confirmed via `grep`); traced data path showing only `cpu_time_ms` and `resident_memory_bytes` reach dashboard (`cpu_percent` is dropped at sensor `to_export_dict` / schema boundary); confirmed zero SSE/WebSocket streams for AgentMaxxing telemetry (polled REST only); established binding decision for AMXD-P3-1: Open FDs gauge must NOT fabricate numbers (must be omitted or clearly labeled `N/A — Not available in host-sensor-v1 contract`); live gauges poll `cpu_time_ms` and `resident_memory_bytes` on standard interval. | $0.00 | N/A | ~5m | N/A |
 | P3-1 | implementation | Implement Stage 3 Confinement Telemetry panel | P3-PRE | Gauge rendering tests; live CPU/RSS/FD updates; hash comparison table | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Implement Zero-Payload Inspector widget proving prompt/code confidentiality | P3-PRE | Zero-payload assertion tests; metadata-only display proof | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge telemetry visualization and verify zero customer payload display | P3-1, P3-2 | Vitest suites pass; zero prompt/code leak verified | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -1335,4 +1335,27 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
 - Documented known residual defect for AMXD-P3-GOV (Stage 2 enroll double-advance) with reproducing test.
 **Deviations:** None.
 **Notes:** `tsc --noEmit` 0; App.test.tsx 13/13; Sidebar suites 90/90; demos 132 passed/2 skipped; composed 14/14; `vite build` 0 clean chunk output.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P3-PRE Confirm SSE/websocket telemetry streaming and host metrics contract
+**Created:** 2026-09-15 04:26:21+01:00
+**Last Updated:** 2026-09-15 04:26:21+01:00
+**Status:** Completed
+**Commit:** 51a1b59782110b81dbd595401c9c128e5a04c147
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- **Zero File Descriptor Field Verification**: Confirmed via comprehensive repository scan (`grep -rn 'fd_count\|open_fds\|num_fds\|file_descriptor' d2-signalloom/apps/agentmaxxing-host-sensor/*.py`) that zero open file descriptor count fields exist anywhere in the host sensor Python codebase. The term "descriptor" in `agentmaxxing-host-sensor` appears exclusively for descriptor-relative filesystem syscall operations (`openat2.py`, `file_validator.py`, `hasher.py`) for artifact eligibility and TOCTOU hashing.
+- **Traced Data Path to Dashboard Types**:
+  1. *Host Sensor Model*: `BoundedProcessAttributes` (`d2-signalloom/apps/agentmaxxing-host-sensor/models.py:58-164`) tracks `health_state`, `cpu_time_ms`, `resident_memory_bytes`, `exit_code`, `restart_count`, `cpu_percent`, `pid`, and `ppid`.
+  2. *Export Serialization Boundary*: `BoundedProcessAttributes.to_export_dict()` (`models.py:106-117`) strictly exports only the 5 frozen attributes: `health_state`, `cpu_time_ms`, `resident_memory_bytes`, `exit_code`, `restart_count`. `cpu_percent`, `pid`, and `ppid` are internal to host sensor diagnostics and are deliberately excluded from the external agent evidence export.
+  3. *JSON Schema Validation*: `d2-signalloom/apps/signal-ingest/collectors/agentnono/contracts/external-agent-evidence.v1.schema.json:31` defines `process` with `additionalProperties: false`, enforcing the exact 5 frozen attributes.
+  4. *Generated TypeScript Interface*: `d2-signalloom/apps/dashboard-signalloom/src/types/externalAgent.ts:19-25` (`ExternalAgentEvidenceV1Process`) carries `health_state`, `cpu_time_ms`, `resident_memory_bytes`, `exit_code`, and `restart_count`.
+  5. *Surviving Wire Fields*: Only `cpu_time_ms` (cumulative CPU execution time in ms) and `resident_memory_bytes` (RSS memory in bytes) reach the dashboard.
+- **Absence of Push / Streaming Transport**: Confirmed via `grep -rn 'EventSource\|WebSocket' d2-signalloom/apps/dashboard-signalloom/src/api/*.ts` that no SSE or WebSocket telemetry stream exists for AgentMaxxing host metrics. All evidence retrieval (`client.ts:467-476`, `/agents/{id}/external-evidence`) and evidence ingestion (`/api/v1/external-agents/evidence-uploads`) operate exclusively over standard HTTP request/response polling.
+- **Binding Contract for AMXD-P3-1**:
+  1. *CPU & RSS Gauges*: AMXD-P3-1 must render 'CPU Time (ms / ticks)' and 'RSS Memory (MB)' sourced honestly from `cpu_time_ms` and `resident_memory_bytes` via standard polling cadence.
+  2. *Open FDs Gauge Prohibition*: AMXD-P3-1 is strictly prohibited from fabricating an arbitrary integer for Open FDs (e.g., from process count or artifact count), which would violate the cold-start reproducibility invariant. The Open FDs gauge must either be omitted or rendered with an explicit badge stating `N/A — Not available in host-sensor-v1 contract (schema 1.0.0)`.
+  3. *Polling Architecture*: The live gauge update loop must be designed around a periodic poll interval (or on-demand step triggers) rather than expecting server-pushed SSE events.
+**Deviations:** None.
+**Notes:** Baseline test suites are clean: `bun run test --run src/components/demos/` (132 passed, 2 skipped, 0 failed), `tsc --noEmit` (exit 0), and `bats test/acceptance-spec-coverage.bats` (7/7 passed).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

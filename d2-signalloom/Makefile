@@ -196,7 +196,7 @@ test-netassert: ## Validate NetworkPolicy enforcement with netassert (needs runn
 	  [ -n "$$AGENT_POD" ] || AGENT_POD=$$(kubectl get pod -n fe-signalloom-agents -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) ; \
 	  [ -n "$$AGENT_POD" ] || { echo "no agent pod found in fe-signalloom-agents"; exit 1; } && \
 	  sed "s/name: agent-patsy/name: $$AGENT_POD/g" test/netassert-signalloom.yaml > /tmp/netassert-signalloom-run.yaml && \
-	  netassert run -f /tmp/netassert-signalloom-run.yaml -P 3
+	  netassert run -f /tmp/netassert-signalloom-run.yaml -P 3 -t /tmp/results.tap
 
 bootstrap-drift: ## Regenerate bootstrap SQL and compare it with the committed contract.
 	bash ./test/check-bootstrap-drift.sh

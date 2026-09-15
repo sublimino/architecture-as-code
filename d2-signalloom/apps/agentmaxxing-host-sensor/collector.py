@@ -13,6 +13,7 @@ if str(PKG_DIR) not in sys.path:
 
 try:
     from .cgroups import CgroupV2Reader
+    from .classifier import ClassificationClaim, HarnessAncestryClassifier
     from .coding_agent_models import ProcessInfo
     from .filter import AllowlistFilter
     from .models import (
@@ -28,6 +29,7 @@ try:
     from .proc import ProcReader, ProcStat, ProcStatm, ProcStatus
 except (ImportError, ValueError):
     from cgroups import CgroupV2Reader
+    from classifier import ClassificationClaim, HarnessAncestryClassifier
     from filter import AllowlistFilter
     from models import (
         BoundedProcessAttributes,
@@ -64,9 +66,13 @@ class ProcessTelemetryCollector:
         self,
         proc_reader: Optional[ProcReader] = None,
         cgroup_reader: Optional[CgroupV2Reader] = None,
+        classifier: Optional[HarnessAncestryClassifier] = None,
     ) -> None:
         self.proc_reader: ProcReader = proc_reader or ProcReader()
         self.cgroup_reader: CgroupV2Reader = cgroup_reader or CgroupV2Reader()
+        self.classifier: HarnessAncestryClassifier = (
+            classifier or HarnessAncestryClassifier(proc_reader=self.proc_reader)
+        )
         # Per-PID history for delta rate calculations: pid -> (last_time, last_cpu_time_ms)
         self._history: Dict[int, Tuple[float, int]] = {}
         # Tracking for detected restarts
@@ -339,6 +345,21 @@ class ProcessTelemetryCollector:
             if max_iterations is not None and iteration >= max_iterations:
                 break
             time.sleep(interval)
+
+    def classify_process(
+        self,
+        pid: int,
+        process_table: Optional[Dict[int, ScannedProcess]] = None,
+    ) -> ClassificationClaim:
+        """Classify a process and its ancestry tree using multi-signal corroboration."""
+        return self.classifier.classify_process(pid=pid, process_table=process_table)
+
+    def classify_scanned_processes(
+        self,
+        scanned_list: List[ScannedProcess],
+    ) -> Dict[int, ClassificationClaim]:
+        """Classify a batch of scanned processes from scan_processes()."""
+        return self.classifier.classify_batch(scanned_list)
 
     def to_process_info(self, scanned: ScannedProcess) -> Optional[ProcessInfo]:
         """Convert a ScannedProcess to the allowlisted ProcessInfo wire model."""

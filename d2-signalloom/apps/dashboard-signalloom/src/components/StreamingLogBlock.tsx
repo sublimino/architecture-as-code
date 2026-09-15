@@ -448,11 +448,12 @@ export default function StreamingLogBlock({
  * reader does not need the picture as well.
  */
 function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
+  const isCopied = state === 'copied'
   return (
     <svg
       aria-hidden="true"
       data-testid="copy-glyph"
-      data-glyph={state === 'copied' ? 'tick' : 'clipboard'}
+      data-glyph={isCopied ? 'tick' : 'clipboard'}
       width="11"
       height="11"
       viewBox="0 0 16 16"
@@ -462,14 +463,29 @@ function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {state === 'copied' ? (
+      <g
+        style={{
+          opacity: isCopied ? 1 : 0,
+          transform: isCopied ? 'scale(1)' : 'scale(0.25)',
+          filter: isCopied ? 'blur(0px)' : 'blur(4px)',
+          transformOrigin: 'center',
+          transition: 'opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 200ms cubic-bezier(0.2, 0, 0, 1), filter 200ms cubic-bezier(0.2, 0, 0, 1)',
+        }}
+      >
         <polyline points="3,8.5 6.5,12 13,4" />
-      ) : (
-        <>
-          <rect x="5" y="2" width="9" height="11" rx="1.5" />
-          <path d="M11 13v1a1.5 1.5 0 0 1-1.5 1.5H3.5A1.5 1.5 0 0 1 2 14V5.5A1.5 1.5 0 0 1 3.5 4H5" />
-        </>
-      )}
+      </g>
+      <g
+        style={{
+          opacity: !isCopied ? 1 : 0,
+          transform: !isCopied ? 'scale(1)' : 'scale(0.25)',
+          filter: !isCopied ? 'blur(0px)' : 'blur(4px)',
+          transformOrigin: 'center',
+          transition: 'opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 200ms cubic-bezier(0.2, 0, 0, 1), filter 200ms cubic-bezier(0.2, 0, 0, 1)',
+        }}
+      >
+        <rect x="5" y="2" width="9" height="11" rx="1.5" />
+        <path d="M11 13v1a1.5 1.5 0 0 1-1.5 1.5H3.5A1.5 1.5 0 0 1 2 14V5.5A1.5 1.5 0 0 1 3.5 4H5" />
+      </g>
     </svg>
   )
 }
@@ -524,7 +540,7 @@ const headerStatus: CSSProperties = {
 }
 
 const copyButton: CSSProperties = {
-  fontSize: 11, padding: '2px 10px',
+  fontSize: 11, padding: '2px 10px 2px 8px',
 }
 
 const truncationNote: CSSProperties = {

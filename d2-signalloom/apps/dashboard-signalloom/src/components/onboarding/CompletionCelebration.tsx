@@ -155,7 +155,7 @@ export default function CompletionCelebration({
         style={{
           fontSize: 15,
           fontWeight: 600,
-          padding: '12px 32px',
+          padding: '12px 30px 12px 32px',
           background: 'linear-gradient(90deg, var(--cyan), var(--violet, #8B5CF6))',
           boxShadow: '0 2px 12px rgba(6, 182, 212, 0.3)',
           cursor: 'pointer',

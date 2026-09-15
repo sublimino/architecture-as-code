@@ -284,6 +284,8 @@ export default function DataTable<T>({
                     key={`${col.key}-${colIdx}`}
                     style={{
                       ...thStyle,
+                      borderTopLeftRadius: colIdx === 0 ? 'calc(var(--radius) - 1px)' : undefined,
+                      borderTopRightRadius: colIdx === columns.length - 1 ? 'calc(var(--radius) - 1px)' : undefined,
                       cursor: col.sortable ? 'pointer' : 'default',
                     }}
                     onClick={col.sortable ? () => handleSort(col.key) : undefined}

@@ -358,7 +358,7 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
             aria-label={status === 'running' ? 'Pause Auto-Play' : 'Start Auto-Play'}
             disabled={disabled}
             onClick={handleToggleAutoPlay}
-            className={`btn px-4 py-1.5 text-xs sm:text-sm font-semibold rounded transition-all flex items-center gap-2 ${
+            className={`btn ps-3.5 pe-4 py-1.5 text-xs sm:text-sm font-semibold rounded transition-all flex items-center gap-2 ${
               status === 'running'
                 ? 'bg-[var(--error)]/15 text-[var(--error)] border border-[var(--error)]/40 hover:bg-[var(--error)]/25'
                 : 'btn-primary bg-[var(--cyan)] text-[var(--bg)] hover:brightness-110'
@@ -377,7 +377,7 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
             ) : (
               <>
                 <span data-testid="autoplay-start-button" className="inline-flex items-center gap-1.5">
-                  <svg aria-hidden="true" className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                  <svg aria-hidden="true" className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" style={{ transform: 'translateX(1.5px)' }}>
                     <polygon points="5,3 19,12 5,21" />
                   </svg>
                   {isLastStageConfirmed ? 'Restart Auto-Play' : 'Start Auto-Play'}

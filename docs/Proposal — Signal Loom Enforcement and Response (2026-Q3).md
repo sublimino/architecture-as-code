@@ -321,7 +321,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P5-1 | implementation | Emit Witness-attested forensic records linking authorization to containment | P5-PRE | Attestation round-trip test; `witness verify` validation | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | Benchmark and publish per-plane denial matrix | P5-PRE | Latency benchmark test; published denial matrix documentation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-GOV | governor | Merge forensic ledger and prove 100% containment attestation roundtrip | P5-1, P5-2 | Ledger integrity test; zero un-attested containment events | M | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P6-PRE | preflight | Confirm purple-team attack harness and end-to-end fixtures | P5-GOV | Purple-team scenario inventory; fixture verification | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P6-PRE | preflight | Confirm purple-team attack harness and end-to-end fixtures | P5-GOV | Purple-team scenario inventory; fixture verification | S | daily | **pass** — 15 red-team scenarios audited across lines 48-165 of `scripts/run-redteam-suite.sh`; confirmed 0 scenarios cover OpenBao, SPIRE, Admission, or Fleet cascade (unfalsifiable 3-plane escape claim exposed); designed 5-plane scenario matrix for P6-1; confirmed `.metrics.process_escapes` pass/fail gate; confirmed derived-coverage-guard pattern for P6-3 → `docs/signalloom/sler-p6-pre-coverage-matrix.md` | $0.00 | N/A | ~4m | N/A |
 | P6-1 | implementation | Execute purple-team containment escape suite across all planes | P6-PRE | `bats test/crkc-adversarial-redteam.bats`; assert escape rate = 0 | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-2 | implementation | Publish operational runbook and denial matrix reference guide | P6-PRE | Astro docs build check; runbook clarity check | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P6-3 | implementation | Build automated end-to-end acceptance suite for multi-plane containment | P6-PRE | `bash scripts/run-redteam-suite.sh`; multi-plane containment run | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -980,3 +980,27 @@ Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
 ##### Deviations
 None.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P6-PRE (preflight) — Confirm purple-team attack harness and end-to-end fixtures
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 08:45:05+01:00
+**Last Updated:** 2026-09-15 08:45:05+01:00
+
+##### Task identity
+- Card: `SLER-P6-PRE`
+- Shortcode: `SLER`
+- Base at review: `77a7e665834e8f864a9ad6179a7030676561b278` on `integration/sler-v0.1.0`
+**Status:** pass
+
+##### Findings & Confirmations
+1. **Existing 15 Scenarios Audited & Mapped**: Audited all 15 scenarios in `scripts/run-redteam-suite.sh` (lines 48–165). Confirmed they cluster exclusively in single-host kernel freeze (7 scenarios: 01–06, 15), TC eBPF drop & network socket isolation (2 scenarios: 07–08), Landlock LSM filesystem/proc/socket confinement (3 scenarios: 10–12), and telemetry / GitOps drift (3 scenarios: 09, 13, 14).
+2. **Zero Coverage Confirmed Across 3 Planes & Orchestration**: Confirmed via strict grep and static analysis that exactly zero (0) scenarios reference or test OpenBao active lease revocation (`/v1/sys/leases/revoke`), SPIRE entry eviction (`spire-server entry delete`), admission webhook pod readmission blocking (`node-capability-guard`), or central Fleet Manager cascade orchestration.
+3. **Unfalsifiable Escape-Rate Claim Identified**: Exposed that citing "escape rate = 0" from the existing CRKC Phase 4 suite is unfalsifiable for 3 of SLER's 5 planes. Designed the 25-scenario master coverage matrix for P6-1 to implement, adding targeted adversarial tests for OpenBao lease reuse, SPIFFE SVID replay, pod reconstitution blocks, and cascade fail-closed isolation.
+4. **Pass/Fail Gate Confirmed**: Validated `test/crkc-adversarial-redteam.bats:42` asserting `.metrics.process_escapes == 0` and established multi-plane metric schema extension requirements (`lease_escapes`, `svid_escapes`, `admission_escapes`, `packet_leaks`).
+5. **Derived-Coverage-Guard Pattern Confirmed for P6-3**: Analyzed `test/acceptance-spec-coverage.bats` and `test/acceptance/SPEC-REGISTRY.tsv`, establishing the architectural requirement that P6-3 acceptance specs must use derived validation rather than error-prone static lists.
+6. **Documentation & Deliverables**: Published comprehensive audit and coverage matrix specification to `docs/signalloom/sler-p6-pre-coverage-matrix.md`. All unit tests across `fleet-manager` and `stun-sentinel` pass 100%.
+
+##### Deviations
+None.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

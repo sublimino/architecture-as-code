@@ -109,6 +109,26 @@ class ProcReader:
             )
         return self.proc_root / str(pid) / entry_name
 
+    def list_pids(self) -> List[int]:
+        """Scan proc_root for active numeric PID directory entries.
+
+        Returns a sorted list of integer PIDs. Handles missing directory or
+        permission issues gracefully without raising exceptions.
+        """
+        if not self.proc_root.exists():
+            return []
+        pids: List[int] = []
+        try:
+            for entry in os.scandir(self.proc_root):
+                try:
+                    if entry.is_dir(follow_symlinks=False) and entry.name.isdigit():
+                        pids.append(int(entry.name))
+                except (PermissionError, FileNotFoundError, OSError):
+                    continue
+        except (FileNotFoundError, PermissionError, ProcessLookupError, NotADirectoryError, OSError):
+            return []
+        return sorted(pids)
+
     def is_pid_alive(self, pid: int) -> bool:
         """Check if process exists and is active."""
         if pid <= 0:

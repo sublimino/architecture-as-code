@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0.0",
+  "source_file": "d2-signalloom/apps/agentmaxxing-host-sensor/filter.py",
+  "filter_sha256": "183b788007e4adfe116e792893ccc814f5e66acfa68dbff067c9e2d71a239b34",
+  "python_extractor": "Python 3.14.4",
+  "allowlisted_process_attributes": [
+    "cpu_time_ms",
+    "exit_code",
+    "health_state",
+    "resident_memory_bytes",
+    "restart_count"
+  ],
+  "extended_process_attributes": [
+    "cpu_percent",
+    "cpu_time_ms",
+    "exit_code",
+    "health_state",
+    "pid",
+    "ppid",
+    "resident_memory_bytes",
+    "restart_count"
+  ],
+  "allowlisted_envelope_fields": [
+    "actor_id",
+    "agent_id",
+    "attributes",
+    "evidence_type",
+    "host_id",
+    "integrity_state",
+    "observation_state",
+    "observed_at",
+    "schema_version",
+    "sequence",
+    "session_id",
+    "source",
+    "tenant_id"
+  ],
+  "allowlisted_coding_agent_envelope_fields": [
+    "agent_id",
+    "harness",
+    "host_id",
+    "kanban",
+    "metrics",
+    "network",
+    "observed_at",
+    "process",
+    "schema_version",
+    "session_id",
+    "tenant_id",
+    "timestamp"
+  ],
+  "allowlisted_coding_agent_process_fields": [
+    "comm",
+    "cpu_ticks",
+    "pid",
+    "ppid",
+    "rss_bytes"
+  ],
+  "allowlisted_coding_agent_kanban_fields": [
+    "elapsed_s",
+    "role",
+    "shortcode",
+    "task_id"
+  ],
+  "allowlisted_coding_agent_metrics_fields": [
+    "step_count",
+    "tokens_in",
+    "tokens_out",
+    "tool_counts"
+  ],
+  "allowlisted_coding_agent_network_fields": [
+    "egress_bytes",
+    "inference_endpoint"
+  ],
+  "prohibited_export_keys": [
+    "api_key",
+    "argv",
+    "cli_arguments",
+    "cmdline",
+    "command",
+    "command_line",
+    "completion_text",
+    "credentials",
+    "env",
+    "environ",
+    "environment",
+    "error",
+    "file_contents",
+    "heap",
+    "input_payload",
+    "memory_contents",
+    "memory_dump",
+    "network_payload",
+    "network_payload_contents",
+    "output_payload",
+    "password",
+    "path",
+    "payload",
+    "prompt_text",
+    "raw_nono_record",
+    "registers",
+    "secret",
+    "stack",
+    "stderr",
+    "stdin",
+    "stdout",
+    "streamed_payload_contents",
+    "streamed_payload_digest",
+    "token",
+    "url",
+    "user_data"
+  ]
+}

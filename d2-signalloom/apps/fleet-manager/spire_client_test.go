@@ -738,9 +738,24 @@ func TestK8sFleetClient_RevokeCredentials_WithSpireClient(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Revoke credentials invokes SPIRE eviction
-	if err := client.RevokeCredentials(ctx, "agent-monitor"); err != nil {
-		t.Fatalf("RevokeCredentials failed: %v", err)
+	// SLER-P2-GOV: this test asserted `RevokeCredentials(...) == nil`, and that
+	// assertion was only ever satisfiable because the bao branch below the SPIRE
+	// branch was unreachable — newK8sFleetClient always constructs a baoClient, and
+	// the old if/else-if returned nil from the SPIRE branch before reaching it. Now
+	// that both planes fan out, the aggregate error correctly reports that the bao
+	// plane could not be reached from a unit-test environment with no OpenBao.
+	//
+	// The test's SUBJECT is the SPIRE plane, so it now asserts the SPIRE plane's own
+	// PlaneResult rather than an aggregate that was silently speaking for two planes
+	// while only exercising one.
+	results, _ := client.RevokeCredentialsPlanes(ctx, "agent-monitor")
+	spireRes, ok := planeResultFor(results, PlaneSpire)
+	if !ok {
+		t.Fatalf("no spire PlaneResult returned: %+v", results)
+	}
+	if spireRes.Outcome != OutcomeContained {
+		t.Fatalf("spire plane outcome = %q, want %q (error: %s)",
+			spireRes.Outcome, OutcomeContained, spireRes.Error)
 	}
 
 	if len(srv.entries) != 0 {

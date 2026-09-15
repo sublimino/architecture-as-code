@@ -39,9 +39,10 @@ export PW_CHANNEL="${PW_CHANNEL:-chromium}"
 
 cleanup() {
   if [[ -n "${PREVIEW_PID}" ]]; then
-    kill "${PREVIEW_PID}" 2>/dev/null || true
+    kill -TERM -"${PREVIEW_PID}" 2>/dev/null || kill "${PREVIEW_PID}" 2>/dev/null || true
     wait "${PREVIEW_PID}" 2>/dev/null || true
   fi
+  bun run --cwd "${DOCS_APP}" astro preview stop 2>/dev/null || true
   rm -f "${DOCS_APP}/.astro/preview.json"
 }
 trap cleanup EXIT INT TERM
@@ -81,8 +82,14 @@ if [[ ! -d node_modules/@playwright ]]; then
 fi
 
 export DOCS_BASE_URL="http://127.0.0.1:${PORT}/docs"
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${REPO_ROOT}/.cache/ms-playwright}"
+if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then
+  if [[ -d "${REPO_ROOT}/.cache/ms-playwright" ]]; then
+    export PLAYWRIGHT_BROWSERS_PATH="${REPO_ROOT}/.cache/ms-playwright"
+  elif [[ -d "${HOME}/.cache/ms-playwright" ]]; then
+    export PLAYWRIGHT_BROWSERS_PATH="${HOME}/.cache/ms-playwright"
+  fi
+fi
 
-bunx playwright test --config=playwright.config.ts --project=docs "$@"
+bun run playwright test --config=playwright.config.ts --project=docs "$@"
 
 echo "✅ Documentation portal built, link-audited and render-checked."

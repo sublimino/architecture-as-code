@@ -1,10 +1,10 @@
 ---
 title: Signal Loom documentation
-description: Start here to deploy, evaluate, and operate Signal Loom.
+description: Technical documentation for deploying, evaluating, and operating the Signal Loom agent governance platform.
 template: splash
 hero:
   title: Govern agents through evidence
-  tagline: Use verified workflows to onboard agents, control risk, and inspect governance evidence.
+  tagline: Use verified workflows to onboard agents, enforce multi-plane containment, and inspect cryptographic governance evidence.
   actions:
     - text: Start the platform
       link: /docs/start/quick-start/
@@ -18,36 +18,82 @@ hero:
 import { Card, CardGrid } from "@astrojs/starlight/components";
 import Mermaid from "../../components/Mermaid.astro";
 
-Signal Loom is an agent governance demonstration platform. It combines identity,
-credentials, policy evidence, agent inventory, and containment demonstrations.
+Signal Loom is an enterprise AI agent governance platform. It unifies cryptographic identity, dynamic credentials, formal access verification, and multi-plane containment.
 
 <CardGrid>
-  <Card title="Evaluate the platform" icon="open-book">
-    Follow the [quick start](/docs/start/quick-start/) and inspect the current limits.
+  <Card title="Quick start" icon="rocket">
+    Follow the [quick start guide](/docs/start/quick-start/) to deploy the platform locally using Kind and Flux.
   </Card>
-  <Card title="Operate an agent" icon="setting">
-    [Register an agent](/docs/start/first-agent/) before you test lifecycle controls.
+  <Card title="Agent containment & response" icon="warning">
+    Apply [5-plane containment](/docs/operate/containment-runbook/) across network, process, filesystem, secrets, and identity.
   </Card>
-  <Card title="Run a demonstration" icon="rocket">
-    Use the [superadmin guide](/docs/demos/superadmin/) for repeatable demo phases.
+  <Card title="Formal RBAC verification" icon="puzzle">
+    Use [KubeSec-AFM](/docs/operate/rbac-formal-analysis/) to detect privilege escalation paths and compute min-cut remediations.
   </Card>
-  <Card title="Choose your workflow" icon="user">
-    Start from the role guide that matches your responsibility.
+  <Card title="Data protection & erasure" icon="seti:lock">
+    Enforce [dual-key envelope encryption](/docs/security/data-protection-and-erasure/) and verified cryptographic shredding.
+  </Card>
+  <Card title="CPAI runtime proxy" icon="laptop">
+    Connect agent frameworks to [Google Vertex AI models](/docs/operate/cpai-runtime-proxy/) with OpenAI API compatibility.
+  </Card>
+  <Card title="Declarative swarms (Kagent)" icon="list-format">
+    Deploy and govern [CNCF Kagent swarms](/docs/operate/kagent-declarative-swarms/) with automated SPIFFE attestation.
   </Card>
 </CardGrid>
 
+## Platform Architecture
+
+Signal Loom coordinates platform security across five operational tiers.
+
 <Mermaid
-  label="Signal Loom evidence flow"
-  diagram={`flowchart LR
-    A[Agent identity] --> B[Policy evaluation]
-    B --> C[Credential decision]
-    C --> D[Runtime action]
-    D --> E[Audit evidence]
-    E --> B`}
+  label="Signal Loom comprehensive platform architecture"
+  diagram={`flowchart TB
+  subgraph InterfaceTier["Interface & Presentation Tier"]
+    DASH["Signal Loom Web Dashboard (React SPA)"]
+    DOCS["Documentation Service (/docs, Astro Starlight)"]
+    API["Governance API Gateway (FastAPI / Envoy)"]
+  end
+
+  subgraph GovernanceSlices["Delivery Slices (D2 / D5)"]
+    SL["d2-signalloom: Fleet Manager & Host Sensor"]
+    AFM["d2-k8s-afm: KubeSec Formal RBAC Verifier (Z3)"]
+    CPAI["d2-cpai: Vertex AI Runtime Proxy (Gemini 2.5)"]
+    KAG["d2-signalloom/infra/kagent: CNCF Swarms (D5)"]
+    EXT["d2-agentmaxxing: Linux Landlock Host Confinement"]
+  end
+
+  subgraph ContainmentPlanes["5-Plane Active Containment (SLER)"]
+    P1["Plane 1: Network (Cilium / Calico NetPol)"]
+    P2["Plane 2: Process & Sandbox (Landlock ABI v3 / nono)"]
+    P3["Plane 3: Secret Revocation (OpenBao Lease Expiry)"]
+    P4["Plane 4: Filesystem Protection (Read-Only Mounts)"]
+    P5["Plane 5: Identity Suspension (SPIFFE SVID Revocation)"]
+  end
+
+  subgraph SharedFoundation["Shared Foundation Substrate (Kind: osramp)"]
+    FLUX["Flux Operator: GitOps Fleet Controller"]
+    INGRESS["Envoy Gateway: TLS Termination"]
+    SPIRE["SPIRE Server & Workload API"]
+    BAO["OpenBao KMS & Transit Engine"]
+    ZOT["Zot OCI Registry & Artifact Store"]
+    MON["kube-prometheus-stack & Grafana"]
+  end
+
+  InterfaceTier --> GovernanceSlices
+  GovernanceSlices --> ContainmentPlanes
+  ContainmentPlanes --> SharedFoundation`}
 />
+
+## Governance Operating Model
+
+Every agent action follows an evidence-based verification loop:
+
+1. **Attestation**: The agent presents a cryptographic SPIFFE verifiable identity document.
+2. **Policy Verification**: The engine evaluates permissions against formal security bounds.
+3. **Dynamic Credentialing**: OpenBao issues a short-lived lease for the specific operation.
+4. **Execution and Monitoring**: The host sensor observes system calls without reading payload data.
+5. **Immutable Audit**: The platform records a SHA-256 hash digest in the append-only ledger.
 
 ## Before you continue
 
-This site distinguishes current behaviour from planned behaviour. Read
-[Current limits and roadmap](/docs/reference/roadmap/) before you use a demo as
-evidence of production authorization enforcement.
+This site distinguishes verified platform behaviour from forward roadmap items. Read the [Current limits and roadmap](/docs/reference/roadmap/) before deploying production workloads.

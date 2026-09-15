@@ -32,7 +32,10 @@ export default defineConfig({
             { label: "Claim the two demonstration agents", slug: "agents/dual-agent-onboarding" },
             { label: "Coding agent detection runbook", slug: "operate/coding-agent-detection-runbook" },
             { label: "Stun or unstun an agent", slug: "operate/stun-agent" },
-            { label: "Containment & response runbook", slug: "operate/containment-runbook" }
+            { label: "Containment & response runbook", slug: "operate/containment-runbook" },
+            { label: "Formal verification of Kubernetes RBAC", slug: "operate/rbac-formal-analysis" },
+            { label: "CPAI runtime proxy configuration", slug: "operate/cpai-runtime-proxy" },
+            { label: "CNCF Kagent declarative agent swarms", slug: "operate/kagent-declarative-swarms" }
           ]
         },
         {
@@ -40,7 +43,8 @@ export default defineConfig({
           items: [
             { label: "Detective telemetry architecture", slug: "security/detective-telemetry-architecture" },
             { label: "Zero-Customer-Payload privacy", slug: "security/zero-customer-payload" },
-            { label: "Nono optionality and Landlock confinement", slug: "security/nono-optionality" }
+            { label: "Nono optionality and Landlock confinement", slug: "security/nono-optionality" },
+            { label: "Cryptographic data protection and erasure", slug: "security/data-protection-and-erasure" }
           ]
         },
         {

@@ -1,0 +1,145 @@
+---
+title: CPAI runtime proxy configuration
+description: Configure AI agents to access Google Vertex AI models through the OpenAI-compatible CPAI runtime governance proxy.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+The ControlPlane AI (CPAI) runtime proxy (`d2-cpai`) translates standard OpenAI API requests to Google Vertex AI.
+
+It provides a single governance gateway for AI agents. The proxy enforces workload attestation, rate limiting, and audit logging.
+
+## Platform Architecture
+
+Agents interact with CPAI using standard OpenAI client libraries. The proxy intercepts calls, checks cryptographic credentials, and relays verified requests to Vertex AI.
+
+<Mermaid
+  label="CPAI runtime proxy request flow and governance architecture"
+  diagram={`sequenceDiagram
+  autonumber
+  participant Agent as AI Agent Workload
+  participant Proxy as CPAI Proxy (d2-cpai)
+  participant SPIRE as SPIRE Workload API
+  participant Vertex as Google Vertex AI (Gemini 2.5)
+  participant Audit as Signal Loom Evidence Store
+
+  Agent->>Proxy: POST /v1/chat/completions (OpenAI format)
+  activate Proxy
+  Proxy->>SPIRE: Validate SPIFFE SVID & Workload Identity
+  SPIRE-->>Proxy: Attestation verified (ns=kagent, sa=coder)
+  Proxy->>Proxy: Check rate limit & token budget
+  Proxy->>Audit: Record request metadata & SHA-256 digest
+  Proxy->>Vertex: Forward inference request (REST)
+  activate Vertex
+  Vertex-->>Proxy: Stream response tokens
+  deactivate Vertex
+  Proxy->>Audit: Record completion metrics (latency, token count)
+  Proxy-->>Agent: Return OpenAI-compliant response
+  deactivate Proxy`}
+/>
+
+## Core Governance Capabilities
+
+1. **API Compatibility**: Provides full compatibility with the OpenAI `/v1/chat/completions` specification.
+2. **Workload Identity**: Authenticates calling workloads using mTLS and SPIFFE verifiable identity documents (SVIDs).
+3. **Per-Agent Token Budgets**: Enforces rate limits and token usage quotas per ServiceAccount.
+4. **Audit Attribution**: Links model interactions to specific agent identities, human operators, and task IDs.
+5. **Zero Payload Logging**: Collects operational metrics without recording prompt contents or model responses.
+
+## Deploy the Proxy Service
+
+Deploy the CPAI slice into your cluster:
+
+```bash
+make demo-cpai-up
+```
+
+Verify that the proxy deployment is ready:
+
+```bash
+kubectl rollout status deployment/cpai-proxy -n cpai
+```
+
+## Configure Client Applications
+
+Connect any agent framework to CPAI by setting standard OpenAI environment variables.
+
+### Environment Variables
+
+| Variable | Description | Example Value |
+| :--- | :--- | :--- |
+| `OPENAI_BASE_URL` | CPAI proxy ingress endpoint | `http://cpai-proxy.cpai.svc.cluster.local:8080/v1` |
+| `OPENAI_API_KEY` | Scoped agent credential token | `sk-cpai-agent-01-token` |
+| `MODEL_NAME` | Upstream model identifier | `gemini-2.5-flash` |
+
+### Python OpenAI Client Example
+
+Configure the standard Python `openai` library:
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url=os.environ.get("OPENAI_BASE_URL", "http://localhost:8080/v1"),
+    api_key=os.environ.get("OPENAI_API_KEY", "dummy-key-attested-by-spiffe"),
+)
+
+response = client.chat.completions.create(
+    model="gemini-2.5-flash",
+    messages=[
+        {"role": "system", "content": "You are a governed coding assistant."},
+        {"role": "user", "content": "Write a unit test for a cryptographic hasher."},
+    ],
+    temperature=0.2,
+)
+
+print(response.choices[0].message.content)
+```
+
+### Curl Verification Command
+
+Test proxy connectivity from within the cluster or via port-forward:
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer test-token" \
+  -d '{
+    "model": "gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "Ping"}]
+  }'
+```
+
+The proxy returns an OpenAI-compliant completion object:
+
+```json
+{
+  "id": "chatcmpl-cpai-789xyz",
+  "object": "chat.completion",
+  "created": 1726400000,
+  "model": "gemini-2.5-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": { "role": "assistant", "content": "Pong" },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1,
+    "completion_tokens": 1,
+    "total_tokens": 2
+  }
+}
+```
+
+## Inspect Proxy Metrics and Logs
+
+To view real-time proxy traffic and attribution logs:
+
+```bash
+kubectl logs -n cpai -l app=cpai-proxy -f
+```
+
+Every log entry records the calling SPIFFE identity, model name, status code, and latency.

@@ -2812,5 +2812,19 @@
     "reviewer": "Council of Agents",
     "verdict": "APPROVED",
     "reason": "SLER Phase 6 Governor audit complete: full surface evaluated, comprehensive delivery report delivered in docs/signalloom/sler-p6-gov-delivery-report.md, certification withheld on 7 findings with clear remediation path"
+  },
+  "ce004": {
+    "task_id": "ce004",
+    "reviewed_at": "2026-09-15T11:10:52Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "Render detected coding agents in dashboard topology and agent views verified: CodingAgentsTab, CodingAgentCard, demoMode, fakeCodingAgentData, 182/182 Vitest files pass (3,389 tests green), clean TypeScript typecheck; commit 36652a05 integrated"
+  },
+  "5f3c2": {
+    "task_id": "5f3c2",
+    "reviewed_at": "2026-09-15T11:10:52Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "AMXD Phase 6 Governor audit complete: 58/62 ISCs verified, certification withheld on two blocking grounds (ISC-42 unreachable live agent_revoked, ISC-23/24 make demo-agentmaxxing-ui-test exit 2 against stale cluster image); commit 42982ff2 integrated"
   }
 }

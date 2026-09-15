@@ -1,0 +1,145 @@
+---
+title: Cryptographic data protection and erasure
+description: Technical architecture and operational procedures for dual-key envelope encryption, soft tombstoning, and cryptographic erasure in Signal Loom.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Signal Loom Data Protection (SLDP) enforces cryptographic data protection and permanent data erasure for AI agent governance records.
+
+This guide explains envelope encryption, the soft-tombstone lifecycle, and cryptographic shredding procedures.
+
+## Security and Privacy Principles
+
+Signal Loom strictly separates telemetry metadata from customer data:
+
+- **Zero-Customer-Payload (ZCP)**: The platform never stores prompts, model completions, source code, or private keys.
+- **Dual-Key Envelope Encryption**: Every tenant data partition uses an independent Data Encryption Key (DEK).
+- **Cryptographic Erasure**: Deleting the key from OpenBao destroys the data irreversibly across all active storage and backups.
+- **Auditable Immutability**: The platform maintains an append-only SHA-256 hash chain of all lifecycle operations.
+
+## Architecture and Key Management
+
+Signal Loom integrates with OpenBao Key Management Service (KMS) using the Transit Secrets Engine.
+
+<Mermaid
+  label="SLDP envelope encryption and cryptographic erasure architecture"
+  diagram={`sequenceDiagram
+  autonumber
+  actor Operator as Human Operator
+  participant API as Signal Loom API
+  participant KMS as OpenBao KMS (Transit)
+  participant DB as Evidence Store (PostgreSQL)
+
+  rect rgb(240, 248, 255)
+    Note over API,KMS: Phase 1: Data Encryption
+    API->>KMS: Request DEK (POST /v1/transit/datakey/plaintext/sldp-kek)
+    KMS-->>API: Return Plaintext DEK + Encrypted Ciphertext DEK
+    API->>API: Encrypt telemetry payload (AES-256-GCM)
+    API->>API: Zeroize plaintext DEK in memory
+    API->>DB: Store encrypted payload + ciphertext DEK
+  end
+
+  rect rgb(255, 245, 245)
+    Note over Operator,DB: Phase 2: Cryptographic Shredding
+    Operator->>API: Request agent data deletion (DELETE /api/v1/agents/{id}/data)
+    API->>KMS: Destroy agent key version (POST /v1/transit/keys/sldp-kek/trim)
+    KMS-->>API: Key destroyed confirmation
+    API->>DB: Update state to SHREDDED
+    Note over DB: All existing ciphertexts become unrecoverable random bytes
+  end`}
+/>
+
+### Key Hierarchy
+
+1. **Key Encryption Key (KEK)**: Stored inside OpenBao KMS. The root KEK never leaves the secure hardware boundary.
+2. **Data Encryption Key (DEK)**: Generated per agent partition using AES-256-GCM. The plaintext DEK encrypts row payloads.
+3. **Encrypted DEK**: Stored alongside encrypted records in the database.
+
+## The Soft-Tombstone Lifecycle
+
+To prevent accidental data loss and support regulatory audit periods, SLDP implements a deterministic four-stage lifecycle.
+
+<Mermaid
+  label="SLDP data lifecycle state machine"
+  diagram={`stateDiagram-v2
+  [*] --> ACTIVE: Agent registered
+  ACTIVE --> TOMBSTONED: Operator initiates deletion
+  TOMBSTONED --> ACTIVE: Cancelled during grace period (7 days)
+  TOMBSTONED --> SHREDDED: Grace period expires or instant shred requested
+  SHREDDED --> PURGED: Background garbage collection
+  PURGED --> [*]`}
+/>
+
+### Lifecycle Stages
+
+| State | Accessibility | Encryption Key Status | Recovery Option |
+| :--- | :--- | :--- | :--- |
+| **`ACTIVE`** | Read and write permitted | DEK active in OpenBao | Fully accessible |
+| **`TOMBSTONED`** | Blocked for agents; read-only for auditors | DEK active, access flagged | Restorable within 7 days |
+| **`SHREDDED`** | Inaccessible | DEK destroyed permanently | Impossible (unrecoverable) |
+| **`PURGED`** | Removed from database disk | DEK already destroyed | Completely erased |
+
+## Cryptographic Shredding Procedure
+
+Cryptographic shredding permanently destroys access to stored agent telemetry.
+
+> [!WARNING]
+> Cryptographic shredding is irreversible. Ensure compliance reviews finish before you run the destruction command.
+
+### 1. Initiate Agent Tombstoning
+
+To mark an agent workload for deletion, send an authorized API request:
+
+```bash
+curl -sS -X POST "https://dashboard.osramp.acme.local/api/v1/agents/agent-01/tombstone" \
+  -H "Authorization: Bearer ${OPERATOR_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Offboarding completed", "grace_period_days": 7}'
+```
+
+The platform moves the agent record to the `TOMBSTONED` state and blocks all further ingestion.
+
+### 2. Execute Immediate Cryptographic Shredding
+
+To bypass the grace period and destroy the cryptographic keys immediately:
+
+```bash
+curl -sS -X POST "https://dashboard.osramp.acme.local/api/v1/agents/agent-01/shred" \
+  -H "Authorization: Bearer ${OPERATOR_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": "CONFIRM_PERMANENT_SHRED"}'
+```
+
+The service calls OpenBao KMS to delete the agent subkey. All stored payloads become unrecoverable ciphertext.
+
+### 3. Verify Shredding in the Audit Trail
+
+Verify that the shredding action produced an immutable audit record:
+
+```bash
+curl -sS "https://dashboard.osramp.acme.local/api/v1/audit/records?agent_id=agent-01&action=SHRED" \
+  -H "Authorization: Bearer ${OPERATOR_TOKEN}"
+```
+
+The response confirms the key destruction timestamp, operator identity, and cryptographic proof:
+
+```json
+{
+  "agent_id": "agent-01",
+  "status": "SHREDDED",
+  "key_destroyed": true,
+  "kms_reference": "transit/keys/sldp-kek/subkeys/agent-01",
+  "shredded_at": "2026-09-15T10:00:00Z",
+  "operator": "admin@signalloom.local",
+  "hash_chain_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+## Regulatory Compliance Alignment
+
+SLDP aligns with major international data protection standards:
+
+- **GDPR Article 17 (Right to Erasure)**: Cryptographic shredding satisfies permanent erasure standards without corrupting backup media.
+- **NIST SP 800-88 Rev. 1**: Conforms to Cryptographic Erase (CE) standards for sanitising storage media.
+- **SOC 2 Type II**: Provides cryptographic non-repudiation and proof of destruction for auditor inspection.

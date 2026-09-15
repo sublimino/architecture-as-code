@@ -1,0 +1,133 @@
+---
+title: Quick start
+description: Deploy Signal Loom locally and access the operator dashboard and documentation portal.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+This guide explains how to start the Signal Loom foundation and application slices on a local Kind cluster.
+
+## Deployment Lifecycle
+
+Follow this sequence to initialise the foundation, deploy application slices, and verify readiness.
+
+<Mermaid
+  label="Signal Loom quick-start deployment and verification workflow"
+  diagram={`flowchart TD
+  S1["1. Run Prerequisites Setup<br/><code>./scripts/setup.sh</code>"]
+  S2["2. Start Shared Foundation<br/><code>make up</code>"]
+  S3["3. Deploy Signal Loom Slice<br/><code>make demo-signalloom-up</code>"]
+  S4["4. Run Foundation Health Check<br/><code>make healthcheck</code>"]
+  S5["5. Run Slice Tests<br/><code>make demo-signalloom-test</code>"]
+  S6["6. Port-Forward Dashboard<br/><code>5173:8080 (Dex OIDC)</code>"]
+  S7["7. Access Web Dashboard<br/><code>http://localhost:5173</code>"]
+
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> S5
+  S5 --> S6
+  S6 --> S7`}
+/>
+
+## Prerequisites
+
+Before starting, install Docker on your host machine. The setup script installs all remaining dependencies.
+
+Run the repository setup script:
+
+```bash
+./scripts/setup.sh
+```
+
+## Start the Platform
+
+### 1. Start the Shared Foundation
+
+The foundation starts the single-node Kind cluster, Zot OCI registry, Flux GitOps operator, and signing keys:
+
+```bash
+make up
+```
+
+### 2. Deploy the Signal Loom Slice
+
+Deploy the Signal Loom dashboard, Fleet Manager, and governance backend services:
+
+```bash
+make demo-signalloom-up
+```
+
+### 3. Verify Cluster Health
+
+Verify that all foundation components are healthy:
+
+```bash
+make healthcheck
+```
+
+Run slice integration and readiness checks:
+
+```bash
+make demo-signalloom-test
+```
+
+## Access the User Interfaces
+
+### 1. Open the Operator Dashboard
+
+Forward port `5173`. Dex OIDC requires this exact port for OAuth redirect callbacks:
+
+```bash
+kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080
+```
+
+Open `http://localhost:5173` in your browser. Authenticate with one of these demonstration accounts:
+
+| Account | Password | Role Description |
+| :--- | :--- | :--- |
+| `demo-user@signalloom.local` | `demo-user` | Superadmin privilege allowlist member |
+| `viewer@signalloom.local` | `viewer` | Standard authenticated operator account |
+
+### 2. Open the Documentation Portal
+
+The documentation service runs behind the Envoy Ingress Gateway. Forward the gateway port:
+
+```bash
+kubectl -n ingress port-forward svc/envoy-ingress-cluster-* 18443:443
+```
+
+Open the documentation portal in your browser:
+
+```text
+https://dashboard.osramp.acme.local:18443/docs/
+```
+
+> [!NOTE]
+> Map `dashboard.osramp.acme.local` to `127.0.0.1` in your `/etc/hosts` file or browser resolver.
+
+## Optional Slices
+
+You can deploy additional demonstration slices onto the running foundation:
+
+```bash
+make demo-agentmaxxing-up  # Deploy AgentMaxxing console
+make demo-k8s-afm-up       # Deploy KubeSec-AFM formal verification service
+make demo-cpai-up          # Deploy CPAI runtime proxy (Vertex AI)
+make swarm-kagent-up       # Deploy CNCF Kagent CRDs and control plane
+make demo-kagent-up        # Deploy Kagent declarative swarms
+```
+
+## Stop the Slice
+
+To stop the Signal Loom slice while preserving the Kind foundation and registry cache:
+
+```bash
+make demo-signalloom-down
+```
+
+To delete the entire cluster foundation:
+
+```bash
+make down
+```

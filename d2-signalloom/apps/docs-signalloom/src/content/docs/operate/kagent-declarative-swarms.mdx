@@ -1,0 +1,170 @@
+---
+title: CNCF Kagent declarative agent swarms
+description: Deploy, configure, and govern declarative multi-agent swarms using CNCF Kagent Custom Resource Definitions in Kubernetes.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+CNCF Kagent provides Kubernetes-native Custom Resource Definitions (CRDs) to deploy and orchestrate autonomous AI agent swarms.
+
+Signal Loom governs Kagent swarms by enforcing SPIFFE workload identity, OpenBao secret injection, and per-plane network isolation.
+
+## Architectural Overview
+
+Kagent introduces a declarative control loop for AI agent workloads. The Kagent controller reconciles custom resources into governed Kubernetes pods.
+
+<Mermaid
+  label="Kagent declarative agent swarm architecture and governance controls"
+  diagram={`flowchart TD
+  subgraph User["Operator or GitOps Control"]
+    CRD["Kubernetes Manifests: Agent, Swarm, ToolServer"]
+  end
+
+  subgraph ControlPlane["Kagent Control Plane (kagent-system)"]
+    KCTRL["Kagent Controller Manager"]
+    SCHED["Swarm Orchestration Engine"]
+  end
+
+  subgraph Governance["Signal Loom Foundation"]
+    SPIRE["SPIRE Server: SPIFFE ID Issuance"]
+    BAO["OpenBao: Dynamic Token Injection"]
+    NETPOL["NetworkPolicy: Plane Isolation"]
+  end
+
+  subgraph SwarmRuntime["Agent Workloads (ns: kagent)"]
+    LEAD["Lead Planning Agent"]
+    WORKER1["Code Generation Worker"]
+    WORKER2["Security Review Worker"]
+    TOOLS["ToolServer: Model Context Protocol"]
+  end
+
+  CRD --> KCTRL
+  KCTRL --> SCHED
+  SCHED --> LEAD
+  SCHED --> WORKER1
+  SCHED --> WORKER2
+  SCHED --> TOOLS
+
+  SPIRE -.->|Attest Identity| SwarmRuntime
+  BAO -.->|Inject Credentials| SwarmRuntime
+  NETPOL -.->|Enforce Egress Boundaries| SwarmRuntime`}
+/>
+
+## Custom Resource Definitions (CRDs)
+
+Kagent defines three primary custom resources:
+
+### 1. `Agent`
+
+Defines a single autonomous agent persona, prompt template, model provider reference, and memory configuration.
+
+```yaml
+apiVersion: kagent.cncf.io/v1alpha1
+kind: Agent
+metadata:
+  name: security-auditor
+  namespace: kagent
+spec:
+  model:
+    provider: cpai
+    modelName: gemini-2.5-flash
+  systemPrompt: "You are an automated security auditor. Identify vulnerabilities."
+  spiffe:
+    identity: "spiffe://signalloom.local/ns/kagent/sa/security-auditor"
+  tools:
+    - name: rbac-analyzer
+      serverRef: kagent-tools
+```
+
+### 2. `Swarm`
+
+Coordinates multiple agents in a collaborative topology, defining communication channels, consensus rules, and task handoffs.
+
+```yaml
+apiVersion: kagent.cncf.io/v1alpha1
+kind: Swarm
+metadata:
+  name: automated-refactor-swarm
+  namespace: kagent
+spec:
+  topology: hierarchical
+  leadAgent: security-auditor
+  workers:
+    - name: code-generator
+      agentRef: code-generator
+    - name: test-runner
+      agentRef: test-runner
+  coordination:
+    protocol: a2a-spiffe-mtls
+    maxIterations: 10
+```
+
+### 3. `ToolServer`
+
+Exposes Model Context Protocol (MCP) servers and utility containers to agents with strict authentication gates.
+
+## Deploying Kagent in Signal Loom
+
+Deploy the Kagent slice in two steps:
+
+### 1. Deploy the Control Plane
+
+Start the Kagent CRDs and controller infrastructure:
+
+```bash
+make swarm-kagent-up
+```
+
+Verify that the Kagent controller manager is ready:
+
+```bash
+kubectl rollout status deployment/kagent-controller-manager -n kagent-system
+```
+
+### 2. Deploy the Declarative Swarm Workloads
+
+Apply the demonstration swarms:
+
+```bash
+make demo-kagent-up
+```
+
+Verify that all agent pods are running:
+
+```bash
+kubectl get pods -n kagent -l app.kubernetes.io/part-of=kagent
+```
+
+## Security and Governance Controls
+
+Signal Loom wraps every Kagent workload with three security mechanisms:
+
+1. **Cryptographic Identity**: SPIRE assigns a unique SPIFFE ID to each agent pod. Agents authenticate to tool servers using mutual TLS.
+2. **Credential Minimisation**: Agents never store long-lived cloud credentials. OpenBao injects short-lived, rotated tokens directly into pod volumes.
+3. **Network Confinement**: NetworkPolicies block unapproved cross-namespace traffic. Agents can only communicate with assigned tool servers and the CPAI proxy.
+
+## Monitor and Troubleshoot Swarms
+
+### Inspect Swarm Status
+
+Check the status of active swarms:
+
+```bash
+kubectl get swarms -n kagent
+```
+
+View detailed controller events and reconciliation logs:
+
+```bash
+kubectl describe swarm automated-refactor-swarm -n kagent
+```
+
+### View Agent Coordination Logs
+
+Stream inter-agent messaging and decision steps:
+
+```bash
+kubectl logs -n kagent -l kagent.cncf.io/swarm=automated-refactor-swarm --tail=100 -f
+```
+
+Every log line contains cryptographic correlation IDs to trace actions across the entire swarm.

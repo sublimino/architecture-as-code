@@ -3,6 +3,7 @@ import StageProgressionController from '../components/demos/StageProgressionCont
 import { TokenIssuePanel } from '../components/demos/TokenIssuePanel'
 import { EnrollmentPanel } from '../components/demos/EnrollmentPanel'
 import { AdversarialSimulationPanel } from '../components/demos/AdversarialSimulationPanel'
+import { RevocationPanel } from '../components/demos/RevocationPanel'
 import {
   STAGE_METADATA,
 } from '../components/demos/types'
@@ -181,10 +182,25 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                   />
                 )}
 
-                {/* Stages 3 & 5 — generic telemetry frame. */}
+                {/* Stage 5 — AMXD-P4-2 RevocationPanel */}
+                {activeViewStage === 'revocation_denied' && (
+                  <RevocationPanel
+                    bridge={bridge}
+                    preset={bridge.preset}
+                    inFlight={inFlight}
+                    operatorId={operatorPrincipal}
+                    initialPayload={state.stagePayloads.revocation_denied ?? null}
+                    onRevocationComplete={(revoked) =>
+                      recordStagePayload('revocation_denied', revoked)
+                    }
+                  />
+                )}
+
+                {/* Stage 3 — generic telemetry frame (confinement_streaming). */}
                 {activeViewStage !== 'operator_init' &&
                   activeViewStage !== 'host_enrolled' &&
-                  activeViewStage !== 'adversarial_tamper' && (
+                  activeViewStage !== 'adversarial_tamper' &&
+                  activeViewStage !== 'revocation_denied' && (
                   <div className="min-h-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5 flex flex-col justify-between">
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-xs font-mono text-[var(--muted)] border-b border-[var(--border)]/50 pb-2">
@@ -195,7 +211,6 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                       <div className="py-4 space-y-2">
                         <div className="text-sm font-medium text-[var(--text)]">
                           {activeViewStage === 'confinement_streaming' && 'Landlock LSM Telemetry & SHA-256 Hashing'}
-                          {activeViewStage === 'revocation_denied' && 'Attributable Revocation & 403 Forbidden Upload Denial'}
                         </div>
                         <p className="text-xs text-[var(--muted)] leading-relaxed">
                           {isConfirmed

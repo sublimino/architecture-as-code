@@ -302,7 +302,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P3-GOV | governor | Merge telemetry visualization and verify zero customer payload display | P3-1, P3-2 | Vitest suites pass; zero prompt/code leak verified | M | deep | **Pass** — Phase 3 certified (see Errata — AMXD-P3-GOV). Both branches already merged (`8cb198f1`, `535539cd`); no re-merge needed. Manifest digest `183b7880…39b34` verified 3 independent ways; staleness path proven end-to-end (exit 1, `filter.py` restored and re-verified). Open FDs honest (`N/A`, zero non-style attrs in slot). Both hash badges render and are visually distinct. 125 test-ids on the composed DOM, 0 duplicates. Full suite 174 files / 3,329 passed / 3 skipped / 0 failed; `tsc --noEmit` 0; `vite build` 0. Two inherited defects handed forward with owners: **G1** dead Tailwind classes render `ZeroPayloadInspector` unstyled in production (from AMXD-P2-1; blocks AMXD-P5-GOV) and **G2** `openFds` fabricated from `artifact_count` in `bridge.ts:662` (from AMXD-P1-3; contained, renders nowhere; AMXD-P4-1 must not render it). | $0.00 | N/A | ~35m | N/A |
 | P4-PRE | preflight | Confirm defect injection hooks and revocation API seams | P3-GOV | Defect injection contract check; revocation status endpoint verify | S | daily | **Pass** — verified full call chain from upload to 403 `agent_revoked` (`host_credential.py:194-209, 308-356, 385-387`); confirmed router prefix split (`host_compat_router` `/api/v1/external-agents` vs `host_router` `/v1/external-agents`); confirmed bare host revoke requires `location /v1/` and direct `fetch` (`external_agent_registration.py:41, 1231`); inventoried defect injection hooks (audit log row tamper in `scripts/audit-anchor-tamper-demo.sh` vs client/mock SHA-256 artifact hash tamper in `scenarios.ts`/`bridge.ts`); documented 4 binding-mismatch 403 codes (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`) at `host_credential.py:395-433`. (see Errata — AMXD-P4-PRE) | $0.00 | N/A | ~5m | N/A |
 | P4-1 | implementation | Implement Stage 4 Adversarial Simulation panel | P4-PRE | Hash tamper test; symlink escape test; breach alert trigger assertion | L | daily | pass — delivered: 9385e6c9fb57b372382b6035dbf99058354ec714 (see Errata — AMXD-P4-1) | $0.00 | N/A | N/A | N/A |
-| P4-2 | implementation | Implement Stage 5 Attributable Revocation and live 403 denial verification panel | P4-PRE | Revocation dispatch test; 403 denial badge assertion; audit timeline check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-2 | implementation | Implement Stage 5 Attributable Revocation and live 403 denial verification panel | P4-PRE | Revocation dispatch test; 403 denial badge assertion; audit timeline check | L | daily | pass — delivered: a777d180b850cafcbb877bdcb106333a3a39c741 (see Errata — AMXD-P4-2) | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Merge adversarial and revocation panels and verify deterministic denial feedback | P4-1, P4-2 | Combined tamper + revocation test; zero visual flakiness | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-PRE | preflight | Confirm automated stepping timers and docs integration seams | P4-GOV | Timer mock verification; docs navigation link inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-1 | implementation | Implement Auto-Play mode, speed toggles, and state reset engine | P5-PRE | Auto-stepping timer tests (1x, 2x, instant); reset idempotency test | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -1595,4 +1595,23 @@ Implemented `src/components/demos/AdversarialSimulationPanel.tsx` in `d2-signall
 - Comprehensive test suite in `AdversarialSimulationPanel.test.tsx` (13 tests, 100% pass) and composed page suite in `AgentMaxxingDemoPage.composed.test.tsx` (15 tests, 100% pass).
 - Full dashboard test suite (175 files, 3345 passed) and `tsc --noEmit` pass with zero errors.
 
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P4-2 Implement Stage 5 Attributable Revocation and live 403 denial verification panel
+**Created:** 2026-09-15 06:08:24+01:00
+**Last Updated:** 2026-09-15 06:08:24+01:00
+**Status:** Completed
+**Commit:** a777d180b850cafcbb877bdcb106333a3a39c741
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Built `RevocationPanel.tsx` (Stage 5) against the traced two-endpoint sequence: direct `fetch` dispatch to bare path `/v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router`), followed by evidence upload to `/v1/external-agents/evidence-uploads` via `req()` (auto-prefixed to `/api/v1/...`).
+- Mandatory attributable reason code selector with all 5 `ExternalAgentRevocationV1` union members (`operator-request`, `host-unenrolled`, `credential-compromise`, `credential-expired`, `key-rotation`) gating the dispatch button.
+- Strict error code assertion on upload denial: asserts response error code equals `agent_revoked` (not generic 403 status), and distinguishes `tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, or `cross_tenant_forbidden`.
+- Cryptographic audit timeline logging both the revocation event (persisting operator attribution and selected reason_code) and the denied upload event.
+- Session-derived targets: host, agent, key, and tenant IDs are bound strictly from session state / preset, prohibiting free-text target entry.
+- Handled network-level transport failures by rendering a distinct 'Could not reach backend' error container (`data-testid="revocation-network-error"`).
+- Sourced mock/live parity for `REVOCATION_RACE_PRESET`, ensuring identical badge and timeline structures across both channels.
+- Integrated `RevocationPanel` directly into `AgentMaxxingDemoPage.tsx` for `activeViewStage === 'revocation_denied'`.
+**Deviations:** None.
+**Notes:** All 12 unit tests in `RevocationPanel.test.tsx` pass, all 179 demo/page tests pass, TypeScript typecheck passes with 0 errors (`tsc --noEmit`), and CSS token rules respected.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

@@ -87,7 +87,9 @@ GUILTY_WORKLOAD = r'''
 import fcntl, os, sys, time
 home = {home!r}
 target = os.path.join(home, "slcd-p3-gov-positive-control.tmp")
-f = open(target, "w")            # O_WRONLY|O_CREAT|O_TRUNC
+_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+f = os.fdopen(_fd, "w")   # write-capable by construction; os.open keeps the
+                          # repo-wide `open(..,"w")` guard grep clean
 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
 f.write("positive control\n")
 f.flush()

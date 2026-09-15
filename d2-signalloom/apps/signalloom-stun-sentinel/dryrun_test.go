@@ -20,7 +20,7 @@ func TestDryRunFreezerDoesNotMutateCgroup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	freezer := &cgroupFreezer{cgroupRoot: dir, dryRun: true}
+	freezer := newCgroupFreezer(dir, true, "token", "token")
 
 	// Freeze in dry-run mode
 	if err := freezer.freeze(dir); err != nil {
@@ -43,7 +43,7 @@ func TestDryRunFreezerDoesNotMutateCgroup(t *testing.T) {
 }
 
 func TestDryRunFreezerResolvesPlannedPathWhenMissing(t *testing.T) {
-	freezer := &cgroupFreezer{cgroupRoot: "/sys/fs/cgroup", dryRun: true}
+	freezer := newCgroupFreezer("/sys/fs/cgroup", true, "token", "token")
 	path, err := freezer.resolvePodCgroup("abc-123-def")
 	if err != nil {
 		t.Fatalf("resolvePodCgroup failed in dry-run: %v", err)
@@ -54,7 +54,7 @@ func TestDryRunFreezerResolvesPlannedPathWhenMissing(t *testing.T) {
 }
 
 func TestDryRunFreezerResolvesPlannedPathWhenInaccessibleCgroupRoot(t *testing.T) {
-	freezer := &cgroupFreezer{cgroupRoot: "/nonexistent/inaccessible/sys/fs/cgroup", dryRun: true}
+	freezer := newCgroupFreezer("/nonexistent/inaccessible/sys/fs/cgroup", true, "token", "token")
 	path, err := freezer.resolvePodCgroup("abc-123-def")
 	if err != nil {
 		t.Fatalf("resolvePodCgroup failed in dry-run with inaccessible cgroupRoot: %v", err)
@@ -105,7 +105,7 @@ func TestDryRunReconcilerLogsPlanWithoutMutatingState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	freezer := &cgroupFreezer{cgroupRoot: dir, dryRun: true}
+	freezer := newCgroupFreezer(dir, true, "token", "token")
 	tc := newTCDropFilter()
 	tc.dryRun = true
 	probes := newProbePreserver()

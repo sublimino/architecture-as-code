@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,13 +182,30 @@ func TestProbePreserverLifecycleAndIdempotency(t *testing.T) {
 
 func TestStunReconcilerPreservesProbesOnStunAndReleasesOnUnstun(t *testing.T) {
 	dir := t.TempDir()
-	cgroupPath := filepath.Join(dir, "podtest_uid.slice")
-	if err := os.MkdirAll(cgroupPath, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cgroupPath, "cgroup.freeze"), []byte("0"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	cgroupPath := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid.slice")
+	mockFreezableCgroup(t, cgroupPath, false)
+
+	stopSim := make(chan struct{})
+	defer close(stopSim)
+	go func() {
+		for {
+			select {
+			case <-stopSim:
+				return
+			default:
+				data, err := os.ReadFile(filepath.Join(cgroupPath, "cgroup.freeze"))
+				if err == nil {
+					val := strings.TrimSpace(string(data))
+					if val == "1" {
+						_ = os.WriteFile(filepath.Join(cgroupPath, "cgroup.events"), []byte("populated 1\nfrozen 1\n"), 0644)
+					} else if val == "0" {
+						_ = os.WriteFile(filepath.Join(cgroupPath, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0644)
+					}
+				}
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}()
 
 	var tcCalls []string
 	tc := newTCDropFilter()
@@ -200,7 +219,7 @@ func TestStunReconcilerPreservesProbesOnStunAndReleasesOnUnstun(t *testing.T) {
 		return []net.Interface{{Name: "veth42", Index: 42}}, nil
 	}
 
-	freezer := &cgroupFreezer{cgroupRoot: dir}
+	freezer := newCgroupFreezer(dir, false, "token", "token")
 	probes := newProbePreserver()
 	reconciler := newStunReconciler(freezer, tc, probes)
 

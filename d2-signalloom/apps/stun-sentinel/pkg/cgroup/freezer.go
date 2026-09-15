@@ -148,14 +148,25 @@ type FreezeResult struct {
 	Deadline time.Duration `json:"-"`
 }
 
+// PostFreezeHook is an extension point executed immediately after a cgroup is
+// confirmed frozen and its process census has settled, before Freeze returns.
+//
+// This hook provides Phase 4's forensic memory snapshotting (SLER-P4-2) and
+// process inspection a race-free boundary: all target processes are verified
+// frozen in-kernel, the PID census is settled, and the freezer has not yet
+// released control back to the caller.
+type PostFreezeHook func(res *FreezeResult) error
+
 // Freezer performs cgroup-v2 freeze and thaw operations against a hierarchy
 // root. The root is injected rather than fixed so the whole package is
 // testable against a temporary directory without a live cluster.
 type Freezer struct {
 	root            string
 	deadline        time.Duration
+	dryRun          bool
 	freezeValidator CredentialValidator
 	resumeValidator CredentialValidator
+	postFreezeHook  PostFreezeHook
 }
 
 // Option configures a Freezer.
@@ -167,6 +178,22 @@ func WithDeadline(d time.Duration) Option {
 		if d > 0 {
 			f.deadline = d
 		}
+	}
+}
+
+// WithDryRun configures dry-run execution mode. In dry-run mode, path resolution
+// and credential verification execute normally, but no writes to cgroup.freeze
+// are performed.
+func WithDryRun(dryRun bool) Option {
+	return func(f *Freezer) {
+		f.dryRun = dryRun
+	}
+}
+
+// WithPostFreezeHook registers an extension point hook executed after freeze confirmation.
+func WithPostFreezeHook(hook PostFreezeHook) Option {
+	return func(f *Freezer) {
+		f.postFreezeHook = hook
 	}
 }
 
@@ -221,6 +248,9 @@ func (f *Freezer) Root() string { return f.root }
 
 // Deadline returns the configured freeze deadline.
 func (f *Freezer) Deadline() time.Duration { return f.deadline }
+
+// DryRun returns whether the freezer is configured in dry-run mode.
+func (f *Freezer) DryRun() bool { return f.dryRun }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Discovery
@@ -339,7 +369,43 @@ func (f *Freezer) ResolvePodCgroup(podUID string) (string, error) {
 		return found, nil
 	}
 
+	if f.dryRun {
+		return filepath.Join(f.root, "kubepods.slice", "kubepods-burstable-pod"+underscored+".slice"), nil
+	}
+
 	return "", fmt.Errorf("%w: pod %s under %s", ErrCgroupNotFound, podUID, f.root)
+}
+
+// podCgroupNameMatches reports whether a cgroup directory name matches the pod UID
+// without falsely matching partial UIDs (such as pod<uid>-extra.slice).
+func podCgroupNameMatches(name, dashed, underscored string) bool {
+	for _, u := range []string{underscored, dashed} {
+		idx := 0
+		for {
+			pos := strings.Index(name[idx:], u)
+			if pos == -1 {
+				break
+			}
+			absPos := idx + pos
+			prefix := name[:absPos]
+			suffix := name[absPos+len(u):]
+
+			suffixValid := suffix == "" || strings.HasPrefix(suffix, ".")
+			prefixValid := prefix == "" ||
+				strings.HasSuffix(prefix, "pod") ||
+				strings.HasSuffix(prefix, "pod-") ||
+				strings.HasSuffix(prefix, "pod_") ||
+				strings.HasSuffix(prefix, "-") ||
+				strings.HasSuffix(prefix, "/")
+
+			if prefixValid && suffixValid {
+				return true
+			}
+
+			idx = absPos + len(u)
+		}
+	}
+	return false
 }
 
 // walkForPod performs the depth-bounded fallback search.
@@ -362,7 +428,7 @@ func (f *Freezer) walkForPod(dashed, underscored string) (string, error) {
 			return fs.SkipDir
 		}
 		name := d.Name()
-		if !strings.Contains(name, underscored) && !strings.Contains(name, dashed) {
+		if !podCgroupNameMatches(name, dashed, underscored) {
 			return nil
 		}
 		if isFreezableCgroup(path) {
@@ -531,6 +597,21 @@ func (f *Freezer) Freeze(cgroupPath, credential string) (*FreezeResult, error) {
 		return res, fmt.Errorf("%w: %s", ErrUnauthorized, cgroupPath)
 	}
 
+	if f.dryRun {
+		res.Frozen = true
+		res.Populated = true
+		res.Latency = 100 * time.Microsecond
+		res.LatencyMS = 0.1
+		res.Polls = 1
+		res.PIDs = []int{1}
+		if f.postFreezeHook != nil {
+			if err := f.postFreezeHook(res); err != nil {
+				return res, fmt.Errorf("cgroup: post-freeze hook: %w", err)
+			}
+		}
+		return res, nil
+	}
+
 	start := time.Now()
 	if err := writeControl(cgroupPath, "1"); err != nil {
 		res.LatencyMS = msOf(time.Since(start))
@@ -574,6 +655,12 @@ func (f *Freezer) Freeze(cgroupPath, credential string) (*FreezeResult, error) {
 			ErrCgroupEmpty, cgroupPath, elapsed.Round(time.Microsecond))
 	}
 
+	if f.postFreezeHook != nil {
+		if err := f.postFreezeHook(res); err != nil {
+			return res, fmt.Errorf("cgroup: post-freeze hook: %w", err)
+		}
+	}
+
 	return res, nil
 }
 
@@ -599,6 +686,16 @@ func (f *Freezer) Unfreeze(cgroupPath, credential string) (*FreezeResult, error)
 
 	if f.resumeValidator == nil || !f.resumeValidator(credential) {
 		return res, fmt.Errorf("%w: %s", ErrUnauthorized, cgroupPath)
+	}
+
+	if f.dryRun {
+		res.Frozen = false
+		res.Populated = true
+		res.Latency = 100 * time.Microsecond
+		res.LatencyMS = 0.1
+		res.Polls = 1
+		res.PIDs = []int{1}
+		return res, nil
 	}
 
 	start := time.Now()
@@ -721,6 +818,10 @@ func (f *Freezer) HealthCheck() error {
 	}
 	if !st.IsDir() {
 		return fmt.Errorf("cgroup: hierarchy root %s is not a directory", f.root)
+	}
+
+	if f.dryRun {
+		return nil
 	}
 
 	probe := filepath.Join(f.root, healthProbeDir)

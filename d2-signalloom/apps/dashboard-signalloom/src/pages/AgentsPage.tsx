@@ -16,7 +16,8 @@ import HelpHint from '../components/HelpHint'
 import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
 import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
-import ClaimModal, { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
+import { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
+import { CodingAgentsTab } from '../components/CodingAgentsTab'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -1304,8 +1305,11 @@ function SignalSummaryPanel() {
 
 export default function AgentsPage() {
   const { getAccessTokenSilently } = useAuth0()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeMainTab = searchParams.get('tab') === 'coding-agents' ? 'coding-agents' : 'governed'
 
   const [agents, setAgents] = useState<AgentResponse[]>([])
+
   const [meta, setMeta] = useState<AgentListMeta | null>(null)
   const [sourceHealth, setSourceHealth] = useState<'healthy' | 'degraded' | 'unavailable' | null>('healthy')
   const [sourceHealthDetail, setSourceHealthDetail] = useState<SourceHealthMap | null>(null)
@@ -1557,34 +1561,102 @@ export default function AgentsPage() {
         </div>
       </div>
 
-      {/* Top 4 StatCards */}
-      {agentsLoaded && agents.length > 0 && (
-        <AgentStatCards
-          agents={agents}
-          meta={meta}
-          sourceHealth={sourceHealth}
-          sourceHealthDetail={sourceHealthDetail}
+      {/* Subnavigation Tabs */}
+      <div
+        role="tablist"
+        aria-label="Agent view selection"
+        style={{
+          display: 'flex',
+          gap: 6,
+          borderBottom: '1px solid var(--border)',
+          marginBottom: 20,
+        }}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeMainTab === 'governed'}
+          data-testid="tab-governed-agents"
+          className={`btn btn-sm ${activeMainTab === 'governed' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => {
+            setSearchParams(prev => {
+              const next = new URLSearchParams(prev)
+              next.delete('tab')
+              return next
+            })
+          }}
+          style={{
+            borderRadius: '6px 6px 0 0',
+            borderBottom: activeMainTab === 'governed' ? '2px solid var(--cyan)' : 'none',
+            fontSize: 12,
+            padding: '6px 14px',
+          }}
+        >
+          Governed Workloads ({agents.length})
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeMainTab === 'coding-agents'}
+          data-testid="tab-coding-agents"
+          className={`btn btn-sm ${activeMainTab === 'coding-agents' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => {
+            setSearchParams(prev => {
+              const next = new URLSearchParams(prev)
+              next.set('tab', 'coding-agents')
+              return next
+            })
+          }}
+          style={{
+            borderRadius: '6px 6px 0 0',
+            borderBottom: activeMainTab === 'coding-agents' ? '2px solid var(--cyan)' : 'none',
+            fontSize: 12,
+            padding: '6px 14px',
+          }}
+        >
+          Detected Coding Agents (Host Detective)
+        </button>
+      </div>
+
+      {activeMainTab === 'coding-agents' ? (
+        <CodingAgentsTab
+          initialHarness={searchParams.get('harness') || undefined}
+          initialTaskId={searchParams.get('task_id') || undefined}
         />
+      ) : (
+        <>
+          {/* Top 4 StatCards */}
+          {agentsLoaded && agents.length > 0 && (
+            <AgentStatCards
+              agents={agents}
+              meta={meta}
+              sourceHealth={sourceHealth}
+              sourceHealthDetail={sourceHealthDetail}
+            />
+          )}
+
+          <AttentionPanel alerts={alerts} onAlert={(key) => key && setLifecycleFilter(key)} />
+
+          <SignalSummaryPanel />
+
+          <GovernedTab
+            agents={agents}
+            loading={agentsLoading}
+            loaded={agentsLoaded}
+            error={agentsError}
+            lifecycleFilter={lifecycleFilter}
+            sourceHealth={sourceHealth}
+            sourceHealthDetail={sourceHealthDetail}
+            claimingAgentIds={claimingAgentIds}
+            onFilterChange={setLifecycleFilter}
+            onClaim={handleAutoClaim}
+            onRetry={loadAgents}
+            onReload={loadAgents}
+          />
+        </>
       )}
-
-      <AttentionPanel alerts={alerts} onAlert={(key) => key && setLifecycleFilter(key)} />
-
-      <SignalSummaryPanel />
-
-      <GovernedTab
-        agents={agents}
-        loading={agentsLoading}
-        loaded={agentsLoaded}
-        error={agentsError}
-        lifecycleFilter={lifecycleFilter}
-        sourceHealth={sourceHealth}
-        sourceHealthDetail={sourceHealthDetail}
-        claimingAgentIds={claimingAgentIds}
-        onFilterChange={setLifecycleFilter}
-        onClaim={handleAutoClaim}
-        onRetry={loadAgents}
-        onReload={loadAgents}
-      />
     </div>
   )
 }
+

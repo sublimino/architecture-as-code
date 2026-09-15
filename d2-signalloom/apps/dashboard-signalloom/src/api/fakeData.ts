@@ -40,6 +40,7 @@ import { FAIR_ROUTES } from './fakeFairData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
 import { simulatedAgentIdentity } from './supercredTypes'
+import { FAKE_CODING_AGENT_TELEMETRY, FAKE_CODING_AGENT_AGGREGATE } from './fakeCodingAgentData'
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
@@ -922,7 +923,22 @@ const ROUTES: Match[] = [
   // for a path with no demo route, so omitting these would make the risk widget
   // the one panel that breaks an offline presentation.
   ...FAIR_ROUTES,
+  // coding agent telemetry routes (SLCD-P5-1 / SLCD-P5-2)
+  { method: 'GET', test: re(/^\/v1\/telemetry\/coding-agents$/), data: () => FAKE_CODING_AGENT_TELEMETRY },
+  { method: 'GET', test: re(/^\/v1\/telemetry\/coding-agents\/aggregate$/), data: () => FAKE_CODING_AGENT_AGGREGATE },
+  { method: 'POST', test: re(/^\/v1\/telemetry\/coding-agents\/ordering$/), data: () => ({
+    record_a: 'event-a',
+    record_b: 'event-b',
+    verdict: 'definite',
+    confidence: 'monotonic_anchor',
+    earlier_record: 'event-a',
+    time_delta_ms: 12.0,
+    skew_bound_ms: 8.0,
+    explanation: 'Resolved via monotonic execution anchor and bounded clock skew',
+  }) },
+  { method: 'POST', test: re(/^\/v1\/telemetry\/coding-agents$/), data: () => ({ status: 'ingested', session_id: 'demo-session', duplicate: false }) },
 ]
+
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
  *

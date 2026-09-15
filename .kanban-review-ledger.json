@@ -2777,5 +2777,12 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Published operator containment runbook and canonical denial matrix in Starlight docs portal; registered in sidebar; link audit passed (788 links, 0 errors); 8/8 Playwright doc render tests pass"
+  },
+  "6bbe6": {
+    "task_id": "6bbe6",
+    "reviewed_at": "2026-09-15T09:24:50.711Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "CodingAgentTelemetry dispatcher wired into signal-ingest pipeline via fe-signalloom proxy; closed-world codingagent.v1 wire contract enforced; monotonic deduplication and clock-skew causal ordering verified; small-group floor k>=5; 27 Go packages pass and all Python suites pass"
   }
 }

@@ -297,7 +297,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P2-2 | implementation | Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels | P2-PRE | Vitest enrollment panel tests; attributable token generation visual check | L | daily | pass — delivered: a386350baff51f7816335e4e1e0fa60c915868da (see Errata — AMXD-P2-2) | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge Stage 1-2 UI and verify attributable enrollment display | P2-1, P2-2 | Typecheck + vitest suites pass; zero regression in existing sidebar | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm SSE/websocket telemetry streaming and host metrics contract | P2-GOV | Telemetry fixture probe; host sensor payload schema verification | S | daily | **Pass** — verified host telemetry contract: zero file-descriptor fields exist across all `agentmaxxing-host-sensor` models/code (confirmed via `grep`); traced data path showing only `cpu_time_ms` and `resident_memory_bytes` reach dashboard (`cpu_percent` is dropped at sensor `to_export_dict` / schema boundary); confirmed zero SSE/WebSocket streams for AgentMaxxing telemetry (polled REST only); established binding decision for AMXD-P3-1: Open FDs gauge must NOT fabricate numbers (must be omitted or clearly labeled `N/A — Not available in host-sensor-v1 contract`); live gauges poll `cpu_time_ms` and `resident_memory_bytes` on standard interval. | $0.00 | N/A | ~5m | N/A |
-| P3-1 | implementation | Implement Stage 3 Confinement Telemetry panel | P3-PRE | Gauge rendering tests; live CPU/RSS/FD updates; hash comparison table | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-1 | implementation | Implement Stage 3 Confinement Telemetry panel | P3-PRE | Gauge rendering tests; live CPU/RSS/FD updates; hash comparison table | L | daily | pass — delivered: ea1397a3de43f1378b8b30d702a5503b5cab549c (see Errata — AMXD-P3-1) | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Implement Zero-Payload Inspector widget proving prompt/code confidentiality | P3-PRE | Zero-payload assertion tests; metadata-only display proof | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge telemetry visualization and verify zero customer payload display | P3-1, P3-2 | Vitest suites pass; zero prompt/code leak verified | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P4-PRE | preflight | Confirm defect injection hooks and revocation API seams | P3-GOV | Defect injection contract check; revocation status endpoint verify | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -1358,4 +1358,22 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
   3. *Polling Architecture*: The live gauge update loop must be designed around a periodic poll interval (or on-demand step triggers) rather than expecting server-pushed SSE events.
 **Deviations:** None.
 **Notes:** Baseline test suites are clean: `bun run test --run src/components/demos/` (132 passed, 2 skipped, 0 failed), `tsc --noEmit` (exit 0), and `bats test/acceptance-spec-coverage.bats` (7/7 passed).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P3-1 Implement Stage 3 Confinement Telemetry panel
+**Created:** 2026-09-15 04:45:34+01:00
+**Last Updated:** 2026-09-15 04:45:34+01:00
+**Status:** Completed
+**Commit:** ea1397a3de43f1378b8b30d702a5503b5cab549c
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Built `ConfinementTelemetryPanel.tsx` and 20 comprehensive unit/contract tests in `ConfinementTelemetryPanel.test.tsx` for Stage 3 Confinement Telemetry.
+- Rendered CPU gauge from cumulative execution time `cpu_time_ms` with an explicit disclaimer noting that instantaneous CPU % is internal to the host-sensor and omitted from export to preserve zero-customer-payload guarantees.
+- Rendered RSS memory gauge from `resident_memory_bytes` converted directly to MB with raw byte allocation counts.
+- Implemented the Open FDs slot as explicitly `Unavailable` (`N/A — Not available in host-sensor-v1 contract (schema 1.0.0)`), adhering strictly to AMXD-P3-PRE's decision against fabricating placeholder numbers.
+- Implemented an interval-driven polling loop with fetch-time-sourced timestamps (`lastPolledAt: HH:MM:SS`), debounced numeric updates to prevent cosmetic jitter, manual on-demand refresh button, and clean `useEffect` unmount cleanup proving zero dangling timers or post-unmount state leaks.
+- Constructed a scrollable cryptographic file-hashing comparison table rendering computed vs expected SHA-256 digests with `Match` (teal) and `Mismatch` (red) integrity badges for both Happy Path and Tamper Breach scenarios.
+- Equipped all gauge cards, slots, notes, and artifact table rows with standard `data-testid` attributes.
+**Deviations:** None.
+**Notes:** All 20 tests in `ConfinementTelemetryPanel.test.tsx`, all 173 dashboard test suites (3,316 passed, 3 skipped, 0 failed), TypeScript typecheck (exit 0), ESLint (0 errors, 0 warnings), CSS variables scanner, and acceptance spec coverage (7/7 passed) are green.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

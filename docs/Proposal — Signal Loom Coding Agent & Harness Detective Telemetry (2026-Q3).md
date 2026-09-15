@@ -309,7 +309,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P1-5 | implementation | Legitimate Interest Assessment and works-council position for workstation telemetry | P1-PRE | `test -f docs/signalloom/slcd-lawful-basis.md` | M | kpai | pass — delivered: ec8c95695052886afc4829759716db54e74d3733 (see Errata — SLCD-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve contract freeze and certify zero-payload invariants | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | **Blocked** — all technical invariants certified by mutation (M1/M2 off-list field, 17/17 procfs kill-sweep, 13/13 leak fixtures, both-direction wire round-trip); lawful basis incomplete (40 OPEN-SLCD, 22 blocking) so workstation collection gated off in code via `lawful_basis.py`; doctor exception NOT met (1, board-wide, 0 SLCD cards). Commit `b0fdbad6` | (unresolved: cost tool) | (unresolved) | (unresolved) | N/A |
 | P2-PRE | preflight | Confirm Linux procfs permissions and harness signature database | P1-GOV | Procfs access check; harness signatures inventory | S | daily | pass — delivered: 7d3458a313cb3af018d15209607607a9fca84098 (see Errata — SLCD-P2-PRE) | $0.00 | N/A | N/A | N/A |
-| P2-1 | implementation | Implement non-intrusive procfs process scanner without argument dumping | P2-PRE | Pytest procfs scanner tests; verify `/proc/<pid>/cmdline` is not dumped | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-1 | implementation | Implement non-intrusive procfs process scanner without argument dumping | P2-PRE | Pytest procfs scanner tests; verify `/proc/<pid>/cmdline` is not dumped | L | daily | pass — delivered: dd3420f879f83cd6a957a4dea735eae9b2478f51 (see Errata — SLCD-P2-1) | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Build harness process ancestry classifier for Claude, Agy, Codex, CPAI | P2-PRE | Heuristic classifier tests; tree resolution accuracy assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge process tree detective engine and verify zero false-positive collisions | P2-1, P2-2 | Multi-process stress test; zero false-positive assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm kanban lockfiles, lease formats, and task cycle markers | P2-GOV | Kanban filesystem inspection; lease format check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -636,3 +636,24 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 **Deviations:** None.
 **Notes:** All 146 unit tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass 100%. `test -f docs/signalloom/slcd-p2-pre-signatures.md` passes.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLCD-P2-1 Implement non-intrusive procfs process scanner without argument dumping
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 04:46:54+01:00
+**Last Updated:** 2026-09-15 04:46:54+01:00
+**Status:** Completed
+**Commit:** `dd3420f879f83cd6a957a4dea735eae9b2478f51`
+**Governor merge:** pending Governor reconciliation
+
+**Decisions:**
+1. **Full Process Tree Enumeration via `list_pids`:** Implemented `ProcReader.list_pids()` using `os.scandir` to safely scan `/proc/` for numeric PID directories without instantiating paths for non-process entries, handling missing directories and permissions gracefully.
+2. **PID Reuse & Race Mitigation via Generation Counter:** Utilized Linux kernel `starttime_ticks` from `/proc/<pid>/stat` (field 22) in `ProcessTelemetryCollector` to track process generations (`_process_starttimes`). When a PID's starttime changes, historical CPU delta state is immediately invalidated to prevent cross-process metric corruption. A two-phase verification re-checks starttime ticks before telemetry attribution to eliminate scan-time races.
+3. **Zero-Argument-Dumping Guarantees:** Strictly preserved `PROHIBITED_PROC_ENTRIES` (including `cmdline`, `mem`, `environ`). Replaced all argument inspection with `ProcReader.read_exe_basename` via `os.readlink("/proc/<pid>/exe")`. Added static AST guards in `test_collector.py` and runtime interceptor assertions confirming zero prohibited entries accessed.
+4. **Immediate Permission-Denial Skipping:** Handled `PermissionError` and missing proc files on unprivileged/sandboxed processes by immediately skipping the PID without retrying or leaking content.
+5. **Yield-Capped Polling Loop:** Implemented `continuous_scan` with inter-sweep yielding (`time.sleep`) to prevent CPU busy loops while maintaining <50ms sweep latency and meeting the <2.0s discovery latency KPI.
+6. **Empirical Overhead Measurement:** Benchmarked sustained performance across 1,492 host processes on host `andy`: discovery latency 49.70 ms (KPI target <2.0s), resident memory 23.83 MB (KPI target <25.0 MB), memory growth 0.13 MB, zero prohibited entry calls. Full report published to `docs/signalloom/slcd-p2-1-scanner.md`.
+
+**Deviations:** None.
+**Notes:** All 159 unit and integration tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass 100%. `test -f docs/signalloom/slcd-p2-1-scanner.md` verified.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

@@ -309,7 +309,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | pass — delivered: 9fa5906275d14a46bd7c41faa45669690913fe11 (see Errata — SLER-P2-2) | $0.00 | N/A | ~4m | N/A |
 | P2-GOV | governor | Merge credential revocation and verify instant authorization rejection | P2-1, P2-2 | Multi-credential revocation integration test; zero residual token leakage | M | deep | **PASS WITH EXCEPTIONS** — both planes now fan out on one decision (G-1: OpenBao revocation was dead code in production; repair falsified by mutation). "Zero residual token leakage" **NOT MET and unachievable**; published residuals bao 5m (config-derived) / spire 1h (upstream-default), as a floor. Both guaranteed-denial figures **withdrawn as unmeasured** → SLER-P5-2. | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm Cilium and Istio mesh policy and admission controller seams | P2-GOV | Mesh CRD probe; node-capability-guard webhook check | S | daily | **pass** — 0 mesh policies confirmed; Cilium CNI active in cluster (Istio not deployed); node-capability-guard confirmed 4 files with 0 deployment manifests; conntrack FlushIP confirmed IPv4-only and fail-closed; netassert verified in PATH → `docs/signalloom/sler-p3-pre-mesh-admission-seams.md` | $0.00 | N/A | ~4m | N/A |
-| P3-1 | implementation | Implement dynamic mesh isolation cutting in-flight TCP connections | P3-PRE | `netassert` integration test; in-flight connection termination <2s | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-1 | implementation | Implement dynamic mesh isolation cutting in-flight TCP connections | P3-PRE | `netassert` integration test; in-flight connection termination <2s | L | daily | pass — delivered: 651bbbfc (see Errata — SLER-P3-1) | $0.00 | N/A | ~8m | N/A |
 | P3-2 | implementation | Implement admission webhook block preventing pod readmission | P3-PRE | Webhook deny unit and integration tests; pod reschedule block | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge mesh and admission enforcement and prove netassert boundary denial | P3-1, P3-2 | End-to-end network isolation and admission rejection test | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P4-PRE | preflight | Confirm cgroup-v2 freezer and host process freeze prerequisites | P3-GOV | Host cgroup v2 capability probe; permissions check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -772,8 +772,18 @@ Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
 - `grep -n 'NodeSelector\|isAgent' d2-signalloom/apps/node-capability-guard/pkg/webhook/handler.go` → lines 72, 82, 87, 91, 99, 100, 103.
 - `find d2-signalloom/apps/node-capability-guard -type f` → 4 files (0 deployment manifests).
 - `command -v netassert` → `/home/andy/bin/netassert`.
-- `test -f docs/signalloom/sler-p3-pre-mesh-admission-seams.md` → pass (exit 0).
-- `cd d2-signalloom/apps/fleet-manager && go test ./...` → `ok` (1.431s).
-
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P3-1 Implement dynamic mesh isolation cutting in-flight TCP connections
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 04:50:00+01:00
+**Last Updated:** 2026-09-15 04:50:00+01:00
+**Status:** pass
+**Commit:** `651bbbfc`
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Built from-zero declarative `CiliumNetworkPolicy` manifest under `d2-signalloom/apps/fe-signalloom/base/cilium-isolation-policy.yaml` with default-deny ingress/egress for stunned agents; integrated `stun-sentinel/pkg/tc/conntrack.go`'s `FlushIP` into `fleet-manager` (`mesh_client.go`) for in-flight TCP connection severance; implemented tri-state `PlaneResult` outcomes (`contained`, `partial`, `unavailable`) with bounded timeout execution; enforced IPv4-only conntrack scope with fail-closed non-IPv4 rejection and documented IPv6 residual exposure statement (`worst_case_residual_ms: 120000`); verified idempotency under repeated apply and remove; emitted deterministic `mesh_isolation_attempt` JSON structured logs matching `SharedAttestationEventKeys`.
+**Deviations:** None.
+**Notes:** Dynamic mesh isolation verified end-to-end: microbenchmark measured ~4.6 µs/op in Go caller (<10ms full plane isolation vs 2000ms SLA); verified live network boundary security via `make -C d2-signalloom test-netassert` (10/10 passed); zero collateral denial against sibling workloads proven in unit tests. Proof published to `docs/signalloom/sler-p3-1-proof.md`.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

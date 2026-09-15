@@ -318,12 +318,17 @@ class HarnessAncestryClassifier:
 
                     # Exe matches! Check if secondary corroboration is required (e.g. Codex on node)
                     if sig.requires_secondary_corroboration:
-                        # Requires path pattern match or session marker
+                        # Requires a PROCESS-SPECIFIC signal: binary provenance path or socket.
+                        # A session marker is a HOST-level fact (a directory under $HOME) and says
+                        # nothing about this PID, so it can never be sufficient on its own -- see
+                        # proposal risk mitigation "requires both process binary match and active
+                        # inference socket or transcript activity". It is retained below as an
+                        # additive corroboration signal only.
                         has_path_pattern = self._matches_exe_pattern(exe_str, sig.exe_path_patterns)
                         has_session = self.session_corroborator.check_session_marker(sig.harness, pid=pid)
                         proto_verdict = self.protocol_corroborator.corroborate_socket(pid, sig.harness)
 
-                        if has_path_pattern or has_session or proto_verdict is True:
+                        if has_path_pattern or proto_verdict is True:
                             signals = ["comm_match", "exe_provenance_verified"]
                             reasons = [f"Direct match for {sig.harness.value} with binary provenance"]
                             if has_session:
@@ -351,10 +356,14 @@ class HarnessAncestryClassifier:
                         [f"Direct match for {sig.harness.value} with verified exe {exe_str or clean_exe_base}"],
                     )
                 else:
-                    # Exe path unresolvable. Check session marker or protocol stub.
+                    # Exe path unresolvable (kernel thread, or another user's process).
+                    # comm is attacker-controlled via prctl(PR_SET_NAME), so without binary
+                    # provenance the ONLY admissible corroboration is an observed socket.
+                    # A host-level session marker is not evidence about this PID and would
+                    # attribute every comm-spoofed process on the machine.
                     has_session = self.session_corroborator.check_session_marker(sig.harness, pid=pid)
                     proto_verdict = self.protocol_corroborator.corroborate_socket(pid, sig.harness)
-                    if has_session or proto_verdict is True:
+                    if proto_verdict is True:
                         signals = ["comm_match"]
                         reasons = [f"Comm '{clean_comm}' matched {sig.harness.value}"]
                         if has_session:
@@ -384,7 +393,9 @@ class HarnessAncestryClassifier:
                     has_session = self.session_corroborator.check_session_marker(sig.harness, pid=pid)
                     proto_verdict = self.protocol_corroborator.corroborate_socket(pid, sig.harness)
 
-                    if exe_match and (has_path_pattern or has_session or proto_verdict is True):
+                    # Same rule as the primary branch: a host-level session marker alone is not
+                    # a process-level signal and cannot corroborate a generic runtime.
+                    if exe_match and (has_path_pattern or proto_verdict is True):
                         signals = ["secondary_comm_match", "exe_provenance_verified"]
                         reasons = [f"Secondary comm '{clean_comm}' corroborated for {sig.harness.value}"]
                         if has_session:

@@ -295,11 +295,14 @@ class HarnessAncestryClassifierTests(unittest.TestCase):
         """Codex CLI running node with active session store must classify as CODEX."""
         # Create mock session marker
         (self.mock_home / ".codex" / "sessions").mkdir(parents=True, exist_ok=True)
+        # Binary provenance must be process-specific. A real Codex CLI install resolves
+        # /proc/<pid>/exe into its own package tree, not into the bare system node binary;
+        # SLCD-P2-GOV corrected this fixture after confirming the real install layout.
         self._setup_mock_process(
             pid=1003,
             comm="node",
             ppid=1,
-            exe_target="/usr/bin/node",
+            exe_target="/home/dev/.local/lib/node_modules/@openai/codex/bin/codex.js",
         )
         claim = self.classifier.classify_process(1003)
         self.assertEqual(claim.harness, Harness.CODEX)
@@ -456,7 +459,7 @@ class HarnessAncestryClassifierTests(unittest.TestCase):
             comm="node",
             ppid=1,
             starttime_ticks=10000,
-            exe_target="/usr/bin/node",
+            exe_target="/home/dev/.local/lib/node_modules/@openai/codex/bin/codex.js",
         )
         self._setup_mock_process(
             pid=101,

@@ -304,7 +304,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P1-PRE | preflight | Inventory running harness processes, session log formats, and kanban wrappers | P0 | Process snapshot; session log schema inventory | S | daily | **Pass (qualified)** — inventory at `docs/signalloom/slcd-p1-pre-inventory.md` (10 findings); all 3 required tests green, `make test` exit 0, `make demo-agentmaxxing-host-test` exit 2→0 after a disclosed baseline repair (Q2); 4 findings constrain P1-1 (`comm` is 15-byte truncated and unusable as attribution key; `network.*` has no lawful source, re-raising P0 E1; Antigravity's transcript carries `CommandLine`, which the snake_case deny-list cannot match; a free-text 128-char `harness` column already persists); base-ref check fails on direction only, derivation proved in reverse (Q1) | $0.00 | N/A | N/A | N/A |
 | P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | pass — delivered: 88d30371369d4143e28bb3fa64e1318508ecb651 (see Errata — SLCD-P1-1) | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | pass — delivered: d770332644c9a80a783069ff24754ddc59b10d99 (see Errata — SLCD-P1-2) | $0.00 | N/A | N/A | N/A |
-| P1-3 | implementation | Freeze wire contract for host detective probe and signal-ingest consumer | P1-1, P1-2 | Versioned Go/Python schemas; OpenAPI contract freeze | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-3 | implementation | Freeze wire contract for host detective probe and signal-ingest consumer | P1-1, P1-2 | Versioned Go/Python schemas; OpenAPI contract freeze | L | deep | pass — delivered: 9b8b4b2d4a647f62e20304d86045af16c7b92b92 (see Errata — SLCD-P1-3) | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Pin every prohibited procfs entry before a detector touches them | P1-PRE | `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'` | M | antigravity | pass — delivered: 747b2dc356fadd07a4332c419695a97cfd3e6a47 (see Errata — SLCD-P1-4) | $0.00 | N/A | N/A | N/A |
 | P1-5 | implementation | Legitimate Interest Assessment and works-council position for workstation telemetry | P1-PRE | `test -f docs/signalloom/slcd-lawful-basis.md` | M | kpai | pass — delivered: ec8c95695052886afc4829759716db54e74d3733 (see Errata — SLCD-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve contract freeze and certify zero-payload invariants | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -551,4 +551,23 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 - **P1-PRE escalation #2 is now discharged as to existence, not as to effect.** A Legitimate Interest Assessment and a works-council position now exist in the tree; **both conclude that collection must stay off.** The hard blocker "absence of an LIA or works-council position before workstation collection is enabled" is satisfied; the substantive gate at §0 is not, and a Governor must not read this card's completion as lifting it.
 - Nothing under `d2-signalloom/apps/agentmaxxing-host-sensor/` was touched; `git diff --exit-code HEAD -- …/proc.py` returns rc=0.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLCD-P1-3 Freeze wire contract for host detective probe and signal-ingest consumer
+**Created:** 2026-09-15 03:50:00+01:00
+**Last Updated:** 2026-09-15 03:50:00+01:00
+**Status:** Completed
+**Commit:** 9b8b4b2d4a647f62e20304d86045af16c7b92b92
+**Governor merge:** pending Governor reconciliation
+
+**Decisions:**
+1. **Single source of truth:** `d2-signalloom/apps/agentmaxxing-host-sensor/schemas/coding-agent-telemetry.v1.schema.json` is the sole source from which Go wire codecs, Python wire codecs, and frozen OpenAPI 3.1 contract are generated.
+2. **Closed-world validation:** unlisted keys are rejected at all nesting levels symmetrically in Go and Python decoders.
+3. **Differential testing:** 457-case differential corpus and 38-case rejection corpus asserted across both language implementations.
+4. **Schema digest:** embedded SHA-256 in all generated artifacts fails build if schema drifts.
+5. **Routing gap recorded:** `/api/` currently proxies to `fe-signalloom-api` rather than `signal-ingest`; explicit open item handed to SLCD-P5-1.
+
+**Deviations:** None.
+**Notes:** OPEN-SLCD-8 flagged for SLCD-P1-GOV (four metrics fields pending GDPR necessity review).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

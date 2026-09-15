@@ -3,6 +3,36 @@
   "$id": "https://signalloom.controlplane.io/schemas/coding-agent-telemetry.v1.schema.json",
   "title": "CodingAgentTelemetryV1",
   "description": "Closed, type-safe, length-bounded coding agent detective telemetry schema",
+  "x-contract-label": "codingagent.v1",
+  "x-contract-frozen-by": "SLCD-P1-3",
+  "x-content-type": "application/json",
+  "x-wire-encoding": "JSON over HTTP POST to signal-ingest; canonical form is UTF-8, keys sorted lexicographically at every level, no insignificant whitespace, no HTML escaping, no trailing newline",
+  "x-endpoint-path": "/api/v1/telemetry/coding-agents",
+  "x-required-request-headers": {
+    "Content-Type": "application/json",
+    "X-SignalLoom-Contract": "codingagent.v1",
+    "Authorization": "Bearer <token verified by ProtectedRouter.authorize>"
+  },
+  "x-tenant-context": {
+    "header": "X-SignalLoom-Tenant",
+    "trusted": false,
+    "note": "Reserved for v1 so consumers written now need no rewrite when SLCD-P2-2 lands. The server does NOT read it. Tenancy is derived from the verified principal by ProtectedRouter.authorize and copied by TenantClaimFromRequestContext (signal-ingest/api/tenant_bridge.go); a client-supplied value influences nothing."
+  },
+  "x-version-policy": "Any change classified incompatible by scripts/gen_wire_contract.py --classify takes the label codingagent.v2. v1 is immutable except for optional-property additions, which leave required unchanged.",
+  "x-pending-necessity-review": {
+    "raised_by": "SLCD-P1-5",
+    "owner": "SLCD-P1-GOV",
+    "open_item": "OPEN-SLCD-8",
+    "fields": [
+      "metrics.step_count",
+      "metrics.tokens_in",
+      "metrics.tokens_out",
+      "metrics.tool_counts"
+    ],
+    "finding": "SLCD-P1-5's Legitimate Interest Assessment finds these serve no interest named at its section 5, fail Limb 2 on the current record, and independently engage GDPR Art. 5(1)(c) data minimisation.",
+    "status": "unresolved at the time of the SLCD-P1-3 freeze",
+    "note": "SLCD-P1-3 was instructed not to add or remove a field at contract-freeze time, so these are frozen as P1-1 defined them. Recorded here rather than acted on. Removing them is classified incompatible by --classify and therefore takes the label codingagent.v2; P1-GOV must price that when ruling. Exposure is currently zero because collection remains gated behind P1-5's unmet lawful-basis condition."
+  },
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -862,8 +862,11 @@ demo-agentmaxxing-ingest-test: ## Run AgentMaxxing audit session ingest, dedupli
 	cd d2-signalloom/apps/signal-ingest && GOPATH=/tmp/gopath GOMODCACHE=/tmp/gomodcache go test -v ./collectors/agentnono/...
 	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py -k "test_idempotency or test_concurrent_upload or test_interrupted_retry or test_ingest_finalized"
 	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_external_agent_evidence.py
-demo-agentmaxxing-ui-test: ## Run AgentMaxxing timeline and UI evidence rendering tests.
+demo-agentmaxxing-ui-test: ## Run AgentMaxxing timeline vitest tests and interactive demo console Playwright acceptance suite.
 	cd d2-signalloom/apps/dashboard-signalloom && bun x vitest run src/components/AgentActivityTab.test.tsx
+	cd test/acceptance && bun install --frozen-lockfile && \
+		AMXD_DEMO_CONSOLE=1 bunx playwright test agentmaxxing-demo-console.spec.ts \
+			--project=agentmaxxing-demo-console
 demo-agentmaxxing-docs-test: ## Build docs portal, run Astro diagnostics, audit links, and assert external-agent SVG diagram rendering in Chromium.
 	./scripts/docs-render-check.sh docs.spec.ts
 demo-agentmaxxing-acceptance-test: ## Run AgentMaxxing end-to-end local onboarding-to-removal acceptance journey.

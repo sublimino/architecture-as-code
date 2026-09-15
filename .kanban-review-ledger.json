@@ -126,6 +126,13 @@
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P5-1 verified: Verify finalized sessions and reject invalid audit chains; contiguous sequence enforcement, terminal finalization markers, Go VerifyFinalizedSession (25/25 pass), Pytest /sessions/finalized and require_finalized contract suite (29/29 pass), proof in docs/signalloom/amxo-p5-1-evidence.md (commit 6245b7fc)"
   },
+  "68175": {
+    "task_id": "68175",
+    "reviewed_at": "2026-09-15T06:21:11.474963Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
+  },
   "80803": {
     "task_id": "80803",
     "reviewed_at": "2026-09-10T07:56:25Z",
@@ -2666,13 +2673,6 @@
     "verdict": "pass",
     "reason": "Preflight deliverable completed; confirmed Auto-Play stepping timers (1x/2x/instant), pause/resume state retention, unmount cancellation, docs-signalloom routing seams, and errata recorded in proposal"
   },
-  "68175": {
-    "task_id": "68175",
-    "reviewed_at": "2026-09-15T06:21:11.474963Z",
-    "reviewer": "Council of Agents",
-    "verdict": "pass",
-    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
-  },
   "04f5a": {
     "task_id": "04f5a",
     "reviewed_at": "2026-09-15T06:41:24.339448Z",
@@ -2749,5 +2749,12 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Purple-team attack harness and 15 scenarios audited; 3-plane coverage gap identified; 25-scenario master coverage matrix designed for P6-1; .metrics.process_escapes pass/fail gate and derived-coverage-guard pattern confirmed"
+  },
+  "132b9": {
+    "task_id": "132b9",
+    "reviewed_at": "2026-09-15T08:23:54.414Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Phase 4 Governor certified zero-payload leak audit across combined 4-subsystem session (15 records, 10,965 bytes, 7 canaries, 0 hits; negative controls kill leak mutations; AST procfs scan confirms 0 prohibited reads; carried overhead KPI breach documented at 36.17% CPU)"
   }
 }

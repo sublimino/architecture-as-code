@@ -288,7 +288,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P1-PRE | preflight | Inventory AMXO API endpoints, route structure, and component library | P0 | Endpoint schema review; `d2-signalloom/apps/dashboard-signalloom` inventory | S | daily | **Pass** — AMXO API fact sheet published; verified route mount mismatch (host revoke is mounted bare at `/v1/external-agents/hosts/{host_id}/revoke` on `v1_router` with zero `/api` prefix routes); verified `nginx.conf` has 0 `location /v1/` blocks; verified `client.ts` auto-prefix rules; inventoried 3-tier NAV and demo precedents; confirmed polling-only telemetry contract. | $0.00 | N/A | ~5m | N/A |
 | P1-1 | implementation | Design 5-stage lifecycle state machine and step-control contract | P1-PRE | Vitest state-machine transitions; `src/components/demos/types.ts` contract | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define demo scenario presets for happy path, tamper breach, and revocation | P1-PRE | Presets schema tests; deterministic scenario fixture data | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-3 | implementation | Freeze demo mock/live bridge contracts and reset/seed endpoints | P1-1, P1-2 | Contract snapshot; client bridge interface tests; idempotent reset contract | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-3 | implementation | Freeze demo mock/live bridge contracts and reset/seed endpoints | P1-1, P1-2 | Contract snapshot; client bridge interface tests; idempotent reset contract | L | deep | pass — delivered: 7b0e9de1b0da67d4a8e6944de716265d08d168fb (see Errata — AMXD-P1-3) | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Add the missing /v1/ proxy route to nginx and verify behind the real image | P1-PRE | `rg -n 'location' d2-signalloom/apps/dashboard-signalloom/nginx.conf` | S | antigravity | Pending | $0.00 | N/A | N/A | N/A |
 | P1-5 | implementation | Make the acceptance suite capable of failing | P1-PRE | `bats test/acceptance-spec-coverage.bats` | M | kpai | pass — delivered: f8776062a378959c33f628f0be081ced82c07b9f (see Errata — AMXD-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -814,5 +814,26 @@ A machine check now asserts every line number cited in the JSDoc against the tok
 - **Browser specs cannot execute in this sandbox at all** (`/opt/google/chrome/chrome` is un-exec'able). That is not a P1-5 problem, it is a **P4-2 / P6-1** problem: both downstream consumers of this guard write live browser specs that cannot be verified on this host. Surfacing it as a finding so it is not rediscovered twice. The Governor should decide where those two cards run.
 - **Sequencing recommendation.** Because `agentmaxxingLive()` reads `true` today, a P4-2 authored before P1-4 will go red. Prefer a loud static block — `test.fixme(…, 'blocked: AMXD-P1-4')`, a literal a human must delete and `rg` can find — over weakening the runtime guard. Runtime guards should encode environment shape; card dependencies should be static and loud.
 - **The integration ref advanced mid-card**, from `f745c17c` to `f6433714` (`88bac7f1` tick 112 + `f6433714` P1-PRE review ledger). It advanced, it did not diverge: my base is an ancestor of the new tip, and neither commit touches `test/acceptance/`. No collision.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P1-3 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 03:07:30+01:00
+**Last Updated:** 2026-09-15 03:07:30+01:00
+
+##### Task identity
+- Card: `AMXD-P1-3`
+- Shortcode: `AMXD`
+- **Status:** pass
+- **Commit:** 7b0e9de1b0da67d4a8e6944de716265d08d168fb
+- Result: Frozen mock/live bridge contracts across `MockStageOutcome` and `LiveStageOutcome` with mutual non-assignability, 53 unit tests passing in `bridge.test.ts`, idempotent `resetEstate` and `seedEstate`, and normative `BRIDGE-CONTRACT.md`.
+- **Phase 1 can proceed:** yes
+
+##### Deliverable verification
+- **D1 — Frozen Bridge Contract**: `d2-signalloom/apps/dashboard-signalloom/src/components/demos/bridge.ts` exports `createDemoBridge`, `MockStageOutcome<S>`, `LiveStageOutcome<S>`, and `executeStageWithBridge`.
+- **D2 — Type-Level Boundary**: `MockStageOutcome` and `LiveStageOutcome` have mutually exclusive discriminating literals (`channelKind`) and required properties, verified by compile-time `@ts-expect-error` assertions in `bridge.test.ts`.
+- **D3 — Reset/Seed Endpoints**: `resetEstate` cleans all `amxd.demo.*` local storage keys; `seedEstate` idempotently populates initial demo state.
+- **D4 — Verification Suite**: 98 tests pass across `src/components/demos/` (`bridge.test.ts`, `scenarios.test.ts`, `types.test.ts`), typecheck exits 0, and `eslint` exits 0 with 0 errors.
+
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

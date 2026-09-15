@@ -98,7 +98,7 @@ export default function TopNav() {
               <img
                 src={user.picture}
                 alt={user.name ?? 'avatar'}
-                style={{ width: 30, height: 30, borderRadius: '50%', border: '2px solid var(--border)' }}
+                style={{ width: 30, height: 30, borderRadius: '50%', border: '2px solid var(--border)', boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.1)' }}
               />
             ) : (
               <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--violet)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'var(--on-accent)' }}>

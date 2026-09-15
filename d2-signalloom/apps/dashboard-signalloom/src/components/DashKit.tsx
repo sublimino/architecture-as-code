@@ -85,10 +85,19 @@ export function Table({ headers, children }: { headers: TableHeader[]; children:
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-            {headers.map((h) => {
+            {headers.map((h, idx) => {
               const label = typeof h === 'string' ? h : h.label
+              const isFirst = idx === 0
+              const isLast = idx === headers.length - 1
               return (
-                <th key={label} style={thStyle}>
+                <th
+                  key={label}
+                  style={{
+                    ...thStyle,
+                    borderTopLeftRadius: isFirst ? 'calc(var(--radius) - 1px)' : undefined,
+                    borderTopRightRadius: isLast ? 'calc(var(--radius) - 1px)' : undefined,
+                  }}
+                >
                   {typeof h === 'string' ? label : (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       {label}

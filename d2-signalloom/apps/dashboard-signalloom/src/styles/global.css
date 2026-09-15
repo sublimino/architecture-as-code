@@ -55,7 +55,7 @@ a:hover { text-decoration: underline; }
 
 button { cursor: pointer; font-family: inherit; transition: all var(--motion-fast) var(--ease-signature); }
 button:hover:not(:disabled) { transform: translateY(-1px); }
-button:active:not(:disabled) { transform: translateY(0); }
+button:active:not(:disabled) { transform: translateY(0) scale(0.96); }
 button:disabled { cursor: not-allowed; opacity: .5; }
 /* Keyboard parity for the ~180 bare <button>s that never take a .btn class and
    are styled inline at the call site. Without this they fall back to whatever
@@ -135,7 +135,8 @@ select option { background: var(--surface); }
   cursor: pointer;
   transition: background-color var(--motion-fast) var(--ease-signature),
               border-color var(--motion-fast) var(--ease-signature),
-              outline-color var(--motion-fast) var(--ease-signature);
+              outline-color var(--motion-fast) var(--ease-signature),
+              transform var(--motion-fast) var(--ease-signature);
 }
 
 /* Hover affordance. The old rule was `opacity: 0.85`, which is the wrong
@@ -307,5 +308,5 @@ select option { background: var(--surface); }
   /* The hover affordance itself stays — only its animation goes. A reduced
      motion preference is not a request for less feedback. */
   .sl-sidebar, .sl-sidebar__link, .sl-filter-chip, .btn, button { transition: none !important; }
-  button:hover:not(:disabled) { transform: none; }
+  button:hover:not(:disabled), button:active:not(:disabled) { transform: none; }
 }

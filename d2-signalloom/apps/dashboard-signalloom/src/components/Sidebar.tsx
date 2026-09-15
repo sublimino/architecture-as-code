@@ -613,7 +613,7 @@ export default function Sidebar() {
               <img
                 src={user.picture}
                 alt={user.name ?? 'avatar'}
-                style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0 }}
+                style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.1)' }}
               />
             ) : (
               <div style={{

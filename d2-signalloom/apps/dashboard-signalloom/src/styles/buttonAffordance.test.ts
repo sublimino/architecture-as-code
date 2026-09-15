@@ -124,6 +124,17 @@ describe('button hover and focus affordance', () => {
     // same direction as `.btn:disabled { opacity: 0.5 }`.
     expect(CSS).not.toMatch(/\.btn:hover[^{]*\{[^}]*opacity/)
   })
+
+  it('gives active buttons a tactile scale-down without dropping below 0.95', () => {
+    const activeRule = rules().find(({ selector }) => selector === 'button:active:not(:disabled)')
+    expect(activeRule).toBeDefined()
+    expect(activeRule!.body).toContain('scale(0.96)')
+  })
+
+  it('includes transform in .btn transition so active scale interpolates smoothly', () => {
+    const btnRule = ruleFor('.btn ')
+    expect(btnRule).toContain('transform var(--motion-fast)')
+  })
 })
 
 describe('button affordance contrast across all three themes', () => {

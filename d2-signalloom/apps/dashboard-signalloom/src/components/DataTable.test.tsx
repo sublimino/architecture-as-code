@@ -43,6 +43,24 @@ describe('DataTable', () => {
     expect(getByText('Status')).toBeTruthy()
   })
 
+  it('applies concentric border radius to first and last column headers', () => {
+    const { getByText } = render(
+      <DataTable columns={COLUMNS} data={makeRows(3)} renderRow={renderRow} />,
+    )
+    const firstTh = getByText('Name').closest('th')
+    const middleTh = getByText('Score').closest('th')
+    const lastTh = getByText('Status').closest('th')
+
+    expect(firstTh?.style.borderTopLeftRadius).toBe('calc(var(--radius) - 1px)')
+    expect(firstTh?.style.borderTopRightRadius).toBe('')
+
+    expect(middleTh?.style.borderTopLeftRadius).toBe('')
+    expect(middleTh?.style.borderTopRightRadius).toBe('')
+
+    expect(lastTh?.style.borderTopLeftRadius).toBe('')
+    expect(lastTh?.style.borderTopRightRadius).toBe('calc(var(--radius) - 1px)')
+  })
+
   it('renders all rows when data fits in one page', () => {
     const data = makeRows(3)
     const { getByText, queryByTestId } = render(

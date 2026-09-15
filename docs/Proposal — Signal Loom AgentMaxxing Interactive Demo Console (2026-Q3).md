@@ -1814,7 +1814,7 @@ Confirmed Vitest fake-timer mechanisms in `dashboard-signalloom` test suites:
 **Created:** 2026-09-15 07:59:05+01:00
 **Last Updated:** 2026-09-15 07:59:05+01:00
 **Status:** **PASS with two qualifications — Phase 5's own deliverables are certified; presentation readiness is certified for CONTENT and BEHAVIOUR, and explicitly NOT for VISUAL LAYOUT.**
-**Commit:** `3de3c6ba2d583f619af1ff097c9e7549d5b65d2b`
+**Commit:** `a88369ae984bec85775459ddb069f3bfe7858b15` — the commit carrying this errata body and the four guide corrections. This line is set by the immediately following commit, because a block cannot contain its own hash: an earlier attempt recorded `3de3c6ba…` and then amended, which rewrote the SHA and left the recorded literal pointing at an orphaned object. Recorded here so the next governor does not repeat it.
 **Branch:** `integration/amxd-v0.1.0`
 **Integration branch SHA at certification:** `fc48150a59e5ddcbc81af4544e4291c4e2b7de43` — all evidence below was gathered against this tree. The branch then advanced to `6a1172998f08f99322e4738dd045b844a1b27dd4` mid-run via a concurrent session (Controller Tick #129, a one-line append to `docs/signalloom/amxo-governor-log.md`). `fc48150a…` remains an ancestor and no file this certification touched was affected, so no evidence was invalidated.
 **Merges reconciled:** `afe0d14a549210edc017e6f96aec242a01c82947` (AMXD-P5-1), `9c09fbf251e796aaac0c1398a6435f4c2aeff611` (AMXD-P5-2)

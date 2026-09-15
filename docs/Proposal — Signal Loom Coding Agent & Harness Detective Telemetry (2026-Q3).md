@@ -300,7 +300,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Validate SLCD harness identity and clean detective monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLCD`; repository and board evidence only | S | fast | Pending | $0.00 | N/A | N/A | N/A |
+| P0 | preflight | Validate SLCD harness identity and clean detective monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLCD`; repository and board evidence only | S | fast | **Pass (qualified)** — board checks green, doctor exits 1 on a workspace-wide fast-exit sweep no SLCD card can clear (Q2); baseline at `docs/signalloom/slcd-p0-baseline.md`; branch not pushed per Safety Rules (Q1); 2 architectural contradictions escalated (E1 socket/`fd`, E2 `cmdline`) | $0.00 | N/A | N/A | N/A |
 | P1-PRE | preflight | Inventory running harness processes, session log formats, and kanban wrappers | P0 | Process snapshot; session log schema inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -333,15 +333,97 @@ Funded under Signal Loom Agentic Governance platform investment.
 
 ### Spec: Errata
 
-#### Errata — SLCD-P0 (bootstrap)
+#### Errata — SLCD-P0 (preflight)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15T00:01:57+01:00
+**Last Updated:** 2026-09-15T00:19:02+01:00
+
 ##### Task identity
 - Card: `SLCD-P0`
 - Shortcode: `SLCD`
-- Commit: Pending
-- Result: Pending
+**Status:** pass
+**Commit:** `cb0d3a645041a314625feb0115e0f29a3e6e3206`
+- Base commit: `2fedff0610b16682128cbcfac42eff9025320a53`
+- Deliverable commit: `cb0d3a645041a314625feb0115e0f29a3e6e3206` (task worktree, detached; merge to `integration/slcd-v0.1.0` is the phase Governor's, not P0's — lifecycle boundary is create-only)
+- Integration ref: `refs/heads/integration/slcd-v0.1.0` = `2fedff0610b16682128cbcfac42eff9025320a53`
+- Branch label at run time: `(detached)`
+- Result: Baseline established; two architectural contradictions escalated; nothing pushed.
+**Phase 0 can proceed:** yes
 
 ##### Deliverable verification
-- Verification: Baseline monorepo check and doctor output verified.
+- Baseline document: `docs/signalloom/slcd-p0-baseline.md` — full evidence, cited by later cards.
+- Fast-exit baseline set: `docs/signalloom/slcd-p0-fast-exit-baseline.txt` (29 task IDs).
+- Component paths confirmed present: `d2-signalloom/apps/{agentmaxxing-host-sensor,signal-ingest,dashboard-signalloom}`.
+- The four canonical locations the proposal names are absent, as expected — this mission creates them.
+- Acceptance commands **run, not read**: `bats test/acceptance-spec-coverage.bats` exit 0 (7/7);
+  `python3 -m unittest discover -p 'test_*.py'` in the sensor exit 0 (41 tests, OK);
+  `cd d2-signalloom/apps/signal-ingest && go test ./...` exit 0 (24 packages);
+  `make demo-agentmaxxing-host-test` exit 2 then exit 0 on re-run (see Q3).
+- Go module topology recorded: **no root `go.mod`, no `go.work`**; 20 module roots under
+  `d2-signalloom/`. Control run from the repository root fails
+  `pattern ./...: directory prefix . does not contain main module`, exit 1. Every later Go test
+  command in this mission MUST `cd d2-signalloom/apps/signal-ingest` first.
+- Export-surface baseline: `filter.py:33-47` allow-lists bounded integers and enums only;
+  **zero free-text fields**. Recorded explicitly as a *point-in-time starting condition* that
+  SLCD is about to invalidate, not as a permanent property of the collector.
+
+##### Qualifications
+- **Q1 — the branch was NOT pushed, deliberately.** The Deliverables asked for
+  `integration/slcd-v0.1.0` to be "created from the fetched remote tip and pushed", while the
+  Safety Rules state `never push to a remote`. Per the card's own Precedence section, Safety
+  Rules outrank Deliverables, so the push was not performed.
+  `git rev-parse origin/integration/slcd-v0.1.0` returns `fatal: Needed a single revision` —
+  the branch is local-only. The *provenance* half of the deliverable is met and verified:
+  after `git fetch origin --prune`,
+  `git merge-base --is-ancestor origin/main integration/slcd-v0.1.0` exits 0, with
+  `origin/main` = `df65bb2e767fe5f0585e23da57a7756d876c98cc`. **A human must decide whether to
+  push**; until then every downstream worktree must branch from the local ref.
+- **Q2 — the doctor exits 1, and no SLCD card can make it green.** Both board-scoped checks are
+  green (`link-check`: all six rules pass, `CRITICAL=0 FAIL=0 WARN=0`; `inversions`: no inverted
+  edges; board `HEALTH: ✓ healthy`). The single exception is check 3, duration/fast-exit, which
+  `scripts/kanban-check.sh:90` invokes **without forwarding `--shortcode`**. It sweeps
+  `~/.cline/kanban/workspaces/osramp-demo/sessions.json` (302 entries) across every mission ever
+  run in this workspace. Positive evidence it is not ours: **0** of 302 session keys match
+  `/SLCD/`; **0** fast-exit entries match `/SLCD/`; the population spans 2026-09-01 → 2026-09-13,
+  all predating SLCD; and the count moved **29 → 32** between two derivations minutes apart
+  because sibling missions are running concurrently. The "Loop on these until green" instruction
+  is therefore **unsatisfiable as written** and was not looped on. Downstream Governors must test
+  *containment* against `docs/signalloom/slcd-p0-fast-exit-baseline.txt`, not exit status — a
+  genuine new SLCD crash would also exit 1, masked behind the inherited ones. **This argument
+  expires the moment the first SLCD card reaches a finished state.**
+- **Q3 — `make demo-agentmaxxing-host-test` is flaky from shared state, not from a repo defect.**
+  First run exit 2 at `test/signalloom/file-validator-anti-escape.bats` test 9; re-run at the
+  same commit exit 0. Cause: `.pytest_cache` in every task worktree is a **symlink to
+  `/home/andy/src/cp/osramp-demo/.pytest_cache`**, so ~40 concurrent worktrees contend for one
+  cache directory (`PytestCacheWarning … [Errno 13] Permission denied … v/cache/nodeids`). That
+  bats test invokes pytest without the `-o cache_dir=…` override the sibling Makefile recipes
+  use. No fix applied — adding the override touches a P6-owned surface. A single red run of this
+  target is not evidence of a regression.
+- **Q4 — `go test ./...` in signal-ingest mutates a git-tracked fixture.** Package `correlation`
+  rewrites `d2-signalloom/apps/signal-ingest/correlation/redteam_cascade_ceiling.json`
+  (12 insertions / 12 deletions). Expected, reverted before staging; the committed tree excludes it.
+
+##### Escalations — architectural contradictions found at P0 (STOP and report)
+Both were falsified by executing the guard, not by reading it. Neither is P0's to fix; both are
+recorded so the owning card does not resolve them by weakening the invariant.
+
+- **E1 — Socket Inode Attribution is unbuildable through `ProcReader` as specified (owner: P4-2).**
+  Shared Patterns specifies matching socket inodes from `/proc/net/tcp` to descriptors under
+  `/proc/<pid>/fd/`. `proc.py:14-32` lists `fd`, `fdinfo` **and** `net` in
+  `PROHIBITED_PROC_ENTRIES`, and `_safe_proc_path` (`proc.py:103-110`) raises
+  `SecurityException` on each — verified by direct invocation, all three BLOCKED. Removing an
+  entry from that set is a declared hard blocker for this mission. P4-2 must either use a
+  different mechanism or escalate for an explicit, separately-reasoned exception.
+- **E2 — the `cmdline` basename carve-out exists in the constitution but not in code (owner: P2-2).**
+  Shared Patterns permits reading `/proc/<pid>/cmdline` "for bounded binary basename resolution".
+  `cmdline` is in the prohibited set and `_safe_proc_path` raises on it unconditionally
+  (verified BLOCKED). Harness identification therefore has only `comm` from `/proc/<pid>/stat`.
+  P2-2 must establish empirically whether the harnesses it must tell apart stay distinguishable.
+
+##### Boundary note
+`proc.py` is a **pre-collection** chokepoint (raises before `open()`); `filter.py` is
+**post-hoc** — `collector.py` reads into objects first and filters on export. The two are not
+interchangeable, and `filter.py` alone cannot stop a payload already read into memory.
 
 #### Errata — SLCD-P1-PRE (preflight)
 ##### Task identity

@@ -290,7 +290,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P1-2 | implementation | Define demo scenario presets for happy path, tamper breach, and revocation | P1-PRE | Presets schema tests; deterministic scenario fixture data | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze demo mock/live bridge contracts and reset/seed endpoints | P1-1, P1-2 | Contract snapshot; client bridge interface tests; idempotent reset contract | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Add the missing /v1/ proxy route to nginx and verify behind the real image | P1-PRE | `rg -n 'location' d2-signalloom/apps/dashboard-signalloom/nginx.conf` | S | antigravity | Pending | $0.00 | N/A | N/A | N/A |
-| P1-5 | implementation | Make the acceptance suite capable of failing | P1-PRE | `bats test/acceptance-spec-coverage.bats` | M | kpai | Pending | $0.00 | N/A | N/A | N/A |
+| P1-5 | implementation | Make the acceptance suite capable of failing | P1-PRE | `bats test/acceptance-spec-coverage.bats` | M | kpai | pass — delivered: 307eba87f523ccef50664a620bb484ca43d8b644 (see Errata — AMXD-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm UI components, styling standards, and routing seams | P1-GOV | Component library check; `/demos/agentmaxxing` route registration check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Build Stepper Header and Stage Progression Controller | P2-PRE | Vitest stepper unit tests; stage navigation click assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -636,10 +636,95 @@ const url = path.startsWith('/api') ? path : `/api${path}`
 - Commit: Pending
 - Result: Pending
 
-#### Errata — AMXD-P1-5 (bootstrap)
-##### Task identity
-- Card: `AMXD-P1-5`
-- Shortcode: `AMXD`
-- Commit: Pending
-- Result: Pending
+#### Errata — AMXD-P1-5 Make the acceptance suite capable of failing
+**Created:** 2026-09-15 02:38:57+01:00
+**Last Updated:** 2026-09-15 02:38:57+01:00
+**Status:** Completed
+**Commit:** `307eba87f523ccef50664a620bb484ca43d8b644`
+**Governor merge:** [pending Governor reconciliation]
+
+##### What landed
+
+`test/acceptance/helpers.ts` — 76 insertions, 0 deletions, one file, purely additive. `guards.agentmaxxingLive()` is defined at **helpers.ts:135**, immediately after `grafanaDeployed()`, with the documentation block spanning **helpers.ts:63-134**.
+
+```ts
+  agentmaxxingLive(): boolean {
+    return guards.exists("service", "fe-signalloom-api", "fe-signalloom");
+  },
+```
+
+##### The usage pattern — copy both lines verbatim (AMXD-P4-2, AMXD-P6-1)
+
+```ts
+test.skip(!guards.agentmaxxingLive(), 'requires live AgentMaxxing backend');
+await login(page, { demoMode: false });
+```
+
+`guards.agentmaxxingLive()` without `{ demoMode: false }` still short-circuits into fixtures at `client.ts:227` and the guard will have bought you nothing. Both lines, or neither.
+
+##### The JSDoc consumer block, verbatim
+
+```
+   * AgentMaxxing backend — the FastAPI app that serves external-agent
+   * enrollment, evidence upload, and host revocation.
+   *
+   * @consumedBy AMXD-P4-2 — the revoke-then-upload dispatch test.
+   * @consumedBy AMXD-P6-1 — the live-mode spec block in the demo-console spec.
+```
+
+When P4-2 and P6-1 land, update those two `@consumedBy` lines to name the actual call sites. A stale "consumed by" list actively misdirects the next reader and is worse than none.
+
+##### Declarative object for AMXD-P4-2 / AMXD-P6-1
+
+**Service `fe-signalloom-api`, namespace `fe-signalloom`** — declared at `d2-signalloom/apps/fe-signalloom/base/api-service.yaml`, verified present in the live acceptance cluster (`kubectl get service fe-signalloom-api -n fe-signalloom` → `service/fe-signalloom-api`, exit 0, age 15d). It fronts the FastAPI app that registers `POST /v1/external-agents/hosts/{host_id}/revoke` (`src/external_agent_registration.py:1231`) and raises `APIError(403, "host_revoked", …)` on the subsequent upload (same file, lines 1120 and 1142). No new object needs deploying — the AgentMaxxing backend is already in the cluster.
+
+##### Decisions
+
+1. **Guard the Service, not the route, not a Pod, not a bespoke object.** A guard separates "never provisioned" from "provisioned and broken". A missing nginx `/v1/` route on a deployed backend is the second kind; a guard that went false for it would SKIP precisely when the route regressed — the crashed-Pod anti-pattern in a new costume, which the comment block above `guards.exists` already warns against. Advisor concurred and added that presence of a P1-4-created object would not be evidence the route resolves: existence is not function.
+2. **Fixed in the harness, not in `client.ts`.** The 404/501 `demoModeError` behaviour is correct — it is what stops a demo route silently escaping to live HTTP. The defect is the harness default. `client.ts` is untouched.
+3. **`login()`'s `demoMode ?? true` default left alone** (now at helpers.ts:184). Flipping it would silently re-route every existing fixture-backed spec at live HTTP.
+4. **The proposal was edited in the repo, not in Obsidian** — see Deviations.
+
+##### ⚠️ The 404 collision — read before "fixing" a red P4-2
+
+**A missing nginx `/v1/` proxy route returns 404, and so does demo mode for an unfixtured route (`client.ts:233-239`).** `apps/dashboard-signalloom/nginx.conf` has no `location /v1/` block until **AMXD-P1-4** lands, so the first run of a live-403 spec will most likely read `expected 403, got 404` — the exact symptom of the bug this card exists to eliminate, from either cause, and indistinguishable by status code alone.
+
+Distinguish before assuming, and **do not add a demo fixture to make the red go green** — that re-creates the defect:
+
+- Demo mode still on → `localStorage.sl_demo_mode === 'true'`, and no matching entry appears in `page.on('response')`, because nothing was ever sent.
+- Proxy route absent → the request IS on the wire and carries real server response headers.
+
+P4-2 should assert the response crossed the wire (a `page.on('response')` hit for the revoke URL, or a header only a real server emits), not the status alone. **A status code is not a liveness claim.** This collision was surfaced by the commitment-boundary advisor call, not by the card, and it is the single most load-bearing line in this errata.
+
+##### Evidence
+
+| Claim | Command | Result |
+|---|---|---|
+| Guard exists, delegates, declarative object | `grep -n 'agentmaxxingLive\|afmDeployed' test/acceptance/helpers.ts` | hits at 85, 88, 135 (+44 `afmDeployed`) |
+| JSDoc names consumers | `grep -n '@consumedBy\|downstream' test/acceptance/helpers.ts` | 67 `AMXD-P4-2`, 68 `AMXD-P6-1`, 75 |
+| Spec-coverage registry gate | `bats test/acceptance-spec-coverage.bats` | **7/7 ok, 0 failures** |
+| Guard never throws (absent object) | `bun -e` calling `guards.exists("service","no-such-svc-amxd","no-such-ns-amxd")` | `false`, no throw |
+| Guard never throws (no `kubectl` on PATH) | same, `PATH=/nonexistent-amxd` | `threw=false value=false` |
+| — positive control for the above | bare `execFileSync("kubectl", …)` with `PATH` stripped | `ENOENT` — the branch was genuinely reached, not vacuously passed |
+| Guard true against the live estate | `guards.agentmaxxingLive()` | `true` |
+| Typecheck introduces no error | `bunx tsc --noEmit -p .` before vs after, line-numbers normalised | **75 errors before, 75 after, identical set** |
+| `live-data.spec.ts` + `credential-lifecycle.spec.ts` unchanged | full run before vs after, outcomes sorted | **identical: 5 passed / 4 failed both times** |
+| — collected tests unchanged | `playwright test --list` before vs after | **identical, 9 tests** |
+| Neither spec file was touched | `git diff --name-only` | `test/acceptance/helpers.ts` only |
+| `client.ts` untouched | same | not in diff |
+| Base-ref contract | `git merge-base --is-ancestor f745c17c integration/amxd-v0.1.0` | exit 0 |
+
+##### Deviations
+
+1. **The card's proposal-location premise is false, and I followed the repo instead.** The card states the proposal "lives in an Obsidian vault, NOT the repo" and forbids `git add`. In fact `docs/Proposal — Signal Loom AgentMaxxing Interactive Demo Console (2026-Q3).md` **is git-tracked** (`git ls-files` returns it), there is **no vault copy** of it (`2. Areas/CEO/Innovation Proposals/` holds only the *other*, unrelated AgentMaxxing proposal), and **AMXD-P1-PRE committed its own errata to this file** at `f745c17c`. Editing an Obsidian copy would have been editing a file that does not exist. This errata and the Result cell are therefore committed to the repo copy in the task worktree, matching P1-PRE. Governor: if the board intends the Obsidian convention for AMXD, the card template needs correcting, because every AMXD card carries this instruction and the repo contradicts it.
+2. **`bunx tsc --noEmit -p .` cannot exit 0 in `test/acceptance`, and did not before this card either.** 75 pre-existing errors, all `lib.dom` gaps inside browser-context callbacks (`window`, `document`, `HTMLElement`, `getComputedStyle`) plus one `playwright.config.ts:268` `video: string` overload mismatch and one `who-authorized.spec.ts:39` strictness error. The `tsconfig.json` does not include the `dom` lib. Per the card's own loop instruction I fixed only what this card touches and report this rather than expanding scope. The criterion was therefore verified as *introduces no new type error* — proven by an identical, line-number-normalised 75-error set before and after.
+3. **The two Playwright specs are unchanged but are not green on this host.** 4 of their 9 tests fail with `browserType.launch: Failed to launch: Error: spawn /opt/google/chrome/chrome EACCES`. `/opt/google/chrome/chrome` is mode `0755 root:root` yet `Permission denied` on exec — the agent process tree cannot exec out of `/opt`, the same sandbox constraint that blocks other `/opt` binaries here. Not attributable to this change: the before/after outcome sets are byte-identical and no browser-independent test changed state. I brought the Envoy gateway forward up via `scripts/supervise-port-forward.sh` for these runs (`/readyz` → **200**) and tore it down afterwards (**000**), so the failure is a browser-exec constraint, not an unreachable dashboard.
+
+##### Notes for the next card
+
+- **The 403 is real and already implemented server-side.** `external_agent_registration.py` raises `APIError(403, "host_revoked", …)` at lines 1120 and 1142. Nothing on the backend needs building for P4-2 — only the harness path had to be opened, which is what this card did.
+- **`guards.agentmaxxingLive()` will read `true` today**, because the backend Service is deployed. It does not and must not mean the `/v1/` route is reachable — **AMXD-P1-4 is still the gate on a green 403 assertion**. Sequence P4-2 after P1-4, or gate it with a loud static `test.fixme(… 'blocked: AMXD-P1-4')` that a human must delete, rather than weakening the runtime guard.
+- `guards.exists` passes `--request-timeout=10s`, so the guard cannot hang CI against a stale kubeconfig.
+- **The integration ref advanced mid-card**, from `f745c17c` to `f6433714` (`88bac7f1` tick 112 + `f6433714` P1-PRE review ledger). It advanced, it did not diverge: my base is an ancestor of the new tip, and neither commit touches `test/acceptance/`. No collision.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

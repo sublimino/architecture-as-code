@@ -26,6 +26,7 @@ import {
   type ScenarioPreset,
 } from './scenarios'
 import StepperHeader from './StepperHeader'
+import AutoPlayControls from './AutoPlayControls'
 
 export const AMXD_DEMO_STAGE_STORAGE_KEY = 'amxd.demo.currentStage'
 
@@ -112,6 +113,7 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
   preset = HAPPY_PATH_PRESET,
   channel = 'mock',
   autoDwellMs,
+  autoPacing,
   onStageChange,
   onReset,
   storage: propStorage,
@@ -349,6 +351,18 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
         inFlight={state.inFlight}
         disabled={state.inFlight}
         onSelectStage={jumpToStage}
+      />
+
+      {/* Auto-Play and Speed Control Panel (AMXD-P5-1) */}
+      <AutoPlayControls
+        bridge={bridge}
+        state={state}
+        onStateUpdate={dispatch}
+        onStageChange={onStageChange}
+        onReset={onReset}
+        initialPacing={autoPacing}
+        storage={store}
+        disabled={state.inFlight}
       />
 
       {/* Controller Navigation Toolbar */}

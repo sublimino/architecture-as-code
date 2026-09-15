@@ -318,5 +318,83 @@ class NegativeSecurityTests(unittest.TestCase):
             self.assertNotIn(key, export_dict)
 
 
+class ProhibitedSetIntegrityTests(unittest.TestCase):
+    """SLCD-P4-2. Pins the prohibited set itself against the card that had most reason to weaken it.
+
+    The pre-existing P1-4 tests assert that specific entries raise. They do not assert that the
+    SET has not shrunk -- a card that deleted ``fd`` would break ``test_prohibit_procfs_fd_inspection``
+    loudly, but a card that deleted a less-tested entry might not. These tests pin membership
+    and cardinality directly, so the set cannot be quietly edited by any downstream card.
+    """
+
+    # The exact contents of PROHIBITED_PROC_ENTRIES as inherited by SLCD-P4-2 from P1-4.
+    # Transcribed deliberately rather than derived from the module, because a guard that copies
+    # its source of truth drifts with it and stops guarding anything.
+    EXPECTED_PROHIBITED = frozenset(
+        {
+            "mem", "environ", "cmdline", "maps", "smaps", "smaps_rollup", "stack", "syscall",
+            "io", "fd", "fdinfo", "net", "cwd", "root", "clear_refs", "pagemap", "attr",
+        }
+    )
+
+    def test_p4_2_did_not_weaken_the_prohibited_set(self) -> None:
+        from proc import PROHIBITED_PROC_ENTRIES as live
+
+        self.assertEqual(
+            set(live),
+            set(self.EXPECTED_PROHIBITED),
+            "PROHIBITED_PROC_ENTRIES changed. SLCD-P4-2 must never alter it; any change here "
+            "is a mission-wide stop-and-report condition, not a refactor.",
+        )
+
+    def test_the_three_entries_p4_2_was_tempted_to_remove_are_still_present(self) -> None:
+        from proc import PROHIBITED_PROC_ENTRIES as live
+
+        for entry in ("fd", "fdinfo", "net"):
+            with self.subTest(entry=entry):
+                self.assertIn(entry, live)
+
+    def test_network_module_procfs_surface_is_disjoint_from_the_prohibited_set(self) -> None:
+        """The P4-2 detector declares its procfs reads as a positive allow-list."""
+        from network import PROC_ENTRIES_READ_BY_NETWORK_MODULE
+        from proc import PROHIBITED_PROC_ENTRIES as live
+
+        self.assertEqual(PROC_ENTRIES_READ_BY_NETWORK_MODULE & set(live), set())
+        self.assertEqual(PROC_ENTRIES_READ_BY_NETWORK_MODULE, frozenset({"cgroup"}))
+
+    def test_socket_detector_cycle_touches_no_prohibited_entry(self) -> None:
+        """Runtime tripwire over the detector's real code path, not a static scan."""
+        import socket as _socket
+
+        from network import InferenceProviderRanges, SocketDetector, SocketRecord
+
+        seen = []
+        original = ProcReader._safe_proc_path
+
+        def recorder(inner_self, pid, entry_name):
+            seen.append(entry_name)
+            return original(inner_self, pid, entry_name)
+
+        class _FixedDiag:
+            def dump(self, families=None, restrict_to_cgroups=None):
+                return [
+                    SocketRecord(
+                        family=_socket.AF_INET, state=1, src_port=51000, dst_port=443,
+                        dst_ip="160.79.104.10", uid=1000, inode=1, cgroup_id=1, bytes_sent=10,
+                    )
+                ]
+
+        ProcReader._safe_proc_path = recorder
+        try:
+            SocketDetector(
+                ranges=InferenceProviderRanges.load(), diag=_FixedDiag()
+            ).detect(harness_pids=[1])
+        finally:
+            ProcReader._safe_proc_path = original
+
+        offenders = [e for e in seen if e in self.EXPECTED_PROHIBITED]
+        self.assertEqual(offenders, [], f"detector reached prohibited procfs entries: {offenders}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -301,7 +301,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE, P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze versioned enforcement wire contracts and governance resume token | P1-1, P1-2 | Contract freeze in docs and Go types; resume token signature spec | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-4 | implementation | Authenticate the sentinel /stun endpoint and add its NetworkPolicy | P1-PRE | `cd d2-signalloom/apps/stun-sentinel && go test ./...` | M | antigravity | Pending | $0.00 | N/A | N/A | N/A |
+| P1-4 | implementation | Authenticate the sentinel /stun endpoint and add its NetworkPolicy | P1-PRE | `cd d2-signalloom/apps/stun-sentinel && go test ./...` | M | antigravity | **pass** — delivered: `62376453e2cfceb6578fd65fc48f8ba2329656bd` (see Errata — SLER-P1-4) | $0.00 | N/A | ~5m | N/A |
 | P1-5 | implementation | Stop the cascade fabricating success; carry per-plane status and error | P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | L | kpai | Pending | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -417,12 +417,42 @@ No Go source, Makefile, manifest, or test file was modified. No runtime state (`
 ##### Out-of-scope confirmation
 No Go source, Makefile, manifest, or test file was modified. No runtime state (`board.json`, task records) was written. No live customer infrastructure was contacted. No prior errata entry was altered.
 
-#### Errata — SLER-P1-4 (bootstrap)
+#### Errata — SLER-P1-4 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15T01:06:53+01:00
+**Last Updated:** 2026-09-15T01:06:53+01:00
+
 ##### Task identity
 - Card: `SLER-P1-4`
 - Shortcode: `SLER`
-- Commit: Pending
-- Result: Pending
+**Status:** pass
+**Commit:** `62376453e2cfceb6578fd65fc48f8ba2329656bd`
+- Task base: `018b9eed7c0bdb88bf296d183e421acac10dd864` (identical to `refs/heads/integration/sler-v0.1.0` at start of run)
+- Worktree branch label: `(detached)`
+- Result: Authenticated /stun endpoint; resolved structural type signature gap in Freezer.Freeze; enforced distinct STUN_FREEZE_TOKEN and STUN_RESUME_TOKEN separation with fail-fast startup checks; added defense-in-depth NetworkPolicy; comprehensive tests and docs delivered.
+**Phase 1 can proceed:** yes
+
+##### Deliverable verification
+- Deliverables:
+  - `d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer.go`: `Freeze(cgroupPath, credential string)` and `FreezePod(podUID, credential string)` now require credentials matching `freezeValidator`. `DenyAllCredentials` fail-closed default. Added `WithFreezeCredentialValidator` and `WithFreezeValidator` functional options.
+  - `d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go`: Added `freezeToken` (`STUN_FREEZE_TOKEN`), startup fail-fast checks (rejects empty or identical tokens), 401 Unauthorized rejection on `/stun` and `/resume` before cgroup/body processing.
+  - `d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer_test.go` and `cmd/stun-sentinel/main_test.go`: 100% test coverage of freeze/resume auth, startup validation, cross-token rejection, and status 401 verification.
+  - `d2-signalloom/deploy/stun-sentinel-daemonset.yaml`: Added `STUN_FREEZE_TOKEN` env var from secret `stun-sentinel-governance` and attached `NetworkPolicy`.
+  - `d2-signalloom/deploy/stun-sentinel-networkpolicy.yaml`: Standalone NetworkPolicy manifest with hostNetwork limitation documentation.
+  - `docs/signalloom/sler-p1-4-stun-auth.md`: Complete security and design deliverable documenting exploit path, file:line citations, hostNetwork constraints, and remediation.
+- `cd d2-signalloom/apps/stun-sentinel && GOPATH=/tmp/gopath GOMODCACHE=/tmp/gopath/pkg/mod GOCACHE=/tmp/gocache CGO_ENABLED=0 go test ./...` → exit code `0` (`PASS`, all 5 packages green).
+- `grep -n 'WithCredentialValidator' d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go` → line 277.
+- `grep -n 'func.*Freeze' d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer.go` → lines 527, 581, 597, 646.
+- `grep -n 'STUN_FREEZE_TOKEN\|STUN_RESUME_TOKEN' d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go` → lines 55-56, 258-268.
+
+##### Decisions & Deviations
+- **Credential Validator Separation:** Distinct validators `freezeValidator` and `resumeValidator` are stored on `Freezer`, both defaulting to `DenyAllCredentials`.
+- **Status Code 401:** Both `requireBearer` and `statusFor(cgroup.ErrUnauthorized)` return HTTP 401 Unauthorized, ensuring consistent standard auth semantics.
+- **Fail-Fast Startup:** `run()` in `main.go` validates that both `STUN_FREEZE_TOKEN` and `STUN_RESUME_TOKEN` are present, non-empty, and distinct before launching the HTTP server.
+- **eBPF Artifact:** Compiled `bpf/tc_drop.bpf.o` using `signalloom-bpf-builder:trixie` and placed in `pkg/tc/` to resolve the pre-existing build dependency.
+
+##### Out-of-scope confirmation
+No other app directories, runtime state (`board.json`), or unrelated manifests were modified.
 
 #### Errata — SLER-P1-5 (bootstrap)
 ##### Task identity

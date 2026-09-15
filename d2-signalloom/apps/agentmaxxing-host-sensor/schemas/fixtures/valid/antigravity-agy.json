@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "harness": "antigravity",
+  "session_id": "bf5e6b2c8ce9fca92c54885d07818c8bd87892253d4ed4b75b03379c09937b90",
+  "timestamp": "2026-09-15T02:31:44.512Z",
+  "process": {
+    "pid": 884213,
+    "ppid": 3312,
+    "comm": "agy",
+    "rss_bytes": 391720960,
+    "cpu_ticks": 7180
+  },
+  "kanban": {
+    "task_id": "SLCD-P1-PRE",
+    "shortcode": "SLCD",
+    "role": "preflight",
+    "elapsed_s": 2941
+  },
+  "metrics": {
+    "step_count": 63,
+    "tokens_in": 1840221,
+    "tokens_out": 58117,
+    "tool_counts": {
+      "view_file": 41,
+      "write_to_file": 3,
+      "replace_file_content": 9,
+      "run_command": 77,
+      "grep_search": 22,
+      "find_by_name": 14,
+      "list_dir": 6,
+      "read_url_content": 0,
+      "search_web": 0,
+      "invoke_subagent": 0,
+      "send_message": 0,
+      "manage_task": 1,
+      "ask_question": 0,
+      "other_count": 12
+    }
+  },
+  "network": {
+    "inference_endpoint": "generativelanguage.googleapis.com",
+    "egress_bytes": 2211840
+  }
+}

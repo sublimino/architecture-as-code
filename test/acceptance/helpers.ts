@@ -80,34 +80,70 @@ export const guards = {
    * that path can produce. A spec that asserts `403` while demo mode is on can
    * therefore only pass by fabricating the very response it claims to verify.
    *
+   * One caveat on that "never 403": `client.ts:227`'s real condition is
+   * `isDemoMode() && !requiresLiveAgentDetail(method, path)`. That exception is
+   * GET-only (`client.ts:66`), so it cannot rescue a POST revoke — but it does
+   * mean "structurally unreachable" is a statement about this flow, not a
+   * universal law of the client.
+   *
    * So a live-403 spec needs BOTH halves, and the guard is only one of them:
    *
-   *   test.skip(!guards.agentmaxxingLive(), 'requires live AgentMaxxing backend');
+   *   test.skip(!guards.agentmaxxingLive(),
+   *     'AgentMaxxing backend not deployed — run: make demo-signalloom-up');
    *   await login(page, { demoMode: false });
    *
    * Copy both lines. `guards.agentmaxxingLive()` without `{ demoMode: false }`
    * still short-circuits into fixtures at `client.ts:227` and the guard will
-   * have bought you nothing.
+   * have bought you nothing. Note that `loginExpectingDex()` below hardcodes
+   * `sl_demo_mode = "true"` with no opt-out — it is not a substitute for
+   * `login(page, { demoMode: false })` in a live spec.
    *
-   * ─── The 404 collision — read this before "fixing" a red P4-2 ───────────
+   * ─── Two more prerequisites the guard does NOT cover ────────────────────
    *
-   * A missing nginx `/v1/` proxy route ALSO returns 404, and
-   * `apps/dashboard-signalloom/nginx.conf` has no `location /v1/` block until
-   * AMXD-P1-4 lands. So the first run of a live-403 spec will most likely read
-   * `expected 403, got 404`, from either cause, and the two are
-   * indistinguishable by status code alone. Distinguish before assuming:
+   * 1. `POST /v1/external-agents/hosts/{host_id}/revoke` can succeed and revoke
+   *    NOTHING. `revoke_external_host_handler` selects agents by `host_id` and
+   *    returns HTTP 200 with `{"status":"revoked","revoked_agents":[],
+   *    "count":0}` when none match (`external_agent_registration.py:1082-1088`).
+   *    A spec that reads 200 and moves on will then assert a 403 that was never
+   *    going to happen. **Assert `count > 0` on the revoke before asserting on
+   *    the upload** — otherwise the fabrication this guard removes reappears one
+   *    layer down.
+   * 2. There is no client call site yet: `rg 'external-agents'
+   *    apps/dashboard-signalloom/src` is empty. P4-2 builds the request as well
+   *    as the assertion.
    *
-   *   - Demo mode still on  → `localStorage.sl_demo_mode === 'true'`, and no
-   *     matching entry appears in `page.on('response')`, because nothing was
-   *     ever sent.
-   *   - Proxy route absent  → the request IS on the wire and carries real
-   *     server response headers.
+   * ─── Why a red P4-2 will say 404, and why nginx is NOT the culprit ──────
    *
-   * Assert that the response crossed the wire (a `page.on('response')` hit for
-   * the revoke URL, or a header only a real server emits) rather than reading
-   * the status alone — a status code is not a liveness claim. Adding a demo
-   * fixture to make the red go green re-creates exactly the defect this guard
-   * was written to remove.
+   * [DATED — describes the tree as of AMXD-P1-5; re-check once AMXD-P1-4 lands.]
+   *
+   * The intuitive story is "nginx has no `location /v1/`, so the request 404s at
+   * the proxy". That is wrong, and acting on it keeps you red:
+   *
+   *   - `nginx.conf:102` ALREADY proxies `location /api/` to
+   *     `fe-signalloom-api.fe-signalloom.svc.cluster.local:8000`.
+   *   - `client.ts:241` rewrites any path not starting with `/api` to
+   *     `/api${path}`, so `req('/v1/external-agents/…')` leaves the browser as
+   *     `/api/v1/external-agents/…` and matches that proxy.
+   *   - It therefore REACHES FastAPI — and 404s there, because the revoke and
+   *     upload routes are mounted only on `v1_router` (prefix
+   *     `/v1/external-agents`, lines 1231 and 1241-1242), never on `router`
+   *     (prefix `/api/v1/external-agents`, the `for r in (router, compat_router)`
+   *     loop at 1219-1226).
+   *
+   * So the expected first failure is a router-prefix/mount-coverage mismatch on
+   * the wire, not an absent proxy. A genuinely unproxied POST would hit the SPA
+   * catch-all (`nginx.conf:325`, `try_files … /index.html`) and nginx answers
+   * **405 Method Not Allowed**, not 404. Do not use "did the request cross the
+   * wire" to tell these apart — in the likely case it did.
+   *
+   * And do NOT check `localStorage.sl_demo_mode === 'true'` to decide whether
+   * demo mode is off: with the key absent, `demoMode.ts:33` returns
+   * `SL_ENV === 'demo'`, and `VITE_SL_ENV` defaults to `'demo'`
+   * (`demoMode.ts:16`). Demo mode is ON with no key present. Read the app's
+   * state, not the key.
+   *
+   * Whatever the cause, adding a demo fixture to turn the red green re-creates
+   * exactly the defect this guard was written to remove.
    *
    * ─── Which object, and why this one ─────────────────────────────────────
    *
@@ -116,9 +152,14 @@ export const guards = {
    * fronts the FastAPI app which registers
    * `POST /v1/external-agents/hosts/{host_id}/revoke`
    * (`src/external_agent_registration.py:1231`) and raises
-   * `APIError(403, "host_revoked", …)` on the subsequent upload (same file,
-   * lines 1120 and 1142). It is the workload that produces the 403, so it is
-   * the workload whose absence justifies a SKIP.
+   * `APIError(status_code=403, code="host_revoked", …)` on the subsequent
+   * upload at **lines 1189-1193**, inside
+   * `upload_external_agent_evidence_handler` (def at 1166), gated on
+   * `await is_external_agent_revoked(...)` at 1186. Note the two other
+   * identical `403 host_revoked` raises at lines 1120 and 1142 are in
+   * `enroll_external_agent_handler` (def at 1093) — the ENROLLMENT path, not
+   * the upload path. Grepping the message string lands on the wrong half of the
+   * flow; the revoke-then-upload 403 is 1189-1193.
    *
    * It deliberately does NOT probe the route, the nginx proxy, or a Pod. Per
    * the block at the top of this section, a guard separates "never provisioned"
@@ -128,9 +169,19 @@ export const guards = {
    * deployed-but-broken AgentMaxxing backend still runs its assertions and
    * still fails.
    *
+   * Two honest limits on what a `true` means here. This is an EXISTENCE check,
+   * not a liveness check: `kubectl get service` exits 0 for a Service whose
+   * selector matches no ready Pod, so a backend that is entirely down still
+   * satisfies this guard. And `fe-signalloom-api` fronts the whole Signal Loom
+   * API, so its presence says the estate slice is up — not that the AgentMaxxing
+   * routers are mounted in the running image. Both are deliberate: each is a
+   * "provisioned and broken" condition the spec must fail on, not skip.
+   *
    * Never throws: it inherits `guards.exists`'s try/catch, so a missing object,
    * an unreachable API server, and a `kubectl` absent from PATH all return
-   * false rather than converting a legitimate SKIP into a hard failure.
+   * false rather than converting a legitimate SKIP into a hard failure. It does
+   * BLOCK, though — `--request-timeout=10s` bounds the API round-trip but not
+   * kubeconfig resolution or the TCP dial, same as every sibling guard.
    */
   agentmaxxingLive(): boolean {
     return guards.exists("service", "fe-signalloom-api", "fe-signalloom");

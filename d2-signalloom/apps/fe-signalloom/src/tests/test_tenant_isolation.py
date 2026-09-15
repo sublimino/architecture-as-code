@@ -754,9 +754,19 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/audit/sessions/{session_id}"),
     ("POST", "/api/audit/sessions"),
     ("POST", "/api/audit/sessions/verify"),
+    ("POST", "/api/audit/sessions/finalized"),
     # Risk calculation proxy routes to signal-ingest
     ("GET", "/api/v1/risk/agents/{agent_id}"),
     ("GET", "/api/v1/risk/fleet"),
+    # External agent host evidence and telemetry (covered by test_external_agent_evidence.py)
+    ("GET", "/api/agents/{agent_id}/external-evidence"),
+    ("GET", "/api/v1/agents/{agent_id}/external-evidence"),
+    ("POST", "/api/v1/agents/{agent_id}/external-evidence"),
+    # Coding agent detective telemetry (covered by test_coding_agent_telemetry.py)
+    ("GET", "/api/v1/telemetry/coding-agents"),
+    ("GET", "/api/v1/telemetry/coding-agents/aggregate"),
+    ("POST", "/api/v1/telemetry/coding-agents"),
+    ("POST", "/api/v1/telemetry/coding-agents/ordering"),
     # External agent host credential and upload routes (covered by test_host_enrollment.py)
     ("GET", "/api/v1/external-agents/privacy"),
     ("POST", "/api/v1/external-agents/credentials/renew"),

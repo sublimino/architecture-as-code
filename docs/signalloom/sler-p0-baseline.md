@@ -46,7 +46,7 @@ behind the inherited set — the two board-scoped checks were run independently:
 ```
 $ scripts/kanban-check.sh link-check --repo /home/andy/src/cp/osramp-demo --shortcode SLER
 RESULTS
-=======
+========
 ✓ all six rules pass
 
 Counts:  CRITICAL=0  FAIL=0  WARN=0

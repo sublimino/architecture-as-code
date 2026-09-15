@@ -74,7 +74,7 @@ The AMXD-scoped evidence is green:
 ```
 $ kanban-check.sh link-check --repo /home/andy/src/cp/osramp-demo --shortcode AMXD
 RESULTS
-=======
+========
 ✓ all six rules pass
 
 Counts:  CRITICAL=0  FAIL=0  WARN=0

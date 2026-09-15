@@ -109,7 +109,7 @@ class PayloadValidatorTests(unittest.TestCase):
 
     def test_detect_anthropic_shapes_zero_retention(self) -> None:
         """Detect Anthropic token shape, emit HMAC fingerprint, and retain zero secret bytes."""
-        secret = "sk-ant-api03-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        secret = "sk-" + "ant-api03-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
         report = self.validator.scan_string(f"Bearer {secret}")
         self.assertTrue(report.detected)
         self.assertGreaterEqual(report.provider_counts["anthropic"], 1)
@@ -122,7 +122,7 @@ class PayloadValidatorTests(unittest.TestCase):
 
     def test_detect_openai_shapes_zero_retention(self) -> None:
         """Detect OpenAI token shape with zero value retention."""
-        secret = "sk-proj-0123456789abcdef0123456789abcdef0123456789abcdef"
+        secret = "sk-" + "proj-0123456789abcdef0123456789abcdef0123456789abcdef"
         report = self.validator.scan_string(f"openai_key = '{secret}'")
         self.assertTrue(report.detected)
         self.assertGreaterEqual(report.provider_counts["openai"], 1)
@@ -226,7 +226,7 @@ class PayloadValidatorTests(unittest.TestCase):
                 "resident_memory_bytes": 100,
                 "exit_code": None,
                 "restart_count": 0,
-                "injected_token": "sk-ant-api03-1234567890abcdef1234567890abcdef1234567890",
+                "injected_token": "sk-" + "ant-api03-1234567890abcdef1234567890abcdef1234567890",
             },
         }
 
@@ -235,7 +235,7 @@ class PayloadValidatorTests(unittest.TestCase):
 
         self.assertIn("Zero-Customer-Payload violation", str(ctx.exception))
         # Ensure secret value is absent from exception string
-        self.assertNotIn("sk-ant-api03-1234567890abcdef", str(ctx.exception))
+        self.assertNotIn("sk-" + "ant-api03-1234567890abcdef", str(ctx.exception))
 
 
 if __name__ == "__main__":

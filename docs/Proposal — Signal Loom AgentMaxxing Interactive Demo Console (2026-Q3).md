@@ -626,8 +626,45 @@ const url = path.startsWith('/api') ? path : `/api${path}`
     - `ExternalAgentEvidenceV1Limit`: `reason_code`, `max_file_size_bytes`, `max_files_per_window`, `max_bytes_per_window`, `window_seconds`.
 - **Streaming Analysis**:
   - Confirmed via full codebase search (`rg 'EventSource|text/event-stream'`) that SSE is active only for `/demo-api/runs/{run_id}/stream`, `/api/audit/stream`, and `/signal-fusion`.
-  - **Zero WebSocket or SSE streaming endpoints exist for AgentMaxxing host metrics or external evidence.**
-  - Stage 3 Confinement Telemetry UI must poll `GET /api/v1/agents/{agent_id}/external-evidence` or consume the demo state-machine stepper timer events.
+#### Errata — AMXD-P1-1 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 02:40:00+01:00
+**Last Updated:** 2026-09-15 02:40:00+01:00
+
+##### Task identity
+- Card: `AMXD-P1-1`
+- Shortcode: `AMXD`
+- **Status:** pass
+- **Commit:** 5207f752e82cd8099e521b382601f2db354db031
+- Result: Delivered 5-stage lifecycle state machine, dual-lock async gate, transition table, pure reducer, and unit tests (27/27 pass).
+- **Phase 1 can proceed:** yes
+
+##### Deliverable verification
+- **D1 — Canonical Stage Union & Constants**: `StageId` union covering exactly `operator_init`, `host_enrolled`, `confinement_streaming`, `adversarial_tamper`, `revocation_denied` with strict index ordering.
+- **D2 — Transition Table & Rules**: Strict forward sequential progression with universal `RESET_ESTATE` reset path.
+- **D3 — Pure Reducer (`nextState`)**: Immutable transitions, payload persistence, and failure isolation.
+- **D4 — Async Gate Contract**: Dual-lock synchronization requiring both minimum pacing dwell and async verification resolution with timeout and abort support.
+- **D5 — Unit Test Suite**: 27 unit tests in `types.test.ts` covering all transitions, invalid jumps, timeouts, and pure reducer operations.
+
+#### Errata — AMXD-P1-2 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 02:40:00+01:00
+**Last Updated:** 2026-09-15 02:40:00+01:00
+
+##### Task identity
+- Card: `AMXD-P1-2`
+- Shortcode: `AMXD`
+- **Status:** pass
+- **Commit:** 4465c5bbe637570364a1446c859c19099a43368b
+- Result: Delivered scenario presets (Happy Path, Tamper Breach, Revocation Race), runtime schema validator, and per-preset reset contracts (20/20 pass).
+- **Phase 1 can proceed:** yes
+
+##### Deliverable verification
+- **D1 — Preset Schema & Validator**: `ScenarioPreset` schema with `validateScenarioPreset` and `assertValidScenarioPreset`.
+- **D2 — Happy Path Preset**: Full 5-stage walk with fixtures, endpoints, and 201/202/200 expected HTTP statuses.
+- **D3 — Tamper Breach Preset**: Dual injection sites (mock digest corruptor and live SQL statement) with restoration contracts.
+- **D4 — Revocation Race Preset**: Attributable revocation sequence terminating in deterministic HTTP 403 denial.
+- **D5 — Reset Contracts**: Explicit per-preset field clearing, simulated key purging, and live cleanup actions.
 
 #### Errata — AMXD-P1-4 (bootstrap)
 ##### Task identity

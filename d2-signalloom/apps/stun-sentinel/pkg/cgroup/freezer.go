@@ -83,9 +83,9 @@ var (
 	// report the requested state before the deadline expired.
 	ErrFreezeDeadline = errors.New("cgroup: freeze deadline exceeded before frozen state observed")
 
-	// ErrUnauthorized means an unfreeze was attempted without a governance
-	// credential that validates.
-	ErrUnauthorized = errors.New("cgroup: unfreeze refused, governance credential did not validate")
+	// ErrUnauthorized means a freeze or unfreeze was attempted without a governance
+	// credential or with one that failed validation.
+	ErrUnauthorized = errors.New("cgroup: governance credential did not validate")
 
 	// ErrInvalidPodUID means the supplied pod UID is empty or contains a
 	// path separator or traversal element.
@@ -112,9 +112,7 @@ var (
 	ErrAncestorFrozen = errors.New("cgroup: frozen by an ancestor cgroup, cannot be thawed here")
 )
 
-// CredentialValidator authorises a resume action. Unfreeze is the one
-// operation that returns capability to a container previously judged
-// compromised, so it is gated rather than symmetric with Freeze.
+// CredentialValidator authorises a freeze or resume action.
 type CredentialValidator func(credential string) bool
 
 // DenyAllCredentials is the default validator. An operator who has not wired
@@ -154,9 +152,10 @@ type FreezeResult struct {
 // root. The root is injected rather than fixed so the whole package is
 // testable against a temporary directory without a live cluster.
 type Freezer struct {
-	root      string
-	deadline  time.Duration
-	validator CredentialValidator
+	root            string
+	deadline        time.Duration
+	freezeValidator CredentialValidator
+	resumeValidator CredentialValidator
 }
 
 // Option configures a Freezer.
@@ -171,13 +170,32 @@ func WithDeadline(d time.Duration) Option {
 	}
 }
 
+// WithFreezeCredentialValidator installs the governance check consulted by Freeze.
+func WithFreezeCredentialValidator(v CredentialValidator) Option {
+	return func(f *Freezer) {
+		if v != nil {
+			f.freezeValidator = v
+		}
+	}
+}
+
+// WithFreezeValidator is an alias for WithFreezeCredentialValidator.
+func WithFreezeValidator(v CredentialValidator) Option {
+	return WithFreezeCredentialValidator(v)
+}
+
 // WithCredentialValidator installs the governance check consulted by Unfreeze.
 func WithCredentialValidator(v CredentialValidator) Option {
 	return func(f *Freezer) {
 		if v != nil {
-			f.validator = v
+			f.resumeValidator = v
 		}
 	}
+}
+
+// WithResumeCredentialValidator is an alias for WithCredentialValidator.
+func WithResumeCredentialValidator(v CredentialValidator) Option {
+	return WithCredentialValidator(v)
 }
 
 // New constructs a Freezer rooted at the given cgroup-v2 hierarchy. An empty
@@ -187,9 +205,10 @@ func New(root string, opts ...Option) *Freezer {
 		root = DefaultCgroupRoot
 	}
 	f := &Freezer{
-		root:      root,
-		deadline:  DefaultFreezeDeadline,
-		validator: DenyAllCredentials,
+		root:            root,
+		deadline:        DefaultFreezeDeadline,
+		freezeValidator: DenyAllCredentials,
+		resumeValidator: DenyAllCredentials,
 	}
 	for _, opt := range opts {
 		opt(f)
@@ -502,10 +521,15 @@ func awaitState(cgroupPath string, want bool, deadline time.Duration, start time
 // cgroup.freeze, then proves the halt by reading `frozen 1` back from
 // cgroup.events inside the configured deadline.
 //
-// It returns ErrFreezeDeadline if the state was not observed in time. It never
-// returns nil on the strength of a successful write alone.
-func (f *Freezer) Freeze(cgroupPath string) (*FreezeResult, error) {
+// It is gated on a governance credential. It returns ErrUnauthorized if the
+// credential fails validation, and ErrFreezeDeadline if the state was not
+// observed in time. It never returns nil on the strength of a successful write alone.
+func (f *Freezer) Freeze(cgroupPath, credential string) (*FreezeResult, error) {
 	res := &FreezeResult{CgroupPath: cgroupPath, Deadline: f.deadline}
+
+	if f.freezeValidator == nil || !f.freezeValidator(credential) {
+		return res, fmt.Errorf("%w: %s", ErrUnauthorized, cgroupPath)
+	}
 
 	start := time.Now()
 	if err := writeControl(cgroupPath, "1"); err != nil {
@@ -554,12 +578,12 @@ func (f *Freezer) Freeze(cgroupPath string) (*FreezeResult, error) {
 }
 
 // FreezePod resolves the pod's cgroup and freezes it.
-func (f *Freezer) FreezePod(podUID string) (*FreezeResult, error) {
+func (f *Freezer) FreezePod(podUID, credential string) (*FreezeResult, error) {
 	path, err := f.ResolvePodCgroup(podUID)
 	if err != nil {
 		return &FreezeResult{PodUID: podUID, Deadline: f.deadline}, err
 	}
-	res, err := f.Freeze(path)
+	res, err := f.Freeze(path, credential)
 	res.PodUID = podUID
 	return res, err
 }
@@ -567,15 +591,13 @@ func (f *Freezer) FreezePod(podUID string) (*FreezeResult, error) {
 // Unfreeze resumes execution by writing "0" to cgroup.freeze, and verifies
 // `frozen 0` by read-back.
 //
-// It is gated on a governance credential. Freeze and Unfreeze are deliberately
-// asymmetric: halting a suspected-compromised workload is a safe default,
-// returning capability to it is not. An ungated Unfreeze is a deadlock in the
-// governance sense — the control plane would have no way to hold containment
-// against an attacker who reaches the resume path.
+// It is gated on a governance credential. Freeze and Unfreeze are both gated on
+// distinct governance credentials to prevent unauthenticated containment actions
+// and unauthorized capability returns.
 func (f *Freezer) Unfreeze(cgroupPath, credential string) (*FreezeResult, error) {
 	res := &FreezeResult{CgroupPath: cgroupPath, Frozen: true, Deadline: f.deadline}
 
-	if f.validator == nil || !f.validator(credential) {
+	if f.resumeValidator == nil || !f.resumeValidator(credential) {
 		return res, fmt.Errorf("%w: %s", ErrUnauthorized, cgroupPath)
 	}
 

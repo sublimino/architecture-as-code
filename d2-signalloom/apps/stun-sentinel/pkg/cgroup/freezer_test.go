@@ -114,14 +114,14 @@ func TestNewAcceptsInjectedRoot(t *testing.T) {
 }
 
 func TestOptionsIgnoreZeroAndNilValues(t *testing.T) {
-	f := New(t.TempDir(), WithDeadline(0), WithCredentialValidator(nil))
+	f := New(t.TempDir(), WithDeadline(0), WithFreezeCredentialValidator(nil), WithCredentialValidator(nil))
 	if f.Deadline() != DefaultFreezeDeadline {
 		t.Errorf("zero deadline overrode default: %v", f.Deadline())
 	}
-	if f.validator == nil {
+	if f.freezeValidator == nil || f.resumeValidator == nil {
 		t.Fatal("nil validator overrode the deny-all default")
 	}
-	if f.validator("anything") {
+	if f.freezeValidator("anything") || f.resumeValidator("anything") {
 		t.Error("default validator permitted a credential; want deny-all")
 	}
 }
@@ -406,7 +406,8 @@ func TestOwnFreezeSettingReadsTheControlFileNotEvents(t *testing.T) {
 func TestFreezeRefusesToClaimSuccessOnAnEmptyCgroup(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 0\nfrozen 1\n", true)
 
-	res, err := New("").Freeze(dir)
+	f := New("", WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if !errors.Is(err, ErrCgroupEmpty) {
 		t.Fatalf("error = %v, want ErrCgroupEmpty", err)
 	}
@@ -424,7 +425,8 @@ func TestFreezeSucceedsWhenPopulatedFlagIsSetEvenIfProcsUnreadable(t *testing.T)
 	// populated 1 alone is sufficient: the cgroup holds processes even if we
 	// cannot enumerate them.
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
-	res, err := New("").Freeze(dir)
+	f := New("", WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if err != nil {
 		t.Fatalf("Freeze: %v", err)
 	}
@@ -440,7 +442,8 @@ func TestFreezeAcceptsCgroupWithPIDsButNoPopulatedFlag(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, procsFile), []byte("4242\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := New("").Freeze(dir)
+	f := New("", WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if err != nil {
 		t.Fatalf("Freeze: %v", err)
 	}
@@ -482,12 +485,19 @@ func TestUnfreezeReportsPlainDeadlineWhenOwnSettingStillOne(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
 	f := New("", WithDeadline(20*time.Millisecond), WithCredentialValidator(allowCredential("t")))
 
+	stop := make(chan struct{})
+	defer close(stop)
 	// Re-assert 1 in the control file after the write, simulating our write
 	// not taking effect.
 	go func() {
-		for i := 0; i < 200; i++ {
-			_ = os.WriteFile(filepath.Join(dir, freezeFile), []byte("1"), 0o644)
-			time.Sleep(100 * time.Microsecond)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = os.WriteFile(filepath.Join(dir, freezeFile), []byte("1"), 0o644)
+				time.Sleep(100 * time.Microsecond)
+			}
 		}
 	}()
 
@@ -509,12 +519,15 @@ func TestConcurrentFreezeAndUnfreezeOnTheSameCgroupIsRaceFree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, procsFile), []byte("4242\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f := New("", WithDeadline(10*time.Millisecond), WithCredentialValidator(allowCredential("t")))
+	f := New("", WithDeadline(10*time.Millisecond),
+		WithFreezeCredentialValidator(allowCredential("t")),
+		WithCredentialValidator(allowCredential("t")),
+	)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Add(2)
-		go func() { defer wg.Done(); _, _ = f.Freeze(dir) }()
+		go func() { defer wg.Done(); _, _ = f.Freeze(dir, "t") }()
 		go func() { defer wg.Done(); _, _ = f.Unfreeze(dir, "t") }()
 	}
 	wg.Wait()
@@ -534,7 +547,8 @@ func TestConcurrentFreezeAndUnfreezeOnTheSameCgroupIsRaceFree(t *testing.T) {
 func TestFreezeWritesOneAndConfirmsFrozen(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
 
-	res, err := New("").Freeze(dir)
+	f := New("", WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if err != nil {
 		t.Fatalf("Freeze: %v", err)
 	}
@@ -557,7 +571,8 @@ func TestFreezeWritesOneAndConfirmsFrozen(t *testing.T) {
 func TestFreezeReportsMeasuredLatency(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
 
-	res, err := New("", WithDeadline(DefaultFreezeDeadline)).Freeze(dir)
+	f := New("", WithDeadline(DefaultFreezeDeadline), WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if err != nil {
 		t.Fatalf("Freeze: %v", err)
 	}
@@ -580,7 +595,8 @@ func TestFreezeWaitsForLateTransition(t *testing.T) {
 	dir := freezableCgroup(t, filepath.Join(t.TempDir(), "cg"))
 	settleAfter(t, dir, true, 5*time.Millisecond)
 
-	res, err := New("", WithDeadline(200*time.Millisecond)).Freeze(dir)
+	f := New("", WithDeadline(200*time.Millisecond), WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if err != nil {
 		t.Fatalf("Freeze: %v", err)
 	}
@@ -602,7 +618,8 @@ func TestFreezeWaitsForLateTransition(t *testing.T) {
 func TestFreezeReturnsDeadlineErrorWhenNeverFrozen(t *testing.T) {
 	dir := freezableCgroup(t, filepath.Join(t.TempDir(), "cg")) // stays "frozen 0"
 
-	res, err := New("", WithDeadline(20*time.Millisecond)).Freeze(dir)
+	f := New("", WithDeadline(20*time.Millisecond), WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if !errors.Is(err, ErrFreezeDeadline) {
 		t.Fatalf("error = %v, want ErrFreezeDeadline", err)
 	}
@@ -627,7 +644,8 @@ func TestFreezeReturnsDeadlineErrorWhenNeverFrozen(t *testing.T) {
 func TestFreezeMissingControlFileIsNotFound(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 0\n", false)
 
-	if _, err := New("").Freeze(dir); !errors.Is(err, ErrCgroupNotFound) {
+	f := New("", WithFreezeCredentialValidator(allowCredential("t")))
+	if _, err := f.Freeze(dir, "t"); !errors.Is(err, ErrCgroupNotFound) {
 		t.Fatalf("error = %v, want ErrCgroupNotFound", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, freezeFile)); err == nil {
@@ -647,7 +665,8 @@ func TestFreezePermissionDeniedIsTyped(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 
-	_, err := New("").Freeze(dir)
+	f := New("", WithFreezeCredentialValidator(allowCredential("t")))
+	_, err := f.Freeze(dir, "t")
 	if !errors.Is(err, ErrPermission) {
 		t.Fatalf("error = %v, want ErrPermission", err)
 	}
@@ -661,7 +680,8 @@ func TestFreezePermissionDeniedIsTyped(t *testing.T) {
 func TestFreezeReportsVanishedCgroup(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "", true) // no events file
 
-	_, err := New("", WithDeadline(20*time.Millisecond)).Freeze(dir)
+	f := New("", WithDeadline(20*time.Millisecond), WithFreezeCredentialValidator(allowCredential("t")))
+	_, err := f.Freeze(dir, "t")
 	if !errors.Is(err, ErrCgroupNotFound) {
 		t.Fatalf("error = %v, want ErrCgroupNotFound", err)
 	}
@@ -677,7 +697,8 @@ func TestFreezePodResolvesThenFreezes(t *testing.T) {
 		filepath.Join(root, "kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod"+testUIDUnderscored+".slice"),
 		"populated 1\nfrozen 1\n", true)
 
-	res, err := New(root).FreezePod(testUID)
+	f := New(root, WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.FreezePod(testUID, "t")
 	if err != nil {
 		t.Fatalf("FreezePod: %v", err)
 	}
@@ -693,7 +714,8 @@ func TestFreezePodResolvesThenFreezes(t *testing.T) {
 }
 
 func TestFreezePodPropagatesResolutionFailure(t *testing.T) {
-	res, err := New(t.TempDir()).FreezePod(testUID)
+	f := New(t.TempDir(), WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.FreezePod(testUID, "t")
 	if !errors.Is(err, ErrCgroupNotFound) {
 		t.Fatalf("error = %v, want ErrCgroupNotFound", err)
 	}
@@ -702,6 +724,75 @@ func TestFreezePodPropagatesResolutionFailure(t *testing.T) {
 	}
 	if res.Frozen {
 		t.Error("Frozen = true on a resolution failure")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Freeze and governance
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Freeze default posture refuses without valid credential.
+func TestFreezeDefaultsToRefusal(t *testing.T) {
+	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 0\n", true)
+
+	_, err := New("").Freeze(dir, "any-credential")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("error = %v, want ErrUnauthorized from the deny-all default", err)
+	}
+	if got := readFreezeControl(t, dir); got != "0" {
+		t.Errorf("cgroup.freeze = %q; a refused freeze must not write the control file", got)
+	}
+}
+
+func TestFreezeRejectsWrongCredential(t *testing.T) {
+	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 0\n", true)
+	f := New("", WithFreezeCredentialValidator(allowCredential("freeze-token")))
+
+	for _, cred := range []string{"", "wrong", "freeze-token-x"} {
+		if _, err := f.Freeze(dir, cred); !errors.Is(err, ErrUnauthorized) {
+			t.Errorf("Freeze(%q) error = %v, want ErrUnauthorized", cred, err)
+		}
+	}
+}
+
+func TestFreezeAndUnfreezeValidatorsAreDistinct(t *testing.T) {
+	dirFreeze := mockCgroup(t, filepath.Join(t.TempDir(), "cg-freeze"), "populated 1\nfrozen 1\n", true)
+	dirUnfreeze := mockCgroup(t, filepath.Join(t.TempDir(), "cg-unfreeze"), "populated 1\nfrozen 0\n", true)
+	_ = os.WriteFile(filepath.Join(dirUnfreeze, freezeFile), []byte("1"), 0o644)
+
+	f := New("",
+		WithFreezeCredentialValidator(allowCredential("freeze-token")),
+		WithCredentialValidator(allowCredential("resume-token")),
+	)
+
+	// Using resume-token on freeze fails
+	if _, err := f.Freeze(dirFreeze, "resume-token"); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("Freeze with resume-token should fail with ErrUnauthorized, got %v", err)
+	}
+
+	// Using freeze-token on unfreeze fails
+	if _, err := f.Unfreeze(dirUnfreeze, "freeze-token"); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("Unfreeze with freeze-token should fail with ErrUnauthorized, got %v", err)
+	}
+
+	// Valid respective tokens succeed
+	if _, err := f.Freeze(dirFreeze, "freeze-token"); err != nil {
+		t.Errorf("Freeze with freeze-token failed: %v", err)
+	}
+	if _, err := f.Unfreeze(dirUnfreeze, "resume-token"); err != nil {
+		t.Errorf("Unfreeze with resume-token failed: %v", err)
+	}
+}
+
+func TestFreezePodRejectsWithoutValidCredential(t *testing.T) {
+	root := t.TempDir()
+	mockCgroup(t,
+		filepath.Join(root, "kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod"+testUIDUnderscored+".slice"),
+		"populated 1\nfrozen 0\n", true)
+
+	f := New(root, WithFreezeCredentialValidator(allowCredential("freeze-token")))
+	if _, err := f.FreezePod(testUID, "wrong-token"); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("FreezePod with wrong token error = %v, want ErrUnauthorized", err)
 	}
 }
 
@@ -900,7 +991,8 @@ func TestFreezeCensusIsTakenAfterConfirmationAndSeesForkedChild(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(dir, eventsFile), []byte("populated 1\nfrozen 1\n"), 0o644)
 	}()
 
-	res, err := New("", WithDeadline(200*time.Millisecond)).Freeze(dir)
+	f := New("", WithDeadline(200*time.Millisecond), WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.Freeze(dir, "t")
 	if err != nil {
 		t.Fatalf("Freeze: %v", err)
 	}

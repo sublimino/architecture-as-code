@@ -2273,5 +2273,19 @@
     "reviewer": "Council of Agents",
     "verdict": "APPROVED",
     "reason": "SLER-P1-PRE seam inventory verified: 7 unauthenticated routes on fleet-manager (:256-262), Freezer.Freeze signature gap confirmed, node-capability-guard greenfield status confirmed (0 manifests), 0 mesh policies confirmed, all test suites green (commit 305b034f)"
+  },
+  "22988": {
+    "task_id": "22988",
+    "reviewed_at": "2026-09-15T00:21:08Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLER-P1-2 containment dispatch schemas verified: schema.go (362 lines), schema_test.go (619 lines), sler-p1-2-schema.md (473 lines), all 13 schema tests pass, 100% fleet-manager tests green (commit 92bc899e)"
+  },
+  "987a8": {
+    "task_id": "987a8",
+    "reviewed_at": "2026-09-15T00:21:08Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLER-P1-4 sentinel auth verified: Freezer.Freeze credentials required, STUN_FREEZE_TOKEN/STUN_RESUME_TOKEN separation with fail-fast startup, networkpolicy delivered, 100% tests pass across 5 packages (commit 62376453)"
   }
 }

@@ -352,7 +352,9 @@ class ProcessTelemetryCollector:
         process_table: Optional[Dict[int, ScannedProcess]] = None,
     ) -> ClassificationClaim:
         """Classify a process and its ancestry tree using multi-signal corroboration."""
-        return self.classifier.classify_process(pid=pid, process_table=process_table)
+        return self.classifier.classify_process(
+            candidate_pid=pid, process_table=process_table
+        )
 
     def classify_scanned_processes(
         self,

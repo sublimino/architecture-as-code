@@ -55,3 +55,8 @@ make demo-signalloom-supercred-evidence
 
 Run `make doctor` first if a phase fails. Restart port-forwards after an image
 rollout.
+
+## Related demonstrations
+
+- [AgentMaxxing interactive demo](/docs/demos/agentmaxxing/): Step-by-step laboratory for external Linux host agent onboarding, Landlock LSM process confinement, live SHA-256 artifact verification, adversarial tamper injection, and instant attributable revocation.
+- [Run the partner demonstration](/docs/operations/demo-walkthrough/): A ninety-second operator runbook and spoken script for demonstrating onboarding, dual-agent claiming, and Nono optionality.

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signalloom-contained-agents
+  namespace: fe-signalloom
+  labels:
+    app.kubernetes.io/name: signalloom-contained-agents
+    app.kubernetes.io/component: admission-controller
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/plane: admission
+data:
+  contained-agents.json: "[]"

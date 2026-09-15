@@ -2406,5 +2406,12 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: Confirmed OpenBao and SPIRE revocation API endpoints, addressing conventions, 5m TTL baseline, and error-discarding anti-patterns"
+  },
+  "2c24d": {
+    "task_id": "2c24d",
+    "reviewed_at": "2026-09-15T02:24:41Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: Art. 6(1)(f) LIA and Art. 88 works-council register completed, collection disabled pending 22 blocking items, fail-closed posture verified"
   }
 }

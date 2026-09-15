@@ -209,6 +209,33 @@ class ProcReaderTests(unittest.TestCase):
         assert exe_name is not None
         self.assertIn("python", exe_name.lower())
 
+    def test_list_pids_mock(self) -> None:
+        """Assert list_pids finds only numeric PID directories and sorts them."""
+        # Create numeric dirs
+        (self.mock_proc / "10").mkdir()
+        (self.mock_proc / "2").mkdir()
+        (self.mock_proc / "300").mkdir()
+        # Create non-numeric dirs and files
+        (self.mock_proc / "net").mkdir()
+        (self.mock_proc / "sys").mkdir()
+        (self.mock_proc / "version").write_text("Linux version ...\n")
+
+        pids = self.reader.list_pids()
+        self.assertEqual(pids, [2, 10, 300])
+
+    def test_list_pids_empty_or_missing(self) -> None:
+        """Assert list_pids handles missing proc directory gracefully."""
+        empty_reader = ProcReader(proc_root=self.mock_proc / "nonexistent")
+        self.assertEqual(empty_reader.list_pids(), [])
+
+    def test_list_pids_real_procfs(self) -> None:
+        """Assert list_pids works against real /proc/ and finds self PID."""
+        real_reader = ProcReader(proc_root="/proc")
+        pids = real_reader.list_pids()
+        self.assertIsInstance(pids, list)
+        self.assertGreater(len(pids), 0)
+        self.assertIn(os.getpid(), pids)
+        self.assertTrue(all(isinstance(p, int) and p > 0 for p in pids))
 
 
 if __name__ == "__main__":

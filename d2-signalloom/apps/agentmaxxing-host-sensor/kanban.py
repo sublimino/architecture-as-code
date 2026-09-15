@@ -33,10 +33,10 @@ if str(PKG_DIR) not in sys.path:
     sys.path.insert(0, str(PKG_DIR))
 
 try:
-    from .coding_agent_models import KanbanInfo
+    from .coding_agent_models import KanbanInfo, coerce_turn_count
 except (ImportError, ValueError):
     try:
-        from coding_agent_models import KanbanInfo
+        from coding_agent_models import KanbanInfo, coerce_turn_count
     except (ImportError, ValueError):
         KanbanInfo = None  # type: ignore
 
@@ -566,11 +566,13 @@ class KanbanCycleExtractor:
             r = r or resolved_role
 
         start_wall_ms = session_data.get("startedAt") or session_data.get("started_at")
-        turn_count = int(
-            session_data.get("latestTurnCheckpoint")
-            or session_data.get("tool_calls_count")
-            or 0
-        )
+        # The live controller writes latestTurnCheckpoint as an object; test
+        # fixtures write a bare int. coerce_turn_count() reads only the allowlisted
+        # integer key and never stringifies. See SLCD-P3-GOV.
+        raw_turn = session_data.get("latestTurnCheckpoint")
+        if raw_turn is None or raw_turn == 0:
+            raw_turn = session_data.get("tool_calls_count")
+        turn_count = coerce_turn_count(raw_turn)
         restart_count = int(session_data.get("restartCount") or 0)
         respawn_count = int(session_data.get("respawnCount") or 0)
         retry_count = restart_count + respawn_count

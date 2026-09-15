@@ -23,10 +23,10 @@ if str(PKG_DIR) not in sys.path:
     sys.path.insert(0, str(PKG_DIR))
 
 try:
-    from .coding_agent_models import KanbanInfo, ROLE_REGEX, SHORTCODE_REGEX, TASK_ID_REGEX
+    from .coding_agent_models import KanbanInfo, ROLE_REGEX, SHORTCODE_REGEX, TASK_ID_REGEX, coerce_turn_count
     from .payload_validator import validate_zero_customer_payload
 except (ImportError, ValueError):
-    from coding_agent_models import KanbanInfo, ROLE_REGEX, SHORTCODE_REGEX, TASK_ID_REGEX
+    from coding_agent_models import KanbanInfo, ROLE_REGEX, SHORTCODE_REGEX, TASK_ID_REGEX, coerce_turn_count
     from payload_validator import validate_zero_customer_payload
 
 
@@ -336,13 +336,12 @@ class KanbanWatcher:
 
                 started_at = raw_session.get("startedAt")
                 updated_at = raw_session.get("updatedAt")
-                turn_count = raw_session.get("latestTurnCheckpoint") or 0
+                # The live controller writes latestTurnCheckpoint as an object.
+                # The previous int()+except fallback silently reported 0 for every
+                # real session; coerce_turn_count() reads the allowlisted integer
+                # key instead and never stringifies. See SLCD-P3-GOV.
+                turn_count = coerce_turn_count(raw_session.get("latestTurnCheckpoint"))
                 restart_count = (raw_session.get("restartCount") or 0) + (raw_session.get("respawnCount") or 0)
-
-                try:
-                    turn_count = max(0, int(turn_count))
-                except (ValueError, TypeError):
-                    turn_count = 0
 
                 try:
                     restart_count = max(0, int(restart_count))

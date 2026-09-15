@@ -39,6 +39,83 @@ INFERENCE_ENDPOINT_REGEX = re.compile(r"^[a-zA-Z0-9.-]{1,128}$")
 ENTITY_ID_REGEX = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
 
 
+# Allowlisted integer keys inside a turn-checkpoint object. Nothing else in that
+# object may be read: see coerce_turn_count().
+TURN_CHECKPOINT_INT_KEYS = ("turn", "turnCount", "turn_count")
+
+
+def coerce_turn_count(raw: Any) -> int:
+    """Coerce a turn-checkpoint value to a bounded, non-negative integer.
+
+    Why this exists (SLCD-P3-GOV, 2026-09-15)
+    -----------------------------------------
+    The LIVE kanban controller writes ``latestTurnCheckpoint`` as an OBJECT::
+
+        {"turn": 1,
+         "ref": "refs/kanban/checkpoints/MTA4OTg/turn/1",
+         "commit": "b49636cfd20945a0a7447b0f753b992d9c01d066",
+         "createdAt": 1788384907310}
+
+    Every P3-1 and P3-2 test fixture writes it as a bare integer (``1``). Against
+    real controller state that divergence produced two different failures from the
+    same root cause, neither of which any of the 242 tests could see:
+
+      * ``kanban.extract_from_session_dict`` did ``int(<dict>)`` -> ``TypeError``,
+        taking out the entire sessions.json extraction path (302/302 live sessions).
+      * ``kanban_watcher.scan_active_tasks`` caught the ``TypeError`` and fell back
+        to ``0``, silently reporting ``turn_count == 0`` for every live session.
+        A fabricated zero is worse than a crash: it looks like data.
+
+    Zero-Customer-Payload constraint
+    --------------------------------
+    Only the allowlisted INTEGER keys are read. ``ref`` and ``commit`` are
+    free-text-shaped git identifiers and ``createdAt`` is a timestamp; none may
+    reach a telemetry record. This function never stringifies its input and never
+    falls through to ``str(raw)`` -- a coercion that did so would convert a shape
+    bug into a payload leak while still returning a plausible integer, so nothing
+    downstream would notice.
+
+    Returns 0 for any shape it cannot read as a bounded integer -- the same value
+    the old watcher fallback produced, so this strictly widens the set of inputs
+    handled correctly rather than changing behaviour on inputs that already worked.
+    """
+    if isinstance(raw, bool):
+        # bool is an int subclass; a boolean turn count is a shape error, not a 1.
+        return 0
+    if isinstance(raw, int):
+        return max(0, raw)
+    if isinstance(raw, float):
+        if raw != raw or raw in (float("inf"), float("-inf")):
+            return 0
+        return max(0, int(raw))
+    if isinstance(raw, str):
+        try:
+            return max(0, int(raw.strip()))
+        except (ValueError, TypeError):
+            return 0
+    if isinstance(raw, dict):
+        for key in TURN_CHECKPOINT_INT_KEYS:
+            if key in raw:
+                inner = raw[key]
+                # One level only: refuse to recurse, so a malformed or hostile
+                # payload cannot drive unbounded descent.
+                if isinstance(inner, bool):
+                    return 0
+                if isinstance(inner, (int, float)):
+                    if inner != inner or inner in (float("inf"), float("-inf")):
+                        return 0
+                    return max(0, int(inner))
+                if isinstance(inner, str):
+                    try:
+                        return max(0, int(inner.strip()))
+                    except (ValueError, TypeError):
+                        return 0
+                return 0
+        return 0
+    return 0
+
+
+
 class Harness(str, Enum):
     """Closed enum of known coding agent harnesses."""
     CLAUDE = "claude"

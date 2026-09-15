@@ -488,7 +488,7 @@ cd - && make demo-agentmaxxing-contract-test && make demo-agentmaxxing-host-test
 - Card: `AMXD-P1-PRE`
 - Shortcode: `AMXD`
 - **Status:** pass
-- **Commit:** Pending
+- **Commit:** af02cd3fd8f42fc64b01307e2b976a09b8fcfa39
 - Task base: `29466c06528fdbb3fa8f04d0de9d89e301dd835f` (`git merge-base HEAD refs/heads/integration/amxd-v0.1.0` → `29466c06528fdbb3fa8f04d0de9d89e301dd835f`, exit 0)
 - Integration ref: `refs/heads/integration/amxd-v0.1.0` → `10b7bf8db0c6d1806b455bda48da3ba9e47e0fcf`
 - Result: Preflight complete. AMXO API fact sheet, nginx proxy gap analysis, client.ts auto-prefix trace, Sidebar/NAV inventory, and telemetry polling contract published for P1-1 through P1-5.

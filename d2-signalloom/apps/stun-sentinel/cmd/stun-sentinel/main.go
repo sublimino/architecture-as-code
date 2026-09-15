@@ -34,6 +34,7 @@ type config struct {
 	cgroupRoot  string
 	listenAddr  string
 	deadline    time.Duration
+	freezeToken string
 	resumeToken string
 }
 
@@ -45,12 +46,13 @@ func loadConfig(args []string) (*config, error) {
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
-	// The resume credential is read from the environment only. Putting it on
-	// the command line would publish it in every `ps` and in the pod spec.
+	// The freeze and resume credentials are read from the environment only. Putting them on
+	// the command line would publish them in every `ps` and in the pod spec.
 	return &config{
 		cgroupRoot:  *root,
 		listenAddr:  *addr,
 		deadline:    *deadline,
+		freezeToken: os.Getenv("STUN_FREEZE_TOKEN"),
 		resumeToken: os.Getenv("STUN_RESUME_TOKEN"),
 	}, nil
 }
@@ -62,12 +64,11 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// constantTimeTokenValidator authorises a resume against the governance token.
+// constantTimeTokenValidator authorises a request against the expected token.
 //
 // An empty configured token denies everything rather than accepting
 // everything: a daemon deployed without governance wiring must refuse to
-// return capability to a contained workload, not hand it back to anyone who
-// asks.
+// act on a workload, not hand control to anyone who asks.
 func constantTimeTokenValidator(expected string) cgroup.CredentialValidator {
 	return func(got string) bool {
 		if expected == "" || got == "" {
@@ -86,12 +87,10 @@ func constantTimeTokenValidator(expected string) cgroup.CredentialValidator {
 }
 
 type server struct {
-	freezer *cgroup.Freezer
-	emitter *telemetry.Emitter
-	// validate guards the HTTP surface. It is the same constant-time validator the
-	// freezer uses for resume, held here so freeze is gated at the same strength as
-	// unfreeze rather than being reachable by anyone who can open a socket.
-	validate cgroup.CredentialValidator
+	freezer        *cgroup.Freezer
+	emitter        *telemetry.Emitter
+	freezeValidate cgroup.CredentialValidator
+	resumeValidate cgroup.CredentialValidator
 }
 
 func observationFrom(res *cgroup.FreezeResult, podName, namespace string) telemetry.FreezeObservation {
@@ -121,7 +120,7 @@ func statusFor(err error) int {
 	case errors.Is(err, cgroup.ErrInvalidPodUID):
 		return http.StatusBadRequest
 	case errors.Is(err, cgroup.ErrUnauthorized):
-		return http.StatusForbidden
+		return http.StatusUnauthorized
 	case errors.Is(err, cgroup.ErrCgroupNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, cgroup.ErrPermission):
@@ -151,8 +150,9 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
 		return
 	}
+	credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
-	res, err := s.freezer.FreezePod(req.PodUID)
+	res, err := s.freezer.FreezePod(req.PodUID, credential)
 	obs := observationFrom(res, req.PodName, req.Namespace)
 	if err != nil {
 		_ = s.emitter.StunExecutionHaltFailed(obs, err.Error())
@@ -211,31 +211,23 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// requireBearer makes a handler unreachable without the governance credential.
+// requireBearer makes a handler unreachable without a valid governance credential.
 //
-// /stun previously had no credential check of any kind. Only /resume validated,
-// and it did so deep in the cgroup layer, so anything that could reach this
-// daemon on its listen address could freeze a pod by UID and could not unfreeze
-// it. That asymmetry is worse than an open pair: the caller gets a denial of
-// service and the operator loses the recovery path. The daemon runs privileged
-// with hostPID in a pod-security privileged namespace, and its app directory
-// carries no NetworkPolicy, so reachability is not a meaningful barrier.
-//
-// The validator is the same constant-time one used for resume, which denies
-// everything when no token is configured. Freeze therefore fails closed on an
-// unconfigured daemon rather than leaving the dangerous half open.
+// Both /stun and /resume are gated on distinct credentials. The validator is
+// constant-time and denies everything when no token is configured. An invalid or
+// missing credential results in HTTP 401 Unauthorized before any cgroup operations
+// or request body decodings take place.
 func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if validate == nil {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "no credential validator configured"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no credential validator configured"})
 			return
 		}
 		// The credential travels in a header, never in the URL, so it stays out of
 		// access logs, referrers and proxy logs.
-		if !validate(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
-			// 403, not 401: the cgroup layer already maps a failed governance credential
-			// to Forbidden and /resume's suite asserts it. One condition, one code.
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "governance credential required"})
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !validate(token) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "governance credential required"})
 			return
 		}
 		next(w, r)
@@ -248,11 +240,11 @@ func (s *server) routes() *http.ServeMux {
 	// neither handler reveals anything beyond cgroup writability.
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/readyz", s.handleHealth)
-	// Both state-changing routes are gated. Resume keeps its deeper validation in
-	// the cgroup layer; this is the outer gate that stops an unauthenticated caller
-	// reaching either handler at all.
-	mux.HandleFunc("/stun", requireBearer(s.validate, s.handleStun))
-	mux.HandleFunc("/resume", requireBearer(s.validate, s.handleResume))
+	// Both state-changing routes are gated on distinct tokens. Freeze and resume
+	// keep their deeper validation in the cgroup layer; this is the outer gate
+	// that stops an unauthenticated caller reaching either handler at all.
+	mux.HandleFunc("/stun", requireBearer(s.freezeValidate, s.handleStun))
+	mux.HandleFunc("/resume", requireBearer(s.resumeValidate, s.handleResume))
 	return mux
 }
 
@@ -262,23 +254,31 @@ func run(args []string) error {
 		return err
 	}
 
-	// One validator instance guards both the HTTP surface and the freezer's resume
-	// path, so freeze and unfreeze cannot drift apart in strength.
-	validate := constantTimeTokenValidator(cfg.resumeToken)
+	// Startup fail-fast checks:
+	// 1. STUN_FREEZE_TOKEN must be configured and non-empty.
+	if cfg.freezeToken == "" {
+		return errors.New("stun-sentinel: STUN_FREEZE_TOKEN is required and cannot be empty")
+	}
+	// 2. STUN_RESUME_TOKEN must be configured and non-empty.
+	if cfg.resumeToken == "" {
+		return errors.New("stun-sentinel: STUN_RESUME_TOKEN is required and cannot be empty")
+	}
+	// 3. STUN_FREEZE_TOKEN and STUN_RESUME_TOKEN must not share the same value.
+	if cfg.freezeToken == cfg.resumeToken {
+		return errors.New("stun-sentinel: STUN_FREEZE_TOKEN and STUN_RESUME_TOKEN must be distinct credentials")
+	}
+
+	freezeValidate := constantTimeTokenValidator(cfg.freezeToken)
+	resumeValidate := constantTimeTokenValidator(cfg.resumeToken)
 	srv := &server{
 		freezer: cgroup.New(cfg.cgroupRoot,
 			cgroup.WithDeadline(cfg.deadline),
-			cgroup.WithCredentialValidator(validate),
+			cgroup.WithFreezeCredentialValidator(freezeValidate),
+			cgroup.WithCredentialValidator(resumeValidate),
 		),
-		emitter:  telemetry.NewEmitter(os.Stdout),
-		validate: validate,
-	}
-
-	// An unconfigured token means every state-changing route refuses. Say so at
-	// startup rather than letting an operator discover it during an incident.
-	if cfg.resumeToken == "" {
-		fmt.Fprintln(os.Stderr, "stun-sentinel: STUN_RESUME_TOKEN is empty — /stun and /resume will refuse every request")
-		fmt.Fprintln(os.Stderr, "stun-sentinel: set it from the DaemonSet secret before relying on containment")
+		emitter:        telemetry.NewEmitter(os.Stdout),
+		freezeValidate: freezeValidate,
+		resumeValidate: resumeValidate,
 	}
 
 	// Fail loudly at startup rather than at the first incident.

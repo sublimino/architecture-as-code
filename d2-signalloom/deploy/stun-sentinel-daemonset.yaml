@@ -117,6 +117,15 @@ spec:
             - --cgroup-root=/sys/fs/cgroup
             - --freeze-deadline=50ms
           env:
+            - name: STUN_FREEZE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stun-sentinel-governance
+                  key: freeze-token
+                  # Absent secret => empty token => server refuses to start (fail-fast)
+                  # or denies requests. Gating freeze ensures unauthenticated callers cannot
+                  # freeze workloads arbitrarily.
+                  optional: true
             - name: STUN_RESUME_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -196,3 +205,54 @@ spec:
   # The stun path is node-local: a caller must reach the sentinel on the node
   # hosting the target pod, so load balancing across endpoints would be wrong.
   clusterIP: None
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stun-sentinel
+  namespace: signalloom-system
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/component: tier-0-containment
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: stun-sentinel
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic on port 8080 from authorized signalloom components (e.g. fleet-manager).
+    # NOTE: When running with hostPID/hostNetwork, standard pod-level CNI NetworkPolicies
+    # cannot filter node-network interfaces. The application-layer bearer token authentication
+    # (STUN_FREEZE_TOKEN / STUN_RESUME_TOKEN) and source checks serve as the primary security
+    # control, while this NetworkPolicy provides defence-in-depth for non-hostNetwork deployments.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fleet-manager
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: signalloom
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: signalloom
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # Allow DNS and in-cluster Kubernetes API egress
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP

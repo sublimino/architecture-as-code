@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import AgentDeepLink from '../components/AgentDeepLink'
 import PixelLoader from '../components/PixelLoader'
 import { useAuth0 } from '../auth/oidc'
@@ -117,7 +117,9 @@ export const trustNodes: TrustNode[] = [
   { id: 'risk-reader', label: 'risk-reader', kind: 'agent', parentId: 'acme-risk', tenant: 'acme', location: 'in-cluster', ...fixture, reason: 'Fixture-modeled cross-project denial target', spiffeId: spiffe('acme', 'risk', 'risk-reader'), namespace: 'agent-trust-acme-risk', serviceAccount: 'agent-trust-risk-reader', selectors: ['k8s:ns:agent-trust-acme-risk', 'k8s:sa:agent-trust-risk-reader'], audience: 'openbao-supercredential', ttl: '5m', policyRef: 'policy/a2a/acme-risk', x: 620, y: 520 },
   { id: 'investigator', label: 'investigator', kind: 'agent', parentId: 'northstar-investigations', tenant: 'northstar', location: 'in-cluster', ...modeled, reason: 'Modeled cross-tenant network boundary', spiffeId: spiffe('northstar', 'investigations', 'investigator'), namespace: 'agent-trust-northstar-investigations', serviceAccount: 'agent-trust-investigator', selectors: ['k8s:ns:agent-trust-northstar-investigations', 'k8s:sa:agent-trust-investigator'], audience: 'openbao-supercredential', ttl: '5m', policyRef: 'policy/a2a/northstar-investigations', x: 980, y: 520 },
   { id: 'aws-lambda', label: 'AWS Lambda', kind: 'agent', parentId: 'acme-payments', tenant: 'acme', location: 'external', ...external, providerAssertion: 'AWS IAM role assertion', keyCustody: 'AWS KMS; no private key export', rotationReload: 'STS rotation; Lambda cold-start reload', trustBundle: 'Modeled SPIFFE bundle delivery', deEnrollment: 'IAM role removal plus trust entry deletion', productionGap: 'No runtime AWS binding or bundle delivery evidence', x: 110, y: 700 },
+  { id: 'claude-workstation', label: 'Claude (Workstation)', kind: 'agent', parentId: 'acme-payments', tenant: 'acme', location: 'external', ...fixture, reason: 'Detected autonomous coding agent (Zero Customer Payload verified)', spiffeId: spiffe('acme', 'payments', 'claude-workstation'), namespace: 'agent-trust-acme-payments', serviceAccount: 'agent-trust-claude', selectors: ['host:workstation', 'harness:claude'], audience: 'openbao-supercredential', ttl: '5m', policyRef: 'policy/a2a/acme-payments', x: 380, y: 700 },
   { id: 'google-cloud-run', label: 'Google Cloud Run', kind: 'agent', parentId: 'acme-risk', tenant: 'acme', location: 'external', ...external, providerAssertion: 'Google service account OIDC binding', keyCustody: 'Google-managed key; export prohibited', rotationReload: 'Revision rollout reload', trustBundle: 'Modeled workload identity trust bundle', deEnrollment: 'Service account binding removal', productionGap: 'No runtime Cloud Run assertion evidence', x: 620, y: 700 },
+  { id: 'antigravity-workstation', label: 'Antigravity (Workstation)', kind: 'agent', parentId: 'acme-risk', tenant: 'acme', location: 'external', ...fixture, reason: 'Detected autonomous coding agent (Zero Customer Payload verified)', spiffeId: spiffe('acme', 'risk', 'antigravity-workstation'), namespace: 'agent-trust-acme-risk', serviceAccount: 'agent-trust-antigravity', selectors: ['host:workstation', 'harness:antigravity'], audience: 'openbao-supercredential', ttl: '5m', policyRef: 'policy/a2a/acme-risk', x: 800, y: 700 },
   { id: 'azure-container-apps', label: 'Azure Container Apps', kind: 'agent', parentId: 'northstar-investigations', tenant: 'northstar', location: 'external', ...external, providerAssertion: 'Azure managed identity federated credential', keyCustody: 'Managed identity; export unavailable', rotationReload: 'Revision restart reload', trustBundle: 'Modeled federated trust bundle', deEnrollment: 'Federated credential deletion', productionGap: 'No runtime Azure enrollment evidence', x: 980, y: 700 },
 ]
 
@@ -129,9 +131,12 @@ export const trustEdges: TrustEdge[] = [
   { id: 'planner-risk-deny', from: 'planner', to: 'risk-reader', verb: 'modeled cross-project application denial', plane: 'authorization', decision: 'denied', denialKind: 'application-authorization-rejection', ...modeled, reason: 'Modeled application authorization rejection: project claim does not permit risk.invoke', policyRef: 'policy/a2a/acme-risk' },
   { id: 'planner-northstar-network', from: 'planner', to: 'investigator', verb: 'modeled cross-tenant network denial', plane: 'network', decision: 'denied', denialKind: 'network-block', ...modeled, reason: 'Network block: modeled cross-tenant egress policy' },
   { id: 'payments-aws-enrollment', from: 'acme-payments', to: 'aws-lambda', verb: 'modeled external enrollment and bundle delivery', plane: 'external', decision: 'allowed', ...external },
+  { id: 'payments-claude-telemetry', from: 'acme-payments', to: 'claude-workstation', verb: 'observed host detective telemetry', plane: 'external', decision: 'allowed', ...fixture, reason: 'Ingested CodingAgentTelemetry with k-anonymity (k>=5) and Zero Customer Payload guarantee' },
   { id: 'risk-gcp-enrollment', from: 'acme-risk', to: 'google-cloud-run', verb: 'modeled external enrollment and bundle delivery', plane: 'external', decision: 'allowed', ...external },
+  { id: 'risk-antigravity-telemetry', from: 'acme-risk', to: 'antigravity-workstation', verb: 'observed host detective telemetry', plane: 'external', decision: 'allowed', ...fixture, reason: 'Ingested CodingAgentTelemetry with k-anonymity (k>=5) and Zero Customer Payload guarantee' },
   { id: 'investigations-azure-enrollment', from: 'northstar-investigations', to: 'azure-container-apps', verb: 'modeled external enrollment and bundle delivery', plane: 'external', decision: 'allowed', ...external },
 ]
+
 
 /**
  * "spire → planner", the two things a relationship is actually between.

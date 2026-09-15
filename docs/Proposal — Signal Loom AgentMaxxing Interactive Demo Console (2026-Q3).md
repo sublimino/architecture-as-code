@@ -666,17 +666,37 @@ const url = path.startsWith('/api') ? path : `/api${path}`
 - **D4 — Revocation Race Preset**: Attributable revocation sequence terminating in deterministic HTTP 403 denial.
 - **D5 — Reset Contracts**: Explicit per-preset field clearing, simulated key purging, and live cleanup actions.
 
-#### Errata — AMXD-P1-4 (bootstrap)
+#### Errata — AMXD-P1-4 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 02:40:00+01:00
+**Last Updated:** 2026-09-15 02:40:00+01:00
+
 ##### Task identity
 - Card: `AMXD-P1-4`
 - Shortcode: `AMXD`
-- Commit: Pending
-- Result: Pending
+- **Status:** pass
+- **Commit:** b0c0047654ba6aabe63f74aa7d84937f944ab21b
+- Result: Added location /v1/ proxy block in nginx.conf forwarding to fe-signalloom-api with Authorization header and passthrough URI.
+- **Phase 1 can proceed:** yes
 
-#### Errata — AMXD-P1-5 (bootstrap)
+##### Deliverable verification
+- **D1 — Nginx Location /v1/ Reverse Proxy**: Added `location /v1/` block directly following `/api/` in `nginx.conf`, proxying to `fe-signalloom-api.fe-signalloom.svc.cluster.local:8000` via `$api$request_uri` and forwarding `Authorization`.
+- **D2 — Passthrough Verification**: Verified `rg -n 'location' d2-signalloom/apps/dashboard-signalloom/nginx.conf` matches line 118 before catch-all.
+
+#### Errata — AMXD-P1-5 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 02:40:00+01:00
+**Last Updated:** 2026-09-15 02:40:00+01:00
+
 ##### Task identity
 - Card: `AMXD-P1-5`
 - Shortcode: `AMXD`
-- Commit: Pending
-- Result: Pending
+- **Status:** pass
+- **Commit:** 307eba87e4be6c14ae6efd3a1da7c1cf0da9eb72
+- Result: Added guards.agentmaxxingLive helper in test/acceptance/helpers.ts with full spec-coverage check passing (7/7 ok).
+- **Phase 1 can proceed:** yes
+
+##### Deliverable verification
+- **D1 — Live Estate Guard**: `guards.agentmaxxingLive()` checks the live backend Service without silently skipping when broken.
+- **D2 — Spec Coverage Verification**: `bats test/acceptance-spec-coverage.bats` passes with 7/7 ok, 0 failures.
 

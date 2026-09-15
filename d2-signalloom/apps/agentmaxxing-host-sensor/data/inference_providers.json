@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "list_version": "2026-09-15.1",
+  "generated": "2026-09-15T07:47:20+01:00",
+  "card": "SLCD-P4-2",
+  "review_doc": "docs/signalloom/slcd-p4-2-cidr-ranges.md",
+  "notes": [
+    "attribution tiers are load-bearing, not advisory metadata.",
+    "dedicated: the range is operated by the provider and carries no unrelated third-party traffic. CIDR + port is sufficient.",
+    "loopback: a local inference runtime bound to a host-local address on a well-known port. Address + exact port is sufficient.",
+    "shared: the range is shared CDN or shared cloud front-end space. CIDR + port is NECESSARY BUT NOT SUFFICIENT; a shared match without harness corroboration MUST classify as unknown.",
+    "kind=control-plane entries are never emitted as network.inference_endpoint. They exist so an operator reading this artefact can see the endpoint was considered and deliberately excluded from inference attribution."
+  ],
+  "providers": [
+    {
+      "id": "anthropic",
+      "endpoint": "api.anthropic.com",
+      "kind": "inference",
+      "provenance": "Anthropic publishes a dedicated ingress/egress range for its API and web properties. Range confirmed live on host andy on 2026-09-15: 21 concurrent established sockets to 160.79.104.10:443 from a coding-agent cgroup.",
+      "source": "https://docs.anthropic.com/en/api/ip-addresses",
+      "ports": [443],
+      "ranges": [
+        { "cidr": "160.79.104.0/23", "attribution": "dedicated" },
+        { "cidr": "2607:6bc0::/48", "attribution": "dedicated" }
+      ]
+    },
+    {
+      "id": "openai",
+      "endpoint": "api.openai.com",
+      "kind": "inference",
+      "provenance": "OpenAI publishes no dedicated ingress range for api.openai.com; the endpoint is fronted by Cloudflare's shared anycast estate. The ranges below are Cloudflare's published IPv4/IPv6 list and therefore also serve millions of unrelated sites. They are tiered shared for exactly that reason and cannot identify OpenAI on their own.",
+      "source": "https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6",
+      "ports": [443],
+      "ranges": [
+        { "cidr": "104.16.0.0/13", "attribution": "shared" },
+        { "cidr": "104.24.0.0/14", "attribution": "shared" },
+        { "cidr": "172.64.0.0/13", "attribution": "shared" },
+        { "cidr": "162.158.0.0/15", "attribution": "shared" },
+        { "cidr": "141.101.64.0/18", "attribution": "shared" },
+        { "cidr": "108.162.192.0/18", "attribution": "shared" },
+        { "cidr": "173.245.48.0/20", "attribution": "shared" },
+        { "cidr": "188.114.96.0/20", "attribution": "shared" },
+        { "cidr": "190.93.240.0/20", "attribution": "shared" },
+        { "cidr": "198.41.128.0/17", "attribution": "shared" },
+        { "cidr": "131.0.72.0/22", "attribution": "shared" },
+        { "cidr": "103.21.244.0/22", "attribution": "shared" },
+        { "cidr": "103.22.200.0/22", "attribution": "shared" },
+        { "cidr": "103.31.4.0/22", "attribution": "shared" },
+        { "cidr": "2400:cb00::/32", "attribution": "shared" },
+        { "cidr": "2606:4700::/32", "attribution": "shared" }
+      ]
+    },
+    {
+      "id": "google-vertex",
+      "endpoint": "aiplatform.googleapis.com",
+      "kind": "inference",
+      "provenance": "Google Vertex AI and generativelanguage.googleapis.com are served from Google Cloud global load-balancer and Google edge space shared with every other Google and GCP-hosted service. Measured on host andy on 2026-09-15: 35.186.224.33:443 inside this space belongs to a Spotify cgroup, and 34.54.84.110:443 belongs to an Antigravity CLI cgroup. Both sit in Google ranges; only the second is inference. This pair is the empirical basis for the shared tier.",
+      "source": "https://www.gstatic.com/ipranges/cloud.json and https://www.gstatic.com/ipranges/goog.json",
+      "ports": [443],
+      "ranges": [
+        { "cidr": "34.54.0.0/15", "attribution": "shared" },
+        { "cidr": "35.186.224.0/20", "attribution": "shared" },
+        { "cidr": "172.217.0.0/16", "attribution": "shared" },
+        { "cidr": "142.250.0.0/15", "attribution": "shared" },
+        { "cidr": "216.58.192.0/19", "attribution": "shared" },
+        { "cidr": "2607:f8b0::/32", "attribution": "shared" }
+      ]
+    },
+    {
+      "id": "google-generativelanguage",
+      "endpoint": "generativelanguage.googleapis.com",
+      "kind": "inference",
+      "provenance": "Gemini API front end. Shares the Google edge estate with Vertex; listed separately so the emitted endpoint identifier distinguishes the two products, not so the ranges differ.",
+      "source": "https://www.gstatic.com/ipranges/goog.json",
+      "ports": [443],
+      "ranges": [
+        { "cidr": "142.250.0.0/15", "attribution": "shared" },
+        { "cidr": "172.217.0.0/16", "attribution": "shared" }
+      ]
+    },
+    {
+      "id": "ollama",
+      "endpoint": "ollama.localhost",
+      "kind": "inference",
+      "provenance": "Local Ollama runtime default bind. Loopback plus the reserved default port is an exact, non-shared signal: no other service on this host binds 11434.",
+      "source": "https://github.com/ollama/ollama — OLLAMA_HOST default 127.0.0.1:11434",
+      "ports": [11434],
+      "ranges": [
+        { "cidr": "127.0.0.0/8", "attribution": "loopback" },
+        { "cidr": "::1/128", "attribution": "loopback" }
+      ]
+    },
+    {
+      "id": "local-openai-compatible",
+      "endpoint": "vllm.localhost",
+      "kind": "inference",
+      "provenance": "vLLM / llama.cpp / LM Studio OpenAI-compatible servers conventionally bind loopback:8000. Port 8000 is also a common generic dev-server port, so this entry is tiered shared despite being loopback — corroboration by a harness cgroup is required before it is attributed as inference.",
+      "source": "https://docs.vllm.ai — default --port 8000",
+      "ports": [8000],
+      "ranges": [
+        { "cidr": "127.0.0.0/8", "attribution": "shared" },
+        { "cidr": "::1/128", "attribution": "shared" }
+      ]
+    },
+    {
+      "id": "openbao",
+      "endpoint": "openbao.localhost",
+      "kind": "control-plane",
+      "provenance": "OpenBao is a secrets manager, not an inference provider. It is named in the SLCD-P4-2 card's provider list and is recorded here so the artefact shows it was considered. kind=control-plane means the detector never emits it as network.inference_endpoint; classifying a secrets-manager connection as model egress would be a fabricated finding.",
+      "source": "https://openbao.org — default listener 0.0.0.0:8200",
+      "ports": [8200],
+      "ranges": [
+        { "cidr": "127.0.0.0/8", "attribution": "loopback" },
+        { "cidr": "::1/128", "attribution": "loopback" }
+      ]
+    }
+  ]
+}

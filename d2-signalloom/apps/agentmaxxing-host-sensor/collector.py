@@ -23,6 +23,7 @@ try:
         ObservationState,
         ProcessTelemetryEvent,
     )
+    from .payload_validator import validate_zero_customer_payload
     from .proc import ProcReader, ProcStat, ProcStatm, ProcStatus
 except (ImportError, ValueError):
     from cgroups import CgroupV2Reader
@@ -36,6 +37,7 @@ except (ImportError, ValueError):
         ObservationState,
         ProcessTelemetryEvent,
     )
+    from payload_validator import validate_zero_customer_payload
     from proc import ProcReader, ProcStat, ProcStatm, ProcStatus
 
 
@@ -226,7 +228,7 @@ class ProcessTelemetryCollector:
 
         timestamp = observed_at or datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-        return ProcessTelemetryEvent(
+        event = ProcessTelemetryEvent(
             schema_version="1.0.0",
             session_id=session_id,
             sequence=sequence,
@@ -244,3 +246,8 @@ class ProcessTelemetryCollector:
             host_id=host_id,
             attributes=attributes,
         )
+
+        # Pre-export validation gate: reject any record carrying payload or secrets
+        validate_zero_customer_payload(event, tenant_id=tenant_id)
+
+        return event

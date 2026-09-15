@@ -317,7 +317,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P4-2 | implementation | Implement forensic memory snapshotting and quarantine state capture | P4-PRE | Quarantine snapshot test; memory state preservation check | L | daily | pass — delivered: 9726b3ca (see Errata — SLER-P4-2) | $0.00 | N/A | ~15m | N/A |
 | P4-3 | implementation | Implement governance-gated resume with mandatory credential rotation | P4-PRE | Resume token verification test; post-unstun credential renewal | M | daily | pass — delivered: 8abdbf96 (see Errata — SLER-P4-3) | $0.00 | N/A | ~14m | N/A |
 | P4-GOV | governor | Merge freeze engine and prove reversible stun-unstun lifecycle | P4-1, P4-2, P4-3 | Full stun -> snapshot -> unstun cycle test | L | deep | **FAIL — certification withheld.** Cycle test delivered and green (`ee183074`); 5 blocking findings. | $0.00 | N/A | N/A | N/A |
-| P5-PRE | preflight | Confirm Witness attestation keys and forensic ledger schema | P4-GOV | Witness key verify; forensic event JSON schema | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P5-PRE | preflight | Confirm Witness attestation keys and forensic ledger schema | P4-GOV | Witness key verify; forensic event JSON schema | S | daily | **pass** — 0 runtime witness calls confirmed in fleet-manager/stun-sentinel; unsigned telemetry path verified; witness Ed25519 keypair and SPKI KeyID confirmed; in-process Go signing pattern selected (<50µs vs 50-150ms subprocess); forensic ledger JSON schema and Go types defined → `docs/signalloom/sler-p5-pre-attestation-seams.md` | $0.00 | N/A | ~4m | N/A |
 | P5-1 | implementation | Emit Witness-attested forensic records linking authorization to containment | P5-PRE | Attestation round-trip test; `witness verify` validation | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | Benchmark and publish per-plane denial matrix | P5-PRE | Latency benchmark test; published denial matrix documentation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-GOV | governor | Merge forensic ledger and prove 100% containment attestation roundtrip | P5-1, P5-2 | Ledger integrity test; zero un-attested containment events | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -957,3 +957,26 @@ Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
 | P4-GOV | $0.00 | N/A | N/A | N/A |
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+#### Errata — SLER-P5-PRE (preflight) — Confirm Witness attestation keys and forensic ledger schema
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 07:05:00+01:00
+**Last Updated:** 2026-09-15 07:05:00+01:00
+
+##### Task identity
+- Card: `SLER-P5-PRE`
+- Shortcode: `SLER`
+- Base at review: `413ec5d60c626b9a1908d6511bdc1b86159187ed` on `integration/sler-v0.1.0`
+**Status:** pass
+
+##### Findings & Confirmations
+1. **Zero Runtime Witness Calls Confirmed**: Audited all `.go` files across `d2-signalloom/apps/stun-sentinel` and `d2-signalloom/apps/fleet-manager`. Confirmed zero active `witness` calls, in-toto signing routines, or DSSE formatters exist. Only forward-compatibility comments in `emitter.go:13-14` / struct fields (`WitnessDigest`, `AttestationID` at `emitter.go:80-81`) and `attestation_event_contract.go:14-17` exist.
+2. **Unsigned Telemetry Stream Verified**: Confirmed `d2-signalloom/apps/stun-sentinel/pkg/telemetry/emitter.go` (`Emit` at :126, `StunExecutionHalted` at :173, `StunExecutionResumed` at :195, `StunExecutionHaltFailed` at :226) serializes plain JSON directly to `os.Stdout` with no attestation envelope or signature.
+3. **Witness Key Material & SPKI KeyID Verified**: Verified `.keys/witness.pem` (Ed25519 PKCS#8 private key) and `.keys/witness-pub.pem` (Ed25519 SPKI public key) generated via `Makefile:signing-keys`. Verified KeyID derivation matching `openssl dgst -sha256` and Go `DeriveKeyID(pub)` returning SPKI SHA-256 hex digest.
+4. **Integration Pattern Decision**: Formally evaluated Subprocess CLI (`witness run --step ...`) vs. In-Process Native Go Signing (`crypto/ed25519` + in-toto DSSE). Selected **In-Process Go Signing** for SLER-P5-1: eliminates 50–150ms subprocess fork/exec latency overhead against a 12ms kernel freeze (<50µs execution), removes external binary dependencies from container images, prevents process/pipe exhaustion, and reuses the proven DSSE/PAE architecture in `apps/signal-ingest/store/signer_local.go`.
+5. **Forensic Ledger Schema Defined**: Authored comprehensive JSON Schema (`sler-forensic-event.json`) and Go types (`ForensicLedgerRecord`, `AuthorizationEvidence`, `TargetIdentity`, `PlaneExecutionEvidence`, `ExecutionEvidence`, `GovernanceResumeEvidence`, `AttestationEnvelopeMetadata`) binding temporal data, authorization decision chain, target coordinates, 5-plane outcomes/residuals, operator attribution, and DSSE cryptographic signatures.
+6. **Documentation & Deliverables**: Published complete specification to `docs/signalloom/sler-p5-pre-attestation-seams.md`. All unit tests across `fleet-manager` and `stun-sentinel` pass 100%.
+
+##### Deviations
+None.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

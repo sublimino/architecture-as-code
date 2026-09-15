@@ -526,6 +526,54 @@ run_stage \
   "stage1c2-gateway-forward.tap" \
   "cd ${WORK_DIR} && bats --tap test/acceptance-gateway-forward.bats"
 
+# Stage 1c3: SLER-P6-3 multi-plane containment acceptance suite.
+#
+# The happy-path counterpart to stage 7b's adversarial run. 7b proves an
+# adversary cannot escape the cascade; this proves the cascade works at all —
+# one containment decision fanning out across all five enforcement planes, each
+# PlaneResult asserted individually, the partial-containment path exercised, and
+# the whole lifecycle carried through to an attested record and a
+# governance-gated resume.
+#
+# It runs BEFORE the adversarial stage deliberately. An adversarial suite
+# reporting zero escapes against a cascade that never contained anything is the
+# most expensive kind of false assurance, because it gets published.
+#
+# Numbered 1c3 rather than renumbering 1d onward: openreports-convert.sh maps
+# report FILES to parsers by name, so inserting a stage costs nothing as long as
+# the existing filenames stay put — the same reason 1b and 1c2 are where they
+# are. Offline, no cluster, no network, ~2s: it belongs in the cheap lane that
+# gates the ~25 minutes of cluster work below.
+#
+# test/sler-p6-3-multiplane-acceptance.bats asserts that THIS stage exists and
+# that its command really runs the target, in both directions, so removing this
+# block fails that guard rather than silently dropping coverage.
+run_stage \
+  "SLER multi-plane containment acceptance" \
+  "stage1c3-multiplane-acceptance.tap" \
+  "cd ${WORK_DIR} && make test-sler-multiplane-acceptance"
+
+# Stage 1c4: the acceptance suite's own coverage/wiring guard, named explicitly.
+#
+# It also runs inside the make target above, so this looks redundant. It is not,
+# for two reasons, and bats-registry-coverage.bats caught the omission rather
+# than letting it pass:
+#
+#   1. run_stage writes ONE report per stage. Folded into 1c3, a coverage-drift
+#      failure and a Go acceptance failure land in the same blob, and
+#      openreports-convert.sh cannot tell a maintainer which contract broke.
+#   2. A repo-root suite that no run_stage NAMES is invisible to the registry
+#      guard, which is the mechanism this repo uses to notice a suite that has
+#      quietly stopped running. Reachable-via-a-make-target is exactly the
+#      "runs only if a human types make" category test/acceptance-spec-coverage.bats
+#      exists to distinguish from real CI coverage.
+#
+# ~0.4s. The overlap is cheaper than the ambiguity.
+run_stage \
+  "SLER acceptance coverage and wiring guard" \
+  "stage1c4-acceptance-plane-coverage.tap" \
+  "cd ${WORK_DIR} && bats --tap test/sler-p6-3-multiplane-acceptance.bats"
+
 # Stage 1d: CI build parity (BATS TAP)
 #
 # Numbered 1d for the reason 1b and 1c were: openreports-convert.sh maps report

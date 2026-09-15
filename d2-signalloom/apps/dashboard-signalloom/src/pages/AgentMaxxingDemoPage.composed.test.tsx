@@ -379,4 +379,33 @@ describe('AMXD Phase 2 — reload / reset / reload agree on stage-key ownership'
     // moves outside `amxd.demo.`, reset stops clearing it and a stale stage survives.
     expect(AMXD_DEMO_STAGE_STORAGE_KEY.startsWith('amxd.demo.')).toBe(true)
   })
+
+  it('renders AMXD-P4-1 AdversarialSimulationPanel at Stage 4 after advancing through stages', async () => {
+    render(<AgentMaxxingDemoPage />)
+
+    // Advance to Stage 2
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('stepper-advance-button'))
+    })
+    await waitFor(() => expect(screen.getByTestId('enrollment-panel')).toBeInTheDocument())
+
+    // Advance to Stage 3
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('stepper-advance-button'))
+    })
+    await waitFor(() => expect(screen.getByTestId('stage-panel-confinement_streaming')).toBeInTheDocument())
+
+    // Advance to Stage 4 (Adversarial Simulation)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('stepper-advance-button'))
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('stage-panel-adversarial_tamper')).toBeInTheDocument()
+      expect(screen.getByTestId('adversarial-simulation-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('inject-hash-mismatch-btn')).toBeInTheDocument()
+      expect(screen.getByTestId('inject-symlink-escape-btn')).toBeInTheDocument()
+      expect(screen.getByTestId('inject-oversized-write-btn')).toBeInTheDocument()
+    })
+  })
 })
+

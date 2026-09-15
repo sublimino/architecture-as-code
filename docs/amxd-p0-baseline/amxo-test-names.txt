@@ -1,0 +1,43 @@
+# make demo-agentmaxxing-contract-test — test/signalloom/operator-identity.bats
+  ok 1 operator policy records individual OIDC attribution
+  ok 2 operator policy records the approved authorization matrix
+  ok 3 operator policy names removal ownership and denial
+  ok 4 database extension forbids shared rows and preserves attribution
+  ok 5 wire models reject shared identity and tenant spoofing
+  ok 6 focused operator lifecycle tests execute without skips
+# make demo-agentmaxxing-host-test — python3 -m unittest (agentmaxxing-host-sensor)
+  Ran 41 tests in 0.678s
+# make demo-agentmaxxing-host-test — pytest test_audit_ingest.py -k nono/process/anti_escape/toctou
+  d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py::test_nono_profile_conformance PASSED [ 16%]
+  d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py::test_nono_profile_fail_closed PASSED [ 33%]
+  d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py::test_process_metadata PASSED [ 50%]
+  d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py::test_anti_escape_descriptor_relative_validation PASSED [ 66%]
+  d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py::test_toctou_artifact_rejection_and_unobserved_classification PASSED [ 83%]
+  d2-signalloom/apps/fe-signalloom/src/tests/test_audit_ingest.py::test_toctou_sensor_hasher_integration PASSED [100%]
+# make demo-agentmaxxing-host-test — bats suites
+  ok 1 confinement profile exists and passes nono profile validate
+  ok 2 confinement profile matches approved policy roots and denies sensitive paths
+  ok 3 confinement profile enforces default-deny network with approved endpoints
+  ok 4 systemd service unit contains mandatory security hardening directives
+  ok 5 scripts pass bash syntax checks
+  ok 6 digest gate fails closed on mismatched binary SHA-256 digest
+  ok 7 digest gate succeeds when binary SHA-256 matches expected digest
+  ok 8 digest gate rejects world-writable binary
+  ok 9 real Landlock probe: nono profile denies filesystem write outside workspace
+  ok 10 real Landlock probe: nono profile denies reading sensitive /etc/shadow
+  ok 11 real Landlock probe: nono profile denies unauthorized outbound network connection
+  ok 1 file validator hashes valid regular file beneath pinned root
+  ok 2 file validator rejects symlink pointing inside root with zero bytes read
+  ok 3 file validator rejects symlink pointing outside root with zero bytes read
+  ok 4 file validator rejects path traversal escape (..) with zero bytes read
+  ok 5 file validator rejects absolute path escape with zero bytes read
+  ok 6 file validator rejects hard-linked file (nlink > 1) with zero bytes read
+  ok 7 file validator rejects directory target with zero bytes read
+  ok 8 file validator rejects FIFO named pipe with zero bytes read without hanging
+  ok 9 pytest suite for file validator executes and passes all 16 adversarial assertions
+  ok 1 hasher CLI hashes clean regular file with matching SHA-256
+  ok 2 hasher CLI rejects path traversal escape above root (RESOLVE_BENEATH)
+  ok 3 hasher CLI rejects symbolic links
+  ok 4 hasher CLI rejects files with multiple hard links
+  ok 5 hasher CLI rejects oversize file exceeding max-file-size threshold
+  ok 6 hasher CLI enforces sliding window file count rate limit

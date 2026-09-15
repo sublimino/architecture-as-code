@@ -303,7 +303,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P4-PRE | preflight | Confirm defect injection hooks and revocation API seams | P3-GOV | Defect injection contract check; revocation status endpoint verify | S | daily | **Pass** — verified full call chain from upload to 403 `agent_revoked` (`host_credential.py:194-209, 308-356, 385-387`); confirmed router prefix split (`host_compat_router` `/api/v1/external-agents` vs `host_router` `/v1/external-agents`); confirmed bare host revoke requires `location /v1/` and direct `fetch` (`external_agent_registration.py:41, 1231`); inventoried defect injection hooks (audit log row tamper in `scripts/audit-anchor-tamper-demo.sh` vs client/mock SHA-256 artifact hash tamper in `scenarios.ts`/`bridge.ts`); documented 4 binding-mismatch 403 codes (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`) at `host_credential.py:395-433`. (see Errata — AMXD-P4-PRE) | $0.00 | N/A | ~5m | N/A |
 | P4-1 | implementation | Implement Stage 4 Adversarial Simulation panel | P4-PRE | Hash tamper test; symlink escape test; breach alert trigger assertion | L | daily | pass — delivered: 9385e6c9fb57b372382b6035dbf99058354ec714 (see Errata — AMXD-P4-1) | $0.00 | N/A | N/A | N/A |
 | P4-2 | implementation | Implement Stage 5 Attributable Revocation and live 403 denial verification panel | P4-PRE | Revocation dispatch test; 403 denial badge assertion; audit timeline check | L | daily | pass — delivered: a777d180b850cafcbb877bdcb106333a3a39c741 (see Errata — AMXD-P4-2) | $0.00 | N/A | N/A | N/A |
-| P4-GOV | governor | Merge adversarial and revocation panels and verify deterministic denial feedback | P4-1, P4-2 | Combined tamper + revocation test; zero visual flakiness | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P4-GOV | governor | Merge adversarial and revocation panels and verify deterministic denial feedback | P4-1, P4-2 | Combined tamper + revocation test; zero visual flakiness | L | deep | **Pass with two qualified residual defects** — merge verified (`2fa6a3928505cfca29850e33caadabbc514873b9`, `319d1d013e1ed01c95a423041b8cc4df96c6463f`), no conflict in the shared state machine; 10/10 runs flake-free; typecheck + 177 files / 3362 tests + `vite build` all green; 0 `data-testid` collisions; estate byte-for-byte clean after a full Stage 4→5→Reset. **Refuted on the wire: the live 403 is `insufficient_scope`, not `agent_revoked`**, and the attributable dispatch controls do not render on the composed route. Governor test committed `adfdc7cb4679e8b71a4c9a50888cfc0a1c38315c`. (see Errata — AMXD-P4-GOV) | $0.00 | N/A | ~95m | N/A |
 | P5-PRE | preflight | Confirm automated stepping timers and docs integration seams | P4-GOV | Timer mock verification; docs navigation link inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-1 | implementation | Implement Auto-Play mode, speed toggles, and state reset engine | P5-PRE | Auto-stepping timer tests (1x, 2x, instant); reset idempotency test | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | Publish interactive demo walkthrough guide in apps/docs-signalloom | P5-PRE | Astro docs build passes; demo guide content verified | M | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -1614,4 +1614,76 @@ Implemented `src/components/demos/AdversarialSimulationPanel.tsx` in `d2-signall
 - Integrated `RevocationPanel` directly into `AgentMaxxingDemoPage.tsx` for `activeViewStage === 'revocation_denied'`.
 **Deviations:** None.
 **Notes:** All 12 unit tests in `RevocationPanel.test.tsx` pass, all 179 demo/page tests pass, TypeScript typecheck passes with 0 errors (`tsc --noEmit`), and CSS token rules respected.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P4-GOV Merge adversarial and revocation panels and verify deterministic denial feedback
+**Created:** 2026-09-15 06:45:21+01:00
+**Last Updated:** 2026-09-15 06:45:21+01:00
+**Status:** Completed — pass with two qualified residual defects
+**Commit:** adfdc7cb4679e8b71a4c9a50888cfc0a1c38315c
+**Integration branch:** `integration/amxd-v0.1.0`
+**Merges reconciled:** `2fa6a3928505cfca29850e33caadabbc514873b9` (AMXD-P4-1), `319d1d013e1ed01c95a423041b8cc4df96c6463f` (AMXD-P4-2)
+
+**Merge state.** Both Phase 4 cards were already merged onto the integration branch when this governor began; this run verified rather than performed the merge. No textual conflict exists in the shared `AgentMaxxingDemoPage.tsx` state-machine transition both cards touch: P4-1 owns the `activeViewStage === 'adversarial_tamper'` branch (lines 167-183) and P4-2 the `'revocation_denied'` branch (lines 185-197). Zero conflict markers across `src/` and `test/`. Branch HEAD advanced from `a1e4c6d8747f34dd71065f599e85077371906e78` to `ddf624f9da10e302def49303714337a995558d0f` mid-run by a concurrent session (docs-only, Controller Tick #124); no interference with this work.
+
+**RESIDUAL DEFECT 1 — the live 403 is `insufficient_scope`, not `agent_revoked`. The headline certification claim is refuted on the wire.**
+
+Measured against the deployed backend (`kind-osramp`, `fe-signalloom-api` in namespace `fe-signalloom`, pod up 22h), via port-forward, with a real Dex operator `id_token`. The request is the one `RevocationPanel.tsx:256` actually makes:
+
+```
+POST /v1/external-agents/evidence-uploads
+Authorization: Bearer <Dex operator id_token>
+-> HTTP 403
+{"error":{"code":"insufficient_scope","message":"Host credential has scope 'None', required 'audit-upload-only'"}}
+```
+
+The `/api/v1/...` compat path that `client.ts` rewrites to returns the identical body. With no `Authorization` header at all the same route returns `401 authentication_required`, confirming the route is reached and the gate is real.
+
+Cause, traced rather than assumed, as the card's loop-condition requires. `agent_revoked` is raised only by `_check_agent_revocation` (`host_credential.py:209,225`), whose **sole** caller is `host_credential.py:323` inside `verify_host_credential`. `authenticated_host_credential` (`host_credential.py:345`) calls that with `required_scope=AUDIT_UPLOAD_SCOPE`, and **the scope gate precedes the revocation check**. So `agent_revoked` is reachable only by a caller already holding a host-credential JWT scoped `audit-upload-only`. `RevocationPanel` sends `hostCredentialToken || token` (`:291`), and `hostCredentialToken` is a prop **no caller ever supplies** — `AgentMaxxingDemoPage.tsx:187-196` does not pass it, and a repo-wide grep finds it only inside `RevocationPanel.tsx` itself. Live mode therefore always sends the operator token and always stops at the scope gate.
+
+This is not fixable inside P4-2's envelope construction: `issue_host_credential` (`host_credential.py:135`) has **no HTTP route**. Its only routed caller is `rotate_credential_handler` (`/credentials/rotate|renew`), which itself requires an already-valid host credential. **There is no credential-bootstrap endpoint**, so the demo cannot obtain the token the assertion needs. AMXD-P4-PRE's errata verified that the call chain to `agent_revoked` exists — which is true — but did not verify that the demo's credential can traverse it.
+
+The measured code is neither `agent_revoked` nor any of the four documented binding-mismatch codes, so `RevocationPanel` classifies it as neither: `confirmed=false`, `isBindingMismatch=false`. This is **not** an accidental binding-mismatch 403; it is an authentication-scope 403 one layer earlier.
+
+**RESIDUAL DEFECT 2 — the attributable dispatch controls never render on the composed route.**
+
+The proposal's constitution promises an operator-selected attribution reason and "an immutable red badge". P4-2's suite proves the panel *can* do this: it renders the panel directly with no payload, so `revocationSettled` is false and the form is present. The composed page reaches Stage 5 only through the stepper, which settles the stage and feeds the result back as `initialPayload`; `RevocationPanel` gates its entire form on `!revocationSettled` (`:709`). Measured on the composed page at Stage 5, the DOM contains `revocation-panel`, `revocation-target-host`, `revocation-target-agent`, `revocation-operator-attribution`, `upload-attempt-trigger-btn` and `revocation-timeline` — but **no `revocation-reason-select`, no `revocation-dispatch-btn`, and no `revocation-denial-badge`**. Neither card's suite could see this: P4-2 never renders the page, and the Phase 2 composed suite never reaches Stage 5.
+
+**Verification performed (which command proved which property).**
+
+| Property | Command | Result |
+| :--- | :--- | :--- |
+| Typecheck clean on merged tree | `bun run typecheck` | `TYPECHECK_RC=0` |
+| No regression outside demos/ | `bun run test` | 177 files, 3362 passed, 3 skipped |
+| Clean production build | `npx vite build` | `built in 2.69s`, `BUILD_RC=0` |
+| Zero visual flakiness | 10× `bun run test --run` over both panels + governor composed | 10/10 PASS, 0 FLAKE, identical 32-test tally each run |
+| No `data-testid` collision | `comm -12` over both panels' extracted id sets | 34 vs 15 ids, intersection **empty** |
+| nginx `/v1/` still present and effective | `rg -n 'location /v1/' .../nginx.conf` | line **118**, `proxy_pass `, `Authorization` forwarded |
+| Real 403 body | live curl, port-forward to `fe-signalloom-api` | `insufficient_scope` (**refutes the claim**) |
+| Real network failure | port-forward killed mid-flight, then POST | `HTTP 000`, `curl: (7) Failed to connect`, exit 7, empty body — the shape a browser surfaces as a fetch `TypeError` and the panel maps to `revocation-network-error` |
+| Estate byte-for-byte clean | governor composed test, full Stage 4→5→Reset | identical snapshot, with a falsification guard asserting the run dirtied the estate first |
+| No destructive interaction | reset after revocation dispatch | returns to Stage 1, zero stranded `amxd.demo.` keys |
+| Panels compose without collision | governor composed test | mutually exclusive branches; zero duplicate testids at Stage 4 and Stage 5 |
+
+**Accepted on assertion rather than proof — inherited explicitly by Phase 5.**
+1. The ten-run flake count covers the **mock** channel only. Live-mode timing depends on real network and backend latency and was not run ten times; the card names this as exactly where the flakiness risk actually bites.
+2. The network-failure *rendering* was confirmed at the transport layer (real connection refusal captured) and in P4-2's unit fixture, **not** by observing the rendered `revocation-network-error` container in a real browser during a real interruption. No Interceptor/Playwright run was performed.
+3. The auto-derived upload envelope's `agent_id` agreement with session state was verified **statically** (`targetAgentId = propAgentId || preset.agent_id`, `RevocationPanel.tsx:145-146`), not by observing a live request body, because the live request never passes the scope gate.
+4. No visual/browser verification of the combined Stage 4/5 rendering was performed; the combined-rendering claim rests on the DOM-level composed test.
+
+**Sibling errata confirmed present on this branch:** AMXD-P4-PRE (`86730ef7`), AMXD-P4-1 (`e9f12c09`), AMXD-P4-2 (`98702b19`).
+
+**Deviation recorded.** The role template says never to commit the proposal file. Observed practice on this branch is the opposite — P4-PRE, P4-1, P4-2 and every Phase 3 governor commit their errata to it — and a missing errata entry is indistinguishable from a card that never ran. The principal checkout at `/home/andy/src/cp/osramp-demo/docs/` is additionally **not writable from this session** (harness permission denial, `EACCES`, despite `-rw-rw-r-- andy andy`), which also blocked `kanban-check.sh cost --apply` from updating the table. This errata was therefore written and committed in the governor worktree, matching siblings.
+
+**Spend and token use:**
+
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P4-PRE | $0.00 | N/A | ~5m | N/A |
+| P4-1 | $0.00 | N/A | N/A | N/A |
+| P4-2 | $0.00 | N/A | N/A | N/A |
+| P4-GOV | $0.00 | N/A | ~95m | N/A |
+
+**Handoff to AMXD-P5-GOV.** Phase 5 inherits both residual defects. Defect 1 is not a UI bug and must not be patched in the envelope: it needs a credential-bootstrap endpoint (or an explicit decision that the demo asserts denial in mock only, with the live claim withdrawn from the constitution and the CEO delivery report). Defect 2 is a composition bug and is fixable inside the dashboard, by giving `RevocationPanel` a controlled mode so the stepper does not settle the stage before the operator selects a reason — the same shape of fix Phase 3 applied to the Stage 2 double-advance defect.
+
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

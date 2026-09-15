@@ -310,7 +310,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P1-GOV | governor | Approve contract freeze and certify zero-payload invariants | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | **Blocked** — all technical invariants certified by mutation (M1/M2 off-list field, 17/17 procfs kill-sweep, 13/13 leak fixtures, both-direction wire round-trip); lawful basis incomplete (40 OPEN-SLCD, 22 blocking) so workstation collection gated off in code via `lawful_basis.py`; doctor exception NOT met (1, board-wide, 0 SLCD cards). Commit `b0fdbad6` | (unresolved: cost tool) | (unresolved) | (unresolved) | N/A |
 | P2-PRE | preflight | Confirm Linux procfs permissions and harness signature database | P1-GOV | Procfs access check; harness signatures inventory | S | daily | pass — delivered: 7d3458a313cb3af018d15209607607a9fca84098 (see Errata — SLCD-P2-PRE) | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Implement non-intrusive procfs process scanner without argument dumping | P2-PRE | Pytest procfs scanner tests; verify `/proc/<pid>/cmdline` is not dumped | L | daily | pass — delivered: dd3420f879f83cd6a957a4dea735eae9b2478f51 (see Errata — SLCD-P2-1) | $0.00 | N/A | N/A | N/A |
-| P2-2 | implementation | Build harness process ancestry classifier for Claude, Agy, Codex, CPAI | P2-PRE | Heuristic classifier tests; tree resolution accuracy assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-2 | implementation | Build harness process ancestry classifier for Claude, Agy, Codex, CPAI | P2-PRE | Heuristic classifier tests; tree resolution accuracy assertions | L | daily | pass — delivered: b346088090ddc258a3d76b18818dd70fc2432919 (see Errata — SLCD-P2-2) | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge process tree detective engine and verify zero false-positive collisions | P2-1, P2-2 | Multi-process stress test; zero false-positive assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm kanban lockfiles, lease formats, and task cycle markers | P2-GOV | Kanban filesystem inspection; lease format check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P3-1 | implementation | Implement passive watcher for active kanban controller cycles and task leases | P3-PRE | Shared read-lock tests; zero controller loop interference check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -656,4 +656,26 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 **Deviations:** None.
 **Notes:** All 159 unit and integration tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass 100%. `test -f docs/signalloom/slcd-p2-1-scanner.md` verified.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLCD-P2-2 Build harness process ancestry classifier for Claude, Agy, Codex, CPAI
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 05:06:51+01:00
+**Last Updated:** 2026-09-15 05:06:51+01:00
+**Status:** Completed
+**Commit:** `b346088090ddc258a3d76b18818dd70fc2432919`
+**Governor merge:** pending Governor reconciliation
+
+**Decisions:**
+1. **Multi-Signal Corroboration Engine with Zero Single Point of Trust:** Implemented `HarnessAncestryClassifier` (`classifier.py`) enforcing empirical multi-signal corroboration (`comm`, `exe` realpath binary provenance via `os.readlink`, session store markers, socket stubs). Comm name alone is never trusted. If `comm` claims a known harness but `exe` realpath contradicts, attribution is rejected immediately (`comm_mismatch_exe_rejected`).
+2. **Confidence-Scored Claims (`ClassificationClaim`):** Represented all classification outcomes as structured, immutable claims carrying `harness` (`Harness` enum), `confidence` (`[0.0, 1.0]`), `candidate_pid`, `harness_pid`, `ancestry_depth`, `corroboration_signals`, and audit `reasons`. Seamlessly converts to `codingagent.v1` frozen wire contract without schema drift.
+3. **Multi-Hop Ancestry Tree Traversal:** Built upward tree traversal linking child tools, compilers, and linkers to ancestor harnesses across arbitrary depths, with distance-attenuated confidence (`depth_1`: 0.98, `depth_2`: 0.96, `depth_3`: 0.94, `depth_4`: 0.92).
+4. **Race Safety & PID Recycling Defense:** Integrated generation counter validation via `starttime_ticks` from `/proc/<pid>/stat` (field 22). If an ancestor process has a starttime newer than its child (`parent.starttime_ticks > child.starttime_ticks`), the classifier detects PID recycling and falls back to `Harness.UNKNOWN`. Reparented orphans (`ppid == 1`), missing processes, and cycles (`visited` set) are handled cleanly.
+5. **Secondary Disambiguation for Generic Runtimes:** Enforced secondary corroboration (filesystem session markers and socket protocol stubs) for `node` (Codex CLI) and `python3` (Aider CLI) to distinguish from benign background processes on the host.
+6. **Empirical False-Positive Rate Benchmark:** Tested against 45 ordinary developer tools, compilers (`gcc`, `clang`, `rustc`, `go`), IDEs (`code`, `idea`, `vim`), build systems (`make`, `ninja`, `cmake`), and daemons (`systemd`, `sshd`, `docker`). Measured false-positive rate: 0.00% (0 / 45 false positives), meeting the proposal's 0-false-positive KPI.
+7. **Zero-Customer-Payload Invariant Verified:** Zero command-line argument reading, zero calls to `PROHIBITED_PROC_ENTRIES` verified by static AST analysis and runtime interceptor tests. Full specification and verification report published to `docs/signalloom/slcd-p2-2-classifier.md`.
+
+**Deviations:** None.
+**Notes:** All 29 classifier unit tests in `test_classifier.py` and all 188 host-sensor tests pass 100%. `CGO_ENABLED=0 go test ./... -run CodingAgentTelemetry` passes. `test -f docs/signalloom/slcd-p2-2-classifier.md` verified.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

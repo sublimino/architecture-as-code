@@ -310,7 +310,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P2-GOV | governor | Merge credential revocation and verify instant authorization rejection | P2-1, P2-2 | Multi-credential revocation integration test; zero residual token leakage | M | deep | **PASS WITH EXCEPTIONS** — both planes now fan out on one decision (G-1: OpenBao revocation was dead code in production; repair falsified by mutation). "Zero residual token leakage" **NOT MET and unachievable**; published residuals bao 5m (config-derived) / spire 1h (upstream-default), as a floor. Both guaranteed-denial figures **withdrawn as unmeasured** → SLER-P5-2. | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm Cilium and Istio mesh policy and admission controller seams | P2-GOV | Mesh CRD probe; node-capability-guard webhook check | S | daily | **pass** — 0 mesh policies confirmed; Cilium CNI active in cluster (Istio not deployed); node-capability-guard confirmed 4 files with 0 deployment manifests; conntrack FlushIP confirmed IPv4-only and fail-closed; netassert verified in PATH → `docs/signalloom/sler-p3-pre-mesh-admission-seams.md` | $0.00 | N/A | ~4m | N/A |
 | P3-1 | implementation | Implement dynamic mesh isolation cutting in-flight TCP connections | P3-PRE | `netassert` integration test; in-flight connection termination <2s | L | daily | pass — delivered: 651bbbfc (see Errata — SLER-P3-1) | $0.00 | N/A | ~8m | N/A |
-| P3-2 | implementation | Implement admission webhook block preventing pod readmission | P3-PRE | Webhook deny unit and integration tests; pod reschedule block | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-2 | implementation | Implement admission webhook block preventing pod readmission | P3-PRE | Webhook deny unit and integration tests; pod reschedule block | L | daily | pass — delivered: f3d1650585cc28bad464d25222b9bc2f90d08384 (see Errata — SLER-P3-2) | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge mesh and admission enforcement and prove netassert boundary denial | P3-1, P3-2 | End-to-end network isolation and admission rejection test | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P4-PRE | preflight | Confirm cgroup-v2 freezer and host process freeze prerequisites | P3-GOV | Host cgroup v2 capability probe; permissions check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-1 | implementation | Unify stun-sentinel implementations into cgroup-v2 freeze engine | P4-PRE | Sentinel unit tests; SIGSTOP vs cgroup freezer verification | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -785,5 +785,17 @@ Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
 **Deviations:** None.
 **Notes:** Dynamic mesh isolation verified end-to-end: microbenchmark measured ~4.6 µs/op in Go caller (<10ms full plane isolation vs 2000ms SLA); verified live network boundary security via `make -C d2-signalloom test-netassert` (10/10 passed); zero collateral denial against sibling workloads proven in unit tests. Proof published to `docs/signalloom/sler-p3-1-proof.md`.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P3-2 Implement admission webhook block preventing pod readmission
+**Created:** 2026-09-15 05:06:58+01:00
+**Last Updated:** 2026-09-15 05:06:58+01:00
+**Status:** Completed
+**Commit:** f3d1650585cc28bad464d25222b9bc2f90d08384
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:** Built entire deployment surface from zero for `node-capability-guard` (Dockerfile, Deployment, Service, RBAC, ConfigMap, NetworkPolicy, ValidatingWebhookConfiguration); implemented `ContainedIdentityStore` interface with thread-safe `MemoryIdentityStore`, mtime-cached `FileIdentityStore`, and fail-closed error handling; configured `failurePolicy: Fail` in `ValidatingWebhookConfiguration` as a deliberate fail-closed security decision preventing readmission bypass on webhook outage; set `timeoutSeconds: 5` to bound webhook latency; extended `PodSpec` with `ServiceAccountName` and derived SPIFFE ID evaluation; extended Prometheus metrics with fine-grained outcome counters (`RejectionsContainedIdentityTotal`, `RejectionsStoreUnavailableTotal`, `RejectionsNodeCapabilityTotal`, `AdmissionsAllowedTotal`) extending existing `RejectionsTotal`/`AdmissionsTotal`; added structured JSON logging matching `SharedAttestationEventKeys` (`worst_case_residual_ms: 0`); implemented `AdmissionClient` and `K8sAdmissionClient` in `fleet-manager` syncing contained agent identities on containment cascade.
+**Deviations:** None.
+**Notes:** 100 concurrent admission review benchmark measured average decision latency of ~358 µs (max 2.28 ms, well within 50 ms budget and 5s timeout); unit and integration tests prove denial of contained agents on both CREATE and UPDATE (restart/rescheduling), fail-closed denial on store failure, metrics export, and structured logging. Full proof published in `docs/signalloom/sler-p3-2-proof.md`.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 
 

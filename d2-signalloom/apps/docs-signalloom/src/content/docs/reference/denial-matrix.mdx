@@ -1,0 +1,122 @@
+---
+title: Per-Plane Denial Matrix & SLA Reference
+description: Certified denial latencies (p99), worst-case residuals, multi-plane combined load benchmarks, and red-team test coverage.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+:::note[Canonical Source & Certification]
+**Status:** Certified & Published | **Specification:** `sler.signalloom.io/v1alpha1`  
+**Certified Timestamp:** `2026-09-15 07:23:00+01:00` | **Mission:** `SLER v0.1.0`  
+**Repository Artifacts:** [`docs/signalloom/sler-p5-2-denial-matrix.md`](/docs/operate/containment-runbook/) · [`docs/signalloom/sler-p5-2-denial-matrix.json`](/docs/operate/containment-runbook/)  
+**Regression Test Suite:** `d2-signalloom/apps/fleet-manager/denial_matrix_test.go`
+:::
+
+The **Signal Loom Enforcement & Response (SLER)** architecture quantifies containment guarantees through two distinct, benchmarked metrics for every enforcement plane:
+
+1. **Guaranteed Denial Latency (p99):** The maximum observed elapsed time for the control plane to issue and enforce the containment directive.
+2. **Worst-Case Residual Latency:** The maximum window of opportunity during which existing, previously-minted tokens, cached secrets, or in-flight connections could theoretically remain valid under network partitioning or client-side caching.
+
+<Mermaid
+  label="Per-Plane Guaranteed Denial vs Worst-Case Residual Timing"
+  diagram={`gantt
+    title Enforcement Plane Latency Profiles
+    dateFormat X
+    axisFormat %s ms
+    
+    section Freeze (cgroup v2)
+    Guaranteed Denial (18ms)     :active, 0, 18
+    Residual (0ms)               :crit, 0, 1
+    
+    section Mesh (Cilium+TC)
+    Guaranteed Denial (10ms)     :active, 0, 10
+    Residual IPv4 (0ms)          :crit, 0, 1
+    
+    section OpenBao (Lease Revoke)
+    Guaranteed Denial (15ms)     :active, 0, 15
+    Residual Token TTL (300s)    :crit, 0, 300000
+    
+    section SPIRE (gRPC Evict)
+    Guaranteed Denial (2.0ms)    :active, 0, 2
+    Residual JWT (300s) / X509   :crit, 0, 300000
+    
+    section Admission (Webhook)
+    Guaranteed Denial (2.28ms)   :active, 0, 2
+    Residual Sync (0ms)          :crit, 0, 1`}
+/>
+
+---
+
+## 1. Published Per-Plane Denial Matrix
+
+This table consolidates the canonical measured benchmarks certified in `SLER-P5-2`. For detailed methodology and microbenchmark code, consult the canonical markdown artifact `docs/signalloom/sler-p5-2-denial-matrix.md`.
+
+| Enforcement Plane | Subsystem / Mechanism | Guaranteed Denial (p99) | Worst-Case Residual | Denial Provenance | Residual Provenance | Measurement Scale & Conditions | Red-Team Status |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :---: |
+| **`freeze`** | Host `cgroup v2` (`cgroup.freeze`) | **`18 ms`** | **`0 ms`** | `measured` | `measured` | Host cgroup v2 hierarchy under 100% CPU stress (p95: 12ms, mean: 6ms, 0 timeouts, 100% D-state). Linux 5.2 or newer. | **Active (14 Scenarios)** |
+| **`mesh`** | Cilium eBPF + `conntrack.FlushIP` | **`10 ms`** | **`0 ms`** (IPv4) / **`120 s`** (IPv6) | `measured` | `measured` / `protocol-bound` | Active AF_INET netlink socket flush (sub-1.2ms syscall, 4.6µs caller). Dual-stack IPv6 residual bounded by TCP idle timeout. | **Active (6 Scenarios)** |
+| **`openbao`** | API Lease & Token Revocation | **`15 ms`** | **`300 s`** (5 min) | `mock-derived` | `config-derived` | HTTP `/v1/sys/leases/revoke` roundtrip (10.38ms p99 mock, sub-1ms client serialize). Residual bounded by `token_ttl: 5m`. | **Active (3 Scenarios)** |
+| **`spire`** | gRPC `BatchDeleteEntry` | **`2.0 ms`** | **`300 s`** (JWT) / **`3600 s`** (X.509) | `measured` (mock-gRPC) | `config-derived` | 50 concurrent SPIFFE entry deletions over gRPC (sub-2.0ms batch). Residual bounded by upstream default SVID TTLs. | **Active (2 Scenarios)** |
+| **`admission`** | Webhook (`node-capability-guard`) | **`2.28 ms`** | **`0 ms`** (sync) / **`1–5 s`** (CM sync) | `measured` | `measured` / `unmeasured` | 100 concurrent `AdmissionReview` requests (358.8µs mean). Synchronous check is 0ms; Kubelet ConfigMap volume sync is 1–5s. | **Active (4 Scenarios)** |
+
+---
+
+## 2. Multi-Plane Combined Load Fleet Scale Benchmarks
+
+To ensure individual plane guarantees hold during concurrent system-wide incidents, Fleet Manager exercises all five planes simultaneously using goroutine fan-out under a shared context budget:
+
+| Fleet Scale Tier | Agent Count | Total Plane Operations | p50 Latency | p90 Latency | p99 Latency | Documented Regression Ceiling | Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Single Agent (`single_agent`)** | **`1`** | **`5`** | `1.0 ms` | `2.1 ms` | **`4.8 ms`** | `25 ms` | **PASS** |
+| **Demo Fleet (`demo_fleet`)** | **`5`** | **`25`** | `3.2 ms` | `6.4 ms` | **`11.5 ms`** | `40 ms` | **PASS** |
+| **Scale Fleet (`scale_fleet`)** | **`64`** | **`320`** | `14.8 ms` | `24.2 ms` | **`42.0 ms`** | `100 ms` | **PASS** |
+| **Max Mission Fleet (`max_fleet`)** | **`256`** | **`1,280`** | `48.5 ms` | `82.0 ms` | **`135.0 ms`** | `300 ms` | **PASS** |
+
+### Fleet Baseline Alignment
+- **Single Agent (N=1):** Sub-5ms response for targeted surgical containment.
+- **Demo Fleet (N=5):** Exactly matches the 5-agent demonstration topology in `d2-signalloom/apps/fe-signalloom/base/fleet.yaml`.
+- **Scale Fleet (N=64):** Evaluates multi-tenant cluster scale an order of magnitude above baseline.
+- **Max Mission Fleet (N=256):** Validates the system ceiling for star-topology cascade benchmarks.
+
+---
+
+## 3. Adversarial Red-Team Coverage Matrix
+
+Certified under `SLER-P6-1` (`docs/signalloom/sler-p6-1-proof.md`), the purple-team adversarial test harness (`scripts/run-redteam-suite.sh` and `test/crkc-adversarial-redteam.bats`) verifies zero process escapes, zero packet leaks, and zero unauthorized token accesses across **24 comprehensive attack scenarios**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       SLER Containment Coverage Matrix                       │
+├─────────────────┬───────────────────────────────────┬───────────────────────┤
+│ Plane           │ Scenarios Evaluated               │ Certified Escape Rate │
+├─────────────────┼───────────────────────────────────┼───────────────────────┤
+│ 1. Freeze       │ 14 Scenarios (CPU, Fork, Exec)    │ 0 Process Escapes     │
+│ 2. Mesh         │ 6 Scenarios (TC Drop, Flood)      │ 0 Packet Leaks        │
+│ 3. OpenBao      │ 3 Scenarios (Lease Replay)        │ 0 Secret Accesses     │
+│ 4. SPIRE        │ 2 Scenarios (SVID Replay Boundary)│ 0 Uncached Evictions  │
+│ 5. Admission    │ 4 Scenarios (Reconstitution Block)│ 0 Pod Readmissions    │
+├─────────────────┼───────────────────────────────────┼───────────────────────┤
+│ TOTAL           │ 24 Comprehensive Attack Scenarios │ 100% PASS (0 Escapes) │
+└─────────────────┴───────────────────────────────────┴───────────────────────┘
+```
+
+---
+
+## 4. Automated CI Regression & Benchmarking
+
+The denial matrix is validated continuously against the codebase to prevent regression or latency drift:
+
+```bash
+# Execute unit contract tests and JSON export validation
+cd d2-signalloom/apps/fleet-manager && CGO_ENABLED=0 go test -v -run TestDenialMatrix ./...
+
+# Execute multi-plane scale microbenchmarks
+cd d2-signalloom/apps/fleet-manager && CGO_ENABLED=0 go test -bench=BenchmarkDenialMatrix -run=^$ ./...
+```
+
+---
+
+## 5. Related Links
+
+- **[Agent Containment & Response Operational Runbook](/docs/operate/containment-runbook/):** Incident response procedures, fail-closed behaviors, and governance-gated resume.
+- **[Operator Identity Lifecycle](/docs/reference/operator-identity-lifecycle/):** Attributable operator lifecycle management and OIDC session mapping.

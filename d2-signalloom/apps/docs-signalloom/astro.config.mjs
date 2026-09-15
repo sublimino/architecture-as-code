@@ -30,7 +30,8 @@ export default defineConfig({
           label: "Operate agents",
           items: [
             { label: "Claim the two demonstration agents", slug: "agents/dual-agent-onboarding" },
-            { label: "Stun or unstun an agent", slug: "operate/stun-agent" }
+            { label: "Stun or unstun an agent", slug: "operate/stun-agent" },
+            { label: "Containment & response runbook", slug: "operate/containment-runbook" }
           ]
         },
         {
@@ -59,6 +60,9 @@ export default defineConfig({
         {
           label: "Reference",
           items: [
+            { label: "Per-plane denial matrix", slug: "reference/denial-matrix" },
+            { label: "Operator identity lifecycle", slug: "reference/operator-identity-lifecycle" },
+            { label: "External agent wire contracts", slug: "reference/external-agent-wire-contracts" },
             { label: "Current limits and roadmap", slug: "reference/roadmap" },
             { label: "Glossary", slug: "reference/glossary" },
             { label: "Documentation rules", slug: "reference/documentation-rules" }

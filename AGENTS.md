@@ -300,6 +300,13 @@ Place worktrees in `~/src/.worktrees/<repo>/<branch>/`. Never create worktrees
 inside the repository directory. In-repo worktree directories cause search tools
 and test runners to scan duplicate files.
 
+### Kanban and Worktree Runtime Paths
+
+The Kanban runtime and detective telemetry sensors resolve paths via dynamic environment variables:
+- `KANBAN_HOME`: Root directory for Kanban controller state, database, and telemetry (defaults to `$HOME/.cline/kanban`).
+- `KANBAN_WORKTREES_HOME`: Base directory for Kanban worktrees (defaults to `$HOME/.cline/worktrees`, resolving canonically to `$HOME/src/.worktrees`).
+All watchers and detectors must resolve these paths dynamically per call rather than capturing constants at import time.
+
 ### Zot cache persistence
 
 The cache directory `.cache/zot/` persists after `make down`. Run

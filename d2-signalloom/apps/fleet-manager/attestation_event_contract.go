@@ -33,7 +33,31 @@ const (
 	AdmissionBlockEventName = "admission_block_attempt"
 	// AdmissionDecisionEventName discriminates a dynamic admission decision event.
 	AdmissionDecisionEventName = "admission_decision"
+	// ResumeDecisionEventName discriminates an attributable governance resume decision event (SLER-P4-3).
+	ResumeDecisionEventName = "governance_resume_decision"
+	// BaoRotateEventName discriminates an OpenBao lease/credential rotation attempt.
+	BaoRotateEventName = "bao_rotate_attempt"
+	// SpireReentryEventName discriminates a SPIRE registration re-entry and SVID rotation attempt.
+	SpireReentryEventName = "spire_reentry_attempt"
 )
+
+// ResumeAuditLogEntry represents a machine-readable JSON log entry emitted on every
+// governance resume decision for P5-1 cryptographic attestation and operator attribution.
+type ResumeAuditLogEntry struct {
+	Timestamp          string   `json:"timestamp"`
+	Event              string   `json:"event"` // "governance_resume_decision"
+	AgentID            string   `json:"agent_id"`
+	Namespace          string   `json:"namespace,omitempty"`
+	TokenID            string   `json:"token_id"`
+	OperatorIDs        []string `json:"operator_ids"`
+	GovernanceRef      string   `json:"governance_approval_ref,omitempty"`
+	IdempotencyKey     string   `json:"idempotency_key,omitempty"`
+	Success            bool     `json:"success"`
+	CredentialsRotated bool     `json:"credentials_rotated"`
+	ProcessesResumed   int      `json:"processes_resumed"`
+	LatencyMs          int64    `json:"latency_ms"`
+	Error              string   `json:"error,omitempty"`
+}
 
 // SharedAttestationEventKeys is the intersection of fields SLER-P5-1 requires from
 // EVERY credential-plane event, regardless of which plane emitted it.

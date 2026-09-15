@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -70,7 +71,10 @@ type server struct {
 	// startup, so /health can report it rather than infer it. Nil in unit tests
 	// that construct a server directly; handleHealth treats that as
 	// "unconfigured" rather than assuming enforcement works.
-	enforcement *fleetClientSelection
+	enforcement  *fleetClientSelection
+	keyRegistry  OperatorKeyRegistry
+	replayLedger *ReplayLedger
+	resumePolicy ResumeTokenPolicy
 }
 
 // degradedReporter is implemented by the clients that keep a fail-closed
@@ -280,6 +284,68 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	writeCascadeResult(w, result)
 }
 
+func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req ResumeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resume request body: %v", err))
+		return
+	}
+
+	// Extract agent ID from URL if provided: /api/v1/fleet/resume/{agentId}
+	urlAgentID := strings.TrimPrefix(r.URL.Path, "/api/v1/fleet/resume/")
+	if urlAgentID != "" && urlAgentID != r.URL.Path && req.AgentID == "" {
+		req.AgentID = urlAgentID
+	}
+	if req.AgentID == "" && req.Token.AgentID != "" {
+		req.AgentID = req.Token.AgentID
+	}
+	if req.Namespace == "" && req.Token.Namespace != "" {
+		req.Namespace = req.Token.Namespace
+	}
+	if req.IdempotencyKey == "" {
+		req.IdempotencyKey = fmt.Sprintf("resume-%s-%s", req.AgentID, req.Token.TokenID)
+	}
+
+	if req.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "agent_id is required")
+		return
+	}
+
+	var client FleetClient
+	if s.enforcement != nil {
+		client = s.enforcement.Client
+	}
+
+	policy := s.resumePolicy
+	if policy.RequiredSignatures == 0 {
+		policy = DefaultResumeTokenPolicy(policy.Audience, policy.TrustRootID)
+	}
+
+	resp, err := EnforceResume(r.Context(), req, s.keyRegistry, policy, s.replayLedger, client)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		if errors.Is(err, ErrResumeTokenReplayed) {
+			w.WriteHeader(http.StatusConflict)
+		} else if errors.Is(err, ErrResumeTokenTargetMismatch) || errors.Is(err, ErrResumeTokenMalformed) {
+			w.WriteHeader(http.StatusBadRequest)
+		} else if errors.Is(err, ErrResumeTokenBadSignature) || errors.Is(err, ErrResumeTokenRevokedKey) || errors.Is(err, ErrResumeTokenUnknownKey) || errors.Is(err, ErrResumeTokenInsufficientSignature) {
+			w.WriteHeader(http.StatusForbidden)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
 func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -405,15 +471,45 @@ func main() {
 	}
 	cancelHealth()
 
+	// Operator key distribution loading for governance resume
+	keyPath := os.Getenv("OPERATOR_KEY_BUNDLE_FILE")
+	if keyPath == "" {
+		keyPath = os.Getenv("OPERATOR_KEY_DIR")
+	}
+	keyReg, keyErr := LoadOperatorKeyRegistry(keyPath)
+	if keyErr != nil {
+		slog.Warn("failed to load operator keys from file/dir", "path", keyPath, "error", keyErr)
+		keyReg = NewStaticOperatorKeyRegistry()
+	}
+	if envKeys := os.Getenv("OPERATOR_KEYS_JSON"); envKeys != "" {
+		if entries, err := LoadOperatorKeysFromJSON([]byte(envKeys)); err == nil {
+			for _, e := range entries {
+				keyReg.Keys[e.KeyID] = e
+			}
+		}
+	}
+
+	replayLedger := NewReplayLedger()
+	resumePolicy := DefaultResumeTokenPolicy(os.Getenv("FLEET_AUDIENCE"), os.Getenv("OPERATOR_TRUST_ROOT_ID"))
+
 	orchestrator := NewCascadeOrchestrator(dag, selection.Client, time.Duration(stepDelayMs)*time.Millisecond)
 
-	s := &server{dag: dag, orchestrator: orchestrator, enforcement: &selection}
+	s := &server{
+		dag:          dag,
+		orchestrator: orchestrator,
+		enforcement:  &selection,
+		keyRegistry:  keyReg,
+		replayLedger: replayLedger,
+		resumePolicy: resumePolicy,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/fleet/topology", s.handleTopology)
 	mux.HandleFunc("/api/v1/fleet/deploy", s.handleDeploy)
 	mux.HandleFunc("/api/v1/fleet/stun/", s.handleStun)
+	mux.HandleFunc("/api/v1/fleet/resume", s.handleResume)
+	mux.HandleFunc("/api/v1/fleet/resume/", s.handleResume)
 	mux.HandleFunc("/api/v1/fleet/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/fleet/recover", s.handleRecover)
 	mux.HandleFunc("/api/v1/fleet/reset", s.handleReset)

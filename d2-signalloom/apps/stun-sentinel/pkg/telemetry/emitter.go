@@ -89,6 +89,9 @@ type Event struct {
 	LockCount          int                    `json:"lock_count,omitempty"`
 	Partial            bool                   `json:"partial,omitempty"`
 	PartialReason      string                 `json:"partial_reason,omitempty"`
+	OperatorID         string                 `json:"operator_id,omitempty"`
+	OperatorIDs        []string               `json:"operator_ids,omitempty"`
+	TokenID            string                 `json:"token_id,omitempty"`
 	Details            map[string]interface{} `json:"details,omitempty"`
 }
 
@@ -150,17 +153,20 @@ func (e *Emitter) Emit(ev Event) error {
 
 // FreezeObservation is the subset of a cgroup freeze result this package needs.
 type FreezeObservation struct {
-	PodUID     string
-	PodName    string
-	Namespace  string
-	CgroupPath string
-	Frozen     bool
-	DryRun     bool
-	LatencyMS  float64
-	DeadlineMS float64
-	Polls      int
-	PIDs       []int
-	HostVeth   string
+	PodUID      string
+	PodName     string
+	Namespace   string
+	CgroupPath  string
+	Frozen      bool
+	DryRun      bool
+	LatencyMS   float64
+	DeadlineMS  float64
+	Polls       int
+	PIDs        []int
+	HostVeth    string
+	OperatorID  string
+	OperatorIDs []string
+	TokenID     string
 }
 
 // StunExecutionHalted publishes a proven execution halt.
@@ -192,20 +198,27 @@ func (e *Emitter) StunExecutionResumed(obs FreezeObservation) error {
 	if obs.DryRun {
 		decision = "containment_release_planned_dry_run"
 	}
+	opID := obs.OperatorID
+	if opID == "" && len(obs.OperatorIDs) > 0 {
+		opID = obs.OperatorIDs[0]
+	}
 	return e.Emit(Event{
-		Event:      EventStunExecutionResumed,
-		PodUID:     obs.PodUID,
-		PodName:    obs.PodName,
-		Namespace:  obs.Namespace,
-		CgroupPath: obs.CgroupPath,
-		Frozen:     false,
-		DryRun:     obs.DryRun,
-		Decision:   decision,
-		LatencyMS:  obs.LatencyMS,
-		DeadlineMS: obs.DeadlineMS,
-		Polls:      obs.Polls,
-		PIDs:       obs.PIDs,
-		HostVeth:   obs.HostVeth,
+		Event:       EventStunExecutionResumed,
+		PodUID:      obs.PodUID,
+		PodName:     obs.PodName,
+		Namespace:   obs.Namespace,
+		CgroupPath:  obs.CgroupPath,
+		Frozen:      false,
+		DryRun:      obs.DryRun,
+		Decision:    decision,
+		LatencyMS:   obs.LatencyMS,
+		DeadlineMS:  obs.DeadlineMS,
+		Polls:       obs.Polls,
+		PIDs:        obs.PIDs,
+		HostVeth:    obs.HostVeth,
+		OperatorID:  opID,
+		OperatorIDs: obs.OperatorIDs,
+		TokenID:     obs.TokenID,
 	})
 }
 

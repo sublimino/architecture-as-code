@@ -13,8 +13,10 @@ The console enforces a **Strict Zero-Customer-Payload Invariant**: all metrics, 
 Following the architecture council and security review findings, the demo console was implemented with four concrete technical corrections against the original aspirational proposal:
 
 1. **Poll-Based Telemetry Transport**: Telemetry gauges for CPU and RSS memory operate on a deterministic **2.5-second HTTP polling loop** (`POST /api/v1/external-agents/evidence-uploads`) with a 150ms debounce window and an on-demand manual refresh trigger, rather than an unauthenticated push WebSocket/SSE stream. Instantaneous CPU % is internal to host sensor diagnostics and omitted from export to guarantee privacy; only cumulative CPU execution time (`cpu_time_ms`) and resident memory (`resident_memory_bytes`) are exported.
-2. **Honest Open FDs Availability State**: The Open File Descriptors gauge is explicitly rendered as **Unavailable** (`N/A — Not available in host-sensor-v1 contract (schema 1.0.0)`) because no open file descriptor count field exists in the host sensor Python models (`models.py`, schema 1.0.0). In accordance with the cold-start reproducibility rule, no arbitrary integer is fabricated.
-3. **Two-Endpoint Revocation & Denial Protocol**: Stage 5 executes a real two-endpoint sequence: an authenticated revocation dispatch to the bare route `POST /v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router`), followed by an audit upload attempt to `POST /api/v1/external-agents/evidence-uploads` (mounted on `host_compat_router`). Denial verification specifically asserts HTTP `403 Forbidden` with error code `agent_revoked`, rather than a single invented endpoint path.
+2. **Honest Open FDs Availability State**: The Open File Descriptors **gauge** is explicitly rendered as **Unavailable** (`N/A — Not available in host-sensor-v1 contract (schema 1.0.0)`) because no open file descriptor count field exists in the host sensor Python models (`models.py`, schema 1.0.0). No FD figure is presented as a measurement.
+
+   One caveat worth knowing before you present Stage 3: the demo stepper's own payload type still carries an `openFds` field (`types.ts:122`), and the mock channel populates it with a derived value (`bridge.ts:662`). The gauge does not read it, but the **raw payload JSON shown on the Stage 3 panel does display `"openFds": 3`**. If an audience reads that JSON, be clear that it is a mock-fixture field, not a host-sensor measurement.
+3. **Two-Endpoint Revocation & Denial Protocol**: Stage 5 executes a real two-endpoint sequence: an authenticated revocation dispatch to the bare route `POST /v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router`), followed by an audit upload attempt to `POST /api/v1/external-agents/evidence-uploads` (mounted on `host_compat_router`). Denial verification asserts HTTP `403 Forbidden` with error code `agent_revoked`, rather than a single invented endpoint path.
 4. **Cryptographic Allowlist Manifest Inspection**: Stage 3 embeds the `ZeroPayloadInspector`, which displays the build-time SHA-256 manifest digest of `filter.py` (`183b788007e4adfe116e792893ccc814f5e66acfa68dbff067c9e2d71a239b34`) and proves that 6 prohibited leak vectors (`prompt_text`, `completion_text`, `file_contents`, `raw_cmdline`, `memory_contents`, `api_key`) are actively discarded.
 :::
 
@@ -81,6 +83,12 @@ Activating Auto-Play drives the stepper automatically through all 5 stages. Paci
 
 :::important[Async-Gate Dual-Lock Invariant]
 Auto-Play pacing is **not a cosmetic delay timer**. The `executeAsyncGate` controller enforces a dual-lock condition via `Promise.all([dwellPromise, confirmationPromise])`. Even in `instant` mode (100ms dwell), Auto-Play **waits for the backend/mock verification promise to actually resolve** before transitioning to the next stage. If a network call hangs or fails, the gate respects the timeout SLA and surfaces the error rather than advancing blindly.
+
+Measured in a real browser on the composed console (AMXD-P5-GOV): a full five-stage pass takes **16.1s at 1x**, **8.1s at 2x** and **0.59s at instant**. With the confirmation deliberately slowed to 1,500 ms per stage, the same `instant` pass takes **6.05s** — bounded below by the four slowed confirmations, not by the 100 ms dwell. That difference is what distinguishes a real dual-lock from a cosmetic timer.
+:::
+
+:::caution[Auto-Play halts on rejection — it does not skip past a failure]
+If a stage's verification is rejected mid-run, Auto-Play **stops at the last confirmed stage** and requires operator action. Verified in a browser by injecting a Stage 4 tamper rejection during a live `instant` run: the stepper held at `confinement_streaming`, never reached `revocation_denied`, and rendered the halted banner (`autoplay-halted-banner`) with the rejection reason plus **Retry** and **Reset Estate** controls. This is the behaviour to demonstrate when an audience asks what happens when verification fails.
 :::
 
 ---
@@ -244,18 +252,26 @@ Stage 5 demonstrates instant, attributable revocation and proves that subsequent
 1. **Revoke Dispatch**: An authenticated operator submits `POST /v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router`).
 2. **Denial Verification**: The console immediately dispatches an evidence upload to `POST /api/v1/external-agents/evidence-uploads` (mounted on `host_compat_router`).
 
+:::caution[Known limitations of Stage 5 — verified against the merged console]
+Two Stage 5 behaviours described below are **not currently reachable when you drive the console through the stepper**, and are recorded here rather than implied to work. Both are Phase 4 residual defects carried forward by AMXD-P4-GOV, not Phase 5 regressions.
+
+1. **The reason-code form does not render on the stepper route.** `RevocationPanel` gates the whole dispatch form on `!revocationSettled` (`RevocationPanel.tsx:709`), and `revocationSettled` initialises to `Boolean(initialPayload)` (`:157`). Reaching Stage 5 through the stepper settles the stage and supplies that payload, so the reason selector (`revocation-reason-select`) and dispatch button (`revocation-dispatch-btn`) are absent. The reason codes below are the panel's real contract and are exercised when the panel is driven directly, but an operator stepping through the demo will not see the selector.
+
+2. **In live mode the denial is `insufficient_scope`, not `agent_revoked`.** `agent_revoked` is raised only after the `audit-upload-only` scope gate passes (`host_credential.py:323`, `:345`), and the console has no way to obtain a host-scoped credential — `issue_host_credential` has no HTTP route, so no credential-bootstrap endpoint exists. Measured against the deployed backend the upload returns `403 {"code":"insufficient_scope"}`. **The `agent_revoked` assertion documented below is proven on the mock channel only.** Do not present the live 403 as an `agent_revoked` proof.
+:::
+
 #### 2. Mandatory Attributable Reason Codes
-The revocation form enforces selection of one of 5 standard `ExternalAgentRevocationV1` reason codes before enabling the dispatch button:
+The revocation panel defines 5 standard `ExternalAgentRevocationV1` reason codes, and when the dispatch form is rendered it requires one to be selected before enabling the dispatch button:
 - `operator-request`: Manual operator-initiated decommissioning or administrative quarantine.
 - `credential-compromise`: Suspected private key exfiltration or anomalous execution pattern.
 - `host-unenrolled`: Host sensor disconnected, decommissioned, or failed heartbeat.
 - `key-rotation`: Scheduled cryptographic credential rollover and retirement.
 - `credential-expired`: Validity window elapsed without valid renewal token.
 
-#### 3. Strict 403 Error Code Assertion
+#### 3. Strict 403 Error Code Assertion (mock channel)
 The verification engine inspects the upload rejection response and confirms:
 - HTTP Status: `403 Forbidden`.
-- Normalized Error Code: `agent_revoked`.
+- Normalized Error Code: `agent_revoked` — reached on the mock channel; see the caution above for live-mode behaviour.
 - Binding Mismatches Distinguished: Explicitly distinguishes `agent_revoked` from tenant binding mismatches (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`).
 
 #### 4. Cryptographic Audit Timeline & Transport Handling
@@ -267,7 +283,7 @@ The verification engine inspects the upload rejection response and confirms:
 ## Reset Estate Lifecycle
 
 Clicking **Reset Estate** executes an idempotent cleanup:
-1. Clears `amxd.demo.currentStage` from local storage.
+1. Clears every `amxd.demo.`-prefixed local storage key — the bridge enumerates the namespace rather than removing a hardcoded list (`bridge.ts:911`), and the controller additionally removes `amxd.demo.currentStage`.
 2. Resets the FSM reducer back to `INITIAL_STEPPER_STATE` (Stage 1 `operator_init`).
 3. Restores all ephemeral artifact hashes and simulation controls to their authentic baseline states.
 4. Leaves the cluster and PostgreSQL database byte-for-byte clean without requiring pod restarts.

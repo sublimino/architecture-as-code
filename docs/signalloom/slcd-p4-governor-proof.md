@@ -22,7 +22,8 @@ verdict: BLOCKED — the combined-session leak audit passes and is proven able t
 > | **Certified against** | the branch tip, not a worktree — see §1 |
 > | **Governor worktree** | `/home/andy/src/.worktrees/osramp-demo/slcd-v0.1.0/governor` |
 > | **New evidence** | `d2-signalloom/apps/agentmaxxing-host-sensor/test_p4_governor_integration.py` |
-> | **Date** | 2026-09-15 |
+> | **Certification commit** | `6a1f55abde402e489f5eda2075a140e413a609a0` |
+| **Date** | 2026-09-15 |
 
 ---
 

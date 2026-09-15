@@ -5,7 +5,7 @@
 **Tip SHA at certification:** `87636da7f3652b64e2f9112d22709430d57ff494`
 **Certified from:** `/home/andy/src/.worktrees/osramp-demo/slcd-v0.1.0/governor` (governor worktree, branch checked out — not a detached build)
 **Date:** 2026-09-15
-**Verdict:** **NOT CERTIFIED CLEAN — DELIVERED WITH BLOCKING ITEMS OPEN.**
+**Verdict:** **DELIVERED IN A NON-COLLECTING CONFIGURATION — NOT CERTIFIED CLEAN. Blocking items open.**
 
 ---
 
@@ -46,6 +46,12 @@ no conflict resolution was required or attempted.
 
 **Conflict-marker sweep:** `rg -l '^<<<<<<< '` across the tree (excluding `node_modules`,
 `test-results`) returns **zero files**. No weakened-draft reintroduction occurred at any merge.
+
+**No test surface was lost across the Phase 6 merges.** A shrunken suite still exits 0, so counts alone
+prove nothing; the file set was diffed rather than counted. `git diff --diff-filter=D --name-only
+82ac11f7..HEAD -- '*test*' '*spec*'` returns **zero deleted files**, and the host-sensor package grew
+from **25** to **30** `test_*.py` files across the five Phase 6 merges (`f0781642`, `3d223e1b`,
+`ef2c1b41`, `5522eb1e`, `b163a821`). Nothing was dropped in a conflict resolution.
 
 **Anti-regression check on the load-bearing artefacts.** The two things a bad conflict resolution
 would most plausibly have damaged were checked directly against the merged tip rather than assumed:
@@ -107,9 +113,21 @@ The discriminator is the browser channel, not the spec. `playwright.config.ts:13
 and it makes the bare command pass 8/8 (run B).
 
 **Conclusion:** the spec is wired, runnable, and green. The bare-command failure is an execution-
-environment precondition, documented in the registry, with a working remedy. It is recorded in §7 as
+environment precondition, documented in the registry, with a working remedy. It is recorded in §8.3 as
 an environmental caveat rather than a product defect, because runs A and B both contradict a
 product-defect reading.
+
+**"8 passed" is the whole spec, not a subset a project happened to claim.** A Playwright project whose
+`testMatch` claims no specs runs zero tests and exits 0, so the pass count was reconciled against the
+source: `coding-agent-topology.spec.ts` declares **exactly 8** `test("…")` blocks (lines 287, 324, 396,
+445, 498, 533, 594, 684), plus one `test.describe.configure` and one `test.beforeEach` which are not
+tests. 8 declared, 8 run, 8 passed — no spec is silently unclaimed.
+
+**One caveat on the run mode.** The spec sets `test.describe.configure({ mode: "serial" })`. Serial
+mode aborts the remainder on first failure — which is exactly why the failing bare invocation reported
+"1 failed, 7 did not run". A green serial run is a genuine green; a red one reports the status of only
+one test. This does not affect the passing runs above, but a reader diagnosing a future failure should
+know that the other seven results are absent rather than passing.
 
 ---
 
@@ -217,11 +235,43 @@ session's figures:
             duty_cycle_cpu=21.711%  peak_rss=62.46MB   throughput=9.21 sweeps/s
 ```
 
-**The verdict follows Measurement B.** Measurement A does not measure the KPI as the proposal states
-it — "Overhead on developer workstation" is the whole sensor on a real workstation, which is the
-four-subsystem combination, not a subset at an idealised cadence with an allocation-based memory
-proxy. Measurement A is a useful regression guard on its own slice; it is not evidence for this KPI
-and is not used as such here.
+**The verdict follows Measurement B**, and the reason is a construct mismatch in A that was checked
+rather than asserted:
+
+- **A's cadence is not the shipped cadence.** A divides by `5.0`. B divides by
+  `SWEEPS * POLL_INTERVAL_S` where `POLL_INTERVAL_S` is `0.5` — and
+  `test_p4_governor_integration.py:746 test_duty_cycle_model_matches_the_shipped_default` *asserts*
+  that `collector.py` ships `interval_s: float = 0.5` and `kanban_watcher.py` ships
+  `poll_interval_s: float = 0.5`. A's divisor is therefore **ten times the interval that ships**, and
+  a duty cycle is linear in that divisor. The KPI cannot be discharged by a projection under a
+  configuration the product does not use.
+- **A's memory metric is not RSS.** A asserts a **tracemalloc allocation** peak. B reads
+  `resource.getrusage(RUSAGE_SELF).ru_maxrss`. A KPI stated in MB RSS is not satisfied by Python
+  allocation accounting, which excludes interpreter overhead, C-extension allocations and arena
+  fragmentation — precisely the memory an operator pays for.
+- **A measures a subset; B measures the combination.** The KPI is about the sensor on a workstation.
+
+**Honest qualification on B's RSS figure.** B's `62.46 MB` is **absolute process peak RSS, not a
+baseline-subtracted delta**, so it includes the CPython interpreter. Measured on this host:
+interpreter-only peak RSS is **10.59 MB**, and **merely importing the sensor modules**
+(`collector`, `classifier`, `kanban_watcher`, `network`, `transcript`) takes it to **27.03 MB** —
+already over the 25 MB KPI before a single sweep executes. The KPI is therefore missed on two
+independent grounds: the import-time floor exceeds it, and the running figure exceeds it by ~2.5×.
+Stating this makes the claim smaller and truer than "62.46 MB of telemetry overhead" would have been.
+
+**The decisive evidence is not the arbitration at all.** Four `unittest.expectedFailure` decorators
+sit on the KPI-4 assertions (§3). Those are a committed admission by the implementing phases that the
+KPI does not hold. If Measurement A discharged KPI-4, the decorators would be wrong and would have
+been removed; they were not. A is the outlier requiring reconciliation, not a counterweight.
+
+**The alarm is not silenced.** A concern worth closing: if `unittest` treated an unexpected success
+silently, those four decorators would permanently mask a future fix. It does not — verified directly
+on this interpreter: an `@unittest.expectedFailure` test that passes yields
+`FAILED (unexpected successes=1)` and `wasSuccessful() == False`. When someone fixes the overhead, the
+suite goes red and forces the decorators off. The carve-out is self-expiring.
+
+Measurement A remains a useful regression guard on its own slice. It is not evidence for this KPI and
+is not used as such here.
 
 P4-GOV's own errata records the same breach at **36.05 % CPU and 42–60 MB RSS** across three paired
 runs. This session measured **21.711 % and 62.46 MB** on a differently-loaded host. The figures differ;
@@ -356,7 +406,7 @@ This list is the point of this document. Nothing below is closed by this certifi
 | :--- | :--- | :--- |
 | **OPEN-SLCD-1 … OPEN-SLCD-40** | P1 | 40 open items in the Legitimate Interest Assessment; **22 block collection** (7 unconditional, 15 jurisdictional). `collection_state: DISABLED`, `status: NOT ADOPTED`. See §6. |
 | **SLCD-P4-GOV** | P4 | Governor verdict recorded as **BLOCKED**. Not cleared by P5-GOV, not cleared by this card. |
-| **SLCD-P2-GOV** | P2 | Governor verdict recorded as **`status=fail proceed=no`**. A `proceed=no` gate is open upstream and four phases have now passed it. Explicitly *not* cleared here. |
+| **SLCD-P2-GOV** | P2 | Governor verdict recorded as **`status=fail proceed=no`**. A `proceed=no` gate is open upstream and four phases have now passed it. Explicitly *not* cleared here. **What it gated matters as much as that it is open:** P2-GOV's failure is in *harness attribution soundness* (`SLCD-P2-GOV-D`, renamed-binary spoofing) and in *overhead* (`SLCD-P2-GOV-E`). P2-GOV's own errata states the inheritance rule — "any Phase 3 deliverable whose correctness rests on harness attribution being non-spoofable, or on the engine detecting a real agent, is void until D and F close." That rule was written for Phase 3; **it applies with equal force to Phases 4, 5 and 6, which also passed the gate.** Every downstream conclusion that treats a harness label as trustworthy against a motivated actor — including the dashboard's rendered attribution and the socket detector's cgroup corroboration — inherits this defect. That inheritance is itself a finding and is recorded here as one. |
 
 ### 8.2 KPI misses — evidenced, not disputed
 
@@ -376,6 +426,8 @@ This list is the point of this document. Nothing below is closed by this certifi
 | **CERT-4** | **Documentation does not disclose the live KPI misses** (§7). No shipped operator-facing page states the 8.3 % FP rate or the overhead breach. |
 | **CERT-5** | **Two orphan worktrees remain registered** (§9): `/tmp/slcd-baseline-p4`, `/tmp/sler-baseline-p0`. Not removed — one belongs to another mission and removal is a destructive act outside this card's authority. |
 | **CERT-6** | **The `/goal` command named in this card's One-shot execution protocol does not exist** in the executing harness. The stated budget and wall-clock ceiling were honoured as declared constraints instead. |
+
+| **CERT-7** | **The card's literal bare `bunx playwright test` invocation fails in the agent execution shell** (§2.1). Not a product defect: `PW_CHANNEL=chromium` — the remedy the registry row documents — makes it pass 8/8, and the registry-declared `make` runner passes 8/8 unaided. Recorded so a future runner is not surprised. |
 
 ### 8.4 Structural caveat on this certification's own coverage
 
@@ -458,8 +510,15 @@ adopted it. No employee-representative body has been approached anywhere. This i
 gap to be closed later — under GDPR it is the condition precedent for the system operating at all on a
 real employee workstation, and this mission's technical success does nothing to satisfy it.
 
-**Verdict: DELIVERED, NOT CERTIFIED CLEAN.** The engineering is sound and well-tested. The system must
-not be switched on.
+**Verdict: DELIVERED IN A NON-COLLECTING CONFIGURATION — NOT CERTIFIED CLEAN.**
+
+The qualifier is load-bearing, not decorative. "Delivered" unqualified reads as *done*, and what
+shipped cannot lawfully collect. It also forces a second admission that matters: **every measurement
+in this document — the KPI-4 overhead figures, the 8.3 % false-positive rate, the latency, the leak
+audit — was taken with collection enabled by test-only bypass.** No production-equivalent measurement
+of this system exists, because no lawful production configuration of it exists. The engineering is
+sound and well-tested against fixtures and a live host under test conditions. The system must not be
+switched on.
 
 ---
 

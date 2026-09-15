@@ -1,0 +1,77 @@
+{
+  "decision_id": "cd-2026-09-15-0001",
+  "schema_version": "sler.signalloom.io/v1alpha1",
+  "idempotency_key": "agent-llm-classifier/cd-2026-09-15-0001",
+  "target": {
+    "agent_id": "agent-llm-classifier",
+    "namespace": "fe-signalloom-agents",
+    "pod_name": "agent-llm-classifier-6d4b9c7f8d-x2k9q",
+    "spiffe_id": "spiffe://signalloom.io/agent/llm-classifier",
+    "node_name": "signalloom-worker-02"
+  },
+  "reason": {
+    "code": "AUTHZ_CHAIN_BROKEN",
+    "description": "Signal Fusion determined the agent acted without a valid authorization chain",
+    "triggered_by": "spiffe://signalloom.io/service/signal-fusion",
+    "delegation_edge_revoked": true,
+    "attestation_digest": "sha256:0f6b2c1d9a4e5f38b7c0d2e1a9384756c2b1f0e9d8c7b6a594837261504f3e2d"
+  },
+  "requested_planes": ["mesh", "bao", "spire", "admission", "freeze"],
+  "plane_results": [
+    {
+      "plane": "mesh",
+      "outcome": "contained",
+      "timestamp": "2026-09-15T12:00:00Z",
+      "latency_ms": 180,
+      "details": {
+        "policy": "CiliumNetworkPolicy/deny-agent-llm-classifier",
+        "connections_cut": 12
+      }
+    },
+    {
+      "plane": "bao",
+      "outcome": "partial",
+      "error": "3 of 4 leases revoked; lease lb-9f21 returned 500 and was not confirmed",
+      "timestamp": "2026-09-15T12:00:01Z",
+      "latency_ms": 640,
+      "details": {
+        "revoked_leases": 3,
+        "unconfirmed_leases": 1
+      }
+    },
+    {
+      "plane": "spire",
+      "outcome": "unavailable",
+      "error": "spire-server: context deadline exceeded; SVID state is UNKNOWN",
+      "timestamp": "2026-09-15T12:00:03Z",
+      "latency_ms": 2000,
+      "details": {
+        "reason": "plane did not answer; target state is unknown"
+      }
+    },
+    {
+      "plane": "admission",
+      "outcome": "contained",
+      "timestamp": "2026-09-15T12:00:03Z",
+      "latency_ms": 45,
+      "details": {
+        "rule_id": "ncg-block-agent-llm-classifier",
+        "ttl_seconds": 3600
+      }
+    },
+    {
+      "plane": "freeze",
+      "outcome": "not_found",
+      "error": "pod agent-llm-classifier-6d4b9c7f8d-x2k9q is not present on signalloom-worker-02",
+      "timestamp": "2026-09-15T12:00:04Z",
+      "latency_ms": 22,
+      "details": {
+        "note": "the plane answered and there was nothing to freeze; this is NOT unavailable"
+      }
+    }
+  ],
+  "overall_outcome": "partial",
+  "duration_ms": 4120,
+  "timestamp": "2026-09-15T12:00:00Z",
+  "attested_record_digest": "sha256:9e1d4a77c3b208f5e6d1c0b9a8372615f4e3d2c1b0a9988776655443322110ff"
+}

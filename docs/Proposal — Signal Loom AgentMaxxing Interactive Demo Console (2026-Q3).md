@@ -305,7 +305,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P4-2 | implementation | Implement Stage 5 Attributable Revocation and live 403 denial verification panel | P4-PRE | Revocation dispatch test; 403 denial badge assertion; audit timeline check | L | daily | pass — delivered: a777d180b850cafcbb877bdcb106333a3a39c741 (see Errata — AMXD-P4-2) | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Merge adversarial and revocation panels and verify deterministic denial feedback | P4-1, P4-2 | Combined tamper + revocation test; zero visual flakiness | L | deep | **FAIL — Phase 4 NOT certified; declared hard blocker fired** (an acceptance assertion that can only pass against a fixture). All other gates passed: merge verified (`2fa6a3928505cfca29850e33caadabbc514873b9`, `319d1d013e1ed01c95a423041b8cc4df96c6463f`), no conflict in the shared state machine; 10/10 runs flake-free; typecheck + 177 files / 3362 tests + `vite build` all green; 0 `data-testid` collisions; estate byte-for-byte clean after a full Stage 4→5→Reset. **Refuted on the wire: the live 403 is `insufficient_scope`, not `agent_revoked`**, and the attributable dispatch controls do not render on the composed route. Governor test committed `adfdc7cb4679e8b71a4c9a50888cfc0a1c38315c`. (see Errata — AMXD-P4-GOV) | $0.00 | N/A | ~95m | N/A |
 | P5-PRE | preflight | Confirm automated stepping timers and docs integration seams | P4-GOV | Timer mock verification; docs navigation link inventory | S | daily | **Pass** — confirmed async-gate dual-lock callable contract (`executeAsyncGate`, `types.ts:527-645`); confirmed Vitest fake-timer pattern (`vi.useFakeTimers`/`vi.advanceTimersByTimeAsync`, `TokenIssuePanel.test.tsx:202`, `ConfinementTelemetryPanel.test.tsx:217`); confirmed docs sidebar seam ('Run demonstrations' in `astro.config.mjs:43-47`) and content directory `src/content/docs/demos/`; verified docs build (`ASTRO_TELEMETRY_DISABLED=1 bun run build`) and link audit (`bun run audit:links`, 0 broken links). (see Errata — AMXD-P5-PRE) | $0.00 | N/A | ~5m | N/A |
-| P5-1 | implementation | Implement Auto-Play mode, speed toggles, and state reset engine | P5-PRE | Auto-stepping timer tests (1x, 2x, instant); reset idempotency test | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P5-1 | implementation | Implement Auto-Play mode, speed toggles, and state reset engine | P5-PRE | Auto-stepping timer tests (1x, 2x, instant); reset idempotency test | M | daily | pass — delivered: da075dd312ac44cda9f9a7347625ce9964bb09b1 (see Errata — AMXD-P5-1) | $0.00 | N/A | N/A | N/A |
 | P5-2 | implementation | Publish interactive demo walkthrough guide in apps/docs-signalloom | P5-PRE | Astro docs build passes; demo guide content verified | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-GOV | governor | Merge demo automation and docs and verify presentation readiness | P5-1, P5-2 | Full auto-play pass verification; docs link check | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-PRE | preflight | Confirm Playwright test harness, mock server fixtures, and SPEC-REGISTRY | P5-GOV | Test harness check; mock server seed verification | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -1793,4 +1793,20 @@ Confirmed Vitest fake-timer mechanisms in `dashboard-signalloom` test suites:
   ```
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P5-1 Implement Auto-Play mode, speed toggles, and state reset engine
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 07:29:02+01:00
+**Last Updated:** 2026-09-15 07:29:02+01:00
+**Status:** Completed
+**Commit:** da075dd312ac44cda9f9a7347625ce9964bb09b1
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Integrated `AutoPlayControls` into `StageProgressionController.tsx` and exported it as a dedicated modular component with strict TypeScript typing, ensuring backwards-compatible composition with existing panel fixtures and full accessibility.
+- Resolved Council Finding: pacing is enforced strictly as a minimum dwell floor via `executeAsyncGate`, requiring both minimum dwell timer AND backend/mock confirmation resolution before advancing. In instant mode (100ms dwell), slow confirmations (e.g. 1500ms) maintain the stage in `in_flight` and never advance on dwell expiration alone.
+- Halted state on confirmation failure/rejection (`FAIL_TRANSITION`) stops the run immediately, prevents silent progression past failures, and surfaces a dedicated alert banner with retry and reset controls.
+- Speed toggle is live-switchable via synchronous ref updates (`pacingRef`), altering dwell only for upcoming stages without retroactively modifying already elapsed or in-flight stages.
+- Idempotent Reset Estate cleans all `amxd.demo.*` localStorage keys, resets bridge state and in-memory event logs, and returns the stepper to `operator_init`. Measured reset latency is ~0.002ms (max 0.038ms), outperforming the <500ms KPI by 5 orders of magnitude.
+**Deviations:** None.
+**Notes:** All 12 unit and integration tests in `AutoPlayControls.test.tsx` pass cleanly alongside the entire 202-test demo component suite. All required `data-testid` attributes (`autoplay-controls`, `autoplay-mode-indicator`, `autoplay-toggle-button`, `autoplay-start-button`, `autoplay-stop-button`, `autoplay-speed-toggle`, `autoplay-speed-1x`, `autoplay-speed-2x`, `autoplay-speed-instant`, `autoplay-reset-estate-button`, `autoplay-halted-banner`, `autoplay-error-message`, `autoplay-retry-button`) are present for AMXD-P6-1 Playwright automation.
 

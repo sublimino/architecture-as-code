@@ -2462,5 +2462,26 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "TokenIssuePanel and EnrollmentPanel unit and contract tests pass, ephemeral secret tokens, TTL timers verified"
+  },
+  "c8e7e": {
+    "task_id": "c8e7e",
+    "reviewed_at": "2026-09-15T03:22:41Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: AMXD Phase 2 certified; Stage 1/2 panels wired to route, real OIDC principal attribution enforced, 14 composed tests pass, tsc 0, build clean"
+  },
+  "6efbc": {
+    "task_id": "6efbc",
+    "reviewed_at": "2026-09-15T03:22:41Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: SLER Phase 2 certified; repaired dual-plane fan-out in RevokeCredentials (G-1), typed-nil guard (G-2), 15 combined-plane tests pass, 15/15 redteam pass"
+  },
+  "a0435": {
+    "task_id": "a0435",
+    "reviewed_at": "2026-09-15T03:22:41Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: SLCD Phase 1 certified; zero-payload, procfs pins, and wire contract verified by mutation, fail-closed lawful basis gate added, 146 tests pass"
   }
 }

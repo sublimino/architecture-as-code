@@ -68,6 +68,20 @@ try:
     from .proc import ProcReader
     from .ratelimit import RateLimiter
     from .sensor import HostSensor
+    from .transcript import (
+        CONFIRMED_STORES,
+        ConfinedStore,
+        ModelFamily,
+        ParseStatus,
+        TranscriptExtract,
+        TranscriptFormat,
+        TranscriptIndexer,
+        TranscriptMetrics,
+        TranscriptPayloadViolation,
+        assert_zero_payload,
+        map_model_identifier,
+        poll_unsupported_harness,
+    )
     from .kanban_watcher import (
         KanbanTaskSnapshot,
         KanbanWatcher,
@@ -137,11 +151,37 @@ except (ImportError, ValueError):
     from proc import ProcReader
     from ratelimit import RateLimiter
     from sensor import HostSensor
+    from transcript import (
+        CONFIRMED_STORES,
+        ConfinedStore,
+        ModelFamily,
+        ParseStatus,
+        TranscriptExtract,
+        TranscriptFormat,
+        TranscriptIndexer,
+        TranscriptMetrics,
+        TranscriptPayloadViolation,
+        assert_zero_payload,
+        map_model_identifier,
+        poll_unsupported_harness,
+    )
 
 __version__ = "1.0.0"
 
 __all__ = [
     "AllowlistFilter",
+    "CONFIRMED_STORES",
+    "ConfinedStore",
+    "ModelFamily",
+    "ParseStatus",
+    "TranscriptExtract",
+    "TranscriptFormat",
+    "TranscriptIndexer",
+    "TranscriptMetrics",
+    "TranscriptPayloadViolation",
+    "assert_zero_payload",
+    "map_model_identifier",
+    "poll_unsupported_harness",
     "ArtifactHashResult",
     "BoundedArtifactHasher",
     "BoundedProcessAttributes",

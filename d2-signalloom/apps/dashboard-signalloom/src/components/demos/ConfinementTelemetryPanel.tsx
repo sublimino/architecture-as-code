@@ -11,6 +11,7 @@ import {
   type ScenarioPreset,
 } from './scenarios'
 import type { ConfinementStreamingPayload } from './types'
+import { ZeroPayloadInspector } from './ZeroPayloadInspector'
 
 export interface ArtifactHashItem {
   readonly artifactId: string
@@ -869,6 +870,9 @@ export function ConfinementTelemetryPanel({
           </table>
         </div>
       </div>
+
+      {/* Stage 3 Sub-panel: Zero-Payload Telemetry & Allowlist Inspector (AMXD-P3-2) */}
+      <ZeroPayloadInspector isLiveChannel={bridge.channelKind === 'live'} />
     </div>
   )
 }

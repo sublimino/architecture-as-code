@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -242,18 +243,44 @@ func TestStun_ContextCancellation(t *testing.T) {
 	_ = err
 }
 
-func TestStun_ClientErrors_AreTolerated(t *testing.T) {
+// TestStun_ClientErrors_AreRecordedNotTolerated replaces
+// TestStun_ClientErrors_AreTolerated, which asserted the defect SLER-P1-5 was
+// raised to remove. That test's comment read "client failures are logged but
+// tolerated" and it checked only that the cascade returned no error and emitted
+// one event — both of which a wholly-failed containment also does. It was green
+// throughout the entire lifetime of the bug.
+//
+// The contract kept: a per-target client failure is not a cascade-level error,
+// because the cascade must go on to attempt the remaining targets.
+// The contract added: "not a cascade-level error" is not "tolerated". The
+// failure is now carried on the result.
+func TestStun_ClientErrors_AreRecordedNotTolerated(t *testing.T) {
 	dag := mustBuildTestDAG(t)
 	client := newMockClient()
 	client.revokeErr = fmt.Errorf("vault unavailable")
 	orch := NewCascadeOrchestrator(dag, client, 0)
 
-	// Should NOT return an error -- client failures are logged but tolerated
+	// Still NOT a returned error -- one target's failure must not abort the
+	// cascade for the others.
 	result, err := orch.Stun(context.Background(), "agent-llm-classifier")
 	if err != nil {
-		t.Fatalf("expected cascade to succeed despite client errors: %v", err)
+		t.Fatalf("expected cascade to continue despite client errors: %v", err)
 	}
 	if len(result.Events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(result.Events))
+	}
+
+	// ...but the failure must be visible on the result, not just in a log line.
+	if result.OverallOutcome == OutcomeContained {
+		t.Fatal("regression: a cascade whose credential revoke failed reported contained")
+	}
+	if len(result.FailedTargets()) != 1 {
+		t.Fatalf("expected the failed target to be named, got %v", result.FailedTargets())
+	}
+	if result.Events[0].Success {
+		t.Fatal("regression: event reported success=true after the revoke failed")
+	}
+	if !strings.Contains(result.Events[0].Error, "vault unavailable") {
+		t.Fatalf("expected the client error on the event, got %q", result.Events[0].Error)
 	}
 }

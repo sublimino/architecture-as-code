@@ -495,6 +495,8 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	@echo "=== [Offline 5/5] Static Config, Manifests, Registries & Guards ==="
 	bats test/acceptance-spec-coverage.bats
 	bats d2-signalloom/test/bats-registry-coverage.bats
+	$(MAKE) test-sler-multiplane-acceptance
+	bats test/sler-p6-3-multiplane-acceptance.bats
 	$(MAKE) demo-signalloom-test-config
 	$(MAKE) demo-kagent-test-config
 	$(MAKE) demo-cpai-test-config
@@ -932,6 +934,16 @@ demo-signalloom-workspace-up: ## Deploy the Google Workspace agentic identity co
 test-workspace-acceptance: ## Run the complete Workspace Agentic Identity Streaming acceptance test suite.
 	bats test/workspace-identity-streaming.bats
 	(cd d2-signalloom/apps/workspace-connector && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)
+
+.PHONY: test-sler-multiplane-acceptance
+test-sler-multiplane-acceptance: ## SLER-P6-3: end-to-end multi-plane containment acceptance suite (offline, no cluster).
+	@# The Go half drives one containment decision across all five enforcement
+	@# planes and asserts each PlaneResult individually; the bats half proves the
+	@# Go half's plane coverage is derived from AllEnforcementPlanes() and that
+	@# this very target is reachable from CI. Both halves are required: a derived
+	@# guard nobody runs is the defect it was written to prevent, one level up.
+	cd d2-signalloom/apps/fleet-manager && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -run 'TestAcceptance' -count=1 -v .
+	bats test/sler-p6-3-multiplane-acceptance.bats
 
 .PHONY: factory-schemas-validate factory-appraisal-test
 factory-schemas-validate: ## Validate AI-Governed Software Factory JSON schemas.

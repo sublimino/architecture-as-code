@@ -23,6 +23,26 @@ echo "  Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 echo "=========================================================="
 
 echo ""
+echo "--- Gate: SLER-P6-3 multi-plane containment acceptance (happy path) ---"
+# This runner publishes "0 process escapes across 5 planes". That claim is only
+# meaningful if the cascade contains on the ORDINARY path first: an adversarial
+# suite reporting zero escapes against a cascade that never contained anything
+# is the most expensive kind of false assurance, because it gets published as
+# evidence. So the happy-path acceptance suite gates this one, and a failure
+# there stops the run before any evidence is written.
+#
+# SLER_SKIP_ACCEPTANCE_GATE exists for the one legitimate case — re-running the
+# adversarial corpus on a host with no Go toolchain — and is deliberately loud
+# rather than silent, because a quietly-skipped gate is the failure mode the
+# gate was added to prevent.
+if [ "${SLER_SKIP_ACCEPTANCE_GATE:-0}" = "1" ]; then
+  echo "WARNING: SLER_SKIP_ACCEPTANCE_GATE=1 — the happy-path acceptance gate did NOT run." >&2
+  echo "WARNING: the escape counts below are not backed by a verified working cascade." >&2
+else
+  make -C "$REPO_ROOT" test-sler-multiplane-acceptance
+fi
+
+echo ""
 echo "--- Running Benchmark & Latency Measurement ---"
 "$REPO_ROOT/test/bench-redteam-stress.sh"
 

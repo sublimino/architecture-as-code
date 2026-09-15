@@ -12,6 +12,8 @@ type Config struct {
 	HealthAddr     string `json:"health_addr"`
 	CgroupRoot     string `json:"cgroup_root"`
 	WatchNamespace string `json:"watch_namespace"`
+	FreezeToken    string `json:"freeze_token,omitempty"`
+	ResumeToken    string `json:"resume_token,omitempty"`
 }
 
 // parseConfig parses command-line flags and environment variables with the following precedence:
@@ -25,6 +27,8 @@ func parseConfig(args []string) *Config {
 	healthAddrFlag := fs.String("health-addr", "", "Address for the HTTP health/readiness server (default: :8081)")
 	cgroupRootFlag := fs.String("cgroup-root", "", "Path to cgroup v2 root hierarchy")
 	watchNamespaceFlag := fs.String("watch-namespace", "", "Kubernetes namespace to watch for agent pods")
+	freezeTokenFlag := fs.String("freeze-token", "", "Governance freeze token")
+	resumeTokenFlag := fs.String("resume-token", "", "Governance resume token")
 
 	_ = fs.Parse(args)
 
@@ -61,6 +65,18 @@ func parseConfig(args []string) *Config {
 		cfg.WatchNamespace = val
 	} else {
 		cfg.WatchNamespace = watchNamespace
+	}
+
+	if *freezeTokenFlag != "" {
+		cfg.FreezeToken = *freezeTokenFlag
+	} else {
+		cfg.FreezeToken = os.Getenv("STUN_FREEZE_TOKEN")
+	}
+
+	if *resumeTokenFlag != "" {
+		cfg.ResumeToken = *resumeTokenFlag
+	} else {
+		cfg.ResumeToken = os.Getenv("STUN_RESUME_TOKEN")
 	}
 
 	return cfg

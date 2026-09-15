@@ -462,7 +462,7 @@ func (c *OpenBaoClient) RevokeAgentCredentials(ctx context.Context, namespace, a
 	// Emit structured audit log entry for P5-1 attestation
 	auditEntry := RevokeAuditLogEntry{
 		Timestamp:           c.now().UTC().Format(time.RFC3339),
-		Event:               "bao_revoke_attempt",
+		Event:               BaoRevokeEventName,
 		AgentID:             agentID,
 		Namespace:           namespace,
 		LeaseIDs:            req.LeaseIDs,

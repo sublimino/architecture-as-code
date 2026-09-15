@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -293,56 +294,250 @@ func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, st
 	return classified
 }
 
-// RevokeCredentials revokes the agent's credentials across OpenBao and SPIRE planes.
-func (c *k8sFleetClient) RevokeCredentials(ctx context.Context, agentID string) error {
+// Worst-case residual-exposure bounds for the SPIRE plane, in milliseconds.
+//
+// These are UPSTREAM SPIRE DEFAULTS, not measurements. SLER-P2-GOV verified that
+// no default_svid_ttl or default_x509_svid_ttl is set anywhere in this repository
+// (`rg default_svid_ttl -r d2-signalloom/` returns zero matches), so SPIRE's own
+// defaults are what actually apply. They are published rather than measured
+// because a 3600s window is not observable inside a unit test, and a test that
+// claims to observe one is asserting against its own constant.
+//
+// SPIFFE has no CRL and no OCSP. Deleting a registration entry stops RE-ISSUANCE;
+// it does not invalidate an SVID already in the workload's memory. Nothing short
+// of TTL expiry removes a trusted SVID, so this residual is a floor on the
+// attacker's window, not an implementation shortcoming to be engineered away.
+const (
+	// SpireJWTSVIDResidualMs is SPIRE's default JWT-SVID TTL (300s).
+	SpireJWTSVIDResidualMs = int64(300000)
+	// SpireX509SVIDResidualMs is SPIRE's default X.509-SVID TTL (3600s) and is
+	// the binding worst case for the spire plane: it is the longer of the two.
+	SpireX509SVIDResidualMs = int64(3600000)
+)
+
+// revokeCredentialsIdempotencyKey builds the single key shared by every plane in
+// one containment decision. Sharing it is load-bearing: P2-1 and P2-2 implemented
+// idempotency independently against the same P1-2 schema, and a per-plane key
+// would make a retry look like a fresh decision on one plane and a replay on the
+// other.
+func (c *k8sFleetClient) revokeCredentialsIdempotencyKey(agentID string) string {
+	return fmt.Sprintf("contain-%s-%d", agentID, c.now().UnixNano())
+}
+
+// RevokeCredentialsPlanes fans out credential revocation to EVERY configured
+// credential plane and returns one PlaneResult per plane, in deterministic order
+// (spire, then bao).
+//
+// This exists because the previous implementation was an if/else-if chain whose
+// SPIRE branch ended in an unconditional `return nil`. newK8sFleetClient always
+// sets baoClient and newK8sFleetClientWithSpire then sets spireClient, so in the
+// production wiring at fleetclient_select.go both fields are non-nil, the SPIRE
+// branch won, and OpenBao lease revocation never executed — while the function
+// reported success. Neither P2-1 nor P2-2 could see it: each card's tests only
+// ever configured its own client. A real agent holds both a lease and an SVID.
+//
+// The planes run CONCURRENTLY under the caller's context, so the decision's
+// overall deadline bounds the pair rather than the sum. A tripped OpenBao circuit
+// breaker therefore returns Unavailable immediately without consuming the budget
+// the SPIRE call still needs.
+//
+// The returned error is non-nil whenever any plane failed to contain, and wraps
+// ErrEnforcementUnavailable so callers keep the fail-closed contract. A partial
+// containment is representable: the []PlaneResult carries the per-plane truth
+// even when the aggregate error is set.
+func (c *k8sFleetClient) RevokeCredentialsPlanes(ctx context.Context, agentID string) ([]PlaneResult, error) {
 	seq := c.degraded.nextSeq()
 	namespace := c.defaultNamespace
 	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+	idempotencyKey := c.revokeCredentialsIdempotencyKey(agentID)
+
+	if c.spireClient == nil && c.baoClient == nil {
+		err := fmt.Errorf("revoke_credentials %s/%s: %w: no credential plane configured",
+			namespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneBao, namespace, agentID, "revoke_credentials", err)
+		return nil, err
+	}
+
+	var (
+		wg        sync.WaitGroup
+		spireRes  *PlaneResult
+		spireErr  error
+		baoRes    *PlaneResult
+		baoErr    error
+		startedAt = c.now().UTC()
+	)
 
 	if c.spireClient != nil {
-		req := SpireEvictionRequest{
-			SchemaVersion:  CurrentSchemaVersion,
-			IdempotencyKey: fmt.Sprintf("contain-%s-%d", agentID, c.now().UnixNano()),
-			AgentID:        agentID,
-			SPIFFEID:       spiffeID,
-			Reason:         StunReason,
-			Timestamp:      c.now().UTC().Format(time.RFC3339),
-		}
-
-		resp, err := c.spireClient.EvictAgent(ctx, req)
-		if err != nil {
-			c.record(seq, PlaneSpire, namespace, agentID, "revoke_credentials", err)
-			return err
-		}
-		if resp != nil && resp.Outcome == OutcomeUnavailable {
-			evictErr := fmt.Errorf("spire eviction failed: %s", resp.Error)
-			c.record(seq, PlaneSpire, namespace, agentID, "revoke_credentials", evictErr)
-			return evictErr
-		}
-
-		c.record(seq, PlaneSpire, namespace, agentID, "revoke_credentials", nil)
-		return nil
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			spireRes, spireErr = c.revokeSpirePlane(ctx, namespace, agentID, spiffeID, idempotencyKey, startedAt)
+		}()
 	}
 
 	if c.baoClient != nil {
-		planeRes, err := c.baoClient.RevokeAgentCredentials(ctx, c.defaultNamespace, agentID, "")
-		if err != nil {
-			c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", err)
-			return err
-		}
-		if planeRes.Outcome == OutcomeUnavailable {
-			resErr := fmt.Errorf("revoke_credentials %s/%s: %w: %s",
-				c.defaultNamespace, agentID, ErrEnforcementUnavailable, planeRes.Error)
-			c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", resErr)
-			return resErr
-		}
-		c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", nil)
-		return nil
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			baoRes, baoErr = c.revokeBaoPlane(ctx, namespace, agentID, idempotencyKey)
+		}()
 	}
 
-	err := fmt.Errorf("revoke_credentials %s/%s: %w: OpenBao lease revocation not implemented (SLER-P2-1)",
-		c.defaultNamespace, agentID, ErrEnforcementUnavailable)
-	c.record(seq, PlaneBao, c.defaultNamespace, agentID, "revoke_credentials", err)
+	wg.Wait()
+
+	// Record degraded state per plane AFTER the fan-out, on the calling
+	// goroutine. degradedRegistry is keyed per plane precisely so one plane's
+	// success cannot clear a sibling's still-true failure.
+	results := make([]PlaneResult, 0, 2)
+	var failures []string
+
+	if spireRes != nil {
+		c.record(seq, PlaneSpire, namespace, agentID, "revoke_credentials", spireErr)
+		results = append(results, *spireRes)
+		if spireErr != nil {
+			failures = append(failures, "spire: "+spireErr.Error())
+		}
+	}
+	if baoRes != nil {
+		c.record(seq, PlaneBao, namespace, agentID, "revoke_credentials", baoErr)
+		results = append(results, *baoRes)
+		if baoErr != nil {
+			failures = append(failures, "bao: "+baoErr.Error())
+		}
+	}
+
+	if len(failures) == 0 {
+		return results, nil
+	}
+	return results, fmt.Errorf("revoke_credentials %s/%s: %w: %s",
+		namespace, agentID, ErrEnforcementUnavailable, strings.Join(failures, "; "))
+}
+
+// revokeSpirePlane evicts the agent's SPIRE registration entries and returns an
+// honest PlaneResult carrying the published worst-case residual.
+func (c *k8sFleetClient) revokeSpirePlane(ctx context.Context, namespace, agentID, spiffeID, idempotencyKey string, startedAt time.Time) (*PlaneResult, error) {
+	req := SpireEvictionRequest{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: idempotencyKey,
+		AgentID:        agentID,
+		SPIFFEID:       spiffeID,
+		Reason:         StunReason,
+		Timestamp:      startedAt.Format(time.RFC3339),
+	}
+
+	res := &PlaneResult{
+		Plane:     PlaneSpire,
+		Outcome:   OutcomeUnavailable,
+		Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+		Details: map[string]any{
+			"idempotency_key":          idempotencyKey,
+			"spiffe_id":                spiffeID,
+			"namespace":                namespace,
+			"worst_case_residual_ms":   SpireX509SVIDResidualMs,
+			"jwt_svid_residual_ms":     SpireJWTSVIDResidualMs,
+			"x509_svid_residual_ms":    SpireX509SVIDResidualMs,
+			"residual_provenance":      "upstream-default",
+			"revocation_mechanism":     "grpc BatchDeleteEntry (no CRL/OCSP in SPIFFE)",
+			"invalidates_issued_svids": false,
+		},
+	}
+
+	resp, err := c.spireClient.EvictAgent(ctx, req)
+	if err != nil {
+		res.Error = err.Error()
+		return res, err
+	}
+	if resp == nil {
+		nilErr := fmt.Errorf("spire eviction returned no response: %w", ErrEnforcementUnavailable)
+		res.Error = nilErr.Error()
+		return res, nilErr
+	}
+
+	res.Outcome = resp.Outcome
+	res.LatencyMs = resp.LatencyMs
+	res.Details["entries_evicted"] = resp.EntriesEvicted
+	res.Details["svids_invalidated"] = resp.SVIDsInvalidated
+
+	if resp.Outcome == OutcomeUnavailable {
+		evictErr := fmt.Errorf("spire eviction failed: %s: %w", resp.Error, ErrEnforcementUnavailable)
+		res.Error = evictErr.Error()
+		return res, evictErr
+	}
+	return res, nil
+}
+
+// revokeBaoPlane revokes the agent's OpenBao leases and tokens. The idempotency
+// key is now threaded through; the previous implementation passed "" here, so a
+// retry was indistinguishable from a fresh decision on this plane while the
+// SPIRE plane saw a stable key.
+func (c *k8sFleetClient) revokeBaoPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
+	planeRes, err := c.baoClient.RevokeAgentCredentials(ctx, namespace, agentID, idempotencyKey)
+	if err != nil {
+		if planeRes == nil {
+			planeRes = &PlaneResult{
+				Plane:     PlaneBao,
+				Outcome:   OutcomeUnavailable,
+				Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+				Details: map[string]any{
+					"idempotency_key":        idempotencyKey,
+					"worst_case_residual_ms": DefaultWorstCaseResidualMs,
+				},
+			}
+		}
+		planeRes.Error = err.Error()
+		return planeRes, err
+	}
+	if planeRes.Details == nil {
+		planeRes.Details = map[string]any{}
+	}
+	if _, ok := planeRes.Details["worst_case_residual_ms"]; !ok {
+		planeRes.Details["worst_case_residual_ms"] = DefaultWorstCaseResidualMs
+	}
+	planeRes.Details["residual_provenance"] = "config-derived (token_ttl = token_max_ttl = 5m)"
+	planeRes.Details["invalidates_issued_credentials"] = false
+
+	if planeRes.Outcome == OutcomeUnavailable {
+		resErr := fmt.Errorf("%w: %s", ErrEnforcementUnavailable, planeRes.Error)
+		return planeRes, resErr
+	}
+	return planeRes, nil
+}
+
+// AggregateCredentialOutcome collapses per-plane results into the single outcome
+// a ContainmentDecision reports. Partial is a first-class answer: one plane
+// contained and one unavailable is neither "contained" nor "unavailable", and
+// reporting it as either is the lie this phase exists to stop telling.
+func AggregateCredentialOutcome(results []PlaneResult) PlaneOutcome {
+	if len(results) == 0 {
+		return OutcomeUnavailable
+	}
+	contained, unavailable := 0, 0
+	for _, r := range results {
+		switch r.Outcome {
+		case OutcomeContained, OutcomeNotFound:
+			contained++
+		case OutcomePartial:
+			return OutcomePartial
+		default:
+			unavailable++
+		}
+	}
+	switch {
+	case unavailable == 0:
+		return OutcomeContained
+	case contained == 0:
+		return OutcomeUnavailable
+	default:
+		return OutcomePartial
+	}
+}
+
+// RevokeCredentials satisfies the FleetClient contract by fanning out to every
+// configured plane and collapsing the per-plane results into a single error.
+// Callers that need the per-plane truth — the attestation pipeline, the denial
+// matrix, /health — use RevokeCredentialsPlanes.
+func (c *k8sFleetClient) RevokeCredentials(ctx context.Context, agentID string) error {
+	_, err := c.RevokeCredentialsPlanes(ctx, agentID)
 	return err
 }
 

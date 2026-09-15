@@ -298,7 +298,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P2-GOV | governor | Merge Stage 1-2 UI and verify attributable enrollment display | P2-1, P2-2 | Typecheck + vitest suites pass; zero regression in existing sidebar | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P3-PRE | preflight | Confirm SSE/websocket telemetry streaming and host metrics contract | P2-GOV | Telemetry fixture probe; host sensor payload schema verification | S | daily | **Pass** — verified host telemetry contract: zero file-descriptor fields exist across all `agentmaxxing-host-sensor` models/code (confirmed via `grep`); traced data path showing only `cpu_time_ms` and `resident_memory_bytes` reach dashboard (`cpu_percent` is dropped at sensor `to_export_dict` / schema boundary); confirmed zero SSE/WebSocket streams for AgentMaxxing telemetry (polled REST only); established binding decision for AMXD-P3-1: Open FDs gauge must NOT fabricate numbers (must be omitted or clearly labeled `N/A — Not available in host-sensor-v1 contract`); live gauges poll `cpu_time_ms` and `resident_memory_bytes` on standard interval. | $0.00 | N/A | ~5m | N/A |
 | P3-1 | implementation | Implement Stage 3 Confinement Telemetry panel | P3-PRE | Gauge rendering tests; live CPU/RSS/FD updates; hash comparison table | L | daily | pass — delivered: ea1397a3de43f1378b8b30d702a5503b5cab549c (see Errata — AMXD-P3-1) | $0.00 | N/A | N/A | N/A |
-| P3-2 | implementation | Implement Zero-Payload Inspector widget proving prompt/code confidentiality | P3-PRE | Zero-payload assertion tests; metadata-only display proof | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P3-2 | implementation | Implement Zero-Payload Inspector widget proving prompt/code confidentiality | P3-PRE | Zero-payload assertion tests; metadata-only display proof | L | daily | pass — delivered: 85b947b957797f0a2c64c9b0bc719f6fa905dee1 (see Errata — AMXD-P3-2) | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge telemetry visualization and verify zero customer payload display | P3-1, P3-2 | Vitest suites pass; zero prompt/code leak verified | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P4-PRE | preflight | Confirm defect injection hooks and revocation API seams | P3-GOV | Defect injection contract check; revocation status endpoint verify | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-1 | implementation | Implement Stage 4 Adversarial Simulation panel | P4-PRE | Hash tamper test; symlink escape test; breach alert trigger assertion | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -1377,3 +1377,23 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
 **Deviations:** None.
 **Notes:** All 20 tests in `ConfinementTelemetryPanel.test.tsx`, all 173 dashboard test suites (3,316 passed, 3 skipped, 0 failed), TypeScript typecheck (exit 0), ESLint (0 errors, 0 warnings), CSS variables scanner, and acceptance spec coverage (7/7 passed) are green.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P3-2 Implement Zero-Payload Inspector widget proving prompt/code confidentiality
+**Created:** 2026-09-15 05:07:24+01:00
+**Last Updated:** 2026-09-15 05:07:24+01:00
+**Status:** Completed
+**Commit:** 85b947b957797f0a2c64c9b0bc719f6fa905dee1
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Built `scripts/generate-agentmaxxing-allowlist-manifest.mjs` running at build time to extract `ALLOWLISTED_PROCESS_ATTRIBUTES`, `ALLOWLISTED_ENVELOPE_FIELDS`, `PROHIBITED_EXPORT_KEYS`, `EXTENDED_PROCESS_ATTRIBUTES`, and coding agent telemetry sets from `d2-signalloom/apps/agentmaxxing-host-sensor/filter.py`, computing the complete SHA-256 digest (`183b788007e4adfe116e792893ccc814f5e66acfa68dbff067c9e2d71a239b34`).
+- Equipped the manifest script with a CI-facing exit-code contract on `--check`: exit 0 when fresh, exit 1 when stale/drift detected, and exit 2 when missing python3 or source files.
+- Built `ZeroPayloadInspector.tsx` rendering the compiled allowlist sets (`ALLOWLISTED_PROCESS_ATTRIBUTES`, `ALLOWLISTED_ENVELOPE_FIELDS`, `PROHIBITED_EXPORT_KEYS`), the complete 64-character copyable SHA-256 digest with dedicated copy button, and a prominent active drop-count demonstration (`6 dropped` on default representative payload) proving unapproved leak vectors (`prompt_text`, `completion_text`, `file_contents`, `raw_cmdline`, `memory_contents`, `api_key`) are actively discarded.
+- Implemented visual staleness warning banner (`data-testid="manifest-staleness-warning"`) rendered when `expectedDigest` does not match `manifest.filter_sha256`.
+- Repurposed DOM string absence inspection as an explicit secondary defense-in-depth notice (`data-testid="dom-inspection-notice"`), clarifying that the primary confidentiality proof is the cryptographically tied `filter.py` AllowlistFilter engine.
+- Ensured strict mock/live channel parity: both mock and live modes consume the identical build-time manifest data.
+- Integrated `ZeroPayloadInspector` into `ConfinementTelemetryPanel.tsx` (Stage 3).
+- Added 13 comprehensive unit and integration tests in `ZeroPayloadInspector.test.tsx` verifying manifest validity, digest copy, allowlist display, drop count calculation, deliberate staleness warnings, and mock/live parity.
+**Deviations:** None.
+**Notes:** All 13 tests in `ZeroPayloadInspector.test.tsx`, all 20 tests in `ConfinementTelemetryPanel.test.tsx`, all 174 dashboard test suites (3,329 passed, 3 skipped, 0 failed), TypeScript typecheck (`tsc --noEmit` exit 0), ESLint (0 errors, 0 warnings), Vite build (`✓ built in 2.81s`), and acceptance spec coverage (`bats test/acceptance-spec-coverage.bats` 7/7) are green.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

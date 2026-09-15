@@ -397,6 +397,7 @@ class KanbanCycleExtractor:
         self._monotonic_fn: Callable[[], int] = monotonic_fn or time.monotonic_ns
         self._trackers: Dict[str, TaskLifecycleTracker] = {}
         self._card_spec_cache: Dict[Tuple[str, str], Tuple[str, str]] = {}
+        self._metadata_resolution_cache: Dict[Tuple[str, Optional[str], str, str], Tuple[str, str]] = {}
 
     @property
     def kanban_home(self) -> Path:
@@ -409,6 +410,7 @@ class KanbanCycleExtractor:
         """Clear all active in-memory task trackers."""
         self._trackers.clear()
         self._card_spec_cache.clear()
+        self._metadata_resolution_cache.clear()
 
     def get_tracker(
         self,
@@ -441,6 +443,9 @@ class KanbanCycleExtractor:
     ) -> Tuple[str, str]:
         """Resolve shortcode and role for a task ID from card-specs or identifier patterns."""
         clean_task_id = str(raw_task_id).strip()
+        res_cache_key = (clean_task_id, workspace_path, default_shortcode, default_role)
+        if res_cache_key in self._metadata_resolution_cache:
+            return self._metadata_resolution_cache[res_cache_key]
 
         # 1. Check if task_id has explicit shortcode prefix (e.g. SLCD-P3-2)
         match = re.match(r"^([A-Z0-9]{2,16})-([A-Z0-9_\-\.]+)$", clean_task_id, re.IGNORECASE)
@@ -449,6 +454,7 @@ class KanbanCycleExtractor:
             lid = match.group(2).upper()
             cache_key = (sc, lid)
             if cache_key in self._card_spec_cache:
+                self._metadata_resolution_cache[res_cache_key] = self._card_spec_cache[cache_key]
                 return self._card_spec_cache[cache_key]
 
             # Try to read card specification
@@ -460,8 +466,11 @@ class KanbanCycleExtractor:
                     extracted_role = card_spec.get("role", default_role)
                     result = (sc, normalize_role(extracted_role))
                     self._card_spec_cache[cache_key] = result
+                    self._metadata_resolution_cache[res_cache_key] = result
                     return result
-            return (sc, default_role)
+            result = (sc, default_role)
+            self._metadata_resolution_cache[res_cache_key] = result
+            return result
 
         # 2. Check auto-controller leases or mission metadata in kanban_home
         auto_controller_dir = self.kanban_home / "auto-controller"
@@ -478,10 +487,16 @@ class KanbanCycleExtractor:
                         data = self.safe_read_json(card_spec_file)
                         if data and "cardSpecification" in data:
                             extracted_role = data["cardSpecification"].get("role", default_role)
-                            return (detected_sc, normalize_role(extracted_role))
-                    return (detected_sc, default_role)
+                            result = (detected_sc, normalize_role(extracted_role))
+                            self._metadata_resolution_cache[res_cache_key] = result
+                            return result
+                    result = (detected_sc, default_role)
+                    self._metadata_resolution_cache[res_cache_key] = result
+                    return result
 
-        return (normalize_shortcode(default_shortcode), normalize_role(default_role))
+        result = (normalize_shortcode(default_shortcode), normalize_role(default_role))
+        self._metadata_resolution_cache[res_cache_key] = result
+        return result
 
     def safe_read_json(
         self,

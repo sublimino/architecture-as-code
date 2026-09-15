@@ -146,6 +146,21 @@ decorated `@unittest.expectedFailure` with a named carried-defect ID. A count-ma
 | 4 | `test_p3_governor_integration.py:280` | `test_combined_engines_within_cpu_and_rss_budget` | **SLCD-P3-GOV-E** |
 | 5 | `test_p4_governor_integration.py:758` | `test_four_subsystem_overhead_against_kpi` | **SLCD-P4-GOV-E** |
 
+**Two of the five are host-gated, and this bounds what the KPI-4 miss proves.** Rows 4 and 5 carry
+`@unittest.skipUnless(LIVE_KANBAN.is_dir(), "no live kanban home")` *underneath* the
+`expectedFailure` decorator. `functools.wraps` propagates `__unittest_skip__`, so on any host without
+a live kanban home **those two become skips, not expected failures**, and the run would report
+`expected failures=3`. The combined-subsystem overhead miss is therefore **measurable only on a host
+with `~/.cline/kanban` present**. It was present here (verified: `test -d "$HOME/.cline/kanban"` →
+exists), so rows 4 and 5 genuinely executed and genuinely failed in this session — but a CI lane
+without that directory would report a *quieter* suite and a reader could mistake the reduced count for
+progress. A static `rg -c 'expectedFailure'` sweep returns 5 either way and cannot detect this.
+
+Related: the two files gate on `LIVE_KANBAN` differently. `test_p3_governor_integration.py:33` honours
+a `KANBAN_HOME` environment override; `test_p4_governor_integration.py:84` hardcodes
+`Path.home() / ".cline" / "kanban"`. The divergence means the two suites cannot be redirected to a
+fixture kanban home together. Recorded as CERT-8.
+
 Read plainly: **one of the five is the zero-false-positives KPI and four of the five are the
 CPU/RSS overhead KPI.** Any certification that reports "`make demo-agentmaxxing-host-test` exits 0"
 as evidence of KPI compliance would be reporting the process exit status of a suite whose KPI
@@ -200,6 +215,12 @@ inside the audited surface before. Results from this session's run:
 [SLCD-P4-GOV] /proc/self sweep: 1 justified self-read(s) [('file_validator.py', 'fdinfo')], 0 unjustified
 [SLCD-P4-GOV] procfs sweep: 55 modules scanned, 17 pinned entries, 0 observed-process reads
 ```
+
+**Disagreement with the historical record, stated per §0.** P4-GOV's own errata records this audit as
+scanning **11,025 bytes**; this session's re-run reports **10,995 bytes**. The re-run wins, per §0, and
+the 30-byte difference is consistent with the audit's records carrying run-varying fields (timestamps,
+elapsed values) rather than with a change in audited surface. The canary count (7) and hit count (0)
+are identical across both runs, which is what the invariant actually turns on.
 
 The audit is proven **able to fail**: the pipeline mutation control (`to_network_info` degraded to a
 pass-through of `dst_ip`) is killed by it. A zero-hit result from an audit that cannot fail would be
@@ -421,12 +442,15 @@ This list is the point of this document. Nothing below is closed by this certifi
 | ID | Item |
 | :--- | :--- |
 | **CERT-1** | **Doctor is not zero-exception.** See §9. Two exceptions remain, neither remediable by this card. |
-| **CERT-2** | **Errata trail is incomplete.** 19 errata blocks exist for 30 cards. Ten merged cards have **no** errata block in the proposal Appendix: **P3-GOV, P4-PRE, P4-1, P5-PRE, P5-1, P5-2, P6-PRE, P6-1, P6-2, P6-3**. (List derived by `comm` of the `^#### Errata — SLCD-` headings against the board card set, not written by hand.) |
-| **CERT-3** | **Work Decomposition `Result` cells are stale.** Twelve cards still read `Pending` despite being merged and `done` on the board: **P2-GOV, P3-GOV, P4-PRE, P4-1, P5-PRE, P5-1, P5-2, P6-PRE, P6-1, P6-2, P6-3, P6-4**. (Probe-derived from the table's eighth column.) Note P2-GOV reads `Pending` in the table while its errata records `status=fail proceed=no` — the table understates a known-failed gate. |
+| **CERT-2** | **Errata trail is incomplete.** Ten merged cards have **no** errata block in the proposal Appendix: **P3-GOV, P4-PRE, P4-1, P5-PRE, P5-1, P5-2, P6-PRE, P6-1, P6-2, P6-3**. (List derived by `comm` of the `^#### Errata — SLCD-` headings against the 30-card board set, not written by hand.) |
+| **CERT-2a** | **Two governor errata blocks exist only as uncommitted working-tree edits and are one `git checkout` from deletion.** The committed proposal at `HEAD` contains **17** errata blocks; the working tree contains **19**. The two that exist *only* in the working tree are **SLCD-P4-GOV and SLCD-P5-GOV** — including the `status=blocked` P4-GOV record that §8.1 of this certification relies on. Every card in this mission is instructed to edit the proposal and forbidden to commit it, so the durability of the mission's own audit trail depends entirely on the principal committing or otherwise preserving those edits. **This is the most fragile item in the record and it is not self-healing.** |
+| **CERT-3** | **Work Decomposition `Result` cells are stale.** **Thirteen** rows read `Pending`: **P2-GOV, P3-GOV, P4-PRE, P4-1, P5-PRE, P5-1, P5-2, P6-PRE, P6-1, P6-2, P6-3, P6-4** — and **P6-GOV, this card's own row**, which is stated explicitly because a self-referential count that silently omits the author's row is the exact defect this list exists to catch. Note P2-GOV reads `Pending` in the table while its errata records `status=fail proceed=no` — the table understates a known-failed gate. |
 | **CERT-4** | **Documentation does not disclose the live KPI misses** (§7). No shipped operator-facing page states the 8.3 % FP rate or the overhead breach. |
 | **CERT-5** | **Two orphan worktrees remain registered** (§9): `/tmp/slcd-baseline-p4`, `/tmp/sler-baseline-p0`. Not removed — one belongs to another mission and removal is a destructive act outside this card's authority. |
 | **CERT-6** | **The `/goal` command named in this card's One-shot execution protocol does not exist** in the executing harness. The stated budget and wall-clock ceiling were honoured as declared constraints instead. |
 
+| **CERT-8** | **The two KPI-4 combined-overhead tests are host-gated, and gated inconsistently** (§3). `skipUnless(LIVE_KANBAN.is_dir())` sits under `expectedFailure` on `test_p3_governor_integration.py:281` and `test_p4_governor_integration.py:759`, so on a host without `~/.cline/kanban` the KPI-4 miss is silently unmeasured and the suite reports `expected failures=3`. `p3` honours a `KANBAN_HOME` override; `p4` hardcodes the path, so the pair cannot be redirected to a fixture home together. |
+| **CERT-9** | **Two divergent implementations of SLCD-P6-3 now exist as refs.** `113edd26` is merged; `77e82c6d` was rescued from dangling state by this card (§9) and is confirmed **not** an ancestor of HEAD. Rescuing it was the right call — it was otherwise collectable — but the resulting condition is a record-keeping item: a future reader finds two P6-3 implementations and no note saying which is authoritative. **`113edd26` is authoritative;** `rescue-77e82c6d` is preserved evidence only and should be deleted or annotated once the principal has reviewed it. |
 | **CERT-7** | **The card's literal bare `bunx playwright test` invocation fails in the agent execution shell** (§2.1). Not a product defect: `PW_CHANNEL=chromium` — the remedy the registry row documents — makes it pass 8/8, and the registry-declared `make` runner passes 8/8 unaided. Recorded so a future runner is not surprised. |
 
 ### 8.4 Structural caveat on this certification's own coverage

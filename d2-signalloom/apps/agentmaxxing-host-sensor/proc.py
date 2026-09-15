@@ -305,3 +305,33 @@ class ProcReader:
         if statm is not None:
             return statm.resident_pages * self.page_size
         return stat.rss_pages * self.page_size
+
+    def read_exe(self, pid: int) -> Optional[Path]:
+        """Read and safely resolve /proc/<pid>/exe symlink target without inspecting cmdline.
+
+        Returns the resolved Path target of the /proc/<pid>/exe symlink.
+        Handles processes whose binary was unlinked/deleted by stripping the
+        trailing ' (deleted)' kernel annotation if present.
+        Returns None if process does not exist, symlink is missing (e.g. kernel threads),
+        or permission is denied.
+        """
+        try:
+            exe_path = self._safe_proc_path(pid, "exe")
+            target = os.readlink(exe_path)
+            if target.endswith(" (deleted)"):
+                target = target[:-10]
+            return Path(target)
+        except (FileNotFoundError, ProcessLookupError, PermissionError, NotADirectoryError, OSError):
+            return None
+
+    def read_exe_basename(self, pid: int) -> Optional[str]:
+        """Resolve the binary basename from /proc/<pid>/exe safely without reading cmdline.
+
+        Identifies real executable target even if binary was symlinked or renamed,
+        without risking credential exposure from command line arguments.
+        """
+        exe = self.read_exe(pid)
+        if exe is None:
+            return None
+        return exe.name
+

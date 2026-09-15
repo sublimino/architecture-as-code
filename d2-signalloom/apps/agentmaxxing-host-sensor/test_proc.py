@@ -143,13 +143,49 @@ class ProcReaderTests(unittest.TestCase):
         self.assertIsNone(self.reader.read_stat(999999))
         self.assertIsNone(self.reader.read_statm(999999))
         self.assertIsNone(self.reader.read_status(999999))
+        self.assertIsNone(self.reader.read_exe(999999))
+        self.assertIsNone(self.reader.read_exe_basename(999999))
         self.assertFalse(self.reader.is_pid_alive(999999))
 
     def test_security_violation_on_prohibited_entries(self) -> None:
-        for prohibited in ("mem", "environ", "cmdline", "maps", "stack", "syscall"):
+        for prohibited in (
+            "mem",
+            "environ",
+            "cmdline",
+            "maps",
+            "smaps",
+            "smaps_rollup",
+            "stack",
+            "syscall",
+            "io",
+            "fd",
+            "fdinfo",
+            "net",
+            "cwd",
+            "root",
+            "clear_refs",
+            "pagemap",
+            "attr",
+        ):
             with self.subTest(entry=prohibited):
                 with self.assertRaises(SecurityException):
                     self.reader._safe_proc_path(1234, prohibited)
+
+    def test_read_exe_mock_process(self) -> None:
+        pid_dir = self.mock_proc / "5555"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "exe").symlink_to("/usr/local/bin/agent-daemon")
+
+        self.assertEqual(self.reader.read_exe(5555), Path("/usr/local/bin/agent-daemon"))
+        self.assertEqual(self.reader.read_exe_basename(5555), "agent-daemon")
+
+    def test_read_exe_deleted_binary(self) -> None:
+        pid_dir = self.mock_proc / "5556"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "exe").symlink_to("/opt/bin/worker (deleted)")
+
+        self.assertEqual(self.reader.read_exe(5556), Path("/opt/bin/worker"))
+        self.assertEqual(self.reader.read_exe_basename(5556), "worker")
 
     def test_real_system_self_proc_inspection(self) -> None:
         real_reader = ProcReader(proc_root="/proc")
@@ -162,6 +198,17 @@ class ProcReaderTests(unittest.TestCase):
         self.assertGreaterEqual(real_reader.cpu_time_ms(stat), 0)
         self.assertGreater(real_reader.rss_bytes(stat), 0)
         self.assertTrue(real_reader.is_pid_alive(my_pid))
+
+        # Real process exe resolution
+        exe_path = real_reader.read_exe(my_pid)
+        self.assertIsNotNone(exe_path)
+        assert exe_path is not None
+        self.assertTrue(exe_path.exists())
+        exe_name = real_reader.read_exe_basename(my_pid)
+        self.assertIsNotNone(exe_name)
+        assert exe_name is not None
+        self.assertIn("python", exe_name.lower())
+
 
 
 if __name__ == "__main__":

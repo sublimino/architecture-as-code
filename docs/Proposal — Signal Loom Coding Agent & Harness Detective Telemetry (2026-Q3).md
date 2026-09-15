@@ -305,7 +305,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze wire contract for host detective probe and signal-ingest consumer | P1-1, P1-2 | Versioned Go/Python schemas; OpenAPI contract freeze | L | deep | Pending | $0.00 | N/A | N/A | N/A |
-| P1-4 | implementation | Pin every prohibited procfs entry before a detector touches them | P1-PRE | `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'` | M | antigravity | Pending | $0.00 | N/A | N/A | N/A |
+| P1-4 | implementation | Pin every prohibited procfs entry before a detector touches them | P1-PRE | `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'` | M | antigravity | pass — delivered: 747b2dc356fadd07a4332c419695a97cfd3e6a47 (see Errata — SLCD-P1-4) | $0.00 | N/A | N/A | N/A |
 | P1-5 | implementation | Legitimate Interest Assessment and works-council position for workstation telemetry | P1-PRE | `test -f docs/signalloom/slcd-lawful-basis.md` | M | kpai | Pending | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve contract freeze and certify zero-payload invariants | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm Linux procfs permissions and harness signature database | P1-GOV | Procfs access check; harness signatures inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -478,12 +478,17 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 4. **F7 — the multi-harness fixture this card was told to cross-check against does not exist.** `d2-signalloom/apps/fe-signalloom/src` contains **zero** references to `cpai`, `opencode`, `antigravity`, `agy`, `codex`, `hermes` or `aider`; the only harness literal is `"claude-code"`. It is a single-harness fixture. P1-1's estimate should account for building the fixture, not extending one.
 5. **F8 naming collision** — confirm whether `harness` is the enum the envelope describes or the existing free-text column, before the schema freezes.
 
-#### Errata — SLCD-P1-4 (bootstrap)
-##### Task identity
-- Card: `SLCD-P1-4`
-- Shortcode: `SLCD`
-- Commit: Pending
-- Result: Pending
+#### Errata — SLCD-P1-4 Pin every prohibited procfs entry before a detector touches them
+**Created:** 2026-09-15 02:47:10+01:00
+**Last Updated:** 2026-09-15 02:47:10+01:00
+**Status:** Completed
+**Commit:** 747b2dc356fadd07a4332c419695a97cfd3e6a47
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Replaced the proposal's suggested cmdline carve-out with safe /proc/<pid>/exe readlink binary basename resolution, preventing any command-line token leakage. Pinned all 17 PROHIBITED_PROC_ENTRIES members with 10 individual test methods (including fd, fdinfo, net, io, cwd, root, attr) and a comprehensive 7-member subTest loop.
+**Deviations:** None.
+**Notes:** Added read_exe and read_exe_basename to ProcReader in proc.py. Documented complete 17-entry pin coverage matrix in docs/signalloom/slcd-p1-4-pins.md.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 
 #### Errata — SLCD-P1-5 (bootstrap)
 ##### Task identity

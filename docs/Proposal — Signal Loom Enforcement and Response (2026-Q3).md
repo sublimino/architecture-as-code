@@ -313,9 +313,9 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P3-2 | implementation | Implement admission webhook block preventing pod readmission | P3-PRE | Webhook deny unit and integration tests; pod reschedule block | L | daily | pass — delivered: f3d1650585cc28bad464d25222b9bc2f90d08384 (see Errata — SLER-P3-2) | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge mesh and admission enforcement and prove netassert boundary denial | P3-1, P3-2 | End-to-end network isolation and admission rejection test | M | deep | **CONDITIONAL FAIL** — nothing to merge (P3-1/P3-2 already on branch). `failurePolicy: Fail` **confirmed explicit**; contained-identity store **genuinely shared** (field-identical over one ConfigMap); IPv4-only scope carried forward with IPv6 120s residual; both planes attestation-ready. **Neither plane is reachable**: `FleetClient`'s 5 methods exclude both, so all 4 plane entry points have **zero production callers**, and the webhook is **in no kustomization / not deployed**. C5 (admission-deny E2E) and C7 (combined reversibility) **not certifiable**. 206 Go tests + netassert 10/10 live + redteam 15/15 pass. Admission residual 0 ms **withdrawn as unmeasured** → SLER-P5-2. → `docs/signalloom/sler-p3-gov-review.md` | $0.00 | N/A | ~11m | N/A |
 | P4-PRE | preflight | Confirm cgroup-v2 freezer and host process freeze prerequisites | P3-GOV | Host cgroup v2 capability probe; permissions check | S | daily | **pass** — cgroup-v2 freezer capability verified on `osramp-control-plane` (cgroup2fs with writable `cgroup.freeze`); live DaemonSet confirmed (`fe-signalloom-agents/stun-sentinel` via Flux); function-by-function diff completed; hostPID/privileged/hostPath requirements inventoried → `docs/signalloom/sler-p4-pre-freezer-diff.md` | $0.00 | N/A | ~4m | N/A |
-| P4-1 | implementation | Unify stun-sentinel implementations into cgroup-v2 freeze engine | P4-PRE | Sentinel unit tests; SIGSTOP vs cgroup freezer verification | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-1 | implementation | Unify stun-sentinel implementations into cgroup-v2 freeze engine | P4-PRE | Sentinel unit tests; SIGSTOP vs cgroup freezer verification | L | daily | pass — delivered: 6e50309f (see Errata — SLER-P4-1) | $0.00 | N/A | ~12m | N/A |
 | P4-2 | implementation | Implement forensic memory snapshotting and quarantine state capture | P4-PRE | Quarantine snapshot test; memory state preservation check | L | daily | pass — delivered: 9726b3ca (see Errata — SLER-P4-2) | $0.00 | N/A | ~15m | N/A |
-| P4-3 | implementation | Implement governance-gated resume with mandatory credential rotation | P4-PRE | Resume token verification test; post-unstun credential renewal | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-3 | implementation | Implement governance-gated resume with mandatory credential rotation | P4-PRE | Resume token verification test; post-unstun credential renewal | M | daily | pass — delivered: 8abdbf96 (see Errata — SLER-P4-3) | $0.00 | N/A | ~14m | N/A |
 | P4-GOV | governor | Merge freeze engine and prove reversible stun-unstun lifecycle | P4-1, P4-2, P4-3 | Full stun -> snapshot -> unstun cycle test | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-PRE | preflight | Confirm Witness attestation keys and forensic ledger schema | P4-GOV | Witness key verify; forensic event JSON schema | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P5-1 | implementation | Emit Witness-attested forensic records linking authorization to containment | P5-PRE | Attestation round-trip test; `witness verify` validation | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -881,6 +881,33 @@ Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
 6. **Telemetry & Phase 5 Witness Attestation Alignment**: Added `TierForensicQuarantine` telemetry events (`QuarantineSnapshotCaptured`, `QuarantineSnapshotPartial`, `QuarantineSnapshotFailed`) emitting SHA256 hashes of all snapshot artifacts for tamper-evident Witness attestation.
 7. **Comprehensive Verification**: 100% test pass rate across `pkg/quarantine` (15 unit, concurrency, permission, and budget tests) and red-team adversarial tests (15/15 passed). Published full proof and cited kernel interfaces to `docs/signalloom/sler-p4-2-proof.md`.
 **Deviations:** None.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P4-1 (implementation) — Unify stun-sentinel into cgroup-v2 freeze engine
+**Created:** 2026-09-15 06:11:00+01:00
+**Last Updated:** 2026-09-15 06:11:00+01:00
+**Status:** Completed
+**Commit:** `6e50309f`
+**Findings & Confirmations:**
+1. **Sentinel Unification onto Mature Freezer Engine**: Unified `signalloom-stun-sentinel/freezer.go` into `stun-sentinel/pkg/cgroup/freezer.go`. Deprecated naive SIGSTOP and un-settled polling implementations.
+2. **Host Invariants Preserved**: Verified `hostPID: true`, `privileged: true`, and `hostPath: /sys/fs/cgroup` (read-write) are documented and maintained.
+3. **Emptiness and Settling Gates**: Verified strict emptiness gate returning `ErrCgroupEmpty` if cgroup.procs has 0 PIDs, and bounded polling loop with exponential backoff on `cgroup.events`.
+4. **Benchmarking & Latency**: Microbenchmark proves in-memory cgroup-v2 freeze latency well under budget (<1ms mock, sub-second live).
+5. **Full Unit Test Pass**: All unit tests in `pkg/cgroup`, `pkg/ebpf`, `pkg/probe`, `pkg/tc`, and `pkg/telemetry` pass. Full proof recorded in `docs/signalloom/sler-p4-1-proof.md`.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P4-3 (implementation) — Implement governance-gated resume with mandatory credential rotation
+**Created:** 2026-09-15 06:16:00+01:00
+**Last Updated:** 2026-09-15 06:16:00+01:00
+**Status:** Completed
+**Commit:** `8abdbf96`
+**Findings & Confirmations:**
+1. **Ed25519 Resume Token Verification**: Replaced bare string resume token with Ed25519 asymmetric dual-operator token verification in `stun-sentinel/pkg/auth`. Length-prefixed domain separation and self-certifying `sha256:<hex>` KeyID verification enforced.
+2. **Node-Local Operator Key Distribution**: Supported loading operator public key bundles from file, directory, and JSON environment variables with automatic hot-reload / parse validation.
+3. **Mandatory Credential Rotation**: Integrated `RestoreCredentials` across `fleet-manager` cascade orchestrator, triggering simultaneous OpenBao lease revocation/rotation and SPIRE SVID re-issuance before unfreezing agent pods.
+4. **Replay Protection & Idempotent Retry**: Implemented `ReplayLedger` keyed on `token_id` and `idempotency_key`, preventing token replay while returning cached success on identical retries without double-rotating.
+5. **Operator Attribution**: Extracted verified operator IDs and token IDs from tokens and propagated to `StunExecutionResumed` telemetry and audit events.
+6. **Full Test Suite Pass**: All 15 unit and integration tests across `fleet-manager` and `stun-sentinel` pass. Full proof recorded in `docs/signalloom/sler-p4-3-proof.md`.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 

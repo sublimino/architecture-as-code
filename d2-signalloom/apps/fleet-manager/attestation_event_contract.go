@@ -27,6 +27,8 @@ const (
 	SpireRevokeEventName = "spire_entry_delete_attempt"
 	// SpireEvictEventName discriminates a completed end-to-end SPIRE agent eviction.
 	SpireEvictEventName = "spire_evict_attempt"
+	// MeshIsolationEventName discriminates a dynamic mesh network isolation attempt.
+	MeshIsolationEventName = "mesh_isolation_attempt"
 )
 
 // SharedAttestationEventKeys is the intersection of fields SLER-P5-1 requires from

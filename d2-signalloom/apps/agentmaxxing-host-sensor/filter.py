@@ -30,6 +30,11 @@ try:
         CANONICAL_TOOL_KEYS,
         normalize_tool_name,
     )
+    from .payload_validator import (
+        DEFAULT_VALIDATOR,
+        ZeroPayloadSecurityException,
+        validate_zero_customer_payload,
+    )
 except (ImportError, ValueError):
     from models import (
         BoundedProcessAttributes,
@@ -50,6 +55,11 @@ except (ImportError, ValueError):
         NetworkInfo,
         CANONICAL_TOOL_KEYS,
         normalize_tool_name,
+    )
+    from payload_validator import (
+        DEFAULT_VALIDATOR,
+        ZeroPayloadSecurityException,
+        validate_zero_customer_payload,
     )
 
 # Attributes permitted in process lifecycle export
@@ -347,6 +357,10 @@ class AllowlistFilter:
             elif key in raw_event:
                 filtered_event[key] = raw_event[key]
 
+        # Enforce Zero-Customer-Payload pre-export gate
+        tenant_id = raw_event.get("tenant_id")
+        DEFAULT_VALIDATOR.validate_event(filtered_event, tenant_id=tenant_id)
+
         return filtered_event
 
     @staticmethod
@@ -395,6 +409,11 @@ class AllowlistFilter:
             filtered["host_id"] = event.host_id
 
         return filtered
+
+    @staticmethod
+    def validate_zero_payload(data: Any, tenant_id: Optional[str] = None) -> None:
+        """Enforce strict Zero-Customer-Payload validation on arbitrary telemetry data."""
+        validate_zero_customer_payload(data, tenant_id=tenant_id)
 
 
 def filter_process_attributes(

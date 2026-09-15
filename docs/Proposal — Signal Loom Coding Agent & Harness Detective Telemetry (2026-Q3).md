@@ -303,7 +303,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P0 | preflight | Validate SLCD harness identity and clean detective monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLCD`; repository and board evidence only | S | fast | **Pass (qualified)** — board checks green, doctor exits 1 on a workspace-wide fast-exit sweep no SLCD card can clear (Q2); baseline at `docs/signalloom/slcd-p0-baseline.md`; branch not pushed per Safety Rules (Q1); 2 architectural contradictions escalated (E1 socket/`fd`, E2 `cmdline`) | $0.00 | N/A | N/A | N/A |
 | P1-PRE | preflight | Inventory running harness processes, session log formats, and kanban wrappers | P0 | Process snapshot; session log schema inventory | S | daily | **Pass (qualified)** — inventory at `docs/signalloom/slcd-p1-pre-inventory.md` (10 findings); all 3 required tests green, `make test` exit 0, `make demo-agentmaxxing-host-test` exit 2→0 after a disclosed baseline repair (Q2); 4 findings constrain P1-1 (`comm` is 15-byte truncated and unusable as attribution key; `network.*` has no lawful source, re-raising P0 E1; Antigravity's transcript carries `CommandLine`, which the snake_case deny-list cannot match; a free-text 128-char `harness` column already persists); base-ref check fails on direction only, derivation proved in reverse (Q1) | $0.00 | N/A | N/A | N/A |
 | P1-1 | implementation | Define CodingAgentTelemetry event schema and metadata-only dictionary | P1-PRE | JSON schema tests; metadata dictionary validation | M | daily | pass — delivered: 88d30371369d4143e28bb3fa64e1318508ecb651 (see Errata — SLCD-P1-1) | $0.00 | N/A | N/A | N/A |
-| P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-2 | implementation | Formulate strict zero-customer-payload validator and leak falsification tests | P1-PRE | Adversarial leak tests; prompt/code detection negative assertions | M | daily | pass — delivered: d770332644c9a80a783069ff24754ddc59b10d99 (see Errata — SLCD-P1-2) | $0.00 | N/A | N/A | N/A |
 | P1-3 | implementation | Freeze wire contract for host detective probe and signal-ingest consumer | P1-1, P1-2 | Versioned Go/Python schemas; OpenAPI contract freeze | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Pin every prohibited procfs entry before a detector touches them | P1-PRE | `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'` | M | antigravity | pass — delivered: 747b2dc356fadd07a4332c419695a97cfd3e6a47 (see Errata — SLCD-P1-4) | $0.00 | N/A | N/A | N/A |
 | P1-5 | implementation | Legitimate Interest Assessment and works-council position for workstation telemetry | P1-PRE | `test -f docs/signalloom/slcd-lawful-basis.md` | M | kpai | Pending | $0.00 | N/A | N/A | N/A |
@@ -478,32 +478,6 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 4. **F7 — the multi-harness fixture this card was told to cross-check against does not exist.** `d2-signalloom/apps/fe-signalloom/src` contains **zero** references to `cpai`, `opencode`, `antigravity`, `agy`, `codex`, `hermes` or `aider`; the only harness literal is `"claude-code"`. It is a single-harness fixture. P1-1's estimate should account for building the fixture, not extending one.
 5. **F8 naming collision** — confirm whether `harness` is the enum the envelope describes or the existing free-text column, before the schema freezes.
 
-#### Errata — SLCD-P1-4 Pin every prohibited procfs entry before a detector touches them
-**Created:** 2026-09-15 02:47:10+01:00
-**Last Updated:** 2026-09-15 02:47:10+01:00
-**Status:** Completed
-**Commit:** 747b2dc356fadd07a4332c419695a97cfd3e6a47
-**Governor merge:** pending Governor reconciliation
-**Decisions:** Replaced the proposal's suggested cmdline carve-out with safe /proc/<pid>/exe readlink binary basename resolution, preventing any command-line token leakage. Pinned all 17 PROHIBITED_PROC_ENTRIES members with 10 individual test methods (including fd, fdinfo, net, io, cwd, root, attr) and a comprehensive 7-member subTest loop.
-**Deviations:** None.
-**Notes:** Added read_exe and read_exe_basename to ProcReader in proc.py. Documented complete 17-entry pin coverage matrix in docs/signalloom/slcd-p1-4-pins.md.
-<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-
-
-#### Errata — SLCD-P1-5 (bootstrap)
-##### Task identity
-- Card: `SLCD-P1-5`
-- Shortcode: `SLCD`
-- Commit: Pending
-- Result: Pending
-
-#### Errata — SLCD-P6-4 (bootstrap)
-##### Task identity
-- Card: `SLCD-P6-4`
-- Shortcode: `SLCD`
-- Commit: Pending
-- Result: Pending
-
 #### Errata — SLCD-P1-1 Define CodingAgentTelemetry event schema and metadata-only dictionary
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-09-15 02:49:12+01:00
@@ -519,4 +493,39 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 **Deviations:** None.
 **Notes:** All 50 Python unittests and all Go tests pass 100%. Zero unallowlisted fields.
 
+#### Errata — SLCD-P1-2 Formulate strict zero-customer-payload validator and leak falsification tests
+**Created:** 2026-09-15 02:48:29+01:00
+**Last Updated:** 2026-09-15 02:48:29+01:00
+**Status:** Completed
+**Commit:** d770332644c9a80a783069ff24754ddc59b10d99
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Implemented RFC 5869 HKDF-SHA256 and HMAC-SHA256 in Python matching Go package `pseudonym.go` bit-for-bit (domain `signalloom/identity/alias-pseudonym/v1`). Bound all detector execution in `@sanitized_error_boundary` ensuring zero input fragment leakage in exceptions. Implemented in-place memory scrubbing of transient match buffers via `scrub_buffer(buf)`. Integrated pre-export validation gate into `filter.py` (`AllowlistFilter.filter_event`) and `collector.py` (`ProcessTelemetryCollector.collect_event`).
+**Deviations:** None. All deliverables formulated, tested, and documented.
+**Notes:** Adversarial leak falsification suite (`test_leak_falsification.py`) and validator unit suite (`test_payload_validator.py`) added to host sensor package, passing with 100% rejection and zero secret leakage.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLCD-P1-4 Pin every prohibited procfs entry before a detector touches them
+**Created:** 2026-09-15 02:47:10+01:00
+**Last Updated:** 2026-09-15 02:47:10+01:00
+**Status:** Completed
+**Commit:** 747b2dc356fadd07a4332c419695a97cfd3e6a47
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Replaced the proposal's suggested cmdline carve-out with safe /proc/<pid>/exe readlink binary basename resolution, preventing any command-line token leakage. Pinned all 17 PROHIBITED_PROC_ENTRIES members with 10 individual test methods (including fd, fdinfo, net, io, cwd, root, attr) and a comprehensive 7-member subTest loop.
+**Deviations:** None.
+**Notes:** Added read_exe and read_exe_basename to ProcReader in proc.py. Documented complete 17-entry pin coverage matrix in docs/signalloom/slcd-p1-4-pins.md.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLCD-P1-5 (bootstrap)
+##### Task identity
+- Card: `SLCD-P1-5`
+- Shortcode: `SLCD`
+- Commit: Pending
+- Result: Pending
+
+#### Errata — SLCD-P6-4 (bootstrap)
+##### Task identity
+- Card: `SLCD-P6-4`
+- Shortcode: `SLCD`
+- Commit: Pending
+- Result: Pending
 

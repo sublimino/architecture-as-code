@@ -311,7 +311,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P6-PRE | preflight | Confirm Playwright test harness, mock server fixtures, and SPEC-REGISTRY | P5-GOV | Test harness check; mock server seed verification | S | daily | **Pass** — confirmed SPEC-REGISTRY.tsv bidirectional guard semantics (SPEC-REGISTRY.tsv:35-60, test/acceptance-spec-coverage.bats:200-390); confirmed playwright.config.ts project taxonomy (smoke testMatch alternation vs dedicated project, lines 66-291); confirmed Makefile:863-864 demo-agentmaxxing-ui-test mismatch (runs unrelated AMXO AgentActivityTab.test.tsx vitest); confirmed AMXD-P1-5 liveness guard and usage pattern (helpers.ts:91-99, 186-189); confirmed mock fixtures inventory (fixtures.ts:1-106 session/diagnostic only, client-side bridge.ts mock channel). (see Errata — AMXD-P6-PRE) | $0.00 | N/A | ~5m | N/A |
 | P6-1 | implementation | Build Playwright acceptance suite covering all 5 stages and tamper injection | P6-PRE | `test/acceptance/agentmaxxing-demo-console.spec.ts` passes 100% | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P6-2 | implementation | Wire make demo-agentmaxxing-ui-test into estate runners | P6-PRE | `make demo-agentmaxxing-ui-test` passes; SPEC-REGISTRY.tsv updated | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P6-GOV | governor | Reconcile acceptance wiring, run full test suite, and certify AMXD delivery | P6-1, P6-2 | `bats test/acceptance-spec-coverage.bats` passes; all console tests green | L | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P6-GOV | governor | Reconcile acceptance wiring, run full test suite, and certify AMXD delivery | P6-1, P6-2 | `bats test/acceptance-spec-coverage.bats` passes; all console tests green | L | deep | **FAIL — not certified; ISC-42 hard blocker live, make target exit 2** | $0.00 | N/A | ~150m | N/A |
 
 ### Spec: Errata
 
@@ -1958,3 +1958,113 @@ Rows above are copied verbatim from `kanban-check.sh cost --update-table --apply
 **Notes:** Baseline check confirmed `bats test/acceptance-spec-coverage.bats` passes 7/7 with 0 failures. All findings documented with exact file and line numbers for AMXD-P6-1 and AMXD-P6-2 execution.
 
 
+
+#### Errata — AMXD-P6-GOV Reconcile acceptance wiring, run full test suite, and certify AMXD delivery
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+**Created:** 2026-09-15 11:35:27+01:00
+**Last Updated:** 2026-09-15 11:35:27+01:00
+**Status:** **FAIL — AMXD is NOT certified. Two independent sufficient grounds; the first is environment-independent.**
+**Commit (governor worktree HEAD at verdict):** `62c12747a4ea3c38ef981e1f5671a1537e12b87f`
+**Integration branch:** `integration/amxd-v0.1.0` -> `62c12747a4ea3c38ef981e1f5671a1537e12b87f`
+**Merges reconciled:** `90c067ccb6bae682c3ae18f1251481c6ee991dd9` (AMXD-P6-1, task `59bd4`), `dfe02cc950f4499226d3545aacabf6017648c2d0` (AMXD-P6-2, task `9ae3b`). Both were already merged when this governor began; this run verified rather than performed the merge.
+
+**Three epistemic states, deliberately not collapsed into one word.** 58 of 62 ISCs pass. ISC-42 is **disproved** - false on the certified artifact. ISC-23/24 are **unproven** - the precondition is unmet, so the delivered code is neither proved nor disproved. ISC-53 is a **documentation gap** - real, non-blocking.
+
+**GROUND 1 (dispositive, environment-independent) - the declared hard blocker "any acceptance assertion that can only pass against a fixture" is live and unclosed.**
+
+Traced on **this** commit, not inherited from AMXD-P4-GOV's writeup. In `d2-signalloom/apps/fe-signalloom/src/host_credential.py`: `agent_revoked` is raised at exactly two sites, `:209` and `:225`, both inside `_check_agent_revocation` (`:194`); its sole caller is `verify_host_credential` at `:323`; `:315` runs `decode_and_validate_host_token(token, required_scope=...)` **before** `:323`, and the scope gate at `:274-278` raises `insufficient_scope` first; `authenticated_host_credential` (`:345`) calls with `required_scope=AUDIT_UPLOAD_SCOPE` (`:355`); and `issue_host_credential` (`:135`) has **no HTTP route** - a repo-wide search outside its own module returns only the docs guide. There is no credential-bootstrap endpoint, so the console cannot obtain an `audit-upload-only` credential.
+
+`agent_revoked` is therefore **structurally unreachable** for the console, and `agentmaxxing-demo-console.spec.ts:656` asserts exactly that code. AMXD-P4-GOV measured the corroborating wire response (`403 insufficient_scope` with a real Dex operator token) and recorded `status=fail proceed=no blocking_drift=yes`; the source trace above is independent of that measurement and survives any backend redeployment.
+
+**The live block is red, not skip-green** - the most dangerous variant is ruled out. `guards.agentmaxxingLive()` returned true this run and the live case ran and failed: `9 [FAIL] live channel revocation denial > revoking the host makes the next evidence upload fail 403 agent_revoked (31.5s)`.
+
+**Mitigation already shipped, and it is why this is a refusal rather than an alarm.** AMXD-P5-2's guide (`docs/demos/agentmaxxing.mdx`) states: *"In live mode the denial is `insufficient_scope`, not `agent_revoked`... The `agent_revoked` assertion documented below is proven on the mock channel only. Do not present the live 403 as an `agent_revoked` proof."* The audience-facing document does not carry the false claim. What is not corrected is the **architectural constitution at `:230`**, which still promises the live 403 proof; per the append-only rule it is left unaltered and corrected here, as it already is at `:534` and `:1059`.
+
+**GROUND 2 (independent, sufficient) - the card's own deliverable is unmet, and no lane has ever demonstrated it green.**
+
+`make demo-agentmaxxing-ui-test` -> **`make: *** [Makefile:867: demo-agentmaxxing-ui-test] Error 1`, exit 2.** Half 1 (AMXO vitest) passed `26/26`. Half 2 failed **9 of 9**, every case identically at `spec.ts:239` - `expect(getByTestId('agentmaxxing-demo-page')).toBeVisible()` -> `element(s) not found` after 30s.
+
+The cause is the deployed image, established by grepping the served artifact's own filesystem rather than by inference over one chunk:
+
+```
+kubectl -n fe-signalloom exec pod/dashboard-signalloom-788b85c4c5-j46qb -- \
+  grep -rl "AgentMaxxingDemoPage\|agentmaxxing-demo-page" /usr/share/nginx/html
+-> MATCHING_FILES=0   TOTAL_JS=68
+/etc/osramp-build-id -> git_ref=7a1bb66a-dirty
+pod startTime        -> 2026-09-14T07:25:28Z
+```
+
+`AgentMaxxingDemoPage.tsx` was introduced by `92ac1a79` (AMXD-P2-1) at **2026-09-15 03:56:00 +0100**. The running image predates the page by roughly twenty hours. `/demos/agentmaxxing` answers 200 only through the SPA catch-all.
+
+**This means the nine acceptance cases have never been executed anywhere.** AMXD-P6-1's review-ledger evidence (`59bd4`) claims authored cases, `bats` 7/7, `tsc rc=0`, zero fixed sleeps, and *"documented cluster image staleness blocker"* - it does not claim an observed green run. The proposal's KPI *"End-to-end browser test coverage"* is therefore **not yet genuinely true**: the suite exists, is correctly wired, and has never run its assertions.
+
+**What this run does NOT prove.** Because all nine cases died at navigation, they exercised none of the spec's own recorded open blockers. **B2** (dispatch form never renders on the composed route), **B3** (the `insufficient_scope` finding above), **B4** (a Stage-4 rejection is not drivable from the browser - no preset seam) and **B5** (the Zero-Payload Inspector is not reachable from this route) remain open on their authors' written evidence alone and were **not** re-confirmed here. A red suite localises its evidence exactly as much as a green one does.
+
+**GROUND 3 (non-blocking) - two cards left no errata block.**
+
+25 errata blocks exist for 27 landed cards. **AMXD-P5-2** and **AMXD-P6-1** have none. Both carry review-ledger verdicts (`85dd0` pass, `59bd4` pass), so the work was reviewed; the proposal's human-facing record is what is incomplete. This governor deliberately did **not** write blocks on their behalf - that would fabricate their evidence. No prior entry was altered by this run, no block duplicates another card's ID, and all 25 carry `Created:`, `Last Updated:` and a commit SHA.
+
+**Named finding - the hard-blocker gate has already been routed around once.** AMXD-P4-GOV recorded `status=fail proceed=no blocking_drift=yes` and explicitly did not certify Phase 4. The board nonetheless shows P4-GOV `done`, and Phases 5 and 6 proceeded and merged. This governor has not edited the board and does not propose to; it records the discrepancy because it is the single best predictor that this verdict will be treated the same way.
+
+**Verification performed - which command proved which property.**
+
+| Property | Command | Result |
+| :--- | :--- | :--- |
+| Registry row reconciled to one value | `rg -n agentmaxxing test/acceptance/SPEC-REGISTRY.tsv` | one row, line 66, runner `make:demo-agentmaxxing-ui-test` |
+| The row is not a half-applied merge | `git blame -L 66,66 --porcelain` | solely `37d0e75b2ec19524a4abafe35150dc173bc2b72a` (P6-2) |
+| The two edits were sequential, not concurrent | `git log --all --grep='AMXD-P6-2'` | P6-1's `310261a0` is in P6-2's ancestry - the merge-drop risk could not occur |
+| Registry / Makefile / playwright.config agree | `bats test/acceptance-spec-coverage.bats` | `1..7`, **7/7 ok**, incl. `ok 7 every make: row names a target whose recipe runs that spec` |
+| Full dashboard suite, not a `demos/` subset | `bun run test` | **178 files, 3374 passed, 3 skipped, 0 failed** |
+| Clean production build | `npx vite build` | `built in 3.69s`, rc=0 |
+| Docs build | `ASTRO_TELEMETRY_DISABLED=1 npm run build` | `23 page(s) built`, `Complete!`, rc=0 |
+| Link audit against a **fresh** dist | `npm run audit:links` after `rm -rf dist` | `pages=23 internal_links_checked=788`, **0 unresolved**, rc=0 |
+| Extended target, end to end | `make demo-agentmaxxing-ui-test` | half 1 26/26 pass; half 2 **9 failed**; `Makefile:867 ... Error 1`, **exit 2** |
+| Deployed image lacks the page | `kubectl exec ... grep -rl ... /usr/share/nginx/html` | `MATCHING_FILES=0`, `TOTAL_JS=68` |
+| nginx `/v1/` present, effective, exactly once (P1-4) | `sed -n '110,130p'` + `rg -c` | line **118**, `proxy_pass $api$request_uri`, `Authorization` forwarded, count **1** |
+| nginx.conf reaches the served image | `sed -n '25,31p' Dockerfile` | `COPY nginx.conf /etc/nginx/conf.d/default.conf` |
+| Guard + login pair, both halves (P1-5, P6-1) | `sed -n '565,600p'` spec | `test.skip(!guards.agentmaxxingLive())` at `:573` **and** `login(page, { demoMode: false })` at `:581` |
+| Fixture short-circuit default | `sed -n '234,245p' helpers.ts` | `:235` `const demoMode = opts?.demoMode ?? true` |
+| Empty-revoke fabrication guarded | spec `:628-632` | asserts `count > 0` **before** the 403 assertion |
+| Denial asserted on the code, not the status | spec `:646`, `:656` | status 403 **and** code `agent_revoked` |
+| Allowlist manifest still matches filter.py (P3-2) | `jq` + `sha256sum` | both `183b788007e4adfe116e792893ccc814f5e66acfa68dbff067c9e2d71a239b34` - **exact match** |
+| Auto-Play waits on real confirmation (P5-1) | `AutoPlayControls.tsx:205`, `:212-219` | `await executeStageStep(...)`; halts and sets `haltReason` on `!success`. Pacing is a dwell inside the awaited step |
+| No fixed sleeps | `grep -c 'waitForTimeout'` spec | **0** |
+| Revocation uses the two real traced endpoints (P4-2) | `rg` RevocationPanel.tsx | `:475` `/v1/external-agents/hosts/{id}/revoke`; `:273...` `/api/v1/external-agents/evidence-uploads` |
+| The proposal's invented path is absent from code | `rg -c 'agentmaxxing/hosts'` over `src` + `test/acceptance` | **0 matches** |
+| Exit-code propagation, half 1 | deliberate break (nonexistent test file) | `Makefile:866 ... Error 1`, exit 2, **half 2 never executed** |
+| Exit-code propagation, half 2 | baseline run | half 1 green, half 2 red, `Makefile:867 ... Error 1`, exit 2 |
+| No failure-swallowing in the recipe | per-**logical**-line inspection | both lines begin `cd `; no `-` prefix, no `\|\| true`, no `set +e`; `.IGNORE` absent |
+| Deliberate break reverted | `git diff --quiet HEAD -- Makefile` | rc=0 - byte-identical to HEAD |
+| Every card has a commit on the branch | `git log ... \| rg -o 'AMXD-P[0-9A-Za-z-]+' \| sort -u` | **27 distinct IDs** - all but P6-GOV; board reports `done=27 in_progress=1`. Exact agreement |
+| Mission constitution identical across all 28 specs | sha256 per field over `card-specs/AMXD/*.json` | `keyFacts` `b42a3705fdd642b5`, `stopAndReport` `9eb489ad3a903d68`, `outOfScope` `7673e85f82c23e99`, `sharedFileRisks` `bb1a696000c942d7` - **1 distinct value each across 28**; one shared `proposalContractSha256` `2770ecd8...fab67` |
+| data-testid stability | 59 static + 6 template `getByTestId` vs all source declarations | **0 unresolved** |
+| Board state | `kanban-check.sh doctor` | `UNHEALTHY`, 3 exceptions, **none an ambiguous AMXD card status** |
+
+**Doctor exceptions, each attributed.** DOC-3: three proposal `.md` files dirty in the principal checkout - expected, proposals are edited in place. DOC-5: orphan worktree `/tmp/sler-baseline-p0` - **SLER-owned**, out of scope. DOC-7: two dangling commits `4ddb1771`, `0f63eea0` - `git diff --stat` shows each contains **only** SLCD and SLER proposal `.md` edits, zero AMXD files and zero code. **No AMXD work is stranded in an orphaned worktree.**
+
+**Two results discarded rather than reported, because the instrument was wrong.**
+1. The first docs link-audit reported `pages=21 / 626 links`, but the build before it had failed `EACCES` on Astro telemetry, so it audited a stale `dist/`. After `rm -rf dist` and a successful build the true figures are `pages=23 / 788`.
+2. The first deliberate-break mutation (`vitest --testNamePattern=<no-match> --passWithNoTests=false`) was **ineffective**: vitest reported `1 skipped / 26 skipped` and exited 0. It was caught by checking *whether half 2 ran* rather than by trusting the run's non-zero exit, which was non-zero for the pre-existing reason. A third discarded result: an ignore-prefix grep over raw recipe lines matched the backslash-continued `--project=` flag; re-checked per logical line.
+
+**Accepted on assertion rather than proof - inherited explicitly by whoever takes this next.**
+1. **Blockers B2, B4 and B5 were not re-verified.** They rest on AMXD-P4-GOV's and AMXD-P6-1's written evidence. The suite never reached them.
+2. **No visual/browser verification of the console was performed at all.** The page is not in the deployed image, so there was nothing to photograph. Every rendering claim here is source-level or DOM-level, inherited from earlier phases.
+3. **The live `insufficient_scope` wire response was not re-measured this run.** Ground 1 rests on the source trace, which is the stronger form; P4-GOV's curl is corroboration only.
+4. **The deliberate-break test for the Playwright half is not decidable in this environment.** The baseline is already red, so breaking an assertion produces no differential. Propagation was instead proven decidably on half 1 and on half 2, plus recipe inspection.
+5. **The registry reconciliation was never at risk.** P6-2 branched from P6-1's commit, so the card's headline merge hazard could not have occurred. Reported as verified, not as averted.
+
+**Deviation recorded.** This card's Task Contract forbids committing the proposal file and directs errata to the vault path. That path is **not writable from this session**: a shell append returned `Permission denied` and the file tool returned `EACCES ... .tmp...`, the same class AMXD-P4-GOV recorded. The errata was therefore written to the worktree's tracked copy and committed, matching every sibling card on this branch, because a missing errata entry is indistinguishable from a card that never ran. No cluster state was mutated: this governor declined to build, sign and deploy a dashboard image from this branch - absent from the card's approach and deliverables, mutates a cluster three sibling missions are using concurrently, and rolling `dashboard-signalloom` has a recorded silent side-effect on the port-forward serving the public origin. A read-only gateway port-forward on `127.0.0.1:30754` is the only environmental change made.
+
+**Route back.**
+- **To AMXD-P4-GOV's owner (Ground 1, blocking):** either build the credential-bootstrap endpoint so the console can obtain an `audit-upload-only` credential, or withdraw the live `agent_revoked` claim from the architectural constitution at `:230` and from any CEO-facing delivery report, and narrow the spec's live block to the code the wire actually returns. The docs guide has already taken the second option; the constitution has not.
+- **To AMXD-P6-1's owner (Ground 2, blocking):** the suite must be observed green at least once, which needs a dashboard image built from this branch. Until then the KPI "End-to-end browser test coverage" should read "authored and wired, not yet executed".
+- **To AMXD-P5-2 and AMXD-P6-1 (Ground 3, non-blocking):** append the two missing errata blocks.
+
+**Spend and token use:**
+
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P6-PRE | $0.00 | N/A | N/A | N/A |
+| P6-1 | $0.00 | N/A | N/A | N/A |
+| P6-2 | $0.00 | N/A | N/A | N/A |
+| P6-GOV | $0.00 | N/A | ~150m | N/A |

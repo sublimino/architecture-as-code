@@ -261,16 +261,25 @@ func selectFleetClientFrom(
 		}
 	}
 
+	spireAddr := ResolveSpireAddress()
+	spireClient, spireErr := NewGRPCSpireClient(spireAddr)
+	if spireErr != nil {
+		slog.Warn("fleet client: spire gRPC client initialization deferred / connection failed; will fail closed on spire operations",
+			"spire_addr", spireAddr,
+			"error", spireErr)
+	}
+
 	slog.Info("fleet client selected",
 		"implementation", string(fleetClientKubernetes),
 		"config_source", configSource,
 		"agent_namespace", agentNamespace,
+		"spire_addr", spireAddr,
 		"selection_source", source,
 		"enforcing", true)
 
 	return fleetClientSelection{
 		Kind:      fleetClientKubernetes,
-		Client:    newK8sFleetClient(clientset, agentNamespace),
+		Client:    newK8sFleetClientWithSpire(clientset, agentNamespace, spireClient),
 		Reason:    "client-go clientset built from " + configSource,
 		Source:    source,
 		Enforcing: true,

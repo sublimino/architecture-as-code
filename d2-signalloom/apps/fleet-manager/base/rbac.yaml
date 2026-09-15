@@ -2,6 +2,62 @@
 # The Deployment sets automountServiceAccountToken: true because the fleet-manager
 # needs K8s API access to read/patch pod labels. RBAC is scoped to the minimum
 # needed: get/list/patch pods in the agent namespace only.
+#
+# ── The verb contract the real client needs (SLER-P1-1) ──────────────────────
+#
+# Until SLER-P1-1 this ServiceAccount's token was mounted and never used: the
+# only FleetClient was noopFleetClient and no client-go call existed anywhere in
+# the module. There is now a real client (apps/fleet-manager/k8sclient.go), and
+# this is the exact, exhaustive list of what it asks the API server to do:
+#
+#   get    pods   resolvePod()  — Pod fetched by name, where name == agent id
+#   list   pods   resolvePod()  — fallback by label selector signalloom.ai/agent-name=<short>
+#                 Health()      — Limit:1 probe with selector signalloom.ai/agent=true
+#   patch  pods   SetPodState() — strategic-merge on metadata.labels + .annotations
+#
+# Three verbs. Nothing else. Specifically NOT granted, and why:
+#
+#   watch   — the client polls via Get/List and builds no informer. Granting it
+#             would be forward-looking rather than minimal. If a future card
+#             swaps in a SharedInformerFactory, that card amends the Role; today
+#             the grant would be unused authority.
+#   update  — `patch` already covers strategic-merge, JSON-merge, JSON-patch AND
+#             server-side apply. `update` is a full-object replace this client
+#             never issues, and it would let a compromised fleet-manager rewrite
+#             an agent pod's spec rather than only its containment labels.
+#   create
+#   delete  — containment freezes and labels workloads; it never creates or
+#             destroys them. The stun sentinel does the freezing.
+#
+# The authoritative Role and RoleBinding are `fleet-manager-pod-reader`, namespace
+# fe-signalloom-agents, at d2-osramp-fleet/tenants/local/signalloom.yaml:1007-1039.
+# They already grant exactly ["get","list","patch"] on pods — verified against the
+# call sites above, so SLER-P1-1 widened nothing.
+#
+# ── Do not move the Role here ────────────────────────────────────────────────
+#
+# The obvious edit — add the Role beside the ServiceAccount it grants — is the
+# one edit that breaks Flux, for the two independent reasons documented below.
+# It has been tried. The contract is documented here; the objects stay there.
+#
+# ── Two limits RBAC does not express, and which bite anyway ──────────────────
+#
+#   1. This Role is namespaced to fe-signalloom-agents. The client reads each
+#      agent's namespace from the fleet ConfigMap (topology.go:33), so an agent
+#      configured into any other namespace gets a 403. The client classifies a
+#      403 as ErrEnforcementUnavailable and marks the target degraded rather than
+#      reporting a verdict it never obtained — see enforcement.go classifyAPIError.
+#      It does NOT read an empty list as "no agents".
+#
+#   2. RBAC-sufficient is not admission-permitted. The CEL ValidatingAdmissionPolicy
+#      at d2-agent-trust/policies/agent-identity-state-protection.yaml:35-42 allows
+#      mutating signalloom.ai/state AWAY from "stunned" only for swarm-governor,
+#      kubernetes-admin, kind-osramp, system:admin* or system:masters.
+#      system:serviceaccount:fe-signalloom:fleet-manager is NOT on that list, so
+#      wherever that policy is deployed, the cascade RECOVER path is denied at
+#      admission regardless of the patch verb above. Surfaced by SLER-P1-1; the
+#      resolution (add fleet-manager to isGovernorOrAdmin, or route recovery
+#      through swarm-governor) is a security-boundary decision left to P1-GOV.
 ---
 apiVersion: v1
 kind: ServiceAccount

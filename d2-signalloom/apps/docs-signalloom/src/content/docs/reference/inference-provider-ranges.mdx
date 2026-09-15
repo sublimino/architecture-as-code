@@ -1,0 +1,178 @@
+---
+title: Inference Provider CIDR Provenance & Update Procedure
+description: Technical specification of the inference provider IP range list, tiered attribution mechanics, false-positive mitigation, and maintenance procedures.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+:::note[Mission Version & Provenance]
+**Specification:** `codingagent.v1` | **Release Target:** `SLCD v0.1.0`  
+**Base Commit / Branch:** `refs/heads/integration/slcd-v0.1.0`  
+**Canonical Evidence Artifacts:** [`docs/signalloom/slcd-p4-2-cidr-ranges.md`](/docs/reference/inference-provider-ranges/) · [`docs/signalloom/slcd-p4-2-socket-detector.md`](/docs/reference/inference-provider-ranges/)  
+**Configuration File:** `d2-signalloom/apps/agentmaxxing-host-sensor/data/inference_providers.json`  
+**Active List Version:** `2026-09-15.1`
+:::
+
+To attribute outbound TCP connections to external LLM providers without performing invasive TLS interception or packet inspection, Signal Loom matches local socket destination IPs against known inference provider address ranges.
+
+This document details why naive IP matching fails, specifies the **three-tier attribution model**, documents the provenance of all active provider definitions, and outlines the standard operating procedure for updating the range list.
+
+<Mermaid
+  label="Tiered Inference Provider Socket Classification Pipeline"
+  diagram={`flowchart TD
+    A["Active TCP Socket Detected<br/>(via Netlink SOCK_DIAG)"] --> B{"Matches Provider CIDR Range?"}
+    
+    B -->|No Match| C["Classification: <code>unknown</code><br/>(Ignored or non-model egress)"]
+    B -->|Matches CIDR| D{"Attribution Tier"}
+    
+    D -->|<code>dedicated</code>| E["Attributed to Provider<br/>(e.g. Anthropic 160.79.104.0/23)<br/>No process corroboration required"]
+    D -->|<code>loopback</code> (port 11434)| F["Attributed to Local Runtime<br/>(e.g. Ollama localhost:11434)"]
+    D -->|<code>shared</code>| G{"Is Known Agent Harness in Cgroup?"}
+    
+    G -->|Yes: Corroborated| H["Attributed to Provider<br/>(e.g. OpenAI via Cloudflare, Vertex via GCP)"]
+    G -->|No: Uncorroborated| I["Classification: <code>unknown</code><br/>(Prevents false attribution of Spotify/Browsers)"]`}
+/>
+
+---
+
+## 1. Why Naive CIDR Matching Fails
+
+A simple IP-to-provider lookup table fails on modern cloud architectures because **most cloud model providers do not operate dedicated IP address space**:
+
+1. **Shared Anycast CDNs (OpenAI)**: `api.openai.com` resolves to Cloudflare's shared anycast IP estate (`104.16.0.0/13`, `172.64.0.0/13`). Cloudflare fronts a substantial fraction of the public internet. Matching Cloudflare CIDRs without corroboration would attribute every web browser tab and SaaS tool to OpenAI.
+2. **Shared Cloud Load Balancer Space (Google Vertex AI / Gemini)**: `aiplatform.googleapis.com` and `generativelanguage.googleapis.com` share Google Cloud edge IP ranges (`35.186.224.0/20`) with Google Search, YouTube, Spotify backends, and third-party GCP applications.
+3. **Dedicated IP Ranges (Anthropic)**: Anthropic is the notable exception, publishing dedicated ingress ranges (`160.79.104.0/23`, `2607:6bc0::/48`) exclusively for `api.anthropic.com`.
+
+### Empirical Evidence from Target Hosts
+Measurements captured during Phase 4-2 (`slcd-p4-2-socket-detector.md`) demonstrated the concrete false-positive risks of naive matching:
+
+| Observed Destination | Destination Range | Naive Matching Result | Actual Process & Ground Truth |
+|---|---|---|---|
+| `35.186.224.33:443` | Google Cloud (`35.186.224.0/20`) | False Positive: Vertex AI | Music streaming desktop application |
+| `104.21.23.165:443` | Cloudflare (`104.16.0.0/13`) | False Positive: OpenAI | Standard web browser session |
+| `160.79.104.10:443` | Anthropic (`160.79.104.0/23`) | **True Positive: Anthropic** | Claude Code autonomous agent session |
+
+---
+
+## 2. The Three Attribution Tiers
+
+To eliminate false attributions while preserving detection sensitivity, every range entry in `inference_providers.json` is assigned a strict attribution tier:
+
+| Tier | Definition | Corroboration Requirement |
+|---|---|---|
+| `dedicated` | Address space is owned and operated exclusively by the provider, carrying zero third-party traffic. | **None.** Destination IP + port is sufficient alone. |
+| `loopback` | Local loopback address on a reserved, non-colliding default port (e.g. `127.0.0.1:11434` for Ollama). | **None.** Local port binding provides exclusivity. |
+| `shared` | Shared CDN anycast space, shared cloud hyperscaler prefixes, or generic local development ports (e.g. `localhost:8000`). | **Mandatory.** Requires an active coding agent harness process inside the socket's cgroup. If uncorroborated, classified as `unknown`. |
+
+---
+
+## 3. Current Provider Roster (`inference_providers.json`)
+
+### 3.1 `anthropic` — `api.anthropic.com`
+- **Tier**: `dedicated`
+- **Ranges**: `160.79.104.0/23`, `2607:6bc0::/48`
+- **Provenance**: Published official ingress ranges ([Anthropic IP Documentation](https://docs.anthropic.com/en/api/ip-addresses)).
+
+### 3.2 `openai` — `api.openai.com`
+- **Tier**: `shared`
+- **Ranges**: Cloudflare published IPv4 and IPv6 prefixes (16 CIDRs, e.g. `104.16.0.0/13`, `172.64.0.0/13`).
+- **Provenance**: Cloudflare official IP ranges ([Cloudflare IPs](https://www.cloudflare.com/ips/)).
+
+### 3.3 `google-vertex` & `google-generativelanguage`
+- **Tier**: `shared`
+- **Ranges**: Google Cloud external IP ranges (`cloud.json`, `goog.json`).
+- **Provenance**: Published Google IP blocks ([gstatic.com/ipranges/cloud.json](https://www.gstatic.com/ipranges/cloud.json)).
+
+### 3.4 `ollama` — `ollama.localhost`
+- **Tier**: `loopback`
+- **Ranges**: `127.0.0.0/8:11434`, `::1/128:11434`
+- **Provenance**: Ollama default listen port (`11434`).
+
+### 3.5 `local-openai-compatible` — `vllm.localhost`
+- **Tier**: `shared` *(deliberately tiered as shared despite loopback address)*
+- **Ranges**: `127.0.0.0/8:8000`, `::1/128:8000`
+- **Provenance**: Common local LLM runtime port (vLLM, LM Studio, llama.cpp), but also widely used by standard web dev servers. Requires cgroup harness corroboration.
+
+### 3.6 Special Exclusion: `openbao` — Control Plane
+- **Port**: `8200` (`kind: control-plane`)
+- **Policy**: Explicitly filtered out by `InferenceProviderRanges.inference_endpoints`. Connecting to a secrets manager is **never** emitted as model inference traffic.
+
+---
+
+## 4. Measured Accuracy & False-Positive Rate
+
+Phase 4-2 benchmarked the tiered detector against 47 real network destination streams from active development sessions:
+
+| Detection Methodology | True Positives (TP) | False Positives (FP) | True Negatives (TN) | False Negatives (FN) | False Positive Rate | Recall |
+|---|---|---|---|---|---|---|
+| **Untiered Naive CIDR** | 11 | 7 | 28 | 1 | **38.9%** (7/18) | 91.7% |
+| **Tiered + Corroborated** | 11 | 1 | 34 | 1 | **8.3%** (1/12) | 91.7% |
+
+*Result:* Tiered classification eliminates 85.7% of false positives (dropping the FP rate from 38.9% to an upper-bound 8.3%) with **zero degradation in recall** (91.7%).
+
+---
+
+## 5. Step-by-Step Provider Range Update Procedure
+
+When an inference provider updates its IP space or an enterprise adopts a new LLM provider, platform engineers must follow this documented update procedure:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 PROVIDER RANGE UPDATE PROCEDURE                                  │
+│                                                                                                  │
+│ [Step 1: Tier Selection] ──> [Step 2: Edit JSON] ──> [Step 3: Code Allowlist] ──> [Step 4: Tests]│
+│  ("Is range exclusive?")      (Bump list_version)     (ALLOWED_INFERENCE_ENDPOINTS)  (Green run) │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Step 1: Determine Attribution Tier
+Before adding a range, answer the fundamental architectural question:
+> **"Does any other service or public website share this IP range?"**
+- If the range is exclusive to the provider's API ingress → Assign tier `dedicated`.
+- If the range is hosted on a shared CDN (Cloudflare, Fastly, Akamai) or public cloud (AWS, GCP, Azure) → Assign tier `shared`.
+- If the endpoint binds a local workstation port → Assign tier `loopback` (or `shared` if on a generic port like 8000/8080).
+
+### Step 2: Edit `inference_providers.json`
+Update `d2-signalloom/apps/agentmaxxing-host-sensor/data/inference_providers.json`:
+1. Bump the `list_version` header (e.g. `2026-09-15.1` → `2026-10-01.1`).
+2. Add the provider entry with explicit `attribution`, `kind`, and CIDR arrays:
+   ```json
+   {
+     "id": "new-provider",
+     "endpoint": "api.newprovider.com",
+     "kind": "inference",
+     "attribution": "shared",
+     "ipv4_ranges": ["198.51.100.0/24"],
+     "ipv6_ranges": []
+   }
+   ```
+
+### Step 3: Update Frozen Endpoint Allowlist in Code
+If introducing a new provider identifier:
+1. Edit `d2-signalloom/apps/agentmaxxing-host-sensor/network.py`.
+2. Add the provider endpoint string to `ALLOWED_INFERENCE_ENDPOINTS`:
+   ```python
+   ALLOWED_INFERENCE_ENDPOINTS = frozenset({
+       "api.anthropic.com",
+       "api.openai.com",
+       "aiplatform.googleapis.com",
+       "generativelanguage.googleapis.com",
+       "ollama.localhost",
+       "vllm.localhost",
+       "api.newprovider.com",  # Added
+   })
+   ```
+*(Note: `network.py` strictly refuses to load ranges from JSON whose endpoints are not in this frozen allowlist.)*
+
+### Step 4: Execute Verification & Regression Tests
+Run the dedicated socket detector and negative security test suites:
+
+```bash
+cd d2-signalloom/apps/agentmaxxing-host-sensor
+python3 -m unittest test_network_socket_detector test_negative_security -v
+```
+
+### Step 5: Phase Governance Review
+Submit changes to the Phase Governor with:
+- The updated `inference_providers.json` and `list_version`.
+- Empirical verification output showing zero regressions in false-positive rates.

@@ -2413,5 +2413,19 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Council approval: Art. 6(1)(f) LIA and Art. 88 works-council register completed, collection disabled pending 22 blocking items, fail-closed posture verified"
+  },
+  "d3383": {
+    "task_id": "d3383",
+    "reviewed_at": "2026-09-15T02:42:35Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: OpenBao active lease and token revocation client verified, circuit breaker fast-fail, sub-15ms latency benchmarks, fail-closed degraded registry integration"
+  },
+  "bd9fd": {
+    "task_id": "bd9fd",
+    "reviewed_at": "2026-09-15T02:42:35Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Council approval: SPIRE Server Entry v1 gRPC client verified, sub-2ms control-plane denial, idempotent NotFound mapping, fail-closed SVID rejection handling"
   }
 }

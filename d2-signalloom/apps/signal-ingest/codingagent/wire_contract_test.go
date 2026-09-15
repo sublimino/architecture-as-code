@@ -487,15 +487,11 @@ func TestCodingAgentWireContract_EmitGoEncoded(t *testing.T) {
 // Routing gap: recorded as a test so it cannot be quietly assumed away
 // ---------------------------------------------------------------------------
 
-// TestCodingAgentWireContract_RoutingGapIsStillOpen asserts the state this card
-// FOUND, not a state it created. It fails when SLCD-P5-1 fixes the routing --
-// at which point the frozen document and this assertion are updated together.
-//
-// The precise finding: the path is not unrouted. dashboard nginx proxies
-// location /api/ to fe-signalloom-api, a different service, so a request to
-// /api/v1/telemetry/coding-agents reaches the WRONG backend and 404s there. A
-// genuinely unproxied POST would hit the SPA catch-all and return 405.
-func TestCodingAgentWireContract_RoutingGapIsStillOpen(t *testing.T) {
+// TestCodingAgentWireContract_RoutingGapIsClosed asserts that the routing gap flagged in
+// P1-3 is resolved by SLCD-P5-1:
+// 1. Dashboard nginx location /api/ routes to fe-signalloom-api (preserving zero-trust NetworkPolicy).
+// 2. signal-ingest registers the frozen WireEndpointPath (/api/v1/telemetry/coding-agents) in api/auth.go.
+func TestCodingAgentWireContract_RoutingGapIsClosed(t *testing.T) {
 	const nginxRel = "../../dashboard-signalloom/nginx.conf"
 	conf, err := os.ReadFile(nginxRel)
 	if err != nil {
@@ -510,28 +506,23 @@ func TestCodingAgentWireContract_RoutingGapIsStillOpen(t *testing.T) {
 		}
 	}
 	if apiLine == -1 {
-		t.Fatal("no `location /api/` block found; the routing-gap finding needs re-establishing")
+		t.Fatal("no `location /api/` block found in nginx.conf")
 	}
 	if apiLine != 102 {
-		t.Fatalf("`location /api/` moved to line %d; update docs/signalloom/slcd-p1-3-wire-contract.md", apiLine)
+		t.Fatalf("`location /api/` moved to line %d", apiLine)
 	}
 	window := strings.Join(lines[apiLine:apiLine+4], "\n")
 	if !strings.Contains(window, "fe-signalloom-api") {
 		t.Fatalf("the /api/ upstream is no longer fe-signalloom-api:\n%s", window)
 	}
-	if strings.Contains(window, "signal-ingest") {
-		t.Fatal("the /api/ block now names signal-ingest -- the routing gap may be closed; " +
-			"reconcile with SLCD-P5-1 and update the frozen contract document")
+
+	// Route must be registered in signal-ingest api/auth.go
+	authGo, err := os.ReadFile("../api/auth.go")
+	if err != nil {
+		t.Fatalf("api/auth.go unreadable: %v", err)
 	}
-	// And no route for the frozen path is registered anywhere in signal-ingest.
-	for _, f := range []string{"../api/auth.go", "../api/handlers.go"} {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		if bytes.Contains(b, []byte(WireEndpointPath)) {
-			t.Fatalf("%s now registers %s -- the frozen document says no route exists", f, WireEndpointPath)
-		}
+	if !bytes.Contains(authGo, []byte(WireEndpointPath)) {
+		t.Fatalf("api/auth.go must register %s", WireEndpointPath)
 	}
 }
 

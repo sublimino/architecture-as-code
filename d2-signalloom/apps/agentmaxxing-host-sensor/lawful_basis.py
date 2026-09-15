@@ -62,7 +62,9 @@ OPEN_ITEMS = tuple(f"OPEN-SLCD-{n}" for n in range(1, OPEN_ITEMS_TOTAL + 1))
 ENDPOINT_REFERENCE_ALLOWLIST = frozenset(
     {
         "coding_agent_wire.py",
+        "dispatcher.py",
         "test_coding_agent_wire_contract.py",
+        "test_dispatcher.py",
         "test_lawful_basis_gate.py",
     }
 )

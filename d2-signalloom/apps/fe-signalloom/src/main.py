@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from adapters import load_adapter_selections
 from api_compat import install_compatibility_api
 from audit_ingest import install_audit_ingest_api
+from coding_agent_telemetry import install_coding_agent_telemetry_api
 from demo_runner import install_demo_runner_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
@@ -35,6 +36,7 @@ install_audit_ingest_api(app)
 install_rbac_api(app)
 install_demo_runner_api(app)
 install_signal_fusion_api(app)
+install_coding_agent_telemetry_api(app)
 install_risk_api(app)
 
 

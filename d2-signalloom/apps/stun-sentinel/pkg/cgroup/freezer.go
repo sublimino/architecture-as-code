@@ -31,6 +31,7 @@
 package cgroup
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -40,6 +41,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/quarantine"
 )
 
 // DefaultFreezeDeadline is the hard budget for a freeze to be observed as
@@ -146,16 +149,31 @@ type FreezeResult struct {
 	PIDs []int `json:"pids"`
 	// Deadline is the budget this operation was given.
 	Deadline time.Duration `json:"-"`
+	// Quarantine holds the captured forensic snapshot if quarantine was requested.
+	Quarantine *quarantine.QuarantineManifest `json:"quarantine,omitempty"`
+}
+
+// FreezeOptions allows optional configuration for a containment operation.
+type FreezeOptions struct {
+	// CaptureQuarantine instructs the freezer to perform forensic snapshotting immediately post-freeze.
+	CaptureQuarantine bool
+	// PodUID optionally passes the pod UID for forensic manifest scoping.
+	PodUID string
+	// PodName optionally passes the pod name for forensic manifest scoping.
+	PodName string
+	// Namespace optionally passes the pod namespace for forensic manifest scoping.
+	Namespace string
 }
 
 // Freezer performs cgroup-v2 freeze and thaw operations against a hierarchy
 // root. The root is injected rather than fixed so the whole package is
 // testable against a temporary directory without a live cluster.
 type Freezer struct {
-	root            string
-	deadline        time.Duration
-	freezeValidator CredentialValidator
-	resumeValidator CredentialValidator
+	root               string
+	deadline           time.Duration
+	freezeValidator    CredentialValidator
+	resumeValidator    CredentialValidator
+	quarantineCapturer *quarantine.Capturer
 }
 
 // Option configures a Freezer.
@@ -167,6 +185,13 @@ func WithDeadline(d time.Duration) Option {
 		if d > 0 {
 			f.deadline = d
 		}
+	}
+}
+
+// WithQuarantineCapturer installs a forensic quarantine snapshot engine.
+func WithQuarantineCapturer(c *quarantine.Capturer) Option {
+	return func(f *Freezer) {
+		f.quarantineCapturer = c
 	}
 }
 
@@ -525,7 +550,13 @@ func awaitState(cgroupPath string, want bool, deadline time.Duration, start time
 // credential fails validation, and ErrFreezeDeadline if the state was not
 // observed in time. It never returns nil on the strength of a successful write alone.
 func (f *Freezer) Freeze(cgroupPath, credential string) (*FreezeResult, error) {
-	res := &FreezeResult{CgroupPath: cgroupPath, Deadline: f.deadline}
+	return f.FreezeWithOptions(context.Background(), cgroupPath, credential, FreezeOptions{})
+}
+
+// FreezeWithOptions halts every process in the cgroup subtree and optionally performs
+// forensic quarantine snapshotting while processes are safely frozen in-kernel.
+func (f *Freezer) FreezeWithOptions(ctx context.Context, cgroupPath, credential string, opts FreezeOptions) (*FreezeResult, error) {
+	res := &FreezeResult{CgroupPath: cgroupPath, Deadline: f.deadline, PodUID: opts.PodUID}
 
 	if f.freezeValidator == nil || !f.freezeValidator(credential) {
 		return res, fmt.Errorf("%w: %s", ErrUnauthorized, cgroupPath)
@@ -574,16 +605,47 @@ func (f *Freezer) Freeze(cgroupPath, credential string) (*FreezeResult, error) {
 			ErrCgroupEmpty, cgroupPath, elapsed.Round(time.Microsecond))
 	}
 
+	// Optional Forensic Quarantine Capture (post-freeze execution halt confirmed).
+	// Capturing while the process is confirmed frozen guarantees atomic consistency
+	// of memory pages and prevents races on open file descriptors / sockets.
+	if opts.CaptureQuarantine && f.quarantineCapturer != nil && len(res.PIDs) > 0 {
+		target := quarantine.TargetInfo{
+			PodUID:     opts.PodUID,
+			PodName:    opts.PodName,
+			Namespace:  opts.Namespace,
+			CgroupPath: cgroupPath,
+		}
+		manifest, qErr := f.quarantineCapturer.Capture(ctx, target, res.PIDs)
+		if manifest != nil {
+			res.Quarantine = manifest
+		}
+		if qErr != nil && res.Quarantine == nil {
+			res.Quarantine = &quarantine.QuarantineManifest{
+				Version:       quarantine.ManifestVersion,
+				Kind:          quarantine.ManifestKind,
+				Target:        target,
+				Partial:       true,
+				PartialReason: "quarantine_capture_failed: " + qErr.Error(),
+			}
+		}
+	}
+
 	return res, nil
 }
 
 // FreezePod resolves the pod's cgroup and freezes it.
 func (f *Freezer) FreezePod(podUID, credential string) (*FreezeResult, error) {
+	return f.FreezePodWithOptions(context.Background(), podUID, credential, FreezeOptions{PodUID: podUID})
+}
+
+// FreezePodWithOptions resolves the pod's cgroup and freezes it with optional quarantine capture.
+func (f *Freezer) FreezePodWithOptions(ctx context.Context, podUID, credential string, opts FreezeOptions) (*FreezeResult, error) {
+	opts.PodUID = podUID
 	path, err := f.ResolvePodCgroup(podUID)
 	if err != nil {
 		return &FreezeResult{PodUID: podUID, Deadline: f.deadline}, err
 	}
-	res, err := f.Freeze(path, credential)
+	res, err := f.FreezeWithOptions(ctx, path, credential, opts)
 	res.PodUID = podUID
 	return res, err
 }

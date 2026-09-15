@@ -1,0 +1,529 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Signal Loom coding-agent detective telemetry",
+    "version": "1.0.0",
+    "x-contract-label": "codingagent.v1",
+    "x-schema-sha256": "2000426d0df2f422f353fd530f25f019da26418aa46e92fdd46532c30b1648a4",
+    "x-generated-by": "agentmaxxing-host-sensor/scripts/gen_wire_contract.py",
+    "description": "FROZEN by SLCD-P1-3. Generated from d2-signalloom/apps/agentmaxxing-host-sensor/schemas/coding-agent-telemetry.v1.schema.json; DO NOT EDIT. Any change classified incompatible by gen_wire_contract.py --classify takes the label codingagent.v2.\n\nROUTING GAP: this path does not reach signal-ingest today. dashboard-signalloom/nginx.conf:102-104 proxies location /api/ to fe-signalloom-api.fe-signalloom.svc.cluster.local:8000, a different service. A request to this path resolves to the wrong backend, not to nowhere. Owned by SLCD-P5-1."
+  },
+  "servers": [
+    {
+      "url": "https://dashboard.osramp.acme.local",
+      "description": "Dashboard gateway (see routing gap)"
+    }
+  ],
+  "paths": {
+    "/api/v1/telemetry/coding-agents": {
+      "post": {
+        "operationId": "ingestCodingAgentTelemetry",
+        "summary": "Ingest one allow-listed coding-agent telemetry record",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Content-Type",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "application/json"
+            }
+          },
+          {
+            "name": "X-SignalLoom-Contract",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "codingagent.v1"
+            },
+            "description": "Structural contract version. A consumer branches on this, never on payload shape."
+          },
+          {
+            "name": "X-SignalLoom-Tenant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{2,63}$"
+            },
+            "description": "RESERVED, NOT TRUSTED. Reserved for v1 so consumers written now need no rewrite when SLCD-P2-2 lands. The server does NOT read it. Tenancy is derived from the verified principal by ProtectedRouter.authorize and copied by TenantClaimFromRequestContext (signal-ingest/api/tenant_bridge.go); a client-supplied value influences nothing. Declared in v1 so a consumer written today needs no rewrite when SLCD-P2-2 lands."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WireEnvelope"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Record accepted for ingestion."
+          },
+          "400": {
+            "description": "Payload departs from the frozen contract: unlisted field at any depth, missing required field, duplicate key, bound or pattern violation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No verified principal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Principal is not authorised for this tenancy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Zero-Customer-Payload pre-export gate refused the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZeroPayloadRejection"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "WireProcessInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pid",
+          "ppid",
+          "comm",
+          "rss_bytes",
+          "cpu_ticks"
+        ],
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4194304
+          },
+          "ppid": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4194304
+          },
+          "comm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[a-zA-Z0-9_.-]{1,16}$"
+          },
+          "rss_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cpu_ticks": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "WireKanbanInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task_id",
+          "shortcode",
+          "role",
+          "elapsed_s"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Z0-9_-]{1,64}$"
+          },
+          "shortcode": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 16,
+            "pattern": "^[A-Z0-9]{2,16}$"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "pattern": "^[a-z0-9_-]{1,32}$"
+          },
+          "elapsed_s": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "WireMetricsInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "step_count",
+          "tokens_in",
+          "tokens_out",
+          "tool_counts"
+        ],
+        "properties": {
+          "step_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tokens_in": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tokens_out": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tool_counts": {
+            "$ref": "#/components/schemas/WireToolCounts"
+          }
+        }
+      },
+      "WireToolCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "view_file",
+          "write_to_file",
+          "replace_file_content",
+          "run_command",
+          "grep_search",
+          "find_by_name",
+          "list_dir",
+          "read_url_content",
+          "search_web",
+          "invoke_subagent",
+          "send_message",
+          "manage_task",
+          "ask_question",
+          "other_count"
+        ],
+        "properties": {
+          "view_file": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "write_to_file": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "replace_file_content": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "run_command": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "grep_search": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "find_by_name": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "list_dir": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "read_url_content": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "search_web": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "invoke_subagent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "send_message": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "manage_task": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "ask_question": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "other_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "WireNetworkInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "inference_endpoint",
+          "egress_bytes"
+        ],
+        "properties": {
+          "inference_endpoint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9.-]{1,128}$"
+          },
+          "egress_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "WireEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "harness",
+          "session_id",
+          "timestamp",
+          "process",
+          "kanban",
+          "metrics",
+          "network"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1.0.0"
+          },
+          "harness": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "antigravity",
+              "codex",
+              "cpai",
+              "opencode",
+              "hermes",
+              "aider",
+              "unknown"
+            ],
+            "maxLength": 32,
+            "pattern": "^[a-z0-9_-]{1,32}$"
+          },
+          "session_id": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "maxLength": 35,
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "maxLength": 35,
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "host_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "process": {
+            "$ref": "#/components/schemas/WireProcessInfo"
+          },
+          "kanban": {
+            "$ref": "#/components/schemas/WireKanbanInfo"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/WireMetricsInfo"
+          },
+          "network": {
+            "$ref": "#/components/schemas/WireNetworkInfo"
+          }
+        }
+      },
+      "ZeroPayloadRejection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "detected",
+          "provider_counts",
+          "fingerprints",
+          "reasons"
+        ],
+        "properties": {
+          "detected": {
+            "type": "boolean"
+          },
+          "provider_counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "anthropic": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "openai": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "aws": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "generic_bearer": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "github": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "private_key": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "prompt_code": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "process_memory": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "high_entropy": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          },
+          "fingerprints": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64,
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Keyed HMAC-SHA256 from the SLDP pseudonym primitive. Never a credential value."
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^[a-z0-9_()=. ]{1,128}$",
+              "description": "Structural classification only, e.g. high_entropy_token_shape(entropy=4.21). Never a fragment of the matched text."
+            }
+          }
+        },
+        "description": "P1-2 DetectionReport, parsed from payload_validator.py by the generator rather than restated. Emitted when the pre-export gate refuses a record. Carries provider classification, keyed fingerprints and structural reasons only -- never the matched value."
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "maxLength": 256
+          }
+        }
+      }
+    }
+  }
+}

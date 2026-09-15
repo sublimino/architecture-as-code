@@ -868,6 +868,18 @@ demo-agentmaxxing-acceptance-test: ## Run AgentMaxxing end-to-end local onboardi
 	bats test/signalloom/agentmaxxing-acceptance-journey.bats
 	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_agentmaxxing_acceptance_journey.py
 
+.PHONY: signalloom-wire-contract-emit signalloom-wire-contract-check signalloom-wire-contract-test
+signalloom-wire-contract-emit: ## SLCD-P1-3: regenerate the codingagent.v1 Go, Python and OpenAPI artefacts from the frozen schema.
+	python3 d2-signalloom/apps/agentmaxxing-host-sensor/scripts/gen_wire_contract.py --emit
+	python3 d2-signalloom/apps/agentmaxxing-host-sensor/scripts/build_differential_corpus.py --emit
+signalloom-wire-contract-check: ## SLCD-P1-3: fail if any generated codingagent.v1 artefact drifted from the schema.
+	python3 d2-signalloom/apps/agentmaxxing-host-sensor/scripts/gen_wire_contract.py --check
+	python3 d2-signalloom/apps/agentmaxxing-host-sensor/scripts/build_differential_corpus.py --check
+signalloom-wire-contract-test: signalloom-wire-contract-check ## SLCD-P1-3: run both halves of the codingagent.v1 contract suite.
+	cd d2-signalloom/apps/signal-ingest && go test ./... -run CodingAgentWireContract
+	cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'
+	rg -n 'location /api/' d2-signalloom/apps/dashboard-signalloom/nginx.conf
+
 .PHONY: demo-signalloom-dex-origin-set demo-signalloom-dex-origin-status demo-signalloom-dex-origin-restore
 demo-signalloom-dex-origin-set: ## Set and apply Dex public origin and callback URIs (ORIGIN=<url> [METHOD=tailscale|ngrok|iap]).
 	@if [ -z "$(ORIGIN)" ]; then \

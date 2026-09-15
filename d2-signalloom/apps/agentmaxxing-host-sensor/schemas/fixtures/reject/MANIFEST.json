@@ -1,0 +1,80 @@
+{
+  "_comment": [
+    "SLCD-P1-3 shared rejection corpus. Read by BOTH the Go and the Python contract",
+    "suites so neither can hold its own private idea of what must be refused.",
+    "",
+    "Each case is a declarative mutation of a valid fixture rather than a second",
+    "hand-written payload. A hand-written corpus per language is exactly the shape",
+    "that lets two suites go green while sharing one blind spot.",
+    "",
+    "ops:  delete <path>            remove a key (tests required-field enforcement)",
+    "      set <path> <value>       add or overwrite a key (tests allow-list and bounds)",
+    "      raw <document>           a literal JSON document (for cases a dict cannot express)",
+    "'repeat' multiplies a string value, so an oversize case need not be inlined.",
+    "",
+    "A loader that matches zero cases MUST fail. A green run over an empty corpus",
+    "is indistinguishable from a green run over a passing one."
+  ],
+  "base": "../valid/claude.json",
+  "cases": [
+    { "id": "missing-schema-version",        "op": "delete", "path": "schema_version",                 "why": "required envelope field absent" },
+    { "id": "missing-network",               "op": "delete", "path": "network",                        "why": "required envelope object absent" },
+    { "id": "missing-process-comm",          "op": "delete", "path": "process.comm",                   "why": "required nested field absent in process" },
+    { "id": "missing-kanban-task-id",        "op": "delete", "path": "kanban.task_id",                 "why": "required nested field absent in kanban" },
+    { "id": "missing-metrics-tool-counts",   "op": "delete", "path": "metrics.tool_counts",            "why": "required nested object absent in metrics" },
+    { "id": "missing-network-egress-bytes",  "op": "delete", "path": "network.egress_bytes",           "why": "required nested field absent in network" },
+    { "id": "missing-tool-counts-other",     "op": "delete", "path": "metrics.tool_counts.other_count","why": "required nested field absent in tool_counts" },
+
+    { "id": "extra-toplevel-prompt-text",    "op": "set", "path": "prompt_text",                          "value": "REDACTED-SHAPED-PROMPT", "why": "unlisted envelope key would carry customer prompt text" },
+    { "id": "extra-process-cmdline",         "op": "set", "path": "process.cmdline",                      "value": "--api-key REDACTED",     "why": "unlisted nested key; reproduced as ACCEPTED by both sides before this card" },
+    { "id": "extra-process-environ",         "op": "set", "path": "process.environ",                      "value": "KEY=REDACTED",           "why": "unlisted nested key naming a prohibited procfs entry" },
+    { "id": "extra-kanban-command-line",     "op": "set", "path": "kanban.command_line",                  "value": "REDACTED",               "why": "unlisted nested key, snake_case spelling" },
+    { "id": "extra-kanban-CommandLine",      "op": "set", "path": "kanban.CommandLine",                   "value": "REDACTED",               "why": "P1-PRE F9: the deny-list spells command_line, not CommandLine; an allow-list does not care" },
+    { "id": "extra-metrics-prompt-text",     "op": "set", "path": "metrics.prompt_tokens_text",           "value": "REDACTED",               "why": "unlisted nested key in metrics" },
+    { "id": "extra-tool-counts-mcp",         "op": "set", "path": "metrics.tool_counts.mcp__cust__tool",  "value": 7,                        "why": "unlisted tool key at the wire boundary; folding to other_count is a collection-time rule, not a wire rule" },
+    { "id": "extra-network-request-body",    "op": "set", "path": "network.request_body",                 "value": "REDACTED",               "why": "unlisted nested key in network" },
+    { "id": "extra-network-tls-keylog",      "op": "set", "path": "network.tls_keylog",                   "value": "REDACTED",               "why": "unlisted nested key that would imply TLS interception" },
+
+    { "id": "harness-off-enum",              "op": "set", "path": "harness",     "value": "not-a-harness", "why": "value outside the frozen enum" },
+    { "id": "harness-oversize",              "op": "set", "path": "harness",     "value": "a", "repeat": 10240, "why": "10KB crafted string against a 32-char bound" },
+    { "id": "schema-version-wrong",          "op": "set", "path": "schema_version", "value": "2.0.0",      "why": "const violation" },
+    { "id": "session-id-too-short",          "op": "set", "path": "session_id",  "value": "a", "repeat": 63, "why": "63 hex chars against an exact-64 bound" },
+    { "id": "session-id-uppercase",          "op": "set", "path": "session_id",  "value": "A", "repeat": 64, "why": "uppercase hex outside the frozen pattern" },
+    { "id": "timestamp-malformed",           "op": "set", "path": "timestamp",   "value": "not-a-timestamp", "why": "outside the RFC3339 pattern" },
+    { "id": "tenant-id-bad-pattern",         "op": "set", "path": "tenant_id",   "value": "Tenant_Bad",   "why": "optional field present but outside its pattern" },
+
+    { "id": "pid-zero",                      "op": "set", "path": "process.pid",       "value": 0,        "why": "below the frozen minimum of 1" },
+    { "id": "pid-overflow",                  "op": "set", "path": "process.pid",       "value": 4194305,  "why": "above the frozen maximum of 4194304" },
+    { "id": "comm-too-long",                 "op": "set", "path": "process.comm",      "value": "x", "repeat": 17, "why": "17 chars against a 16-char bound" },
+    { "id": "comm-bad-chars",                "op": "set", "path": "process.comm",      "value": "cl aude/x", "why": "outside the frozen comm pattern" },
+    { "id": "rss-negative",                  "op": "set", "path": "process.rss_bytes", "value": -1,       "why": "below the frozen minimum of 0" },
+    { "id": "process-not-object",            "op": "set", "path": "process",           "value": "REDACTED", "why": "a string where the contract requires an object" },
+
+    { "id": "shortcode-lowercase",           "op": "set", "path": "kanban.shortcode",  "value": "slcd",   "why": "outside the uppercase shortcode pattern" },
+    { "id": "role-bad-pattern",              "op": "set", "path": "kanban.role",       "value": "Implementation", "why": "outside the lowercase role pattern" },
+
+    { "id": "endpoint-too-long",             "op": "set", "path": "network.inference_endpoint", "value": "a", "repeat": 129, "why": "129 chars against a 128-char bound" },
+    { "id": "endpoint-bad-chars",            "op": "set", "path": "network.inference_endpoint", "value": "api.anthropic.com/v1?leak=REDACTED", "why": "path and query characters outside the hostname pattern" },
+    { "id": "egress-bytes-fractional",       "op": "set", "path": "network.egress_bytes", "value": 1.5,   "why": "a fractional number where the contract requires an integer" },
+    { "id": "tool-count-negative",           "op": "set", "path": "metrics.tool_counts.view_file", "value": -1, "why": "below the frozen minimum of 0" },
+
+    {
+      "id": "duplicate-toplevel-key",
+      "op": "raw",
+      "raw": "{\"schema_version\":\"1.0.0\",\"harness\":\"claude\",\"harness\":\"unknown\",\"session_id\":\"68e218377655ad54012bf095f9f24c9a8236ff69bbe269cdfe7592bdddd0680c\",\"timestamp\":\"2026-09-15T02:14:07Z\",\"process\":{\"pid\":1234,\"ppid\":1,\"comm\":\"claude\",\"rss_bytes\":104857600,\"cpu_ticks\":450},\"kanban\":{\"task_id\":\"SLCD-P1-3\",\"shortcode\":\"SLCD\",\"role\":\"implementation\",\"elapsed_s\":120},\"metrics\":{\"step_count\":14,\"tokens_in\":125000,\"tokens_out\":4200,\"tool_counts\":{\"view_file\":8,\"write_to_file\":2,\"replace_file_content\":3,\"run_command\":6,\"grep_search\":4,\"find_by_name\":1,\"list_dir\":0,\"read_url_content\":0,\"search_web\":0,\"invoke_subagent\":2,\"send_message\":0,\"manage_task\":0,\"ask_question\":0,\"other_count\":5}},\"network\":{\"inference_endpoint\":\"api.anthropic.com\",\"egress_bytes\":45000}}",
+      "why": "both encoding/json and json.loads are last-wins by default, so a key-set check over a parsed map cannot see that two values were sent"
+    },
+    {
+      "id": "trailing-content-after-object",
+      "op": "raw",
+      "raw": "{\"schema_version\":\"1.0.0\"} {\"harness\":\"claude\"}",
+      "why": "a second document smuggled after the first"
+    },
+    {
+      "id": "envelope-not-an-object",
+      "op": "raw",
+      "raw": "[1,2,3]",
+      "why": "an array where the contract requires an object"
+    }
+  ]
+}

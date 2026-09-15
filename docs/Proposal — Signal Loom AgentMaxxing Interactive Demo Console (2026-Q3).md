@@ -300,7 +300,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P3-1 | implementation | Implement Stage 3 Confinement Telemetry panel | P3-PRE | Gauge rendering tests; live CPU/RSS/FD updates; hash comparison table | L | daily | pass — delivered: ea1397a3de43f1378b8b30d702a5503b5cab549c (see Errata — AMXD-P3-1) | $0.00 | N/A | N/A | N/A |
 | P3-2 | implementation | Implement Zero-Payload Inspector widget proving prompt/code confidentiality | P3-PRE | Zero-payload assertion tests; metadata-only display proof | L | daily | pass — delivered: 85b947b957797f0a2c64c9b0bc719f6fa905dee1 (see Errata — AMXD-P3-2) | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge telemetry visualization and verify zero customer payload display | P3-1, P3-2 | Vitest suites pass; zero prompt/code leak verified | M | deep | **Pass** — Phase 3 certified (see Errata — AMXD-P3-GOV). Both branches already merged (`8cb198f1`, `535539cd`); no re-merge needed. Manifest digest `183b7880…39b34` verified 3 independent ways; staleness path proven end-to-end (exit 1, `filter.py` restored and re-verified). Open FDs honest (`N/A`, zero non-style attrs in slot). Both hash badges render and are visually distinct. 125 test-ids on the composed DOM, 0 duplicates. Full suite 174 files / 3,329 passed / 3 skipped / 0 failed; `tsc --noEmit` 0; `vite build` 0. Two inherited defects handed forward with owners: **G1** dead Tailwind classes render `ZeroPayloadInspector` unstyled in production (from AMXD-P2-1; blocks AMXD-P5-GOV) and **G2** `openFds` fabricated from `artifact_count` in `bridge.ts:662` (from AMXD-P1-3; contained, renders nowhere; AMXD-P4-1 must not render it). | $0.00 | N/A | ~35m | N/A |
-| P4-PRE | preflight | Confirm defect injection hooks and revocation API seams | P3-GOV | Defect injection contract check; revocation status endpoint verify | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-PRE | preflight | Confirm defect injection hooks and revocation API seams | P3-GOV | Defect injection contract check; revocation status endpoint verify | S | daily | **Pass** — verified full call chain from upload to 403 `agent_revoked` (`host_credential.py:194-209, 308-356, 385-387`); confirmed router prefix split (`host_compat_router` `/api/v1/external-agents` vs `host_router` `/v1/external-agents`); confirmed bare host revoke requires `location /v1/` and direct `fetch` (`external_agent_registration.py:41, 1231`); inventoried defect injection hooks (audit log row tamper in `scripts/audit-anchor-tamper-demo.sh` vs client/mock SHA-256 artifact hash tamper in `scenarios.ts`/`bridge.ts`); documented 4 binding-mismatch 403 codes (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`) at `host_credential.py:395-433`. (see Errata — AMXD-P4-PRE) | $0.00 | N/A | ~5m | N/A |
 | P4-1 | implementation | Implement Stage 4 Adversarial Simulation panel | P4-PRE | Hash tamper test; symlink escape test; breach alert trigger assertion | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-2 | implementation | Implement Stage 5 Attributable Revocation and live 403 denial verification panel | P4-PRE | Revocation dispatch test; 403 denial badge assertion; audit timeline check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Merge adversarial and revocation panels and verify deterministic denial feedback | P4-1, P4-2 | Combined tamper + revocation test; zero visual flakiness | L | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -1485,4 +1485,77 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
 
 **Certification.** Phase 3 is certified against every gate this card declared: manifest fresh and triple-verified, staleness path proven end to end, Open FDs honest with no hidden fallback, both hash badge states rendering and visually distinct, zero test-id collisions on the composed DOM, Inspector manifest content identical across channels, and the full dashboard suite green with no regression outside `demos/`. Two defects are handed forward, both inherited from earlier phases, both named with owners: **G1** (styling, blocks AMXD-P5-GOV presentation readiness) and **G2** (fabricated `openFds` in the bridge, contained today, must not be rendered by AMXD-P4-1). Zero unresolved Phase 3 gates.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P4-PRE (preflight)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 05:47:42+01:00
+**Last Updated:** 2026-09-15 05:47:42+01:00
+
+##### Task identity
+- Card: `AMXD-P4-PRE`
+- Shortcode: `AMXD`
+- Status: `pass`
+- Task base: `cdb10da5d316d5a68e2a80f90abb6124a018c817`
+- Integration ref: `refs/heads/integration/amxd-v0.1.0` -> `ae71fe93f234979cc9c37f526e1b5af8fcdf471f`
+- Result: Traced call chain, router prefixes, defect injection hooks, and 403 error codes verified and cited. Phase 4 is safe to build.
+**Phase 4 can proceed:** yes
+
+##### 1. Traced Call Chain: Upload Attempt to 403 `agent_revoked` Response
+The complete execution path from upload invocation to 403 denial was traced and verified line-by-line:
+1. **Entry Route**: `upload_evidence_handler` (`d2-signalloom/apps/fe-signalloom/src/host_credential.py:385`).
+2. **Authentication Dependency**: Injected via `host_claims: HostIdentityClaims = Depends(authenticated_host_credential)` (`host_credential.py:387`).
+3. **Token Extraction & Verification**: `authenticated_host_credential` (`host_credential.py:345-356`) parses the `Authorization: Bearer <token>` header (`:351-353`) and invokes `await verify_host_credential(token, required_scope=AUDIT_UPLOAD_SCOPE, check_revocation=True)` (`:355`).
+4. **Credential Validation & Revocation Gate**: `verify_host_credential` (`host_credential.py:308-342`) calls `decode_and_validate_host_token` (`:315`), resolves claims (`tenant_id`, `agent_id`, `host_id`, `key_id` at `:317-320`), and checks `if check_revocation:` calling `await _check_agent_revocation(tenant_id, agent_id)` (`:323`).
+5. **Revocation Check**: `_check_agent_revocation` (`host_credential.py:194-226`):
+   - **Postgres Database Path** (`:196-210`): Queries `SELECT enrollment_status, revoked_at, revocation_reason FROM public.external_agent_registrations WHERE tenant_id = $1 AND agent_id = $2` (`:199-205`). If `row["enrollment_status"] == "revoked" or row["revoked_at"] is not None`, it immediately raises `APIError(403, "agent_revoked", f"External agent '{agent_id}' has been revoked: {row['revocation_reason'] or 'revoked'}")` (`host_credential.py:209`).
+   - **In-Memory Store Path** (`:212-226`): Checks `_EXTERNAL_REGISTRATIONS`. If `reg.get("enrollment_status") == "revoked" or reg.get("revoked_at") is not None`, it immediately raises `APIError(403, "agent_revoked", f"External agent '{agent_id}' has been revoked")` (`host_credential.py:225`).
+
+##### 2. Router Prefix Split & Transport Boundary
+- **Upload Route**:
+  - `host_compat_router = APIRouter(prefix="/api/v1/external-agents", tags=["external-agent-credentials-compat"])` (`host_credential.py:382`).
+  - Route mounted: `host_compat_router.add_api_route("/evidence-uploads", upload_evidence_handler, methods=["POST"])` (`host_credential.py:548`).
+  - Reachability: `client.ts:241` automatically prefixes `/api` to relative paths. Calls via `req('POST', '/v1/external-agents/evidence-uploads', ...)` resolve to `/api/v1/external-agents/evidence-uploads`, matching `nginx.conf:102` (`location /api/`). No additional nginx modification required.
+- **Revoke Route**:
+  - `v1_router = APIRouter(prefix="/v1/external-agents", tags=["external-agents-v1"])` (`external_agent_registration.py:41`).
+  - Route mounted: `v1_router.add_api_route("/hosts/{host_id}/revoke", revoke_external_host_handler, methods=["POST"])` (`external_agent_registration.py:1231`).
+  - Transport contract: This endpoint is mounted **only** on `v1_router` (bare `/v1/external-agents`), with **no** `/api`-prefixed counterpart.
+  - Calling `req()` would mangle the path to `/api/v1/external-agents/hosts/{host_id}/revoke` (causing 404/405).
+  - The revoke call **must** use direct `fetch` with `Authorization: Bearer <token>`, routing through `nginx.conf:118` (`location /v1/`, added in AMXD-P1-4). This is the **single** Stage 5 call requiring direct fetch.
+
+##### 3. Defect Injection Hook Inventory (Artifact Hash vs Audit-Log Row)
+- **Audit-Log Row Tampering**: `scripts/audit-anchor-tamper-demo.sh` demonstrates tamper detection on PostgreSQL `public.audit_events` rows (`UPDATE public.audit_events SET detail = ...` / `DELETE FROM public.audit_events ...`) and verifies divergence using the `audit_anchor verify` CLI tool.
+- **Artifact Hash Tampering (Stage 4)**:
+  - There is **no** database table for artifact hashes (no `public.external_agent_evidence` table exists in PostgreSQL).
+  - Evidence uploads store payloads in-memory (`_EXTERNAL_UPLOADS` in `external_agent_registration.py:51`) or accept structured assertion envelopes.
+  - The defect injection hook for Stage 4 is the client/mock-bridge defect injection contract (`tamper_config.mock_site` in `scenarios.ts:598-604` and `injectTamper` in `bridge.ts` / `ConfinementTelemetryPanel.tsx`), where the calculated SHA-256 artifact digest is mutated (e.g. baseline `e3b0c442...` -> `deadbeef98fc...`), causing the verification UI to flag `mismatch` / `tampered`.
+  - **Hand-off to AMXD-P4-1**: AMXD-P4-1 must not attempt to query or manipulate a nonexistent backend artifact hash table.
+
+##### 4. Distinguishing the Five 403 Error Codes on Upload Attempt
+To prevent AMXD-P4-2's demo upload assertion from triggering a false/accidental 403, all five 403 error codes in `host_credential.py` are documented:
+1. `agent_revoked` (`host_credential.py:209, 225`) — **Target 403 for Demo**: Raised by `_check_agent_revocation` when the agent is registered and revoked.
+2. `tenant_key_binding_mismatch` (`host_credential.py:404`): Raised in `upload_evidence_handler` when `envelope.key_id != host_claims.key_id`.
+3. `tenant_agent_binding_mismatch` (`host_credential.py:415`): Raised in `upload_evidence_handler` when `assertion.agent_id != host_claims.agent_id`.
+4. `tenant_host_binding_mismatch` (`host_credential.py:421`): Raised in `upload_evidence_handler` when `assertion.host_id != host_claims.host_id`.
+5. `cross_tenant_forbidden` (`host_credential.py:220, 430`): Raised when `raw_json.tenant_id != host_claims.tenant_id` (`:430`) or when an agent exists in another tenant's registration (`:220`).
+*(Note: `unregistered_agent` at `:207`, `insufficient_scope` at `:276`, and `invalid_identity_type` at `:285` also yield 403).*
+- **Guidance for AMXD-P4-2**: The post-revocation upload payload must keep `tenant_id`, `agent_id`, `host_id`, and `key_id` identical to the enrolled credential claims so the failure is genuinely `agent_revoked`.
+
+##### 5. Required Command Outputs
+- `grep -n '_check_agent_revocation\|agent_revoked' d2-signalloom/apps/fe-signalloom/src/host_credential.py`:
+  - `194:async def _check_agent_revocation(tenant_id: str, agent_id: str) -> None:`
+  - `209:                raise APIError(403, "agent_revoked", f"External agent '{agent_id}' has been revoked: {row['revocation_reason'] or 'revoked'}")`
+  - `225:            raise APIError(403, "agent_revoked", f"External agent '{agent_id}' has been revoked")`
+  - `323:        await _check_agent_revocation(tenant_id, agent_id)`
+- `grep -n 'host_router = APIRouter\|host_compat_router = APIRouter' d2-signalloom/apps/fe-signalloom/src/host_credential.py`:
+  - `381:host_router = APIRouter(prefix="/v1/external-agents", tags=["external-agent-credentials"])`
+  - `382:host_compat_router = APIRouter(prefix="/api/v1/external-agents", tags=["external-agent-credentials-compat"])`
+- `grep -n 'tenant_key_binding_mismatch\|tenant_agent_binding_mismatch\|tenant_host_binding_mismatch\|cross_tenant_forbidden' d2-signalloom/apps/fe-signalloom/src/host_credential.py`:
+  - `220:                    raise APIError(403, "cross_tenant_forbidden", f"Agent '{agent_id}' belongs to a different tenant")`
+  - `404:            "tenant_key_binding_mismatch",`
+  - `415:                "tenant_agent_binding_mismatch",`
+  - `421:                "tenant_host_binding_mismatch",`
+  - `430:            "cross_tenant_forbidden",`
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

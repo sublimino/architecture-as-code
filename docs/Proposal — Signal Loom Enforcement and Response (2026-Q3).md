@@ -304,7 +304,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P1-4 | implementation | Authenticate the sentinel /stun endpoint and add its NetworkPolicy | P1-PRE | `cd d2-signalloom/apps/stun-sentinel && go test ./...` | M | antigravity | **pass** — delivered: `62376453e2cfceb6578fd65fc48f8ba2329656bd` (see Errata — SLER-P1-4) | $0.00 | N/A | ~5m | N/A |
 | P1-5 | implementation | Stop the cascade fabricating success; carry per-plane status and error | P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | L | kpai | pass — delivered: b53d7d2131721049175ce3bae199fcd5d43c970e (see Errata — SLER-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | **RATIFIED with 15 conditions** at `468e3fc6`. All 6 phase-1 commits proven merged in dependency order; 0 TODO/FIXME; fleet-manager `go test ./...` exit 0; stun-sentinel `pkg/tc` failure proven pre-existing at P0 baseline (`git check-ignore -v` → global `*.o`); freeze guard mutation-killed twice incl. a nested field. **C-9 BLOCKS SLER-P2-1**: containment API unauthenticated, attestation path unwired, no card owns it. **C-2**: `run-redteam-suite.sh` has zero assertions and is disqualified as evidence. | $0.00 | N/A | N/A | N/A |
-| P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | **pass** — 0 OpenBao/SPIFFE SDKs across 3 apps confirmed; BAO_ADDR convention confirmed (`apps/cardvault-agent/main.go:65`); 5/5 `spire-server entry delete` calls confirmed discarding errors; OpenBao 5m TTL baseline confirmed; SPIRE default 24h ca_ttl confirmed with 0 default_svid_ttl setting; network/API seams documented → `docs/signalloom/sler-p2-pre-integration-seams.md` | $0.00 | N/A | ~3m | N/A |
 | P2-1 | implementation | Implement active OpenBao lease and token revocation API client | P2-PRE | `make demo-signalloom-api-test TIER=contract`; lease revocation test | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge credential revocation and verify instant authorization rejection | P2-1, P2-2 | Multi-credential revocation integration test; zero residual token leakage | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -634,6 +634,32 @@ Last Updated: 2026-09-15 03:00:59+01:00
 | P1-4 | $0.00 | N/A | ~5m | N/A |
 | P1-5 | $0.00 | N/A | N/A | N/A |
 | P1-GOV | $0.00 | N/A | N/A | N/A |
+| P2-PRE | $0.00 | N/A | ~3m | N/A |
 
+#### Errata — SLER-P2-PRE (preflight) — Confirm OpenBao and SPIRE revoke API endpoints and integration seams
+
+Created:      2026-09-15 03:13:15+01:00
+Last Updated: 2026-09-15 03:13:15+01:00
+Status:       pass
+Commit:       55c212f080296c8545f3128625b3036ef4fed201
+
+**Delivered.** All OpenBao and SPIRE revocation API endpoints, addressing conventions, error-discarding anti-patterns, and TTL baselines are verified with file:line citations in `docs/signalloom/sler-p2-pre-integration-seams.md`. Phase 2 credential revocation is cleared to start.
+
+##### Confirmed Findings & Integration Seams
+- **Zero Vault/OpenBao and SPIFFE/SPIRE Go SDK Imports**: Confirmed 0 Go files across `d2-signalloom/apps/{fleet-manager,stun-sentinel,node-capability-guard}` import `github.com/hashicorp/vault/api`, `github.com/openbao/openbao/api`, or `github.com/spiffe/go-spiffe/v2`. The only references in `fleet-manager` (`cascade_honesty_test.go:216`, `contract_freeze_test.go:507`, `schema_test.go:141`) are string literals in mock error assertions. P2-1 and P2-2 must build lightweight, fail-closed clients adhering to `sler.signalloom.io/v1alpha1`.
+- **OpenBao Address & Role Convention Confirmed**: Confirmed `BAO_ADDR` with fallback `http://openbao.inf-bao.svc.cluster.local:8200` at `d2-signalloom/apps/cardvault-agent/main.go:65` as the in-cluster convention P2-1 must reuse. Role convention `BAO_ROLE` (`signalloom-cardvault-agent`) at `main.go:66` and audience `openbao` at `main.go:70`.
+- **5/5 `spire-server entry delete` Call Sites Confirmed Discarding Errors**: Identified all existing invocations in-repo (`scripts/supercred-state.sh:408`, `scripts/agent-trust-local.sh:289`, `scripts/supercred-fleet-demo.sh:471`, `scripts/supercred-demo.sh:236`, `scripts/supercred-demo.sh:690`), all of which discard errors via `|| true`, `|| break`, or `>/dev/null`. Confirmed and recorded this as the anti-pattern P2-2 must NOT port into Go; P2-2 must return explicit typed errors and distinguish idempotent non-existence from backend failure.
+- **OpenBao TTL Baseline Confirmed (5m)**: Confirmed `token_ttl: "5m"` and `token_max_ttl: "5m"` in `d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml:68-69`. Without active revocation, compromised tokens survive 300s. P2-1 active revocation via `/v1/sys/leases/revoke` must beat this 5m baseline (<2s target).
+- **SPIRE 24h `ca_ttl` Confirmed & Zero `default_svid_ttl` Confirmed**: Confirmed SPIRE CA rotates on default 24h schedule (`test/spire-openbao-trust-drift.bats:25-53`, `d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml:3`). Confirmed 0 occurrences of `default_svid_ttl` or `svid_ttl` in `d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml` or across the repository. The SVID cache residual cannot be assumed from configuration and must be empirically measured against a running SPIRE agent in P2-2.
+- **NetworkPolicy & Permissions Seams**: Fleet-manager in `fe-signalloom` already permits egress to port 8200 (`d2-signalloom/apps/fleet-manager/base/networkpolicy.yaml:50-54`). OpenBao ingress (`d2-signalloom/infra/inf-bao/configs/base/networkpolicy.yaml:25-34`) admits namespace `fe-signalloom` with pod label `bao.controlplane.io/consumer: fe-signalloom`.
+
+##### Evidence
+- `docs/signalloom/sler-p2-pre-integration-seams.md` authored and verified.
+- `grep -rln 'hashicorp/vault/api\|openbao' --include=*.go d2-signalloom/apps/fleet-manager d2-signalloom/apps/stun-sentinel d2-signalloom/apps/node-capability-guard` → 3 test files (0 SDK imports).
+- `grep -rn 'spire-server entry delete' scripts/` → 5 call sites, 5 error-discarding patterns identified.
+- `test -f docs/signalloom/sler-p2-pre-integration-seams.md` → pass (exit code 0).
+- `grep -n 'token_ttl\|token_max_ttl' d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml` → lines 68-69 (`5m`).
+- `CGO_ENABLED=0 GOPATH=/tmp/gopath GOCACHE=/tmp/gocache go test ./...` in `d2-signalloom/apps/fleet-manager` → `ok` (0.024s).
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

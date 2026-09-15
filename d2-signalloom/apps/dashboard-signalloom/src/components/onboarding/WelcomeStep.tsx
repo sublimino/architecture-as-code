@@ -28,7 +28,7 @@ export default function WelcomeStep({ onContinue, onOpenHelp }: Props) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
-        <img src={signalLoomLogo} alt="Signal Loom" width={48} height={48} style={{ borderRadius: 12, objectFit: 'cover', flexShrink: 0 }} />
+        <img src={signalLoomLogo} alt="Signal Loom" width={48} height={48} style={{ borderRadius: 12, objectFit: 'cover', flexShrink: 0, boxShadow: '0 0 0 1px var(--image-outline)' }} />
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
           Welcome to <span style={{ background: 'linear-gradient(90deg, var(--cyan), var(--violet, #8B5CF6))', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>Signal Loom</span>
         </h1>

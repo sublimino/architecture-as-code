@@ -406,6 +406,7 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
                   aria-checked={isActive}
                   data-testid={`autoplay-speed-${spd}`}
                   data-active={isActive}
+                  data-static="true"
                   disabled={disabled}
                   onClick={() => handleSpeedSelect(spd)}
                   className={`px-2.5 py-1 text-xs font-mono font-medium rounded transition-all ${
@@ -430,7 +431,7 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
             data-reset-btn="true"
             aria-label="Reset demo estate to initial baseline"
             onClick={handleResetEstate}
-            className="btn px-3 py-1.5 text-xs font-mono font-semibold rounded text-[var(--error)] border border-[var(--error)]/30 hover:bg-[var(--error)]/10 transition-all flex items-center gap-1.5"
+            className="btn ps-2.5 pe-3.5 py-1.5 text-xs font-mono font-semibold rounded text-[var(--error)] border border-[var(--error)]/30 hover:bg-[var(--error)]/10 transition-all flex items-center gap-1.5"
           >
             <svg
               aria-hidden="true"

@@ -18,6 +18,7 @@
   --on-accent: #FFFFFF;
   --radius: 8px;
   --radius-sm: 4px;
+  --image-outline: rgba(255, 255, 255, 0.1);
   /* legacy aliases kept for existing components */
   --warning: #D97706;
 
@@ -38,6 +39,10 @@
   --red-base: #EF4444;      --red-bg: #EF444433;          --red-border: #EF444454;    --red-glow: #EF444470;     --red-focus: #EF44441A;
 }
 
+[data-theme="light"] {
+  --image-outline: rgba(0, 0, 0, 0.1);
+}
+
 html, body, #root {
   height: 100%;
   background: var(--bg);
@@ -56,6 +61,14 @@ a:hover { text-decoration: underline; }
 button { cursor: pointer; font-family: inherit; transition: all var(--motion-fast) var(--ease-signature); }
 button:hover:not(:disabled) { transform: translateY(-1px); }
 button:active:not(:disabled) { transform: translateY(0) scale(0.96); }
+/* Static escape hatch per better-ui animations guideline: segmented radios,
+   tabs, and controls with .btn-static or data-static="true" do not scale on press. */
+.btn-static,
+[data-static="true"],
+button[role="tab"]:active,
+button[role="radio"]:active {
+  transform: none !important;
+}
 button:disabled { cursor: not-allowed; opacity: .5; }
 /* Keyboard parity for the ~180 bare <button>s that never take a .btn class and
    are styled inline at the call site. Without this they fall back to whatever

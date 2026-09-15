@@ -14,10 +14,21 @@ type mockFleetClient struct {
 	states map[string]string // agentID -> state
 	calls  []string          // ordered call log
 	// Set these to inject errors
-	getStateErr      error
-	setStateErr      error
-	revokeErr        error
-	restoreErr       error
+	getStateErr error
+	setStateErr error
+	revokeErr   error
+	restoreErr  error
+	healthErr   error
+}
+
+// Health satisfies the FleetClient method added by SLER-P1-1. It records the
+// call like every other method so an orchestrator that started probing health
+// would show up in the call log rather than passing silently.
+func (m *mockFleetClient) Health(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, "Health")
+	return m.healthErr
 }
 
 func newMockClient() *mockFleetClient {

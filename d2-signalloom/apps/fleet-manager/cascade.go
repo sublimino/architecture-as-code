@@ -50,6 +50,13 @@ type FleetClient interface {
 
 	// RestoreCredentials re-credentials the agent via SPIRE -> OpenBao -> KV.
 	RestoreCredentials(ctx context.Context, agentID string) error
+
+	// Health reports whether the enforcement plane is reachable. It returns an
+	// error wrapping ErrEnforcementUnavailable when it is not, which is what
+	// lets /health and the startup probe distinguish "enforcing" from
+	// "installed but blind". Added by SLER-P1-1; the four methods above are
+	// unchanged.
+	Health(ctx context.Context) error
 }
 
 // CascadeOrchestrator sequences stun and recovery operations using the DAG.

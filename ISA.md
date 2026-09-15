@@ -1,106 +1,132 @@
 ---
-task: "AMXD-P3-2: Implement Zero-Payload Inspector widget proving prompt/code confidentiality"
-slug: amxd-p3-2-zero-payload-inspector
+task: "AMXD-P4-2: Implement Stage 5 Attributable Revocation and live 403 denial verification panel"
+slug: amxd-p4-2-attributable-revocation-panel
 project: osramp-demo
 effort: e3
 effort_source: classifier
 phase: complete
-progress: 16/16
+progress: 34/34
 mode: algorithm
-started: 2026-09-15T05:03:00+01:00
-updated: 2026-09-15T05:07:15+01:00
+started: 2026-09-15T06:02:40+01:00
+updated: 2026-09-15T06:08:45+01:00
 ---
 
 ## Problem
 
-The Zero-Payload Inspector proposal previously relied on DOM inspection asserting the absence of prompt/code strings, which passes unconditionally on fixture-fed pages and validates the wrong boundary. The true confidentiality boundary is `d2-signalloom/apps/agentmaxxing-host-sensor/filter.py`'s `AllowlistFilter` (`ALLOWLISTED_PROCESS_ATTRIBUTES`, `ALLOWLISTED_ENVELOPE_FIELDS`, `PROHIBITED_EXPORT_KEYS`, `filter_attributes`), which drops any unapproved key. The UI needs to render the compiled allowlist sets directly derived from `filter.py`, an active drop-count demonstration proving that unapproved fields are stripped, and a verifiable build digest of `filter.py` rather than hardcoded drifting constants.
+The proposal originally cited an invented endpoint (`/api/v1/agentmaxxing/hosts/{id}/revoke`) that matches no route in the codebase. Tracing the backend implementation reveals a real two-endpoint flow:
+1. Revoke host credentials via bare path `POST /v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router` in `external_agent_registration.py:1231`, requiring direct `fetch` transport to prevent `client.ts` from auto-prefixing `/api`).
+2. Verify denial via `POST /api/v1/external-agents/evidence-uploads` (`host_credential.py:517-523`, `host_compat_router`), which authenticates the host credential and executes `_check_agent_revocation` (`host_credential.py:194-209`), returning HTTP 403 with error code `'agent_revoked'`.
+3. If the upload envelope's `key_id`, `agent_id`, `host_id`, or `tenant_id` bindings do not match the credential exactly, one of four OTHER 403 error codes (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`) is returned before revocation is checked, producing a false-positive 403 badge for the wrong reason.
+4. Without an attributable reason selector, revocations would be dispatched without an audit record, and without session-derived target guards, an operator could target arbitrary or customer host IDs.
 
 ## Vision
 
-A mathematically provable, traceable Zero-Payload Inspector widget:
-1. **Source-Traced Build Manifest**: `scripts/generate-agentmaxxing-allowlist-manifest.mjs` extracts allowlist sets and computes the full SHA-256 digest of `filter.py` into a committed JSON manifest.
-2. **CI-Facing Staleness Gate**: The generator script enforces `--check` with distinct exit codes (0 for fresh, 1 for stale, 2 for error), failing CI if `filter.py` drifts without manifest regeneration.
-3. **Copyable Build Digest**: Full 64-character SHA-256 digest rendered in monospace with one-click copy and explicit labeling referencing `filter.py`.
-4. **Active Drop Count Demonstration**: Interactive demonstration feeding a representative raw event (with allowlisted and non-allowlisted keys like `prompt_text`, `file_contents`) through allowlist filtering, displaying the exact drop count and filtered keys.
-5. **Secondary DOM Check**: Repurposes DOM string checks as secondary defense-in-depth, clearly clarifying the primary proof is the kernel/sensor allowlist filter.
-6. **Robust Mock/Live Parity**: Sourced from build-time manifest, ensuring zero mock/live divergence.
+A robust, attributable Stage 5 Revocation Panel at `src/components/demos/RevocationPanel.tsx`:
+1. **Traced Two-Endpoint Flow**: First dispatches revocation to `POST /v1/external-agents/hosts/{host_id}/revoke` using direct `fetch`, then attempts an evidence upload to `POST /api/v1/external-agents/evidence-uploads` using `req()`.
+2. **Strict Error Code Assertion**: Explicitly asserts and displays the response error code `'agent_revoked'`, distinguishing genuine revocation from binding-mismatch 403 errors.
+3. **Mandatory Attributable Reason**: Requires the operator to select a valid `reason_code` from `ExternalAgentRevocationV1` (`operator-request`, `host-unenrolled`, `credential-compromise`, `credential-expired`, `key-rotation`), gating the dispatch button.
+4. **Session-Derived Targets**: Automatically binds `host_id`, `agent_id`, `key_id`, and `tenant_id` from session state / preset, prohibiting free-text target entry.
+5. **Cryptographic Audit Timeline**: Renders chronological timeline events for both the revocation and the 403 denial, persisting the selected `reason_code` and matching Stage 1/2 attribution styling.
+6. **Mock/Live Parity**: Sourced from `scenarios.ts` and `bridge.ts`, ensuring identical badge and timeline rendering between mock and live channels for `REVOCATION_RACE_PRESET`.
+7. **Network vs Application Failure Distinction**: Renders distinct "Could not reach backend" UI on network transport errors instead of silently swallowing or showing a 403 badge.
 
 ## Out of Scope
 
-- Modifying `d2-signalloom/apps/agentmaxxing-host-sensor/filter.py` or host sensor internals.
-- Direct mutations to backend production databases or modifying SLER enforcement engines.
-- Adding arbitrary file descriptor gauges or fabricating unallowlisted metrics.
+- Mutating production state or targeting customer tenants/agents.
+- Modifying SLER enforcement engines or backend route registrations.
+- Adding arbitrary unauthenticated demo routes.
 
 ## Principles
 
-- **Traceable Ground Truth**: UI assertions must trace directly to compiled source code artifacts via cryptographic digests.
-- **Active Boundary Proof**: Prove enforcement by demonstrating the active drop of prohibited fields, not by assuming absence in empty fixtures.
-- **Zero Drift Tolerance**: Manifest staleness must fail loudly and deterministically at build and test time.
+- **Attributable Accountability**: Every revocation must record who, when, and why (`reason_code`).
+- **Cryptographic Precision**: Assert the exact denial error code (`agent_revoked`), not merely HTTP 403 status.
+- **Structural Safety**: Prohibit manual entry of host/agent IDs to prevent targeting live customer infrastructure.
+- **Mock/Live Parity**: Visual styling, timeline events, and denial badges must be structurally indistinguishable across mock and live channels.
 
 ## Constraints
 
 - TypeScript strict typecheck clean (`bun run typecheck`).
-- All tests passing in `dashboard-signalloom` with Vitest (`bun run test`).
-- Python interpreter availability verified explicitly before running python-based manifest extraction.
-- Strict data-testid attributes for Playwright acceptance suite compatibility.
+- All tests passing with Vitest in `dashboard-signalloom` (`bun run test --run src/components/demos/RevocationPanel.test.tsx`).
+- Respect `disabled-during-async-transition` state contract.
+- Required `data-testid` attributes for acceptance test harness compatibility.
 
 ## Goal
 
-Implement `scripts/generate-agentmaxxing-allowlist-manifest.mjs` and `ZeroPayloadInspector.tsx` with full allowlist rendering, active drop-count verification, copyable build digest, staleness detection, and comprehensive Vitest unit tests.
+Implement `RevocationPanel.tsx` and comprehensive unit tests in `RevocationPanel.test.tsx`, wire Stage 5 into `AgentMaxxingDemoPage.tsx`, verify exact error code assertions, attributable reason gating, audit timeline rendering, and mock/live parity.
 
 ## Criteria
 
-- [x] ISC-1: `scripts/generate-agentmaxxing-allowlist-manifest.mjs` exists and extracts `ALLOWLISTED_PROCESS_ATTRIBUTES`, `ALLOWLISTED_ENVELOPE_FIELDS`, and `PROHIBITED_EXPORT_KEYS` from `filter.py`.
-- [x] ISC-2: `generate-agentmaxxing-allowlist-manifest.mjs` computes the full SHA-256 hex digest of `filter.py` content.
-- [x] ISC-3: `generate-agentmaxxing-allowlist-manifest.mjs` supports `--check` flag returning exit code 0 when fresh and exit code 1 when stale.
-- [x] ISC-4: `generate-agentmaxxing-allowlist-manifest.mjs` checks for `python3` availability and fails explicitly with clear error if missing.
-- [x] ISC-5: Target JSON manifest `agentmaxxing-allowlist-manifest.json` is generated and committed.
-- [x] ISC-6: `ZeroPayloadInspector.tsx` exists at `d2-signalloom/apps/dashboard-signalloom/src/components/demos/ZeroPayloadInspector.tsx`.
-- [x] ISC-7: `ZeroPayloadInspector` renders the compiled allowlist sets with `data-testid="allowlist-list"`.
-- [x] ISC-8: `ZeroPayloadInspector` renders the full SHA-256 build digest in copyable monospace format with `data-testid="filter-digest"`.
-- [x] ISC-9: `ZeroPayloadInspector` labels the digest clearly as computed from `filter.py` at build time.
-- [x] ISC-10: `ZeroPayloadInspector` performs a drop-count demonstration against a sample raw event containing allowlisted and non-allowlisted keys.
-- [x] ISC-11: `ZeroPayloadInspector` displays the drop count with `data-testid="drop-count"`.
-- [x] ISC-12: `ZeroPayloadInspector` renders a visible staleness warning banner with `data-testid="manifest-staleness-warning"` when passed a manifest with mismatched digest.
-- [x] ISC-13: `ZeroPayloadInspector` frames DOM string absence checks as secondary defense-in-depth, not primary proof.
-- [x] ISC-14: `ZeroPayloadInspector.test.tsx` passes with 100% assertions covering allowlist rendering, drop count calculation, copy interaction, and staleness detection.
-- [x] ISC-15: Mock and live channels render identical manifest-derived allowlist and digest.
-- [x] ISC-16: Anti: Zero raw customer source code or prompt tokens are rendered or accepted by the component.
+- [x] ISC-1: `RevocationPanel.tsx` component is created and exported from `src/components/demos/RevocationPanel.tsx`.
+- [x] ISC-2: `RevocationPanel` renders with container `data-testid="revocation-panel"`.
+- [x] ISC-3: `RevocationPanel` renders header with channel badge `data-testid="revocation-channel-badge"`.
+- [x] ISC-4: `RevocationPanel` renders target endpoint information for `/v1/external-agents/hosts/{host_id}/revoke`.
+- [x] ISC-5: `RevocationPanel` renders reason code selector with `data-testid="revocation-reason-select"`.
+- [x] ISC-6: Reason selector includes all 5 `ExternalAgentRevocationV1` union members: `operator-request`, `host-unenrolled`, `credential-compromise`, `credential-expired`, `key-rotation`.
+- [x] ISC-7: Revoke dispatch button with `data-testid="revocation-dispatch-btn"` is disabled when no reason is selected.
+- [x] ISC-8: Revoke dispatch button is disabled when `inFlight` or `isSubmitting` is true (double-click / async transition protection).
+- [x] ISC-9: Selecting a valid reason enables the revoke dispatch button.
+- [x] ISC-10: Target `host_id`, `agent_id`, `key_id`, `tenant_id` are derived from session state / preset, with no editable free-text input for host/agent IDs.
+- [x] ISC-11: Dispatching revocation calls `POST /v1/external-agents/hosts/{host_id}/revoke` via direct `fetch` transport on live channel.
+- [x] ISC-12: Revocation payload includes `{ reason_code, reason }` matching selected attribution.
+- [x] ISC-13: After revocation, upload attempt is triggered to `POST /api/v1/external-agents/evidence-uploads`.
+- [x] ISC-14: Upload attempt constructs valid assertion envelope with exact `key_id`, `agent_id`, `host_id`, and `tenant_id` matching credential binding.
+- [x] ISC-15: Upload attempt receives HTTP 403 Forbidden response.
+- [x] ISC-16: Response body is parsed and checked for error code `agent_revoked`.
+- [x] ISC-17: 403 Denial Badge with `data-testid="revocation-denial-badge"` is rendered upon verified `agent_revoked` denial.
+- [x] ISC-18: Denial badge displays both HTTP 403 and `agent_revoked` error code.
+- [x] ISC-19: Audit timeline with `data-testid="revocation-timeline"` is rendered.
+- [x] ISC-20: Timeline renders revocation event with `data-testid="revocation-timeline-event-revoked"`.
+- [x] ISC-21: Revocation timeline event displays selected `reason_code` prominently.
+- [x] ISC-22: Revocation timeline event displays operator attribution matching Stage 1/2 convention.
+- [x] ISC-23: Timeline renders upload denial event with `data-testid="revocation-timeline-event-denied"`.
+- [x] ISC-24: Upload denial timeline event displays attempted endpoint `/api/v1/external-agents/evidence-uploads` and 403 status.
+- [x] ISC-25: Upload trigger button with `data-testid="upload-attempt-trigger-btn"` allows manual or auto verification of post-revocation upload denial.
+- [x] ISC-26: Network-level failure renders distinct error state with `data-testid="revocation-network-error"`.
+- [x] ISC-27: Non-revocation 403 error (e.g. `tenant_key_binding_mismatch`) is flagged as binding mismatch and does NOT render the verified `agent_revoked` badge.
+- [x] ISC-28: Mock channel with `REVOCATION_RACE_PRESET` renders structurally identical badge and timeline structure.
+- [x] ISC-29: `AgentMaxxingDemoPage.tsx` renders `RevocationPanel` when `activeViewStage === 'revocation_denied'`.
+- [x] ISC-30: Anti: Revocation cannot target un-enrolled or arbitrary host IDs outside current session.
+- [x] ISC-31: Anti: Revocation cannot fire with blank attribution reason.
+- [x] ISC-32: Anti: `req()` is not called on bare `/v1/` revoke endpoint.
+- [x] ISC-33: `RevocationPanel.test.tsx` passes with 100% green unit tests.
+- [x] ISC-34: `bun run typecheck` passes with zero TypeScript errors.
 
 ## Test Strategy
 
-- ISC-1..5: Node script execution `node scripts/generate-agentmaxxing-allowlist-manifest.mjs --check` and `--generate`.
-- ISC-6..13: Vitest component unit tests rendering `ZeroPayloadInspector` with default and mismatched manifests.
-- ISC-14: Vitest test suite `src/components/demos/ZeroPayloadInspector.test.tsx`.
-- ISC-15: Test asserting mock vs live parity for allowlist data.
-- ISC-16: Test asserting zero prompt text in rendered DOM.
+- `RevocationPanel.test.tsx`:
+  - Unit tests for initial render, reason selector, button gating.
+  - Test for two-endpoint dispatch (revoke then upload).
+  - Test verifying `agent_revoked` error code assertion.
+  - Test verifying binding-mismatch 403 rejection.
+  - Test verifying network failure handling.
+  - Test verifying audit timeline and persisted reason code.
+  - Test verifying mock/live parity on `REVOCATION_RACE_PRESET`.
+- `bun run typecheck` for strict typing.
+- grep tests for routes, contracts, testids, and reason_code types.
 
 ## Features
 
-- Feature 1: Build-time manifest generator script (`scripts/generate-agentmaxxing-allowlist-manifest.mjs`) with `--check` CI contract.
-- Feature 2: Committed JSON manifest (`src/data/agentmaxxing-allowlist-manifest.json`).
-- Feature 3: React component `ZeroPayloadInspector.tsx` with allowlist sets, drop count demo, build digest, and staleness warning.
-- Feature 4: Comprehensive test suite in `ZeroPayloadInspector.test.tsx`.
-- Feature 5: Integration into `ConfinementTelemetryPanel.tsx` (Stage 3).
+- `RevocationPanel`: Stage 5 Attributable Revocation and live 403 denial verification UI component.
+- `RevocationPanelTests`: Comprehensive Vitest test suite.
+- `PageIntegration`: Integration into `AgentMaxxingDemoPage.tsx`.
 
 ## Decisions
 
-- **Manifest Storage Location**: Place generated manifest at `d2-signalloom/apps/dashboard-signalloom/src/data/agentmaxxing-allowlist-manifest.json` and export types from `ZeroPayloadInspector.tsx`.
-- **Python Check in Script**: Execute `python3` safely to introspect AST or import sets directly, guaranteeing robust set extraction regardless of member ordering or whitespace formatting.
-- **Exit Code Contract**: Script exits 0 when `--check` matches, 1 when stale/mismatched, 2 for invocation/runtime errors.
+- **Direct Fetch for Revoke Route**: Sourced directly via `transport.fetch` on bare path `/v1/external-agents/hosts/{host_id}/revoke` per AMXD-P1-3 frozen bridge contract.
+- **Req for Evidence Uploads**: Evidence upload uses `transport.req` against `/v1/external-agents/evidence-uploads` (which prepends `/api` to form `/api/v1/external-agents/evidence-uploads`).
+- **Exact Envelope Binding**: Auto-derives `key_id`, `agent_id`, `host_id`, and `tenant_id` from session state / preset to guarantee avoidance of false-positive binding mismatch 403s.
+- **Persisted Attribution Reason**: Stores the selected `reason_code` in component state and timeline events so it persists after the dispatch form settles.
 
 ## Changelog
 
-- 2026-09-15: Initialized ISA for AMXD-P3-2 Zero-Payload Inspector implementation.
-- 2026-09-15: Implemented manifest generator script, JSON manifest, ZeroPayloadInspector component, and 13-test Vitest suite. All 16 criteria verified green.
+- 2026-09-15: Initial ISA created for AMXD-P4-2.
+- 2026-09-15: Shipped `RevocationPanel.tsx`, `RevocationPanel.test.tsx`, and updated `AgentMaxxingDemoPage.tsx`. 12/12 unit tests passing, full test suite clean, TypeScript typecheck clean.
 
 ## Verification
 
-- `node scripts/generate-agentmaxxing-allowlist-manifest.mjs --check` → exit 0 (fresh).
-- Deliberate staleness test with mismatched SHA-256 → exit 1 (stale).
-- `bun run test --run src/components/demos/ZeroPayloadInspector.test.tsx` → 13/13 passed.
-- `bun run test --run src/components/demos/ConfinementTelemetryPanel.test.tsx` → 20/20 passed.
-- `bun run typecheck` → exit 0.
-- `bunx eslint src/components/demos/ZeroPayloadInspector*` → exit 0 (0 errors, 0 warnings).
-- `bun run build` → exit 0 (`✓ built in 2.81s`).
-- `bats test/acceptance-spec-coverage.bats` → 7/7 passed.
+- ISC-1 to ISC-34 verified with:
+  - `bun run test --run src/components/demos/RevocationPanel.test.tsx` (12 tests passed)
+  - `bun run test --run src/components/demos/RevocationPanel.test.tsx -t 'binding'` (3 binding tests passed)
+  - `bun run typecheck` (`tsc --noEmit` exit code 0)
+  - `grep -rn 'data-testid' src/components/demos/RevocationPanel.tsx` (all testids present)
+  - `grep -n 'reason_code' src/types/externalAgent.ts` (all 5 union members present)

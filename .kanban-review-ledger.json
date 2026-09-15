@@ -131,7 +131,7 @@
     "reviewed_at": "2026-09-15T06:21:11.474963Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
+    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50\u00b5s), and defined forensic ledger schema and Go types"
   },
   "80803": {
     "task_id": "80803",
@@ -2272,7 +2272,7 @@
     "reviewed_at": "2026-09-14T20:35:04Z",
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
-    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc §7.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   },
   "302f6": {
     "task_id": "302f6",
@@ -2805,5 +2805,12 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Wired make demo-agentmaxxing-ui-test to execute both Vitest and Playwright demo console acceptance suite; updated SPEC-REGISTRY.tsv; bats test/acceptance-spec-coverage.bats 7/7 pass"
+  },
+  "160b5": {
+    "task_id": "160b5",
+    "reviewed_at": "2026-09-15T10:41:01Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLER Phase 6 Governor audit complete: full surface evaluated, comprehensive delivery report delivered in docs/signalloom/sler-p6-gov-delivery-report.md, certification withheld on 7 findings with clear remediation path"
   }
 }

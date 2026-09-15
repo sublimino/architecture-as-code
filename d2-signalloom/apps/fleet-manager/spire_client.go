@@ -55,11 +55,41 @@ type SpireClient interface {
 	// EvictAgent executes end-to-end SPIRE eviction for a target agent.
 	EvictAgent(ctx context.Context, req SpireEvictionRequest) (*SpireEvictionResponse, error)
 
+	// ReenterAgent re-establishes registration entries for a resumed agent so fresh SVIDs can be issued.
+	ReenterAgent(ctx context.Context, req SpireReentryRequest) (*SpireReentryResponse, error)
+
 	// Health probes SPIRE server connectivity and availability.
 	Health(ctx context.Context) error
 
 	// Close terminates the gRPC connection.
 	Close() error
+}
+
+// SpireReentryRequest defines the wire request for SPIRE registration re-entry on resume.
+type SpireReentryRequest struct {
+	SchemaVersion  string   `json:"schema_version"`
+	IdempotencyKey string   `json:"idempotency_key"`
+	AgentID        string   `json:"agent_id"`
+	SPIFFEID       string   `json:"spiffe_id"`
+	Namespace      string   `json:"namespace,omitempty"`
+	ParentID       string   `json:"parent_id,omitempty"`
+	Selectors      []string `json:"selectors,omitempty"`
+	Reason         string   `json:"reason"`
+	Timestamp      string   `json:"timestamp"`
+}
+
+// SpireReentryResponse defines the wire response from SPIRE registration re-entry on resume.
+type SpireReentryResponse struct {
+	SchemaVersion  string           `json:"schema_version"`
+	IdempotencyKey string           `json:"idempotency_key"`
+	AgentID        string           `json:"agent_id"`
+	Plane          EnforcementPlane `json:"plane"`
+	Outcome        PlaneOutcome     `json:"outcome"`
+	EntryCreated   bool             `json:"entry_created"`
+	EntryID        string           `json:"entry_id,omitempty"`
+	LatencyMs      int64            `json:"latency_ms"`
+	Error          string           `json:"error,omitempty"`
+	Timestamp      string           `json:"timestamp"`
 }
 
 // grpcSpireClient implements SpireClient using SPIRE Server's Entry v1 gRPC API.
@@ -493,6 +523,132 @@ func (c *grpcSpireClient) EvictAgent(ctx context.Context, req SpireEvictionReque
 		"outcome", string(response.Outcome),
 		"latency_ms", response.LatencyMs,
 		"worst_case_residual_ms", SpireX509SVIDResidualMs,
+		"idempotency_key", req.IdempotencyKey)
+
+	return response, nil
+}
+
+// ReenterAgent re-registers an agent in SPIRE server to issue fresh SVIDs upon governance resume.
+func (c *grpcSpireClient) ReenterAgent(ctx context.Context, req SpireReentryRequest) (*SpireReentryResponse, error) {
+	if c == nil {
+		return nil, fmt.Errorf("spire client not initialised: %w", ErrEnforcementUnavailable)
+	}
+	start := c.now()
+
+	response := &SpireReentryResponse{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: req.IdempotencyKey,
+		AgentID:        req.AgentID,
+		Plane:          PlaneSpire,
+		Timestamp:      start.UTC().Format(time.RFC3339),
+	}
+
+	client, err := c.getEntryClient()
+	if err != nil {
+		response.Outcome = OutcomeUnavailable
+		response.Error = err.Error()
+		response.LatencyMs = c.now().Sub(start).Milliseconds()
+		return response, fmt.Errorf("spire client unavailable: %w", err)
+	}
+
+	spiffeID, parseErr := ParseSPIFFEID(req.SPIFFEID)
+	if parseErr != nil {
+		response.Outcome = OutcomeUnavailable
+		response.Error = parseErr.Error()
+		response.LatencyMs = c.now().Sub(start).Milliseconds()
+		return response, fmt.Errorf("%w: %v", ErrSpireInvalidEntry, parseErr)
+	}
+
+	parentID := req.ParentID
+	if parentID == "" {
+		parentID = fmt.Sprintf("spiffe://%s/spire/server", spiffeID.TrustDomain)
+	}
+	parsedParent, parseParentErr := ParseSPIFFEID(parentID)
+	if parseParentErr != nil {
+		response.Outcome = OutcomeUnavailable
+		response.Error = parseParentErr.Error()
+		response.LatencyMs = c.now().Sub(start).Milliseconds()
+		return response, fmt.Errorf("%w: %v", ErrSpireInvalidEntry, parseParentErr)
+	}
+
+	selectors := make([]*spiretypes.Selector, 0, len(req.Selectors))
+	for _, s := range req.Selectors {
+		parts := strings.SplitN(s, ":", 2)
+		if len(parts) == 2 {
+			selectors = append(selectors, &spiretypes.Selector{
+				Type:  parts[0],
+				Value: parts[1],
+			})
+		}
+	}
+	if len(selectors) == 0 {
+		ns := req.Namespace
+		if ns == "" {
+			ns = "fe-signalloom-agents"
+		}
+		selectors = append(selectors,
+			&spiretypes.Selector{Type: "k8s", Value: fmt.Sprintf("ns:%s", ns)},
+			&spiretypes.Selector{Type: "k8s", Value: fmt.Sprintf("sa:%s", req.AgentID)},
+		)
+	}
+
+	entryReq := &entryv1.BatchCreateEntryRequest{
+		Entries: []*spiretypes.Entry{
+			{
+				SpiffeId:  spiffeID,
+				ParentId:  parsedParent,
+				Selectors: selectors,
+			},
+		},
+	}
+
+	resp, rpcErr := client.BatchCreateEntry(ctx, entryReq)
+	response.LatencyMs = c.now().Sub(start).Milliseconds()
+
+	if rpcErr != nil {
+		st, _ := status.FromError(rpcErr)
+		outcome, typedErr, isIdempotent := MapGRPCStatusToOutcome(st.Code(), st.Message(), rpcErr)
+		response.Outcome = outcome
+		response.Error = rpcErr.Error()
+		if isIdempotent || st.Code() == codes.AlreadyExists {
+			response.Outcome = OutcomeContained
+			response.EntryCreated = true
+			response.Error = ""
+			return response, nil
+		}
+		return response, typedErr
+	}
+
+	if resp != nil && len(resp.Results) > 0 {
+		res := resp.Results[0]
+		if res.Status != nil {
+			statusCode := codes.Code(res.Status.Code)
+			outcome, typedErr, isIdempotent := MapGRPCStatusToOutcome(statusCode, res.Status.Message, nil)
+			if statusCode == codes.AlreadyExists || isIdempotent {
+				response.Outcome = OutcomeContained
+				response.EntryCreated = true
+			} else if typedErr != nil {
+				response.Outcome = outcome
+				response.Error = typedErr.Error()
+				return response, typedErr
+			} else {
+				response.Outcome = OutcomeContained
+				response.EntryCreated = true
+				if res.Entry != nil {
+					response.EntryID = res.Entry.Id
+				}
+			}
+		}
+	}
+
+	response.Outcome = OutcomeContained
+	slog.Info("spire reentry completed",
+		"event", SpireReentryEventName,
+		"agent_id", req.AgentID,
+		"spiffe_id", req.SPIFFEID,
+		"entry_created", response.EntryCreated,
+		"outcome", string(response.Outcome),
+		"latency_ms", response.LatencyMs,
 		"idempotency_key", req.IdempotencyKey)
 
 	return response, nil

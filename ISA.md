@@ -1,132 +1,121 @@
 ---
-task: "AMXD-P4-2: Implement Stage 5 Attributable Revocation and live 403 denial verification panel"
-slug: amxd-p4-2-attributable-revocation-panel
+task: "SLER-P4-3: Implement governance-gated resume with mandatory credential rotation"
+slug: sler-p4-3-governance-resume-rotation
 project: osramp-demo
 effort: e3
 effort_source: classifier
-phase: complete
-progress: 34/34
+phase: observe
+progress: 36/36
 mode: algorithm
-started: 2026-09-15T06:02:40+01:00
-updated: 2026-09-15T06:08:45+01:00
+started: 2026-09-15T06:04:00+01:00
+updated: 2026-09-15T06:16:00+01:00
 ---
 
 ## Problem
 
-The proposal originally cited an invented endpoint (`/api/v1/agentmaxxing/hosts/{id}/revoke`) that matches no route in the codebase. Tracing the backend implementation reveals a real two-endpoint flow:
-1. Revoke host credentials via bare path `POST /v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router` in `external_agent_registration.py:1231`, requiring direct `fetch` transport to prevent `client.ts` from auto-prefixing `/api`).
-2. Verify denial via `POST /api/v1/external-agents/evidence-uploads` (`host_credential.py:517-523`, `host_compat_router`), which authenticates the host credential and executes `_check_agent_revocation` (`host_credential.py:194-209`), returning HTTP 403 with error code `'agent_revoked'`.
-3. If the upload envelope's `key_id`, `agent_id`, `host_id`, or `tenant_id` bindings do not match the credential exactly, one of four OTHER 403 error codes (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`) is returned before revocation is checked, producing a false-positive 403 badge for the wrong reason.
-4. Without an attributable reason selector, revocations would be dispatched without an audit record, and without session-derived target guards, an operator could target arbitrary or customer host IDs.
+The containment engine previously relied on a single shared-secret `STUN_RESUME_TOKEN` read from the environment and compared via a constant-time string comparison (`stun-sentinel/cmd/stun-sentinel/main.go:56,272`). Because the identical token was injected cluster-wide across all DaemonSet nodes, operator attribution was structurally absent: the bytes compared carried zero information about who presented them. Furthermore, resuming an agent without rotating its active credentials left the agent running on the very credentials active during containment, defeating the security guarantee of containment.
 
 ## Vision
 
-A robust, attributable Stage 5 Revocation Panel at `src/components/demos/RevocationPanel.tsx`:
-1. **Traced Two-Endpoint Flow**: First dispatches revocation to `POST /v1/external-agents/hosts/{host_id}/revoke` using direct `fetch`, then attempts an evidence upload to `POST /api/v1/external-agents/evidence-uploads` using `req()`.
-2. **Strict Error Code Assertion**: Explicitly asserts and displays the response error code `'agent_revoked'`, distinguishing genuine revocation from binding-mismatch 403 errors.
-3. **Mandatory Attributable Reason**: Requires the operator to select a valid `reason_code` from `ExternalAgentRevocationV1` (`operator-request`, `host-unenrolled`, `credential-compromise`, `credential-expired`, `key-rotation`), gating the dispatch button.
-4. **Session-Derived Targets**: Automatically binds `host_id`, `agent_id`, `key_id`, and `tenant_id` from session state / preset, prohibiting free-text target entry.
-5. **Cryptographic Audit Timeline**: Renders chronological timeline events for both the revocation and the 403 denial, persisting the selected `reason_code` and matching Stage 1/2 attribution styling.
-6. **Mock/Live Parity**: Sourced from `scenarios.ts` and `bridge.ts`, ensuring identical badge and timeline rendering between mock and live channels for `REVOCATION_RACE_PRESET`.
-7. **Network vs Application Failure Distinction**: Renders distinct "Could not reach backend" UI on network transport errors instead of silently swallowing or showing a 403 badge.
+An attributable, governance-gated unfreeze and resume system:
+1. **Ed25519 Dual-Operator Signature Verification**: Verifies tokens against P1-3's frozen v1alpha1 spec with length-prefixed domain-separated canonical signing inputs.
+2. **Node-Local Operator Key Distribution**: Distributed public key registry loaded on sentinel nodes via file/directory/env bundles with self-certifying `sha256:<hex>` KeyIDs.
+3. **Cryptographic Attribution**: Operator identities extracted from verified signatures and recorded in forensic telemetry events and audit logs.
+4. **Mandatory Credential Rotation**: Automatic rotation of OpenBao leases and SPIRE SVIDs on resume before marking resume complete.
+5. **Replay & Idempotency Ledger**: Single-use token ledger keyed on `token_id` and `idempotency_key`, preventing token replay while guaranteeing safe idempotency under retry.
 
 ## Out of Scope
 
-- Mutating production state or targeting customer tenants/agents.
-- Modifying SLER enforcement engines or backend route registrations.
-- Adding arbitrary unauthenticated demo routes.
+- Contacting live customer infrastructure or real production clusters.
+- Modifying SLDP identity contracts or changing the frozen v1alpha1 schema without version bump.
+- Python runtime scripts or non-standard tooling.
 
 ## Principles
 
-- **Attributable Accountability**: Every revocation must record who, when, and why (`reason_code`).
-- **Cryptographic Precision**: Assert the exact denial error code (`agent_revoked`), not merely HTTP 403 status.
-- **Structural Safety**: Prohibit manual entry of host/agent IDs to prevent targeting live customer infrastructure.
-- **Mock/Live Parity**: Visual styling, timeline events, and denial badges must be structurally indistinguishable across mock and live channels.
+- **Attribution is a Property of Keys**: A single shared secret is structurally unattributable; attribution requires individual asymmetric keys bound to operator identities.
+- **Mandatory Credential Rotation**: A resumed agent must never continue using credentials that were live during its containment.
+- **Fail-Closed Safe Defaults**: Missing or invalid credentials deny resume unconditionally.
+- **Replay Protection with Idempotent Retry**: Replay of consumed tokens is denied, while identical requests with the same idempotency key return cached results without double-rotation.
 
 ## Constraints
 
-- TypeScript strict typecheck clean (`bun run typecheck`).
-- All tests passing with Vitest in `dashboard-signalloom` (`bun run test --run src/components/demos/RevocationPanel.test.tsx`).
-- Respect `disabled-during-async-transition` state contract.
-- Required `data-testid` attributes for acceptance test harness compatibility.
+- Pure Go implementation in `apps/stun-sentinel` and `apps/fleet-manager`.
+- Conformance with `docs/signalloom/sler-p1-3-frozen-contract.md`.
+- Zero compiler errors with `CGO_ENABLED=0`.
+- All tests passing in `stun-sentinel` and `fleet-manager`.
 
 ## Goal
 
-Implement `RevocationPanel.tsx` and comprehensive unit tests in `RevocationPanel.test.tsx`, wire Stage 5 into `AgentMaxxingDemoPage.tsx`, verify exact error code assertions, attributable reason gating, audit timeline rendering, and mock/live parity.
+Implement Ed25519-signed governance resume token verification, node-local per-operator key distribution, operator identity attribution in telemetry, and mandatory OpenBao/SPIRE credential rotation on resume.
 
 ## Criteria
 
-- [x] ISC-1: `RevocationPanel.tsx` component is created and exported from `src/components/demos/RevocationPanel.tsx`.
-- [x] ISC-2: `RevocationPanel` renders with container `data-testid="revocation-panel"`.
-- [x] ISC-3: `RevocationPanel` renders header with channel badge `data-testid="revocation-channel-badge"`.
-- [x] ISC-4: `RevocationPanel` renders target endpoint information for `/v1/external-agents/hosts/{host_id}/revoke`.
-- [x] ISC-5: `RevocationPanel` renders reason code selector with `data-testid="revocation-reason-select"`.
-- [x] ISC-6: Reason selector includes all 5 `ExternalAgentRevocationV1` union members: `operator-request`, `host-unenrolled`, `credential-compromise`, `credential-expired`, `key-rotation`.
-- [x] ISC-7: Revoke dispatch button with `data-testid="revocation-dispatch-btn"` is disabled when no reason is selected.
-- [x] ISC-8: Revoke dispatch button is disabled when `inFlight` or `isSubmitting` is true (double-click / async transition protection).
-- [x] ISC-9: Selecting a valid reason enables the revoke dispatch button.
-- [x] ISC-10: Target `host_id`, `agent_id`, `key_id`, `tenant_id` are derived from session state / preset, with no editable free-text input for host/agent IDs.
-- [x] ISC-11: Dispatching revocation calls `POST /v1/external-agents/hosts/{host_id}/revoke` via direct `fetch` transport on live channel.
-- [x] ISC-12: Revocation payload includes `{ reason_code, reason }` matching selected attribution.
-- [x] ISC-13: After revocation, upload attempt is triggered to `POST /api/v1/external-agents/evidence-uploads`.
-- [x] ISC-14: Upload attempt constructs valid assertion envelope with exact `key_id`, `agent_id`, `host_id`, and `tenant_id` matching credential binding.
-- [x] ISC-15: Upload attempt receives HTTP 403 Forbidden response.
-- [x] ISC-16: Response body is parsed and checked for error code `agent_revoked`.
-- [x] ISC-17: 403 Denial Badge with `data-testid="revocation-denial-badge"` is rendered upon verified `agent_revoked` denial.
-- [x] ISC-18: Denial badge displays both HTTP 403 and `agent_revoked` error code.
-- [x] ISC-19: Audit timeline with `data-testid="revocation-timeline"` is rendered.
-- [x] ISC-20: Timeline renders revocation event with `data-testid="revocation-timeline-event-revoked"`.
-- [x] ISC-21: Revocation timeline event displays selected `reason_code` prominently.
-- [x] ISC-22: Revocation timeline event displays operator attribution matching Stage 1/2 convention.
-- [x] ISC-23: Timeline renders upload denial event with `data-testid="revocation-timeline-event-denied"`.
-- [x] ISC-24: Upload denial timeline event displays attempted endpoint `/api/v1/external-agents/evidence-uploads` and 403 status.
-- [x] ISC-25: Upload trigger button with `data-testid="upload-attempt-trigger-btn"` allows manual or auto verification of post-revocation upload denial.
-- [x] ISC-26: Network-level failure renders distinct error state with `data-testid="revocation-network-error"`.
-- [x] ISC-27: Non-revocation 403 error (e.g. `tenant_key_binding_mismatch`) is flagged as binding mismatch and does NOT render the verified `agent_revoked` badge.
-- [x] ISC-28: Mock channel with `REVOCATION_RACE_PRESET` renders structurally identical badge and timeline structure.
-- [x] ISC-29: `AgentMaxxingDemoPage.tsx` renders `RevocationPanel` when `activeViewStage === 'revocation_denied'`.
-- [x] ISC-30: Anti: Revocation cannot target un-enrolled or arbitrary host IDs outside current session.
-- [x] ISC-31: Anti: Revocation cannot fire with blank attribution reason.
-- [x] ISC-32: Anti: `req()` is not called on bare `/v1/` revoke endpoint.
-- [x] ISC-33: `RevocationPanel.test.tsx` passes with 100% green unit tests.
-- [x] ISC-34: `bun run typecheck` passes with zero TypeScript errors.
+- [x] ISC-1: `stun-sentinel` replaces symmetric string comparison with Ed25519 resume token verification.
+- [x] ISC-2: `stun-sentinel` supports loading operator key registry from file, directory, or JSON environment configuration.
+- [x] ISC-3: `stun-sentinel` operator key registry validates self-certifying `sha256:<hex>` key fingerprints.
+- [x] ISC-4: `stun-sentinel` validates Ed25519 token signatures over length-prefixed canonical signing inputs.
+- [x] ISC-5: `stun-sentinel` enforces validity window (`issued_at`, `expires_at`, and clock skew).
+- [x] ISC-6: `stun-sentinel` enforces distinct operator and distinct key invariants for multi-signature tokens.
+- [x] ISC-7: `stun-sentinel` enforces `max(policy.RequiredSignatures, token.RequiredSignatures)` quorum rule.
+- [x] ISC-8: `stun-sentinel` extracts verified operator identities from signature entries.
+- [x] ISC-9: `stun-sentinel` records verified operator identity in `StunExecutionResumed` telemetry events.
+- [x] ISC-10: `stun-sentinel` rejects tokens signed with unknown or unregistered keys.
+- [x] ISC-11: `stun-sentinel` rejects tokens signed with revoked operator keys.
+- [x] ISC-12: `stun-sentinel` rejects tokens with mismatched agent_id or namespace.
+- [x] ISC-13: `stun-sentinel` rejects tokens with mismatched audience or trust_root_id.
+- [x] ISC-14: `stun-sentinel` rejects tokens with invalid or forged Ed25519 signatures.
+- [x] ISC-15: `stun-sentinel` implements single-use token replay protection keyed on `token_id`.
+- [x] ISC-16: `stun-sentinel` supports idempotent retry when identical `token_id` and `idempotency_key` are presented.
+- [x] ISC-17: `fleet-manager` `RestoreCredentials` triggers credential rotation across OpenBao and SPIRE planes.
+- [x] ISC-18: `fleet-manager` `OpenBaoClient` supports rotating agent credentials/leases on resume.
+- [x] ISC-19: `fleet-manager` `SpireClient` supports re-entering agent SPIFFE registration entries on resume.
+- [x] ISC-20: `fleet-manager` `CascadeOrchestrator.Recover` / `Resume` triggers mandatory credential rotation.
+- [x] ISC-21: `fleet-manager` `ResumeResponse` sets `credentials_rotated: true` only after successful rotation.
+- [x] ISC-22: `fleet-manager` emits structured machine-readable `governance_resume_decision` audit log events.
+- [x] ISC-23: `fleet-manager` resume decision audit logs include operator identity, target, token ID, and rotation outcome.
+- [x] ISC-24: Unit test in `stun-sentinel` proves valid Ed25519 resume token from authorized operator succeeds.
+- [x] ISC-25: Unit test in `stun-sentinel` proves invalid/unauthorized token is rejected with 401 Unauthorized.
+- [x] ISC-26: Unit test in `stun-sentinel` proves revoked operator key is rejected.
+- [x] ISC-27: Unit test in `stun-sentinel` proves replayed token with different idempotency key is rejected.
+- [x] ISC-28: Unit test in `stun-sentinel` proves idempotent retry with same idempotency key succeeds without re-executing unfreeze.
+- [x] ISC-29: Unit test in `fleet-manager` proves resume triggers both OpenBao lease rotation and SPIRE SVID re-entry.
+- [x] ISC-30: Unit test in `fleet-manager` proves failed credential rotation fails the resume operation.
+- [x] ISC-31: Unit test in `fleet-manager` proves retried resume for already resumed agent is idempotent and does not double-rotate.
+- [x] ISC-32: Documentation `docs/signalloom/sler-p4-3-proof.md` is authored with complete mechanism details.
+- [x] ISC-33: Sample structured resume decision log is documented in proof markdown.
+- [x] ISC-34: `cd d2-signalloom/apps/stun-sentinel && go test ./...` passes.
+- [x] ISC-35: `cd d2-signalloom/apps/fleet-manager && go test ./...` passes.
+- [x] ISC-36: Anti: Resumed agent must NOT continue operating with pre-containment credentials.
 
 ## Test Strategy
 
-- `RevocationPanel.test.tsx`:
-  - Unit tests for initial render, reason selector, button gating.
-  - Test for two-endpoint dispatch (revoke then upload).
-  - Test verifying `agent_revoked` error code assertion.
-  - Test verifying binding-mismatch 403 rejection.
-  - Test verifying network failure handling.
-  - Test verifying audit timeline and persisted reason code.
-  - Test verifying mock/live parity on `REVOCATION_RACE_PRESET`.
-- `bun run typecheck` for strict typing.
-- grep tests for routes, contracts, testids, and reason_code types.
+- ISC-1..16: Unit tests in `d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/` and `pkg/cgroup/`.
+- ISC-17..23: Unit tests in `d2-signalloom/apps/fleet-manager/`.
+- ISC-24..28: Table-driven test suite in `stun-sentinel` verifying authorization, attribution, and replay paths.
+- ISC-29..31: Test suite in `fleet-manager` testing credential rotation fan-out and idempotency.
+- ISC-32..33: File inspection of `docs/signalloom/sler-p4-3-proof.md`.
+- ISC-34..35: `go test` runs across both Go modules.
+- ISC-36: Explicit test assertion verifying credential rotation status before reporting resume success.
 
 ## Features
 
-- `RevocationPanel`: Stage 5 Attributable Revocation and live 403 denial verification UI component.
-- `RevocationPanelTests`: Comprehensive Vitest test suite.
-- `PageIntegration`: Integration into `AgentMaxxingDemoPage.tsx`.
+- Feature 1: `stun-sentinel` Ed25519 token verifier and operator key registry (`pkg/auth` or `pkg/token`).
+- Feature 2: `stun-sentinel` telemetry attribution enhancement.
+- Feature 3: `fleet-manager` OpenBao and SPIRE credential rotation clients.
+- Feature 4: `fleet-manager` cascade resume integration with mandatory rotation.
+- Feature 5: Comprehensive unit and integration test suites.
+- Feature 6: Proof and attribution documentation (`docs/signalloom/sler-p4-3-proof.md`).
 
 ## Decisions
 
-- **Direct Fetch for Revoke Route**: Sourced directly via `transport.fetch` on bare path `/v1/external-agents/hosts/{host_id}/revoke` per AMXD-P1-3 frozen bridge contract.
-- **Req for Evidence Uploads**: Evidence upload uses `transport.req` against `/v1/external-agents/evidence-uploads` (which prepends `/api` to form `/api/v1/external-agents/evidence-uploads`).
-- **Exact Envelope Binding**: Auto-derives `key_id`, `agent_id`, `host_id`, and `tenant_id` from session state / preset to guarantee avoidance of false-positive binding mismatch 403s.
-- **Persisted Attribution Reason**: Stores the selected `reason_code` in component state and timeline events so it persists after the dispatch form settles.
+- **Token Parser & Verifier in `stun-sentinel`**: Implement standalone Ed25519 verification conforming to P1-3 wire format in `stun-sentinel/pkg/auth` so `stun-sentinel` has no cross-module runtime dependency on `fleet-manager`.
+- **Key Distribution Formats**: Support loading operator key entries from a JSON file path (`OPERATOR_KEY_BUNDLE_FILE`), a directory of key files (`OPERATOR_KEY_DIR`), or inline JSON (`OPERATOR_KEYS_JSON`), accommodating DaemonSet ConfigMap volume mounts.
+- **Attribution Propagation**: `stun-sentinel` extracts the signers' operator IDs and passes them to `telemetry.Emitter` so `StunExecutionResumed` includes `operator_ids` in its JSON payload.
 
 ## Changelog
 
-- 2026-09-15: Initial ISA created for AMXD-P4-2.
-- 2026-09-15: Shipped `RevocationPanel.tsx`, `RevocationPanel.test.tsx`, and updated `AgentMaxxingDemoPage.tsx`. 12/12 unit tests passing, full test suite clean, TypeScript typecheck clean.
+- 2026-09-15: Initialized ISA for SLER-P4-3 governance-gated resume with mandatory credential rotation.
 
 ## Verification
 
-- ISC-1 to ISC-34 verified with:
-  - `bun run test --run src/components/demos/RevocationPanel.test.tsx` (12 tests passed)
-  - `bun run test --run src/components/demos/RevocationPanel.test.tsx -t 'binding'` (3 binding tests passed)
-  - `bun run typecheck` (`tsc --noEmit` exit code 0)
-  - `grep -rn 'data-testid' src/components/demos/RevocationPanel.tsx` (all testids present)
-  - `grep -n 'reason_code' src/types/externalAgent.ts` (all 5 union members present)
+- (Pending execution)

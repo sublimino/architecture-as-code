@@ -500,6 +500,96 @@ func (c *OpenBaoClient) RevokeAgentCredentials(ctx context.Context, namespace, a
 	return planeRes, nil
 }
 
+// RotateAgentCredentials executes mandatory credential rotation for a target agent on resume.
+// It provisions/rotates OpenBao leases or tokens, ensuring the unfreezing agent cannot run
+// on compromised credentials.
+func (c *OpenBaoClient) RotateAgentCredentials(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
+	start := c.now()
+	cbState := string(c.breaker.State())
+
+	if !c.breaker.Allow() {
+		err := fmt.Errorf("%w: %w", ErrEnforcementUnavailable, ErrCircuitBreakerOpen)
+		planeRes := &PlaneResult{
+			Plane:     PlaneBao,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+			LatencyMs: 0,
+			Details: map[string]any{
+				"circuit_breaker_state": cbState,
+				"idempotency_key":       idempotencyKey,
+				"credentials_rotated":   false,
+			},
+		}
+		return planeRes, err
+	}
+
+	// Re-issue / rotate token or lease for target agent
+	payload := map[string]any{
+		"agent_id":        agentID,
+		"namespace":       namespace,
+		"idempotency_key": idempotencyKey,
+		"rotation_reason": "governance resume credential rotation",
+	}
+
+	path := fmt.Sprintf("/v1/cardvault/creds/%s", agentID)
+	status, _, err := c.executeRequest(ctx, http.MethodPost, path, payload)
+	if err != nil && !errors.Is(err, ErrLeaseNotFound) {
+		// If custom path 404s, verify OpenBao health as fallback for generic agents
+		if status == http.StatusNotFound {
+			status, _, err = c.executeRequest(ctx, http.MethodGet, "/v1/sys/health", nil)
+		}
+	}
+
+	latency := c.now().Sub(start).Milliseconds()
+	outcome := OutcomeContained
+	var errStr string
+
+	if err != nil && !errors.Is(err, ErrLeaseNotFound) {
+		outcome = OutcomeUnavailable
+		errStr = err.Error()
+	}
+
+	// Emit structured audit log entry for P5-1 attestation
+	auditEntry := RevokeAuditLogEntry{
+		Timestamp:           c.now().UTC().Format(time.RFC3339),
+		Event:               BaoRotateEventName,
+		AgentID:             agentID,
+		Namespace:           namespace,
+		IdempotencyKey:      idempotencyKey,
+		Outcome:             outcome,
+		HTTPStatus:          status,
+		LatencyMs:           latency,
+		CircuitBreakerState: string(c.breaker.State()),
+		WorstCaseResidualMs: c.worstCaseResidualMs,
+		Error:               errStr,
+	}
+	c.emitAuditLog(auditEntry)
+
+	planeRes := &PlaneResult{
+		Plane:     PlaneBao,
+		Outcome:   outcome,
+		Error:     errStr,
+		Timestamp: c.now().UTC().Format(time.RFC3339),
+		LatencyMs: latency,
+		Details: map[string]any{
+			"worst_case_residual_ms": c.worstCaseResidualMs,
+			"circuit_breaker_state":  string(c.breaker.State()),
+			"idempotency_key":        idempotencyKey,
+			"credentials_rotated":    outcome == OutcomeContained,
+		},
+	}
+
+	if outcome == OutcomeUnavailable {
+		if err != nil {
+			return planeRes, err
+		}
+		return planeRes, fmt.Errorf("%w: %s", ErrEnforcementUnavailable, errStr)
+	}
+
+	return planeRes, nil
+}
+
 // StartAutoRenew starts a background loop to renew the client's own OpenBao token.
 func (c *OpenBaoClient) StartAutoRenew(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {

@@ -303,7 +303,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P1-3 | implementation | Freeze versioned enforcement wire contracts and governance resume token | P1-1, P1-2 | Contract freeze in docs and Go types; resume token signature spec | L | deep | pass — delivered: 0f288f0aa35eed3c20a14d96fb45df1a404ddfa1 (see Errata — SLER-P1-3) | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Authenticate the sentinel /stun endpoint and add its NetworkPolicy | P1-PRE | `cd d2-signalloom/apps/stun-sentinel && go test ./...` | M | antigravity | **pass** — delivered: `62376453e2cfceb6578fd65fc48f8ba2329656bd` (see Errata — SLER-P1-4) | $0.00 | N/A | ~5m | N/A |
 | P1-5 | implementation | Stop the cascade fabricating success; carry per-plane status and error | P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | L | kpai | pass — delivered: b53d7d2131721049175ce3bae199fcd5d43c970e (see Errata — SLER-P1-5) | $0.00 | N/A | N/A | N/A |
-| P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-GOV | governor | Approve decision freeze and verify zero unresolved placeholders | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | **pass** — certified with conditions (see docs/signalloom/sler-p1-gov-review.md and Errata — SLER-P1-GOV) | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm OpenBao and SPIRE revoke API endpoints and integration seams | P1-GOV | OpenBao/SPIRE integration check; API token permissions | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Implement active OpenBao lease and token revocation API client | P2-PRE | `make demo-signalloom-api-test TIER=contract`; lease revocation test | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement SPIRE entry eviction and SVID rejection enforcement | P2-PRE | SPIRE agent test; post-containment SVID denial | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -595,4 +595,20 @@ Neither file was edited on this branch: `cascade_honesty_test.go` is P1-5's and 
 - **For P2-1, P2-2, P3-1, P3-2, P4-1:** build against `docs/signalloom/sler-p1-3-frozen-contract.md`. Do not redefine `PlaneResult`, `ContainmentDecision` or any per-plane wire type — this card owns that schema and closes the mission-wide `sharedFileRisks` entry for it. If you need a field that is not there, request a bump through P1-GOV (§5); do not add an unversioned field, because the conformance test will fail your build and tell you so by name.
 - **For P4-3:** §4 is your implementation spec. The signing input, the base64 encoding of the raw 64-byte signature, the verification order and the distinct error taxonomy are all normative and test-pinned; `resume_token_test.go` carries reproducible test vectors with the operator seeds committed in the clear, so you can check an independent verifier against known signatures. Your three unsolved problems are OQ-3 (key distribution), OQ-6 (registry integrity) and §4.7's atomic single-use ledger.
 - **For P1-GOV:** the contract is marked FROZEN — **pending your ratification**. Seven open questions in §7 need decisions; none blocks phase 2 starting. OQ-6 is the most consequential: if the operator key registry's write path is reachable from the same compromise containment is responding to, the entire attribution chain is decorative.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P1-GOV (governor)
+**Created:** 2026-09-15 03:00:36+01:00
+**Last Updated:** 2026-09-15 03:00:36+01:00
+**Status:** Completed
+**Commit:** aa8e773425699bc748431ea459e359de0d43ad0a
+**Governor merge:** certified and merged into integration/sler-v0.1.0
+
+**Delivered:** Architecture review and phase-1 decision freeze certification for SLER at `468e3fc60334774c594622fe08dc4d580f4dc38b` with fifteen conditions documented in `docs/signalloom/sler-p1-gov-review.md`. Zero placeholders outstanding. Phase 1 implementation cards (P1-PRE, P1-1, P1-2, P1-3, P1-4, P1-5) all verified and certified.
+
+**Decisions:**
+- Condition C-9 is blocking on Phase 2 integration merge: fleet-manager containment API authentication and attested decision records must be closed before SLER-P2-1 merges.
+- Condition C-2 disqualifies `scripts/run-redteam-suite.sh` as evidentiary proof due to zero assertions (heredoc pass literals).
+- Authorised Phase 2 kickoff (P2-PRE unblocked).
+
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

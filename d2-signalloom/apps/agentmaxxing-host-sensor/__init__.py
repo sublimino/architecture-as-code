@@ -17,6 +17,15 @@ if _PKG_DIR not in sys.path:
 
 try:
     from .cgroups import CgroupV2Reader
+    from .classifier import (
+        HARNESS_SIGNATURES,
+        ClassificationClaim,
+        HarnessAncestryClassifier,
+        HarnessSignature,
+        NullProtocolCorroborator,
+        ProtocolCorroborator,
+        SessionMarkerCorroborator,
+    )
     from .collector import ProcessTelemetryCollector
     from .file_validator import (
         EligibilityStatus,
@@ -52,6 +61,15 @@ try:
     from .sensor import HostSensor
 except (ImportError, ValueError):
     from cgroups import CgroupV2Reader
+    from classifier import (
+        HARNESS_SIGNATURES,
+        ClassificationClaim,
+        HarnessAncestryClassifier,
+        HarnessSignature,
+        NullProtocolCorroborator,
+        ProtocolCorroborator,
+        SessionMarkerCorroborator,
+    )
     from collector import ProcessTelemetryCollector
     from file_validator import (
         EligibilityStatus,
@@ -94,25 +112,32 @@ __all__ = [
     "BoundedArtifactHasher",
     "BoundedProcessAttributes",
     "CgroupV2Reader",
+    "ClassificationClaim",
     "CollectionLimitRecord",
     "EligibilityStatus",
     "EvidenceType",
     "ExportSource",
     "FileIdentitySnapshot",
     "FileOversizeError",
+    "HARNESS_SIGNATURES",
+    "HarnessAncestryClassifier",
+    "HarnessSignature",
     "HasherError",
     "HealthState",
     "HostSensor",
     "IntegrityState",
     "InvalidArtifactError",
+    "NullProtocolCorroborator",
     "ObservationState",
     "PinnedRoot",
     "ProcessTelemetryCollector",
     "ProcessTelemetryEvent",
     "ProcReader",
+    "ProtocolCorroborator",
     "RateLimitExceededError",
     "RateLimiter",
     "RejectionReason",
+    "SessionMarkerCorroborator",
     "TOCTOURaceDetectedError",
     "ValidationResult",
     "filter_process_attributes",

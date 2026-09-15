@@ -299,7 +299,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P0 | preflight | Validate SLER harness identity and clean monorepo baseline | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLER`; repository and board evidence only | S | fast | **pass** — baseline clean at `2fedff06`; 3/3 acceptance suites green (15/15, 15/15, 7/7); doctor exit 1 attributed to repo-wide inherited state, both board-scoped checks green; M1 confirmed from-zero client build; 2 baseline defects recorded (harness cannot fail; stun-sentinel does not compile) → `docs/signalloom/sler-p0-baseline.md` @ `e0b1671d` | $0.00 | N/A | ~11m | N/A |
 | P1-PRE | preflight | Inventory unresolved kickoff decisions and enforcement seams | P0 | Seam inventory; `d2-signalloom/apps/{fleet-manager,stun-sentinel}` inspection | S | daily | **pass** — 7 seams documented with file:line citations; Freezer.Freeze signature gap confirmed; node-capability-guard confirmed 0 manifests; 0 mesh policies confirmed; route auth matrix complete → `docs/signalloom/sler-p1-pre-seam-inventory.md` | $0.00 | N/A | ~4m | N/A |
 | P1-1 | implementation | Unify Enforcer interface and eliminate noopFleetClient silent fallback | P1-PRE, P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...`; fail-closed assertion | M | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P1-2 | implementation | Define per-plane containment dispatch schemas and event models | P1-PRE | Schema validation tests; mesh, bao, spire, admission, freeze wire models | M | daily | **pass** — delivered: `92bc899e770296960f9dd7993e9152c263b1da84` (see Errata — SLER-P1-2) | $0.00 | N/A | ~4m | N/A |
 | P1-3 | implementation | Freeze versioned enforcement wire contracts and governance resume token | P1-1, P1-2 | Contract freeze in docs and Go types; resume token signature spec | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Authenticate the sentinel /stun endpoint and add its NetworkPolicy | P1-PRE | `cd d2-signalloom/apps/stun-sentinel && go test ./...` | M | antigravity | **pass** — delivered: `62376453e2cfceb6578fd65fc48f8ba2329656bd` (see Errata — SLER-P1-4) | $0.00 | N/A | ~5m | N/A |
 | P1-5 | implementation | Stop the cascade fabricating success; carry per-plane status and error | P1-2 | `cd d2-signalloom/apps/fleet-manager && go test ./...` | L | kpai | Pending | $0.00 | N/A | N/A | N/A |
@@ -415,7 +415,30 @@ No Go source, Makefile, manifest, or test file was modified. No runtime state (`
 - **Held.** Zero `CiliumNetworkPolicy` or Istio `AuthorizationPolicy` manifests exist anywhere in `d2-signalloom/`.
 
 ##### Out-of-scope confirmation
-No Go source, Makefile, manifest, or test file was modified. No runtime state (`board.json`, task records) was written. No live customer infrastructure was contacted. No prior errata entry was altered.
+#### Errata — SLER-P1-2 (implementation)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15T01:04:29+01:00
+**Last Updated:** 2026-09-15T01:04:29+01:00
+
+##### Task identity
+- Card: `SLER-P1-2`
+- Shortcode: `SLER`
+**Status:** pass
+**Commit:** `92bc899e770296960f9dd7993e9152c263b1da84`
+- Task base: `018b9eed7c0bdb88bf296d183e421acac10dd864` (identical to `refs/heads/integration/sler-v0.1.0` at start of run)
+- Worktree branch label: `(detached)`
+- Result: Defined per-plane containment dispatch schemas and wire models (schema.go, schema_test.go, sler-p1-2-schema.md); all 13 schema tests and all fleet-manager unit tests pass 100%.
+**Phase 1 can proceed:** yes
+
+##### Deliverable verification
+- Deliverables:
+  - `d2-signalloom/apps/fleet-manager/schema.go` (362 lines): Defines `EnforcementPlane` (mesh, bao, spire, admission, freeze), `PlaneOutcome` (contained, partial, failed, skipped, unavailable), `PerPlaneResult`, `CascadeResult`, `StateChangeEvent` v1/v2 schemas, and typed wire request/response models for all 5 enforcement planes (`MeshIsolationWireModel`, `BaoRevokeWireModel`, `SpireEvictionWireModel`, `AdmissionBlockWireModel`, `FreezeWireModel`, `ResumeWireModel`).
+  - `d2-signalloom/apps/fleet-manager/schema_test.go` (619 lines): Full unit test coverage across schema versions, string constants, partial containment JSON round-trip without coercion, aggregate outcome resolution logic, and wire model serialization.
+  - `docs/signalloom/sler-p1-2-schema.md` (473 lines): Complete formal specification of containment dispatch wire schemas, error models, and event envelope schemas.
+- `cd d2-signalloom/apps/fleet-manager && CGO_ENABLED=0 go test ./...` → exit code `0` (`PASS`, 0.005s).
+
+##### Out-of-scope confirmation
+No other app directories, runtime state (`board.json`), or unrelated manifests were modified.
 
 #### Errata — SLER-P1-4 (implementation)
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

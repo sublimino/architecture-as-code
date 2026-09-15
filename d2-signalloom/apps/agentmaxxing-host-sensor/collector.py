@@ -14,8 +14,9 @@ if str(PKG_DIR) not in sys.path:
 try:
     from .cgroups import CgroupV2Reader
     from .classifier import ClassificationClaim, HarnessAncestryClassifier
-    from .coding_agent_models import ProcessInfo
+    from .coding_agent_models import KanbanInfo, ProcessInfo
     from .filter import AllowlistFilter
+    from .kanban_watcher import KanbanTaskSnapshot, KanbanWatcher
     from .models import (
         BoundedProcessAttributes,
         EvidenceType,
@@ -31,6 +32,7 @@ except (ImportError, ValueError):
     from cgroups import CgroupV2Reader
     from classifier import ClassificationClaim, HarnessAncestryClassifier
     from filter import AllowlistFilter
+    from kanban_watcher import KanbanTaskSnapshot, KanbanWatcher
     from models import (
         BoundedProcessAttributes,
         EvidenceType,
@@ -43,8 +45,9 @@ except (ImportError, ValueError):
     from payload_validator import validate_zero_customer_payload
     from proc import ProcReader, ProcStat, ProcStatm, ProcStatus
     try:
-        from coding_agent_models import ProcessInfo
+        from coding_agent_models import KanbanInfo, ProcessInfo
     except (ImportError, ValueError):
+        KanbanInfo = None  # type: ignore
         ProcessInfo = None  # type: ignore
 
 
@@ -67,12 +70,14 @@ class ProcessTelemetryCollector:
         proc_reader: Optional[ProcReader] = None,
         cgroup_reader: Optional[CgroupV2Reader] = None,
         classifier: Optional[HarnessAncestryClassifier] = None,
+        kanban_watcher: Optional[KanbanWatcher] = None,
     ) -> None:
         self.proc_reader: ProcReader = proc_reader or ProcReader()
         self.cgroup_reader: CgroupV2Reader = cgroup_reader or CgroupV2Reader()
         self.classifier: HarnessAncestryClassifier = (
             classifier or HarnessAncestryClassifier(proc_reader=self.proc_reader)
         )
+        self.kanban_watcher: Optional[KanbanWatcher] = kanban_watcher
         # Per-PID history for delta rate calculations: pid -> (last_time, last_cpu_time_ms)
         self._history: Dict[int, Tuple[float, int]] = {}
         # Tracking for detected restarts
@@ -425,3 +430,23 @@ class ProcessTelemetryCollector:
         validate_zero_customer_payload(event, tenant_id=tenant_id)
 
         return event
+
+    def get_kanban_info(
+        self,
+        task_id: Optional[str] = None,
+        pid: Optional[int] = None,
+    ) -> Optional[KanbanInfo]:
+        """Query allowlisted KanbanInfo via passive kanban watcher."""
+        if self.kanban_watcher is None:
+            return None
+        return self.kanban_watcher.get_task_kanban_info(task_id=task_id, pid=pid)
+
+    def scan_kanban_tasks(
+        self,
+        workspace_id: Optional[str] = None,
+    ) -> List[KanbanTaskSnapshot]:
+        """Scan active Kanban tasks via passive kanban watcher."""
+        if self.kanban_watcher is None:
+            return []
+        return self.kanban_watcher.scan_active_tasks(workspace_id=workspace_id)
+

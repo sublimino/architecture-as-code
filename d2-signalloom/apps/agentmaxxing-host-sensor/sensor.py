@@ -18,6 +18,7 @@ try:
         SubjectObjectionError,
         SubjectObjectionRegistry,
     )
+    from .kanban_watcher import KanbanWatcher
     from .models import (
         BoundedProcessAttributes,
         HealthState,
@@ -30,6 +31,7 @@ except (ImportError, ValueError):
         SubjectObjectionError,
         SubjectObjectionRegistry,
     )
+    from kanban_watcher import KanbanWatcher
     from models import (
         BoundedProcessAttributes,
         HealthState,
@@ -49,14 +51,18 @@ class HostSensor:
         collector: Optional[ProcessTelemetryCollector] = None,
         objection_registry: Optional[SubjectObjectionRegistry] = None,
         initial_sequence: int = 0,
+        kanban_watcher: Optional[KanbanWatcher] = None,
+        task_id: Optional[str] = None,
     ) -> None:
         self.session_id: str = session_id
         self.agent_id: str = agent_id
         self.host_id: str = host_id
         self.tenant_id: Optional[str] = tenant_id
-        self.collector: ProcessTelemetryCollector = collector or ProcessTelemetryCollector()
+        self.collector: ProcessTelemetryCollector = collector or ProcessTelemetryCollector(kanban_watcher=kanban_watcher)
         self.objection_registry: SubjectObjectionRegistry = objection_registry or DEFAULT_OBJECTION_REGISTRY
         self.sequence: int = initial_sequence
+        self.task_id: Optional[str] = task_id
+        self.kanban_watcher: Optional[KanbanWatcher] = kanban_watcher or self.collector.kanban_watcher
         self._current_pid: Optional[int] = None
         self._restart_count: int = 0
         self._is_running: bool = False

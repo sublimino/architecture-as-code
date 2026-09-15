@@ -84,7 +84,16 @@ teardown() {
 }
 
 @test "pytest suite for file validator executes and passes all 16 adversarial assertions" {
-  run python3 -m pytest -p no:libtmux -v "$SENSOR_DIR/test_file_validator.py"
+  # rootdir and cache_dir are pinned deliberately. Left to infer, pytest walks up
+  # from the repo CWD past the worktree and settles on $HOME, then scandirs it --
+  # which raises PermissionError: '/home/andy' under the nono sandbox and reports
+  # "found no collectors" / "collected 0 items / 1 error". The pytest file itself
+  # passes 16/16; only the inference was broken, so it failed here and nowhere
+  # else. Matches the cache_dir pinning the Makefile already applies to the
+  # fe-signalloom pytest targets.
+  run python3 -m pytest -p no:libtmux -v \
+    --rootdir="$SENSOR_DIR" -o cache_dir="$TEST_TMP/.pytest_cache" \
+    "$SENSOR_DIR/test_file_validator.py"
   [ "$status" -eq 0 ]
   [[ "$output" =~ "16 passed" ]]
 }

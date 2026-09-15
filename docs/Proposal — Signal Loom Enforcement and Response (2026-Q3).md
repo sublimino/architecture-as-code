@@ -311,7 +311,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P3-PRE | preflight | Confirm Cilium and Istio mesh policy and admission controller seams | P2-GOV | Mesh CRD probe; node-capability-guard webhook check | S | daily | **pass** — 0 mesh policies confirmed; Cilium CNI active in cluster (Istio not deployed); node-capability-guard confirmed 4 files with 0 deployment manifests; conntrack FlushIP confirmed IPv4-only and fail-closed; netassert verified in PATH → `docs/signalloom/sler-p3-pre-mesh-admission-seams.md` | $0.00 | N/A | ~4m | N/A |
 | P3-1 | implementation | Implement dynamic mesh isolation cutting in-flight TCP connections | P3-PRE | `netassert` integration test; in-flight connection termination <2s | L | daily | pass — delivered: 651bbbfc (see Errata — SLER-P3-1) | $0.00 | N/A | ~8m | N/A |
 | P3-2 | implementation | Implement admission webhook block preventing pod readmission | P3-PRE | Webhook deny unit and integration tests; pod reschedule block | L | daily | pass — delivered: f3d1650585cc28bad464d25222b9bc2f90d08384 (see Errata — SLER-P3-2) | $0.00 | N/A | N/A | N/A |
-| P3-GOV | governor | Merge mesh and admission enforcement and prove netassert boundary denial | P3-1, P3-2 | End-to-end network isolation and admission rejection test | M | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P3-GOV | governor | Merge mesh and admission enforcement and prove netassert boundary denial | P3-1, P3-2 | End-to-end network isolation and admission rejection test | M | deep | **CONDITIONAL FAIL** — nothing to merge (P3-1/P3-2 already on branch). `failurePolicy: Fail` **confirmed explicit**; contained-identity store **genuinely shared** (field-identical over one ConfigMap); IPv4-only scope carried forward with IPv6 120s residual; both planes attestation-ready. **Neither plane is reachable**: `FleetClient`'s 5 methods exclude both, so all 4 plane entry points have **zero production callers**, and the webhook is **in no kustomization / not deployed**. C5 (admission-deny E2E) and C7 (combined reversibility) **not certifiable**. 206 Go tests + netassert 10/10 live + redteam 15/15 pass. Admission residual 0 ms **withdrawn as unmeasured** → SLER-P5-2. → `docs/signalloom/sler-p3-gov-review.md` | $0.00 | N/A | ~11m | N/A |
 | P4-PRE | preflight | Confirm cgroup-v2 freezer and host process freeze prerequisites | P3-GOV | Host cgroup v2 capability probe; permissions check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-1 | implementation | Unify stun-sentinel implementations into cgroup-v2 freeze engine | P4-PRE | Sentinel unit tests; SIGSTOP vs cgroup freezer verification | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-2 | implementation | Implement forensic memory snapshotting and quarantine state capture | P4-PRE | Quarantine snapshot test; memory state preservation check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -634,7 +634,6 @@ Last Updated: 2026-09-15 03:00:59+01:00
 | P1-4 | $0.00 | N/A | ~5m | N/A |
 | P1-5 | $0.00 | N/A | N/A | N/A |
 | P1-GOV | $0.00 | N/A | N/A | N/A |
-| P2-PRE | $0.00 | N/A | ~3m | N/A |
 
 #### Errata — SLER-P2-PRE (preflight) — Confirm OpenBao and SPIRE revoke API endpoints and integration seams
 
@@ -723,22 +722,12 @@ Commit:       55c212f080296c8545f3128625b3036ef4fed201
 ##### SLER-P2-GOV — Spend and token use
 
 **Spend and token use:**
-
 | Task | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :-------- | :----- | :------ | :----- |
-| P0 | $0.00 | N/A | ~11m | N/A |
-| P1-PRE | $0.00 | N/A | ~4m | N/A |
-| P1-1 | $0.00 | N/A | N/A | N/A |
-| P1-2 | $0.00 | N/A | ~4m | N/A |
-| P1-3 | $0.00 | N/A | N/A | N/A |
-| P1-4 | $0.00 | N/A | ~5m | N/A |
-| P1-5 | $0.00 | N/A | N/A | N/A |
-| P1-GOV | $0.00 | N/A | N/A | N/A |
 | P2-PRE | $0.00 | N/A | ~3m | N/A |
 | P2-1 | $0.00 | N/A | N/A | N/A |
 | P2-2 | $0.00 | N/A | ~4m | N/A |
 | P2-GOV | $0.00 | N/A | N/A | N/A |
-| P3-PRE | $0.00 | N/A | ~4m | N/A |
 
 *Phases 3-6 are all `$0.00 / N/A` and are omitted; the full 30-row table is reproducible with the command below.*
 
@@ -799,3 +788,42 @@ Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
 
 
 
+
+#### Errata — SLER-P3-GOV (governor) — Merge mesh and admission enforcement and prove netassert boundary denial
+
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P3-PRE | $0.00 | N/A | ~4m | N/A |
+| P3-1 | $0.00 | N/A | ~8m | N/A |
+| P3-2 | $0.00 | N/A | N/A | N/A |
+| P3-GOV | $0.00 | N/A | ~11m | N/A |
+<!-- kanban-check: status=fail proceed=conditional blocking_drift=yes -->
+**Created:** 2026-09-15 05:30:52+01:00
+**Last Updated:** 2026-09-15 05:30:52+01:00
+**Status:** fail (conditional — phase 4 may proceed on the independent freeze plane; see Handed forward)
+**Commit:** `afc5cc65ef91b7d4d29bde14282fd3c0665c6c36`
+**Base at review:** `14d56cef21f4e513e806d8869ce598a25b8341b1` on `integration/sler-v0.1.0`
+**Governor merge:** no merge performed — P3-1 (`a8ac3d1bb90c9c512a8f0cb8764078ff881c149a`) and P3-2 (`9d5d0282da46513274813b469ac552600e961dd2`) were already on the integration branch when this card started. This card is certification only.
+**Review:** `docs/signalloom/sler-p3-gov-review.md`
+
+**Certified PASS.** `failurePolicy: Fail` is an explicit literal in `validatingwebhookconfiguration.yaml`, not an API-version default, and carries an eight-line comment naming the readmission-bypass consequence of `Ignore`. The contained-identity notion is **genuinely shared, not duplicated**: `StoredContainedAgent` (fleet-manager) and `ContainedEntry` (guard) are field-for-field identical across all seven JSON tags and resolve to one physical store — ConfigMap `fe-signalloom/signalloom-contained-agents`, key `contained-agents.json`, written by `syncConfigMapEntry` and mounted read-only at `/etc/node-capability-guard/contained-agents.json` for `FileIdentityStore`. The mesh plane is certified **IPv4-only with dual-stack IPv6 as a named 120,000 ms residual**, carried forward into the phase-3 report (which is the artefact P5-2 reads) rather than left in P3-1's own proof. Both planes emit all four `SharedAttestationEventKeys` plus `residual_provenance`, so P5-1 needs no shape adapter.
+
+**Certified FAIL — the blocking finding.** Neither plane is reachable in the deployed system. `CascadeOrchestrator` dispatches through the `FleetClient` interface, which declares five methods (`GetPodState`, `SetPodState`, `RevokeCredentials`, `RestoreCredentials`, `Health`); mesh isolation and admission blocking are not among them. `IsolateMeshPlane` (`k8sclient.go:620`), `RestoreMeshPlane` (`:670`), `BlockAdmissionPlane` (`:714`) and `UnblockAdmissionPlane` (`:765`) exist only on the concrete `*k8sFleetClient` and have **zero production callers** — verified by `rg` across all non-test Go in `d2-signalloom/`. Separately, `apps/node-capability-guard/base/` is referenced by **no kustomization** (P3-1's `cilium-isolation-policy.yaml` *is* wired, at `apps/fe-signalloom/base/kustomization.yaml:10`), and `kubectl get validatingwebhookconfiguration` on `kind-osramp` returns only `cert-manager-webhook`. A `POST /api/v1/fleet/stun/<agent>` today revokes credentials and relabels the pod; it performs no conntrack severance and writes no admission-block entry. **Deliverable C5 (end-to-end admission-deny proof) and C7 (combined mesh+admission reversibility test) are therefore not certifiable** — they cannot be written, let alone passed, until the wiring exists. This Governor deliberately did **not** implement the missing wiring: doing so inside a governor card would close a sibling's gap silently and hide it from the board.
+
+**Qualification on P3-2's errata (appended, not altered).** That entry states the client syncs contained identities "on containment cascade". The client is correct and tested; the cascade does not call it.
+
+**Regression introduced by the merge.** `cd d2-signalloom/apps/fleet-manager && go test ./...` — a stated loop-until-green command — **fails on a clean checkout**: `../stun-sentinel/pkg/tc/bpf_embed.go:25:12: pattern tc_drop.bpf.o: no matching files found`. The missing object is a pre-existing stun-sentinel condition (proposal line 371, owner P4-PRE), but its blast radius is new: `git grep -l 'stun-sentinel/pkg/tc' bcfbc39c -- .../fleet-manager/` returns nothing while the same grep at HEAD returns `mesh_client.go`. P3-1 imported the eBPF-embedding package to reach two conntrack helpers and thereby propagated the failure into a package that built cleanly before. The object is untracked and structurally always will be — `/home/andy/.gitignore_global:13` carries a bare `*.o` — so the line-475 errata claim that it was "placed in `pkg/tc/`" holds only for the principal checkout.
+
+**Deviations.** Three, all forced.
+1. `/goal` was not invoked: no such skill or command exists on this system (`~/.claude/commands/goal.md` and `~/.claude/skills/goal` both absent). The 200,000-token budget and 180-minute ceiling were honoured as stated constraints.
+2. The errata and table row were written to the **worktree copy** of this proposal and committed, not to `/home/andy/src/cp/osramp-demo/docs/`. That path is Landlock-denied to this session — `touch` fails with `Permission denied` even under `dangerouslyDisableSandbox`, which cannot clear an inherited process-tree restriction. The two copies were byte-identical (`cmp` clean) before this edit, the file is `git ls-files`-tracked, and every prior card's errata reached the principal checkout by exactly this route (`ec3ccb99`, `dc1697b1`, `497b9816`). The role-template prose asserting the proposal "lives in an Obsidian vault, NOT the repo" is contradicted by the repository itself.
+3. The fleet-manager green was obtained after copying the untracked `tc_drop.bpf.o` (`sha256 f75e8790f9824a40fc71d12d66822ad965ef793b9540d7eea3a68a256284b4d9`, ELF 64-bit LSB relocatable, eBPF) into this worktree as a build input. `git status --porcelain` reported zero lines before and after — the object is globally ignored, nothing was committed. **That green is conditional on a local artefact and would not reproduce in CI.** No build artefact was committed; prior governance recorded that as the principal's call.
+
+**Test evidence at `14d56cef`.** fleet-manager `ok` (194 tests, 1.432 s, 14 mesh/admission-specific); node-capability-guard `ok` (12 tests); stun-sentinel `ok` (4 packages); `make -C d2-signalloom test-netassert` **10/10, exit 0**; `bash scripts/run-redteam-suite.sh` **15/15, 0 escapes, 0 leaks, exit 0**.
+
+**On netassert specifically.** It did **not** skip — binary present at `/home/andy/bin/netassert` (v2.1.5), `kind-osramp` live, fixture `netassert-generic-agent-fixture-545f77f844-cfjss` Running, real ephemeral containers injected, real exit codes, TAP written. But all ten cases assert the **baseline namespace NetworkPolicy posture that predates phase 3**; `test/netassert-signalloom.yaml` contains no containment case. It is a clean proof that phase 3 broke nothing, and it is **not** the boundary-denial proof this card was asked for. The predicted failure mode was reached by an unexpected route: the harness ran, it simply tests a different boundary. Likewise the red-team suite's 15 scenarios are the CRKC freeze/Landlock/TC set — searching its proof JSON for `mesh|admission|conntrack|readmission` returns zero matches. Its evidence file is rewritten on every run; only `generated` changed, all 15 verdicts byte-identical, reverted to keep this commit scoped.
+
+**Handed forward.** (1) **Wire both planes into the cascade and the `fe-signalloom` kustomization** — recommended card `P3-3`, landing before P4-GOV; **P4-GOV must not certify the reversible stun/unstun lifecycle until this closes**, because a resume restoring the freeze plane while leaving a stale admission-store entry is the precise split-brain this card existed to prevent, and today it cannot even be tested. (2) To SLER-P5-2: **do not publish the admission plane's `AdmissionWorstCaseResidualMs = 0`.** The check is synchronous; the *store update* is not — the deployed path is fleet-manager → ConfigMap → kubelet volume projection → `FileIdentityStore`, and the propagation window is a real residual during which a just-contained agent's pod is admitted. Publish it as **unmeasured** until measured, or move the guard to an API-server read to make 0 ms true. (3) To SLER-P6-1: add a containment case to `test/netassert-signalloom.yaml` (isolate → assert egress denied → resume → assert restored). (4) To P4-PRE or P3-3: resolve `tc_drop.bpf.o`, either by committing it with a `!*.bpf.o` negation in the repo `.gitignore` or by decoupling `mesh_client.go` from the embedding package. (5) `MeshIsolationResponseToPlaneResult` hardcodes `ipv4Scoped := true` and never reassigns it, so an IPv6 target emits `ipv4_scoped: true` beside `conntrack_flushed: false`; residual and provenance carry the truth, so no record is false, but a P5-2 filter on that key finds nothing. (6) **Two representations of "contained" survive above the store** — the mesh plane enforces on pod label `signalloom.ai/state=stunned`, the admission plane on the store entry, and no invariant asserts they agree. Latent only while finding 1 holds; live the moment it is fixed. (7) The MAJOR contract bump handed to this card by SLER-P1-GOV's errata was **not actioned** — it is implementation scope, and this card performed no merge into which to fold it; re-handed to P3-3.
+<!-- kanban-check: status=fail proceed=conditional blocking_drift=yes -->

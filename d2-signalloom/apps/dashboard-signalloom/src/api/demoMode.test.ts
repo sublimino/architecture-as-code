@@ -41,13 +41,15 @@ describe('demo mode', () => {
   // +2 network-tests routes (GET /network-tests, POST /network-tests/scan) = 49.
   // +1 capabilities route (GET /capabilities) = 50.
   // +2 live OpenFAIR risk routes (GET /v1/risk/fleet, GET /v1/risk/agents/:id) = 52.
+  // +4 coding agent telemetry routes (SLCD-P5-1/SLCD-P5-2: GET list, GET aggregate, POST ordering, POST ingest) = 56.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
   // This count is deliberately exact rather than a lower bound — it is the
   // guard that notices a route silently disappearing in a merge, which is
   // precisely what nearly happened to the stun route here.
-  it('covers the full 52-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(52)
+  it('covers the full 56-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(56)
   })
+
 
   // Merge note: this assertion came from feat/supercred-inventory-live, where the
   // revoke fixture was a static constant and could be compared with an exact

@@ -882,3 +882,7 @@ export interface ExternalEvidenceResponse {
   evidence: ExternalEvidenceItem[]
 }
 
+// ─── Coding Agent Telemetry (SLCD-P5-1 / SLCD-P5-2) ─────────────────────────
+
+export * from './codingAgent'
+

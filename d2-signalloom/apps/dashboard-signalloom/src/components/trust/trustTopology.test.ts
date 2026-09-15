@@ -107,7 +107,7 @@ describe('trust boundaries', () => {
 
   it('keeps the external band clear of every in-cluster boundary', () => {
     const band = deriveExternalBand(trustNodes)!
-    expect(band.count).toBe(3)
+    expect(band.count).toBe(5)
     const lowestWall = Math.max(...boundaries.map(b => b.y + b.height))
     expect(band.y).toBeGreaterThan(lowestWall)
   })

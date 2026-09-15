@@ -43,6 +43,11 @@ import type {
   TrustTopologyResponse,
   UserPreferencesResponse,
   ViolationListResponse,
+  CodingAgentTelemetry,
+  StoredRecord,
+  AggregateResult,
+  OrderingResult,
+  CodingAgentFilter,
 } from '../types/api'
 import type {
   ComplianceCheck,
@@ -670,4 +675,53 @@ export const api = {
         data: { display_currency: displayCurrency },
       }),
   },
+
+  // ─── Coding Agent Telemetry (SLCD-P5-1 / SLCD-P5-2) ─────────────────────────
+  codingAgents: {
+    list: (token: string, params?: CodingAgentFilter) => {
+      const searchParams = new URLSearchParams()
+      if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null && value !== '') {
+            searchParams.set(key, String(value))
+          }
+        }
+      }
+      const qs = searchParams.toString()
+      return req<StoredRecord[]>(qs ? `/v1/telemetry/coding-agents?${qs}` : '/v1/telemetry/coding-agents', token)
+    },
+
+    aggregate: (token: string, params?: CodingAgentFilter) => {
+      const searchParams = new URLSearchParams()
+      if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null && value !== '') {
+            searchParams.set(key, String(value))
+          }
+        }
+      }
+      const qs = searchParams.toString()
+      return req<AggregateResult>(qs ? `/v1/telemetry/coding-agents/aggregate?${qs}` : '/v1/telemetry/coding-agents/aggregate', token)
+    },
+
+    ordering: (token: string, body: { event_a: CodingAgentTelemetry; event_b: CodingAgentTelemetry }) =>
+      req<OrderingResult>('/v1/telemetry/coding-agents/ordering', token, { method: 'POST', data: body }),
+
+    ingest: (token: string, event: CodingAgentTelemetry) =>
+      req<{ status: string; session_id: string; duplicate: boolean }>('/v1/telemetry/coding-agents', token, { method: 'POST', data: event }),
+  },
+
+  codingAgentTelemetry: (token: string, params?: CodingAgentFilter) => {
+    const searchParams = new URLSearchParams()
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== '') {
+          searchParams.set(key, String(value))
+        }
+      }
+    }
+    const qs = searchParams.toString()
+    return req<StoredRecord[]>(qs ? `/v1/telemetry/coding-agents?${qs}` : '/v1/telemetry/coding-agents', token)
+  },
 }
+

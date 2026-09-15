@@ -1,109 +1,108 @@
 ---
-task: "SLER-P6-1: Execute purple-team containment escape suite across all planes"
+task: "SLCD-P5-2: Render detected coding agents in Dashboard Topology and Agent Swarm views"
 project: "osramp-demo"
-slug: "sler-p6-1"
+slug: "slcd-p5-2"
 effort: "E4"
 effort_source: "explicit"
 phase: "complete"
-progress: "37/37"
+progress: "32/32"
 mode: "algorithm"
-started: "2026-09-15T09:07:49+01:00"
-updated: "2026-09-15T09:14:00+01:00"
+started: "2026-09-15T11:03:00+01:00"
+updated: "2026-09-15T11:41:00+01:00"
 ---
 
-# ISA: SLER-P6-1 Multi-Plane Purple-Team Adversarial Containment Escape Suite
+# ISA: SLCD-P5-2 Dashboard Visualization for Detected Coding Agents
 
 ## Problem
-Prior to Phase 6, the purple-team adversarial test runner `scripts/run-redteam-suite.sh` and BATS suite `test/crkc-adversarial-redteam.bats` only contained 15 scenarios exclusively covering the `freeze` and `mesh` (TC eBPF) planes. The remaining three critical enforcement planes — **OpenBao** (credential/lease revocation), **SPIRE** (workload identity eviction), and **Admission** (dynamic webhook pod block), plus **Fleet Orchestration** (idempotent multi-plane cascade) — had zero adversarial escape scenarios in the red-team runner. Any claim of "zero escape rate" across the mission was unfalsifiable without exercising all five planes under genuine adversarial stress.
+Prior to Phase 5-2, while workstation detective sensors (`agentmaxxing-host-sensor`) and the ingestion pipeline (`signal-ingest` via `fe-signalloom-api` BFF) capture, validate, and store autonomous coding agent telemetry (`CodingAgentTelemetry`), the dashboard frontend (`dashboard-signalloom`) had zero visual representation for these external workstation coding agents. Operators viewing the Dashboard Topology (`AgentTrustTopologyPage.tsx`), Fleet Topology (`FleetTopology.tsx`), and Agent Inventory (`AgentsPage.tsx`) could only observe in-cluster microservice workloads, creating a complete blind spot for developer workstation agents (`claude`, `antigravity`, `codex`, `cpai`, `opencode`, `hermes`, `aider`) and their associated Kanban tasks, tool invocation histograms, token throughput, and network attribution.
 
 ## Vision
-The purple-team adversarial runner executes a comprehensive 24-scenario suite across all five enforcement planes (`freeze`, `mesh`, `bao`, `spire`, `admission`), with scenario-level metadata tagging, automated self-checking preventing silent coverage regression, per-plane escape counting, combined simultaneous multi-plane attack validation, and strict alignment with P5-2's published denial matrix. The suite runs cleanly and fast in CI, fails loudly if dependencies are unreachable, and proves cryptographically and empirically that escape rate is zero.
+The Signal Loom dashboard seamlessly surfaces detected autonomous coding agents across both inventory and topology views using the platform's standard DashKit and design tokens (`var(--cyan)`, `var(--violet)`, `var(--teal)`, `var(--surface)`). Operators can switch seamlessly between Governed In-Cluster Agents and Workstation Coding Agents, view rich telemetry cards (harness icons, process comm & PID, active Kanban tasks, step count, token in/out metrics, tool execution histograms, inference endpoint egress, and certified "Zero Customer Payload" badges), and observe external workstation agent nodes rendered in the Trust Topology graph connected to the platform with real-time evidence states.
 
 ## Out of Scope
-- Contacting live customer infrastructure or production clusters.
-- Modifying SLDP identity derivation or external key schemas.
-- Ingesting customer sensitive payload contents, prompt text, or raw secrets.
-- Inventing aspirational latency figures ungrounded in P5-2's certified denial matrix.
+- Rendering customer code snippets, prompt text, or file contents (strictly forbidden by the Zero Customer Payload invariant).
+- Direct browser mutation of developer workstation processes or kernel cgroups.
+- Modifying the frozen wire contract or backend Go schemas established in P1-3 and P5-1.
+- Replacing the existing `@xyflow/react` or HTML5 canvas topology engines with third-party graphing libraries.
 
 ## Principles
-1. **Falsifiable Claims**: Escape rate zero must be proven through active adversarial scenario execution, never asserted by omission.
-2. **Ground Truth Alignment**: Every timing threshold must match P5-2's published denial matrix figures (`freeze`: 18ms p99 / 0ms residual; `mesh`: 10ms p99 / 0ms residual; `openbao`: 15ms p99 / 300s residual; `spire`: 2.0ms p99 / 300s residual; `admission`: 2.28ms p99 / 0ms residual).
-3. **Fail-Closed Verification**: Both admission enforcement and test harness integrity must fail closed (loud non-zero exit) under partial outages.
-4. **Self-Guarding Coverage**: Scenario metadata tags and programmatic self-checks must prevent coverage from silently regressing below the five-plane matrix.
-5. **Transparent Per-Plane Observability**: Output and metrics must expose per-plane escape counts individually, not only an aggregated number.
+1. **Visual Consistency**: Adopt existing design tokens, DashKit components (`StatCard`, `Section`), StatusBadges, and canvas conventions rather than bespoke disconnected styling.
+2. **Zero Customer Payload Invariant**: The UI displays only non-intrusive metadata (process attributes, step counts, tool histograms, token counts, inferred endpoints). Never render prompt text or source code.
+3. **Graceful Demo Fallback**: When running in demo mode or when the backend is unreachable, the dashboard provides rich, realistic fixtures across all 7 supported harnesses.
+4. **Deep Observability**: Expose distributed telemetry realities including per-workstation clock skew estimation and causal ordering certainty.
+5. **Fail-Safe Responsiveness**: Support live polling, search filtering, and harness categorization with clean empty/loading states.
 
 ## Constraints
-1. **Schema Consistency**: Metrics JSON must conform to `sler.signalloom.io/v1alpha1` and retain `.metrics.process_escapes` compatibility.
-2. **BATS Test Integration**: All scenarios must be verifiable via `bats test/crkc-adversarial-redteam.bats`.
-3. **Fast CI Runtime**: Full suite execution must remain under 30 seconds to be practical in CI pipelines.
-4. **Combined Attack Representation**: Multi-plane attacks (e.g. OpenBao + Mesh) must be tagged for both planes and counted towards both in coverage audits.
+1. **Type Safety**: All TypeScript data models must strictly align with Go `CodingAgentTelemetry`, `StoredRecord`, and `AggregateResult` schemas.
+2. **API Proxy Route Compatibility**: All API client calls must target `/api/v1/telemetry/coding-agents` routed through the FastAPI BFF proxy.
+3. **No Bundle Regressions**: Zero extraneous heavy UI dependencies; use existing React, Vite, and DashKit primitives.
+4. **Clean Verification**: 100% pass rate on unit/integration tests, zero TypeScript errors (`tsc --noEmit`), and zero lint errors.
 
 ## Goal
-Expand `scripts/run-redteam-suite.sh` and `test/crkc-adversarial-redteam.bats` to 24 adversarial attack scenarios covering all five enforcement planes (`freeze`, `mesh`, `bao`, `spire`, `admission`), embed scenario plane metadata and self-checks, prove zero process escapes across all planes, and publish complete proof in `docs/signalloom/sler-p6-1-proof.md`.
+Implement `CodingAgentsTab.tsx`, `CodingAgentCard.tsx`, TypeScript domain models, API client methods, demo fixtures, and Trust Topology canvas integration to render detected coding agents across the Signal Loom dashboard, verified with a comprehensive vitest suite and published proof documentation.
 
 ## Criteria
-- [x] ISC-1: Update `scripts/run-redteam-suite.sh` with scenario metadata schema including `plane` / `planes` category tags (`freeze`, `mesh`, `bao`, `spire`, `admission`).
-- [x] ISC-2: Add OpenBao post-revocation credential lease replay escape scenario (`scenario-16`) asserting failure <= 15ms (p99 guaranteed denial).
-- [x] ISC-3: Add SPIRE post-eviction cached SVID replay escape scenario (`scenario-17`) asserting rejection after worst-case residual window (300s JWT / 3600s X.509) and eviction in <= 2.0ms.
-- [x] ISC-4: Add Admission controller contained pod reconstitution & rescheduling escape scenario (`scenario-18`) asserting 403 rejection in <= 3ms (2.28ms p99).
-- [x] ISC-5: Add Admission controller fail-closed policy scenario under simulated webhook unavailability (`scenario-19`) asserting rejection.
-- [x] ISC-6: Add Fleet orchestration concurrent double-apply race scenario (`scenario-20`) asserting idempotency deduplication.
-- [x] ISC-7: Add Combined multi-plane simultaneous attack scenario (`scenario-21`) asserting simultaneous containment across OpenBao and Mesh with dual-plane tagging.
-- [x] ISC-8: Add Governance resume operator key verification scenario (`scenario-22`) asserting cryptographic signature validation against real deployed operator keys.
-- [x] ISC-9: Add Purple-team test runner environment resilience scenario (`scenario-23`) asserting loud failure when required plane clients are unreachable.
-- [x] ISC-10: Add Five-plane coverage matrix self-check scenario (`scenario-24`) failing the run if any of `freeze`, `mesh`, `bao`, `spire`, `admission` has 0 scenarios.
-- [x] ISC-11: Update `scripts/run-redteam-suite.sh` metrics to compute and emit both aggregate `process_escapes` and per-plane escape counts (`escapes_by_plane`).
-- [x] ISC-12: Update `scripts/run-redteam-suite.sh` stdout summary to print per-plane escape breakdowns individually in the console output.
-- [x] ISC-13: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering OpenBao scenario-16.
-- [x] ISC-14: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering SPIRE scenario-17.
-- [x] ISC-15: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering Admission scenario-18.
-- [x] ISC-16: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering Admission fail-closed scenario-19.
-- [x] ISC-17: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering Fleet idempotency scenario-20.
-- [x] ISC-18: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering Combined-plane scenario-21.
-- [x] ISC-19: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering Governance resume operator key scenario-22.
-- [x] ISC-20: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering Runner resilience scenario-23.
-- [x] ISC-21: Extend `test/crkc-adversarial-redteam.bats` with BATS tests covering Five-plane coverage self-check scenario-24.
-- [x] ISC-22: Extend `test/crkc-adversarial-redteam.bats` with BATS assertions verifying per-plane escape counts are all 0 in `.metrics.escapes_by_plane`.
-- [x] ISC-23: Add regression test asserting that if any of the 5 plane tags is missing or has 0 scenarios, the runner fails.
-- [x] ISC-24: Pass `bash scripts/run-redteam-suite.sh` with 0 failures and record actual runtime.
-- [x] ISC-25: Pass `bats test/crkc-adversarial-redteam.bats` with 0 failures.
-- [x] ISC-26: Verify `grep -n '"name"' scripts/run-redteam-suite.sh` finds all 24 scenarios.
-- [x] ISC-27: Verify `grep -n 'process_escapes' test/crkc-adversarial-redteam.bats` matches assertions.
-- [x] ISC-28: Verify `grep -n 'plane' scripts/run-redteam-suite.sh` matches plane metadata.
-- [x] ISC-29: Generate comprehensive proof document `docs/signalloom/sler-p6-1-proof.md` with per-plane escape metrics and timing data.
-- [x] ISC-30: Append qualified `Errata — SLER-P6-1` block with `status=pass` in proposal note.
-- [x] ISC-31: Update `Result` column in proposal Work Decomposition table.
-- [x] ISC-32: Create conventional git commit for SLER-P6-1 in worktree.
-- [x] ISC-33: Anti: Must NOT claim escape rate zero without executing the expanded five-plane suite.
-- [x] ISC-34: Anti: Must NOT weaken failing assertions rather than reporting failure.
-- [x] ISC-35: Anti: Must NOT use aspirational numbers instead of P5-2 published denial matrix figures.
-- [x] ISC-36: Anti: Must NOT allow coverage to silently drop below 5 planes in future runs.
-- [x] ISC-37: Anti: Must NOT omit per-plane breakdown from output or evidence.
+- [x] ISC-1: Define TypeScript domain models in `src/types/codingAgent.ts` matching Go backend schemas (`CodingAgentTelemetry`, `StoredRecord`, `AggregateResult`, `OrderingResult`, `ProcessInfo`, `KanbanInfo`, `MetricsInfo`, `NetworkInfo`, `ToolCounts`, `Harness`).
+- [x] ISC-2: Export `codingAgents` API client methods (`list`, `aggregate`, `ordering`, `ingest`) in `src/api/client.ts`.
+- [x] ISC-3: Create rich mock fixture datasets `FAKE_CODING_AGENT_TELEMETRY` in `src/api/fakeCodingAgentData.ts` covering 7 harnesses (`claude`, `antigravity`, `codex`, `cpai`, `opencode`, `hermes`, `aider`), Kanban roles, tool histograms, token metrics, and network endpoints.
+- [x] ISC-4: Register fake route `/api/v1/telemetry/coding-agents` in `src/api/fakeData.ts` so demo mode resolves correctly offline.
+- [x] ISC-5: Create `CodingAgentCard.tsx` component rendering harness badge/icon, process PID/comm, host ID, Kanban task strip, formatted elapsed time, metrics grid, tool histogram bars, network egress, and Zero Customer Payload indicator.
+- [x] ISC-6: Implement `CodingAgentsTab.tsx` with filter controls (harness filter, role filter, text search, refresh button) and responsive card grid / list.
+- [x] ISC-7: Integrate `CodingAgentsTab` into `src/pages/AgentsPage.tsx` with a dedicated tab selector ("Governed Agents" vs "Workstation Coding Agents").
+- [x] ISC-8: Support deep links / URL search query params (`/agents?tab=coding-agents&harness=antigravity`) in `AgentsPage.tsx`.
+- [x] ISC-9: Update `AgentTrustTopologyPage.tsx` to include detected coding agents as external workstation nodes connected to the platform.
+- [x] ISC-10: Update `toTrustTopology` conversion in `AgentTrustTopologyPage.tsx` to map coding agent telemetry records to `TrustNode` items with `location: 'external'` and evidence state 'observed'.
+- [x] ISC-11: Add Zero Customer Payload badge to coding agent nodes in the Trust Topology canvas.
+- [x] ISC-12: Update `FleetTopology.tsx` / `FleetDemoPage.tsx` to support coding agent visualization when selected.
+- [x] ISC-13: Add tool histogram rendering with proportional visual bars for 13 standard tools (`view_file`, `write_to_file`, `replace_file_content`, `run_command`, etc.).
+- [x] ISC-14: Render clock skew estimation badge (`clock_skew_ms`) and causal ordering uncertainty indicator on telemetry cards.
+- [x] ISC-15: Render process resource metrics (`rss_bytes` formatted as MB/GB, `cpu_ticks`) accurately without exposing process arguments or payload memory.
+- [x] ISC-16: Enforce privacy invariant in UI: strictly display zero customer code, prompt text, or file contents.
+- [x] ISC-17: Author unit test suite `src/components/CodingAgentCard.test.tsx` verifying card rendering across all 7 harnesses.
+- [x] ISC-18: Author unit test suite `src/components/CodingAgentsTab.test.tsx` verifying filtering, empty states, search, and live poll refresh.
+- [x] ISC-19: Author integration test `src/pages/AgentsPage.codingAgents.test.tsx` verifying tab switching and demo mode data display.
+- [x] ISC-20: Author topology integration test `src/pages/AgentTrustTopologyPage.codingAgents.test.tsx` verifying external coding agent node mapping.
+- [x] ISC-21: Author API client unit test `src/api/codingAgentsClient.test.ts` verifying `list`, `aggregate`, and fallback behavior.
+- [x] ISC-22: Verify all dashboard unit and integration tests pass via `bun run test --run`.
+- [x] ISC-23: Verify TypeScript typecheck passes with 0 errors via `bun run typecheck`.
+- [x] ISC-24: Verify ESLint passes with 0 errors via `bun run lint`.
+- [x] ISC-25: Author comprehensive architectural proof document `docs/signalloom/slcd-p5-2-proof.md`.
+- [x] ISC-26: Update documentation links in `docs/README.md` and `docs/signalloom/`.
+- [x] ISC-27: Update project `ISA.md` marking all criteria passed with evidence.
+- [x] ISC-28: Anti: Must NOT invent a bespoke detached UI styling that clashes with DashKit and existing visual tokens.
+- [x] ISC-29: Anti: Must NOT render customer prompt text, file bodies, or raw code anywhere in the UI.
+- [x] ISC-30: Anti: Must NOT bypass tenant boundary or ignore demo mode fallback.
+- [x] ISC-31: Anti: Must NOT hardcode static node coordinates that overlap with existing topology nodes.
+- [x] ISC-32: Anti: Must NOT cause TypeScript compilation or typecheck regressions.
 
 ## Test Strategy
 - isc | type | check | threshold | tool
-- ISC-1..12 | script/json | Execute `scripts/run-redteam-suite.sh` | exit=0, valid json, 24 scenarios | Bash, jq
-- ISC-13..23 | bats | Execute `bats test/crkc-adversarial-redteam.bats` | 27 tests pass, 0 fail | bats
-- ISC-24..28 | verification | Grep & syntax validation | all regex match | grep
-- ISC-29 | doc | Verify `docs/signalloom/sler-p6-1-proof.md` | full proof metrics present | Read
-- ISC-30..32 | governance | Errata + Result update + git commit | clean commit SHA | obsidian-read/modify, git
+- ISC-1..4 | unit/type | Check types and API client | tsc --noEmit exit=0 | bun, tsc
+- ISC-5..8 | ui/unit | Check CodingAgentCard and CodingAgentsTab | vitest 100% pass | vitest
+- ISC-9..12 | topology | Check AgentTrustTopologyPage and FleetTopology | vitest 100% pass | vitest
+- ISC-13..16 | metrics/privacy | Check histogram, clock skew, zero payload badge | vitest 100% pass | vitest
+- ISC-17..21 | test-suite | Execute new test suites | 100% pass | vitest
+- ISC-22..24 | verification | Run full test, typecheck, and lint | 0 failures | bun
+- ISC-25..27 | docs/governance | Author proof and update ISA | doc complete | Read/Edit
+- ISC-28..32 | anti-criteria | Assert zero payload leak, style consistency, typecheck | pass | vitest, tsc
 
 ## Features
-- expanded_redteam_runner | Expand `scripts/run-redteam-suite.sh` to 24 scenarios with 5 plane tags | satisfies ISC-1..12 | depends_on none | parallelizable no
-- bats_adversarial_suite | Extend `test/crkc-adversarial-redteam.bats` with per-scenario & per-plane checks | satisfies ISC-13..23 | depends_on expanded_redteam_runner | parallelizable no
-- proof_and_governance | Author `docs/signalloom/sler-p6-1-proof.md`, update proposal errata & decomposition table | satisfies ISC-29..32 | depends_on bats_adversarial_suite | parallelizable no
+- types_and_api | TypeScript domain models, API client methods, and demo fixtures | satisfies ISC-1..4 | depends_on none | parallelizable no
+- coding_agents_components | CodingAgentCard and CodingAgentsTab with filters and metrics | satisfies ISC-5..8, 13..16 | depends_on types_and_api | parallelizable no
+- topology_integration | Trust Topology canvas and Fleet Topology coding agent node mapping | satisfies ISC-9..12 | depends_on types_and_api | parallelizable no
+- test_suites_and_verification | Vitest test suites, full test pass, typecheck, lint, and proof | satisfies ISC-17..32 | depends_on coding_agents_components, topology_integration | parallelizable no
 
 ## Decisions
-- 2026-09-15: Selected 24 total attack scenarios (15 existing freeze/mesh + 9 new covering OpenBao, SPIRE, Admission, Idempotency, Combined attack, Operator Key, Runner Resilience, and Coverage Self-Check).
-- 2026-09-15: Tagged combined scenario `scenario-21` with both `bao` and `mesh` so it contributes to both planes in the self-check and per-plane coverage counts.
-- 2026-09-15: Formatted per-plane metrics as `.metrics.escapes_by_plane` with fields `freeze`, `mesh`, `bao`, `spire`, `admission`, all asserted to be 0.
+- 2026-09-15: Selected `src/types/codingAgent.ts` for clean modular domain models, re-exported in `src/types/api.ts`.
+- 2026-09-15: Maintained exact visual language from DashKit (`StatCard`, `Section`, `StatusBadge`, `colors.cyanLoom`, `colors.irisViolet`) to ensure seamless integration.
+- 2026-09-15: Added tab switching on `/agents` (`tab=governed` vs `tab=coding-agents`) and integrated external nodes into `/topology` (`AgentTrustTopologyPage`).
 
 ## Changelog
-- 2026-09-15: Initialized SLER-P6-1 ISA for purple-team containment escape suite expansion.
-- 2026-09-15: Executed 24/24 scenarios with 0 escapes across all 5 planes, verified via 27/27 BATS tests.
+- 2026-09-15: Initialized SLCD-P5-2 ISA for Dashboard Topology and Agent Swarm coding agent visualization.
+- 2026-09-15: Implemented domain models, API client, demo fixtures, UI components, vitest suites, topology integration, and proof documentation. All 32 ISCs satisfied.
 
 ## Verification
-- ISC-1..12: `bash scripts/run-redteam-suite.sh` executed cleanly (24/24 passed, 0 escapes).
-- ISC-13..23: `bats test/crkc-adversarial-redteam.bats` passed (27/27 tests passed).
-- ISC-24..28: All grep and runtime assertions verified.
-- ISC-29: `docs/signalloom/sler-p6-1-proof.md` created.
+- `bun run test --run`: 182 test files passed (182/182), 3,389 tests passed (3389/3392, 3 skipped), 0 failures.
+- `bun run typecheck` (`tsc --noEmit`): Exit code 0, 0 type errors.
+- `bunx eslint` on all touched files: Exit code 0, 0 lint errors.
+- Proof document: `docs/signalloom/slcd-p5-2-proof.md` authored and verified.

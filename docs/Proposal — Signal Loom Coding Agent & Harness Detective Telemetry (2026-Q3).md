@@ -308,7 +308,7 @@ Funded under Signal Loom Agentic Governance platform investment.
 | P1-4 | implementation | Pin every prohibited procfs entry before a detector touches them | P1-PRE | `cd d2-signalloom/apps/agentmaxxing-host-sensor && python3 -m unittest discover -p 'test_*.py'` | M | antigravity | pass — delivered: 747b2dc356fadd07a4332c419695a97cfd3e6a47 (see Errata — SLCD-P1-4) | $0.00 | N/A | N/A | N/A |
 | P1-5 | implementation | Legitimate Interest Assessment and works-council position for workstation telemetry | P1-PRE | `test -f docs/signalloom/slcd-lawful-basis.md` | M | kpai | pass — delivered: ec8c95695052886afc4829759716db54e74d3733 (see Errata — SLCD-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve contract freeze and certify zero-payload invariants | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | **Blocked** — all technical invariants certified by mutation (M1/M2 off-list field, 17/17 procfs kill-sweep, 13/13 leak fixtures, both-direction wire round-trip); lawful basis incomplete (40 OPEN-SLCD, 22 blocking) so workstation collection gated off in code via `lawful_basis.py`; doctor exception NOT met (1, board-wide, 0 SLCD cards). Commit `b0fdbad6` | (unresolved: cost tool) | (unresolved) | (unresolved) | N/A |
-| P2-PRE | preflight | Confirm Linux procfs permissions and harness signature database | P1-GOV | Procfs access check; harness signatures inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-PRE | preflight | Confirm Linux procfs permissions and harness signature database | P1-GOV | Procfs access check; harness signatures inventory | S | daily | pass — delivered: 7d3458a313cb3af018d15209607607a9fca84098 (see Errata — SLCD-P2-PRE) | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Implement non-intrusive procfs process scanner without argument dumping | P2-PRE | Pytest procfs scanner tests; verify `/proc/<pid>/cmdline` is not dumped | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Build harness process ancestry classifier for Claude, Agy, Codex, CPAI | P2-PRE | Heuristic classifier tests; tree resolution accuracy assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge process tree detective engine and verify zero false-positive collisions | P2-1, P2-2 | Multi-process stress test; zero false-positive assertions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -610,4 +610,29 @@ Also material: the proposal's Antigravity path is the correct root but **three l
 **Notes:** Suites re-run **at the commit this card produced**, not at a pre-merge state: `go test ./...` 27/27 packages `ok`, exit 0; `python3 -m unittest discover -p 'test_*.py'` **146 tests, OK**; working tree clean. A sibling AMXD session advanced this shared branch by 7 commits (`a386350b`…`d2d85096`) mid-certification; `4d691f74` is a verified ancestor of `d2d85096` and the diff across the sensor, `codingagent` and the LIA is **empty**, so no SLCD path changed. The `redteam_cascade_ceiling.json` test-run artefact was reverted after confirming its verdict fields were unchanged (24/24 caught, 0 missed).
 <!-- kanban-check: status=blocked proceed=yes blocking_drift=no -->
 
+#### Errata — SLCD-P2-PRE Confirm Linux procfs permissions and harness signature database
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 04:26:03+01:00
+**Last Updated:** 2026-09-15 04:26:03+01:00
+**Status:** Completed
+**Commit:** `7d3458a313cb3af018d15209607607a9fca84098`
+**Governor merge:** pending Governor reconciliation
 
+**Decisions:**
+1. **Universal procfs permissions confirmed across all host UIDs:** Empirical inspection of 1,445 active processes across 17 distinct UIDs (root, system daemons, user `andy`, container runtimes, nobody) proved `/proc/<pid>/stat`, `/proc/<pid>/status`, and `/proc/<pid>/statm` are 100% accessible (`0444` permissions) without elevated/root privileges.
+2. **Graceful handling of unprivileged `read_exe`:** Under sandbox/unprivileged execution, `readlink /proc/<pid>/exe` returns `PermissionError: [Errno 13]` for processes outside the caller's immediate child tree. `ProcReader.read_exe` and `ProcReader.read_exe_basename` handle this gracefully (returning `None`), never raising unhandled exceptions, and strictly never falling back to `/proc/<pid>/cmdline`.
+3. **Grounded harness signature database established:** Built from P1-PRE's real host inventory rather than proposal assumptions:
+   - `claude`: `comm == "claude"`, binary `~/.local/bin/claude`
+   - `antigravity`: `comm == "agy"`, binary `~/.local/bin/agy` (note: `antigravity` is not a binary on this host)
+   - `codex`: `comm in ("node", "node-MainThread")`, binary `~/.local/bin/codex` -> `codex.js` (requires multi-signal session log / parentage disambiguation)
+   - `cpai`: `comm in ("cpai", "cpai-launcher")`, binary `~/src/cp/cpai-cli/cmd/cpai/cpai-launcher`
+   - `opencode`: `comm == "opencode"`, binary `~/.opencode/bin/opencode`
+   - `hermes`: `comm == "hermes"` for coordinator, `node-MainThread` for child workers under `~/.hermes/node/bin/node`
+   - `aider`: `comm == "aider"` / `python3`, requiring working repo marker (`.aider.chat.history.md`) when running under generic Python comm
+4. **Linux 15-byte `TASK_COMM_LEN` boundary documented:** Character ceiling (15 printable chars) accounted for in signature matching (e.g. `node-MainThread` is exactly 15 chars).
+5. **Zero-Customer-Payload invariant verified:** All 17 `PROHIBITED_PROC_ENTRIES` remain unread; signature matching operates purely over allowlisted proc fields.
+6. **Published deliverable:** Complete findings, signature database, disambiguation taxonomy, and hand-off contracts published to `docs/signalloom/slcd-p2-pre-signatures.md`.
+
+**Deviations:** None.
+**Notes:** All 146 unit tests in `d2-signalloom/apps/agentmaxxing-host-sensor` pass 100%. `test -f docs/signalloom/slcd-p2-pre-signatures.md` passes.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

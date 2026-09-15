@@ -1,0 +1,104 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+
+# Node Capability Guard: Dynamic Admission Webhook & Contained Agent Blocker.
+# Intercepts agent Pod CREATE and UPDATE requests, verifying required kernel
+# containment node selectors (cgroup-v2, landlock) and denying admission for
+# contained/stunned agent identities.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-capability-guard
+  namespace: fe-signalloom
+  labels:
+    app.kubernetes.io/name: node-capability-guard
+    app.kubernetes.io/component: admission-controller
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/plane: admission
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-capability-guard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: node-capability-guard
+        app.kubernetes.io/component: admission-controller
+        app.kubernetes.io/part-of: signalloom
+        signalloom.ai/plane: admission
+    spec:
+      serviceAccountName: node-capability-guard
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: node-capability-guard
+          image: node-capability-guard:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-port=8443"
+            - "-tls-cert=/etc/webhook/certs/tls.crt"
+            - "-tls-key=/etc/webhook/certs/tls.key"
+            - "-store-file=/etc/node-capability-guard/contained-agents.json"
+            - "-trust-domain=signalloom.demo"
+          ports:
+            - name: webhook
+              containerPort: 8443
+          env:
+            - name: PORT
+              value: "8443"
+            - name: CONTAINED_STORE_FILE
+              value: "/etc/node-capability-guard/contained-agents.json"
+            - name: SPIFFE_TRUST_DOMAIN
+              value: "signalloom.demo"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: webhook
+              scheme: HTTPS
+            failureThreshold: 10
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: webhook
+              scheme: HTTPS
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: webhook
+              scheme: HTTPS
+            periodSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+            - name: contained-store
+              mountPath: /etc/node-capability-guard
+              readOnly: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: node-capability-guard-tls
+            optional: true
+        - name: contained-store
+          configMap:
+            name: signalloom-contained-agents
+            optional: true

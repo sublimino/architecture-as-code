@@ -29,6 +29,7 @@ type k8sFleetClient struct {
 	clientset        kubernetes.Interface
 	spireClient      SpireClient
 	meshClient       MeshClient
+	admissionClient  AdmissionClient
 	defaultNamespace string
 	degraded         *degradedRegistry
 	baoClient        *OpenBaoClient
@@ -54,6 +55,7 @@ func newK8sFleetClient(clientset kubernetes.Interface, defaultNamespace string) 
 		degraded:         newDegradedRegistry(),
 		baoClient:        NewOpenBaoClient(OpenBaoConfigFromEnv()),
 		meshClient:       NewCiliumMeshClient(clientset),
+		admissionClient:  NewK8sAdmissionClient(clientset, "fe-signalloom"),
 		now:              time.Now,
 	}
 }
@@ -97,6 +99,16 @@ func (c *k8sFleetClient) SetSpireClient(sc SpireClient) {
 // SpireClient returns the active SpireClient, if configured.
 func (c *k8sFleetClient) SpireClient() SpireClient {
 	return c.spireClient
+}
+
+// SetAdmissionClient configures or replaces the active AdmissionClient.
+func (c *k8sFleetClient) SetAdmissionClient(ac AdmissionClient) {
+	c.admissionClient = ac
+}
+
+// AdmissionClient returns the active AdmissionClient, if configured.
+func (c *k8sFleetClient) AdmissionClient() AdmissionClient {
+	return c.admissionClient
 }
 func (c *k8sFleetClient) namespaceOrDefault(namespace string) string {
 	if namespace == "" {
@@ -698,6 +710,101 @@ func (c *k8sFleetClient) RestoreMeshPlane(ctx context.Context, namespace, agentI
 	return res, nil
 }
 
+// BlockAdmissionPlane executes admission blocking for a target agent.
+func (c *k8sFleetClient) BlockAdmissionPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
+	seq := c.degraded.nextSeq()
+	namespace = c.namespaceOrDefault(namespace)
+
+	if c.admissionClient == nil {
+		err := fmt.Errorf("block_admission %s/%s: %w: no admission client configured",
+			namespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneAdmission, namespace, agentID, "block_admission", err)
+		return &PlaneResult{
+			Plane:     PlaneAdmission,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	req := AdmissionBlockRequest{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: idempotencyKey,
+		AgentID:        agentID,
+		Namespace:      namespace,
+		Reason:         "fleet-manager containment cascade",
+		Timestamp:      c.now().UTC().Format(time.RFC3339),
+	}
+
+	resp, err := c.admissionClient.BlockAdmission(ctx, req)
+	if err != nil {
+		c.record(seq, PlaneAdmission, namespace, agentID, "block_admission", err)
+		if resp != nil {
+			return AdmissionResponseToPlaneResult(resp, namespace), err
+		}
+		return &PlaneResult{
+			Plane:     PlaneAdmission,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	res := AdmissionResponseToPlaneResult(resp, namespace)
+	if resp.Outcome == OutcomeUnavailable {
+		resErr := fmt.Errorf("admission block unavailable: %s: %w", resp.Error, ErrEnforcementUnavailable)
+		c.record(seq, PlaneAdmission, namespace, agentID, "block_admission", resErr)
+		return res, resErr
+	}
+
+	c.record(seq, PlaneAdmission, namespace, agentID, "block_admission", nil)
+	return res, nil
+}
+
+// UnblockAdmissionPlane removes admission blocking for a target agent upon recovery.
+func (c *k8sFleetClient) UnblockAdmissionPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
+	seq := c.degraded.nextSeq()
+	namespace = c.namespaceOrDefault(namespace)
+
+	if c.admissionClient == nil {
+		err := fmt.Errorf("unblock_admission %s/%s: %w: no admission client configured",
+			namespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneAdmission, namespace, agentID, "unblock_admission", err)
+		return &PlaneResult{
+			Plane:     PlaneAdmission,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	req := AdmissionBlockRequest{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: idempotencyKey,
+		AgentID:        agentID,
+		Namespace:      namespace,
+		Timestamp:      c.now().UTC().Format(time.RFC3339),
+	}
+
+	resp, err := c.admissionClient.UnblockAdmission(ctx, req)
+	if err != nil {
+		c.record(seq, PlaneAdmission, namespace, agentID, "unblock_admission", err)
+		if resp != nil {
+			return AdmissionResponseToPlaneResult(resp, namespace), err
+		}
+		return &PlaneResult{
+			Plane:     PlaneAdmission,
+			Outcome:   OutcomeUnavailable,
+			Error:     err.Error(),
+			Timestamp: c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
+
+	res := AdmissionResponseToPlaneResult(resp, namespace)
+	c.record(seq, PlaneAdmission, namespace, agentID, "unblock_admission", nil)
+	return res, nil
+}
+
 // RestoreCredentials is a typed stub owned by SLER-P2-2.
 //
 // Note for the orchestrator: CascadeOrchestrator.Recover logs and continues past
@@ -731,6 +838,11 @@ func (c *k8sFleetClient) Health(ctx context.Context) error {
 	if c.meshClient != nil {
 		if meshErr := c.meshClient.Health(ctx); meshErr != nil {
 			return fmt.Errorf("mesh health probe: %w", meshErr)
+		}
+	}
+	if c.admissionClient != nil {
+		if admErr := c.admissionClient.Health(ctx); admErr != nil {
+			return fmt.Errorf("admission health probe: %w", admErr)
 		}
 	}
 	return nil

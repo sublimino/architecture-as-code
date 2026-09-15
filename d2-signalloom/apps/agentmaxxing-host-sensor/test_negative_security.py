@@ -76,10 +76,162 @@ class NegativeSecurityTests(unittest.TestCase):
 
     def test_prohibit_procfs_maps_and_stack_inspection(self) -> None:
         """Assert that memory map and stack inspects are rejected."""
-        for entry in ("maps", "smaps", "stack", "syscall", "pagemap", "clear_refs"):
+        for entry in ("maps", "smaps", "smaps_rollup", "stack", "syscall", "pagemap", "clear_refs"):
             with self.subTest(entry=entry):
-                with self.assertRaises(SecurityException):
+                with self.assertRaises(SecurityException) as ctx:
                     self.reader._safe_proc_path(1337, entry)
+                self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_prohibit_procfs_fd_inspection(self) -> None:
+        """Assert that attempting to inspect /proc/<pid>/fd is strictly prohibited.
+
+        Note: Pinned now to prevent P4-2 socket detector from silently removing
+        /proc/<pid>/fd/ from PROHIBITED_PROC_ENTRIES. Socket inode attribution must
+        respect security boundaries or use safe, attested mechanisms without unmonitored bypass.
+        """
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "fd").mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(SecurityException) as ctx:
+            self.reader._safe_proc_path(1337, "fd")
+        self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_prohibit_procfs_fdinfo_inspection(self) -> None:
+        """Assert that attempting to inspect /proc/<pid>/fdinfo is strictly prohibited.
+
+        Note: Pinned to prevent descriptor tracking from silently accessing file offset/flags.
+        """
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "fdinfo").mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(SecurityException) as ctx:
+            self.reader._safe_proc_path(1337, "fdinfo")
+        self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_prohibit_procfs_net_inspection(self) -> None:
+        """Assert that attempting to inspect /proc/<pid>/net is strictly prohibited.
+
+        Note: Pinned now to prevent direct per-process network socket dumping
+        from silently bypassing zero-payload boundaries.
+        """
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "net").mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(SecurityException) as ctx:
+            self.reader._safe_proc_path(1337, "net")
+        self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_prohibit_procfs_io_inspection(self) -> None:
+        """Assert that attempting to inspect /proc/<pid>/io is strictly prohibited."""
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "io").write_text("rchar: 1024\nwchar: 2048\n", encoding="utf-8")
+
+        with self.assertRaises(SecurityException) as ctx:
+            self.reader._safe_proc_path(1337, "io")
+        self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_prohibit_procfs_cwd_inspection(self) -> None:
+        """Assert that attempting to inspect /proc/<pid>/cwd is strictly prohibited."""
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(SecurityException) as ctx:
+            self.reader._safe_proc_path(1337, "cwd")
+        self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_prohibit_procfs_root_inspection(self) -> None:
+        """Assert that attempting to inspect /proc/<pid>/root is strictly prohibited."""
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(SecurityException) as ctx:
+            self.reader._safe_proc_path(1337, "root")
+        self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_prohibit_procfs_attr_inspection(self) -> None:
+        """Assert that attempting to inspect /proc/<pid>/attr is strictly prohibited."""
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "attr").mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(SecurityException) as ctx:
+            self.reader._safe_proc_path(1337, "attr")
+        self.assertIn("strictly prohibited", str(ctx.exception))
+
+    def test_exe_basename_resolution_never_reads_cmdline_secrets(self) -> None:
+        """Assert exe-based binary resolution never falls back to or reads /proc/<pid>/cmdline.
+
+        Uses the secret-bearing fixture containing '--token=SECRET_BEARER_TOKEN' to prove
+        that neither read_exe nor read_exe_basename touch cmdline, whether exe exists,
+        is missing, or is broken.
+        """
+        pid_dir = self.mock_proc / "1337"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        secret_cmdline = "python3\x00agent.py\x00--token=SECRET_BEARER_TOKEN\x00"
+        (pid_dir / "cmdline").write_text(secret_cmdline, encoding="utf-8")
+
+        # Case 1: exe symlink points to executable
+        exe_symlink = pid_dir / "exe"
+        if exe_symlink.is_symlink() or exe_symlink.exists():
+            exe_symlink.unlink()
+        exe_symlink.symlink_to("/usr/bin/python3.11")
+
+        resolved_exe = self.reader.read_exe(1337)
+        resolved_name = self.reader.read_exe_basename(1337)
+
+        self.assertEqual(resolved_exe, Path("/usr/bin/python3.11"))
+        self.assertEqual(resolved_name, "python3.11")
+        # Ensure secret tokens are completely absent from resolved output
+        self.assertNotIn("SECRET_BEARER_TOKEN", str(resolved_exe))
+        self.assertNotIn("SECRET_BEARER_TOKEN", str(resolved_name))
+
+        # Case 2: exe symlink is missing (e.g. kernel thread or zombie process)
+        exe_symlink.unlink()
+        missing_exe = self.reader.read_exe(1337)
+        missing_name = self.reader.read_exe_basename(1337)
+
+        # Must return None safely and NEVER fall back to reading cmdline
+        self.assertIsNone(missing_exe)
+        self.assertIsNone(missing_name)
+
+        # Confirm direct access to cmdline remains strictly forbidden
+        with self.assertRaises(SecurityException):
+            self.reader._safe_proc_path(1337, "cmdline")
+
+    def test_exe_basename_resolution_renamed_binary_target(self) -> None:
+        """Assert exe-based resolution correctly resolves a renamed or symlinked binary's real target."""
+        pid_dir = self.mock_proc / "2048"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+
+        target_bin = "/opt/harness/bin/real-agent-worker"
+        exe_symlink = pid_dir / "exe"
+        exe_symlink.symlink_to(target_bin)
+
+        resolved_exe = self.reader.read_exe(2048)
+        resolved_name = self.reader.read_exe_basename(2048)
+
+        self.assertEqual(resolved_exe, Path(target_bin))
+        self.assertEqual(resolved_name, "real-agent-worker")
+
+    def test_exe_resolution_handles_deleted_binary(self) -> None:
+        """Assert exe resolution correctly handles unlinked/deleted binaries with ' (deleted)' suffix."""
+        pid_dir = self.mock_proc / "3000"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+
+        target_deleted = "/usr/local/bin/transient-agent (deleted)"
+        exe_symlink = pid_dir / "exe"
+        exe_symlink.symlink_to(target_deleted)
+
+        resolved_exe = self.reader.read_exe(3000)
+        resolved_name = self.reader.read_exe_basename(3000)
+
+        self.assertEqual(resolved_exe, Path("/usr/local/bin/transient-agent"))
+        self.assertEqual(resolved_name, "transient-agent")
+
 
     def test_filter_strips_all_prohibited_keys_from_telemetry_fixture(self) -> None:
         """Assert exclusion of all malicious/secret test fixture values."""

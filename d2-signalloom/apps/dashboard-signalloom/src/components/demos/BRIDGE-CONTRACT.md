@@ -217,34 +217,37 @@ shorten the spec.
 
 ```ts
 type LiveReachability = 'reachable' | 'blocked-no-nginx-location'
-const NGINX_PROXIED_API_PREFIXES: readonly string[]
+const NGINX_PROXIED_API_PREFIXES: readonly string[]   // "is nginx routing this?"
+const REQ_TRANSPORT_PREFIXES: readonly string[]       // "can req() carry this?"
 function assessLiveReachability(path: string): LiveReachability
-const LIVE_REACHABILITY_PRE_AMXD_P1_4: Readonly<Record<string, Readonly<Record<StageId, LiveReachability>>>>
+function selectTransport(path: string): 'req' | 'fetch'
+const LIVE_REACHABILITY: Readonly<Record<string, Readonly<Record<StageId, LiveReachability>>>>
 ```
 
 ---
 
-## Live-reachable stage transitions before AMXD-P1-4 lands
+## Live-reachable stage transitions — AMXD-P1-4 HAS LANDED
 
 Dated against the nginx state at **2026-09-15**: `nginx.conf` has a
-`location /api/` block and **zero** `location /v1/` blocks.
+`location /api/` block **and** a `location /v1/` block (`nginx.conf:118`,
+added by AMXD-P1-4, passthrough via `$api$request_uri` with `Authorization`
+forwarded).
 
-| Preset | Stage | Path | Pre-P1-4 |
+| Preset | Stage | Path | Post-P1-4 |
 |---|---|---|---|
 | all three | `operator_init` | `/api/v1/external-agents/registrations/{agent_id}/token` | reachable |
 | all three | `host_enrolled` | `/api/v1/external-agents/enroll` | reachable |
 | all three | `confinement_streaming` | `/api/v1/external-agents/evidence-uploads` | reachable |
 | happy-path, tamper-breach | `adversarial_tamper` | `/api/v1/external-agents/evidence-uploads` | reachable |
-| **revocation-race** | **`adversarial_tamper`** | **`/v1/external-agents/hosts/{host_id}/revoke`** | **blocked** |
+| **revocation-race** | **`adversarial_tamper`** | **`/v1/external-agents/hosts/{host_id}/revoke`** | **reachable** |
 | happy-path, tamper-breach | `revocation_denied` | `/api/v1/agents/{agent_id}/external-evidence` | reachable |
 | revocation-race | `revocation_denied` | `/api/v1/external-agents/evidence-uploads` | reachable |
 
-**What this means per card.** P2-1, P2-2, P3-1, P3-2 may build against the live
-channel today. **P4-2 cannot exercise a live revocation until AMXD-P1-4 adds the
-`location /v1/` block** — the bridge returns
-`error.kind === 'unsupported'` with reason `nginx-no-v1-location-pre-amxd-p1-4`
-for that one stage, rather than letting nginx's own answer look like a backend
-verdict.
+**What this means per card.** P2-1, P2-2, P3-1, P3-2 and **P4-2** may all build
+against the live channel. Every stage of every preset is live-reachable; there
+is no longer a blocked stage.
+
+### Reachability and transport are two different questions
 
 The revoke route is mounted **only** on `v1_router`
 (`external_agent_registration.py:1231`) and was never added to `router`
@@ -252,10 +255,27 @@ The revoke route is mounted **only** on `v1_router`
 auto-prefixes `/api` at `client.ts:241`. The live channel uses a direct `fetch`,
 the same way `agentClaim.ts:111` does.
 
-**When AMXD-P1-4 lands**, `LIVE_REACHABILITY_PRE_AMXD_P1_4`, this table, and
-`bridge.ts`'s header comment must be updated in the **same commit** that changes
-the proxy table. `bridge.test.ts` asserts the table agrees with
-`assessLiveReachability()` over the real preset data, so a partial update fails.
+That constraint is **independent of reachability** and survives AMXD-P1-4.
+A single predicate answering both questions is a trap: once `/v1/` became
+proxied, a reachability-driven transport choice would promote the revoke onto
+`req()` and mangle it into `/api/v1/external-agents/hosts/...`, a route FastAPI
+never registered. `assessLiveReachability` and `selectTransport` are therefore
+deliberately separate, backed by two separate prefix lists.
+
+### How this table is kept honest
+
+AMXD-P1-GOV found that the previous guard was a **tautology**: `bridge.test.ts`
+asserted `LIVE_REACHABILITY_PRE_AMXD_P1_4` agreed with `assessLiveReachability()`,
+but both read the same `NGINX_PROXIED_API_PREFIXES` constant. Two copies of the
+same wrong answer agree perfectly — which is exactly why AMXD-P1-4 could add
+`location /v1/` without a single test going red, leaving the bridge reporting a
+reachable stage as blocked.
+
+`bridge.test.ts` now **parses `nginx.conf` itself** and fails if
+`NGINX_PROXIED_API_PREFIXES` disagrees with the real `location` blocks. The
+parser asserts it found at least one block, so a broken parser cannot pass
+vacuously. Verified by mutation: reverting the constant to `['/api/']` fails 6
+tests.
 
 ---
 

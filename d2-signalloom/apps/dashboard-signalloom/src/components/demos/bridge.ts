@@ -26,30 +26,41 @@
  * ever relaxed.
  *
  * =============================================================================
- * LIVE REACHABILITY BEFORE AMXD-P1-4 LANDS  (state as of 2026-09-15)
+ * LIVE REACHABILITY AFTER AMXD-P1-4 LANDED  (state as of 2026-09-15)
  * =============================================================================
- * `apps/dashboard-signalloom/nginx.conf` proxies `location /api/` to
- * fe-signalloom-api and contains ZERO `location /v1/` blocks. Anything not
- * matching a proxy location falls through to the SPA catch-all `location /`,
- * which answers 200 with `index.html` — a success status carrying a web page.
+ * `apps/dashboard-signalloom/nginx.conf` proxies `location /api/` AND
+ * `location /v1/` to fe-signalloom-api (the `/v1/` block was added by
+ * AMXD-P1-4 and lives at `nginx.conf:118`, passthrough via `$api$request_uri`
+ * with `Authorization` forwarded). Anything not matching a proxy location
+ * falls through to the SPA catch-all `location /`, which answers 200 with
+ * `index.html` — a success status carrying a web page.
  *
  * Therefore, per preset stage (paths taken from AMXD-P1-2 `scenarios.ts`):
  *
- *   | Preset           | Stage                  | Path                                                  | Pre-P1-4  |
+ *   | Preset           | Stage                  | Path                                                  | Post-P1-4 |
  *   |------------------|------------------------|-------------------------------------------------------|-----------|
  *   | all three        | operator_init          | /api/v1/external-agents/registrations/{id}/token       | REACHABLE |
  *   | all three        | host_enrolled          | /api/v1/external-agents/enroll                         | REACHABLE |
  *   | all three        | confinement_streaming  | /api/v1/external-agents/evidence-uploads               | REACHABLE |
  *   | happy, tamper    | adversarial_tamper     | /api/v1/external-agents/evidence-uploads               | REACHABLE |
- *   | revocation-race  | adversarial_tamper     | /v1/external-agents/hosts/{host_id}/revoke             | BLOCKED   |
+ *   | revocation-race  | adversarial_tamper     | /v1/external-agents/hosts/{host_id}/revoke             | REACHABLE |
  *   | happy, tamper    | revocation_denied      | /api/v1/agents/{agent_id}/external-evidence            | REACHABLE |
  *   | revocation-race  | revocation_denied      | /api/v1/external-agents/evidence-uploads               | REACHABLE |
  *
- * So P2 and P3 may build against the live channel immediately. **P4-2's
- * revocation stage cannot reach the backend in live mode until AMXD-P1-4 adds a
- * `location /v1/` block**, and until then this bridge reports that stage as
- * `unsupported` rather than letting the SPA catch-all's 200 masquerade as a
- * successful revocation.
+ * Every stage of every preset is now live-reachable. P4-2's revocation stage is
+ * no longer blocked. The SPA-fallthrough detection below is retained anyway:
+ * it is what stops a 200 `text/html` from masquerading as a successful
+ * revocation if the proxy table ever regresses.
+ *
+ * REACHABILITY AND TRANSPORT ARE TWO DIFFERENT QUESTIONS. Do not conflate them
+ * — AMXD-P1-GOV found that a single predicate answering both is a trap:
+ *   - "Is this path proxied by nginx?"    -> `NGINX_PROXIED_API_PREFIXES`
+ *   - "Which client transport carries it?" -> `REQ_TRANSPORT_PREFIXES`
+ * Now that `/v1/` IS proxied, answering the transport question with the
+ * reachability predicate would route the revoke through `client.ts`'s `req()`,
+ * which auto-prefixes `/api` and produces `/api/v1/external-agents/hosts/...`
+ * — a route FastAPI never registered. Only `/api/`-prefixed paths may use
+ * `req()`; bare paths must use a direct `fetch`.
  *
  * Backend route provenance (verified by source inspection, not assumed):
  *   - `/v1/external-agents/hosts/{host_id}/revoke` is mounted ONLY on
@@ -59,9 +70,10 @@
  *     FastAPI never registered. The live channel uses a direct `fetch` for it,
  *     the same way `agentClaim.ts:111` does for its own bare paths.
  *
- * IF AMXD-P1-4 CHANGES THE PROXY TABLE, THIS COMMENT AND
- * `LIVE_REACHABILITY_PRE_AMXD_P1_4` MUST BE UPDATED IN THE SAME COMMIT.
- * `bridge.test.ts` asserts the table agrees with `assessLiveReachability()`.
+ * IF THE PROXY TABLE CHANGES AGAIN, THIS COMMENT AND `LIVE_REACHABILITY` MUST
+ * BE UPDATED IN THE SAME COMMIT — but you will not be relying on that promise:
+ * `bridge.test.ts` now parses `nginx.conf` itself and fails if
+ * `NGINX_PROXIED_API_PREFIXES` disagrees with the real `location` blocks.
  *
  * =============================================================================
  * RESET / SEED — WHAT IS HONESTLY CLAIMED
@@ -179,7 +191,14 @@ export interface BridgeAbortedError {
  */
 export interface BridgeUnsupportedError {
   readonly kind: 'unsupported'
-  readonly reason: 'nginx-no-v1-location-pre-amxd-p1-4' | 'spa-catch-all-fallthrough'
+  /**
+   * AMXD-P1-GOV: `'nginx-no-v1-location-pre-amxd-p1-4'` was replaced by
+   * `'nginx-no-matching-location'`. The old literal named a specific card's
+   * pending work as a permanent error vocabulary entry; once AMXD-P1-4 landed
+   * it described a world that no longer exists, and an operator reading it
+   * would chase a fix that is already in the tree.
+   */
+  readonly reason: 'nginx-no-matching-location' | 'spa-catch-all-fallthrough'
   readonly path: string
   readonly message: string
 }
@@ -315,17 +334,42 @@ export function describeChannel(source: ChannelBearing): ChannelDescriptor {
 export type LiveReachability = 'reachable' | 'blocked-no-nginx-location'
 
 /**
- * The prefixes `nginx.conf` actually proxies to the API upstream. `/api/` is a
- * `location /api/` block; there is no `location /v1/`. AMXD-P1-4 owns changing
- * this.
+ * The prefixes `nginx.conf` actually proxies to the API upstream: a
+ * `location /api/` block and — since AMXD-P1-4 — a `location /v1/` block.
+ *
+ * This list answers ONE question: "would nginx route this path to the API?"
+ * It does NOT answer "which client transport should carry it" — see
+ * `REQ_TRANSPORT_PREFIXES`. Conflating the two was the live defect
+ * AMXD-P1-GOV found: once `/v1/` became proxied, a shared predicate would
+ * have promoted the revoke path onto `req()` and broken it.
+ *
+ * `bridge.test.ts` derives the expected value by parsing `nginx.conf`, so this
+ * constant cannot drift from the proxy table the way it did between AMXD-P1-3
+ * and AMXD-P1-4.
  */
-export const NGINX_PROXIED_API_PREFIXES: readonly string[] = ['/api/']
+export const NGINX_PROXIED_API_PREFIXES: readonly string[] = ['/api/', '/v1/']
+
+/**
+ * The prefixes that may be carried by `client.ts`'s `req()`, which
+ * unconditionally auto-prefixes `/api` (`client.ts:241`). ONLY `/api/` paths
+ * qualify. A bare `/v1/` path handed to `req()` becomes `/api/v1/...`, a route
+ * FastAPI never registered — reachable through nginx, 404 at the app.
+ */
+export const REQ_TRANSPORT_PREFIXES: readonly string[] = ['/api/']
 
 /** Derive reachability from the path, using the same rule nginx applies. */
 export function assessLiveReachability(path: string): LiveReachability {
   return NGINX_PROXIED_API_PREFIXES.some((p) => path.startsWith(p))
     ? 'reachable'
     : 'blocked-no-nginx-location'
+}
+
+/**
+ * Which transport must carry this path. Deliberately NOT derived from
+ * `assessLiveReachability` — reachability and transport are independent.
+ */
+export function selectTransport(path: string): 'req' | 'fetch' {
+  return REQ_TRANSPORT_PREFIXES.some((p) => path.startsWith(p)) ? 'req' : 'fetch'
 }
 
 export interface StageReachability {
@@ -336,14 +380,22 @@ export interface StageReachability {
 }
 
 /**
- * The documented pre-AMXD-P1-4 answer, frozen here so P2 .. P4 can read it
- * without re-deriving the nginx gap. `bridge.test.ts` asserts every entry
- * agrees with `assessLiveReachability()` run over the live preset data, so this
- * table cannot silently drift from the code.
+ * The current answer, frozen here so P2 .. P4 can read it without re-deriving
+ * the nginx table. `bridge.test.ts` asserts every entry agrees with
+ * `assessLiveReachability()` run over the live preset data AND that
+ * `NGINX_PROXIED_API_PREFIXES` agrees with `nginx.conf` itself — the second
+ * assertion is the one that matters, because the first alone is satisfied by
+ * two copies of the same wrong answer.
  *
- * Dated against the nginx state at 2026-09-15: zero `location /v1/` blocks.
+ * Dated against the nginx state at 2026-09-15, AFTER AMXD-P1-4 added
+ * `location /v1/` (`nginx.conf:118`). Every stage is now reachable.
+ *
+ * Renamed from `LIVE_REACHABILITY_PRE_AMXD_P1_4` by AMXD-P1-GOV: the old name
+ * asserted a precondition that no longer holds, and a name that lies is worse
+ * than no name. No consumer outside this module and its tests existed at the
+ * time of the rename (AMXD-P2-1 had not started).
  */
-export const LIVE_REACHABILITY_PRE_AMXD_P1_4: Readonly<
+export const LIVE_REACHABILITY: Readonly<
   Record<string, Readonly<Record<StageId, LiveReachability>>>
 > = {
   'amxd-demo-happy-path': {
@@ -365,8 +417,10 @@ export const LIVE_REACHABILITY_PRE_AMXD_P1_4: Readonly<
     host_enrolled: 'reachable',
     confinement_streaming: 'reachable',
     // POST /v1/external-agents/hosts/{host_id}/revoke — mounted on v1_router
-    // only, and nginx has no `location /v1/`. Blocked until AMXD-P1-4.
-    adversarial_tamper: 'blocked-no-nginx-location',
+    // only. AMXD-P1-4 added `location /v1/` (nginx.conf:118), so nginx now
+    // routes it to fe-signalloom-api. It still requires the `fetch` transport,
+    // not `req()` — see REQ_TRANSPORT_PREFIXES.
+    adversarial_tamper: 'reachable',
     revocation_denied: 'reachable',
   },
 }
@@ -498,6 +552,14 @@ function recordOutcome<S extends StageId>(
 export interface ResetEstateResult extends ChannelBearing {
   readonly clearedStorageKeys: readonly string[]
   readonly clearedInMemoryKeys: readonly string[]
+  /**
+   * The active preset's declared `reset_contract.cleared_fields` (AMXD-P1-2).
+   * This is the logical field scope a UI should render; `clearedStorageKeys` is
+   * the physical storage scope this bridge actually purged. They answer
+   * different questions and a panel that shows one while labelling it the other
+   * is the defect AMXD-P1-GOV closed.
+   */
+  readonly clearedPresetFields: readonly string[]
   readonly stepperState: DemoStepperState
   /**
    * Typed as the literal `false`, not `boolean`. No backend demo/reset endpoint
@@ -843,6 +905,7 @@ function doResetEstate(
   channel: DemoChannel,
   now: () => number,
   store: Storage | null,
+  preset: ScenarioPreset,
 ): ResetEstateResult {
   const cleared = store === null ? [] : namespacedKeys(store)
   // Enumerated, not hardcoded: removes every amxd.demo. key and, by
@@ -864,6 +927,14 @@ function doResetEstate(
     channel,
     clearedStorageKeys: cleared,
     clearedInMemoryKeys: IN_MEMORY_STATE_KEYS,
+    // AMXD-P1-2 declares a per-preset `reset_contract.cleared_fields`. Until
+    // AMXD-P1-GOV, nothing in this module read it: the three presets declared
+    // three different scopes and `doResetEstate` implemented one universal one,
+    // so the contract and the execution point described the same behaviour two
+    // incompatible ways and no test compared them. Reporting the preset's own
+    // declared list makes AMXD-P1-2's contract load-bearing instead of dead
+    // data that a Phase 2 panel would render and be wrong about.
+    clearedPresetFields: preset.reset_contract.cleared_fields,
     stepperState: INITIAL_STEPPER_STATE,
     backendStateCleared: false,
     notResetExplanation: NOT_RESET_EXPLANATION,
@@ -982,7 +1053,7 @@ export function createMockBridge(config: BridgeConfig): MockDemoBridge {
     channelKind: 'mock',
     preset,
     advance,
-    resetEstate: () => doResetEstate(channel, now, store),
+    resetEstate: () => doResetEstate(channel, now, store, preset),
     seedEstate: () => doSeedEstate(channel, preset, now, store),
     reachability: (stage) => assessLiveReachability(resolveStagePath(preset, stageFor(preset, stage))),
   }
@@ -1017,7 +1088,10 @@ export function createLiveBridge(config: BridgeConfig): LiveDemoBridge {
   ): Promise<{ body: unknown; httpStatus: number; usedTransport: 'req' | 'fetch' }> {
     const method = presetStage.target_endpoint.method
 
-    if (assessLiveReachability(path) === 'reachable') {
+    // NOTE: transport is selected by `selectTransport`, NOT by reachability.
+    // Since AMXD-P1-4 made `/v1/` reachable, a reachability-driven choice here
+    // would send the revoke through req() and mangle it into /api/v1/...
+    if (selectTransport(path) === 'req') {
       // `/api`-prefixed: goes through client.ts's req(), which is where the
       // dashboard's auth, demo projection, and in-flight joining already live.
       const body = await transport.req(path, token, {
@@ -1119,11 +1193,15 @@ export function createLiveBridge(config: BridgeConfig): LiveDemoBridge {
               reason:
                 reachability === 'reachable'
                   ? 'spa-catch-all-fallthrough'
-                  : 'nginx-no-v1-location-pre-amxd-p1-4',
+                  : 'nginx-no-matching-location',
               path: requestPath,
               message:
-                `${requestPath} is not proxied by nginx; the SPA catch-all answered. ` +
-                'AMXD-P1-4 owns adding the `location /v1/` block.',
+                reachability === 'reachable'
+                  ? `${requestPath} matches a proxied prefix but nginx did not route it ` +
+                    'to the API; the SPA catch-all answered. Either the proxy table has ' +
+                    'regressed or the upstream never registered this route.'
+                  : `${requestPath} is not proxied by nginx; the SPA catch-all answered. ` +
+                    'No `location` block matches this prefix.',
             }
           : toBridgeError(raw, requestPath),
         requestPath,
@@ -1144,7 +1222,7 @@ export function createLiveBridge(config: BridgeConfig): LiveDemoBridge {
     channelKind: 'live',
     preset,
     advance,
-    resetEstate: () => doResetEstate(channelForState, now, store),
+    resetEstate: () => doResetEstate(channelForState, now, store, preset),
     seedEstate: () => doSeedEstate(channelForState, preset, now, store),
     reachability: (stage) => assessLiveReachability(resolveStagePath(preset, stageFor(preset, stage))),
   }

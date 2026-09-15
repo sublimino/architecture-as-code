@@ -11,6 +11,8 @@
  * SKIPPED — never silently passing, never absent.
  */
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   assessLiveReachability,
@@ -23,11 +25,13 @@ import {
   createMockBridge,
   describeChannel,
   getBridgeEventLog,
-  LIVE_REACHABILITY_PRE_AMXD_P1_4,
+  LIVE_REACHABILITY,
   MOCK_LATENCY_MS,
+  NGINX_PROXIED_API_PREFIXES,
   recordBridgeEvent,
   resolveStagePath,
   seedSignature,
+  selectTransport,
   type LiveStageOutcome,
   type LiveTransport,
   type MockStageOutcome,
@@ -101,9 +105,14 @@ function spaFallthroughTransport(): LiveTransport {
 /**
  * Simulates the REAL pre-AMXD-P1-4 reverse proxy: `location /api/` reaches the
  * API, and anything else falls through to the SPA catch-all, which answers 200
- * text/html. The cross-channel assertions run against this, because asserting
- * against a world where every route is proxied would prove nothing about the
- * gap this card had to document.
+ * text/html.
+ *
+ * AMXD-P1-GOV: retained deliberately, but NO LONGER the fixture the
+ * cross-channel matrix runs against. AMXD-P1-4 added `location /v1/`
+ * (nginx.conf:118), so this now models a REGRESSION of the proxy table rather
+ * than the current world. It is still worth keeping precisely for that: it is
+ * the fixture that proves a proxy-table regression is detected and not
+ * mistaken for a backend refusal.
  */
 function prePhase14NginxTransport(): LiveTransport {
   return {
@@ -115,6 +124,21 @@ function prePhase14NginxTransport(): LiveTransport {
           headers: { 'content-type': 'text/html' },
         }),
     ),
+  }
+}
+
+/**
+ * Simulates the REAL post-AMXD-P1-4 reverse proxy: `location /api/` AND
+ * `location /v1/` both reach the API, so a bare `/v1/` path is answered by
+ * fe-signalloom-api rather than by the SPA catch-all.
+ *
+ * This is the fixture the cross-channel assertions now run against, because it
+ * is the proxy table that is actually deployed.
+ */
+function postPhase14NginxTransport(): LiveTransport {
+  return {
+    req: vi.fn(async () => ({})),
+    fetch: vi.fn(async () => jsonResponse({}, 200)),
   }
 }
 
@@ -257,7 +281,7 @@ describe.each(SCENARIO_PRESETS.map((p) => [p.name, p] as const))(
       'mock and live agree on stage identity and payload shape for %s',
       async (stage: StageId) => {
         const mock = await mockBridgeFor(preset).advance(stage)
-        const live = await liveBridgeFor(preset, prePhase14NginxTransport()).advance(stage)
+        const live = await liveBridgeFor(preset, postPhase14NginxTransport()).advance(stage)
 
         // Same assertion, both channels. Only the provenance differs.
         expect(mock.stage).toBe(stage)
@@ -330,7 +354,12 @@ describe('transport routing (ISC-16,17,18)', () => {
     if (outcome.status === 'error') {
       expect(outcome.error.kind).toBe('unsupported')
       if (outcome.error.kind === 'unsupported') {
-        expect(outcome.error.reason).toBe('nginx-no-v1-location-pre-amxd-p1-4')
+        // AMXD-P1-GOV: was 'nginx-no-v1-location-pre-amxd-p1-4'. Now that
+        // `location /v1/` exists, an SPA fallthrough on this path means the
+        // proxy table REGRESSED, which is a different diagnosis from "the
+        // block was never added" — and the operator needs to be told the
+        // right one.
+        expect(outcome.error.reason).toBe('spa-catch-all-fallthrough')
       }
     }
   })
@@ -612,13 +641,66 @@ describe('channel description and event log (ISC-31..36)', () => {
 })
 
 // ===========================================================================
+// AMXD-P1-GOV — AMXD-P1-2's reset contract vs AMXD-P1-3's reset execution
+//
+// These two cards independently authored two descriptions of the same
+// behaviour. scenarios.ts declares a per-preset `reset_contract.cleared_fields`
+// (8 fields for happy-path, 11 for tamper-breach, 11 for revocation-race);
+// doResetEstate implemented one universal namespace purge and never read the
+// contract at all. Nothing compared them, because scenarios.test.ts only
+// asserts the constant contains what the constant declares — a tautology that
+// passes whatever the bridge does.
+//
+// A governor reading both sides is the only place this is visible, so the
+// assertion lives here.
+// ===========================================================================
+
+describe('reset contract agreement across AMXD-P1-2 and AMXD-P1-3', () => {
+  it('reset reports the ACTIVE preset declared cleared_fields, not a fixed list', () => {
+    const seen = new Map<string, readonly string[]>()
+    for (const preset of SCENARIO_PRESETS) {
+      const bridge = createMockBridge({ preset, storage: new MemoryStorage() })
+      const result = bridge.resetEstate()
+      expect(
+        result.clearedPresetFields,
+        `${preset.id} must report its own declared reset scope`,
+      ).toEqual(preset.reset_contract.cleared_fields)
+      seen.set(preset.id, result.clearedPresetFields)
+    }
+
+    // Falsification: if the bridge were still returning one universal list, all
+    // three presets would report identical scopes and the per-preset contract
+    // would be decorative. The three presets genuinely differ, so they must not
+    // collapse to a single value.
+    const distinct = new Set([...seen.values()].map((f) => JSON.stringify([...f].sort())))
+    expect(
+      distinct.size,
+      'all presets reported the same cleared_fields — the per-preset contract is not ' +
+        'being consumed, which is the exact defect this test exists to catch',
+    ).toBe(SCENARIO_PRESETS.length)
+  })
+
+  it('the physical storage scope and the logical field scope stay distinguishable', () => {
+    const preset = TAMPER_BREACH_PRESET
+    const bridge = createMockBridge({ preset, storage: new MemoryStorage() })
+    const result = bridge.resetEstate()
+    // clearedStorageKeys is what was physically removed (amxd.demo.* keys).
+    // clearedPresetFields is the declared logical scope. A UI that renders one
+    // while labelling it the other is the failure mode; they must not be the
+    // same array.
+    expect(result.clearedPresetFields).not.toEqual(result.clearedStorageKeys)
+    expect(result.clearedPresetFields).toContain('tamper_sha256_corrupted')
+  })
+})
+
+// ===========================================================================
 // ISC-39 — the documented reachability table must match the code
 // ===========================================================================
 
 describe('live reachability documentation (ISC-39)', () => {
-  it('the frozen pre-P1-4 table agrees with assessLiveReachability over real preset data', () => {
+  it('the reachability table agrees with assessLiveReachability over real preset data', () => {
     for (const preset of SCENARIO_PRESETS) {
-      const documented = LIVE_REACHABILITY_PRE_AMXD_P1_4[preset.id]
+      const documented = LIVE_REACHABILITY[preset.id]
       expect(documented, `no documented reachability for ${preset.id}`).toBeDefined()
       for (const presetStage of preset.stages) {
         const derived = assessLiveReachability(resolveStagePath(preset, presetStage))
@@ -630,7 +712,7 @@ describe('live reachability documentation (ISC-39)', () => {
     }
   })
 
-  it('exactly one stage across all presets is blocked pre-P1-4', () => {
+  it('no stage is blocked now that AMXD-P1-4 has added location /v1/', () => {
     const blocked: string[] = []
     for (const preset of SCENARIO_PRESETS) {
       for (const presetStage of preset.stages) {
@@ -642,7 +724,65 @@ describe('live reachability documentation (ISC-39)', () => {
         }
       }
     }
-    expect(blocked).toEqual(['amxd-demo-revocation-race/adversarial_tamper'])
+    expect(blocked).toEqual([])
+  })
+
+  // =========================================================================
+  // AMXD-P1-GOV: the assertion above is NOT sufficient on its own.
+  //
+  // It compares LIVE_REACHABILITY against assessLiveReachability(), and both
+  // read the same NGINX_PROXIED_API_PREFIXES constant. Two copies of the same
+  // wrong answer agree perfectly. That is exactly why AMXD-P1-4 could add
+  // `location /v1/` to nginx.conf without a single test going red, leaving the
+  // bridge reporting a reachable stage as blocked.
+  //
+  // The guard below closes that hole by deriving the expected value from
+  // nginx.conf itself — the actual source of truth — rather than from another
+  // constant in this repo's TypeScript.
+  // =========================================================================
+  it('NGINX_PROXIED_API_PREFIXES matches the real location blocks in nginx.conf', () => {
+    const nginxPath = resolve(__dirname, '../../../nginx.conf')
+    const conf = readFileSync(nginxPath, 'utf8')
+
+    // The upstream every API proxy block forwards to.
+    const API_UPSTREAM = 'fe-signalloom-api.fe-signalloom.svc.cluster.local:8000'
+
+    // Collect `location <prefix> {` ... `}` blocks that proxy to the API
+    // upstream. Deliberately a plain scan rather than a regex over the whole
+    // file: nginx.conf contains the string "location" inside comments and
+    // inside a sub_filter directive, and a naive global regex picks those up.
+    const proxied: string[] = []
+    const lines = conf.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^\s*location\s+(\/\S*)\s*\{\s*$/.exec(lines[i])
+      if (!m) continue
+      const prefix = m[1]
+      let depth = 1
+      let body = ''
+      for (let j = i + 1; j < lines.length && depth > 0; j++) {
+        depth += (lines[j].match(/\{/g) ?? []).length
+        depth -= (lines[j].match(/\}/g) ?? []).length
+        if (depth > 0) body += lines[j] + '\n'
+      }
+      if (body.includes(API_UPSTREAM)) proxied.push(prefix)
+    }
+
+    expect(
+      proxied.length,
+      'found no API-proxying location blocks in nginx.conf — the parser is broken, ' +
+        'not the config. A silently-empty result here would make this guard vacuous.',
+    ).toBeGreaterThan(0)
+
+    expect([...NGINX_PROXIED_API_PREFIXES].sort()).toEqual([...proxied].sort())
+  })
+
+  it('the revoke path is proxied by nginx but still requires the fetch transport', () => {
+    const revokePath = '/v1/external-agents/hosts/host-abc/revoke'
+    expect(assessLiveReachability(revokePath)).toBe('reachable')
+    // Reachable and req()-able are different questions. req() auto-prefixes
+    // /api, which would turn this into a route FastAPI never registered.
+    expect(selectTransport(revokePath)).toBe('fetch')
+    expect(selectTransport('/api/v1/external-agents/enroll')).toBe('req')
   })
 })
 
@@ -761,12 +901,25 @@ describeLive('live-backend arm (ISC-41) — requires AMXD_LIVE_BRIDGE=1', () => 
     expect(['ok', 'error']).toContain(outcome.status)
   })
 
-  it('reports the revoke stage as unsupported until AMXD-P1-4 lands', async () => {
+  // AMXD-P1-GOV: this assertion previously read `expect(outcome.status)
+  // .toBe('error')` with the title "...until AMXD-P1-4 lands". AMXD-P1-4 has
+  // landed (nginx.conf:118), so that expectation encoded a precondition that is
+  // no longer true. Because the whole arm is skipped without AMXD_LIVE_BRIDGE=1
+  // it never went red — a stale expectation hidden behind a skip.
+  it('reaches the backend for the revoke stage now that location /v1/ exists', async () => {
     const bridge = createLiveBridge({
       preset: REVOCATION_RACE_PRESET,
       token: process.env.AMXD_LIVE_TOKEN ?? '',
     })
     const outcome = await bridge.advance('adversarial_tamper', { timeoutMs: 10_000 })
-    expect(outcome.status).toBe('error')
+    // The stage must no longer be refused as a routing gap. A backend-level
+    // error (401/403/409) is a legitimate outcome here; "nginx never routed it"
+    // is not.
+    if (outcome.status === 'error' && outcome.error.kind === 'unsupported') {
+      throw new Error(
+        `revoke still reported as a routing gap after AMXD-P1-4: ${outcome.error.message}`,
+      )
+    }
+    expect(['ok', 'error']).toContain(outcome.status)
   })
 })

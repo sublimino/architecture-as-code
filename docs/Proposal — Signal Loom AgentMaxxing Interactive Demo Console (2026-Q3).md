@@ -291,7 +291,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P1-3 | implementation | Freeze demo mock/live bridge contracts and reset/seed endpoints | P1-1, P1-2 | Contract snapshot; client bridge interface tests; idempotent reset contract | L | deep | pass — delivered: 7b0e9de1b0da67d4a8e6944de716265d08d168fb (see Errata — AMXD-P1-3) | $0.00 | N/A | N/A | N/A |
 | P1-4 | implementation | Add the missing /v1/ proxy route to nginx and verify behind the real image | P1-PRE | `rg -n 'location' d2-signalloom/apps/dashboard-signalloom/nginx.conf` | S | antigravity | Pending | $0.00 | N/A | N/A | N/A |
 | P1-5 | implementation | Make the acceptance suite capable of failing | P1-PRE | `bats test/acceptance-spec-coverage.bats` | M | kpai | pass — delivered: f8776062a378959c33f628f0be081ced82c07b9f (see Errata — AMXD-P1-5) | $0.00 | N/A | N/A | N/A |
-| P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | Pending | $0.00 | N/A | N/A | N/A |
+| P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | pass — delivered: eed3b0b39ee436a4fa7de2e06fbb774f4ce79a79 (see Errata — AMXD-P1-GOV). Async gate holds by construction (no timer event exists in the closed union). Zero unresolved kickoff gates. Fixed 3 cross-card defects: tautological nginx drift guard, reachability/transport conflation that would have broken revoke, and P1-2/P1-3 reset-scope disagreement. All 3 mutation-falsified. 102 vitest/2 skipped, tsc 0, vite 0, route-collisions 10/10, spec-coverage 7/7, AMXD-P0 baseline green. | $0.00 | N/A | N/A | N/A |
 | P2-PRE | preflight | Confirm UI components, styling standards, and routing seams | P1-GOV | Component library check; `/demos/agentmaxxing` route registration check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-1 | implementation | Build Stepper Header and Stage Progression Controller | P2-PRE | Vitest stepper unit tests; stage navigation click assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels | P2-PRE | Vitest enrollment panel tests; attributable token generation visual check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -837,3 +837,304 @@ A machine check now asserts every line number cited in the JSDoc against the tok
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+
+#### Errata — AMXD-P1-GOV (governor)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 03:38:22+01:00
+**Last Updated:** 2026-09-15 03:38:22+01:00
+
+##### Task identity
+- Card: `AMXD-P1-GOV`
+- Shortcode: `AMXD`
+- **Status:** pass
+- **Commit:** `eed3b0b39ee436a4fa7de2e06fbb774f4ce79a79`
+- Parent (pre-governor integration tip): `edbcddd219411c38b3e095cee934aadb1f1b61e3`
+- Branch: `integration/amxd-v0.1.0`
+- Integration ref after this card: `eed3b0b39ee436a4fa7de2e06fbb774f4ce79a79`
+- Worktree: `/home/andy/src/.worktrees/osramp-demo/amxd-v0.1.0/governor`
+- **Phase 2 can proceed:** yes
+- Result: Certified Phase 1. Async-gate property holds by construction. Found and fixed three cross-card defects invisible to any single card's suite. 102 vitest / 2 skipped, all repo gates green, AMXD-P0 baseline unregressed.
+
+##### Merge reconciliation — what actually happened
+
+**No five-branch merge was performed, because none was available to perform.** The
+reviewed plan and the card both describe reconciling five Phase 1 branches into
+`integration/amxd-v0.1.0`. On inspection the controller had already merged every
+Phase 1 card as it advanced, and the feature branches no longer exist:
+`git for-each-ref refs/heads | grep -i amxd` returns exactly one ref, the
+integration branch itself. All five cards are ancestors of
+`edbcddd219411c38b3e095cee934aadb1f1b61e3`, verified per card by
+`git log --grep=AMXD-P1-N`:
+
+| Card | Landed at | Merge shape |
+| :--- | :--- | :--- |
+| AMXD-P1-1 | `5146d062` (design `5207f752`) | squashed integrate commit |
+| AMXD-P1-2 | `803144ea` | squashed integrate commit |
+| AMXD-P1-3 | `5af66416` (merge of `7b0e9de1`) | true merge commit |
+| AMXD-P1-4 | `5cb11710` | squashed integrate commit |
+| AMXD-P1-5 | `3c1321c7` (merge of `91ac2811`) | true merge commit |
+
+There were therefore **no nginx.conf or helpers.ts merge conflicts to resolve by
+hand** — the named `sharedFileRisks` never collided, because the merges were
+sequential rather than parallel. Recording this rather than reporting a
+conflict-free hand-resolution, which would imply a reconciliation I did not do.
+
+##### Architecture review — the async-gate property (dwell AND confirmation)
+
+**Verdict: the property holds, and it holds more strongly than the card's framing
+assumes — but not where the card expected to find it.**
+
+The card asks whether `AMXD-P1-3`'s bridge implements `AMXD-P1-1`'s
+dwell-AND-confirmation gate "rather than a timer-only shortcut", and warns that a
+test suite written against the same reducer could share the implementation's blind
+spot. I read the reducer rather than trusting the suite's exit code.
+
+**1. The reducer cannot advance on dwell alone, because dwell is not an input to
+it.** `DemoStepperEvent` (`types.ts:279-302`) is a closed union of exactly five
+members: `START_TRANSITION`, `RESOLVE_TRANSITION`, `FAIL_TRANSITION`,
+`RESET_ESTATE`, `UPDATE_STAGE_PAYLOAD`. **There is no timer, tick, or elapsed
+event.** Exhaustiveness is compiler-enforced by
+`const _exhaustiveCheck: never = event` (`types.ts:448`). A timer-only shortcut is
+therefore not merely absent — it is *inexpressible* in this event algebra. That is
+a stronger guarantee than a guard clause, because it cannot be regressed by
+someone editing a condition.
+
+**2. The only path to `currentStage` advancing is `RESOLVE_TRANSITION`**
+(`types.ts:397`), which additionally refuses to resolve anything other than the
+active in-flight target (`types.ts:384`).
+
+**3. The dual lock itself is a genuine conjunction, not a race.**
+`executeAsyncGate` (`types.ts:515`) awaits
+`Promise.all([dwellPromise, wrappedConfirmationPromise])` at `types.ts:580`. Both
+must settle. The abort/timeout arm is a `Promise.race` *against that pair*, so it
+can only ever cut the gate short into `aborted`/`failed` — never into a success.
+A resolved result is unreachable without the confirmation having resolved.
+
+**Residual seam, named explicitly rather than certified away:** the reducer is
+caller-trusting. Nothing in `types.ts` *binds* `RESOLVE_TRANSITION` to having come
+from `executeAsyncGate`; a Phase 2 component could dispatch it directly and skip
+the gate. This is not a defect in P1-1 or P1-3 — it is the correct separation for
+a pure reducer — but it is an unguarded seam that **AMXD-P2-1 inherits**, and it is
+the one place a "false green on an unverified backend" could still be reintroduced.
+Recommend AMXD-P2-1 route every advance through `executeAsyncGate` and that
+AMXD-P2-GOV assert no direct `RESOLVE_TRANSITION` dispatch exists outside it.
+
+##### Staleness check — stale in the correct direction, and worse than documented
+
+The card asked me to confirm `AMXD-P1-3`'s documented "live-reachable before P1-4"
+list is now stale. It is. **It was also stale in code, not only in prose, and the
+guard that was supposed to catch this could not.** Three findings, all fixed in
+`eed3b0b39ee436a4fa7de2e06fbb774f4ce79a79`.
+
+**Finding 1 — the drift guard was a tautology.** `bridge.ts:341` claimed the frozen
+table "cannot silently drift from the code" because `bridge.test.ts:619` asserts
+`LIVE_REACHABILITY_PRE_AMXD_P1_4` agrees with `assessLiveReachability()`. But both
+sides read the *same* `NGINX_PROXIED_API_PREFIXES` constant, and **neither reads
+`nginx.conf`**. Two copies of the same wrong answer agree perfectly. This is why
+AMXD-P1-4 could add `location /v1/` at `nginx.conf:118` and leave the entire suite
+green while the bridge reported a now-reachable stage as
+`blocked-no-nginx-location`. `bridge.test.ts` now parses `nginx.conf` itself and
+asserts the parser found ≥1 block, so a broken parser cannot pass vacuously.
+
+**Finding 2 — the obvious fix would have broken the revoke call.**
+`assessLiveReachability` answered two different questions at one call site:
+"is nginx routing this?" (`bridge.ts:987`, `:1065`, `:1149`) and "which transport
+carries this?" (`bridge.ts:1020`). Correcting the constant *alone* — the change the
+staleness appears to call for — would have promoted the bare revoke path onto
+`client.ts`'s `req()`, which auto-prefixes `/api` (`client.ts:241`) and yields
+`/api/v1/external-agents/hosts/{id}/revoke`, a route FastAPI never registered
+(revoke is mounted only on `v1_router`, `external_agent_registration.py:1231`).
+Split into `NGINX_PROXIED_API_PREFIXES` and `REQ_TRANSPORT_PREFIXES`/
+`selectTransport`. **Confirmed by mutation:** re-coupling them fails 5 tests.
+
+**Finding 3 — a stale expectation hidden behind a skip.**
+`bridge.test.ts:767` asserted `expect(outcome.status).toBe('error')` under the title
+"reports the revoke stage as unsupported **until AMXD-P1-4 lands**". P1-4 has
+landed, so that encoded a precondition that is now false — invisible because the
+whole arm is `describe.skip` without `AMXD_LIVE_BRIDGE=1`. Rewritten to fail if the
+revoke is still refused as a routing gap.
+
+**On the card's stated failure mode — "the fix left inert in combination": it is
+not inert, and I want to be precise about why.** `callStage` (`bridge.ts:1034`)
+does issue a real `transport.fetch()` on the bare path; it never short-circuits on
+reachability and never routes the revoke through `req()`. The *request path was
+always correct*. What was wrong was the *reporting surface*: `bridge.reachability()`
+and the frozen table told Phase 2 the stage was blocked when it was not. The card
+predicted an inert fix; the actual defect was a correct fix with a lying status
+readout, which is the more dangerous of the two because it reads as a known
+limitation rather than a bug.
+
+##### Cross-card reset-scope reconciliation (P1-2 vs P1-3)
+
+**They disagreed, and nothing could have detected it from inside either card.**
+
+- `AMXD-P1-2` (`scenarios.ts`) declares a **per-preset** `reset_contract.cleared_fields`:
+  8 fields for happy-path (`:458`), 11 for tamper-breach (`:616`), 11 for
+  revocation-race (`:775`) — three genuinely different scopes, schema-validated as
+  non-empty at `scenarios.ts:310`.
+- `AMXD-P1-3` (`bridge.ts:842 doResetEstate`) took `(channel, now, store)` —
+  **no preset parameter** — cleared every `amxd.demo.` key, and returned a fixed
+  three-element `IN_MEMORY_STATE_KEYS`. `grep -rn 'reset_contract' src/` returns
+  **zero hits in `bridge.ts`**. The contract was dead data.
+- The reason no test caught it: `scenarios.test.ts:184-207` asserts
+  `HAPPY_PATH_PRESET.reset_contract.cleared_fields` contains `'operator_token'` —
+  reading a constant and asserting the constant says what it says. It passes
+  regardless of what the bridge does.
+
+Resolved in the bridge, per the card's instruction to fix at the single execution
+point: `doResetEstate` now takes the preset and reports
+`clearedPresetFields` (the declared logical scope) alongside `clearedStorageKeys`
+(the physical purge). The two are deliberately distinct fields, because a Phase 2
+panel rendering one while labelling it the other is the live failure mode.
+A falsification assertion fails if all three presets report identical scopes.
+**Confirmed by mutation:** reverting to the fixed list fails 2 tests.
+
+**AMXD-P1-2's documentation needs no correction** — its declared contract was
+right and is now load-bearing. It was P1-3's execution point that ignored it.
+
+##### Zero-unresolved-kickoff-gates certification
+
+Each card's deliverables checked against verified landed state, not against its
+self-report.
+
+| Card | Stated deliverable | Landed? | Evidence |
+| :--- | :--- | :--- | :--- |
+| P1-1 | 5-stage lifecycle state machine + step-control contract | **yes** | `types.ts` 654 lines; `LEGAL_TRANSITIONS` `:182`; `nextState` `:334`; `executeAsyncGate` `:515`; 27 tests |
+| P1-1 | Async gate is dwell AND confirmation | **yes, by construction** | `Promise.all` `types.ts:580`; no timer event in the closed union `:279-302` |
+| P1-2 | Three scenario presets, validator, reset contracts | **yes** | `scenarios.ts` 835 lines; `validateScenarioPreset` `:118`; 20 tests |
+| P1-2 | Per-preset reset contract consumed | **was NO — now yes** | was dead data; fixed at `bridge.ts:930` |
+| P1-3 | Frozen mock/live bridge, type-level separation | **yes** | `bridge.ts`; `@ts-expect-error` mutual non-assignability tests |
+| P1-3 | Bridge calls bare `/v1/` revoke via direct fetch, not `req()` | **yes** | `bridge.ts:1034`; test "never hands a /v1-prefixed path to req()" |
+| P1-3 | Documented pre-P1-4 reachability list | **was STALE — now corrected** | three findings above |
+| P1-4 | `location /v1/` proxy block in nginx.conf | **yes** | `nginx.conf:118`, passthrough `$api$request_uri`, `Authorization` forwarded |
+| P1-4 | Block is actually exercised by the bridge | **yes** | `bridge.ts:1034` issues the bare-path fetch; reachability now reports it |
+| P1-5 | `guards.agentmaxxingLive()` + `demoMode:false` usage pattern | **yes** | `test/acceptance/helpers.ts:186`; documented `:91-99` |
+| P1-5 | Acceptance harness can fail | **yes** | `helpers.ts:108` default `demoMode ?? true` documented; opt-out present |
+
+**Unresolved kickoff gates: zero.** The three defects found were resolved in this
+card rather than sent back, because each was a cross-card integration defect with
+no single owner, and a round-trip would have blocked Phase 2 on work the governor
+was already positioned to do. Recorded here rather than silently.
+
+##### Which command proved which property
+
+| Property | Command | Result |
+| :--- | :--- | :--- |
+| State machine + gate + presets + bridge behaviour | `npx vitest --run src/components/demos/` | **102 passed, 2 skipped** (was 98/2; +4 governor tests) |
+| Type-level mock/live boundary intact | `npx tsc --noEmit -p tsconfig.json` | **rc=0** |
+| Dashboard still builds | `npx vite build` | **rc=0**, built in 2.62s |
+| No route collision from P1-4's nginx change | `bats d2-signalloom/test/dashboard-route-collisions.bats` | **10/10 ok** |
+| Spec registry gate intact | `bats test/acceptance-spec-coverage.bats` | **7/7 ok** |
+| AMXO foundation unregressed | `make demo-agentmaxxing-contract-test` | **rc=0**, 6/6 ok |
+| AMXO host controls unregressed | `make demo-agentmaxxing-host-test` | **rc=0**, incl. real Landlock probe |
+| Reset symbols present per card contract | `grep -n 'resetContract\|resetEstate' scenarios.ts bridge.ts` | 5 hits, all `bridge.ts` |
+
+**Mutation falsification** (a green test proves nothing until seen to fail):
+
+| Mutation | Tests killed |
+| :--- | :--- |
+| `NGINX_PROXIED_API_PREFIXES` reverted to `['/api/']` | **6** |
+| `selectTransport` re-coupled to `assessLiveReachability` | **5** |
+| `clearedPresetFields` reverted to the fixed list | **2** |
+
+##### Properties accepted on assertion rather than proof — Phase 2 inherits these
+
+Named explicitly so the next phase does not mistake them for verified.
+
+1. **No live backend was exercised.** The `AMXD_LIVE_BRIDGE=1` arm is skipped
+   (2 skips in every run above). Every live-channel assertion in this
+   certification runs against an **injected `LiveTransport` double**. That
+   `location /v1/` *routes correctly in a running cluster* is inferred from reading
+   `nginx.conf:118`, not observed. **Nobody has yet sent a real HTTP request to the
+   revoke endpoint through nginx.**
+2. **The 403 revocation-denied proof is unobserved.** The architectural
+   constitution's headline claim — revoke, then watch an upload fail `403` — has
+   never been executed end to end. It is fixture behaviour today.
+3. **`nginx -t` was not run.** The `/v1/` block is syntactically plausible and
+   matches the adjacent `/api/` block, and the route-collision bats parses it, but
+   nginx itself has not validated the file.
+4. **The reducer/gate binding is unenforced** (residual seam, above).
+5. **`guards.agentmaxxingLive()` was read, not exercised** — no live Service to
+   probe from this worktree.
+6. **The constitution names `POST /api/v1/agentmaxxing/hosts/{host_id}/revoke`;
+   the implemented path is `POST /v1/external-agents/hosts/{host_id}/revoke`.**
+   These are different routes. The implemented one is backed by source inspection
+   (`external_agent_registration.py:1231`); the constitution's is not, and appears
+   to be aspirational. **Phase 2/4 must not assume the constitution's path exists.**
+
+##### Preflight findings re-read against what shipped
+
+`AMXD-P1-PRE`'s and `AMXD-P0`'s recorded findings, checked against the tree:
+
+- *"`nginx.conf` contains ZERO `location /v1/` blocks. Verified."* — **was true
+  when written, now false.** `nginx.conf:118`. This is the finding that sized P1-4,
+  and P1-4 discharged it.
+- *"The acceptance harness defaults to fixtures: `helpers.ts:108` reads
+  `demoMode = opts?.demoMode ?? true`. A spec can pass green with no backend at
+  all."* — **still true, unchanged, and correctly so.** P1-5 did not remove the
+  default; it added the opt-out and the guard. Confirmed at `helpers.ts:235`.
+  This is the mechanism behind accepted-on-assertion items 1, 2 and 5 above.
+- *"`/api/v1/fleet/*` has no consumer outside its own tests."* — not re-tested;
+  out of scope for Phase 1 and nothing in Phase 1 touched it.
+
+##### Governor-level corrections to prior errata
+
+**AMXD-P1-3's errata contains a false absence claim that I am correcting.** It
+states the proposal has "**no vault copy**" on the basis of checking
+`2. Areas/CEO/Innovation Proposals/`. A vault copy **does** exist — at
+`2. Areas/CEO/Enhancement Proposals/Proposal — Signal Loom AgentMaxxing Interactive
+Demo Console (2026-Q3).md`. P1-3 searched one folder and reported absence; a
+`find` across the vault returns it immediately. P1-3 was right that the file is
+also git-tracked (`git ls-files` returns it) and right to follow the repo
+precedent set by `AMXD-P1-PRE` at `f745c17c`.
+
+**Consequence, flagged for the principal, not resolved here:** there are now two
+copies of this proposal — repo and vault — and every AMXD card has been writing
+errata to the repo one while the card template instructs writing to the vault one.
+They are diverging. I have followed the repo precedent for consistency (a governor
+certification filed separately from the five cards it certifies would be useless),
+and deliberately **did not** write to the vault copy, because duplicating errata
+into a second file deepens the divergence rather than fixing it. **Decision needed:
+pick one canonical copy, and correct the card template accordingly.**
+
+##### Notes on card-instruction compliance
+
+- **`/goal` was not invoked.** The one-shot protocol requires invoking
+  `/goal with token budget of 200000 and 100 auto-retries` before starting. No such
+  command exists in this environment (`~/.claude/commands/` contains only
+  `context-search`, `cs`, `pu`; it is not in the available-skills list). Recorded
+  rather than silently skipped or substituted.
+- **No push.** Merging is local-only per the safety rules; the integration branch
+  sits at `eed3b0b39ee436a4fa7de2e06fbb774f4ce79a79` awaiting principal review.
+- **Concurrency observed.** The integration tip moved from
+  `96a3abe187d9d47efdde46e789f115f6b1b97347` to
+  `edbcddd219411c38b3e095cee934aadb1f1b61e3` *between two of my own commands* at
+  the start of this run (controller tick 115). All verification above was run
+  against `edbcddd2` and committed on top of it; no work was lost, but the branch
+  is shared with `integration/sler-v0.1.0` and `integration/slcd-v0.1.0`, which
+  point at the same commits.
+
+**Spend and token use:**
+
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P0 | $0.00 | N/A | ~26m | N/A |
+| P1-PRE | $0.00 | N/A | ~5m | N/A |
+| P1-1 | $0.00 | N/A | N/A | N/A |
+| P1-2 | $0.00 | N/A | N/A | N/A |
+| P1-3 | $0.00 | N/A | N/A | N/A |
+| P1-4 | $0.00 | N/A | N/A | N/A |
+| P1-5 | $0.00 | N/A | N/A | N/A |
+| P1-GOV | $0.00 | N/A | N/A | N/A |
+
+*(Phases 2–6 all report `$0.00 / N/A` and are omitted; full table in the tool
+output.)* Reported verbatim, **not** as a measurement: the harness is not
+populating usage for this board, so every figure above is a default rather than
+an observation. `kanban-check.sh cost --update-table --apply` **did not write the
+table** — it raised `PermissionError: [Errno 13]` on
+`/home/andy/src/cp/osramp-demo/docs/Proposal — …md`, which is the principal's
+read-only checkout. That refusal is correct and I did not work around it; the
+table is transcribed here by hand from the tool's stdout, and the Work
+Decomposition table's cost columns remain at their `$0.00 / N/A` defaults.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

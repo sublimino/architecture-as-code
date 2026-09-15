@@ -314,7 +314,7 @@ Funded as Signal Loom platform investment; completes the headline differentiator
 | P3-GOV | governor | Merge mesh and admission enforcement and prove netassert boundary denial | P3-1, P3-2 | End-to-end network isolation and admission rejection test | M | deep | **CONDITIONAL FAIL** — nothing to merge (P3-1/P3-2 already on branch). `failurePolicy: Fail` **confirmed explicit**; contained-identity store **genuinely shared** (field-identical over one ConfigMap); IPv4-only scope carried forward with IPv6 120s residual; both planes attestation-ready. **Neither plane is reachable**: `FleetClient`'s 5 methods exclude both, so all 4 plane entry points have **zero production callers**, and the webhook is **in no kustomization / not deployed**. C5 (admission-deny E2E) and C7 (combined reversibility) **not certifiable**. 206 Go tests + netassert 10/10 live + redteam 15/15 pass. Admission residual 0 ms **withdrawn as unmeasured** → SLER-P5-2. → `docs/signalloom/sler-p3-gov-review.md` | $0.00 | N/A | ~11m | N/A |
 | P4-PRE | preflight | Confirm cgroup-v2 freezer and host process freeze prerequisites | P3-GOV | Host cgroup v2 capability probe; permissions check | S | daily | **pass** — cgroup-v2 freezer capability verified on `osramp-control-plane` (cgroup2fs with writable `cgroup.freeze`); live DaemonSet confirmed (`fe-signalloom-agents/stun-sentinel` via Flux); function-by-function diff completed; hostPID/privileged/hostPath requirements inventoried → `docs/signalloom/sler-p4-pre-freezer-diff.md` | $0.00 | N/A | ~4m | N/A |
 | P4-1 | implementation | Unify stun-sentinel implementations into cgroup-v2 freeze engine | P4-PRE | Sentinel unit tests; SIGSTOP vs cgroup freezer verification | L | daily | Pending | $0.00 | N/A | N/A | N/A |
-| P4-2 | implementation | Implement forensic memory snapshotting and quarantine state capture | P4-PRE | Quarantine snapshot test; memory state preservation check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-2 | implementation | Implement forensic memory snapshotting and quarantine state capture | P4-PRE | Quarantine snapshot test; memory state preservation check | L | daily | pass — delivered: 9726b3ca (see Errata — SLER-P4-2) | $0.00 | N/A | ~15m | N/A |
 | P4-3 | implementation | Implement governance-gated resume with mandatory credential rotation | P4-PRE | Resume token verification test; post-unstun credential renewal | M | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Merge freeze engine and prove reversible stun-unstun lifecycle | P4-1, P4-2, P4-3 | Full stun -> snapshot -> unstun cycle test | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-PRE | preflight | Confirm Witness attestation keys and forensic ledger schema | P4-GOV | Witness key verify; forensic event JSON schema | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -855,4 +855,32 @@ Commit:       41c5e5a4dca9dbaa858c46f96042c1d9e3840809
 6. **eBPF Build Dependency Resolution**: Built `tc_drop.bpf.o` using `d2-signalloom/apps/stun-sentinel/bpf/build.sh` and placed in `d2-signalloom/apps/stun-sentinel/pkg/tc/`, restoring clean `go test ./...` in `apps/fleet-manager`.
 **Deviations:** None.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLER-P4-2 (implementation) — Implement forensic memory snapshotting and quarantine state capture
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P4-PRE | $0.00 | N/A | ~4m | N/A |
+| P4-1 | $0.00 | N/A | N/A | N/A |
+| P4-2 | $0.00 | N/A | ~15m | N/A |
+| P4-3 | $0.00 | N/A | N/A | N/A |
+| P4-GOV | $0.00 | N/A | N/A | N/A |
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 06:15:00+01:00
+**Last Updated:** 2026-09-15 06:15:00+01:00
+**Status:** Completed
+**Commit:** `9726b3ca`
+**Base at review:** `f3c3fdd4` on `integration/sler-v0.1.0`
+**Findings & Confirmations:**
+1. **Greenfield Quarantine Engine (`pkg/quarantine`)**: Designed and implemented the complete quarantine state model capturing virtual memory layout (`/proc/<pid>/maps`), memory data (`process_vm_readv(2)` with `/proc/<pid>/mem` fallback), process metadata (`/proc/<pid>/status`, `/proc/<pid>/cmdline`), open file descriptors (`/proc/<pid>/fd`), file locks (`/proc/locks` and `/proc/<pid>/fdinfo`), and network sockets (`/proc/<pid>/net/tcp`, `tcp6`, `udp`, `raw`).
+2. **Durable HostPath Storage & Strict Permissions**: Stored all snapshots under `/var/log/signalloom/quarantine/<snapshot-id>/` on hostPath. Enforced `0700` directory and `0600` artifact file permissions with atomic manifest writes (`manifest.json.tmp.<pid>` -> `manifest.json`). Verified snapshots survive target container and pod termination.
+3. **Deterministic Bounded Resource Budgets**: Enforced explicit configurable size (`MaxMemorySizeBytes`, default 64MB) and time (`MaxTimeBudget`, default 500ms) budgets. Evaluated budgets before and during region dumps; aborts gracefully with `Partial: true` and structured machine-readable reason (`"memory_size_budget_exceeded"`, `"time_budget_exceeded"`) without stalling containment decisions.
+4. **Automated Retention & Pruning Engine**: Implemented LRU/FIFO snapshot retention policy pruning old snapshots based on count (`MaxSnapshots`), total disk bytes (`MaxTotalSizeBytes`), and age (`MaxAge`).
+5. **Deadlock Visibility & Held Lock Extraction**: Extracted and cross-correlated held `FLOCK`, `POSIX`, and `OFDLCK` file locks with open file descriptor targets, surfacing blocking locks held by frozen processes in kernel D-state to prevent undetected host deadlocks.
+6. **Telemetry & Phase 5 Witness Attestation Alignment**: Added `TierForensicQuarantine` telemetry events (`QuarantineSnapshotCaptured`, `QuarantineSnapshotPartial`, `QuarantineSnapshotFailed`) emitting SHA256 hashes of all snapshot artifacts for tamper-evident Witness attestation.
+7. **Comprehensive Verification**: 100% test pass rate across `pkg/quarantine` (15 unit, concurrency, permission, and budget tests) and red-team adversarial tests (15/15 passed). Published full proof and cited kernel interfaces to `docs/signalloom/sler-p4-2-proof.md`.
+**Deviations:** None.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

@@ -2707,5 +2707,26 @@
     "reviewer": "Council of Agents",
     "verdict": "pass",
     "reason": "Preflight transcript store inventory across 7 harnesses and Linux socket inspection permission model confirmed, 16 negative-security pins verified green before P4-1 and P4-2 implementation"
+  },
+  "b82c0": {
+    "task_id": "b82c0",
+    "reviewed_at": "2026-09-15T07:24:16.870630Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Phase 5 governor audit completed; five-stage Auto-Play certified in real Chromium browser (16s/8s/589ms), four guide corrections landed, estate-wide missing Tailwind utility CSS and carried P4-GOV insufficient_scope defect documented as presentation blockers while unblocking Phase 6 engineering"
+  },
+  "e919d": {
+    "task_id": "e919d",
+    "reviewed_at": "2026-09-15T07:24:16.870630Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Zero-payload transcript metadata parser implemented with inverted allow-list indexing, type funnel, and constructor invariant (84 tests pass, 7 mutants killed, 173-185 MiB/s throughput at 250 KiB flat residency)"
+  },
+  "7a893": {
+    "task_id": "7a893",
+    "reviewed_at": "2026-09-15T07:24:16.870630Z",
+    "reviewer": "Council of Agents",
+    "verdict": "pass",
+    "reason": "Outbound LLM socket detector implemented via NETLINK_SOCK_DIAG and cgroup inode correlation without reading /proc/<pid>/fd/ (69 tests pass, zero prohibited procfs access, tiered CIDR attribution measured at 8.3% upper bound false-positive rate)"
   }
 }

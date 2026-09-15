@@ -4,11 +4,11 @@ project: "osramp-demo"
 slug: "doc-review-ste-code"
 effort: "E4"
 effort_source: "classifier"
-phase: "execute"
-progress: "16/16"
+phase: "complete"
+progress: "27/27"
 mode: "algorithm"
 started: "2026-09-15T18:15:00+01:00"
-updated: "2026-09-15T18:18:00+01:00"
+updated: "2026-09-15T19:43:00+01:00"
 ---
 
 # ISA: Repository-Wide Documentation Review & STE-Code Standardization
@@ -68,6 +68,17 @@ Conduct a comprehensive audit and overhaul of all primary documentation in `osra
 - [x] ISC-14: Enforce STE-Code rules across all updated documentation (vocabulary swaps, sentence length ≤25 words, imperative instructions, en_GB spelling).
 - [x] ISC-15: Verify 100% of internal links resolve without errors using an automated link verification script.
 - [x] ISC-16: Anti: Ensure no broken links or orphaned slice directories remain undocumented.
+- [x] ISC-17: Create `src/content/docs/security/data-protection-and-erasure.mdx` covering envelope encryption, soft-tombstone lifecycle, and cryptographic shredding with sequence and state diagrams.
+- [x] ISC-18: Create `src/content/docs/operate/rbac-formal-analysis.mdx` covering KubeSec-AFM, Z3 BMC, self-escalation, impersonation, collusion, and min-cut remediation with architecture and escalation diagrams.
+- [x] ISC-19: Create `src/content/docs/operate/cpai-runtime-proxy.mdx` covering OpenAI-compatible Vertex AI proxy, SPIFFE attestation, and client setup with request flow diagram.
+- [x] ISC-20: Create `src/content/docs/operate/kagent-declarative-swarms.mdx` covering CNCF Kagent CRDs, SPIFFE identity, and OpenBao injection with swarm architecture diagram.
+- [x] ISC-21: Update `src/content/docs/index.mdx` with comprehensive platform architecture diagram and updated cards.
+- [x] ISC-22: Convert `src/content/docs/start/quick-start.md` to `quick-start.mdx` with quick-start lifecycle flowchart diagram and remove `.md`.
+- [x] ISC-23: Register all new pages in `astro.config.mjs` sidebar under `Operate agents` and `Security`.
+- [x] ISC-24: Update `test/acceptance/docs.spec.ts` with all 17 pages verifying 200 OK, H1 match, sidebar link, and rendered Mermaid SVG bounding box > 0.
+- [x] ISC-25: Harden `scripts/docs-render-check.sh` with process group cleanup and `~/.cache/ms-playwright` browser path fallback.
+- [x] ISC-26: Verify `docs-signalloom` build (0 check errors, 32 HTML pages, 1414 internal links checked, 0 broken links).
+- [x] ISC-27: Verify Playwright acceptance tests pass 100% via `make demo-agentmaxxing-docs-test` (17/17 passed).
 
 ## Test Strategy
 - ISC-1: Inspect `.kanban-review-ledger.json` and governor reports in `docs/signalloom/`.
@@ -75,6 +86,9 @@ Conduct a comprehensive audit and overhaul of all primary documentation in `osra
 - ISC-3, ISC-5, ISC-11, ISC-12, ISC-13: Direct file comparison with filesystem and codebase routes.
 - ISC-14: Python regex check for STE-Code unapproved words, sentence lengths, and UK spelling.
 - ISC-15, ISC-16: Python link-crawler script checking all internal markdown references.
+- ISC-17 through ISC-22: `astro check` and `astro build` compilation.
+- ISC-23: Astro sidebar link presence audit.
+- ISC-24 through ISC-27: `scripts/docs-render-check.sh` and Playwright headless Chromium verification.
 
 ## Features
 - F1: Kanban Card Delivery Audit & Follow-Up Roadmap Analysis
@@ -84,15 +98,19 @@ Conduct a comprehensive audit and overhaul of all primary documentation in `osra
 - F5: d2-signalloom/AGENTS.md Deep Route & Component Catalogue
 - F6: d2-cpai/AGENTS.md Slice Onboarding Creation
 - F7: STE-Code Standardization & Link Validation Engine
+- F8: User Documentation Portal Expansion (`/docs`)
 
 ## Decisions
 - 2026-09-15T18:18:00+01:00: Selected STE-Code (ASD-STE100 adaptation) as the mandatory style standard across all documentation updates.
 - 2026-09-15T18:18:00+01:00: Retained existing Mermaid styling classes while expanding diagrams to give human readers instant visual comprehension of slice boundaries.
 - 2026-09-15T18:18:00+01:00: Documented Kagent as a hosted control plane component under `d2-signalloom/infra/kagent` rather than misrepresenting it as an independent root directory.
+- 2026-09-15T19:30:00+01:00: Converted `quick-start.md` to MDX to embed an interactive Mermaid lifecycle diagram while maintaining link stability.
+- 2026-09-15T19:35:00+01:00: Hardened `docs-render-check.sh` to resolve `PLAYWRIGHT_BROWSERS_PATH` against `${HOME}/.cache/ms-playwright` and terminate setsid process groups cleanly.
 
 ## Changelog
 - 2026-09-15T18:18:00+01:00: Initialized ISA for repository-wide documentation review and STE-Code standardization.
 - 2026-09-15T18:47:00+01:00: Successfully updated all documentation files, created d2-cpai/AGENTS.md, verified 100% internal links, and validated STE-Code rules.
+- 2026-09-15T19:42:00+01:00: Expanded user documentation container with 4 new comprehensive guides (SLDP, AFM, CPAI, Kagent), converted quick-start to MDX with lifecycle flowchart, registered in sidebar and Playwright suite, verified with 17/17 tests passing.
 
 ## Verification
 - ISC-1: Inspected `.kanban-review-ledger.json` (361 reviews across 220 completed cards, 0 in progress/backlog). Follow-up roadmap documented for Milestone 2.
@@ -111,3 +129,14 @@ Conduct a comprehensive audit and overhaul of all primary documentation in `osra
 - ISC-14: Audited all 5 files for STE-Code compliance (0 unapproved vocabulary words, sentences <=25 words, UK spelling).
 - ISC-15: Automated link verification script checked 85 internal relative links with 0 broken links (100% resolution).
 - ISC-16: Tested CI guards: `acceptance-spec-coverage.bats` (7/7 passed), `slcd-ci-parity.bats` (10/10 passed). Zero orphaned slice directories.
+- ISC-17: Created `src/content/docs/security/data-protection-and-erasure.mdx` with envelope encryption sequence and tombstone state diagrams.
+- ISC-18: Created `src/content/docs/operate/rbac-formal-analysis.mdx` with AFM pipeline flowchart and impersonation graph.
+- ISC-19: Created `src/content/docs/operate/cpai-runtime-proxy.mdx` with CPAI proxy sequence diagram and client configs.
+- ISC-20: Created `src/content/docs/operate/kagent-declarative-swarms.mdx` with declarative swarm reconciliation diagram.
+- ISC-21: Updated `src/content/docs/index.mdx` with full 5-tier architecture flowchart and updated cards.
+- ISC-22: Converted `quick-start.md` to `quick-start.mdx` with deployment flowchart diagram.
+- ISC-23: Added 4 new items to `astro.config.mjs` sidebar under `Operate agents` and `Security`.
+- ISC-24: Updated `PAGES` array in `test/acceptance/docs.spec.ts` to assert all 17 documentation pages.
+- ISC-25: Updated `scripts/docs-render-check.sh` with process group termination and `${HOME}/.cache/ms-playwright` fallback.
+- ISC-26: `astro check` reported 0 errors; `astro build` produced 32 HTML pages; `audit:links` checked 1,414 internal links with 0 unresolved.
+- ISC-27: Ran `make demo-agentmaxxing-docs-test` executing all 17 Playwright acceptance tests in headless Chromium; 17/17 passed (100% green).

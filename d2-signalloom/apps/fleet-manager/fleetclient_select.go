@@ -262,11 +262,26 @@ func selectFleetClientFrom(
 	}
 
 	spireAddr := ResolveSpireAddress()
-	spireClient, spireErr := NewGRPCSpireClient(spireAddr)
+	concreteSpire, spireErr := NewGRPCSpireClient(spireAddr)
+
+	// SLER-P2-GOV: this assignment is deliberately staged through an explicitly
+	// nil interface variable rather than passing `concreteSpire` straight through.
+	//
+	// NewGRPCSpireClient returns the CONCRETE type *grpcSpireClient. On failure it
+	// returns (nil, err). Assigning that nil pointer into a SpireClient interface
+	// produces a TYPED nil — an interface value whose type word is set and whose
+	// data word is nil. `c.spireClient != nil` is then TRUE even though SPIRE is
+	// unreachable, so RevokeCredentials takes the spire path and dereferences a nil
+	// receiver. The warning below says "will fail closed on spire operations"; the
+	// actual behaviour was a panic, which is not failing closed, it is crashing the
+	// enforcer at the exact moment containment was requested.
+	var spireClient SpireClient
 	if spireErr != nil {
-		slog.Warn("fleet client: spire gRPC client initialization deferred / connection failed; will fail closed on spire operations",
+		slog.Warn("fleet client: spire gRPC client initialization failed; spire plane will report unavailable",
 			"spire_addr", spireAddr,
 			"error", spireErr)
+	} else if concreteSpire != nil {
+		spireClient = concreteSpire
 	}
 
 	slog.Info("fleet client selected",

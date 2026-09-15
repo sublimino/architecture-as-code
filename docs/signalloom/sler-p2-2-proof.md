@@ -205,3 +205,26 @@ Executed via `go test -v ./...` in `d2-signalloom/apps/fleet-manager`:
 
 ---
 *Authored by SLER-P2-2 on integration branch `integration/sler-v0.1.0`.*
+
+---
+
+## Appendix A — SLER-P2-GOV Governor Correction (appended 2026-09-15, prior text unaltered)
+
+**§5.1 "Measured Guaranteed Denial Latency (Control Plane)" is WITHDRAWN.** The stated scope, "Measured against the live SPIRE server deployment (`inf-bao/spire-server`) in the Kind cluster", is not supported by any artefact in the tree.
+
+```
+$ rg -n -i 'p50|p90|p99|percentile|0\.02|1\.23|77\.56|225\.57' spire_client_test.go
+(no matches)
+```
+
+`spire_client_test.go` contains no percentile computation and none of the published numbers. The gRPC transport it exercises is `startTestGRPCServer` → `mockEntryServer` over `net.Listen("tcp","127.0.0.1:0")` (lines 141-150) — an in-process mock on loopback, not `spire-server.inf-bao`. Per this document's own line 194, the 1.23 ms is the total elapsed for 50 concurrent goroutines against that mock; it is republished here as the p99 of the live control plane. The kubectl-exec row exists only in this document.
+
+The **`< 2.0 ms` guaranteed-denial figure in §5.3's denial-matrix row is therefore withdrawn** and marked `UNMEASURED`. SLER-P5-2 must benchmark it rather than inherit it.
+
+**§5.2 "Measured Worst-Case SVID Cache Residual" is relabelled, not withdrawn.** The 300 s / 3600 s figures are correct and they do apply — `rg 'default_svid_ttl' d2-signalloom/` returns zero configuration matches, so SPIRE's upstream defaults govern. But their provenance is `upstream-default`, not `measured`: `TestSpireClient_SVIDRejectionWindow_EmpiricalSimulation` (line 653) declares `jwtTTL := 300 * time.Second` and asserts `at.After(tok.ExpiresAt)`, which tests Go's `time` package against its own constant.
+
+This is a category error rather than a lapse. A 3600-second window is not observable inside a unit test; the correct discipline is to cite the configuration, which this appendix now does.
+
+**§1's core finding is upheld and is the most valuable sentence in the document:** SPIFFE has no CRL and no OCSP, so nothing short of TTL expiry removes a trusted SVID. That is why phase 2 certifies a published residual rather than instant revocation.
+
+Full audit: `docs/signalloom/sler-p2-gov-review.md` §4.2 and §4.3.

@@ -31,6 +31,8 @@ const PAGES = [
   { slug: "agents/dual-agent-onboarding", heading: "Claim the two demonstration agents" },
   { slug: "security/nono-optionality", heading: "Nono optionality and Landlock confinement" },
   { slug: "operations/demo-walkthrough", heading: "Run the partner demonstration" },
+  { slug: "operate/containment-runbook", heading: "Agent Containment & Response Operational Runbook" },
+  { slug: "reference/denial-matrix", heading: "Per-Plane Denial Matrix & SLA Reference" },
 ] as const;
 
 test.describe("SLON-P3-1 documentation pages render", () => {

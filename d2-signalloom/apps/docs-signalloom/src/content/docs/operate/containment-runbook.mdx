@@ -1,0 +1,311 @@
+---
+title: Agent Containment & Response Operational Runbook
+description: Incident response procedures, 5-plane outcome analysis, partial containment handling, fail-closed mechanics, and governance-gated resume.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+:::note[Mission Version & Provenance]
+**Specification:** `sler.signalloom.io/v1alpha1` | **Release Target:** `SLER v0.1.0`  
+**Base Commit / Branch:** `de2c326a` (`refs/heads/integration/sler-v0.1.0`)  
+**Canonical Evidence Artifacts:** [`docs/signalloom/sler-p5-2-denial-matrix.md`](/docs/reference/denial-matrix/) · [`docs/signalloom/sler-p4-3-proof.md`](/docs/reference/operator-identity-lifecycle/) · [`docs/signalloom/sler-p6-1-proof.md`](/docs/reference/denial-matrix/)
+:::
+
+When Signal Fusion or an authorized security operator detects that an AI agent is operating outside its delegated authorization boundaries—due to prompt injection, credential exfiltration, jailbreak, or unauthorized tool invocation—the **Signal Loom Enforcement & Response (SLER)** platform halts the agent across all five enforcement planes in parallel.
+
+This operational runbook provides the definitive procedures for operators managing live containment events, diagnosing multi-plane outcomes, handling degraded states, executing attributable governance-gated resumption, and troubleshooting edge cases.
+
+<Mermaid
+  label="Signal Loom Multi-Plane Containment and Resumption Lifecycle"
+  diagram={`sequenceDiagram
+    autonumber
+    actor Op as Incident Operator
+    participant SF as Signal Fusion / API
+    participant FM as Fleet Manager
+    participant Pl as 5 Enforcement Planes
+    participant RL as Replay Ledger / Attestation
+    
+    Op->>SF: Trigger Containment (POST /api/v1/fleet/contain)
+    SF->>FM: Dispatch Cascade (IdempotencyKey, TargetRef)
+    par Concurrent Multi-Plane Containment
+        FM->>Pl: 1. Freeze: cgroup.freeze = 1 (18ms p99)
+        FM->>Pl: 2. Mesh: Cilium Policy + conntrack.FlushIP (10ms p99)
+        FM->>Pl: 3. OpenBao: Revoke Leases & Tokens (15ms p99)
+        FM->>Pl: 4. SPIRE: BatchDeleteEntry gRPC (2.0ms p99)
+        FM->>Pl: 5. Admission: ValidatingWebhook Block (2.28ms p99)
+    end
+    Pl-->>FM: Aggregate PlaneResult Map
+    FM->>RL: Emit Witness Attestation & Structured Audit Event
+    FM-->>Op: 200 OK (ContainmentResult: Isolated / Degraded)
+    
+    Note over Op,RL: Governance-Gated Resumption Workflow
+    Op->>FM: POST /api/v1/fleet/resume (Dual Ed25519 Signed Token)
+    FM->>FM: Verify Signatures, Quorum & Target Binding
+    FM->>RL: CheckAndRecord(TokenID, IdempotencyKey)
+    par Mandatory Credential Rotation
+        FM->>Pl: OpenBao: Mint Fresh Lease
+        FM->>Pl: SPIRE: Re-enter Identity Entry
+    end
+    FM->>Pl: Unfreeze cgroup & Clear Mesh Filter
+    FM-->>Op: 200 OK (credentials_rotated: true, success: true)`}
+/>
+
+---
+
+## 1. Emergency Containment Triage Procedure
+
+When an alert fires or an autonomous containment is executed, operators must execute the following triage steps:
+
+### Step 1: Identify Target & Containment Trigger
+Query the Fleet Manager containment status or inspect the Signal Fusion security incident stream:
+
+```bash
+# Retrieve current containment status for target agent
+curl -sS -H "Authorization: Bearer ${OPERATOR_JWT}" \
+  http://dashboard.osramp.acme.local/fleet-api/v1/fleet/status?agent_id=agent-llm-classifier
+```
+
+Inspect the response `ContainmentReason`:
+- `UNAUTHORIZED_DELEGATION`: Agent attempted to invoke tools beyond granted permissions.
+- `PROMPT_INJECTION_DETECTED`: Ingested prompt contained adversarial jailbreak payload.
+- `CREDENTIAL_EXFILTRATION_ATTEMPT`: Agent attempted unauthorized filesystem traversal to read host secrets.
+- `OPERATOR_MANUAL_INTERVENTION`: Emergency manual trigger invoked by security team.
+
+### Step 2: Inspect Multi-Plane `PlaneResult` Outcomes
+Every containment response returns a comprehensive `ContainmentResult` object detailing the status of all five enforcement planes:
+
+```json
+{
+  "target": {
+    "agent_id": "agent-llm-classifier",
+    "pod_name": "agent-llm-classifier-7df9f-xyz",
+    "namespace": "fe-signalloom-agents",
+    "container_id": "containerd://a1b2c3d4e5f6"
+  },
+  "status": "CONTAINED",
+  "planes": {
+    "freeze": { "success": true, "latency_ms": 12, "error": "" },
+    "mesh": { "success": true, "latency_ms": 4, "error": "" },
+    "openbao": { "success": true, "latency_ms": 10, "error": "" },
+    "spire": { "success": true, "latency_ms": 1, "error": "" },
+    "admission": { "success": true, "latency_ms": 2, "error": "" }
+  },
+  "partial": false,
+  "degraded": false,
+  "evidence_record_id": "attest-sler-20260915-001",
+  "idempotency_key": "idem-contain-001"
+}
+```
+
+### Step 3: Assess Forensic Memory Artifacts
+When `capture_quarantine: true` is enabled on the `freeze` plane, verify that volatile memory and file lock snapshots were saved before the pod is recycled:
+
+```bash
+# Verify quarantine directory on the host node
+ls -la /var/log/signalloom/quarantine/
+# Read snapshot manifest
+cat /var/log/signalloom/quarantine/snap-*/manifest.json | jq .
+```
+
+---
+
+## 2. Reading Per-Plane Outcomes & Fail-Closed Behavior
+
+The SLER architecture strictly eliminates silent fallback (`noopFleetClient`) and enforces **fail-closed isolation**. If any subsystem or control-plane API is unavailable during a containment attempt, the system defaults to safety:
+
+| Plane | Normal Containment Action | Expected p99 Latency | Behavior When Plane API is Unavailable (Fail-Closed) |
+| :--- | :--- | :---: | :--- |
+| **`freeze`** | Writes `1` to `/sys/fs/cgroup/.../cgroup.freeze`; validates `D` process state. | **`18 ms`** | Returns `ErrEnforcementUnavailable`. Sentinel emits critical telemetry and registers target as degraded in `PlaneFreeze`. Process scheduler ceases execution; fallback sends SIGSTOP. |
+| **`mesh`** | Applies `CiliumNetworkPolicy` default-deny and flushes netlink conntrack socket table via `tc.FlushIP`. | **`10 ms`** | Netlink flush failure logs error; network policy controller continues enforcing pod ingress/egress drops. Target flagged for residual socket monitoring. |
+| **`openbao`** | Calls `POST /v1/sys/leases/revoke` and `auth/token/revoke` to invalidate active leases and tokens. | **`15 ms`** | 3-failure circuit breaker trips to `Open`. Requests fail fast in sub-1ms with `ErrEnforcementUnavailable`. Target is registered in `degradedRegistry` for background reconciliation. |
+| **`spire`** | Issues gRPC `BatchDeleteEntry` on SPIRE server TCP 8081 to evict workload SPIFFE registration. | **`2.0 ms`** | gRPC context deadline returns `ErrEnforcementUnavailable`. Agent SVID becomes invalid at relying parties upon TTL expiration (300s JWT / 3600s X.509). |
+| **`admission`** | Adds identity to `signalloom-contained-agents` ConfigMap; webhook denies `CREATE`/`UPDATE`. | **`2.28 ms`** | `failurePolicy: Fail` in `ValidatingWebhookConfiguration` unconditionally rejects pod scheduling. ConfigMap/file store read error triggers `OutcomeDeniedStoreUnavailable` (HTTP 403). |
+
+---
+
+## 3. Interpreting Partial Containment & Degraded States
+
+### What is Partial Containment?
+A containment action is marked **`partial: true`** when at least one plane successfully enforces confinement (e.g., process freeze and network isolation succeed) but one or more auxiliary planes encounter control-plane unavailability (e.g., OpenBao server is temporarily restarting).
+
+### Why the Workload Remains Safe
+1. **Immediate Execution Freeze (`freeze`)**: Because process execution is suspended in kernel cgroup v2 within 18 ms, the agent cannot execute CPU instructions or make API calls regardless of OpenBao token validity.
+2. **Network Severance (`mesh`)**: In-flight TCP connections are severed in sub-1.2ms, preventing any outbound data leakage.
+3. **Admission Guard (`admission`)**: Even if pods are killed, `node-capability-guard` prevents pod reconstitution.
+
+### Retries are Safe and Idempotent
+All containment requests are governed by an `idempotency_key`. If an operator or automated system retries a containment request:
+- Already-contained planes execute as no-ops without error.
+- Previously failing planes are re-evaluated.
+- Zero duplicate events, zero resource leaks, and zero inconsistent states occur.
+
+```bash
+# Safe retry with identical idempotency key
+curl -sS -X POST \
+  -H "Authorization: Bearer ${OPERATOR_JWT}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "agent-llm-classifier",
+    "namespace": "fe-signalloom-agents",
+    "idempotency_key": "idem-contain-001",
+    "reason": "OPERATOR_MANUAL_INTERVENTION"
+  }' \
+  http://dashboard.osramp.acme.local/fleet-api/v1/fleet/contain
+```
+
+---
+
+## 4. Governance-Gated Resume Workflow
+
+:::danger[Prohibition of Legacy Shared Secrets]
+The legacy bearer secret `STUN_RESUME_TOKEN` has been **permanently deprecated and eradicated**. Resuming an agent using a shared secret is structurally prohibited. Resumption requires an **attributable, dual-operator Ed25519 signed token** conforming to `sler.signalloom.io/v1alpha1`.
+:::
+
+Resuming a contained agent returns it to active execution. To prevent unauthorized or single-person compromise, resumption enforces **asymmetric multi-operator quorum** and **mandatory credential rotation**.
+
+### 4.1 Required Resume Material Checklist
+
+Before constructing a resume request, an operator must possess:
+
+| Material | Description | Example / Format |
+| :--- | :--- | :--- |
+| **`token_id`** | Unique single-use token identifier | `rt-live-20260915T094500Z-a1b2c3` |
+| **`agent_id`** | Target agent identifier | `agent-llm-classifier` |
+| **`namespace`** | Kubernetes target namespace | `fe-signalloom-agents` |
+| **`audience`** | Cluster audience identifier | `signalloom.demo` |
+| **`governance_approval_ref`** | Change management / ticket reference | `CHG-2026-09-15-0042` |
+| **`issued_at` / `expires_at`** | UTC RFC3339 timestamps (validity window at most 10 min) | `2026-09-15T09:45:00Z` |
+| **`nonce`** | 16-byte random hex string | `e4f1a2890c5b3312d8479e0a1f2c4e6a` |
+| **Primary Operator Signature** | Ed25519 signature over binary signing input | Base64-encoded signature (64 bytes) |
+| **Primary Key ID** | Self-certifying SHA-256 fingerprint of public key | `sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069` |
+| **Co-Signer Signature** | Second distinct operator signature (for quorum = 2) | Base64-encoded signature (64 bytes) |
+| **Co-Signer Key ID** | Second distinct self-certifying fingerprint | `sha256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a` |
+
+### 4.2 Canonical Signing Input Calculation
+Signatures must be computed over the 4-byte big-endian length-prefixed concatenation of all fields:
+
+```
+SigningInput =
+    len(Domain) || Domain ||
+    len(SchemaVersion) || SchemaVersion ||
+    len(TokenID) || TokenID ||
+    len(Algorithm) || Algorithm ||
+    len(AgentID) || AgentID ||
+    len(Namespace) || Namespace ||
+    len(Audience) || Audience ||
+    len(OperatorID) || OperatorID ||
+    len(GovernanceApprovalRef) || GovernanceApprovalRef ||
+    len(IssuedAt) || IssuedAt ||
+    len(ExpiresAt) || ExpiresAt ||
+    len(Nonce) || Nonce ||
+    len(TrustRootID) || TrustRootID ||
+    len(RequiredSignatures) || RequiredSignatures
+```
+
+### 4.3 Submitting the Resume Request
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer ${OPERATOR_JWT}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schema_version": "sler.signalloom.io/v1alpha1",
+    "token_id": "rt-live-20260915T094500Z-a1b2c3",
+    "agent_id": "agent-llm-classifier",
+    "namespace": "fe-signalloom-agents",
+    "audience": "signalloom.demo",
+    "governance_approval_ref": "CHG-2026-09-15-0042",
+    "issued_at": "2026-09-15T09:45:00Z",
+    "expires_at": "2026-09-15T09:55:00Z",
+    "nonce": "e4f1a2890c5b3312d8479e0a1f2c4e6a",
+    "required_signatures": 2,
+    "signatures": [
+      {
+        "operator_id": "spiffe://signalloom.io/operator/alice",
+        "key_id": "sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069",
+        "algorithm": "Ed25519",
+        "signed_at": "2026-09-15T09:45:10Z",
+        "signature": "MEUCIQ..."
+      },
+      {
+        "operator_id": "spiffe://signalloom.io/operator/bob",
+        "key_id": "sha256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+        "algorithm": "Ed25519",
+        "signed_at": "2026-09-15T09:45:15Z",
+        "signature": "AIQ..."
+      }
+    ],
+    "idempotency_key": "idem-resume-001"
+  }' \
+  http://dashboard.osramp.acme.local/fleet-api/v1/fleet/resume
+```
+
+### 4.4 Mandatory Credential Rotation on Resume
+When a valid resume token is submitted, Fleet Manager automatically:
+1. Validates operator signatures against node-local public keys.
+2. Checks and marks `token_id` in the atomic `ReplayLedger`.
+3. Issues a fresh credential lease at OpenBao (`/v1/cardvault/creds/:id`).
+4. Re-registers the workload identity entry in SPIRE Server.
+5. Injects fresh credentials and thaws the container cgroup.
+
+If rotation fails, resumption **fails closed** and the container remains frozen.
+
+---
+
+## 5. Operator Troubleshooting & Known Failure Modes
+
+This section addresses high-risk failure modes identified during Phase 1 through Phase 5 reviews:
+
+### Issue 1: Pod Scheduling Blocked with `OutcomeDeniedStoreUnavailable`
+- **Symptom:** New agent pods fail to schedule; API server returns webhook rejection: `admission webhook node-capability-guard denied the request: contained identity store is unavailable`.
+- **Root Cause:** The `node-capability-guard` webhook pod cannot read the projected ConfigMap `/etc/signalloom/contained-agents.json` due to Kubelet volume projection delay or ConfigMap corruption.
+- **Remediation:**
+  ```bash
+  # Check node-capability-guard logs
+  kubectl logs -n fe-signalloom deploy/node-capability-guard
+  # Verify ConfigMap existence and valid JSON formatting
+  kubectl get configmap -n fe-signalloom signalloom-contained-agents -o jsonpath='{.data.contained-agents\.json}' | jq .
+  # Force ConfigMap reconciliation via Flux
+  flux reconcile kustomization tenants -n flux-system --with-source
+  ```
+
+### Issue 2: Forensic Memory Snapshot Retention Warning
+- **Symptom:** Stun Sentinel logs `quarantine_retention_prune_warning` or disk space on `/var/log/signalloom/quarantine` approaches threshold.
+- **Root Cause:** Multiple high-memory container freezes generated dumps exceeding `MaxTotalSizeBytes` (default 10GB) or `MaxSnapshots` (default 100).
+- **Remediation:**
+  ```bash
+  # Trigger manual dry-run prune evaluation
+  stun-sentinel --quarantine-prune-dry-run
+  # Check snapshot disk usage
+  du -sh /var/log/signalloom/quarantine/*
+  ```
+
+### Issue 3: OpenBao Circuit Breaker in `Open` State
+- **Symptom:** Containment actions return `ErrEnforcementUnavailable` on the OpenBao plane with latency sub-1ms.
+- **Root Cause:** 3 consecutive HTTP timeouts or connection failures tripped the internal circuit breaker.
+- **Remediation:**
+  ```bash
+  # Check OpenBao pod status
+  kubectl get pods -n inf-bao -l app.kubernetes.io/name=openbao
+  # Verify OpenBao health endpoint
+  curl -sS http://openbao.inf-bao.svc:8200/v1/sys/health | jq .
+  # The circuit breaker automatically transitions to Half-Open after the 30-second backoff window.
+  ```
+
+### Issue 4: IPv6 Network Connection Residual Window
+- **Symptom:** In dual-stack clusters, an IPv6 connection appears to persist briefly after containment.
+- **Root Cause:** Netlink socket flush (`tc.FlushIP`) is scoped to `AF_INET` (IPv4). In IPv6 environments, in-flight connections terminate upon TCP idle keepalive timeout (at most 120 seconds).
+- **Remediation:** Verify that `CiliumNetworkPolicy` default-deny is active. The policy prevents new packet transmission, ensuring data cannot be exfiltrated.
+
+### Issue 5: Resume Request Rejected with `409 Conflict` (`ErrResumeTokenReplayed`)
+- **Symptom:** Resume request fails with HTTP 409 Conflict.
+- **Root Cause:** The `token_id` was already consumed by a prior resume operation and recorded in the single-use `ReplayLedger`.
+- **Remediation:** If this is a retry of the same operation, ensure you pass the original `idempotency_key`. If this is a new resumption, operators must mint a fresh token with a new `token_id` and fresh signatures.
+
+---
+
+## 6. Related References & Documents
+
+- **[Per-Plane Denial Matrix & Benchmark Reference](/docs/reference/denial-matrix/):** Canonical SLA, latency metrics ($p99$), and red-team test coverage.
+- **[Attributable Operator Lifecycle](/docs/reference/operator-identity-lifecycle/):** Operator identity binding, OIDC session authentication, and negative shared-identity policy.
+- **[Nono Optionality & Landlock Confinement](/docs/security/nono-optionality/):** Host-level sandbox confinement rules and capability restrictions.

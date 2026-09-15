@@ -4,8 +4,10 @@ export default new Map([
 ["src/content/docs/demos/agentmaxxing.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fdemos%2Fagentmaxxing.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/index.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Findex.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/onboarding/user-journey.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fonboarding%2Fuser-journey.mdx&astroContentModuleFlag=true")],
+["src/content/docs/operate/containment-runbook.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Foperate%2Fcontainment-runbook.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/operate/stun-agent.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Foperate%2Fstun-agent.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/operations/demo-walkthrough.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Foperations%2Fdemo-walkthrough.mdx&astroContentModuleFlag=true")],
+["src/content/docs/reference/denial-matrix.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Freference%2Fdenial-matrix.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/security/nono-optionality.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fsecurity%2Fnono-optionality.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/start/external-linux-agent.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fstart%2Fexternal-linux-agent.mdx&astroContentModuleFlag=true")]]);
 		

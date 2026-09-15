@@ -82,6 +82,34 @@ func (m *countingSpireClient) EvictAgent(ctx context.Context, req SpireEvictionR
 	}, nil
 }
 
+func (m *countingSpireClient) ReenterAgent(ctx context.Context, req SpireReentryRequest) (*SpireReentryResponse, error) {
+	m.calls.Add(1)
+	select {
+	case m.keysSeen <- req.IdempotencyKey:
+	default:
+	}
+	if m.delay > 0 {
+		select {
+		case <-time.After(m.delay):
+		case <-ctx.Done():
+			return nil, fmt.Errorf("spire reenter: %w: %w", ctx.Err(), ErrEnforcementUnavailable)
+		}
+	}
+	if m.returnErr != nil {
+		return nil, m.returnErr
+	}
+	return &SpireReentryResponse{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: req.IdempotencyKey,
+		AgentID:        req.AgentID,
+		Plane:          PlaneSpire,
+		Outcome:        m.outcome,
+		EntryCreated:   true,
+		LatencyMs:      1,
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
 func (m *countingSpireClient) DeleteEntry(context.Context, string) (*SpireEntryDeleteResult, error) {
 	return nil, errors.New("not used")
 }

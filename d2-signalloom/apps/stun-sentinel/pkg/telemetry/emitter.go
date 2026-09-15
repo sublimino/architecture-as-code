@@ -54,8 +54,11 @@ type Event struct {
 	DeadlineMS float64 `json:"deadline_ms,omitempty"`
 	Polls      int     `json:"polls,omitempty"`
 	PIDs       []int   `json:"pids"`
-	PIDCount   int     `json:"pid_count"`
-	Reason     string  `json:"reason,omitempty"`
+	PIDCount    int      `json:"pid_count"`
+	Reason      string   `json:"reason,omitempty"`
+	OperatorID  string   `json:"operator_id,omitempty"`
+	OperatorIDs []string `json:"operator_ids,omitempty"`
+	TokenID     string   `json:"token_id,omitempty"`
 }
 
 // Emitter serialises events onto a writer. It is safe for concurrent use: the
@@ -115,15 +118,18 @@ func (e *Emitter) Emit(ev Event) error {
 // needs. It is declared here rather than importing pkg/cgroup so telemetry
 // stays a leaf dependency and can be reused by the network-containment half.
 type FreezeObservation struct {
-	PodUID     string
-	PodName    string
-	Namespace  string
-	CgroupPath string
-	Frozen     bool
-	LatencyMS  float64
-	DeadlineMS float64
-	Polls      int
-	PIDs       []int
+	PodUID      string
+	PodName     string
+	Namespace   string
+	CgroupPath  string
+	Frozen      bool
+	LatencyMS   float64
+	DeadlineMS  float64
+	Polls       int
+	PIDs        []int
+	OperatorID  string
+	OperatorIDs []string
+	TokenID     string
 }
 
 // StunExecutionHalted publishes a proven execution halt.
@@ -144,17 +150,24 @@ func (e *Emitter) StunExecutionHalted(obs FreezeObservation) error {
 
 // StunExecutionResumed publishes an authorised, verified resume.
 func (e *Emitter) StunExecutionResumed(obs FreezeObservation) error {
+	opID := obs.OperatorID
+	if opID == "" && len(obs.OperatorIDs) > 0 {
+		opID = obs.OperatorIDs[0]
+	}
 	return e.Emit(Event{
-		Event:      EventStunExecutionResumed,
-		PodUID:     obs.PodUID,
-		PodName:    obs.PodName,
-		Namespace:  obs.Namespace,
-		CgroupPath: obs.CgroupPath,
-		Frozen:     false,
-		LatencyMS:  obs.LatencyMS,
-		DeadlineMS: obs.DeadlineMS,
-		Polls:      obs.Polls,
-		PIDs:       obs.PIDs,
+		Event:       EventStunExecutionResumed,
+		PodUID:      obs.PodUID,
+		PodName:     obs.PodName,
+		Namespace:   obs.Namespace,
+		CgroupPath:  obs.CgroupPath,
+		Frozen:      false,
+		LatencyMS:   obs.LatencyMS,
+		DeadlineMS:  obs.DeadlineMS,
+		Polls:       obs.Polls,
+		PIDs:        obs.PIDs,
+		OperatorID:  opID,
+		OperatorIDs: obs.OperatorIDs,
+		TokenID:     obs.TokenID,
 	})
 }
 

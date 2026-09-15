@@ -805,17 +805,154 @@ func (c *k8sFleetClient) UnblockAdmissionPlane(ctx context.Context, namespace, a
 	return res, nil
 }
 
-// RestoreCredentials is a typed stub owned by SLER-P2-2.
-//
-// Note for the orchestrator: CascadeOrchestrator.Recover logs and continues past
-// a RestoreCredentials failure (cascade.go:156) and still writes the running
-// label. That is correct and must stay correct — if un-stunning became hard-
-// dependent on the credential plane, break-glass would die with it.
-func (c *k8sFleetClient) RestoreCredentials(_ context.Context, agentID string) error {
-	err := fmt.Errorf("restore_credentials %s/%s: %w: SPIRE re-entry and OpenBao re-issue not implemented (SLER-P2-2)",
-		c.defaultNamespace, agentID, ErrEnforcementUnavailable)
-	c.record(c.degraded.nextSeq(), PlaneBao, c.defaultNamespace, agentID, "restore_credentials", err)
+// RestoreCredentialsPlanes fans out credential rotation/re-issuance to EVERY configured
+// credential plane (SPIRE and OpenBao) concurrently and returns one PlaneResult per plane.
+func (c *k8sFleetClient) RestoreCredentialsPlanes(ctx context.Context, namespace, agentID, idempotencyKey string) ([]PlaneResult, error) {
+	seq := c.degraded.nextSeq()
+	namespace = c.namespaceOrDefault(namespace)
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("restore-%s-%d", agentID, c.now().UnixNano())
+	}
+	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+
+	if c.spireClient == nil && c.baoClient == nil {
+		err := fmt.Errorf("restore_credentials %s/%s: %w: no credential plane configured",
+			namespace, agentID, ErrEnforcementUnavailable)
+		c.record(seq, PlaneBao, namespace, agentID, "restore_credentials", err)
+		return nil, err
+	}
+
+	var (
+		wg        sync.WaitGroup
+		spireRes  *PlaneResult
+		spireErr  error
+		baoRes    *PlaneResult
+		baoErr    error
+		startedAt = c.now().UTC()
+	)
+
+	if c.spireClient != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			spireRes, spireErr = c.restoreSpirePlane(ctx, namespace, agentID, spiffeID, idempotencyKey, startedAt)
+		}()
+	}
+
+	if c.baoClient != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			baoRes, baoErr = c.restoreBaoPlane(ctx, namespace, agentID, idempotencyKey)
+		}()
+	}
+
+	wg.Wait()
+
+	results := make([]PlaneResult, 0, 2)
+	var failures []string
+
+	if spireRes != nil {
+		c.record(seq, PlaneSpire, namespace, agentID, "restore_credentials", spireErr)
+		results = append(results, *spireRes)
+		if spireErr != nil {
+			failures = append(failures, "spire: "+spireErr.Error())
+		}
+	}
+	if baoRes != nil {
+		c.record(seq, PlaneBao, namespace, agentID, "restore_credentials", baoErr)
+		results = append(results, *baoRes)
+		if baoErr != nil {
+			failures = append(failures, "bao: "+baoErr.Error())
+		}
+	}
+
+	if len(failures) == 0 {
+		return results, nil
+	}
+	return results, fmt.Errorf("restore_credentials %s/%s: %w: %s",
+		namespace, agentID, ErrEnforcementUnavailable, strings.Join(failures, "; "))
+}
+
+func (c *k8sFleetClient) restoreSpirePlane(ctx context.Context, namespace, agentID, spiffeID, idempotencyKey string, startedAt time.Time) (*PlaneResult, error) {
+	req := SpireReentryRequest{
+		SchemaVersion:  CurrentSchemaVersion,
+		IdempotencyKey: idempotencyKey,
+		AgentID:        agentID,
+		Namespace:      namespace,
+		SPIFFEID:       spiffeID,
+		Reason:         "governance resume credential rotation",
+		Timestamp:      startedAt.Format(time.RFC3339),
+	}
+
+	res := &PlaneResult{
+		Plane:     PlaneSpire,
+		Outcome:   OutcomeUnavailable,
+		Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+		Details: map[string]any{
+			"idempotency_key":     idempotencyKey,
+			"spiffe_id":           spiffeID,
+			"namespace":           namespace,
+			"rotation_mechanism":  "SPIRE BatchCreateEntry registration re-entry",
+			"credentials_rotated": false,
+		},
+	}
+
+	resp, err := c.spireClient.ReenterAgent(ctx, req)
+	if err != nil {
+		res.Error = err.Error()
+		return res, err
+	}
+	if resp == nil {
+		nilErr := fmt.Errorf("spire reentry returned no response: %w", ErrEnforcementUnavailable)
+		res.Error = nilErr.Error()
+		return res, nilErr
+	}
+
+	res.Outcome = resp.Outcome
+	res.LatencyMs = resp.LatencyMs
+	res.Details["entry_created"] = resp.EntryCreated
+	res.Details["entry_id"] = resp.EntryID
+	res.Details["credentials_rotated"] = resp.Outcome == OutcomeContained
+
+	if resp.Outcome == OutcomeUnavailable {
+		reenterErr := fmt.Errorf("spire reentry failed: %s: %w", resp.Error, ErrEnforcementUnavailable)
+		res.Error = reenterErr.Error()
+		return res, reenterErr
+	}
+	return res, nil
+}
+
+func (c *k8sFleetClient) restoreBaoPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
+	planeRes, err := c.baoClient.RotateAgentCredentials(ctx, namespace, agentID, idempotencyKey)
+	if err != nil {
+		if planeRes == nil {
+			planeRes = &PlaneResult{
+				Plane:     PlaneBao,
+				Outcome:   OutcomeUnavailable,
+				Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+				Details: map[string]any{
+					"idempotency_key":     idempotencyKey,
+					"credentials_rotated": false,
+				},
+			}
+		}
+		planeRes.Error = err.Error()
+		return planeRes, err
+	}
+	return planeRes, nil
+}
+
+// RestoreCredentials satisfies the FleetClient contract by fanning out to every
+// configured plane and collapsing the per-plane results into a single error.
+func (c *k8sFleetClient) RestoreCredentials(ctx context.Context, agentID string) error {
+	_, err := c.RestoreCredentialsPlanes(ctx, c.defaultNamespace, agentID, fmt.Sprintf("restore-%s-%d", agentID, c.now().UnixNano()))
 	return err
+}
+
+// RotateCredentials performs credential rotation for a target agent and returns per-plane results.
+func (c *k8sFleetClient) RotateCredentials(ctx context.Context, namespace, agentID, idempotencyKey string) ([]PlaneResult, error) {
+	return c.RestoreCredentialsPlanes(ctx, namespace, agentID, idempotencyKey)
 }
 
 // Health probes API-server connectivity using only verbs the fleet-manager Role

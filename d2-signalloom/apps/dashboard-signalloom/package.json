@@ -8,7 +8,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ --max-warnings 0",
-    "test": "vitest"
+    "test": "vitest",
+    "check:manifest": "node ../../../scripts/generate-agentmaxxing-allowlist-manifest.mjs --check",
+    "generate:manifest": "node ../../../scripts/generate-agentmaxxing-allowlist-manifest.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.2",

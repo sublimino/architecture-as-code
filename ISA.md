@@ -1,115 +1,106 @@
 ---
-task: "SLER-P3-1: Implement dynamic mesh isolation cutting in-flight TCP connections"
-slug: sler-p3-1-mesh-isolation
+task: "AMXD-P3-2: Implement Zero-Payload Inspector widget proving prompt/code confidentiality"
+slug: amxd-p3-2-zero-payload-inspector
 project: osramp-demo
 effort: e3
 effort_source: classifier
 phase: complete
-progress: 18/18
+progress: 16/16
 mode: algorithm
-started: 2026-09-15T04:41:34+01:00
-updated: 2026-09-15T04:50:00+01:00
+started: 2026-09-15T05:03:00+01:00
+updated: 2026-09-15T05:07:15+01:00
 ---
 
 ## Problem
 
-Signal Loom Enforcement & Response requires cutting in-flight TCP connections immediately upon containment decision (<2s guaranteed denial). Currently, zero CiliumNetworkPolicy or Istio AuthorizationPolicy manifests exist in d2-signalloom, and the mature netfilter conntrack `FlushIP` primitive in `stun-sentinel/pkg/tc/conntrack.go` is not wired into the containment cascade or fleet-manager. Without dynamic mesh isolation, contained agents can retain active network sockets until natural connection termination, leaving an in-flight exfiltration window.
+The Zero-Payload Inspector proposal previously relied on DOM inspection asserting the absence of prompt/code strings, which passes unconditionally on fixture-fed pages and validates the wrong boundary. The true confidentiality boundary is `d2-signalloom/apps/agentmaxxing-host-sensor/filter.py`'s `AllowlistFilter` (`ALLOWLISTED_PROCESS_ATTRIBUTES`, `ALLOWLISTED_ENVELOPE_FIELDS`, `PROHIBITED_EXPORT_KEYS`, `filter_attributes`), which drops any unapproved key. The UI needs to render the compiled allowlist sets directly derived from `filter.py`, an active drop-count demonstration proving that unapproved fields are stripped, and a verifiable build digest of `filter.py` rather than hardcoded drifting constants.
 
 ## Vision
 
-Dynamic mesh isolation severs all in-flight network communication for contained agents in milliseconds:
-1. **CiliumNetworkPolicy**: Declaratively deployed in GitOps and dynamically evaluated by Cilium eBPF based on agent state labels (`signalloom.ai/state: stunned`).
-2. **Conntrack TCP Severance**: `conntrack.FlushIP` cuts in-flight TCP connections immediately upon containment, achieving <2s (typically <10ms) termination latency.
-3. **Fail-Closed & IPv4-Scoped**: Preserves fail-closed IPv4 validation, publishing IPv4-only scope explicitly with dual-stack IPv6 as a documented residual.
-4. **Idempotent & Reversible**: Safe under retries; removal on resume restores connectivity without collateral impact on neighboring workloads.
-5. **Attested & Observable**: Machine-readable structured logging ready for P5-1 cryptographic attestation.
+A mathematically provable, traceable Zero-Payload Inspector widget:
+1. **Source-Traced Build Manifest**: `scripts/generate-agentmaxxing-allowlist-manifest.mjs` extracts allowlist sets and computes the full SHA-256 digest of `filter.py` into a committed JSON manifest.
+2. **CI-Facing Staleness Gate**: The generator script enforces `--check` with distinct exit codes (0 for fresh, 1 for stale, 2 for error), failing CI if `filter.py` drifts without manifest regeneration.
+3. **Copyable Build Digest**: Full 64-character SHA-256 digest rendered in monospace with one-click copy and explicit labeling referencing `filter.py`.
+4. **Active Drop Count Demonstration**: Interactive demonstration feeding a representative raw event (with allowlisted and non-allowlisted keys like `prompt_text`, `file_contents`) through allowlist filtering, displaying the exact drop count and filtered keys.
+5. **Secondary DOM Check**: Repurposes DOM string checks as secondary defense-in-depth, clearly clarifying the primary proof is the kernel/sensor allowlist filter.
+6. **Robust Mock/Live Parity**: Sourced from build-time manifest, ensuring zero mock/live divergence.
 
 ## Out of Scope
 
-- Dual-stack IPv6 conntrack severance (IPv6 falls back to policy-based denial only).
-- Istio-specific AuthorizationPolicies (Cilium is the confirmed active CNI in the estate).
-- Direct mutation of customer production workloads or bypassing the integration branch.
-- Modifying the frozen wire schema (`sler.signalloom.io/v1alpha1`).
+- Modifying `d2-signalloom/apps/agentmaxxing-host-sensor/filter.py` or host sensor internals.
+- Direct mutations to backend production databases or modifying SLER enforcement engines.
+- Adding arbitrary file descriptor gauges or fabricating unallowlisted metrics.
 
 ## Principles
 
-- **Fail-Closed Isolation**: When in doubt or on error, traffic is denied and target is marked degraded.
-- **Selective Severance**: Conntrack flushing must delete only tuples belonging to the target IP; never issue a table-wide flush.
-- **Idempotency**: Repeated isolation or removal calls must produce stable, non-erroring states.
-- **Reversibility**: Restoring an agent must reliably un-sever network connectivity without collateral damage.
+- **Traceable Ground Truth**: UI assertions must trace directly to compiled source code artifacts via cryptographic digests.
+- **Active Boundary Proof**: Prove enforcement by demonstrating the active drop of prohibited fields, not by assuming absence in empty fixtures.
+- **Zero Drift Tolerance**: Manifest staleness must fail loudly and deterministically at build and test time.
 
 ## Constraints
 
-- All Go code must compile and pass tests under `GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache CGO_ENABLED=0`.
-- Preserve frozen `sler.signalloom.io/v1alpha1` schema without breaking reflective contract checks.
-- Do not rewrite `conntrack.go`'s internal validation; extend its caller path.
-- GitOps reconciliation convention must be respected.
+- TypeScript strict typecheck clean (`bun run typecheck`).
+- All tests passing in `dashboard-signalloom` with Vitest (`bun run test`).
+- Python interpreter availability verified explicitly before running python-based manifest extraction.
+- Strict data-testid attributes for Playwright acceptance suite compatibility.
 
 ## Goal
 
-Deliver end-to-end dynamic mesh isolation: author the CiliumNetworkPolicy manifest, extend the caller path around `conntrack.FlushIP`, wire mesh isolation into `fleet-manager` with full tri-state PlaneResult handling, enforce idempotency and bounded failure timeouts, provide structured attestation logging, and verify with unit tests, latency benchmarks, and netassert boundary proofs.
+Implement `scripts/generate-agentmaxxing-allowlist-manifest.mjs` and `ZeroPayloadInspector.tsx` with full allowlist rendering, active drop-count verification, copyable build digest, staleness detection, and comprehensive Vitest unit tests.
 
 ## Criteria
 
-- [x] ISC-1: `d2-signalloom/apps/fe-signalloom/base/cilium-isolation-policy.yaml` exists and defines a `CiliumNetworkPolicy` matching `signalloom.ai/agent: "true"` and `signalloom.ai/state: "stunned"` with default-deny ingress/egress.
-- [x] ISC-2: `d2-signalloom/apps/fe-signalloom/base/kustomization.yaml` includes the CiliumNetworkPolicy manifest in its resources.
-- [x] ISC-3: `MeshClient` interface and implementation exist in `fleet-manager` supporting `IsolateAgentMesh` and `RestoreAgentMesh`.
-- [x] ISC-4: `conntrack.FlushIP` is invoked during mesh isolation with the resolved Pod IPv4 address.
-- [x] ISC-5: Target without IPv4 (e.g. IPv6 only or unresolved IP) falls back to policy denial with conntrack flush skipped and recorded in `PlaneResult.Details`.
-- [x] ISC-6: Regression test confirms `conntrack.FlushIP` rejects nil or non-IPv4 targets with `conntrack: FlushIP requires an IPv4 address`.
-- [x] ISC-7: Mesh isolation apply is idempotent under retry with stable `IdempotencyKey`.
-- [x] ISC-8: Mesh isolation removal is idempotent: repeated calls against an un-isolated target succeed without error.
-- [x] ISC-9: Failure injection (e.g. timeout / network error) returns `OutcomeUnavailable` wrapped in `ErrEnforcementUnavailable` within bounded timeout.
-- [x] ISC-10: Target is marked in `degradedRegistry` under `PlaneMesh` when mesh isolation encounters `ErrEnforcementUnavailable`.
-- [x] ISC-11: Structured logging emits `mesh_isolation_attempt` event matching `SharedAttestationEventKeys` (`event`, `outcome`, `latency_ms`, `worst_case_residual_ms`).
-- [x] ISC-12: Isolation of target agent does not affect network connectivity of non-contained sibling agents (zero collateral denial).
-- [x] ISC-13: Measured TCP connection termination latency is benchmarked and documented in `docs/signalloom/sler-p3-1-proof.md`.
-- [x] ISC-14: `make -C d2-signalloom test-netassert` target is validated or documented with clean exit status.
-- [x] ISC-15: `docs/signalloom/sler-p3-1-proof.md` publishes guaranteed-denial latency, IPv4-only scope, and worst-case residual.
-- [x] ISC-16: Anti: No table-wide conntrack flush is ever executed.
-- [x] ISC-17: Anti: Mesh isolation does not mutate unrelated agent labels or network policies.
-- [x] ISC-18: Anti: No breaking changes to frozen `sler.signalloom.io/v1alpha1` schema types.
+- [x] ISC-1: `scripts/generate-agentmaxxing-allowlist-manifest.mjs` exists and extracts `ALLOWLISTED_PROCESS_ATTRIBUTES`, `ALLOWLISTED_ENVELOPE_FIELDS`, and `PROHIBITED_EXPORT_KEYS` from `filter.py`.
+- [x] ISC-2: `generate-agentmaxxing-allowlist-manifest.mjs` computes the full SHA-256 hex digest of `filter.py` content.
+- [x] ISC-3: `generate-agentmaxxing-allowlist-manifest.mjs` supports `--check` flag returning exit code 0 when fresh and exit code 1 when stale.
+- [x] ISC-4: `generate-agentmaxxing-allowlist-manifest.mjs` checks for `python3` availability and fails explicitly with clear error if missing.
+- [x] ISC-5: Target JSON manifest `agentmaxxing-allowlist-manifest.json` is generated and committed.
+- [x] ISC-6: `ZeroPayloadInspector.tsx` exists at `d2-signalloom/apps/dashboard-signalloom/src/components/demos/ZeroPayloadInspector.tsx`.
+- [x] ISC-7: `ZeroPayloadInspector` renders the compiled allowlist sets with `data-testid="allowlist-list"`.
+- [x] ISC-8: `ZeroPayloadInspector` renders the full SHA-256 build digest in copyable monospace format with `data-testid="filter-digest"`.
+- [x] ISC-9: `ZeroPayloadInspector` labels the digest clearly as computed from `filter.py` at build time.
+- [x] ISC-10: `ZeroPayloadInspector` performs a drop-count demonstration against a sample raw event containing allowlisted and non-allowlisted keys.
+- [x] ISC-11: `ZeroPayloadInspector` displays the drop count with `data-testid="drop-count"`.
+- [x] ISC-12: `ZeroPayloadInspector` renders a visible staleness warning banner with `data-testid="manifest-staleness-warning"` when passed a manifest with mismatched digest.
+- [x] ISC-13: `ZeroPayloadInspector` frames DOM string absence checks as secondary defense-in-depth, not primary proof.
+- [x] ISC-14: `ZeroPayloadInspector.test.tsx` passes with 100% assertions covering allowlist rendering, drop count calculation, copy interaction, and staleness detection.
+- [x] ISC-15: Mock and live channels render identical manifest-derived allowlist and digest.
+- [x] ISC-16: Anti: Zero raw customer source code or prompt tokens are rendered or accepted by the component.
 
 ## Test Strategy
 
-| ISC | Type | Check | Threshold | Tool |
-|---|---|---|---|---|
-| ISC-1..2 | Manifest | File existence and Kustomize build | Valid YAML & exit 0 | `test -f` / `kubectl kustomize` |
-| ISC-3..5 | Unit/Integration | Mesh client isolation logic | 100% pass | `go test ./...` |
-| ISC-6 | Regression | Conntrack IPv4 fail-closed check | Exact error message | `go test ./pkg/tc/...` |
-| ISC-7..8 | Idempotency | Double-apply and double-remove tests | Zero errors | `go test -run TestMesh` |
-| ISC-9..10 | Fault Injection | Timeout / mock failure tests | `OutcomeUnavailable` | `go test -run TestMeshFault` |
-| ISC-11 | Structured Log | Log JSON key verification | Contract match | `go test -run TestMeshLog` |
-| ISC-12 | Isolation Boundary | Multi-agent isolation test | Sibling intact | `go test -run TestMeshCollateral` |
-| ISC-13..15 | Benchmark & Proof | Latency benchmark and proof document | <2s / documented | `go test -bench` / `Read` |
-| ISC-16..18 | Anti-criteria | Scope and invariant checks | Zero violations | `Grep` / `go test` |
+- ISC-1..5: Node script execution `node scripts/generate-agentmaxxing-allowlist-manifest.mjs --check` and `--generate`.
+- ISC-6..13: Vitest component unit tests rendering `ZeroPayloadInspector` with default and mismatched manifests.
+- ISC-14: Vitest test suite `src/components/demos/ZeroPayloadInspector.test.tsx`.
+- ISC-15: Test asserting mock vs live parity for allowlist data.
+- ISC-16: Test asserting zero prompt text in rendered DOM.
 
 ## Features
 
-| Name | Satisfies | Depends On | Parallelizable |
-|---|---|---|---|
-| Cilium Isolation Manifest | ISC-1, ISC-2, ISC-18 | None | Yes |
-| Mesh Client & Conntrack Caller | ISC-3, ISC-4, ISC-5, ISC-6 | None | Yes |
-| Idempotency & Lifecycle Tests | ISC-7, ISC-8, ISC-12, ISC-16, ISC-17 | Mesh Client | No |
-| Fault Injection & Attestation Logs | ISC-9, ISC-10, ISC-11 | Mesh Client | No |
-| Benchmark, Proof & Governance | ISC-13, ISC-14, ISC-15 | All Features | No |
+- Feature 1: Build-time manifest generator script (`scripts/generate-agentmaxxing-allowlist-manifest.mjs`) with `--check` CI contract.
+- Feature 2: Committed JSON manifest (`src/data/agentmaxxing-allowlist-manifest.json`).
+- Feature 3: React component `ZeroPayloadInspector.tsx` with allowlist sets, drop count demo, build digest, and staleness warning.
+- Feature 4: Comprehensive test suite in `ZeroPayloadInspector.test.tsx`.
+- Feature 5: Integration into `ConfinementTelemetryPanel.tsx` (Stage 3).
 
 ## Decisions
 
-- **2026-09-15 04:42:00+01:00**: Selected CiliumNetworkPolicy as the confirmed mesh isolation technology based on SLER-P3-PRE preflight findings (Cilium active, Istio absent).
-- **2026-09-15 04:43:00+01:00**: Reused `stun-sentinel/pkg/tc/conntrack.go`'s `FlushIP` for in-flight TCP severance, preserving fail-closed IPv4 validation and publishing IPv6 as a documented residual.
-- **2026-09-15 04:44:00+01:00**: Scoped `CiliumNetworkPolicy` to endpointSelector `signalloom.ai/agent: "true"` and `signalloom.ai/state: "stunned"` so declarative GitOps policy applies dynamically upon pod label patch without needing out-of-band kubectl applies.
+- **Manifest Storage Location**: Place generated manifest at `d2-signalloom/apps/dashboard-signalloom/src/data/agentmaxxing-allowlist-manifest.json` and export types from `ZeroPayloadInspector.tsx`.
+- **Python Check in Script**: Execute `python3` safely to introspect AST or import sets directly, guaranteeing robust set extraction regardless of member ordering or whitespace formatting.
+- **Exit Code Contract**: Script exits 0 when `--check` matches, 1 when stale/mismatched, 2 for invocation/runtime errors.
 
 ## Changelog
 
-- **2026-09-15**: Scaffolded SLER-P3-1 dynamic mesh isolation implementation, test strategy, and verification criteria.
-- **2026-09-15**: Completed dynamic mesh isolation implementation, unit/benchmark test suite, CiliumNetworkPolicy manifest, netassert verification, and proof documentation.
+- 2026-09-15: Initialized ISA for AMXD-P3-2 Zero-Payload Inspector implementation.
+- 2026-09-15: Implemented manifest generator script, JSON manifest, ZeroPayloadInspector component, and 13-test Vitest suite. All 16 criteria verified green.
 
 ## Verification
 
-- **ISC-1 & ISC-2**: Verified `cilium-isolation-policy.yaml` manifests under `d2-signalloom/apps/fe-signalloom/base/` and verified with `kubectl kustomize`.
-- **ISC-3..ISC-12**: Verified via `go test -v ./...` in `d2-signalloom/apps/fleet-manager` (100% PASS across all unit, fault injection, logging, idempotency, and collateral isolation tests).
-- **ISC-6**: Verified conntrack rejection regression test in `mesh_client_test.go` and `stun-sentinel`.
-- **ISC-13 & ISC-15**: Benchmark `BenchmarkMeshIsolation_TerminationLatency` recorded ~4.6 µs/op in Go caller; proof documented in `docs/signalloom/sler-p3-1-proof.md`.
-- **ISC-14**: Live network policy test `make -C d2-signalloom test-netassert` passed 10/10 assertions against cluster.
-- **ISC-16..ISC-18**: Verified selective IP flushing, zero collateral damage, and preserved v1alpha1 frozen wire schema.
+- `node scripts/generate-agentmaxxing-allowlist-manifest.mjs --check` → exit 0 (fresh).
+- Deliberate staleness test with mismatched SHA-256 → exit 1 (stale).
+- `bun run test --run src/components/demos/ZeroPayloadInspector.test.tsx` → 13/13 passed.
+- `bun run test --run src/components/demos/ConfinementTelemetryPanel.test.tsx` → 20/20 passed.
+- `bun run typecheck` → exit 0.
+- `bunx eslint src/components/demos/ZeroPayloadInspector*` → exit 0 (0 errors, 0 warnings).
+- `bun run build` → exit 0 (`✓ built in 2.81s`).
+- `bats test/acceptance-spec-coverage.bats` → 7/7 passed.

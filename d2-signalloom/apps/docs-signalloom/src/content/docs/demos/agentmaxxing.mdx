@@ -1,0 +1,283 @@
+---
+title: AgentMaxxing interactive demo
+description: Step-by-step walkthrough and architectural guide for the AgentMaxxing Interactive Demo Console in Signal Loom.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+The **AgentMaxxing Interactive Demo Console** (`AMXD v0.1.0`) is a deterministic, five-stage laboratory in the Signal Loom dashboard (`/demos/agentmaxxing`). It allows security architects, platform engineers, and compliance auditors to interactively experience and verify the complete governance lifecycle of external Linux host agents running outside Kubernetes.
+
+The console enforces a **Strict Zero-Customer-Payload Invariant**: all metrics, cryptographic hash chains, and audit records operate exclusively on observable metadata (process lifecycle, CPU ticks, RSS byte counters, and SHA-256 digests) without ever ingesting or displaying prompt text, model generation tokens, or source code files.
+
+:::note[What changed since the original proposal]
+Following the architecture council and security review findings, the demo console was implemented with four concrete technical corrections against the original aspirational proposal:
+
+1. **Poll-Based Telemetry Transport**: Telemetry gauges for CPU and RSS memory operate on a deterministic **2.5-second HTTP polling loop** (`POST /api/v1/external-agents/evidence-uploads`) with a 150ms debounce window and an on-demand manual refresh trigger, rather than an unauthenticated push WebSocket/SSE stream. Instantaneous CPU % is internal to host sensor diagnostics and omitted from export to guarantee privacy; only cumulative CPU execution time (`cpu_time_ms`) and resident memory (`resident_memory_bytes`) are exported.
+2. **Honest Open FDs Availability State**: The Open File Descriptors gauge is explicitly rendered as **Unavailable** (`N/A — Not available in host-sensor-v1 contract (schema 1.0.0)`) because no open file descriptor count field exists in the host sensor Python models (`models.py`, schema 1.0.0). In accordance with the cold-start reproducibility rule, no arbitrary integer is fabricated.
+3. **Two-Endpoint Revocation & Denial Protocol**: Stage 5 executes a real two-endpoint sequence: an authenticated revocation dispatch to the bare route `POST /v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router`), followed by an audit upload attempt to `POST /api/v1/external-agents/evidence-uploads` (mounted on `host_compat_router`). Denial verification specifically asserts HTTP `403 Forbidden` with error code `agent_revoked`, rather than a single invented endpoint path.
+4. **Cryptographic Allowlist Manifest Inspection**: Stage 3 embeds the `ZeroPayloadInspector`, which displays the build-time SHA-256 manifest digest of `filter.py` (`183b788007e4adfe116e792893ccc814f5e66acfa68dbff067c9e2d71a239b34`) and proves that 6 prohibited leak vectors (`prompt_text`, `completion_text`, `file_contents`, `raw_cmdline`, `memory_contents`, `api_key`) are actively discarded.
+:::
+
+---
+
+## Interactive Stepper Architecture & Initial State
+
+The demo console operates as a deterministic finite state machine (FSM) spanning 5 sequential stages. State transitions are strictly validated, preventing illegal skips or out-of-order state corruptions.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                               AGENTMAXXING INTERACTIVE DEMO CONSOLE                              │
+│                                                                                                  │
+│ [STAGE 1: Operator Token] ──> [STAGE 2: Ed25519 Enroll] ──> [STAGE 3: Confinement Telemetry]    │
+│       (Confirmed ✓)                 (Pending)                         (Pending)                  │
+│                                          │                                                       │
+│                                          └──> [STAGE 4: Adversarial Simulation]                  │
+│                                                     (Pending)                                    │
+│                                                         │                                        │
+│                                                         └──> [STAGE 5: Attributable Revoke]      │
+│                                                                    (Pending)                     │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+<Mermaid
+  label="AgentMaxxing Demo Console 5-Stage Lifecycle"
+  diagram={`flowchart LR
+    S1["01 Operator Token Issuance<br/><code>operator_init</code><br/>(Confirmed ✓)"] -->|Advance / Auto-Play| S2["02 Ed25519 Host Enrollment<br/><code>host_enrolled</code><br/>(Pending)"]
+    S2 -->|Advance / Auto-Play| S3["03 Confinement Telemetry<br/><code>confinement_streaming</code><br/>(Pending)"]
+    S3 -->|Advance / Auto-Play| S4["04 Adversarial Simulation<br/><code>adversarial_tamper</code><br/>(Pending)"]
+    S4 -->|Advance / Auto-Play| S5["05 Attributable Revocation<br/><code>revocation_denied</code><br/>(Pending)"]
+    S5 -.->|Reset Estate| S1`}
+/>
+
+### Initial State at Boot (Stage 1)
+
+When the console loads (`/demos/agentmaxxing`), it initializes in the following state:
+
+- **Active Stage**: Stage 1 (`operator_init`), pre-confirmed with the authenticated operator principal derived from the active OIDC session (or `UNATTRIBUTED_OPERATOR_LABEL` if unauthenticated).
+- **Stepper Header**: Stage 1 pill shows `confirmed` (teal badge with checkmark); Stages 2 through 5 show `pending` (slate badge).
+- **Navigation Controls**:
+  - **Advance Stage**: Enabled (steps to Stage 2).
+  - **Auto-Play**: Toggle available with speed selectors (`1x`, `2x`, `instant`).
+  - **Reset Estate**: Wipes persisted stage state and resets all simulation panels back to Stage 1.
+  - **Keyboard Navigation**: Left/Right arrow keys navigate between completed stages and step forward.
+
+---
+
+## Dual-Mode Execution & Auto-Play Engine
+
+The console provides two execution modalities tailored for interactive exploration and high-velocity presentations.
+
+### 1. Manual Stepping
+Operators can click **Advance Stage**, click any previously confirmed stage pill in the header to review prior evidence, or use keyboard arrow keys (`ArrowRight` / `ArrowLeft`). Rapid clicks during in-flight transitions are strictly debounced to prevent race conditions.
+
+### 2. Auto-Play Mode with Async-Gate Dual-Lock
+Activating Auto-Play drives the stepper automatically through all 5 stages. Pacing is governed by the `executeAsyncGate` contract (`types.ts:527-645`):
+
+| Pacing Mode | Minimum Dwell (`dwellMs`) | Verification Behavior |
+| :--- | :--- | :--- |
+| **`1x` (Standard)** | 4,000 ms (4.0s) | Allows audience to comfortably absorb gauge metrics and tamper badges. |
+| **`2x` (Accelerated)** | 2,000 ms (2.0s) | Faster progression for familiar operators. |
+| **`instant`** | 100 ms | Rapid automated test and validation execution. |
+
+:::important[Async-Gate Dual-Lock Invariant]
+Auto-Play pacing is **not a cosmetic delay timer**. The `executeAsyncGate` controller enforces a dual-lock condition via `Promise.all([dwellPromise, confirmationPromise])`. Even in `instant` mode (100ms dwell), Auto-Play **waits for the backend/mock verification promise to actually resolve** before transitioning to the next stage. If a network call hangs or fails, the gate respects the timeout SLA and surfaces the error rather than advancing blindly.
+:::
+
+---
+
+## Stage-by-Stage Walkthrough
+
+### Stage 1: Attributable Operator Token Issuance (`operator_init`)
+
+Security governance begins with an attributable human operator issuing a cryptographically scoped, one-time enrollment token.
+
+<Mermaid
+  label="Stage 1 Token Issuance Sequence"
+  diagram={`sequenceDiagram
+    autonumber
+    actor Operator as Attributable Operator (OIDC)
+    participant UI as TokenIssuePanel (Stage 1)
+    participant API as POST /api/v1/external-agents/registrations/{id}/token
+
+    Operator->>UI: Click "Generate Enrollment Token"
+    UI->>API: POST /api/v1/external-agents/registrations/{agent_id}/token<br/>(Authorization: Bearer <OIDC_TOKEN>)
+    API-->>UI: 200 OK { token, expires_at: "TTL 300s", agent_id }
+    UI->>UI: Store token in EPHEMERAL component state (never localStorage)
+    UI->>Operator: Display token once with live ticking TTL countdown (300s -> 0s)`}
+/>
+
+- **Real Endpoint**: `POST /api/v1/external-agents/registrations/{agent_id}/token`
+- **Attributable Identity**: The operator identity is extracted directly from the authenticated OIDC token claims (`email`, `preferred_username`, or `sub`). If no authenticated session exists, the UI renders `Unattributed Operator` with a distinct warning badge, prohibiting fabricated identity literals.
+- **"Shown-Once, Then Gone" Security**: The generated secret token is held exclusively in ephemeral React component memory and is never written to `localStorage` or `sessionStorage`. If the user leaves the page or remounts the view, the secret token is destroyed and cannot be re-read.
+- **Ticking TTL Timer**: An active countdown timer decrements once per second from 300s. Once expired, the token is invalidated.
+
+---
+
+### Stage 2: Ed25519 Host Sensor Enrollment (`host_enrolled`)
+
+The external Linux host exchanges the single-use enrollment token for least-privilege, audit-scoped credentials.
+
+- **Real Endpoint**: `POST /api/v1/external-agents/enroll`
+- **Payload & Scoping**:
+  - Submits the enrollment token, host ID, Landlock ABI version (`ABI v3`), and kernel version.
+  - Receives an audit-scoped JWT token strictly restricted to `audit-upload-only` scope.
+- **Cryptographic Evidence Display**:
+  - Displays the host's public Ed25519 key fingerprint.
+  - Renders read-only copyable host registration and revocation endpoint paths.
+
+---
+
+### Stage 3: Confinement Telemetry & Zero-Payload Verification (`confinement_streaming`)
+
+Stage 3 observes Linux Landlock LSM process confinement and cryptographic file hashing in real time.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 3 CONFINEMENT TELEMETRY & ZERO-PAYLOAD PROOF                                               │
+│ Endpoint: POST /api/v1/external-agents/evidence-uploads | Poll Interval: 2.5s | Freshness: Live  │
+├──────────────────────────────┬──────────────────────────────┬────────────────────────────────────┤
+│ CPU Execution Time           │ Resident Memory (RSS)        │ Open File Descriptors              │
+│ 1,420 ms (1.42 s)            │ 42.18 MB                     │ N/A (Unavailable)                  │
+│ [██████████░░░░░░░░░░░░]     │ [████████████░░░░░░░░░░]     │ [Schema 1.0.0 - No sensor field]   │
+│ Cumulative cpu_time_ms       │ 44,230,656 bytes allocated   │ Honest unexported indicator        │
+├──────────────────────────────┴──────────────────────────────┴────────────────────────────────────┤
+│ ZERO-PAYLOAD INSPECTOR: filter.py SHA-256 Manifest (183b7880...39b34)                            │
+│ 6 Prohibited Keys Dropped: prompt_text, completion_text, file_contents, raw_cmdline, memory, key │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 1. Process Telemetry Gauges (Poll-Based)
+Telemetry updates via periodic polling (`POST /api/v1/external-agents/evidence-uploads`):
+- **Polling Cadence**: 2.5-second interval (`2500ms`) with 150ms debounce and a manual **Poll Telemetry Now** button. A `Last polled at: HH:MM:SS` timestamp confirms data freshness.
+- **CPU Execution Time Gauge**: Renders cumulative CPU execution time (`cpu_time_ms`). An explicit footnote notes that instantaneous CPU percentage is internal to host-sensor diagnostics and omitted from export to guarantee zero payload leakage.
+- **Resident Memory (RSS) Gauge**: Renders `resident_memory_bytes` converted to megabytes (`MB`) alongside raw byte allocation counts.
+- **Open File Descriptors Slot**: Explicitly rendered as **Unavailable** (`N/A — Not available in host-sensor-v1 contract (schema 1.0.0)`). The host sensor v1 schema does not export file descriptor counts; the UI honestly reflects this rather than fabricating placeholder numbers.
+
+#### 2. Cryptographic Artifact Hash Table
+Displays tracked workspace files (`artifact-demo-001`, `artifact-output-002`, `artifact-output-003`) comparing computed SHA-256 digests against anchor digests. Matches render a teal `Match` badge; discrepancies render an alert-red `Mismatch` badge.
+
+#### 3. Zero-Payload Inspector (`ZeroPayloadInspector`)
+Proves prompt and source code confidentiality through build-time cryptographic binding:
+- Displays the compiled SHA-256 digest of `d2-signalloom/apps/agentmaxxing-host-sensor/filter.py`: `183b788007e4adfe116e792893ccc814f5e66acfa68dbff067c9e2d71a239b34`.
+- Shows allowlisted process attributes (`health_state`, `cpu_time_ms`, `resident_memory_bytes`, `exit_code`, `restart_count`).
+- Actively demonstrates **6 dropped leak vectors**: `prompt_text`, `completion_text`, `file_contents`, `raw_cmdline`, `memory_contents`, and `api_key`.
+- Includes a live **Manifest Staleness Warning Banner** that immediately alerts if `filter.py` has been modified without re-running `generate-agentmaxxing-allowlist-manifest.mjs`.
+
+---
+
+### Stage 4: Adversarial Defect Simulation (`adversarial_tamper`)
+
+Stage 4 tests the governance plane's defensive containment by simulating three real adversarial attacks grounded in Linux kernel and host-sensor security boundaries.
+
+<Mermaid
+  label="Stage 4 Three Adversarial Simulation Controls"
+  diagram={`flowchart TD
+    subgraph Controls["Stage 4 Adversarial Injection Controls"]
+      C1["Control 1: Hash Mismatch<br/>(Artifact Bit-Flip Tamper)"]
+      C2["Control 2: Symlink Escape<br/>(Descriptor-Relative openat2)"]
+      C3["Control 3: Oversized Write<br/>(Pre-Read Limit Enforcer)"]
+    end
+
+    subgraph Defenses["Kernel & Sensor Containment Semantics"]
+      D1["SHA-256 Digest Discrepancy<br/><code>deadbeef98fc1c...</code> != <code>e3b0c44...</code>"]
+      D2["openat2(RESOLVE_BENEATH |<br/>RESOLVE_NO_SYMLINKS | RESOLVE_NO_XDEV)"]
+      D3["Pre-Read Size Check (16 MiB limit)<br/>Rejects 32 MiB payload without buffering"]
+    end
+
+    subgraph UI_Feedback["Immediate Observability & Evidence"]
+      F1["Red Tamper Badge & Containment Alert"]
+      F2["Kernel ELOOP / EXDEV Error Correlation"]
+      F3["413 Payload Too Large / Rate Limit Alert"]
+    end
+
+    C1 --> D1 --> F1
+    C2 --> D2 --> F2
+    C3 --> D3 --> F3`}
+/>
+
+#### Control 1: Cryptographic Hash Mismatch (`hash_mismatch`)
+- **Simulation**: Injects bit-flip payload corruption into the ephemeral artifact digest (`deadbeef98fc...`).
+- **Verification**: The verification engine recomputes the SHA-256 digest, detects the mismatch against the expected anchor, triggers a red containment alert badge, and records the defect on the ledger.
+- **Restoration**: Includes a **Restore Baseline Hash** button that returns the artifact byte-for-byte to its authentic baseline state.
+
+#### Control 2: Descriptor-Relative Symlink Escape (`symlink_escape`)
+- **Sourcing**: Sourced directly from `d2-signalloom/apps/agentmaxxing-host-sensor/file_validator.py` and kernel `openat2(2)` syscall semantics.
+- **Simulation**: Attempts path traversal escapes (`../../../../etc/shadow`, `/tmp/escape_symlink`) outside the pinned root directory.
+- **Kernel Defense**: Employs `openat2` flags:
+  - `RESOLVE_BENEATH` (0x01): Prevents escaping the starting directory.
+  - `RESOLVE_NO_SYMLINKS` (0x04): Rejects all symbolic links with `ELOOP`.
+  - `RESOLVE_NO_XDEV` (0x08): Blocks mount point boundary crossing (`EXDEV`).
+- **Evidence**: Rejects the attempt fail-closed before any byte is read, returning `symlink_rejected` and POSIX `ELOOP` error correlation.
+
+#### Control 3: Pre-Read Oversized Payload Rate-Limit Rejection (`oversized_write`)
+- **Sourcing**: Grounded in `ExternalAgentEvidenceV1Limit` (16 MiB max file size, 64 MiB window limit).
+- **Simulation**: Injects an oversized 32 MiB (33,554,432 byte) write attempt.
+- **Containment**: Sinks the payload at the pre-read size validator before allocating memory, triggering an immediate rate-limit violation and containment alert badge.
+
+---
+
+### Stage 5: Attributable Revocation & 403 Proof (`revocation_denied`)
+
+Stage 5 demonstrates instant, attributable revocation and proves that subsequent audit uploads are rejected fail-closed.
+
+<Mermaid
+  label="Stage 5 Two-Endpoint Revocation and Denial Flow"
+  diagram={`sequenceDiagram
+    autonumber
+    actor Operator as Attributable Operator
+    participant UI as RevocationPanel (Stage 5)
+    participant RevokeAPI as POST /v1/external-agents/hosts/{host_id}/revoke
+    participant UploadAPI as POST /api/v1/external-agents/evidence-uploads
+
+    Operator->>UI: Select Reason Code & Click "Revoke Host"
+    UI->>RevokeAPI: POST /v1/external-agents/hosts/{host_id}/revoke<br/>{ reason_code: "operator-request", operator: "..." }
+    RevokeAPI-->>UI: 200 OK { status: "revoked", revoked_at: "..." }
+    UI->>UI: Append revocation event to Audit Timeline
+
+    UI->>UploadAPI: POST /api/v1/external-agents/evidence-uploads<br/>(Attempt evidence upload with revoked credentials)
+    UploadAPI-->>UI: 403 Forbidden { error: { code: "agent_revoked", message: "..." } }
+    UI->>UI: Assert error.code === "agent_revoked"
+    UI->>Operator: Display Immutable Red "403 Forbidden — agent_revoked" Badge`}
+/>
+
+#### 1. Real Two-Endpoint Revocation Sequence
+1. **Revoke Dispatch**: An authenticated operator submits `POST /v1/external-agents/hosts/{host_id}/revoke` (mounted on `v1_router`).
+2. **Denial Verification**: The console immediately dispatches an evidence upload to `POST /api/v1/external-agents/evidence-uploads` (mounted on `host_compat_router`).
+
+#### 2. Mandatory Attributable Reason Codes
+The revocation form enforces selection of one of 5 standard `ExternalAgentRevocationV1` reason codes before enabling the dispatch button:
+- `operator-request`: Manual operator-initiated decommissioning or administrative quarantine.
+- `credential-compromise`: Suspected private key exfiltration or anomalous execution pattern.
+- `host-unenrolled`: Host sensor disconnected, decommissioned, or failed heartbeat.
+- `key-rotation`: Scheduled cryptographic credential rollover and retirement.
+- `credential-expired`: Validity window elapsed without valid renewal token.
+
+#### 3. Strict 403 Error Code Assertion
+The verification engine inspects the upload rejection response and confirms:
+- HTTP Status: `403 Forbidden`.
+- Normalized Error Code: `agent_revoked`.
+- Binding Mismatches Distinguished: Explicitly distinguishes `agent_revoked` from tenant binding mismatches (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`).
+
+#### 4. Cryptographic Audit Timeline & Transport Handling
+- **Timeline Ledger**: Persists both the revocation event (with operator email and reason code) and the denied upload attempt.
+- **Network Error Container**: If the backend connection fails or drops, renders a dedicated `Could not reach backend` container (`data-testid="revocation-network-error"`) rather than misclassifying transport failures as authorization denials.
+
+---
+
+## Reset Estate Lifecycle
+
+Clicking **Reset Estate** executes an idempotent cleanup:
+1. Clears `amxd.demo.currentStage` from local storage.
+2. Resets the FSM reducer back to `INITIAL_STEPPER_STATE` (Stage 1 `operator_init`).
+3. Restores all ephemeral artifact hashes and simulation controls to their authentic baseline states.
+4. Leaves the cluster and PostgreSQL database byte-for-byte clean without requiring pod restarts.
+
+---
+
+## Related Documentation
+
+- [Superadmin demonstrations](/docs/demos/superadmin/): Run and verify the SuperCredential multi-phase demonstration.
+- [Onboard an external Linux agent](/docs/start/external-linux-agent/): Complete operational guide for deploying external Linux host agents under Landlock LSM confinement.
+- [Nono optionality and Landlock confinement](/docs/security/nono-optionality/): Deep dive into Linux Landlock LSM sandboxing and ABI v3 architecture.
+- [External Agent Wire Contracts](/docs/reference/external-agent-wire-contracts/): Complete OpenAPI schemas and TypeScript definitions for external agent evidence.
+- [Attributable Operator Lifecycle](/docs/reference/operator-identity-lifecycle/): Operator identity management, session authorization, and negative shared-identity rejection.

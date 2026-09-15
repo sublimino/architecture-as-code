@@ -1,7 +1,53 @@
 # AGENTS.md: Signal Loom Delivery Slice
 
 Signal Loom is an agent governance platform. It provides a React dashboard SPA,
-a FastAPI backend, Dex OIDC, OpenBao with SPIRE, and integration proxies.
+a FastAPI backend, Dex OIDC, OpenBao with SPIRE, Fleet Manager, and integration proxies.
+
+## Platform Architecture
+
+```mermaid
+flowchart TB
+  subgraph INGRESS["Ingress & User Interfaces"]
+    SPA["dashboard-signalloom<br/>(React 18 SPA at :5173 / :8080)"]
+    DOCS["docs-signalloom<br/>(Astro Starlight at /docs)"]
+    CONSOLE["agentmaxxing-console<br/>(Interactive Demo Console)"]
+  end
+
+  subgraph CONTROL["Control & Governance Services (fe-signalloom)"]
+    API["fe-signalloom<br/>(FastAPI Backend)"]
+    FM["fleet-manager<br/>(Go Multi-Plane Controller)"]
+    INGEST["signal-ingest<br/>(Signal Ingestion Gateway)"]
+    PE["policy-engine<br/>(CEL & OPA Policy Evaluation)"]
+  end
+
+  subgraph ENFORCE["Enforcement & Telemetry"]
+    SENSOR["agentmaxxing-host-sensor<br/>(Coding Agent Host Sensor)"]
+    SENTINEL["stun-sentinel<br/>(eBPF Network Containment)"]
+    NETASSERT["netassert-controller<br/>(Network Policy Assertions)"]
+  end
+
+  subgraph IDENTITY["Identity & Persistence (inf-bao / inf-signalloom)"]
+    BAO["OpenBao (Secrets & JWT Engine)"]
+    SPIRE["SPIRE (Workload SPIFFE IDs)"]
+    PG["PostgreSQL (Audit & Evidence)"]
+    DEX["Dex OIDC Provider"]
+    MINIO["MinIO Blob Store"]
+  end
+
+  INGRESS --> CONTROL
+  CONTROL --> ENFORCE
+  CONTROL --> IDENTITY
+  ENFORCE --> IDENTITY
+
+  classDef ui fill:#e1f5fe,stroke:#0288d1,color:#01579b;
+  classDef ctrl fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+  classDef enf fill:#fff3e0,stroke:#f57c00,color:#e65100;
+  classDef idp fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c;
+  class SPA,DOCS,CONSOLE ui;
+  class API,FM,INGEST,PE ctrl;
+  class SENSOR,SENTINEL,NETASSERT enf;
+  class BAO,SPIRE,PG,DEX,MINIO idp;
+```
 
 ## Stack
 
@@ -10,13 +56,17 @@ a FastAPI backend, Dex OIDC, OpenBao with SPIRE, and integration proxies.
 | Dashboard SPA | React 18, Vite, TypeScript, nginx | `apps/dashboard-signalloom/` |
 | User documentation | Astro Starlight, Mermaid, nginx | `apps/docs-signalloom/` |
 | API backend | Python FastAPI | `apps/fe-signalloom/src/` |
+| Fleet Manager | Go multi-plane controller | `apps/fleet-manager/` |
+| Host Sensor | Go eBPF & procfs sensor | `apps/agentmaxxing-host-sensor/` |
+| Stun Sentinel | Go & eBPF tc-drop filter | `apps/stun-sentinel/` |
 | Integration services | Go and Python proxy | `apps/fake-integration-proxy/` |
 | Identity | Dex OIDC (local static user) | `infra/inf-signalloom/base/dex.yaml` |
 | Secrets and identity | OpenBao, SPIRE | `infra/inf-bao/` |
+| Kagent control plane | CNCF Kagent CRDs and swarm | `infra/kagent/` |
 | Persistence | PostgreSQL, Redis, MinIO | `infra/inf-signalloom/` |
 | Go tools | proof-helper | `proof-helper/` |
 | Kubernetes manifests | Kustomize overlays | `apps/fe-signalloom/base/`, `local/` |
-| Tests | BATS test suites | `test/` |
+| Tests | BATS and Vitest test suites | `test/` |
 
 ## Namespaces
 
@@ -51,19 +101,42 @@ kubectl -n ingress port-forward svc/envoy-ingress-cluster-* 18443:443
 
 ## Dashboard Routes
 
-| Route | Page Name | Data Source | Superadmin Only |
+| Route | Page Name | Purpose / Data Source | Superadmin Only |
 |---|---|---|---|
-| `/agents` | Agents (default) | API | |
-| `/compliance` | Compliance | API | |
-| `/audit` | Audit Trail | API | |
-| `/cryptography` | Cryptography | Mock | ✓ |
-| `/federated-services` | Federated Services | Mock | ✓ |
-| `/collusion-access` | Collusion & Access | Mock | ✓ |
-| `/rbac-analysis` | RBAC Analysis & Importer | AFM | ✓ |
-| `/rbac-explorer` | RBAC Explorer | AFM | ✓ |
-| `/supercred` | SuperCred Demo | fake-integration-proxy | |
-| `/settings` | Settings | API | |
-| `/docs` | User documentation | Static docs container | |
+| `/agents` | Agents (default) | Agent inventory & lifecycle status from API | |
+| `/agents/:id` | Agent Detail | Metadata, credentials, and telemetry for one agent | |
+| `/discovery` | Discovery | Discovered cloud accounts and identity providers | |
+| `/discovery/accounts/:accountId` | Account Detail | Workloads discovered within a single cloud account | |
+| `/topology` | Agent Trust Topology | SPIFFE trust domain relationships and network graphs | |
+| `/activity` | The Weave | Live message bus and inter-agent transaction stream | |
+| `/risk` | FAIR Risk Exposure | Quantitative financial loss exposure model | |
+| `/policies` | Compliance Policies | Policy enforcement engine and rule evaluation | |
+| `/compliance` | Compliance Overview | Multi-framework regulatory compliance posture | |
+| `/compliance/posture` | Agent Posture | Fleet-wide agent posture assessment | |
+| `/compliance/:frameworkId` | Framework Detail | Detailed control evaluation for one framework | |
+| `/collusion-access` | Collusion & Access | Multi-agent privilege escalation analysis | ✓ |
+| `/audit` | Audit Trail | Append-only immutable audit log from PostgreSQL | |
+| `/federated-services` | Federated Services | External federated service connectors | ✓ |
+| `/cryptography` | Cryptography | OpenBao and SPIRE cryptographic proof verification | ✓ |
+| `/credential-inventory` | Credential Inventory | Active credentials, expiration leases, and rotation status | |
+| `/rbac-analysis` | RBAC Analysis | Formal-methods privilege escalation analysis (AFM) | ✓ |
+| `/rbac-explorer` | RBAC Explorer | Interactive RBAC graph exploration (AFM) | ✓ |
+| `/signal-fusion` | Signal Fusion | Multi-sensor telemetry correlation | |
+| `/distance-latency` | Distance & Latency | Inter-service network distance and latency metrics | |
+| `/signal-store` | Signal Store | Raw and processed telemetry signals | |
+| `/feeds` | Feeds Explorer | External threat intelligence feeds | |
+| `/settings` | Settings | Platform configuration and API key management | |
+| `/onboarding` | Setup Wizard | Initial platform and tenant setup wizard | |
+| `/help/connectors/:provider` | Connector Help | Provider-specific connector configuration instructions | |
+| `/network-tests` | Network Tests | In-cluster connectivity and SPIFFE trust boundaries | |
+| `/supercred` | SuperCred Demo | High-privilege agent credential escalation simulation | |
+| `/fleet` | Fleet Demo | Multi-cluster fleet topology and health metrics | |
+| `/fleet/audience` | Fleet Audience View | Read-only presentation view for fleet demonstrations | |
+| `/demos/agentmaxxing` | AgentMaxxing Demo | Interactive console for multi-plane containment | |
+| `/design-system` | Design System | Component palette and typography showcase | |
+| `/design-system/headers` | Design System Headers | Standardised header hierarchy reference | |
+| `/redeem-invite` | Redeem Invite | User onboarding and invitation acceptance | |
+| `/docs` | Documentation | Embedded Astro Starlight technical documentation | |
 
 Utility routes: `/onboarding` (wizard) and `/redeem-invite` (user signup).
 
@@ -77,6 +150,40 @@ accessible.
 
 Read [`docs/signalloom/dashboard-superadmin-themes-importer.md`](../docs/signalloom/dashboard-superadmin-themes-importer.md)
 for details.
+
+## Application Components
+
+All application source code resides under `apps/`:
+
+| Component | Path | Description |
+|---|---|---|
+| `agentmaxxing-host-sensor` | `apps/agentmaxxing-host-sensor/` | Host sensor for coding agent detection, netlink attribution, and inference CIDR mapping. |
+| `cardvault` | `apps/cardvault/` | PCI-DSS simulated credit card storage service. |
+| `cardvault-agent` | `apps/cardvault-agent/` | Semi-autonomous AI agent interacting with cardvault. |
+| `cpai-engineer` | `apps/cpai-engineer/` | Automated coding agent worker implementation. |
+| `dashboard-signalloom` | `apps/dashboard-signalloom/` | React 18 / TypeScript single-page application. |
+| `docs-signalloom` | `apps/docs-signalloom/` | Astro Starlight documentation portal served at `/docs`. |
+| `factory-appraiser` | `apps/factory-appraiser/` | Asset appraisal agent workload. |
+| `fake-integration-proxy` | `apps/fake-integration-proxy/` | Deterministic fixture and discovery proxy for LLM and CRM endpoints. |
+| `fe-signalloom` | `apps/fe-signalloom/` | FastAPI backend serving dashboard queries and audit transactions. |
+| `fe-signalloom-agents` | `apps/fe-signalloom-agents/` | Inert podinfo pods representing target agent workloads. |
+| `fleet-agents` | `apps/fleet-agents/` | Synthetic agents representing remote cluster fleets. |
+| `fleet-manager` | `apps/fleet-manager/` | Go controller managing multi-plane containment across mesh, admission, OpenBao, SPIRE, and freeze. |
+| `hosted-daytona-coder` | `apps/hosted-daytona-coder/` | Hosted cloud development environment agent. |
+| `netassert-controller` | `apps/netassert-controller/` | Kubernetes controller verifying NetworkPolicy connectivity. |
+| `node-capability-guard` | `apps/node-capability-guard/` | Node-level security capability monitor. |
+| `nono-containment-probe` | `apps/nono-containment-probe/` | Kernel sandbox compliance and boundary verification probe. |
+| `policy-engine` | `apps/policy-engine/` | CEL and OPA policy evaluation service. |
+| `prod-deploy-gate` | `apps/prod-deploy-gate/` | Pre-deployment gating controller enforcing attestation checks. |
+| `prompt-commit-summarizer` | `apps/prompt-commit-summarizer/` | Automated Git commit message summarisation agent. |
+| `signal-ingest` | `apps/signal-ingest/` | High-throughput telemetry ingestion service. |
+| `signalloom-stun-sentinel` | `apps/signalloom-stun-sentinel/` | STUN protocol network barrier daemon. |
+| `stun-sentinel` | `apps/stun-sentinel/` | eBPF tc-drop filter and network containment controller. |
+| `supercred-demo-runner` | `apps/supercred-demo-runner/` | Automated driver for the SuperCred credential escalation demo. |
+| `swarm-governor` | `apps/swarm-governor/` | Governance controller orchestrating multi-agent coordination. |
+| `triage-ci-worker` | `apps/triage-ci-worker/` | Automated CI failure triage agent. |
+| `workspace-connector` | `apps/workspace-connector/` | Enterprise workspace integration service. |
+| `zulip-chat-agent` | `apps/zulip-chat-agent/` | Chatbot agent integrating with Zulip streams. |
 
 ## Testing
 
@@ -101,6 +208,9 @@ Run these test commands for this slice:
 | `cd apps/dashboard-signalloom && bun run typecheck` | Run TypeScript typecheck | ~2s |
 | `cd apps/dashboard-signalloom && bun run lint` | Run ESLint | ~2s |
 | `cd test/acceptance && bunx playwright test --project=smoke` | Run browser smoke tests | ~7s |
+| `make demo-agentmaxxing-test` | Run AgentMaxxing acceptance test suite | ~15s |
+| `make demo-signalloom-coding-agent-topology` | Validate coding agent detective telemetry | ~5s |
+| `make demo-agentmaxxing-docs-test` | Run documentation render check with Playwright | ~5s |
 
 ## Building the Dashboard Image
 

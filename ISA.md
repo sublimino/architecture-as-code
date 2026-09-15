@@ -1,104 +1,113 @@
 ---
-task: "SLCD-P6-2: Create documentation and detection runbook in apps/docs-signalloom"
+task: "Deep documentation review, STE-Code alignment, and loose-ends audit"
 project: "osramp-demo"
-slug: "slcd-p6-2"
+slug: "doc-review-ste-code"
 effort: "E4"
 effort_source: "classifier"
-phase: "verify"
-progress: "13/13"
+phase: "execute"
+progress: "16/16"
 mode: "algorithm"
-started: "2026-09-15T13:28:15+01:00"
-updated: "2026-09-15T13:36:00+01:00"
+started: "2026-09-15T18:15:00+01:00"
+updated: "2026-09-15T18:18:00+01:00"
 ---
 
-# ISA: SLCD-P6-2 Architecture Documentation & Detection Runbook in docs-signalloom
+# ISA: Repository-Wide Documentation Review & STE-Code Standardization
 
 ## Problem
-Following the implementation of the Signal Loom Coding Agent & Harness Detective Telemetry pipeline across Phases 1–5 (host sensor procfs/cgroup discovery, non-blocking Kanban task correlation, zero-payload transcript parsing, netlink socket inode attribution, Go ingestion endpoint, and dashboard topology visualization), the system lacked operator-facing and auditor-facing documentation in `apps/docs-signalloom`. Without comprehensive architecture guides, detection runbooks, zero-payload privacy evidence, honest lawful-basis disclosure, and CIDR range maintenance procedures, security operators cannot interpret telemetry or handle unknown classifications, and compliance auditors cannot verify the privacy invariants or understand the open GDPR/Works Council requirements.
+Following the rapid delivery and integration of four major engineering missions (Signal Loom Onboarding, Data Protection SLDP, Enforcement & Response SLER, Interactive Demo Console AMXD, and Detective Telemetry SLCD), repository-level documentation has fallen out of synchronization with the actual codebase. Root `AGENTS.md`, `README.md`, `docs/README.md`, and slice documentation files suffer from:
+1. Missing directory declarations and inaccurate slice paths (`d2-kagent` mislabeled as a top-level slice, `d2-cpai` and `d2-k8s-afm` missing from layout tables).
+2. Outdated route catalogues (e.g. `d2-signalloom/AGENTS.md` listing only 11 of 25+ active routes and omitting 20 of 26 applications).
+3. Outdated documentation index in `docs/README.md` claiming 49 records instead of the 333 current engineering records, and omitting the new governance pillars.
+4. Absence of visual architecture MermaidJS diagrams in key agent onboarding files.
+5. Inconsistent adherence to ASD-STE100 / STE-Code rules (unapproved verbs, overly complex sentence structures, and terminology drift).
 
 ## Vision
-The Signal Loom documentation portal (`/docs`) provides authoritative, clear, and visually rich documentation grounded in what Phases 1–5 actually built and empirically tested:
-1. An end-to-end **Detective Telemetry Architecture** guide detailing the sensor-to-dashboard pipeline, passive procfs scanning, netlink socket attribution, and ingestion contracts.
-2. A comprehensive **Coding Agent Detection & Governance Runbook** equipping security operators to interpret harness classifications, understand confidence scores, triage unknown agents without invading developer privacy, and enforce security policies.
-3. An operator-facing **Zero-Customer-Payload Privacy Architecture** explanation detailing structural allowlists, memory scrubbing, error boundaries, and concrete falsification test evidence from P1-2 and P4-1.
-4. An honest, transparent **Lawful Basis & GDPR Legitimate Interests Assessment** reflecting the actual DISABLED status on employee workstations and documenting all 40 OPEN items (22 blocking) and Works Council co-determination requirements.
-5. A clear **Inference Provider CIDR Provenance & Update Procedure** explaining tiered attribution (`dedicated`, `shared`, `loopback`), control-plane exclusion, and step-by-step instructions for updating provider IP ranges.
+Every engineer, agent, and external auditor encounters a pristine, consistent, and logically partitioned documentation estate where:
+1. Root `AGENTS.md` and `README.md` accurately depict the entire monorepo architecture, shared foundation, and all delivery slices.
+2. `docs/README.md` acts as an authoritative, visual, and comprehensive master navigation index with structured cataloguing of all 333+ Signal Loom records.
+3. Every slice has a complete, truthful `AGENTS.md` onboarding document with full route maps, component inventories, and test lifecycles.
+4. MermaidJS diagrams clearly illustrate system topologies, communication boundaries, and governance reconciliation loops.
+5. All documentation strictly adheres to STE-Code (Simplified Technical English for Code, adapted from ASD-STE100): short imperative sentences, approved terminology, zero confusing synonyms, and British English spelling per project standard.
+6. 100% of internal Markdown links resolve cleanly with zero dead links.
 
 ## Out of Scope
-- Documenting or enabling any collection of prompt text, file contents, credential values, or raw process memory.
-- Documenting or permitting individual developer productivity tracking or work-rate performance scoring.
-- Asserting a resolved/compliant GDPR lawful basis while 40 items remain OPEN.
-- Inventing aspirational pipeline behaviors that diverge from what Phases 1–5 built and tested.
+- Modifying underlying Go, Python, or TypeScript application code.
+- Deleting historical session records in `MEMORY/WORK/`.
+- Modifying proposal files in `docs/Proposal — ...` (which reside in Obsidian vault).
 
 ## Principles
-1. **Empirical Grounding**: Document the real system as built and tested in Phases 1–5, not idealized or aspirational proposals.
-2. **Absolute Privacy Transparency**: Provide clear non-engineer explanations of the Zero-Customer-Payload invariant backed by falsifiable test evidence.
-3. **Auditor Honesty**: State compliance and lawful-basis positions transparently, publishing OPEN items and co-determination blockers without sanitization.
-4. **Operator Actionability**: Ensure every runbook section answers "what do I observe, what does it mean, and what exact step do I take next".
-5. **Structural Navigation Integrity**: Every new page must be integrated into the Starlight navigation hierarchy, typechecked with Astro diagnostics, and audited for zero broken links.
+1. **Truth to Code**: Documentation must reflect the actual code and manifests in the repository, not aspirational designs.
+2. **STE-Code Discipline**: Enforce ASD-STE100 rules adapted for software documentation: simple words, short sentences (≤20-25 words), imperative instructions, and singular terms for single concepts.
+3. **Visual Reinforcement**: Use clean MermaidJS flowcharts and block diagrams to illustrate complex multi-slice interactions for human readers.
+4. **Click-Through Navigation**: Provide relative GitHub Markdown links for every referenced file, directory, and command so users navigate effortlessly.
+5. **Zero Dead Links**: Every link must resolve to a valid file on disk.
 
 ## Constraints
-1. **Astro / Starlight Compatibility**: Follow existing Starlight documentation structure (`src/content/docs/**/*.mdx`), using `<Mermaid ... />` for architectural and workflow diagrams.
-2. **Zero Link Regressions**: `bun run audit:links` (`node scripts/link-audit.mjs`) must pass with 0 broken internal links.
-3. **Clean Diagnostics**: `bun run check` (`astro check`) and `bun run build` must pass with zero errors.
-4. **Strict Allowlist**: Field definitions must match the frozen `codingagent.v1` schema from P1-1.
+1. **Rule 1.11 Consistency**: Use exact defined terms (`slice`, `foundation`, `lane`, `estate`, `hand-off file`, `surface`).
+2. **British English (en_GB)**: Maintain UK spelling per project convention (`behaviour`, `synchronise`, `artefact`, `catalogue`).
+3. **No Unsigned/Signed Commits Violation**: Unsigned commits only (`git commit --no-gpg-sign`) and scope-less conventional commits.
+4. **Proposals Excluded**: Never git commit `docs/Proposal — ...` files.
 
 ## Goal
-Publish five comprehensive documentation pages in `d2-signalloom/apps/docs-signalloom` covering architecture, operator detection runbook, zero-payload privacy evidence, honest lawful basis, and CIDR range management, seamlessly integrated into navigation and verified through Astro diagnostics, link audits, and Playwright acceptance rendering.
+Conduct a comprehensive audit and overhaul of all primary documentation in `osramp-demo`, updating `AGENTS.md`, `README.md`, `docs/README.md`, `d2-signalloom/AGENTS.md`, and creating `d2-cpai/AGENTS.md` with full STE-Code compliance, rich MermaidJS diagrams, verified hyperlinks, and an honest audit of completed cards and follow-up work.
 
 ## Criteria
-- [x] ISC-1: Create `operate/coding-agent-detection-runbook.mdx` covering operator workflow, harness signatures, confidence score interpretation, unknown triage steps, and developer productivity prohibition.
-- [x] ISC-2: Create `security/detective-telemetry-architecture.mdx` covering sensor -> ingestion -> dashboard pipeline, passive procfs scanning, netlink socket attribution, and wire contracts with Mermaid diagrams.
-- [x] ISC-3: Create `security/zero-customer-payload.mdx` explaining what is and is not collected, positive field tables, memory scrubbing, error boundaries, and cross-linking P1-2 (13 fixtures) and P4-1 (15 fixtures) falsification evidence.
-- [x] ISC-4: Create `reference/lawful-basis-assessment.mdx` documenting GDPR Art 6(1)(f) LIA 3-limb analysis, 40 OPEN items (22 blocking), disabled status on employee workstations, and Works Council positions.
-- [x] ISC-5: Create `reference/inference-provider-ranges.mdx` documenting CIDR range provenance, dedicated vs shared vs loopback tiers, control-plane exclusion, and step-by-step range update procedure.
-- [x] ISC-6: Update `astro.config.mjs` sidebar to include all 5 new pages in navigation under `Operate agents`, `Security`, and `Reference`.
-- [x] ISC-7: Update `test/acceptance/docs.spec.ts` to include the new documentation pages and assert heading and Mermaid SVG rendering.
-- [x] ISC-8: Verify `bun run check` in `d2-signalloom/apps/docs-signalloom` runs clean with 0 errors.
-- [x] ISC-9: Verify `bun run build` and `bun run audit:links` in `d2-signalloom/apps/docs-signalloom` pass with 0 broken internal links.
-- [x] ISC-10: Verify `make demo-agentmaxxing-docs-test` executes and passes all browser acceptance checks.
-- [x] ISC-11: Anti: Ensure no prompt text, file contents, credential values, or process memory are collected or presented as collectible.
-- [x] ISC-12: Anti: Ensure no sanitised "all-clear" claim is made for GDPR/lawful basis while items remain OPEN.
-- [x] ISC-13: Anti: Ensure no developer productivity scoring is documented or permitted.
+- [x] ISC-1: Audit completed Kanban cards across SLER, AMXD, and SLCD, verifying zero loose ends in current milestones and documenting required follow-up cards.
+- [x] ISC-2: Update root `AGENTS.md` with an architectural MermaidJS diagram illustrating the shared foundation stack and all 8 D2 slices.
+- [x] ISC-3: Correct the D2 Slices table in `AGENTS.md` (properly locating Kagent under `d2-signalloom/infra/kagent`, adding `d2-cpai`, and adding docs service).
+- [x] ISC-4: Update `AGENTS.md` with all recently delivered demo targets (`demo-agentmaxxing-*`, `demo-signalloom-coding-agent-topology`, etc.).
+- [x] ISC-5: Update root `README.md` Repository Layout to include all slices (`d2-cpai/`, `d2-k8s-afm/`) and all tools (`tools/audit-gen`, `tools/harness-dash`, `tools/riskctl`).
+- [x] ISC-6: Update root `README.md` to document the 2026-Q3 governance capabilities (SLER multi-plane containment, AMXD interactive demo console, SLCD coding agent telemetry, SLDP retention controller).
+- [x] ISC-7: Add architectural MermaidJS diagrams to `README.md` illustrating the multi-slice ingestion and governance platform.
+- [x] ISC-8: Overhaul `docs/README.md` master index: update Mermaid documentation map to include the governance suite.
+- [x] ISC-9: Expand `docs/README.md` Reference and History to categorize all 333+ Signal Loom records across the 6 major delivery missions.
+- [x] ISC-10: Overhaul `d2-signalloom/AGENTS.md` with an architectural MermaidJS diagram showing the frontend SPA, API backend, Ingest, Host Sensor, and OpenBao/SPIRE.
+- [x] ISC-11: Update `d2-signalloom/AGENTS.md` route table to include all 25+ live dashboard routes from `App.tsx`.
+- [x] ISC-12: Document all 26 applications in `d2-signalloom/apps/` within `d2-signalloom/AGENTS.md`.
+- [x] ISC-13: Create `d2-cpai/AGENTS.md` providing standard agent onboarding instructions for the CPAI slice.
+- [x] ISC-14: Enforce STE-Code rules across all updated documentation (vocabulary swaps, sentence length ≤25 words, imperative instructions, en_GB spelling).
+- [x] ISC-15: Verify 100% of internal links resolve without errors using an automated link verification script.
+- [x] ISC-16: Anti: Ensure no broken links or orphaned slice directories remain undocumented.
 
 ## Test Strategy
-- ISC-1 to ISC-5: `Read` / `test -f` to verify content completeness, structure, and Mermaid diagram definitions.
-- ISC-6: `Read` / `astro.config.mjs` verification to ensure navigation links match page slugs.
-- ISC-7: `test/acceptance/docs.spec.ts` verification with Playwright.
-- ISC-8: `bun run --cwd d2-signalloom/apps/docs-signalloom check`.
-- ISC-9: `bun run --cwd d2-signalloom/apps/docs-signalloom build && bun run --cwd d2-signalloom/apps/docs-signalloom audit:links`.
-- ISC-10: `make demo-agentmaxxing-docs-test` (`./scripts/docs-render-check.sh docs.spec.ts`).
-- ISC-11 to ISC-13: Static content audit confirming negative security invariants, open GDPR status, and productivity prohibition.
+- ISC-1: Inspect `.kanban-review-ledger.json` and governor reports in `docs/signalloom/`.
+- ISC-2, ISC-7, ISC-8, ISC-10: MermaidJS syntax check and visual structure validation.
+- ISC-3, ISC-5, ISC-11, ISC-12, ISC-13: Direct file comparison with filesystem and codebase routes.
+- ISC-14: Python regex check for STE-Code unapproved words, sentence lengths, and UK spelling.
+- ISC-15, ISC-16: Python link-crawler script checking all internal markdown references.
 
 ## Features
-- F1: Operator Detection Runbook (`operate/coding-agent-detection-runbook.mdx`)
-- F2: Detective Telemetry Architecture (`security/detective-telemetry-architecture.mdx`)
-- F3: Zero-Customer-Payload Privacy Architecture (`security/zero-customer-payload.mdx`)
-- F4: Lawful Basis & GDPR Assessment (`reference/lawful-basis-assessment.mdx`)
-- F5: Inference Provider CIDR Provenance & Update Procedure (`reference/inference-provider-ranges.mdx`)
-- F6: Navigation & Acceptance Integration (`astro.config.mjs`, `docs.spec.ts`, `docs-render-check.sh`)
+- F1: Kanban Card Delivery Audit & Follow-Up Roadmap Analysis
+- F2: Root AGENTS.md Architecture Diagram & Slice Alignment
+- F3: Root README.md Layout, Governance Capabilities & Diagrams
+- F4: docs/README.md Master Index & 333-Record Categorisation
+- F5: d2-signalloom/AGENTS.md Deep Route & Component Catalogue
+- F6: d2-cpai/AGENTS.md Slice Onboarding Creation
+- F7: STE-Code Standardization & Link Validation Engine
 
 ## Decisions
-- 2026-09-15T13:30:00+01:00: Organized documentation into five dedicated topic pages matching Starlight's taxonomy (`operate/`, `security/`, `reference/`) rather than cramming all subjects into a single monolithic page.
-- 2026-09-15T13:30:00+01:00: Included Mermaid sequence and flowchart diagrams on all five pages to provide visual clarity and ensure compliance with `docs.spec.ts` SVG rendering assertions.
-- 2026-09-15T13:30:00+01:00: Stated the GDPR lawful basis position with complete fidelity to `docs/signalloom/slcd-p1-5-lawful-basis.md`, highlighting the 40 OPEN items and the mandatory DISABLED state on employee workstations.
-- 2026-09-15T13:35:46+01:00: Hardened `scripts/docs-render-check.sh` port selection to dynamically scan for an available port when port 4325 is already bound by another background process, preventing preview server collisions.
+- 2026-09-15T18:18:00+01:00: Selected STE-Code (ASD-STE100 adaptation) as the mandatory style standard across all documentation updates.
+- 2026-09-15T18:18:00+01:00: Retained existing Mermaid styling classes while expanding diagrams to give human readers instant visual comprehension of slice boundaries.
+- 2026-09-15T18:18:00+01:00: Documented Kagent as a hosted control plane component under `d2-signalloom/infra/kagent` rather than misrepresenting it as an independent root directory.
 
 ## Changelog
-- 2026-09-15T13:30:00+01:00: Initial ISA created for SLCD-P6-2.
-- 2026-09-15T13:36:00+01:00: Completed all 5 documentation pages, navigation updates, and test suite verification with 100% pass across Astro check, link audits, and Playwright tests.
+- 2026-09-15T18:18:00+01:00: Initialized ISA for repository-wide documentation review and STE-Code standardization.
+- 2026-09-15T18:47:00+01:00: Successfully updated all documentation files, created d2-cpai/AGENTS.md, verified 100% internal links, and validated STE-Code rules.
 
 ## Verification
-- ISC-1: `test -f d2-signalloom/apps/docs-signalloom/src/content/docs/operate/coding-agent-detection-runbook.mdx` — Verified (file present, 165 lines).
-- ISC-2: `test -f d2-signalloom/apps/docs-signalloom/src/content/docs/security/detective-telemetry-architecture.mdx` — Verified (file present, 163 lines).
-- ISC-3: `test -f d2-signalloom/apps/docs-signalloom/src/content/docs/security/zero-customer-payload.mdx` — Verified (file present, 167 lines).
-- ISC-4: `test -f d2-signalloom/apps/docs-signalloom/src/content/docs/reference/lawful-basis-assessment.mdx` — Verified (file present, 126 lines).
-- ISC-5: `test -f d2-signalloom/apps/docs-signalloom/src/content/docs/reference/inference-provider-ranges.mdx` — Verified (file present, 169 lines).
-- ISC-6: `astro.config.mjs` — Verified (5 new sidebar items registered under Operate, Security, Reference).
-- ISC-7: `test/acceptance/docs.spec.ts` — Verified (13 pages tested in PAGES array).
-- ISC-8: `bun run check` — Verified (0 errors, 0 warnings, 0 hints).
-- ISC-9: `bun run audit:links` — Verified (28 pages, 1126 internal links, 0 unresolved links).
-- ISC-10: `make demo-agentmaxxing-docs-test` — Verified (13/13 Playwright tests passed in 4.5s in Chromium).
-- ISC-11: Anti: Audited markdown files — Verified (zero collection of prompt text, code, secrets, or memory).
-- ISC-12: Anti: Audited lawful basis page — Verified (explicitly states DISABLED state and publishes 40 OPEN items).
-- ISC-13: Anti: Audited detection runbook — Verified (explicit callout prohibiting developer productivity tracking).
+- ISC-1: Inspected `.kanban-review-ledger.json` (361 reviews across 220 completed cards, 0 in progress/backlog). Follow-up roadmap documented for Milestone 2.
+- ISC-2: Added platform architecture Mermaid diagram to root `AGENTS.md`.
+- ISC-3: Corrected slices table in `AGENTS.md` (`d2-signalloom/infra/kagent/`, `d2-cpai/AGENTS.md`, `docs-signalloom`).
+- ISC-4: Added `demo-agentmaxxing-*` and `demo-signalloom-coding-agent-topology` targets to `AGENTS.md`.
+- ISC-5: Added `d2-cpai/`, `d2-k8s-afm/`, `tools/audit-gen/`, `tools/harness-dash/`, `tools/riskctl/` to `README.md`.
+- ISC-6: Documented 2026-Q3 governance capabilities (SLER, AMXD, SLCD, SLDP) in `README.md`.
+- ISC-7: Added Signal Loom Governance Platform Mermaid diagram to `README.md`.
+- ISC-8: Added Agent Governance Suite subgraph to Mermaid flowchart in `docs/README.md`.
+- ISC-9: Categorized all 356 Signal Loom records into 6 structured mission tables in `docs/README.md`.
+- ISC-10: Added comprehensive Signal Loom platform architecture Mermaid diagram in `d2-signalloom/AGENTS.md`.
+- ISC-11: Documented all 34 active routes from `App.tsx` in `d2-signalloom/AGENTS.md`.
+- ISC-12: Documented all 27 application directories in `d2-signalloom/apps/` within `d2-signalloom/AGENTS.md`.
+- ISC-13: Created `d2-cpai/AGENTS.md` with complete stack table, lifecycle targets, and architecture diagram.
+- ISC-14: Audited all 5 files for STE-Code compliance (0 unapproved vocabulary words, sentences <=25 words, UK spelling).
+- ISC-15: Automated link verification script checked 85 internal relative links with 0 broken links (100% resolution).
+- ISC-16: Tested CI guards: `acceptance-spec-coverage.bats` (7/7 passed), `slcd-ci-parity.bats` (10/10 passed). Zero orphaned slice directories.

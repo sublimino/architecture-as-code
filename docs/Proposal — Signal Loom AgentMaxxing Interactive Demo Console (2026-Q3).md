@@ -292,7 +292,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P1-4 | implementation | Add the missing /v1/ proxy route to nginx and verify behind the real image | P1-PRE | `rg -n 'location' d2-signalloom/apps/dashboard-signalloom/nginx.conf` | S | antigravity | Pending | $0.00 | N/A | N/A | N/A |
 | P1-5 | implementation | Make the acceptance suite capable of failing | P1-PRE | `bats test/acceptance-spec-coverage.bats` | M | kpai | pass — delivered: f8776062a378959c33f628f0be081ced82c07b9f (see Errata — AMXD-P1-5) | $0.00 | N/A | N/A | N/A |
 | P1-GOV | governor | Approve stepper contracts and verify zero unresolved kickoff gates | P1-1, P1-2, P1-3, P1-4, P1-5 | Architecture review; zero kickoff gate exceptions | M | deep | pass — delivered: eed3b0b39ee436a4fa7de2e06fbb774f4ce79a79 (see Errata — AMXD-P1-GOV). Async gate holds by construction (no timer event exists in the closed union). Zero unresolved kickoff gates. Fixed 3 cross-card defects: tautological nginx drift guard, reachability/transport conflation that would have broken revoke, and P1-2/P1-3 reset-scope disagreement. All 3 mutation-falsified. 102 vitest/2 skipped, tsc 0, vite 0, route-collisions 10/10, spec-coverage 7/7, AMXD-P0 baseline green. | $0.00 | N/A | N/A | N/A |
-| P2-PRE | preflight | Confirm UI components, styling standards, and routing seams | P1-GOV | Component library check; `/demos/agentmaxxing` route registration check | S | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P2-PRE | preflight | Confirm UI components, styling standards, and routing seams | P1-GOV | Component library check; `/demos/agentmaxxing` route registration check | S | daily | **Pass** — settled NAV decision (`/demos/agentmaxxing` as `superadminOnly: true` NAV entry in 'Control' section); confirmed loading label derivation via `routeLoadingLabel(pathname)` with no EXTRA_ROUTE_LABELS duplication; inventoried component library (`EmptyState`, `NavIcon` glyph set, `AppLoader`/`PixelLoader`); confirmed styling import (`tokens.ts` `colors` module, zero bare hex); confirmed lazy route seam (`<Route path="/demos/agentmaxxing" element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />`). Baseline clean: 166 vitest suites pass, `tsc --noEmit` exit 0. | $0.00 | N/A | ~5m | N/A |
 | P2-1 | implementation | Build Stepper Header and Stage Progression Controller | P2-PRE | Vitest stepper unit tests; stage navigation click assertions | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-2 | implementation | Implement Stage 1 Token Issue and Stage 2 Ed25519 Enrollment panels | P2-PRE | Vitest enrollment panel tests; attributable token generation visual check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P2-GOV | governor | Merge Stage 1-2 UI and verify attributable enrollment display | P2-1, P2-2 | Typecheck + vitest suites pass; zero regression in existing sidebar | M | deep | Pending | $0.00 | N/A | N/A | N/A |
@@ -1138,3 +1138,156 @@ table is transcribed here by hand from the tool's stdout, and the Work
 Decomposition table's cost columns remain at their `$0.00 / N/A` defaults.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — AMXD-P2-PRE (preflight)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 03:46:28+01:00
+**Last Updated:** 2026-09-15 03:46:28+01:00
+
+##### Task identity
+- Card: `AMXD-P2-PRE`
+- Shortcode: `AMXD`
+- **Status:** pass
+- **Commit:** `c576179f8bde68009e61266d3a2501796763e16e`
+- Task base: `f582b0b7b62dfbf0a657dfb3c0e96bc30ff5dcd4` (direct parent of tick 116 launcher commit `a2a06ab17c82a6f82200e6be4a5fa3ea7dcaf302`)
+- Branch: `(detached)`
+- Integration ref: `refs/heads/integration/amxd-v0.1.0` -> `a2a06ab17c82a6f82200e6be4a5fa3ea7dcaf302`
+- Worktree: `/home/andy/src/.worktrees/58461/osramp-demo`
+- **Phase 2 can proceed:** yes
+- Result: Confirmed UI component library reuse, styling standards, and routing seams. Settled the NAV decision: `/demos/agentmaxxing` gets a real `superadminOnly: true` NAV entry under the 'Control' section, following existing demo precedents rather than the hidden/typed-URL Fleet Demo exception. Fixed pre-existing bare-hex lint violation in `AgentActivityTab.tsx:1142`. All 166 test files passed, typecheck exit 0.
+
+##### 1. Recorded NAV Decision and Reasoning
+
+**Decision: `/demos/agentmaxxing` gets a real Sidebar `NAV` entry with `superadminOnly: true` placed in the `Control` section.**
+
+**Reasoning:**
+- **Product & Demo Purpose:** The Decision Log defines the demo console as "a frictionless, step-by-step experience for high-impact sales and executive demonstrations". Relying on a typed URL would gatekeep the console behind knowing the URL exists upfront, defeating the core purpose of a live demonstration surface.
+- **Precedent Analysis:**
+  - *The Incorrect Precedent (`/fleet/audience`):* `/fleet/audience` is reachable only via `EXTRA_ROUTE_LABELS` (`App.tsx:151`) with no `Sidebar.tsx` entry. As `App.tsx:124-128` explicitly comments, `EXTRA_ROUTE_LABELS` is reserved for "Destinations that are not in the Sidebar's NAV: detail pages, and the flows only ever arrived at by redirect". `/fleet/audience` is an audience-mirroring redirect flow, not an operator interactive console.
+  - *The Correct Precedent (`/supercred`, `/signal-fusion`, `/distance-latency`):* Real interactive demonstration surfaces are defined directly in `Sidebar.tsx:118-120` with `superadminOnly: true`.
+- **NavSection Selection (`NavSection = 'View' | 'Control' | 'Design'`):**
+  - `/signal-fusion` and `/distance-latency` sit in `View` (`Sidebar.tsx:119-120`).
+  - `/supercred` sits in `Control` (`Sidebar.tsx:118`).
+  - For `/demos/agentmaxxing`, the console focuses on runtime process confinement (Landlock LSM), cryptographic artifact hashing, tampering detection, and attributable revocation with 403 denial proofs. Therefore, `Control` is the direct and canonical thematic section.
+- **Nav item specification:**
+  - `to: '/demos/agentmaxxing'`
+  - `label: 'AgentMaxxing Demo'`
+  - `section: 'Control'`
+  - `icon: 'containment'` (or dedicated `agentmaxxing` glyph in `Sidebar.tsx:26-91`)
+  - `superadminOnly: true`
+
+##### 2. Loading Label Derivation & Test Invariants
+
+- **`routeLoadingLabel` mapping:** In `App.tsx:167-171`:
+  ```typescript
+  export function routeLoadingLabel(pathname: string): string {
+    const patterns: [string, string][] = [
+      ...NAV.map((item): [string, string] => [item.to, item.label]),
+      ...Object.entries(EXTRA_ROUTE_LABELS),
+    ]
+  ```
+- **No `EXTRA_ROUTE_LABELS` duplication:** Because `routeLoadingLabel` automatically maps all `NAV` entries, adding `/demos/agentmaxxing` to `NAV` generates `'Loading AgentMaxxing Demo'` automatically. Adding a duplicate entry in `EXTRA_ROUTE_LABELS` would violate the separation documented in `App.tsx:124-128` and risk label divergence.
+- **`App.test.tsx` compliance:** `App.test.tsx:109-115` asserts:
+  ```typescript
+  it('gives every nav destination a name of its own', () => {
+    for (const item of NAV) {
+      expect(routeLoadingLabel(item.to)).toBe(`Loading ${item.label}`)
+    }
+  })
+  ```
+  Adding the NAV entry automatically satisfies this test.
+
+##### 3. Component-Reuse Inventory for AMXD-P2-1 / AMXD-P2-2
+
+- **`EmptyState`:** `d2-signalloom/apps/dashboard-signalloom/src/components/EmptyState.tsx:1-28`. Reusable for un-enrolled or un-initialized stages. Props: `{ kicker: string, body?: string, tone?: 'teal' | 'cyan' | 'violet' | 'amber' | 'red' }`.
+- **`NavIcon` / SVG Icon Set:** `d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx:38-91`. ViewBox `0 0 24 24`, `fill="none"`, `stroke="currentColor"`, `strokeWidth="1.8"`, `strokeLinecap="round"`, `strokeLinejoin="round"`.
+- **`AppLoader` / `PixelLoader`:** `App.tsx:204-218` and `d2-signalloom/apps/dashboard-signalloom/src/components/PixelLoader.tsx:1-686`. Uses brand diamond mark (`variant="Loom"` default), dynamic route labels, and elapsed timer. Stage progression operations should use `PixelLoader` or `ButtonWait` rather than custom loading rings or spinners.
+
+##### 4. Styling Standard & Exact Token Import Path
+
+- **Design Rules:** `d2-signalloom/DESIGN.md:1-60`.
+- **Exact Token Import Path:** `import { colors } from '../styles/tokens'` (or `import { colors } from '../../styles/tokens'` from `src/components/demos/`).
+- **Available Tokens (`src/styles/tokens.ts`):** `colors.cyanLoom` (`var(--cyan)`), `colors.tealLoom` (`var(--teal)`), `colors.irisViolet` (`var(--violet)`), `colors.amber` (`var(--amber)`), `colors.red` (`var(--error)`), `colors.deepMidnight` (`var(--bg)`), `colors.slateDark` (`var(--surface)`), `colors.elevatedSlate` (`var(--surface2)`), `colors.electricWhite` (`var(--text)`), `colors.muted` (`var(--muted)`).
+- **Enforced Invariant:** Zero bare hex colors in inline styles. `src/styles/cssVarUsage.test.ts` scans all TS/TSX files and fails if bare hex codes like `#3b82f6` are used.
+
+##### 5. Routing Seam Specification
+
+- **Lazy Import Seam (`App.tsx:30-56`):**
+  ```typescript
+  const AgentMaxxingDemoPage = lazy(() => import('./pages/AgentMaxxingDemoPage'))
+  ```
+- **Route Element Seam (`App.tsx:392-441`):**
+  ```tsx
+  <Route path="/demos/agentmaxxing" element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />
+  ```
+
+##### 6. Required Grep Evidence
+
+**Check 1: Sidebar.tsx NavSection declaration & existing demo entries**
+```
+grep -n "section: 'View'|section: 'Control'|section: 'Design'" d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx
+95:  { to: '/discovery', label: 'Discovery', section: 'View', icon: 'overview' },
+96:  { to: '/agents', label: 'Agents', section: 'View', icon: 'agents' },
+97:  { to: '/topology', label: 'Topology', section: 'View', icon: 'topology' },
+98:  { to: '/activity', label: 'Activity', section: 'View', icon: 'activity' },
+99:  { to: '/risk', label: 'FAIR Risk', section: 'View', icon: 'risk' },
+102:  { to: '/policies', label: 'Policies', section: 'Control', icon: 'policies' },
+103:  { to: '/compliance', label: 'Compliance', section: 'Control', icon: 'containment' },
+104:  { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion' },
+105:  { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit' },
+108:  { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation' },
+109:  { to: '/fleet', label: 'Fleet Config', section: 'Design', icon: 'fleet' },
+110:  { to: '/settings', label: 'Settings', section: 'Design', icon: 'settings' },
+113:  { to: '/cryptography', label: 'Cryptography', section: 'Control', icon: 'crypto', superadminOnly: true },
+114:  { to: '/credential-inventory', label: 'Credential Inventory', section: 'Control', icon: 'credentials', superadminOnly: true },
+115:  { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true },
+116:  { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true },
+117:  { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
+118:  { to: '/supercred', label: 'SuperCredential Demo', section: 'Control', icon: 'supercred', superadminOnly: true },
+119:  { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'View', icon: 'signalFusion', superadminOnly: true },
+120:  { to: '/distance-latency', label: 'Distance Latency Demo', section: 'View', icon: 'distanceLatency', superadminOnly: true },
+121:  { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },
+122:  { to: '/feeds', label: 'Feeds & Collectors', section: 'View', icon: 'feeds', superadminOnly: true },
+123:  { to: '/design-system', label: 'Design System', section: 'Design', icon: 'designSystem', end: true, superadminOnly: true },
+124:  { to: '/design-system/headers', label: 'Design System — Headers', section: 'Design', icon: 'designSystemHeaders', superadminOnly: true },
+```
+
+**Check 2: Sidebar.tsx superadminOnly entries**
+```
+grep -n "superadminOnly: true" d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx
+113:  { to: '/cryptography', label: 'Cryptography', section: 'Control', icon: 'crypto', superadminOnly: true },
+114:  { to: '/credential-inventory', label: 'Credential Inventory', section: 'Control', icon: 'credentials', superadminOnly: true },
+115:  { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true },
+116:  { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true },
+117:  { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
+118:  { to: '/supercred', label: 'SuperCredential Demo', section: 'Control', icon: 'supercred', superadminOnly: true },
+119:  { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'View', icon: 'signalFusion', superadminOnly: true },
+120:  { to: '/distance-latency', label: 'Distance Latency Demo', section: 'View', icon: 'distanceLatency', superadminOnly: true },
+121:  { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },
+122:  { to: '/feeds', label: 'Feeds & Collectors', section: 'View', icon: 'feeds', superadminOnly: true },
+123:  { to: '/design-system', label: 'Design System', section: 'Design', icon: 'designSystem', end: true, superadminOnly: true },
+124:  { to: '/design-system/headers', label: 'Design System — Headers', section: 'Design', icon: 'designSystemHeaders', superadminOnly: true },
+```
+
+**Check 3: App.test.tsx full NAV iteration assertion**
+```
+grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/dashboard-signalloom/src/App.test.tsx
+109:  it('gives every nav destination a name of its own', () => {
+110-    // A nav item added without a label here would silently fall through to the
+111-    // bare "Loading" — the exact wording this change exists to get rid of.
+112-    for (const item of NAV) {
+113-      expect(routeLoadingLabel(item.to)).toBe(`Loading ${item.label}`)
+114-    }
+115-  })
+116-
+117-  it('falls back to honest generic wording for an unrecognised path', () => {
+```
+
+##### 7. Baseline Fixes and Test Verification
+
+- **Baseline Fix:** Repaired pre-existing bare hex code `#3b82f6` in `src/components/AgentActivityTab.tsx:1142` to use `colors.cyanLoom` with `rgba(6, 182, 212, 0.15)` background. Committed as `c576179f8bde68009e61266d3a2501796763e16e`.
+- **Vitest Suite:** 166 test files passed (3,250 passed, 3 skipped, 0 failed).
+- **TypeScript:** `tsc --noEmit` exited 0 with 0 errors.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

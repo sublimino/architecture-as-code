@@ -19,15 +19,20 @@ type StateChangeEvent struct {
 	FromState string `json:"from_state"`
 	ToState   string `json:"to_state"`
 	Timestamp string `json:"timestamp"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
 }
 
 // CascadeResult is the response payload for a stun or recover operation.
 type CascadeResult struct {
+	SchemaVersion  string             `json:"schema_version,omitempty"`
 	TargetAgent    string             `json:"target_agent"`
 	AffectedAgents []string           `json:"affected_agents"`
 	Events         []StateChangeEvent `json:"events"`
+	Planes         []PlaneResult      `json:"planes,omitempty"`
 	DurationMs     int64              `json:"duration_ms"`
 	RecoveryOrder  []string           `json:"recovery_order,omitempty"`
+	OverallOutcome PlaneOutcome       `json:"overall_outcome,omitempty"`
 }
 
 // FleetClient abstracts the Kubernetes and OpenBao operations needed by the
@@ -106,6 +111,7 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID string) (*Cascad
 			FromState: currentState,
 			ToState:   StateStunned,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Success:   true,
 		})
 
 		slog.Info("agent stunned", "agent", id, "from", currentState)
@@ -161,6 +167,7 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 			FromState: StateStunned,
 			ToState:   StateRunning,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Success:   true,
 		})
 
 		slog.Info("agent recovered", "agent", id)

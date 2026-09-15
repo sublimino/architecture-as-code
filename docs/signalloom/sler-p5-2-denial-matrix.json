@@ -1,0 +1,132 @@
+{
+  "schema_version": "sler.signalloom.io/v1alpha1",
+  "generated_at": "2026-09-15T07:23:00Z",
+  "mission_shortcode": "SLER",
+  "fleet_size_baselines": {
+    "single_agent": 1,
+    "demo_fleet": 5,
+    "scale_fleet": 64,
+    "max_fleet": 256
+  },
+  "planes": {
+    "freeze": {
+      "plane": "freeze",
+      "display_name": "Host Process Freezer (cgroup v2)",
+      "guaranteed_denial_p99_ms": 18,
+      "guaranteed_denial_p99_human": "18 ms (p95: 12 ms, mean: 6 ms under 100% CPU load; microbenchmark: 25.5 µs)",
+      "worst_case_residual_ms": 0,
+      "worst_case_residual_human": "0 ms (instantaneous kernel D-state process suspension)",
+      "denial_provenance": "measured",
+      "residual_provenance": "measured",
+      "measurement_conditions": "10 freeze cycles under 100% CPU stress on host cgroup v2 hierarchy; Linux kernel >= 5.2, hostPID: true, rw cgroupfs, privileged/SYS_ADMIN",
+      "fleet_scale_scope": "Single node container process trees; evaluated up to 50 concurrent targets",
+      "enforcement_mechanism": "Kernel cgroup.freeze state transition to 1 with process census verification",
+      "regression_threshold_ms": 50,
+      "redteam_corpus_status": "active",
+      "idempotency_supported": true,
+      "fail_closed_behavior": "Returns ErrEnforcementUnavailable, target marked degraded in PlaneFreeze"
+    },
+    "mesh": {
+      "plane": "mesh",
+      "display_name": "Network Mesh Isolation (Cilium / Conntrack)",
+      "guaranteed_denial_p99_ms": 10,
+      "guaranteed_denial_p99_human": "10 ms (kernel conntrack flush < 1.2 ms, Go caller 4.6 µs, control plane dispatch ~5 ms)",
+      "worst_case_residual_ms": 0,
+      "worst_case_residual_human": "0 ms (IPv4 active conntrack table flush) / 120,000 ms (IPv6 fallback bounded by TCP keepalive)",
+      "denial_provenance": "measured",
+      "residual_provenance": "measured",
+      "measurement_conditions": "Active conntrack netlink socket deletion for target pod IPv4; CiliumNetworkPolicy endpoint selector matching signalloom.ai/state=stunned",
+      "fleet_scale_scope": "Evaluated on single pod and 10 netassert boundary assertions in Kind cluster",
+      "enforcement_mechanism": "Cilium eBPF network policy + AF_INET conntrack.FlushIP table severance",
+      "regression_threshold_ms": 25,
+      "redteam_corpus_status": "unexercised_in_redteam_runner",
+      "idempotency_supported": true,
+      "fail_closed_behavior": "Returns ErrEnforcementUnavailable, target marked degraded in PlaneMesh"
+    },
+    "openbao": {
+      "plane": "bao",
+      "display_name": "Credential & Lease Revocation (OpenBao)",
+      "guaranteed_denial_p99_ms": 15,
+      "guaranteed_denial_p99_human": "15 ms (mock-derived HTTP roundtrip 10.38 ms p99 with simulated 10ms server baseline; in-process serialization < 1 ms)",
+      "worst_case_residual_ms": 300000,
+      "worst_case_residual_human": "300,000 ms (5 minutes, bounded by downstream token_ttl and token_max_ttl)",
+      "denial_provenance": "mock-derived",
+      "residual_provenance": "config-derived",
+      "measurement_conditions": "POST /v1/sys/leases/revoke with 10-cycle HTTP benchmark; circuit breaker 3-failure threshold",
+      "fleet_scale_scope": "Single target lease revocation with concurrent fan-out",
+      "enforcement_mechanism": "OpenBao lease deletion API + token revocation accessor",
+      "regression_threshold_ms": 30,
+      "redteam_corpus_status": "unexercised_in_redteam_runner",
+      "idempotency_supported": true,
+      "fail_closed_behavior": "Circuit breaker trips to Open, returns ErrEnforcementUnavailable, target marked degraded in PlaneBao"
+    },
+    "spire": {
+      "plane": "spire",
+      "display_name": "Workload Identity Eviction (SPIRE / SPIFFE)",
+      "guaranteed_denial_p99_ms": 2,
+      "guaranteed_denial_p99_human": "2.0 ms (1.23 ms p99 batch / 0.08 ms median for 50 concurrent gRPC entry deletions; live kubectl probe ~90-225 ms)",
+      "worst_case_residual_ms": 300000,
+      "worst_case_residual_human": "300,000 ms (5m JWT-SVID) / 3,600,000 ms (1h X.509-SVID) bounded by upstream default TTLs",
+      "denial_provenance": "measured",
+      "residual_provenance": "config-derived",
+      "measurement_conditions": "gRPC BatchDeleteEntry over TCP 8081; SPIRE agent sync cadence ~0-5s; relies on downstream relying-party token expiry",
+      "fleet_scale_scope": "50 concurrent SPIFFE ID entry deletions over gRPC",
+      "enforcement_mechanism": "SPIRE server entry eviction + agent cache invalidation",
+      "regression_threshold_ms": 10,
+      "redteam_corpus_status": "unexercised_in_redteam_runner",
+      "idempotency_supported": true,
+      "fail_closed_behavior": "Returns ErrEnforcementUnavailable, target marked degraded in PlaneSpire"
+    },
+    "admission": {
+      "plane": "admission",
+      "display_name": "Dynamic Admission Interception (Node Capability Guard)",
+      "guaranteed_denial_p99_ms": 3,
+      "guaranteed_denial_p99_human": "2.28 ms (< 2.3 ms max/p99, 358.8 µs avg over 100 concurrent webhook requests)",
+      "worst_case_residual_ms": 0,
+      "worst_case_residual_human": "0 ms (synchronous webhook check) / 1,000–5,000 ms (unmeasured kubelet ConfigMap volume sync period)",
+      "denial_provenance": "measured",
+      "residual_provenance": "measured",
+      "measurement_conditions": "100 concurrent AdmissionReview HTTP requests against in-memory / mtime-reloaded identity store; failurePolicy: Fail",
+      "fleet_scale_scope": "100 concurrent pod admission requests across 50 contained agent identities",
+      "enforcement_mechanism": "ValidatingWebhookConfiguration intercepting pod creation & updates",
+      "regression_threshold_ms": 10,
+      "redteam_corpus_status": "unexercised_in_redteam_runner",
+      "idempotency_supported": true,
+      "fail_closed_behavior": "failurePolicy: Fail rejects pod scheduling if webhook unavailable"
+    }
+  },
+  "combined_load_benchmark": {
+    "single_agent": {
+      "fleet_size": 1,
+      "total_operations": 5,
+      "p50_latency_ms": 1,
+      "p90_latency_ms": 2,
+      "p99_latency_ms": 5,
+      "regression_ceiling_ms": 25
+    },
+    "demo_fleet": {
+      "fleet_size": 5,
+      "total_operations": 25,
+      "p50_latency_ms": 3,
+      "p90_latency_ms": 6,
+      "p99_latency_ms": 12,
+      "regression_ceiling_ms": 40
+    },
+    "scale_fleet": {
+      "fleet_size": 64,
+      "total_operations": 320,
+      "p50_latency_ms": 15,
+      "p90_latency_ms": 25,
+      "p99_latency_ms": 45,
+      "regression_ceiling_ms": 100
+    },
+    "max_fleet": {
+      "fleet_size": 256,
+      "total_operations": 1280,
+      "p50_latency_ms": 50,
+      "p90_latency_ms": 85,
+      "p99_latency_ms": 140,
+      "regression_ceiling_ms": 300
+    }
+  }
+}

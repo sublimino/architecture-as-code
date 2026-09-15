@@ -27,15 +27,19 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/quarantine"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/telemetry"
 )
 
 type config struct {
-	cgroupRoot  string
-	listenAddr  string
-	deadline    time.Duration
-	freezeToken string
-	resumeToken string
+	cgroupRoot        string
+	listenAddr        string
+	deadline          time.Duration
+	freezeToken       string
+	resumeToken       string
+	quarantineDir     string
+	quarantineMaxMB   int64
+	quarantineTimeout time.Duration
 }
 
 func loadConfig(args []string) (*config, error) {
@@ -43,17 +47,23 @@ func loadConfig(args []string) (*config, error) {
 	root := fs.String("cgroup-root", envOr("CGROUP_ROOT", cgroup.DefaultCgroupRoot), "cgroup-v2 unified hierarchy root")
 	addr := fs.String("listen-addr", envOr("LISTEN_ADDR", ":8080"), "HTTP listen address")
 	deadline := fs.Duration("freeze-deadline", cgroup.DefaultFreezeDeadline, "hard deadline for observing the frozen state")
+	qDir := fs.String("quarantine-dir", envOr("STUN_QUARANTINE_DIR", quarantine.DefaultStorageDir), "directory for storing quarantine snapshots")
+	qMaxMB := fs.Int64("quarantine-max-mb", 64, "maximum memory snapshot size in megabytes")
+	qTimeout := fs.Duration("quarantine-timeout", quarantine.DefaultMaxTimeBudget, "maximum time budget for forensic capture")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
 	// The freeze and resume credentials are read from the environment only. Putting them on
 	// the command line would publish them in every `ps` and in the pod spec.
 	return &config{
-		cgroupRoot:  *root,
-		listenAddr:  *addr,
-		deadline:    *deadline,
-		freezeToken: os.Getenv("STUN_FREEZE_TOKEN"),
-		resumeToken: os.Getenv("STUN_RESUME_TOKEN"),
+		cgroupRoot:        *root,
+		listenAddr:        *addr,
+		deadline:          *deadline,
+		freezeToken:       os.Getenv("STUN_FREEZE_TOKEN"),
+		resumeToken:       os.Getenv("STUN_RESUME_TOKEN"),
+		quarantineDir:     *qDir,
+		quarantineMaxMB:   *qMaxMB,
+		quarantineTimeout: *qTimeout,
 	}, nil
 }
 
@@ -89,6 +99,7 @@ func constantTimeTokenValidator(expected string) cgroup.CredentialValidator {
 type server struct {
 	freezer        *cgroup.Freezer
 	emitter        *telemetry.Emitter
+	capturer       *quarantine.Capturer
 	freezeValidate cgroup.CredentialValidator
 	resumeValidate cgroup.CredentialValidator
 }
@@ -104,6 +115,26 @@ func observationFrom(res *cgroup.FreezeResult, podName, namespace string) teleme
 		DeadlineMS: float64(res.Deadline.Nanoseconds()) / 1e6,
 		Polls:      res.Polls,
 		PIDs:       res.PIDs,
+	}
+}
+
+func quarantineObservationFrom(m *quarantine.QuarantineManifest, pids []int) telemetry.QuarantineObservation {
+	return telemetry.QuarantineObservation{
+		PodUID:            m.Target.PodUID,
+		PodName:           m.Target.PodName,
+		Namespace:         m.Target.Namespace,
+		CgroupPath:        m.Target.CgroupPath,
+		SnapshotID:        m.CaptureID,
+		SnapshotPath:      m.StoragePath,
+		SnapshotSizeBytes: m.Summary.TotalSnapshotSizeBytes,
+		CaptureDurationMS: m.CaptureDurationMS,
+		ProcessCount:      m.Summary.ProcessCount,
+		FDCount:           m.Summary.TotalFDCount,
+		SocketCount:       m.Summary.TotalSocketCount,
+		LockCount:         m.Summary.TotalLockCount,
+		Partial:           m.Partial,
+		PartialReason:     m.PartialReason,
+		PIDs:              pids,
 	}
 }
 
@@ -142,17 +173,27 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		PodUID    string `json:"pod_uid"`
-		PodName   string `json:"pod"`
-		Namespace string `json:"namespace"`
+		PodUID            string `json:"pod_uid"`
+		PodName           string `json:"pod"`
+		Namespace         string `json:"namespace"`
+		CaptureQuarantine bool   `json:"capture_quarantine"`
+		Quarantine        bool   `json:"quarantine"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
 		return
 	}
 	credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	captureQuarantine := req.CaptureQuarantine || req.Quarantine
 
-	res, err := s.freezer.FreezePod(req.PodUID, credential)
+	opts := cgroup.FreezeOptions{
+		CaptureQuarantine: captureQuarantine,
+		PodUID:            req.PodUID,
+		PodName:           req.PodName,
+		Namespace:         req.Namespace,
+	}
+
+	res, err := s.freezer.FreezePodWithOptions(r.Context(), req.PodUID, credential, opts)
 	obs := observationFrom(res, req.PodName, req.Namespace)
 	if err != nil {
 		_ = s.emitter.StunExecutionHaltFailed(obs, err.Error())
@@ -160,6 +201,17 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.emitter.StunExecutionHalted(obs)
+
+	// Emit forensic quarantine telemetry if snapshotting was performed
+	if res.Quarantine != nil {
+		qObs := quarantineObservationFrom(res.Quarantine, res.PIDs)
+		if res.Quarantine.Partial {
+			_ = s.emitter.QuarantineSnapshotPartial(qObs)
+		} else {
+			_ = s.emitter.QuarantineSnapshotCaptured(qObs)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -186,6 +238,66 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.emitter.StunExecutionResumed(observationFrom(res, req.PodName, req.Namespace))
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
+		return
+	}
+	if s.capturer == nil {
+		writeJSON(w, http.StatusOK, []*quarantine.QuarantineManifest{})
+		return
+	}
+	snapshots, err := s.capturer.ListSnapshots()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshots)
+}
+
+func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
+		return
+	}
+	if s.capturer == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "snapshot capturer not configured"})
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/quarantine/snapshots/")
+	if id == "" {
+		s.handleListSnapshots(w, r)
+		return
+	}
+	snapshot, err := s.capturer.GetSnapshot(id)
+	if err != nil {
+		if errors.Is(err, quarantine.ErrSnapshotNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "snapshot not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+		return
+	}
+	if s.capturer == nil {
+		writeJSON(w, http.StatusOK, &quarantine.PruneResult{})
+		return
+	}
+	res, err := s.capturer.Prune()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -245,6 +357,10 @@ func (s *server) routes() *http.ServeMux {
 	// that stops an unauthenticated caller reaching either handler at all.
 	mux.HandleFunc("/stun", requireBearer(s.freezeValidate, s.handleStun))
 	mux.HandleFunc("/resume", requireBearer(s.resumeValidate, s.handleResume))
+	// Quarantine inspection and maintenance endpoints
+	mux.HandleFunc("/quarantine/snapshots", s.handleListSnapshots)
+	mux.HandleFunc("/quarantine/snapshots/", s.handleGetSnapshot)
+	mux.HandleFunc("/quarantine/prune", requireBearer(s.freezeValidate, s.handlePruneSnapshots))
 	return mux
 }
 
@@ -270,13 +386,21 @@ func run(args []string) error {
 
 	freezeValidate := constantTimeTokenValidator(cfg.freezeToken)
 	resumeValidate := constantTimeTokenValidator(cfg.resumeToken)
+	capturer := quarantine.New(quarantine.CaptureConfig{
+		StorageDir:         cfg.quarantineDir,
+		MaxMemorySizeBytes: cfg.quarantineMaxMB * 1024 * 1024,
+		MaxTimeBudget:      cfg.quarantineTimeout,
+		DumpAnonymousOnly:  true,
+	})
 	srv := &server{
 		freezer: cgroup.New(cfg.cgroupRoot,
 			cgroup.WithDeadline(cfg.deadline),
 			cgroup.WithFreezeCredentialValidator(freezeValidate),
 			cgroup.WithCredentialValidator(resumeValidate),
+			cgroup.WithQuarantineCapturer(capturer),
 		),
 		emitter:        telemetry.NewEmitter(os.Stdout),
+		capturer:       capturer,
 		freezeValidate: freezeValidate,
 		resumeValidate: resumeValidate,
 	}

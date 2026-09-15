@@ -301,7 +301,7 @@ Funded under Signal Loom Product Demonstration & GTM Enablement investment.
 | P3-2 | implementation | Implement Zero-Payload Inspector widget proving prompt/code confidentiality | P3-PRE | Zero-payload assertion tests; metadata-only display proof | L | daily | pass — delivered: 85b947b957797f0a2c64c9b0bc719f6fa905dee1 (see Errata — AMXD-P3-2) | $0.00 | N/A | N/A | N/A |
 | P3-GOV | governor | Merge telemetry visualization and verify zero customer payload display | P3-1, P3-2 | Vitest suites pass; zero prompt/code leak verified | M | deep | **Pass** — Phase 3 certified (see Errata — AMXD-P3-GOV). Both branches already merged (`8cb198f1`, `535539cd`); no re-merge needed. Manifest digest `183b7880…39b34` verified 3 independent ways; staleness path proven end-to-end (exit 1, `filter.py` restored and re-verified). Open FDs honest (`N/A`, zero non-style attrs in slot). Both hash badges render and are visually distinct. 125 test-ids on the composed DOM, 0 duplicates. Full suite 174 files / 3,329 passed / 3 skipped / 0 failed; `tsc --noEmit` 0; `vite build` 0. Two inherited defects handed forward with owners: **G1** dead Tailwind classes render `ZeroPayloadInspector` unstyled in production (from AMXD-P2-1; blocks AMXD-P5-GOV) and **G2** `openFds` fabricated from `artifact_count` in `bridge.ts:662` (from AMXD-P1-3; contained, renders nowhere; AMXD-P4-1 must not render it). | $0.00 | N/A | ~35m | N/A |
 | P4-PRE | preflight | Confirm defect injection hooks and revocation API seams | P3-GOV | Defect injection contract check; revocation status endpoint verify | S | daily | **Pass** — verified full call chain from upload to 403 `agent_revoked` (`host_credential.py:194-209, 308-356, 385-387`); confirmed router prefix split (`host_compat_router` `/api/v1/external-agents` vs `host_router` `/v1/external-agents`); confirmed bare host revoke requires `location /v1/` and direct `fetch` (`external_agent_registration.py:41, 1231`); inventoried defect injection hooks (audit log row tamper in `scripts/audit-anchor-tamper-demo.sh` vs client/mock SHA-256 artifact hash tamper in `scenarios.ts`/`bridge.ts`); documented 4 binding-mismatch 403 codes (`tenant_key_binding_mismatch`, `tenant_agent_binding_mismatch`, `tenant_host_binding_mismatch`, `cross_tenant_forbidden`) at `host_credential.py:395-433`. (see Errata — AMXD-P4-PRE) | $0.00 | N/A | ~5m | N/A |
-| P4-1 | implementation | Implement Stage 4 Adversarial Simulation panel | P4-PRE | Hash tamper test; symlink escape test; breach alert trigger assertion | L | daily | Pending | $0.00 | N/A | N/A | N/A |
+| P4-1 | implementation | Implement Stage 4 Adversarial Simulation panel | P4-PRE | Hash tamper test; symlink escape test; breach alert trigger assertion | L | daily | pass — delivered: 9385e6c9fb57b372382b6035dbf99058354ec714 (see Errata — AMXD-P4-1) | $0.00 | N/A | N/A | N/A |
 | P4-2 | implementation | Implement Stage 5 Attributable Revocation and live 403 denial verification panel | P4-PRE | Revocation dispatch test; 403 denial badge assertion; audit timeline check | L | daily | Pending | $0.00 | N/A | N/A | N/A |
 | P4-GOV | governor | Merge adversarial and revocation panels and verify deterministic denial feedback | P4-1, P4-2 | Combined tamper + revocation test; zero visual flakiness | L | deep | Pending | $0.00 | N/A | N/A | N/A |
 | P5-PRE | preflight | Confirm automated stepping timers and docs integration seams | P4-GOV | Timer mock verification; docs navigation link inventory | S | daily | Pending | $0.00 | N/A | N/A | N/A |
@@ -1318,8 +1318,6 @@ grep -n "gives every nav destination a name of its own" -A 8 d2-signalloom/apps/
 **Notes:** Stage 1 (`/api/v1/external-agents/registrations/{agent_id}/token`) and Stage 2 (`/api/v1/external-agents/enroll`) routes are verified live-reachable without nginx changes. All 12 unit and contract tests in `TokenIssuePanel.test.tsx` and `EnrollmentPanel.test.tsx` pass cleanly alongside the entire 168-suite dashboard test suite.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-
-
 #### Errata — AMXD-P2-GOV Merge Stage 1-2 UI and verify attributable enrollment display
 **Created:** 2026-09-15 04:20:00+01:00
 **Last Updated:** 2026-09-15 04:20:00+01:00
@@ -1558,4 +1556,43 @@ To prevent AMXD-P4-2's demo upload assertion from triggering a false/accidental 
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+#### Errata — AMXD-P4-1 (2026-09-15 06:08:17+01:00) — status=pass
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-09-15 06:08:17+01:00
+**Last Updated:** 2026-09-15 06:08:17+01:00
 
+##### Task identity
+- Card: `AMXD-P4-1`
+- Shortcode: `AMXD`
+- Status: `pass`
+- Commit: `9385e6c9fb57b372382b6035dbf99058354ec714`
+- Result: Delivered Stage 4 Adversarial Simulation panel (`AdversarialSimulationPanel.tsx`) with three independent injection controls grounded in real Linux kernel and host-sensor containment semantics, comprehensive unit & composed integration tests, and zero client-side theater.
+
+##### 1. Three Independent Injection Controls Grounded in Reality
+Implemented `src/components/demos/AdversarialSimulationPanel.tsx` in `d2-signalloom/apps/dashboard-signalloom` with three distinct, independently operable attack simulations:
+1. **Control 1: Cryptographic Hash Mismatch (`hash_mismatch`)**
+   - Injects bit-flip / payload corruption into ephemeral artifact digest (simulating tampering during pipeline handoff).
+   - Verifies against expected baseline hash, displaying live SHA-256 ledger mismatch and triggering red containment alert badge.
+   - Provides honest, byte-for-byte ephemeral artifact restoration via pure `restoreEphemeralArtifact` helper.
+2. **Control 2: Descriptor-Relative Symlink Escape (`symlink_escape`)**
+   - Grounded directly in `d2-signalloom/apps/agentmaxxing-host-sensor/tests/test_file_validator.py` (`test_symlink_outside_root_rejection`, `test_nested_symlink_directory_rejection`, `test_path_traversal_escape_dotdot_rejection`, `test_absolute_path_escape_rejection`).
+   - Simulates traversal attempts (`../../../../etc/shadow`, `/tmp/agentmaxxing-sensor/escape_symlink`).
+   - Displays real kernel `openat2` resolution flags: `RESOLVE_BENEATH` (0x01), `RESOLVE_NO_SYMLINKS` (0x04), and `RESOLVE_NO_XDEV` (0x08).
+   - Triggers anti-traversal containment block with simulated host-sensor rejection metadata and `EXDEV` / `ELOOP` POSIX code correlation.
+3. **Control 3: Pre-Read Oversized Payload Rate-Limit Rejection (`oversized_write`)**
+   - Grounded directly in `types/externalAgent.ts` (`ExternalAgentEvidenceV1Limit`).
+   - Enforces exact ground-truth limits: `MAX_FILE_SIZE_BYTES = 16777216` (16 MiB), `MAX_FILES_PER_WINDOW = 120`, `MAX_BYTES_PER_WINDOW = 67108864` (64 MiB), `WINDOW_SECONDS = 60`.
+   - Simulates pre-read size check rejection on 33,554,432 byte (32 MiB) write payload before reading contents into memory, triggering rate-limit containment alert badge.
+
+##### 2. Real Latency Measurement & State Independence
+- All simulation dispatches measure client-side execution latency using `performance.now()`.
+- State independence and non-interference proven across all three controls: triggering symlink escape or oversized write does not mutate or clear the artifact hash state, and vice versa.
+- Full reset lifecycle resets all 3 controls to baseline intact state.
+- In-flight disablement and double-click protection active on all injection triggers.
+
+##### 3. Anti-G2 Invariant & Test Coverage
+- Verified that fabricated `openFds` metric is **NOT** rendered in the UI or DOM (G2 containment honoured).
+- Comprehensive test suite in `AdversarialSimulationPanel.test.tsx` (13 tests, 100% pass) and composed page suite in `AgentMaxxingDemoPage.composed.test.tsx` (15 tests, 100% pass).
+- Full dashboard test suite (175 files, 3345 passed) and `tsc --noEmit` pass with zero errors.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

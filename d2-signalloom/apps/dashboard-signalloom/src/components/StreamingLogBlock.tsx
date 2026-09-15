@@ -468,8 +468,9 @@ function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
           opacity: isCopied ? 1 : 0,
           transform: isCopied ? 'scale(1)' : 'scale(0.25)',
           filter: isCopied ? 'blur(0px)' : 'blur(4px)',
+          transformBox: 'fill-box',
           transformOrigin: 'center',
-          transition: 'opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 200ms cubic-bezier(0.2, 0, 0, 1), filter 200ms cubic-bezier(0.2, 0, 0, 1)',
+          transition: 'opacity 300ms cubic-bezier(0.2, 0, 0, 1), transform 300ms cubic-bezier(0.2, 0, 0, 1), filter 300ms cubic-bezier(0.2, 0, 0, 1)',
         }}
       >
         <polyline points="3,8.5 6.5,12 13,4" />
@@ -479,8 +480,9 @@ function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
           opacity: !isCopied ? 1 : 0,
           transform: !isCopied ? 'scale(1)' : 'scale(0.25)',
           filter: !isCopied ? 'blur(0px)' : 'blur(4px)',
+          transformBox: 'fill-box',
           transformOrigin: 'center',
-          transition: 'opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 200ms cubic-bezier(0.2, 0, 0, 1), filter 200ms cubic-bezier(0.2, 0, 0, 1)',
+          transition: 'opacity 300ms cubic-bezier(0.2, 0, 0, 1), transform 300ms cubic-bezier(0.2, 0, 0, 1), filter 300ms cubic-bezier(0.2, 0, 0, 1)',
         }}
       >
         <rect x="5" y="2" width="9" height="11" rx="1.5" />

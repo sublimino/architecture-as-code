@@ -613,4 +613,25 @@ describe('AutoPlayControls & Pacing Engine (AMXD-P5-1)', () => {
     })
     expect(screen.getByTestId('autoplay-mode-indicator')).toHaveAttribute('data-mode', 'manual')
   })
+
+  it('aligns buttons optically and protects segmented speed toggles with data-static', () => {
+    render(<AutoPlayHarness initialPacing="1x" />)
+
+    // Speed toggle buttons in segmented control should declare data-static="true"
+    const speed1x = screen.getByTestId('autoplay-speed-1x')
+    expect(speed1x).toHaveAttribute('data-static', 'true')
+
+    // Reset Estate button has leading icon and balanced optical padding ps-2.5 pe-3.5
+    const resetBtn = screen.getByTestId('autoplay-reset-estate-button')
+    expect(resetBtn.className).toContain('ps-2.5')
+    expect(resetBtn.className).toContain('pe-3.5')
+
+    // Start button has optical padding ps-3.5 pe-4 and play triangle translateX(1.5px)
+    const toggleBtn = screen.getByTestId('autoplay-toggle-button')
+    expect(toggleBtn.className).toContain('ps-3.5')
+    expect(toggleBtn.className).toContain('pe-4')
+
+    const playSvg = screen.getByTestId('autoplay-start-button').querySelector('svg')
+    expect(playSvg).toHaveStyle({ transform: 'translateX(1.5px)' })
+  })
 })

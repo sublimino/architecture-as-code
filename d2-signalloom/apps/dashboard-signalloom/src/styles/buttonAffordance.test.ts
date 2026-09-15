@@ -131,6 +131,20 @@ describe('button hover and focus affordance', () => {
     expect(activeRule!.body).toContain('scale(0.96)')
   })
 
+  it('provides a static escape hatch for segmented controls, tabs, and static buttons', () => {
+    const staticRule = rules().find(({ selector }) => selector.includes('.btn-static'))
+    expect(staticRule).toBeDefined()
+    expect(staticRule!.body).toContain('transform: none !important')
+    expect(staticRule!.selector).toContain('[data-static="true"]')
+    expect(staticRule!.selector).toContain('button[role="tab"]:active')
+    expect(staticRule!.selector).toContain('button[role="radio"]:active')
+  })
+
+  it('declares theme-adaptive --image-outline token for consistent depth across dark and light surfaces', () => {
+    expect(CSS).toMatch(/--image-outline:\s*rgba\(255,\s*255,\s*255,\s*0\.1\)/)
+    expect(CSS).toMatch(/\[data-theme="light"\][^{]*\{[^}]*--image-outline:\s*rgba\(0,\s*0,\s*0,\s*0\.1\)/)
+  })
+
   it('includes transform in .btn transition so active scale interpolates smoothly', () => {
     const btnRule = ruleFor('.btn ')
     expect(btnRule).toContain('transform var(--motion-fast)')

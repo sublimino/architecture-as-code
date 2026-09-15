@@ -458,6 +458,21 @@ describe('Copy shows a tick when it worked', () => {
     await waitFor(() => expect(screen.getByTestId('streaming-log-copy')).toHaveTextContent('Copy failed'))
     expect(screen.getByTestId('copy-glyph').getAttribute('data-glyph')).toBe('clipboard')
   })
+
+  it('animates copy icon transition with 300ms cubic-bezier and fill-box per better-ui spec', () => {
+    render(<StreamingLogBlock log={'one\n'} />)
+    const svg = screen.getByTestId('copy-glyph')
+    const groups = svg.querySelectorAll('g')
+    expect(groups.length).toBe(2)
+
+    // Verify both layers (tick and clipboard) configure smooth 300ms cross-fade with fill-box
+    for (const g of groups) {
+      expect(g.style.transition).toContain('300ms')
+      expect(g.style.transition).toContain('cubic-bezier(0.2, 0, 0, 1)')
+      expect(g.style.transformBox).toBe('fill-box')
+      expect(g.style.transformOrigin).toBe('center')
+    }
+  })
 })
 
 // ─── No replay ────────────────────────────────────────────────────────────────

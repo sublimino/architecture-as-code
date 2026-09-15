@@ -1,12 +1,15 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signalloom-stun-sentinel
 
-go 1.22.0
+go 1.24
 
 require (
+	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel v0.0.0-unpublished
 	k8s.io/api v0.31.0
 	k8s.io/apimachinery v0.31.0
 	k8s.io/client-go v0.31.0
 )
+
+replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel => ../stun-sentinel
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -31,7 +34,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/oauth2 v0.21.0 // indirect
-	golang.org/x/sys v0.21.0
+	golang.org/x/sys v0.31.0
 	golang.org/x/term v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	golang.org/x/time v0.3.0 // indirect

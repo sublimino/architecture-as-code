@@ -260,7 +260,7 @@ func main() {
 		}
 	}()
 
-	freezer := &cgroupFreezer{cgroupRoot: cfg.CgroupRoot, dryRun: cfg.DryRun}
+	freezer := newCgroupFreezer(cfg.CgroupRoot, cfg.DryRun, cfg.FreezeToken, cfg.ResumeToken)
 	tc := newTCDropFilter()
 	tc.dryRun = cfg.DryRun
 	probes := newProbePreserver()

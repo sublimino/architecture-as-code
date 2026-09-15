@@ -1,51 +1,88 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 ControlPlane Security Authors
+
 package main
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cgroup freezer tests with mock filesystem.
+// Cgroup freezer adapter tests with mock filesystem and unified engine.
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestFreezePodWritesOne(t *testing.T) {
-	dir := t.TempDir()
-	cgroupFile := filepath.Join(dir, "cgroup.freeze")
-	os.WriteFile(cgroupFile, []byte("0"), 0644)
+func mockFreezableCgroup(t *testing.T, dir string, frozen bool) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	freezeVal := "0"
+	eventsVal := "populated 1\nfrozen 0\n"
+	if frozen {
+		freezeVal = "1"
+		eventsVal = "populated 1\nfrozen 1\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte(freezeVal), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte(eventsVal), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.procs"), []byte("101\n102\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
 
-	f := &cgroupFreezer{cgroupRoot: dir}
-	err := f.freeze(dir)
+func TestFreezePodWritesOneAndVerifies(t *testing.T) {
+	dir := t.TempDir()
+	cgroupDir := mockFreezableCgroup(t, filepath.Join(dir, "pod-test"), false)
+
+	// Simulate kernel settling after write
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		_ = os.WriteFile(filepath.Join(cgroupDir, "cgroup.events"), []byte("populated 1\nfrozen 1\n"), 0644)
+	}()
+
+	f := newCgroupFreezer(dir, false, "token", "token")
+	err := f.freeze(cgroupDir)
 	if err != nil {
 		t.Fatalf("freeze: %v", err)
 	}
 
-	data, _ := os.ReadFile(cgroupFile)
-	if string(data) != "1" {
+	data, _ := os.ReadFile(filepath.Join(cgroupDir, "cgroup.freeze"))
+	if strings.TrimSpace(string(data)) != "1" {
 		t.Errorf("cgroup.freeze: got %q, want %q", string(data), "1")
 	}
 }
 
-func TestUnfreezePodWritesZero(t *testing.T) {
+func TestUnfreezePodWritesZeroAndVerifies(t *testing.T) {
 	dir := t.TempDir()
-	cgroupFile := filepath.Join(dir, "cgroup.freeze")
-	os.WriteFile(cgroupFile, []byte("1"), 0644)
+	cgroupDir := mockFreezableCgroup(t, filepath.Join(dir, "pod-test"), true)
 
-	f := &cgroupFreezer{cgroupRoot: dir}
-	err := f.unfreeze(dir)
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		_ = os.WriteFile(filepath.Join(cgroupDir, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0644)
+	}()
+
+	f := newCgroupFreezer(dir, false, "token", "token")
+	err := f.unfreeze(cgroupDir)
 	if err != nil {
 		t.Fatalf("unfreeze: %v", err)
 	}
 
-	data, _ := os.ReadFile(cgroupFile)
-	if string(data) != "0" {
+	data, _ := os.ReadFile(filepath.Join(cgroupDir, "cgroup.freeze"))
+	if strings.TrimSpace(string(data)) != "0" {
 		t.Errorf("cgroup.freeze: got %q, want %q", string(data), "0")
 	}
 }
 
 func TestFreezeNonexistentPath(t *testing.T) {
-	f := &cgroupFreezer{cgroupRoot: "/nonexistent"}
+	f := newCgroupFreezer("/nonexistent", false, "token", "token")
 	err := f.freeze("/nonexistent/pod-abc")
 	if err == nil {
 		t.Fatal("expected error for nonexistent cgroup path")
@@ -53,7 +90,7 @@ func TestFreezeNonexistentPath(t *testing.T) {
 }
 
 func TestUnfreezeNonexistentPath(t *testing.T) {
-	f := &cgroupFreezer{cgroupRoot: "/nonexistent"}
+	f := newCgroupFreezer("/nonexistent", false, "token", "token")
 	err := f.unfreeze("/nonexistent/pod-abc")
 	if err == nil {
 		t.Fatal("expected error for nonexistent cgroup path")
@@ -61,13 +98,11 @@ func TestUnfreezeNonexistentPath(t *testing.T) {
 }
 
 func TestResolvePodCgroupPath(t *testing.T) {
-	// Create a mock cgroup hierarchy.
 	dir := t.TempDir()
 	podDir := filepath.Join(dir, "kubepods", "burstable", "pod-test-uid")
-	os.MkdirAll(podDir, 0755)
-	os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644)
+	mockFreezableCgroup(t, podDir, false)
 
-	f := &cgroupFreezer{cgroupRoot: dir}
+	f := newCgroupFreezer(dir, false, "", "")
 	path, err := f.resolvePodCgroup("test-uid")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -80,10 +115,9 @@ func TestResolvePodCgroupPath(t *testing.T) {
 func TestResolvePodCgroupGuaranteed(t *testing.T) {
 	dir := t.TempDir()
 	podDir := filepath.Join(dir, "kubepods", "pod-guaranteed-uid")
-	os.MkdirAll(podDir, 0755)
-	os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644)
+	mockFreezableCgroup(t, podDir, false)
 
-	f := &cgroupFreezer{cgroupRoot: dir}
+	f := newCgroupFreezer(dir, false, "", "")
 	path, err := f.resolvePodCgroup("guaranteed-uid")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -96,14 +130,9 @@ func TestResolvePodCgroupGuaranteed(t *testing.T) {
 func TestResolvePodCgroupSystemdSlice(t *testing.T) {
 	dir := t.TempDir()
 	podDir := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid.slice")
-	if err := os.MkdirAll(podDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	mockFreezableCgroup(t, podDir, false)
 
-	path, err := (&cgroupFreezer{cgroupRoot: dir}).resolvePodCgroup("test-uid")
+	path, err := newCgroupFreezer(dir, false, "", "").resolvePodCgroup("test-uid")
 	if err != nil || path != podDir {
 		t.Fatalf("resolve systemd cgroup = %q, %v; want %q, nil", path, err, podDir)
 	}
@@ -112,14 +141,9 @@ func TestResolvePodCgroupSystemdSlice(t *testing.T) {
 func TestResolvePodCgroupRejectsPartialSystemdUIDMatch(t *testing.T) {
 	dir := t.TempDir()
 	podDir := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid-extra.slice")
-	if err := os.MkdirAll(podDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	mockFreezableCgroup(t, podDir, false)
 
-	_, err := (&cgroupFreezer{cgroupRoot: dir}).resolvePodCgroup("test-uid")
+	_, err := newCgroupFreezer(dir, false, "", "").resolvePodCgroup("test-uid")
 	if err == nil {
 		t.Fatal("partial systemd UID match unexpectedly resolved")
 	}
@@ -127,9 +151,11 @@ func TestResolvePodCgroupRejectsPartialSystemdUIDMatch(t *testing.T) {
 
 func TestResolvePodCgroupNotFound(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "kubepods"), 0755)
+	if err := os.MkdirAll(filepath.Join(dir, "kubepods"), 0755); err != nil {
+		t.Fatal(err)
+	}
 
-	f := &cgroupFreezer{cgroupRoot: dir}
+	f := newCgroupFreezer(dir, false, "", "")
 	_, err := f.resolvePodCgroup("nonexistent-uid")
 	if err == nil {
 		t.Fatal("expected error for nonexistent pod cgroup")
@@ -138,53 +164,56 @@ func TestResolvePodCgroupNotFound(t *testing.T) {
 
 func TestFreezeIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	cgroupFile := filepath.Join(dir, "cgroup.freeze")
-	os.WriteFile(cgroupFile, []byte("1"), 0644) // already frozen
+	cgroupDir := mockFreezableCgroup(t, filepath.Join(dir, "pod-test"), true)
 
-	f := &cgroupFreezer{cgroupRoot: dir}
-	err := f.freeze(dir)
+	f := newCgroupFreezer(dir, false, "token", "token")
+	err := f.freeze(cgroupDir)
 	if err != nil {
 		t.Fatalf("freeze already-frozen: %v", err)
 	}
 
-	data, _ := os.ReadFile(cgroupFile)
-	if string(data) != "1" {
+	data, _ := os.ReadFile(filepath.Join(cgroupDir, "cgroup.freeze"))
+	if strings.TrimSpace(string(data)) != "1" {
 		t.Errorf("cgroup.freeze: got %q, want %q", string(data), "1")
 	}
 }
 
 func TestFreezeWithCgroupEvents(t *testing.T) {
 	dir := t.TempDir()
-	cgroupFile := filepath.Join(dir, "cgroup.freeze")
-	eventsFile := filepath.Join(dir, "cgroup.events")
-	os.WriteFile(cgroupFile, []byte("0"), 0644)
-	os.WriteFile(eventsFile, []byte("populated 1\nfrozen 1\n"), 0644)
+	cgroupDir := mockFreezableCgroup(t, filepath.Join(dir, "pod-test"), false)
 
-	f := &cgroupFreezer{cgroupRoot: dir}
-	if err := f.freeze(dir); err != nil {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		_ = os.WriteFile(filepath.Join(cgroupDir, "cgroup.events"), []byte("populated 1\nfrozen 1\n"), 0644)
+	}()
+
+	f := newCgroupFreezer(dir, false, "token", "token")
+	if err := f.freeze(cgroupDir); err != nil {
 		t.Fatalf("freeze with events: %v", err)
 	}
 
-	data, _ := os.ReadFile(cgroupFile)
-	if string(data) != "1" {
+	data, _ := os.ReadFile(filepath.Join(cgroupDir, "cgroup.freeze"))
+	if strings.TrimSpace(string(data)) != "1" {
 		t.Errorf("cgroup.freeze: got %q, want 1", string(data))
 	}
 }
 
 func TestUnfreezeWithCgroupEvents(t *testing.T) {
 	dir := t.TempDir()
-	cgroupFile := filepath.Join(dir, "cgroup.freeze")
-	eventsFile := filepath.Join(dir, "cgroup.events")
-	os.WriteFile(cgroupFile, []byte("1"), 0644)
-	os.WriteFile(eventsFile, []byte("populated 1\nfrozen 0\n"), 0644)
+	cgroupDir := mockFreezableCgroup(t, filepath.Join(dir, "pod-test"), true)
 
-	f := &cgroupFreezer{cgroupRoot: dir}
-	if err := f.unfreeze(dir); err != nil {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		_ = os.WriteFile(filepath.Join(cgroupDir, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0644)
+	}()
+
+	f := newCgroupFreezer(dir, false, "token", "token")
+	if err := f.unfreeze(cgroupDir); err != nil {
 		t.Fatalf("unfreeze with events: %v", err)
 	}
 
-	data, _ := os.ReadFile(cgroupFile)
-	if string(data) != "0" {
+	data, _ := os.ReadFile(filepath.Join(cgroupDir, "cgroup.freeze"))
+	if strings.TrimSpace(string(data)) != "0" {
 		t.Errorf("cgroup.freeze: got %q, want 0", string(data))
 	}
 }

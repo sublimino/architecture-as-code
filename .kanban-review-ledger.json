@@ -2504,5 +2504,26 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Preflight confirmed 100% procfs stat/status readability across 1445 processes/17 UIDs, verified read_exe sandboxing, published comprehensive harness signature database"
+  },
+  "8281f": {
+    "task_id": "8281f",
+    "reviewed_at": "2026-09-15T04:01:17Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Stage 3 Confinement Telemetry panel delivered; honest CPU execution time and RSS memory gauges, explicit N/A for open FDs, SHA-256 comparison table, 20/20 unit tests pass"
+  },
+  "d0fac": {
+    "task_id": "d0fac",
+    "reviewed_at": "2026-09-15T04:01:17Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Dynamic mesh isolation and in-flight TCP connection severance delivered; CiliumNetworkPolicy manifest, conntrack FlushIP, tri-state PlaneResult, 10/10 netassert pass"
+  },
+  "b3c0c": {
+    "task_id": "b3c0c",
+    "reviewed_at": "2026-09-15T04:01:17Z",
+    "reviewer": "antigravity",
+    "verdict": "pass",
+    "reason": "Non-intrusive procfs process scanner delivered; list_pids os.scandir, starttime_ticks PID reuse mitigation, zero argument dumping static AST guards, 159 tests pass"
   }
 }

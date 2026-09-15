@@ -50,6 +50,7 @@ const WeavePage = lazy(() => import('./pages/WeavePage'))
 const SignalFusionPage = lazy(() => import('./pages/SignalFusionPage'))
 const DistanceLatencyPage = lazy(() => import('./pages/DistanceLatencyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
+const AgentMaxxingDemoPage = lazy(() => import('./pages/AgentMaxxingDemoPage'))
 const SignalStorePage = lazy(() => import('./pages/SignalStorePage'))
 const FeedsExplorerPage = lazy(() => import('./pages/FeedsExplorerPage'))
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
@@ -432,6 +433,7 @@ export default function App() {
                 <Route path="/supercred" element={<ProtectedRoute><SuperCredPage /></ProtectedRoute>} />
                 <Route path="/fleet" element={<ProtectedRoute><FleetDemoPage /></ProtectedRoute>} />
                 <Route path="/fleet/audience" element={<ProtectedRoute><FleetDemoPage audience /></ProtectedRoute>} />
+                <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />
                 {/* Superadmin is a VISIBILITY control (see auth/superadmin.ts):
                     the Sidebar decides whether to render the link, the route
                     stays registered and reachable by URL like every other one. */}

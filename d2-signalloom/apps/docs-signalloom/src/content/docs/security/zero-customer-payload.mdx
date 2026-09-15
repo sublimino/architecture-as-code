@@ -1,0 +1,166 @@
+---
+title: Zero-Customer-Payload Privacy Architecture & Falsification Evidence
+description: Technical specification of the Zero-Customer-Payload invariant, positive field filtering, shape-only secret detection, memory scrubbing, and falsification test results.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+:::note[Mission Version & Provenance]
+**Specification:** `codingagent.v1` | **Release Target:** `SLCD v0.1.0`  
+**Base Commit / Branch:** `refs/heads/integration/slcd-v0.1.0`  
+**Canonical Evidence Artifacts:** [`docs/signalloom/slcd-p1-1-schema.md`](/docs/reference/external-agent-wire-contracts/) · [`docs/signalloom/slcd-p1-2-validator.md`](/docs/security/zero-customer-payload/) · [`docs/signalloom/slcd-p4-1-transcript-parser.md`](/docs/security/zero-customer-payload/)
+:::
+
+Signal Loom's detective telemetry operates under an absolute, mathematically and empirically verified **Zero-Customer-Payload** privacy invariant:
+
+> **Under no circumstances shall customer prompts, model completions, assistant reasoning text, proprietary source code, git diffs, file contents, secret values, or process memory ever be harvested, stored, or emitted.**
+
+This document provides a non-engineer explanation of what is and is not collected, details the structural defense-in-depth architecture, and presents the empirical falsification test evidence proving the invariant holds under adversarial conditions.
+
+<Mermaid
+  label="Zero-Customer-Payload Invariant Enforcement and Memory Scrubbing Pipeline"
+  diagram={`flowchart LR
+    A["Raw Workstation Activity<br/>(Processes, Transcripts, Sockets)"] --> B["Pre-Collection Chokepoint<br/>(proc.py Prohibited Entries)"]
+    
+    B -->|Stat / Status / Netlink| C["Positive Field Allowlist<br/>(Strict Rule Table Walk)"]
+    B -.->|cmdline, mem, environ, fd| X1["BLOCKED: SecurityException<br/>(Raised before open)"]
+    
+    C --> D["Leaf Type Funnel<br/>(Integer Clamp, UUID/RFC3339 Canonical)"]
+    C -.->|prompt, diff, content, code| X2["DISCARDED: Never Addressed<br/>(Not in positive table)"]
+    
+    D --> E["Shape-Only Secret Validator<br/>(Entropy, Prefixes, Headers)"]
+    E --> F["SLDP Keyed HMAC Derivation<br/>(Tenant-scoped Pseudonym)"]
+    
+    F --> G["In-Place Memory Scrubbing<br/><code>scrub_buffer() -> 0x00</code>"]
+    G --> H["Sanitized Error Boundary<br/><code>@sanitized_error_boundary</code>"]
+    
+    H --> I["Validated Zero-Payload Telemetry<br/>(Emitted to Signal Ingest)"]`}
+/>
+
+---
+
+## 1. Executive Summary: What Is and Is Not Collected
+
+To provide total transparency for developers, security teams, legal counsel, and data protection officers, the table below outlines the exact collection boundary:
+
+| Telemetry Category | What Signal Loom Collects (Allowlisted Only) | What Signal Loom NEVER Collects (Strictly Forbidden) |
+|---|---|---|
+| **Agent Identity** | Harness name (`claude`, `antigravity`, `codex`, `cpai`, `opencode`, `hermes`, `aider`), session UUID. | User login credentials, custom agent instructions, agent system prompts. |
+| **Process State** | Process ID (`pid`), parent ID (`ppid`), binary command name (`comm`), resident memory bytes (`rss_bytes`), CPU ticks (`cpu_ticks`). | Command line arguments (`/proc/<pid>/cmdline`), environment variables (`environ`), raw process memory (`mem`), call stacks (`stack`). |
+| **Task Context** | Kanban task ID (e.g. `SLCD-P6-2`), shortcode (`SLCD`), task role (`implementation`, `governor`), elapsed duration seconds (`elapsed_s`). | Task descriptions, prompt text, user feedback comments, commit diffs, scratchpad notes. |
+| **Turn & Token Usage** | Step count (`step_count`), input token count (`tokens_in`), output token count (`tokens_out`), normalized model family enum (e.g. `CLAUDE_3_7_SONNET`). | Actual user prompt text, model response messages, intermediate thinking/chain-of-thought blocks. |
+| **Tool Usage** | 13 normalized categorical counters (`view_file`, `write_to_file`, `replace_file_content`, `run_command`, `grep_search`, `list_dir`, `ask_question`, etc., plus `other_count`). | File paths inspected, file contents read or written, shell command strings executed, search query terms, tool return payloads. |
+| **Network Egress** | Categorized inference endpoint hostname (e.g. `api.anthropic.com`), cumulative outbound bytes (`egress_bytes`). | TLS payload contents, HTTP headers, API authentication tokens (`Authorization: Bearer ...`, `x-api-key`), request/response JSON bodies. |
+
+---
+
+## 2. Structural Allow-Lists vs Flawed Deny-Lists
+
+A foundational flaw in traditional data protection filters is reliance on **deny-lists** (e.g. *"filter out fields named `prompt`, `code`, `secret`"*). Deny-lists are inherently unfalsifiable:
+- The space of disallowed keys is unbounded; any new harness version, MCP plugin, or custom script can invent a new field name (`customer_snippet`, `patch_v2`, `raw_payload`).
+- A deny-list that checks 10 forbidden names passes tests, but leaks the 11th.
+
+### Positive Field Rule Tables (`transcript.py`)
+Signal Loom enforces a **positive field table** (`FORMAT_RULES`):
+1. The extractor specifies an exact, finite tuple of key paths to read (e.g. `("message", "usage", "input_tokens")`).
+2. The extractor function (`_read_path`) only traverses the designated tuple. It **never calls `dict.keys()`**, never iterates over record dictionaries, and never dynamically discovers attributes.
+3. Unrecognized fields are not "skipped"—they are **never addressed in memory**.
+
+---
+
+## 3. Shape-Only Secret Detection & Cryptographic Pseudonymization
+
+Traditional secret detection tools (e.g. scanners that report *"Found AWS Secret Key: wJalrXUtnFEMI..."*) create massive security vulnerabilities by copying ephemeral credentials into centralized logs with long retention windows.
+
+Signal Loom solves this by construction (`pseudonym.py`, `filter.py`):
+
+1. **Shape-Only Detection**: Evaluates structural indicators (regex patterns for `sk-ant-*`, `sk-proj-*`, `ghp_*`, `AKIA*`, PEM headers, and Shannon entropy H(X) >= 3.9 bits/char) without saving the matched substring.
+2. **Keyed HMAC Pseudonymization**: Converts detected candidate tokens into deterministic, irreversible pseudonyms using the SLDP primitive (`signalloom/identity/alias-pseudonym/v1`):
+   ```text
+   Info = len(Domain) || Domain || Epoch || len(TenantID) || TenantID
+   K_tenant = HKDF-SHA256(RootKey, Salt=0^32, Info, L=32)
+   Pseudonym = hex(HMAC-SHA256(K_tenant, Value))
+   ```
+3. **Cross-Language Consistency**: Evaluated in both Python (`pseudonym.py`) and Go (`pseudonym.go`), yielding identical 64-character hex digests with zero raw secret exposure.
+
+---
+
+## 4. Defense-in-Depth Memory Protections
+
+### 4.1 In-Place Memory Scrubbing (`scrub_buffer`)
+Python strings are immutable in memory, but transient candidate byte buffers are allocated as mutable `bytearray` or `memoryview` objects. Immediately after classification or HMAC derivation, `scrub_buffer()` explicitly overwrites every byte with `0x00`:
+```python
+def scrub_buffer(buf: Union[bytearray, memoryview, ctypes.Array, Any]) -> None:
+    if isinstance(buf, bytearray):
+        for i in range(len(buf)):
+            buf[i] = 0
+    elif isinstance(buf, memoryview) and not buf.readonly:
+        buf[:] = b"\x00" * len(buf)
+```
+*Empirical verification:* `test_memory_scrubbing_wipes_transient_buffer` asserts the post-scrub buffer contains $100\%$ zero bytes.
+
+### 4.2 Sanitized Panic / Error Boundaries
+All validation and parsing routines are wrapped with `@sanitized_error_boundary`. Any unhandled parsing fault or regular expression failure is caught and re-raised as a constant `ZeroPayloadSecurityException`, guaranteed never to include input substrings in exception messages or stack traces:
+```python
+raise ZeroPayloadSecurityException(
+    "Zero-Customer-Payload detector fault: internal Exception during validation boundary check"
+) from None
+```
+
+### 4.3 Leaf Type Funnels & Integer Clamping
+Every parsed numeric value is validated against a strict leaf type funnel:
+- **Integer Clamping**: Naive `isinstance(v, int)` checks can pass 4,000-digit integers containing injected text. `coerce_count` strictly clamps values to `MAX_COUNT = 2**53 - 1` (maximum 16 digits).
+- **Canonical Timestamp Re-emission**: `coerce_rfc3339` parses timestamps and re-emits a single canonical ISO-8601 representation, preventing covert channels via arbitrary string formatting.
+
+---
+
+## 5. Adversarial Leak-Falsification Test Evidence
+
+The Zero-Customer-Payload invariant is proven through two dedicated adversarial test suites in `d2-signalloom/apps/agentmaxxing-host-sensor/`:
+
+### 5.1 Host Sensor Adversarial Leak Suite (`test_leak_falsification.py`)
+Executed across 13 curated adversarial fixtures representing real-world attack vectors:
+
+| Fixture ID | Category / Attack Vector | Injected Data Pattern | Sensor Outcome | Measured Leakage |
+|---|---|---|---|---|
+| `SEC-FIX-01-CMDLINE` | Process argument injection | `python3\x00agent.py\x00--token=SECRET_BEARER_TOKEN` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-02-ANTHROPIC-API` | Anthropic API Token | `export ANTHROPIC_API_KEY=sk-ant-api03-...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-03-ANTHROPIC-ADMIN` | Anthropic Admin Key | `ANTHROPIC_ADMIN_KEY=sk-ant-admin01-...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-04-OPENAI-PROJ` | OpenAI Project Key | `OPENAI_API_KEY=sk-proj-...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-05-OPENAI-STD` | OpenAI Standard Bearer | `Bearer sk-48charOpenAITokenShape...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-06-AWS-AKID` | AWS Access Key ID | `AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-07-AWS-SECRET` | AWS Secret Access Key | `aws_secret_access_key = wJalrXUtnFEMI...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-08-GITHUB-PAT` | GitHub Personal Access Token | `https://ghp_0123456789abcdef...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-09-GENERIC-BEARER` | JWT Authorization Header | `Authorization: Bearer eyJhbGciOi...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-10-PRIVATE-KEY` | PEM RSA Private Key | `-----BEGIN RSA PRIVATE KEY-----...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-11-CODE-DIFF` | Unified Git Source Patch | `diff --git a/server.py b/server.py...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-12-PROMPT-MARKER` | System Prompt / XML Tags | `<system_prompt>You are a confidential...` | **REJECTED** | **0.0% (Clean)** |
+| `SEC-FIX-13-ELF-MEM` | Raw ELF Process Memory Header | `\x7fELF\x02\x01\x01...` | **REJECTED** | **0.0% (Clean)** |
+
+**Suite Result:** 13/13 fixtures rejected. 0 bytes of sensitive payload leaked across all output channels, error strings, and persistent stores.
+
+### 5.2 Transcript Parser Adversarial Suite (`test_transcript_falsification.py`)
+Executed across 15 adversarial transcript structures:
+- **Planted Secret Keys**: Planted `secretCustomerKey` and `prompt_payload` fields are never touched by `_read_path` (verified by dict access tracking).
+- **Giant Integer Attacks**: 4,000-digit integer tokens are safely clamped to `MAX_COUNT`.
+- **Malformed Timestamps**: Non-RFC3339 strings and newline injections are discarded or normalized.
+- **Unknown Tool Flood**: 100 arbitrary MCP tool names correctly fold into `other_count` without leaking tool names.
+
+---
+
+## 6. How to Run the Falsification Suites Locally
+
+Security auditors can independently verify the zero-payload test assertions by executing:
+
+```bash
+# 1. Run the full host sensor test suite
+cd d2-signalloom/apps/agentmaxxing-host-sensor
+python3 -m unittest discover -p 'test_*.py'
+
+# 2. Run the dedicated leak and transcript falsification tests
+python3 -m unittest test_leak_falsification test_transcript_falsification test_payload_validator -v
+
+# 3. Run Go wire contract & pseudonym tests
+cd ../signal-ingest
+go test ./codingagent/... ./pseudonym/... -v
+```

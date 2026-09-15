@@ -33,6 +33,11 @@ const PAGES = [
   { slug: "operations/demo-walkthrough", heading: "Run the partner demonstration" },
   { slug: "operate/containment-runbook", heading: "Agent Containment & Response Operational Runbook" },
   { slug: "reference/denial-matrix", heading: "Per-Plane Denial Matrix & SLA Reference" },
+  { slug: "operate/coding-agent-detection-runbook", heading: "Coding Agent Detection & Governance Runbook" },
+  { slug: "security/detective-telemetry-architecture", heading: "Coding Agent Detective Telemetry Architecture" },
+  { slug: "security/zero-customer-payload", heading: "Zero-Customer-Payload Privacy Architecture & Falsification Evidence" },
+  { slug: "reference/lawful-basis-assessment", heading: "Lawful Basis & GDPR Legitimate Interests Assessment (LIA)" },
+  { slug: "reference/inference-provider-ranges", heading: "Inference Provider CIDR Provenance & Update Procedure" },
 ] as const;
 
 test.describe("SLON-P3-1 documentation pages render", () => {

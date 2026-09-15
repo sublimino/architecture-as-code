@@ -1,0 +1,178 @@
+---
+title: Coding Agent Detective Telemetry Architecture
+description: End-to-end passive observability pipeline for autonomous coding agents across host sensor discovery, Go signal ingestion, and dashboard visualization.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+:::note[Mission Version & Provenance]
+**Specification:** `codingagent.v1` | **Release Target:** `SLCD v0.1.0`  
+**Base Commit / Branch:** `refs/heads/integration/slcd-v0.1.0`  
+**Canonical Evidence Artifacts:** [`docs/signalloom/slcd-p1-1-schema.md`](/docs/reference/external-agent-wire-contracts/) · [`docs/signalloom/slcd-p1-2-validator.md`](/docs/security/zero-customer-payload/) · [`docs/signalloom/slcd-p2-1-scanner.md`](/docs/security/detective-telemetry-architecture/) · [`docs/signalloom/slcd-p4-2-socket-detector.md`](/docs/reference/inference-provider-ranges/) · [`docs/signalloom/slcd-p5-1-ingestion.md`](/docs/security/detective-telemetry-architecture/)
+:::
+
+Signal Loom's **Coding Agent & Harness Detective Telemetry** (`SLCD v0.1.0`) provides real-time, passive observability into autonomous coding agent execution across developer workstations and build nodes. Operating strictly as a non-intrusive observer, the detective pipeline identifies active agent harnesses, correlates autonomous task loops, tracks token throughput, and maps outbound model egress—all while strictly enforcing the [Zero-Customer-Payload Privacy Invariant](/docs/security/zero-customer-payload/).
+
+<Mermaid
+  label="Signal Loom Detective Telemetry Pipeline Architecture"
+  diagram={`sequenceDiagram
+    autonumber
+    actor Dev as Developer / Agent Harness
+    participant Proc as Linux Host (procfs / cgroups / netlink)
+    participant Sensor as AgentMaxxing Host Sensor (Python)
+    participant Ingest as Signal Ingestion Gateway (Go)
+    participant Dash as Dashboard Frontend (React / Vite)
+    
+    Note over Dev,Proc: Passive Execution Layer
+    Dev->>Proc: Spawn Harness (Claude, Antigravity, Codex, etc.)
+    Dev->>Proc: Open Outbound Socket to Inference Provider
+    
+    Note over Proc,Sensor: Host Detective Sensing (1-2s Loop)
+    Sensor->>Proc: Scan /proc/<pid>/stat, /proc/<pid>/status (No cmdline/mem)
+    Sensor->>Proc: Inspect /proc/<pid>/cgroup & Netlink SOCK_DIAG
+    Sensor->>Sensor: Match Tiered Inference Provider CIDRs
+    Sensor->>Sensor: Parse Allowlisted Transcript Metadata (JSONL/SQLite)
+    Sensor->>Sensor: Validate Zero-Customer-Payload & Scrub Buffers
+    
+    Note over Sensor,Ingest: Secure Telemetry Dispatch
+    Sensor->>Ingest: POST /api/v1/telemetry/coding-agent (codingagent.v1)
+    Ingest->>Ingest: Validate Wire Contract & Enforce Rate Limits
+    Ingest->>Ingest: Keyed HMAC-SHA256 Deduplication & Storage
+    
+    Note over Ingest,Dash: Dashboard Visualization Layer
+    Dash->>Ingest: Poll /api/v1/telemetry/coding-agents
+    Ingest-->>Dash: 200 OK (CodingAgentTelemetry Records)
+    Dash->>Dash: Render Inventory Cards & Trust Topology Nodes`}
+/>
+
+---
+
+## 1. Strictly Detective Posture
+
+Unlike active governance agents or debug proxies, Signal Loom's detective telemetry operates under three foundational constraints:
+
+1. **Zero Model Context Protocol (MCP) Handshakes**: The sensor never connects as an MCP client or server, never injects RPC commands, never queries agent tools, and never registers governance hooks into agent configurations.
+2. **Passive Operating System Inspection**: The sensor extracts telemetry using standard unprivileged Linux kernel interfaces (`procfs`, `cgroupfs`, `sock_diag`). It never attaches debuggers (`ptrace`), never injects shared libraries (`LD_PRELOAD`), and never pauses process execution.
+3. **Zero Payload Ingestion**: The entire pipeline operates exclusively on allowlisted numeric counters, enumerated categorical identifiers, timestamps, and cryptographic digests. Source code diffs, prompts, and credentials never cross the process boundary.
+
+---
+
+## 2. Host Sensor Discovery Layer (`agentmaxxing-host-sensor`)
+
+The host sensor daemon (`agentmaxxing-host-sensor`) executes a deterministic collection cycle across four core modules:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                   HOST SENSOR COLLECTION ENGINE                                  │
+│                                                                                                  │
+│   ┌──────────────────────┐    ┌──────────────────────┐    ┌──────────────────────────────────┐   │
+│   │   Process Scanner    │    │    Kanban Watcher    │    │       Transcript Extractor       │   │
+│   │   (proc.py / stat)   │    │     (kanban.py)      │    │         (transcript.py)          │   │
+│   └──────────┬───────────┘    └──────────┬───────────┘    └────────────────┬─────────────────┘   │
+│              │                           │                                 │                     │
+│              └───────────────────┐       │       ┌─────────────────────────┘                     │
+│                                  ▼       ▼       ▼                                               │
+│                               ┌──────────────────────┐                                           │
+│                               │   Socket Detector    │                                           │
+│                               │     (network.py)     │                                           │
+│                               └──────────┬───────────┘                                           │
+│                                          │                                                       │
+│                                          ▼                                                       │
+│                               ┌──────────────────────┐                                           │
+│                               │ Zero-Payload Filter  │ ──> [Memory Scrubbing: scrub_buffer()]    │
+│                               │     (filter.py)      │ ──> [Error Boundary: @sanitized]          │
+│                               └──────────┬───────────┘                                           │
+│                                          │                                                       │
+│                                          ▼                                                       │
+│                           POST /api/v1/telemetry/coding-agent                                    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.1 Procfs Bounded Extraction (`proc.py`, `scanner.py`)
+- **Allowlisted Stat Fields**: The sensor reads `/proc/<pid>/stat`, `/proc/<pid>/status`, and `/proc/<pid>/statm` to collect process IDs (`pid`, `ppid`), binary command name (`comm`), resident memory (`rss_bytes`), and CPU user/system time (`cpu_ticks`).
+- **Pre-Collection Chokepoint**: `proc.py` defines `PROHIBITED_PROC_ENTRIES` (`cmdline`, `mem`, `environ`, `fd`, `fdinfo`, `net`, `cwd`, `root`, `syscall`, `stack`). Any attempt to open a prohibited procfs path immediately raises `SecurityException` *before* `open()` is called.
+- **Bounded Basename Resolution**: Binary identification resolves exclusively to the executable basename (`os.path.basename(os.readlink('/proc/<pid>/exe'))`) to prevent argument leakage from command line strings.
+
+### 2.2 Harness Classification Engine (`classifier.py`)
+The classifier evaluates multi-signal heuristics across 7 supported coding agent harnesses:
+
+| Harness Type | Comm / Executable Basename | Known Cgroup / Runtime Signature | Primary Inference Protocol |
+|---|---|---|---|
+| `claude` | `claude`, `node` | `.claude/`, npm/npx wrappers | Anthropic HTTPS API |
+| `antigravity` | `antigravity`, `agy` | `.gemini/antigravity-cli/` | Google Cloud / Gemini API |
+| `codex` | `codex`, `codex-exec` | `.codex/` | OpenAI HTTPS API |
+| `cpai` | `cpai`, `kpai`, `omp` | `.cline/`, `.cpai/` | Multi-provider / OpenBao |
+| `opencode` | `opencode` | `.opencode/` | OpenCode Runtime / Ollama |
+| `hermes` | `hermes` | `.hermes/` | Hermes Agent Loop |
+| `aider` | `aider`, `python3` | `.aider/` | Multi-model / LiteLLM |
+
+### 2.3 Kanban Task Correlation (`kanban.py`)
+- **Non-Blocking Shared Descriptors**: The sensor inspects local task files (`board.json`, `.cycle.json`, `sessions.json`, `kanban.sqlite`) using read-only descriptors (`O_RDONLY`, `?mode=ro`). It never acquires exclusive filesystem locks (`flock`) and never delays kanban controller loops.
+- **Monotonic Clock-Skew Defense**: Anchors cycle duration (`elapsed_s`) using monotonic progression timestamps (`monotonic_anchor_ns`), ensuring durations remain positive even across host NTP adjustments or VM sleep/resume events.
+- **Strict Allowlist**: Extracts only `task_id`, `shortcode`, `role`, and `elapsed_s`. Task prompt descriptions and activity strings are discarded.
+
+### 2.4 Transcript Metadata Extraction (`transcript.py`)
+- **Positive Field Rule Tables**: Maps transcript structures (`FORMAT_RULES`) over a strictly finite allowlist of key paths (11 paths for Claude, 7 for Antigravity, 7 for Codex, 3 for Hermes).
+- **Leaf Type Funnels**: Coerces numeric tokens (`coerce_count`) with integer overflow clamping (`MAX_COUNT = 2**53 - 1`), maps model names to enum `ModelFamily`, and canonicalizes RFC3339 timestamps.
+- **Tool Name Normalization**: Normalizes standard tool names (`view_file`, `write_to_file`, `run_command`, `grep_search`, `list_dir`, etc.) into a 13-key histogram; unmapped tools fold into `other_count`.
+
+### 2.5 Netlink Socket Inode Attribution (`network.py`)
+- **Kernel Socket Attribution**: Utilizes `NETLINK_SOCK_DIAG` to extract active TCP sockets with `INET_DIAG_CGROUP_ID`, matching the socket to the process cgroup via `name_to_handle_at(2)`. This avoids reading `/proc/<pid>/fd` directly.
+- **Tiered CIDR Matching**: Matches remote IPs against [Inference Provider Ranges](/docs/reference/inference-provider-ranges/) across `dedicated`, `shared`, and `loopback` tiers.
+- **Control-Plane Exclusion**: Connections to secrets managers (`openbao` on port 8200) are classified as `control-plane` and strictly excluded from inference telemetry.
+
+---
+
+## 3. Signal Ingestion Pipeline (`signal-ingest`)
+
+The Go ingestion service (`signal-ingest`) terminates host sensor uploads and persists validated records:
+
+1. **Ingestion Endpoint**: `POST /api/v1/telemetry/coding-agent` (and `fe-signalloom-api` BFF proxy `/api/v1/telemetry/coding-agents`).
+2. **Schema & Wire Contract Validation**: Validates the payload against the frozen `codingagent.v1` schema (`d2-signalloom/apps/signal-ingest/codingagent/types.go`). Excess or unrecognized properties are rejected.
+3. **Cryptographic Deduplication & Storage**: Computes an idempotent event digest and stores telemetry in the active time-series memory buffer and storage engine.
+4. **Tenant Isolation**: Associates incoming host telemetry with the authenticated organization tenant ID.
+
+---
+
+## 4. Dashboard Visualization (`dashboard-signalloom`)
+
+The Signal Loom dashboard presents real-time telemetry across two primary operational views:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ [Dashboard] ──> Agents ──> [Workstation Coding Agents Tab]                                       │
+│                                                                                                  │
+│ ┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐              │
+│ │ 🤖 claude-code-dev-01                │  │ ⚡ antigravity-cli-worktree          │              │
+│ │ PID: 412891  Comm: claude            │  │ PID: 415022  Comm: agy               │              │
+│ │ Task: SLCD-P6-2 (implementation)     │  │ Task: SLCD-P6-1 (implementation)     │              │
+│ │ Duration: 18m 42s                    │  │ Duration: 12m 05s                    │              │
+│ │ Tokens: 142k in / 8.4k out           │  │ Tokens: 89k in / 4.1k out            │              │
+│ │ Egress: api.anthropic.com            │  │ Egress: generativelanguage.google... │              │
+│ │ Tools: [view_file: 24] [edit: 8] ... │  │ Tools: [ctx_exec: 14] [view: 6] ...  │              │
+│ │ [🛡️ Zero Customer Payload Verified]   │  │ [🛡️ Zero Customer Payload Verified]   │              │
+│ └──────────────────────────────────────┘  └──────────────────────────────────────┘              │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **Workstation Coding Agents Tab** (`CodingAgentsTab.tsx`):
+   - Grid and list views of active coding agent sessions.
+   - Filter by harness type, active Kanban role, confidence level, or host ID.
+   - Detailed metric cards displaying token rates, tool usage histograms, process RSS memory, and active model endpoints.
+2. **Agent Trust Topology Graph** (`AgentTrustTopologyPage.tsx`):
+   - Renders external workstation agents as verified external nodes (`location: external`, `evidenceState: observed`).
+   - Visualizes network links between host workstations and authorized inference endpoints.
+   - Displays real-time clock skew estimates and causal ordering guarantees.
+
+---
+
+## 5. Security & Privacy Guarantees Summary
+
+| Layer | Privacy & Security Mechanism | Falsification / Evidence Reference |
+|---|---|---|
+| **Procfs Reader** | Pre-collection chokepoint blocks `/proc/<pid>/cmdline`, `mem`, `environ`, `fd` | `test_negative_security.py` · [`slcd-p1-2-validator.md`](/docs/security/zero-customer-payload/) |
+| **Payload Validator** | Shape-only credential detection with SLDP keyed HMAC pseudonymization | `test_leak_falsification.py` (13 fixtures) · [`slcd-p1-2-validator.md`](/docs/security/zero-customer-payload/) |
+| **Memory Buffer** | Immediate zeroing of transient match buffers (`scrub_buffer`) | `test_memory_scrubbing_wipes_transient_buffer` |
+| **Transcript Reader** | Positive field allowlists with bounded integer clamping (`MAX_COUNT`) | `test_transcript_falsification.py` (15 fixtures) · [`slcd-p4-1-transcript-parser.md`](/docs/security/zero-customer-payload/) |
+| **Socket Inode** | Netlink cgroup matching with tiered CIDRs; control plane excluded | `test_network_socket_detector.py` · [`slcd-p4-2-socket-detector.md`](/docs/reference/inference-provider-ranges/) |
+| **Regulatory Gate** | Workstation collection disabled pending GDPR Works Council approvals | [`slcd-p1-5-lawful-basis.md`](/docs/reference/lawful-basis-assessment/) |

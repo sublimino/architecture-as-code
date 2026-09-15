@@ -96,4 +96,9 @@ const (
 	// ProvenanceUpstreamDefault — the upstream project's documented default,
 	// applicable because this repository overrides nothing.
 	ProvenanceUpstreamDefault ResidualProvenance = "upstream-default"
+	// ProvenanceProtocolBound — derived from network protocol / TCP keepalive timeouts.
+	ProvenanceProtocolBound ResidualProvenance = "protocol-bound"
+	// ProvenanceUnmeasured — unmeasured on target cluster; documented as estimate or pending.
+	ProvenanceUnmeasured ResidualProvenance = "unmeasured"
 )
+

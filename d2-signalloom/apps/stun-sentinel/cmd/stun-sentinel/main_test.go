@@ -48,17 +48,20 @@ func mockPodCgroup(t *testing.T, root string, frozen bool) string {
 	return dir
 }
 
-func newTestServer(t *testing.T, root, token string) (*server, *bytes.Buffer) {
+func newTestServer(t *testing.T, root, freezeToken, resumeToken string) (*server, *bytes.Buffer) {
 	t.Helper()
 	buf := &bytes.Buffer{}
-	validate := constantTimeTokenValidator(token)
+	freezeValidate := constantTimeTokenValidator(freezeToken)
+	resumeValidate := constantTimeTokenValidator(resumeToken)
 	return &server{
 		freezer: cgroup.New(root,
 			cgroup.WithDeadline(30*time.Millisecond),
-			cgroup.WithCredentialValidator(validate),
+			cgroup.WithFreezeCredentialValidator(freezeValidate),
+			cgroup.WithCredentialValidator(resumeValidate),
 		),
-		emitter:  telemetry.NewEmitter(buf),
-		validate: validate,
+		emitter:        telemetry.NewEmitter(buf),
+		freezeValidate: freezeValidate,
+		resumeValidate: resumeValidate,
 	}, buf
 }
 
@@ -80,6 +83,7 @@ func postJSON(t *testing.T, h http.Handler, path, body string, headers map[strin
 func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("CGROUP_ROOT", "")
 	t.Setenv("LISTEN_ADDR", "")
+	t.Setenv("STUN_FREEZE_TOKEN", "")
 	t.Setenv("STUN_RESUME_TOKEN", "")
 
 	cfg, err := loadConfig(nil)
@@ -94,6 +98,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.deadline != cgroup.DefaultFreezeDeadline {
 		t.Errorf("deadline = %v, want %v", cfg.deadline, cgroup.DefaultFreezeDeadline)
+	}
+	if cfg.freezeToken != "" {
+		t.Errorf("freezeToken = %q, want empty", cfg.freezeToken)
+	}
+	if cfg.resumeToken != "" {
+		t.Errorf("resumeToken = %q, want empty", cfg.resumeToken)
 	}
 }
 
@@ -116,19 +126,26 @@ func TestLoadConfigFlagsBeatEnvironment(t *testing.T) {
 	}
 }
 
-// The resume credential must never be a flag: flags are visible in `ps` and
+// The freeze and resume credentials must never be flags: flags are visible in `ps` and
 // in the pod spec.
-func TestResumeTokenComesFromEnvironmentOnly(t *testing.T) {
-	t.Setenv("STUN_RESUME_TOKEN", "governor-token")
+func TestTokensComeFromEnvironmentOnly(t *testing.T) {
+	t.Setenv("STUN_FREEZE_TOKEN", "freeze-secret-token")
+	t.Setenv("STUN_RESUME_TOKEN", "resume-governor-token")
 	cfg, err := loadConfig(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.resumeToken != "governor-token" {
+	if cfg.freezeToken != "freeze-secret-token" {
+		t.Errorf("freezeToken = %q", cfg.freezeToken)
+	}
+	if cfg.resumeToken != "resume-governor-token" {
 		t.Errorf("resumeToken = %q", cfg.resumeToken)
 	}
 	if _, err := loadConfig([]string{"--resume-token=x"}); err == nil {
 		t.Error("a --resume-token flag was accepted; the credential must not be settable on the command line")
+	}
+	if _, err := loadConfig([]string{"--freeze-token=x"}); err == nil {
+		t.Error("a --freeze-token flag was accepted; the credential must not be settable on the command line")
 	}
 }
 
@@ -184,7 +201,7 @@ func TestTokenValidatorMatchesOnlyExact(t *testing.T) {
 func TestStatusForDistinguishesEveryContainmentOutcome(t *testing.T) {
 	cases := map[error]int{
 		cgroup.ErrInvalidPodUID:    http.StatusBadRequest,
-		cgroup.ErrUnauthorized:     http.StatusForbidden,
+		cgroup.ErrUnauthorized:     http.StatusUnauthorized,
 		cgroup.ErrCgroupNotFound:   http.StatusNotFound,
 		cgroup.ErrPermission:       http.StatusInternalServerError,
 		cgroup.ErrFreezeDeadline:   http.StatusGatewayTimeout,
@@ -207,7 +224,7 @@ func TestStatusForDistinguishesEveryContainmentOutcome(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestHealthzReportsWritableHierarchy(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-tok", "resume-tok")
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 
@@ -236,7 +253,7 @@ func TestHealthzReports503OnUnwritableHierarchy(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
 
-	srv, _ := newTestServer(t, root, "t")
+	srv, _ := newTestServer(t, root, "freeze-tok", "resume-tok")
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
@@ -260,20 +277,17 @@ func authHeader(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
 
-// /stun used to accept any caller. Only /resume validated, and it did so inside
-// the cgroup layer, so anyone who could reach this daemon could freeze a pod by
-// UID and could not unfreeze it. On a privileged hostPID DaemonSet with no
-// NetworkPolicy that is an attacker-triggered denial of service, and the
-// freeze-without-unfreeze asymmetry makes it worse than an open pair.
+// /stun requires a valid freeze credential. Without one it rejects with 401 Unauthorized
+// before executing any freeze logic.
 func TestStunRefusesWithoutCredential(t *testing.T) {
 	root := t.TempDir()
 	mockPodCgroup(t, root, true)
-	srv, telem := newTestServer(t, root, "t")
+	srv, telem := newTestServer(t, root, "freeze-token", "resume-token")
 
 	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, nil)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403: %s", rec.Code, rec.Body)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401: %s", rec.Code, rec.Body)
 	}
 	// A refused request must not reach the freezer, so it must emit no halt event.
 	if strings.TrimSpace(telem.String()) != "" {
@@ -284,24 +298,35 @@ func TestStunRefusesWithoutCredential(t *testing.T) {
 func TestStunRefusesWrongCredential(t *testing.T) {
 	root := t.TempDir()
 	mockPodCgroup(t, root, true)
-	srv, _ := newTestServer(t, root, "governor-token")
+	srv, _ := newTestServer(t, root, "freeze-token", "resume-token")
 
-	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("not-the-token"))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("not-the-freeze-token"))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 }
 
-// An unconfigured daemon must refuse to freeze, not accept everything. The
-// dangerous half failing open is the specific defect this guards.
+// Calling /stun with resume token must be refused: distinct token scopes.
+func TestStunRefusesResumeToken(t *testing.T) {
+	root := t.TempDir()
+	mockPodCgroup(t, root, true)
+	srv, _ := newTestServer(t, root, "freeze-token", "resume-token")
+
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("resume-token"))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 for cross-token stun attempt", rec.Code)
+	}
+}
+
+// An unconfigured daemon must refuse to freeze, not accept everything.
 func TestStunRefusesWhenNoTokenConfigured(t *testing.T) {
 	root := t.TempDir()
 	mockPodCgroup(t, root, true)
-	srv, _ := newTestServer(t, root, "")
+	srv, _ := newTestServer(t, root, "", "")
 
 	for _, h := range []map[string]string{nil, authHeader(""), authHeader("anything")} {
 		rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, h)
-		if rec.Code != http.StatusForbidden {
+		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("unconfigured daemon accepted a freeze: status = %d", rec.Code)
 		}
 	}
@@ -310,12 +335,12 @@ func TestStunRefusesWhenNoTokenConfigured(t *testing.T) {
 // Probes carry no credential and must stay reachable, or the kubelet marks the
 // daemon unhealthy and containment capacity disappears.
 func TestHealthRoutesStayOpen(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "resume-token")
 	for _, path := range []string{"/healthz", "/readyz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		srv.routes().ServeHTTP(rec, req)
-		if rec.Code == http.StatusForbidden {
+		if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
 			t.Errorf("%s requires a credential; kubelet probes cannot present one", path)
 		}
 	}
@@ -324,10 +349,10 @@ func TestHealthRoutesStayOpen(t *testing.T) {
 func TestStunFreezesAndEmitsHaltedEvent(t *testing.T) {
 	root := t.TempDir()
 	dir := mockPodCgroup(t, root, true)
-	srv, telem := newTestServer(t, root, "t")
+	srv, telem := newTestServer(t, root, "freeze-token", "resume-token")
 
 	rec := postJSON(t, srv.routes(), "/stun",
-		`{"pod_uid":"`+uid+`","pod":"agent-arthur","namespace":"fe-signalloom-agents"}`, authHeader("t"))
+		`{"pod_uid":"`+uid+`","pod":"agent-arthur","namespace":"fe-signalloom-agents"}`, authHeader("freeze-token"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
@@ -357,9 +382,9 @@ func TestStunFreezesAndEmitsHaltedEvent(t *testing.T) {
 func TestStunEmitsFailureEventWhenFreezeCannotBeProven(t *testing.T) {
 	root := t.TempDir()
 	mockPodCgroup(t, root, false) // never reports frozen 1
-	srv, telem := newTestServer(t, root, "t")
+	srv, telem := newTestServer(t, root, "freeze-token", "resume-token")
 
-	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("t"))
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("freeze-token"))
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want 504", rec.Code)
 	}
@@ -377,36 +402,45 @@ func TestStunEmitsFailureEventWhenFreezeCannotBeProven(t *testing.T) {
 }
 
 func TestStunUnknownPodIs404(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
-	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("t"))
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "resume-token")
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"`+uid+`"}`, authHeader("freeze-token"))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
 func TestStunMalformedBodyIs400(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
-	if rec := postJSON(t, srv.routes(), "/stun", `{`, authHeader("t")); rec.Code != http.StatusBadRequest {
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "resume-token")
+	if rec := postJSON(t, srv.routes(), "/stun", `{`, authHeader("freeze-token")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
 
 func TestStunTraversalPodUIDIs400(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
-	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"../../etc"}`, authHeader("t"))
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "resume-token")
+	rec := postJSON(t, srv.routes(), "/stun", `{"pod_uid":"../../etc"}`, authHeader("freeze-token"))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
 
 func TestStunRejectsNonPost(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "resume-token")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/stun", nil)
-	req.Header.Set("Authorization", "Bearer t")
+	req.Header.Set("Authorization", "Bearer freeze-token")
 	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+func TestStunRefusesUnauthenticatedBeforeParsing(t *testing.T) {
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "resume-token")
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stun", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 — the gate must precede method and body checks", rec.Code)
 	}
 }
 
@@ -417,10 +451,8 @@ func TestStunRejectsNonPost(t *testing.T) {
 func TestResumeRequiresGovernanceCredential(t *testing.T) {
 	root := t.TempDir()
 	mockPodCgroup(t, root, true)
-	srv, telem := newTestServer(t, root, "governor-token")
+	srv, telem := newTestServer(t, root, "freeze-token", "governor-token")
 
-	// Every one of these must be refused. A `continue` that skipped a case
-	// here would leave a branch asserted by nothing.
 	for _, hdr := range []map[string]string{
 		nil,
 		{},
@@ -430,8 +462,8 @@ func TestResumeRequiresGovernanceCredential(t *testing.T) {
 		{"Authorization": "Bearer governor-tokenX"},
 	} {
 		rec := postJSON(t, srv.routes(), "/resume", `{"pod_uid":"`+uid+`"}`, hdr)
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("headers %v: status = %d, want 403", hdr, rec.Code)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("headers %v: status = %d, want 401", hdr, rec.Code)
 		}
 	}
 	if strings.Contains(telem.String(), telemetry.EventStunExecutionResumed) {
@@ -439,12 +471,23 @@ func TestResumeRequiresGovernanceCredential(t *testing.T) {
 	}
 
 	// The bare token without a Bearer prefix is accepted — TrimPrefix is a
-	// no-op when the prefix is absent. Asserted so the refusal cases above
-	// are known to be refusing on the credential, not on the header shape.
+	// no-op when the prefix is absent.
 	rec := postJSON(t, srv.routes(), "/resume", `{"pod_uid":"`+uid+`"}`,
 		map[string]string{"Authorization": "governor-token"})
-	if rec.Code == http.StatusForbidden {
+	if rec.Code == http.StatusUnauthorized {
 		t.Error("a valid bare token was refused; the refusals above may be testing header shape, not credentials")
+	}
+}
+
+// Calling /resume with freeze token must be refused: distinct token scopes.
+func TestResumeRefusesFreezeToken(t *testing.T) {
+	root := t.TempDir()
+	mockPodCgroup(t, root, true)
+	srv, _ := newTestServer(t, root, "freeze-token", "governor-token")
+
+	rec := postJSON(t, srv.routes(), "/resume", `{"pod_uid":"`+uid+`"}`, authHeader("freeze-token"))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 for cross-token resume attempt", rec.Code)
 	}
 }
 
@@ -454,7 +497,7 @@ func TestResumeWithValidCredentialThawsAndEmits(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte("1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	srv, telem := newTestServer(t, root, "governor-token")
+	srv, telem := newTestServer(t, root, "freeze-token", "governor-token")
 
 	rec := postJSON(t, srv.routes(), "/resume", `{"pod_uid":"`+uid+`"}`,
 		map[string]string{"Authorization": "Bearer governor-token"})
@@ -480,33 +523,29 @@ func TestResumeWithValidCredentialThawsAndEmits(t *testing.T) {
 }
 
 func TestResumeMalformedBodyIs400(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
-	if rec := postJSON(t, srv.routes(), "/resume", `nope`, authHeader("t")); rec.Code != http.StatusBadRequest {
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "governor-token")
+	if rec := postJSON(t, srv.routes(), "/resume", `nope`, authHeader("governor-token")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
 
 func TestResumeRejectsNonPost(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "governor-token")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/resume", nil)
-	req.Header.Set("Authorization", "Bearer t")
+	req.Header.Set("Authorization", "Bearer governor-token")
 	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
 	}
 }
 
-// Authentication runs before method and body handling on purpose: an anonymous
-// caller should not reach a JSON decoder. This pins that ordering so a later
-// refactor cannot quietly move the gate behind the parser.
 func TestResumeRefusesUnauthenticatedBeforeParsing(t *testing.T) {
-	srv, _ := newTestServer(t, t.TempDir(), "t")
-	// Malformed body AND wrong method, with no credential: the credential check wins.
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "governor-token")
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/resume", nil))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403 — the gate must precede method and body checks", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 — the gate must precede method and body checks", rec.Code)
 	}
 }
 
@@ -514,12 +553,54 @@ func TestResumeRefusesUnauthenticatedBeforeParsing(t *testing.T) {
 // Startup
 // ─────────────────────────────────────────────────────────────────────────────
 
+func TestRunRefusesWhenFreezeTokenUnsetOrEmpty(t *testing.T) {
+	t.Setenv("STUN_FREEZE_TOKEN", "")
+	t.Setenv("STUN_RESUME_TOKEN", "resume-token")
+
+	err := run([]string{"--cgroup-root=" + t.TempDir(), "--listen-addr=127.0.0.1:0"})
+	if err == nil {
+		t.Fatal("run() started without STUN_FREEZE_TOKEN")
+	}
+	if !strings.Contains(err.Error(), "STUN_FREEZE_TOKEN is required") {
+		t.Errorf("expected error mentioning STUN_FREEZE_TOKEN, got: %v", err)
+	}
+}
+
+func TestRunRefusesWhenResumeTokenUnsetOrEmpty(t *testing.T) {
+	t.Setenv("STUN_FREEZE_TOKEN", "freeze-token")
+	t.Setenv("STUN_RESUME_TOKEN", "")
+
+	err := run([]string{"--cgroup-root=" + t.TempDir(), "--listen-addr=127.0.0.1:0"})
+	if err == nil {
+		t.Fatal("run() started without STUN_RESUME_TOKEN")
+	}
+	if !strings.Contains(err.Error(), "STUN_RESUME_TOKEN is required") {
+		t.Errorf("expected error mentioning STUN_RESUME_TOKEN, got: %v", err)
+	}
+}
+
+func TestRunRefusesWhenFreezeAndResumeTokensAreEqual(t *testing.T) {
+	t.Setenv("STUN_FREEZE_TOKEN", "shared-token")
+	t.Setenv("STUN_RESUME_TOKEN", "shared-token")
+
+	err := run([]string{"--cgroup-root=" + t.TempDir(), "--listen-addr=127.0.0.1:0"})
+	if err == nil {
+		t.Fatal("run() started with identical freeze and resume tokens")
+	}
+	if !strings.Contains(err.Error(), "distinct credentials") {
+		t.Errorf("expected error mentioning distinct credentials, got: %v", err)
+	}
+}
+
 // run() must refuse to start against a hierarchy it cannot write, so the
 // misconfiguration surfaces at deploy time rather than during an incident.
 func TestRunRefusesToStartOnUnwritableHierarchy(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: directory mode bits do not deny writes")
 	}
+	t.Setenv("STUN_FREEZE_TOKEN", "freeze-token")
+	t.Setenv("STUN_RESUME_TOKEN", "resume-token")
+
 	root := filepath.Join(t.TempDir(), "ro")
 	if err := os.Mkdir(root, 0o555); err != nil {
 		t.Fatal(err)

@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# SLER-P1-4 — NetworkPolicy for Tier 0 containment stun-sentinel daemon.
+#
+# NOTE ON HOSTNETWORK / HOSTPID LIMITATION:
+# When stun-sentinel runs with hostPID and listens on host network interfaces,
+# standard Kubernetes CNI NetworkPolicies attached to pod veth devices cannot filter
+# node-level ingress traffic.
+# Therefore, handler-level constant-time bearer token validation (STUN_FREEZE_TOKEN
+# and STUN_RESUME_TOKEN) is the primary security control. This NetworkPolicy provides
+# defence-in-depth for container-networked / non-hostNetwork deployment topologies.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stun-sentinel
+  namespace: signalloom-system
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/component: tier-0-containment
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: stun-sentinel
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic on port 8080 from authorized signalloom components (e.g. fleet-manager).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fleet-manager
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: signalloom
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: signalloom
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # Allow DNS and in-cluster Kubernetes API egress
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP

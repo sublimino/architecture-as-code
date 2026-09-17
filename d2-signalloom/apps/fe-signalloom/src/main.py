@@ -17,6 +17,7 @@ from environment_routing import install_environment_routing_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
 from risk import install_risk_api
+from scenario_seeding import install_scenario_seeding_api
 from signal_fusion import install_signal_fusion_api
 from tenant_isolation import install_tenant_isolation_api
 from webhook_triggers import install_webhook_triggers_api
@@ -46,6 +47,7 @@ install_environment_routing_api(app)
 install_webhook_triggers_api(app)
 install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)
+install_scenario_seeding_api(app)
 
 
 @app.get("/health")

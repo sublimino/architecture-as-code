@@ -12,6 +12,7 @@ from api_compat import install_compatibility_api
 from audit_ingest import install_audit_ingest_api
 from coding_agent_telemetry import install_coding_agent_telemetry_api
 from demo_runner import install_demo_runner_api
+from environment_lifecycle import install_environment_lifecycle_api
 from environment_routing import install_environment_routing_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
@@ -44,6 +45,7 @@ install_risk_api(app)
 install_environment_routing_api(app)
 install_webhook_triggers_api(app)
 install_tenant_isolation_api(app)
+install_environment_lifecycle_api(app)
 
 
 @app.get("/health")

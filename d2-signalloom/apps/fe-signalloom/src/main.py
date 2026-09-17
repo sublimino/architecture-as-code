@@ -17,6 +17,7 @@ from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
 from risk import install_risk_api
 from signal_fusion import install_signal_fusion_api
+from tenant_isolation import install_tenant_isolation_api
 from webhook_triggers import install_webhook_triggers_api
 from db.connection import close_db_pool, get_pool, init_db_pool
 
@@ -42,6 +43,7 @@ install_coding_agent_telemetry_api(app)
 install_risk_api(app)
 install_environment_routing_api(app)
 install_webhook_triggers_api(app)
+install_tenant_isolation_api(app)
 
 
 @app.get("/health")

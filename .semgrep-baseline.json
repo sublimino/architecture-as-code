@@ -1,0 +1,84 @@
+{
+  "_README": [
+    "Accepted semgrep ERROR-severity findings. Enforced by scripts/semgrep-gate.mjs,",
+    "which fails only on findings ABOVE these counts — so a new vulnerability gates the",
+    "push while this known set does not.",
+    "",
+    "Every entry states why it is accepted, and each reason below was verified by reading",
+    "the code at the cited location, not inferred from the rule name. An entry without a",
+    "reason defeats the file's purpose: the point is that a REAL finding stands out.",
+    "",
+    "Key is 'check_id|path' with an expected count, NOT a line number, because line",
+    "numbers churn on every edit above a finding. semgrep's own extra.fingerprint field",
+    "would be the right key and is unusable on the free tier — it returns the literal",
+    "string 'requires login' for every finding (verified, semgrep 1.176.1: 19 findings,",
+    "1 unique fingerprint value).",
+    "",
+    "Three categories appear here. Only the third is technical debt:",
+    "  false positive  - the rule's assumed misuse is not what the code does",
+    "  fixture         - a deliberate test or local-dev credential, no live system",
+    "  accepted risk   - real, understood, out of scope for the gate",
+    "",
+    "Regenerate with `make scan-sast-baseline`; reasons are preserved across regeneration.",
+    "A growing baseline is a signal, not a fix."
+  ],
+  "severity": "ERROR",
+  "accepted": {
+    "dockerfile.security.missing-user-entrypoint.missing-user-entrypoint|d2-signalloom/netassert-runner.Dockerfile": {
+      "count": 1,
+      "reason": "accepted risk - netassert needs root to open raw sockets for its network assertions; dropping privilege removes the capability the image exists to provide. Test-harness image, never part of a deployed workload."
+    },
+    "dockerfile.security.missing-user-entrypoint.missing-user-entrypoint|d2-signalloom/proof-helper.Dockerfile": {
+      "count": 1,
+      "reason": "accepted risk - short-lived evidence-generation helper run by CI, not a served workload. Worth fixing when the image is next touched; USER is a one-line change with no functional cost here."
+    },
+    "generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash|d2-signalloom/infra/inf-signalloom/base/dex.yaml": {
+      "count": 2,
+      "reason": "fixture - bcrypt hashes for the local Dex static-password dev users. Hashes, not plaintext, and for an identity provider that only exists in the kind stack. Production auth uses SPIFFE/JWT-SVID, not Dex static passwords."
+    },
+    "generic.secrets.security.detected-generic-secret.detected-generic-secret|d2-signalloom/apps/agentmaxxing-host-sensor/test_mission_adversarial_leak_falsification.py": {
+      "count": 2,
+      "reason": "fixture - this suite asserts the sensor REFUSES to exfiltrate credentials, so it must contain credential-shaped strings to be meaningful. Removing them removes the test. The same fixtures are declared in .trufflehog-exclude-paths for the same reason."
+    },
+    "generic.secrets.security.detected-jwt-token.detected-jwt-token|d2-signalloom/apps/agentmaxxing-host-sensor/test_mission_adversarial_leak_falsification.py": {
+      "count": 1,
+      "reason": "fixture - as above. A realistic JWT is the input to a falsification test that proves the token never reaches the wire."
+    },
+    "go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection|d2-signalloom/apps/signal-ingest/collectors/ebpf/testserver.go": {
+      "count": 1,
+      "reason": "fixture - testserver.go is a loopback gRPC stub for the eBPF collector's tests. Adding TLS would mean shipping a test certificate to satisfy a scanner, which is strictly worse. It is test scaffolding, not a server entrypoint."
+    },
+    "go.lang.security.audit.dangerous-exec-command.dangerous-exec-command|d2-signalloom/apps/cardvault-agent/main.go": {
+      "count": 1,
+      "reason": "false positive - `exec.Command(name, args...)` passes an argument ARRAY with no shell involved, which is the safe form this rule exists to steer people toward. The rule fires on any non-constant program name, which is unavoidable in a helper wrapper. No string interpolation, no `sh -c`."
+    },
+    "go.lang.security.audit.dangerous-exec-command.dangerous-exec-command|d2-signalloom/apps/cpai-engineer/executor.go": {
+      "count": 1,
+      "reason": "false positive - `exec.CommandContext(ctx, name, args...)`, argument array, no shell. Same rule limitation as cardvault-agent. This is the injectable RealCmdRunner boundary, so a variable program name is the design."
+    },
+    "go.lang.security.audit.dangerous-exec-command.dangerous-exec-command|d2-signalloom/apps/signalloom-stun-sentinel/network.go": {
+      "count": 1,
+      "reason": "false positive - runTC wraps `tc` invocations as `exec.Command(name, args...)`, argument array, no shell. Note that the privileged context makes the ARGUMENTS worth auditing whenever this changes, even though the invocation form is safe."
+    },
+    "go.lang.security.audit.dangerous-exec-command.dangerous-exec-command|d2-signalloom/proof-helper/main.go": {
+      "count": 1,
+      "reason": "false positive - argument array, no shell, and the helper only runs CI evidence commands."
+    },
+    "go.lang.security.filepath-clean-misuse.filepath-clean-misuse|d2-signalloom/apps/signal-ingest/api/auth.go": {
+      "count": 1,
+      "reason": "false positive on deliberately defensive code - the rule assumes path.Clean is being used to SANITISE untrusted input. Here it is the inverse: `if path.Clean(r.URL.Path) != r.URL.Path` is a canonicality ASSERTION that rejects a non-canonical route with 403 rather than silently normalising it. Cleaning-as-sanitiser is the bug this rule looks for; asserting-then-refusing is the correct pattern. Do not 'fix' this by removing the check."
+    },
+    "python.django.security.injection.ssrf.ssrf-injection-urllib.ssrf-injection-urllib|d2-signalloom/apps/fake-integration-proxy/server.py": {
+      "count": 1,
+      "reason": "fixture - fake-integration-proxy is a test double whose entire job is to forward to a caller-supplied URL so integration tests can point it at a local stub. Constraining the URL would remove its only function. It appears in no production manifest."
+    },
+    "python.jwt.security.unverified-jwt-decode.unverified-jwt-decode|d2-signalloom/apps/fe-signalloom/src/host_credential.py": {
+      "count": 1,
+      "reason": "false positive, verified by reading both decode paths - line 595 decodes with verify_signature=False purely to decide whether to APPLY an extra 403 path restriction. The authoritative verification is a separate RS256 decode inside verify_host_credential (line 260). Because the unverified claims can only ADD a restriction and never grant access, forging them makes a caller MORE restricted rather than less, and altering the claims on a real token requires the signing key. Fail-safe by construction. If this middleware is ever changed to GRANT anything on unverified claims, that becomes a genuine vulnerability and this entry must be removed."
+    },
+    "trailofbits.go.missing-runlock-on-rwmutex.missing-runlock-on-rwmutex|d2-signalloom/apps/signal-ingest/store/segment_attestor.go": {
+      "count": 4,
+      "reason": "false positive - the rule cannot follow an unlock that happens in every branch of a `select`. Both cases of the first select call a.queueMu.RUnlock() (lines 524 and 526), so queueMu is released on every path before the second select begins, and the four flagged returns (535, 542, 544, 547) are all downstream of that. The errorMu region below is Lock/Unlock-balanced on both branches too. Re-verify by hand if the select structure is refactored, because the rule will not catch a real leak here either."
+    }
+  }
+}

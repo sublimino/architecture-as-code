@@ -2978,7 +2978,7 @@ SEMGREP_CONFIG     ?= p/default
 SEMGREP_SEVERITY   ?= ERROR
 TRUFFLEHOG_EXCLUDE := $(CURDIR)/.trufflehog-exclude-paths
 
-.PHONY: scan scan-secrets scan-secrets-worktree scan-sast scan-sast-all scan-lint install-git-hooks
+.PHONY: scan scan-secrets scan-secrets-worktree scan-sast scan-sast-baseline scan-sast-all scan-lint install-git-hooks
 
 scan: scan-secrets scan-sast ## Run the full security scan set (secrets + SAST) over the committed tree.
 
@@ -3005,13 +3005,16 @@ scan-secrets-worktree: ## Scan the working tree too, including untracked files. 
 	@trufflehog filesystem --no-update --exclude-detectors=Lob \
 		--exclude-paths="$(TRUFFLEHOG_EXCLUDE)" . || true
 
-scan-sast: ## Static analysis, gating on $(SEMGREP_SEVERITY) only.
+scan-sast: ## Static analysis. Fails only on NEW ERROR-severity findings above the declared baseline.
 	@command -v semgrep >/dev/null || { echo "scan-sast: semgrep not on PATH"; exit 127; }
 	@mkdir -p "$(SEMGREP_HOME)"
-	@echo "==> semgrep: $(SEMGREP_CONFIG), gating on $(SEMGREP_SEVERITY)"
-	@HOME="$(SEMGREP_HOME)" semgrep --config=$(SEMGREP_CONFIG) --metrics=off \
-		--severity=$(SEMGREP_SEVERITY) --error --quiet \
-		d2-signalloom d2-osramp-apps scripts test
+	@SEMGREP_HOME="$(SEMGREP_HOME)" SEMGREP_CONFIG=$(SEMGREP_CONFIG) \
+		node scripts/semgrep-gate.mjs --severity $(SEMGREP_SEVERITY)
+
+scan-sast-baseline: ## Regenerate .semgrep-baseline.json. Review the diff — every entry needs a reason.
+	@mkdir -p "$(SEMGREP_HOME)"
+	@SEMGREP_HOME="$(SEMGREP_HOME)" SEMGREP_CONFIG=$(SEMGREP_CONFIG) \
+		node scripts/semgrep-gate.mjs --severity $(SEMGREP_SEVERITY) --update
 
 scan-sast-all: ## Full SAST report at every severity. Advisory, does not gate.
 	@mkdir -p "$(SEMGREP_HOME)"

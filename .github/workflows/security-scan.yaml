@@ -1,0 +1,96 @@
+# Secret and static-analysis scanning.
+#
+# This is the enforcement half. A local pre-push hook is bypassable by design
+# (`--no-verify`), so the gate that actually holds has to run here where nobody
+# can skip it. Neither tool ran in CI before this workflow existed — none of the
+# seven prior workflows invoked semgrep or trufflehog, which is why the
+# repository's own security-validation-errata.md recorded both steps as Fail.
+#
+# The two jobs are deliberately separated rather than combined:
+#   secrets — seconds, gates. A credential reaching the default branch is the
+#             failure that cannot be undone by a later commit.
+#   sast    — minutes, gates on ERROR only. WARNING and INFO are uploaded as a
+#             report so the trend is visible without failing every push.
+name: security-scan
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+  schedule:
+    # Weekly full-severity sweep. The gate only enforces ERROR, so without this the
+    # 127 WARNING findings would never be looked at again.
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: secrets (trufflehog)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The Makefile target scans `git archive HEAD`, so a shallow checkout is
+          # sufficient and much faster than fetching 3000+ commits of history.
+          fetch-depth: 1
+
+      - name: Install trufflehog
+        run: |
+          set -euo pipefail
+          # Pinned by version rather than tracking latest: an unpinned scanner
+          # changes its findings underneath you, and a gate whose verdict moves on
+          # its own is not a gate. Bump deliberately.
+          VERSION=3.96.0
+          curl -sSfL "https://github.com/trufflesecurity/trufflehog/releases/download/v${VERSION}/trufflehog_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin trufflehog
+          trufflehog --version
+
+      - name: Scan committed tree
+        run: make scan-secrets
+
+  sast:
+    name: sast (semgrep, gates above baseline)
+    runs-on: ubuntu-latest
+    # Deliberately NOT the semgrep/semgrep container image: the gate is a Node script
+    # (scripts/semgrep-gate.mjs) and that image ships no Node runtime. Installing
+    # semgrep onto the standard runner keeps both tools in one environment.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install semgrep
+        # Pinned for the same reason as trufflehog: a scanner that changes its
+        # findings on its own turns a gate into a flake.
+        run: pip install --quiet semgrep==1.176.1
+
+      - name: Gate on new ERROR findings
+        # Fails only on ERROR findings above .semgrep-baseline.json. It does NOT use
+        # `semgrep --error`, whose exit code conflates findings with the repository's
+        # 75 partial-parse errors and so reports "fatal" on a clean tree.
+        run: make scan-sast
+
+      - name: Full-severity report (advisory)
+        if: always()
+        run: |
+          make scan-sast-all 2>&1 | tee semgrep-full.txt || true
+
+      - name: Upload full report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-full-report
+          path: semgrep-full.txt
+          if-no-files-found: ignore
+          retention-days: 30

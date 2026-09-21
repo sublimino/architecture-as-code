@@ -875,6 +875,16 @@ demo-agentmaxxing-acceptance-test: ## Run AgentMaxxing end-to-end local onboardi
 	bats test/signalloom/agentmaxxing-acceptance-journey.bats
 	PYTHONPATH=d2-signalloom/apps/fe-signalloom/src python3 -m pytest -p no:libtmux -o cache_dir=/tmp/pytest_cache_fe -v d2-signalloom/apps/fe-signalloom/src/tests/test_agentmaxxing_acceptance_journey.py
 
+.PHONY: local-sensor-status local-sensor-scan local-sensor-watch
+local-sensor-status: ## Probe local workstation sensor prerequisites and Tailscale reachability.
+	./scripts/sensor/run-workstation-sensor.sh status
+
+local-sensor-scan: ## Scan host process table for active coding agent harnesses (Claude, Agy, Cline).
+	./scripts/sensor/run-workstation-sensor.sh scan
+
+local-sensor-watch: ## Continuously observe and sample local coding agent processes.
+	./scripts/sensor/run-workstation-sensor.sh watch
+
 .PHONY: signalloom-wire-contract-emit signalloom-wire-contract-check signalloom-wire-contract-test
 signalloom-wire-contract-emit: ## SLCD-P1-3: regenerate the codingagent.v1 Go, Python and OpenAPI artefacts from the frozen schema.
 	python3 d2-signalloom/apps/agentmaxxing-host-sensor/scripts/gen_wire_contract.py --emit
@@ -2942,3 +2952,95 @@ swarm-remove-%: ## Remove a specific agent (e.g., make swarm-remove-cpai-enginee
 .PHONY: swarm-status
 swarm-status: ## Show Flux reconciliation status for all swarm agents.
 	scripts/swarm-deploy.sh status
+
+# ─── Security scanning ───────────────────────────────────────────────────────────
+# Run on demand and in CI, never on every commit. A pre-commit gate on these is too
+# slow to survive contact with normal work, which is how repositories end up with the
+# hook disabled and the scan never run at all.
+#
+# Scope is `git archive HEAD`, i.e. exactly the committed tree. Three reasons: an
+# unscoped working-tree scan returns ~994 findings against ~0 for committed content,
+# almost all of it inside gitignored container tarballs and CI archives; a push gate
+# should judge what is being pushed rather than whatever is lying in the worktree; and
+# extraction costs 0.4s, so there is no reason to approximate.
+#
+# SEMGREP_HOME is set explicitly because semgrep aborts with
+# "Permission denied open ~/.semgrep/settings.yml" under any sandbox profile that does
+# not grant that path. Setting it here means these targets work whether or not the
+# `sec-tooling` nono profile is installed.
+
+SCAN_TMP           := $(shell mktemp -d -t osramp-scan.XXXXXX)
+SEMGREP_HOME       ?= $(CURDIR)/.cache/semgrep-home
+SEMGREP_CONFIG     ?= p/default
+# Gate on ERROR only. The full ruleset reports ~175 findings (19 ERROR, 127 WARNING,
+# 29 INFO); blocking on all of them would fail every push from day one, which trains
+# people to bypass the gate. WARNING and INFO are reported, not enforced.
+SEMGREP_SEVERITY   ?= ERROR
+TRUFFLEHOG_EXCLUDE := $(CURDIR)/.trufflehog-exclude-paths
+
+.PHONY: scan scan-secrets scan-secrets-worktree scan-sast scan-sast-all scan-lint install-git-hooks
+
+scan: scan-secrets scan-sast ## Run the full security scan set (secrets + SAST) over the committed tree.
+
+scan-secrets: ## Scan the committed tree for secrets. Fails on any finding.
+	@command -v trufflehog >/dev/null || { echo "scan-secrets: trufflehog not on PATH"; exit 127; }
+	@echo "==> trufflehog: committed tree at HEAD"
+	@git archive HEAD | tar -x -C "$(SCAN_TMP)"
+	@cd "$(SCAN_TMP)" && trufflehog filesystem --no-update --fail \
+		--exclude-detectors=Lob \
+		--exclude-paths="$(TRUFFLEHOG_EXCLUDE)" . ; \
+	  rc=$$?; rm -rf "$(SCAN_TMP)"; \
+	  if [ $$rc -ne 0 ]; then \
+	    echo ""; \
+	    echo "scan-secrets: findings above are NOT in the declared-fixture baseline."; \
+	    echo "  Baseline:   $(TRUFFLEHOG_EXCLUDE)"; \
+	    echo "  If a finding is a deliberate test fixture, add it there WITH a reason."; \
+	    echo "  If it is a real credential, rotate it first — the baseline is not a fix."; \
+	    exit $$rc; \
+	  fi
+	@echo "==> trufflehog: clean"
+
+scan-secrets-worktree: ## Scan the working tree too, including untracked files. Advisory, does not gate.
+	@git archive HEAD >/dev/null 2>&1 || true
+	@trufflehog filesystem --no-update --exclude-detectors=Lob \
+		--exclude-paths="$(TRUFFLEHOG_EXCLUDE)" . || true
+
+scan-sast: ## Static analysis, gating on $(SEMGREP_SEVERITY) only.
+	@command -v semgrep >/dev/null || { echo "scan-sast: semgrep not on PATH"; exit 127; }
+	@mkdir -p "$(SEMGREP_HOME)"
+	@echo "==> semgrep: $(SEMGREP_CONFIG), gating on $(SEMGREP_SEVERITY)"
+	@HOME="$(SEMGREP_HOME)" semgrep --config=$(SEMGREP_CONFIG) --metrics=off \
+		--severity=$(SEMGREP_SEVERITY) --error --quiet \
+		d2-signalloom d2-osramp-apps scripts test
+
+scan-sast-all: ## Full SAST report at every severity. Advisory, does not gate.
+	@mkdir -p "$(SEMGREP_HOME)"
+	@HOME="$(SEMGREP_HOME)" semgrep --config=$(SEMGREP_CONFIG) --metrics=off \
+		d2-signalloom d2-osramp-apps scripts test || true
+
+scan-lint: ## Shell and Dockerfile lint. Advisory until the existing findings are cleared.
+	@command -v shellcheck >/dev/null && \
+	  git ls-files -z '*.sh' | xargs -0 -r shellcheck -S warning || \
+	  echo "scan-lint: shellcheck not on PATH, skipped"
+	@command -v hadolint >/dev/null && \
+	  git ls-files -z '*Dockerfile*' | xargs -0 -r hadolint || \
+	  echo "scan-lint: hadolint not on PATH, skipped"
+
+install-git-hooks: ## Install the pre-push hook that runs scan-secrets.
+	@mkdir -p .git/hooks
+	@printf '%s\n' \
+	  '#!/usr/bin/env bash' \
+	  '# Installed by `make install-git-hooks`.' \
+	  '#' \
+	  '# Secrets only, and on push rather than commit. The SAST scan takes minutes and' \
+	  '# belongs in CI; a slow hook gets disabled and then nothing runs at all.' \
+	  '#' \
+	  '# Bypass with `git push --no-verify`, or SKIP_SECRET_SCAN=1.' \
+	  'set -uo pipefail' \
+	  '[ "$${SKIP_SECRET_SCAN:-}" = "1" ] && { echo "pre-push: secret scan skipped via SKIP_SECRET_SCAN"; exit 0; }' \
+	  'command -v trufflehog >/dev/null || { echo "pre-push: trufflehog not installed, skipping"; exit 0; }' \
+	  'exec make -s scan-secrets' \
+	  > .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-push
+	@echo "installed .git/hooks/pre-push -> make scan-secrets"
+	@echo "  bypass: git push --no-verify   or   SKIP_SECRET_SCAN=1 git push"

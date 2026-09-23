@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# docs-lint.sh — check the navigation-layer documentation against the rules in
-# docs/documentation-style.md. Offline. Needs only bash, awk, and git.
+# docs-lint.sh — check the repository documentation against the rules in
+# docs/documentation-style.md. Offline. Needs only bash, awk, git, and rg.
 #
 # Usage:
-#   scripts/docs-lint.sh              # check the default navigation-layer files
-#   scripts/docs-lint.sh FILE...      # check the given markdown files only
+#   scripts/docs-lint.sh              # every tracked .md file, by tier (see TIER below)
+#   scripts/docs-lint.sh FILE...      # all checks on the given markdown files only
 #
 # Checks (each finding is one line: FILE:LINE: CHECK: detail):
 #   link      a relative link target does not exist
@@ -19,8 +19,9 @@
 #   fence     a code fence is opened and never closed
 #   orphan    a top-level docs/*.md file has no link from docs/README.md
 #
-# The checks skip fenced code blocks, tables, headings, HTML comments, and any
-# region between <!-- docs-lint: off --> and <!-- docs-lint: on -->.
+# The prose checks (semicolon, long, word) skip fenced code blocks, tables,
+# headings, and HTML comments. The link and make checks read table rows too.
+# All checks skip a region between <!-- docs-lint: off --> and <!-- docs-lint: on -->.
 # Exit status: 0 when no findings, 1 when findings, 2 on usage error.
 
 set -o errexit -o pipefail
@@ -47,15 +48,39 @@ DEFAULT_FILES=(
   d2-signalloom/AGENTS.md
   d2-signalloom/README.md
 )
+# Tests replace the list with DOCS_LINT_FILES (paths separated by spaces).
+if [[ -n "${DOCS_LINT_FILES:-}" ]]; then
+  read -r -a DEFAULT_FILES <<<"$DOCS_LINT_FILES"
+fi
 
 # Banned words and phrases (lower case, extended regex). Each has a simpler
 # approved replacement in docs/documentation-style.md.
 BANNED='utili[sz]e|leverag(e|es|ed|ing)|in order to|prior to|facilitate|commence|whilst|simply|obviously|basically|e\.g\.|i\.e\.|click here'
 
+# Decision records: dated proposals, reports, audits, proofs, and session
+# records. They keep the state of their date, so only their links are checked.
+# Keep this list in step with "Decision records" in docs/README.md.
+RECORDS='^(MEMORY/|Plans/|ci-evidence/|docs/signalloom/|docs/plans/|docs/policy-as-versioned-code/|terraform/notes/|docs/Proposal |docs/Signal Loom — (CEO|Next-Phase)|docs/(DOCUMENTATION-AUDIT|DOCUMENTATION-DELIVERY-CHECKLIST|COLLABORATOR-REVIEW|FIRST-USER-ONBOARDING-PROPOSAL|multi-agent-supercred-proposal|workspace-agentic-identity-streaming|kpai-harness-verification|ktest-p2-preflight|amxd-p0-baseline|agent-trust-(project-proposal|completion-audit|adversarial-review))\.md|docs/appraisal/(APPRAISAL|api-contract-gap|mocks-proxy-fidelity)\.md|docs/gcp-demo/INCIDENTS-|(CODEBASE-REVIEW-.*|DEPLOYMENT-SCOPE|ISA|PLAN-CI-FIXES|PREFLIGHT-REPORT|PROPOSAL_.*)\.md$)'
+
+# Files that are not repository documentation: vendored and generated trees.
+IGNORED='(^|/)node_modules/|/bats-assert/|^docs/breach-cost-talk/|^d2-signalloom/apps/docs-signalloom/src/'
+
+# Each file gets a tier:
+#   style   all checks (the navigation layer, or files given as arguments)
+#   living  correctness checks: link, anchor, space, make, fence
+#   record  link checks only: link, anchor, space
+declare -A TIER=()
 if [[ $# -gt 0 ]]; then
   FILES=("$@")
+  for f in "${FILES[@]}"; do TIER[$f]=style; done
 else
   FILES=("${DEFAULT_FILES[@]}")
+  for f in "${FILES[@]}"; do TIER[$f]=style; done
+  while IFS= read -r -d '' f; do
+    [[ -v "TIER[$f]" || "$f" =~ $IGNORED ]] && continue
+    if [[ "$f" =~ $RECORDS ]]; then TIER[$f]=record; else TIER[$f]=living; fi
+    FILES+=("$f")
+  done < <(git ls-files -z '*.md')
 fi
 
 for f in "${FILES[@]}"; do
@@ -70,7 +95,9 @@ done
 #   F <line>                      (a code fence that is never closed)
 # ---------------------------------------------------------------------------
 extract() {
-  awk -v OFS='\t' '
+  # A fixed locale: a UTF-8 byte sequence that the current locale cannot decode
+  # must not make awk warn or skip a line.
+  LC_ALL=C awk -v OFS='\t' '
     function flush(   s, n, i, parts) {
       if (para == "") return
       s = para; para = ""
@@ -138,6 +165,12 @@ anchors() {
     {
       s = $0
       sub(/^#+ +/, "", s); sub(/ +#+ *$/, "", s)
+      # A link in a heading keeps only its label: [text](url) -> text.
+      while (match(s, /\[[^]]*\]\([^)]*\)/)) {
+        link = substr(s, RSTART, RLENGTH)
+        sub(/\]\(.*/, "", link); sub(/^\[/, "", link)
+        s = substr(s, 1, RSTART - 1) link substr(s, RSTART + RLENGTH)
+      }
       s = tolower(s)
       gsub(/[^a-z0-9 _-]/, "", s)
       gsub(/ /, "-", s)
@@ -224,6 +257,8 @@ check_make() {
   case "$name" in sure | it | a | an | the | this | that | them | your | changes | comprehensive | sense) return 0 ;; esac
   if [[ -n "$dir" ]]; then
     mf="$dir/Makefile"
+    # A relative -C in a page can mean the directory of that page.
+    [[ -f "$mf" ]] || mf="$(dirname "$file")/$dir/Makefile"
     [[ -f "$mf" ]] || { report "$file" "$ln" make "make -C $dir: no $mf"; return 0; }
     has_target "$mf" "$name" || report "$file" "$ln" make "no target '$name' in $mf"
     return 0
@@ -280,12 +315,13 @@ check_prose() {
 }
 
 for file in "${FILES[@]}"; do
+  tier="${TIER[$file]}"
   while IFS=$'\t' read -r kind ln rest; do
     case "$kind" in
       L) check_link "$file" "$ln" "$rest" ;;
-      M) check_make "$file" "$ln" "$rest" ;;
-      P) check_prose "$file" "$ln" "$rest" ;;
-      F) report "$file" "$ln" fence "code fence opened here is never closed" ;;
+      M) [[ "$tier" != record ]] && check_make "$file" "$ln" "$rest" ;;
+      P) [[ "$tier" == style ]] && check_prose "$file" "$ln" "$rest" ;;
+      F) [[ "$tier" != record ]] && report "$file" "$ln" fence "code fence opened here is never closed" ;;
     esac
   done < <(extract "$file")
 done
@@ -307,4 +343,6 @@ if ((findings > 0)); then
   echo "docs-lint: $findings finding(s). Rules: docs/documentation-style.md" >&2
   exit 1
 fi
-echo "docs-lint: ${#FILES[@]} file(s) clean"
+declare -A count=([style]=0 [living]=0 [record]=0)
+for f in "${FILES[@]}"; do count[${TIER[$f]}]=$((count[${TIER[$f]}] + 1)); done
+echo "docs-lint: ${#FILES[@]} file(s) clean (all checks: ${count[style]}, correctness checks: ${count[living]}, link checks: ${count[record]})"

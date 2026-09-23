@@ -824,6 +824,13 @@ docs-render-check: ## Build the docs portal, serve it locally, and render-check 
 	# target therefore serves the tree's own build.
 	./scripts/docs-render-check.sh docs.spec.ts
 
+.PHONY: docs-lint docs-lint-test
+docs-lint: ## Check the navigation-layer docs: links, anchors, make targets, index, and STE rules. No cluster.
+	./scripts/docs-lint.sh
+
+docs-lint-test: ## Run the BATS suite for docs-lint, with a planted defect per check. No cluster.
+	bats test/docs-lint.bats
+
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
 	test/bench-cgroup-freezer.sh

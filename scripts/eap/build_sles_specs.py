@@ -24,8 +24,8 @@ SPEC_DIR = Path.home() / ".cline" / "kanban" / "card-specs" / "SLES"
 SPEC_DIR.mkdir(parents=True, exist_ok=True)
 
 PROPOSAL_PATH = Path(
-    "/home/andy/src/cp/osramp-demo/docs/"
-    "Proposal — Signal Loom EAP Synthetic Scenario & Audit Seeding Engine (2026-Q3).md"
+    "/home/andy/Documents/Obsidian/v1/2. Areas/CEO/Innovation Proposals/"
+    "Proposal — SLES Signal Loom EAP Synthetic Scenario & Audit Seeding Engine (2026-Q3).md"
 )
 CONTRACT_SHA = hashlib.sha256(PROPOSAL_PATH.read_bytes()).hexdigest()
 

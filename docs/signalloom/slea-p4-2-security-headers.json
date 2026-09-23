@@ -1,0 +1,132 @@
+{
+  "provision-201": {
+    "status": 201,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "provision-409": {
+    "status": 409,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "provision-422": {
+    "status": 422,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "resolve-200": {
+    "status": 200,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "resolve-400": {
+    "status": 400,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "list-200": {
+    "status": 200,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "get-200": {
+    "status": 200,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "get-404": {
+    "status": 404,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "probe-200": {
+    "status": 200,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "extend-200": {
+    "status": 200,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "teardown-200": {
+    "status": 200,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "probe-410": {
+    "status": 410,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  },
+  "extend-410": {
+    "status": 410,
+    "headers": {
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  }
+}

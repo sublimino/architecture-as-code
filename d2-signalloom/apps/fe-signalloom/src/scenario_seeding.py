@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
-from fastapi import APIRouter, FastAPI, HTTPException, Path, Query, status
+from fastapi import APIRouter, FastAPI, Header, HTTPException, Path, Query, status
 from fastapi.responses import StreamingResponse
 
 from environment_routing import derive_customer_hash
@@ -312,6 +312,7 @@ async def stream_customer_events(
     customer_hash: str,
     *,
     replay: bool = True,
+    start_after: int | None = None,
     limit: int | None = None,
     poll_interval: float = SSE_POLL_INTERVAL_SECONDS,
     heartbeat_interval: float = SSE_HEARTBEAT_SECONDS,
@@ -319,11 +320,16 @@ async def stream_customer_events(
     """Yield Server-Sent Event frames for one tenant's seeded audit events.
 
     Polls the in-memory index with `asyncio.sleep`, so the event loop is never
-    blocked. With `replay` the stream starts from the tenant's first event;
-    otherwise it starts at the current tail. It closes after `limit` events.
+    blocked. Frame ids are 1-based positions in the tenant's append-only list,
+    so `start_after` (a client's Last-Event-ID) resumes without duplicates.
+    Otherwise `replay` starts from the tenant's first event, or from the
+    current tail when false. It closes after `limit` events.
     """
     h = customer_hash.lower()
-    cursor = 0 if replay else manager.get_events_since(h, 0)[1]
+    if start_after is not None:
+        cursor = start_after
+    else:
+        cursor = 0 if replay else manager.get_events_since(h, 0)[1]
     sent = 0
     idle = 0.0
     while limit is None or sent < limit:
@@ -376,10 +382,16 @@ async def api_stream_customer_events(
     customer_hash: str = Path(..., pattern=CUSTOMER_HASH_PATTERN),
     replay: bool = Query(default=True, description="Replay existing events before live ones"),
     limit: int | None = Query(default=None, ge=1, le=10000, description="Close after N events"),
+    last_event_id: str | None = Header(default=None, pattern=r"^[0-9]{1,9}$"),
 ) -> StreamingResponse:
-    """Stream one evaluation customer's seeded audit events via Server-Sent Events."""
+    """Stream one evaluation customer's seeded audit events via Server-Sent Events.
+
+    A reconnecting EventSource sends Last-Event-ID; the stream resumes after it.
+    """
+    start_after = int(last_event_id) if last_event_id is not None else None
     return StreamingResponse(
-        stream_customer_events(GLOBAL_SCENARIO_MANAGER, customer_hash, replay=replay, limit=limit),
+        stream_customer_events(GLOBAL_SCENARIO_MANAGER, customer_hash, replay=replay,
+                               start_after=start_after, limit=limit),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )

@@ -635,6 +635,7 @@ from pydantic import ValidationError
 
 import scenario_seeding
 from scenario_seeding import stream_customer_events
+from tenant_isolation import get_tenant_spiffe_id
 
 KURASI_HASH = "6f82ad81"
 
@@ -675,8 +676,22 @@ def test_sse_stream_replays_only_the_requested_tenant(fresh_manager):
 
 
 def test_sse_stream_rejects_malformed_customer_hash():
-    for bad in ("6F82AD81", "6f82ad8", "../../etc", "zzzzzzzz"):
-        assert client.get(f"/api/v1/eap/scenarios/events/{bad}/stream").status_code in (404, 422), bad
+    # Each input reaches the route and is refused by the pattern (422), so a
+    # deleted route (404) cannot satisfy this test.
+    for bad in ("6F82AD81", "6f82ad8", "zzzzzzzz", "6f82ad811"):
+        assert client.get(f"/api/v1/eap/scenarios/events/{bad}/stream").status_code == 422, bad
+    assert client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream",
+                      params={"limit": 1}, headers={"Last-Event-ID": "abc"}).status_code == 422
+
+
+def test_sse_stream_resumes_after_last_event_id(fresh_manager):
+    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
+    fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+    resp = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream",
+                      params={"limit": 3}, headers={"Last-Event-ID": "3"})
+    frames = _parse_sse(resp.text)
+    assert [f[0] for f in frames] == ["4", "5", "6"]
+    assert [f[2]["verdict"] for f in frames] == ["ALLOW", "INTERCEPT", "BLOCK"]
 
 
 @pytest.mark.asyncio
@@ -737,7 +752,7 @@ def test_openapi_documents_every_scenario_route_with_models():
     stream = paths[f"{base}/events/{{customer_hash}}/stream"]["get"]
     hash_param = next(p for p in stream["parameters"] if p["name"] == "customer_hash")
     assert hash_param["schema"]["pattern"] == scenario_seeding.CUSTOMER_HASH_PATTERN
-    assert {p["name"] for p in stream["parameters"]} == {"customer_hash", "replay", "limit"}
+    assert {p["name"] for p in stream["parameters"]} == {"customer_hash", "replay", "limit", "last-event-id"}
 
 
 # ==============================================================================
@@ -784,45 +799,58 @@ def test_kurasi_journey_schema_rejects_invalid_records():
 # Certification blockers (SLES-P4-GOV). Each test states an invariant from the
 # proposal that the code does not yet meet. strict=True: when the defect is
 # fixed the test XPASSes, which fails the run and forces the marker's removal.
+# raises=AssertionError: any other exception (e.g. a probe broken by the fix,
+# such as a 401 body where a list was expected) fails loudly instead of
+# staying silently xfailed.
 # ==============================================================================
 
-@pytest.mark.xfail(strict=True, reason="BLOCKER B1: scenario API has no authentication dependency")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B1: scenario API has no authentication dependency")
 def test_blocker_execute_requires_authentication(fresh_manager):
     resp = client.post("/api/v1/eap/scenarios/execute", json={"company_name": "kurasi"})
     assert resp.status_code in (401, 403)
 
 
-@pytest.mark.xfail(strict=True, reason="BLOCKER B2: /history returns every tenant's executions")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B2: /history returns every tenant's executions")
 def test_blocker_history_is_tenant_scoped(fresh_manager):
     fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
     fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "othercorp", "0badf00d")
-    history = client.get("/api/v1/eap/scenarios/history").json()
-    assert len({h["customer_hash"] for h in history}) <= 1
+    resp = client.get("/api/v1/eap/scenarios/history")
+    # Once B1 lands this probe must authenticate as one tenant; an unauthenticated
+    # 401 would raise here and fail the run rather than stay xfailed.
+    assert resp.status_code == 200
+    assert len({h["customer_hash"] for h in resp.json()}) <= 1
 
 
-@pytest.mark.xfail(strict=True, reason="BLOCKER B3: SyntheticAuditEvent lacks MultiPlaneAuditEvent fields")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B13: execute accepts non-hex tenant keys")
+def test_blocker_execute_rejects_non_hex_customer_hash(fresh_manager):
+    resp = client.post("/api/v1/eap/scenarios/execute",
+                       json={"company_name": "kurasi", "customer_hash": "ZZ/..zz!"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B3: SyntheticAuditEvent lacks MultiPlaneAuditEvent fields")
 def test_blocker_event_schema_matches_multiplane_audit_event():
     required = {"event_id", "event_type", "timestamp", "plane", "source_agent",
                 "target_resource", "action", "verdict", "risk_score"}
     assert required <= set(SyntheticAuditEvent.model_fields)
 
 
-@pytest.mark.xfail(strict=True, reason="BLOCKER B4: compliance proof carries no OpenBao transit signature")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B4: compliance proof carries no OpenBao transit signature")
 def test_blocker_compliance_proof_is_signed():
     proof = generate_compliance_proof_events("kurasi", KURASI_HASH)[0]
     assert str(proof.details.get("signature", "")).startswith("vault:v")
 
 
-@pytest.mark.xfail(strict=True, reason="BLOCKER B5: most seeded events carry no SPIFFE workload identity")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B5: most seeded events carry no SPIFFE workload identity")
 def test_blocker_every_event_carries_spiffe_identity():
     mgr = ScenarioManager()
     for scenario in ScenarioType:
         mgr.execute_scenario(scenario, "kurasi", KURASI_HASH)
-    spiffe = "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+    spiffe = get_tenant_spiffe_id(KURASI_HASH)
     assert all(e.details.get("spiffe_id") == spiffe for e in mgr.get_events_for_customer(KURASI_HASH))
 
 
-@pytest.mark.xfail(strict=True, reason="BLOCKER B8: generation is not deterministic per customer hash")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B8: generation is not deterministic per customer hash")
 def test_blocker_generation_is_deterministic():
     a = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]
     b = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]

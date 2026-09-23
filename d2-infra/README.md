@@ -31,11 +31,13 @@ A cluster component is defined in a directory with the following structure:
 component/
 ├── controllers # CRD definitions and controllers
 │   ├── base # common definitions (Namespaces, RBAC, HelmRepositories, HelmReleases)
+│   ├── local # local cluster overlay, built on staging
 │   ├── preview # ephemeral preview environment values
 │   ├── production # production specific HelmRelease values
 │   └── staging # staging specific HelmRelease values
 └── configs # Custom Resources of controllers
     ├── base # common definitions
+    ├── local # local cluster overlay, built on staging
     ├── preview # ephemeral preview environment values
     ├── production # production specific values
     └── staging # staging specific values
@@ -51,8 +53,14 @@ Each component is published to a dedicated OCI repository under this project's r
 - `vX.Y.Z` for release tags matching the Git tag format `<component>/vX.Y.Z`.
 - `latest-stable`, which points to the latest `vX.Y.Z` artifact.
 
-The workflows in `.github/workflows` publish and sign the artifacts:
+Two workflows in the repository root publish and sign the artifacts. Both have only a
+`workflow_dispatch` trigger, so an operator starts them from the Actions tab.
 
-- `push-artifact`: on commits to main, publishes the component artifact tagged `latest` to GHCR and signs it with cosign keyless.
-- `release-artifact`: on `<component>/vX.Y.Z` tags, publishes the versioned artifact and moves `latest-stable`.
-- `image-updates`: opens the PR to main when Flux update automation pushes the `image-updates` branch.
+- [`push-artifacts.yaml`](../.github/workflows/push-artifacts.yaml) publishes each component artifact to GHCR with the `latest` tag.
+  It signs the artifact with cosign keyless.
+- [`release-artifacts.yaml`](../.github/workflows/release-artifacts.yaml) publishes the artifacts with the `latest-stable` tag and signs them.
+  Its matrix does not include `trivy-system`.
+
+The root has no `image-updates` workflow. This directory has its own `.github/workflows/` with
+`push-artifact.yaml`, `release-artifact.yaml`, and `image-updates.yaml`. GitHub runs only the
+workflows in the repository root, so those copies do not run.

@@ -39,6 +39,7 @@ No cluster. No network. No API key. Fixed seed — the same inputs reproduce the
 | `packs/agent-policy/<semver>/cel/` | Kyverno CEL `ValidatingPolicy` bodies, including the conditional-autonomy branch. No bespoke DSL. |
 | `posture/agent-*.yaml` | What is actually true about a named agent, each assertion citing the repository artefact that evidences it. |
 | `org/*.yaml` | An institution's loss magnitude per scenario, risk appetite, risk load and insurance position. |
+| [`fx/`](fx/) | The dated, offline FX rate table. [`rates.yaml`](fx/rates.yaml) is the authored source. `make fx` makes `rates.json` and `testvectors.json` from it. |
 | `out/` | Generated report. Committed so the number is reviewable in a diff; regenerable with `make risk-report`. |
 
 ## The one idea

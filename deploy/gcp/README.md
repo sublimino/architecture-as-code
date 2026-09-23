@@ -15,9 +15,11 @@ The Makefile is the interface. Nothing in here is meant to be fed to
 |---|---|---|
 | `README.md` | yes | This. |
 | `ACCESS-REQUEST.md` | yes | The IAM grants the deploy service account needs, written for the project owner to action. |
-| `*.example.tfvars` | yes | Worked examples with placeholder values. Copy one; never edit it in place. |
+| `*.example.tfvars` | yes | Worked examples. The only one is [`sl-port-over-sandbox.example.tfvars`](sl-port-over-sandbox.example.tfvars). Copy it. Do not edit it in place. |
 | `environments.tfvars` | **no** | The real environment map. What `make gcp-tf-plan` and `gcp-tf-up` pass as `-var-file`. |
 | `bootstrap.tfvars` | **no** | The real inputs for the one-time state-bucket root. |
+| `platform.tfvars` | **no** | The real inputs for the `terraform/platform` root. No make target reads it. |
+| `preserve-baseline.json` | **no** | Written. The baseline that [`preserve-check.sh`](../../scripts/gcp-tf/preserve-check.sh) records before a destroy and compares after it. |
 | `deploy-sa` | **no** | One line: the email of the service account Terraform impersonates. |
 | `<env>.handoff.json` | **no** | Generated. The single file the test code reads to know what it is testing. |
 
@@ -175,8 +177,12 @@ Untracked, and everything from here on picks it up automatically.
 
 ### 2. One time per checkout — the real inputs
 
+[`sl-port-over-sandbox.example.tfvars`](sl-port-over-sandbox.example.tfvars) is the tracked
+example. Copy it to `environments.tfvars`, the default `GCP_TF_VAR_FILE`. Then edit the copy.
+The comments in the example explain each value, including the `hostname` choice.
+
 ```bash
-cp deploy/gcp/CHANGEME-project.example.tfvars deploy/gcp/environments.tfvars
+cp deploy/gcp/sl-port-over-sandbox.example.tfvars deploy/gcp/environments.tfvars
 $EDITOR deploy/gcp/environments.tfvars
 ```
 

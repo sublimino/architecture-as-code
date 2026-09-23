@@ -834,7 +834,7 @@ SPECS = {
         "approach": [
             "Run all unit, integration, and acceptance tests in fe-signalloom.",
             "Run scripts/eap/test_tailscale_eap_env.sh CLI test suite.",
-            "Verify that docs/Proposal — Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md has clean errata.",
+            "Verify that docs/Proposal — SLEA Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md has clean errata.",
             "Run scripts/kanban-check.sh doctor --shortcode SLEA to confirm zero unresolved defects.",
             "Publish mission certification record in docs/signalloom/slea-mission-complete.md and append final errata block."
         ],
@@ -874,7 +874,7 @@ SPECS = {
 }
 
 def main():
-    proposal_path = Path("/home/andy/src/cp/osramp-demo/docs/Proposal — Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md")
+    proposal_path = Path("/home/andy/Documents/Obsidian/v1/2. Areas/CEO/Innovation Proposals/Proposal — SLEA Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md")
     import hashlib
     contract_sha = hashlib.sha256(proposal_path.read_bytes()).hexdigest()
     

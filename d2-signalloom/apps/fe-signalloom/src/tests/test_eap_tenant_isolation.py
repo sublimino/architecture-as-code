@@ -160,6 +160,10 @@ def test_api_tenant_provision_and_lifecycle():
 
 def test_api_tenant_manifests_and_spire():
     """Verify HTTP API returns complete k8s manifests and SPIRE entry."""
+    # Provision explicitly: manifests are only served for a known boundary
+    # (the endpoint used to fabricate a kurasi-labelled manifest for any hash,
+    # which is the only reason this test once passed in isolation).
+    assert client.post("/api/v1/eap/tenants", json={"company_name": "kurasi"}).status_code == 201
     resp = client.get("/api/v1/eap/tenants/6f82ad81/manifests")
     assert resp.status_code == 200
     manifests = resp.json()
@@ -172,6 +176,7 @@ def test_api_tenant_manifests_and_spire():
     assert spire_resp.status_code == 200
     spire_entry = spire_resp.json()
     assert spire_entry["spiffe_id"] == "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+    assert client.delete("/api/v1/eap/tenants/6f82ad81").status_code == 200
 
 
 def test_api_tenant_not_found_handling():

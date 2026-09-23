@@ -9,16 +9,41 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 from environment_routing import derive_customer_hash
+from tenant_transit import (
+    InMemoryTransitBackend,
+    ShredReceipt,
+    TransitBackend,
+    TransitDecryptError,
+    TransitKeyNotFound,
+)
 
 logger = logging.getLogger("signalloom.tenant_isolation")
 
 SPIFFE_TRUST_DOMAIN = "osramp.local"
 DEFAULT_TRANSIT_MOUNT = "transit"
+TENANT_SERVICE_ACCOUNT = "tenant-app"
+SVID_TTL_SECONDS = 3600
+# SPIRE backdates NotBefore by 10s to absorb clock skew, so a 1h SVID really
+# spans 3610s. Anything beyond that is a TTL violation.
+SVID_CLOCK_SKEW_SECONDS = 10
+
+
+def get_spiffe_trust_domain() -> str:
+    """Trust domain for tenant SPIFFE IDs.
+
+    Defaults to the proposal's ``osramp.local``. Overridable through
+    ``SLET_SPIFFE_TRUST_DOMAIN`` because a real SPIRE server only registers and
+    mints IDs in its own trust domain (the kind-osramp cluster runs
+    ``signalloom.demo``). Read per call so tests cannot leak it between cases.
+    """
+    return os.environ.get("SLET_SPIFFE_TRUST_DOMAIN", SPIFFE_TRUST_DOMAIN)
 
 
 class TenantIsolationConfig(BaseModel):
@@ -38,10 +63,15 @@ def get_tenant_namespace(customer_hash: str) -> str:
     return f"eap-{customer_hash.lower()}"
 
 
-def get_tenant_spiffe_id(customer_hash: str, service_account: str = "tenant-app") -> str:
+def get_tenant_spiffe_id(customer_hash: str, service_account: str = TENANT_SERVICE_ACCOUNT) -> str:
     """Format canonical SPIFFE ID for tenant workload attestation."""
     ns = get_tenant_namespace(customer_hash)
-    return f"spiffe://{SPIFFE_TRUST_DOMAIN}/ns/{ns}/sa/{service_account}"
+    return f"spiffe://{get_spiffe_trust_domain()}/ns/{ns}/sa/{service_account}"
+
+
+def get_tenant_transit_key_name(customer_hash: str) -> str:
+    """Name of the tenant's key inside the transit mount."""
+    return f"eap-{customer_hash.lower()}"
 
 
 def get_tenant_transit_key_path(customer_hash: str) -> str:
@@ -113,12 +143,19 @@ def generate_network_policy_manifest(customer_hash: str) -> Dict[str, Any]:
             ],
             "egress": [
                 {
-                    # Allow DNS resolution
+                    # Allow DNS resolution — kube-dns pods only. namespaceSelector
+                    # and podSelector in ONE peer are ANDed; without the
+                    # podSelector every kube-system pod would be reachable on 53.
                     "to": [
                         {
                             "namespaceSelector": {
                                 "matchLabels": {
                                     "kubernetes.io/metadata.name": "kube-system"
+                                }
+                            },
+                            "podSelector": {
+                                "matchLabels": {
+                                    "k8s-app": "kube-dns"
                                 }
                             }
                         }
@@ -183,58 +220,177 @@ def generate_resource_quota_manifest(customer_hash: str) -> Dict[str, Any]:
     }
 
 
-def generate_spire_registration_entry(customer_hash: str, service_account: str = "tenant-app") -> Dict[str, Any]:
+def generate_spire_registration_entry(customer_hash: str, service_account: str = TENANT_SERVICE_ACCOUNT) -> Dict[str, Any]:
     """Generate SPIRE registration entry payload for tenant workload."""
     ns_name = get_tenant_namespace(customer_hash)
     spiffe_id = get_tenant_spiffe_id(customer_hash, service_account)
     return {
         "spiffe_id": spiffe_id,
-        "parent_id": f"spiffe://{SPIFFE_TRUST_DOMAIN}/spire/agent/k8s-node",
+        "parent_id": f"spiffe://{get_spiffe_trust_domain()}/spire/agent/k8s-node",
         "selectors": [
             f"k8s:ns:{ns_name}",
             f"k8s:sa:{service_account}"
         ],
-        "ttl": 3600,
+        "ttl": SVID_TTL_SECONDS,
         "admin": False
+    }
+
+
+class CrossTenantAccessDenied(Exception):
+    """A caller identity addressed a tenant boundary it does not belong to."""
+
+
+def authorize_tenant_access(caller_spiffe_id: Optional[str], customer_hash: str) -> None:
+    """Allow only the tenant's own workload identity to act on its boundary.
+
+    Exact match against the canonical SPIFFE ID — never a prefix or substring,
+    so ``eap-6f82ad81`` cannot be reached by ``eap-6f82ad810`` or by any other
+    service account in the same namespace.
+    """
+    expected = get_tenant_spiffe_id(customer_hash)
+    if not caller_spiffe_id or caller_spiffe_id != expected:
+        raise CrossTenantAccessDenied(
+            f"caller {caller_spiffe_id!r} is not the workload identity for {get_tenant_namespace(customer_hash)}"
+        )
+
+
+def verify_tenant_svid(
+    cert_pem: bytes,
+    customer_hash: str,
+    max_ttl_seconds: int = SVID_TTL_SECONDS,
+    skew_seconds: int = SVID_CLOCK_SKEW_SECONDS,
+) -> Dict[str, Any]:
+    """Check an X.509-SVID belongs to exactly this tenant.
+
+    Returns the parsed facts on success; raises ``ValueError`` naming the first
+    violated property. An SVID must carry exactly one URI SAN (SPIFFE X.509-SVID
+    spec section 2), that URI must be the tenant's canonical ID, it must not be
+    a CA, and its validity window must not exceed the tenant SVID TTL.
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.x509.oid import ExtensionOID
+
+    cert = x509.load_pem_x509_certificate(cert_pem)
+    try:
+        san = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
+    except x509.ExtensionNotFound as exc:
+        raise ValueError("SVID has no subjectAltName") from exc
+    uris = san.get_values_for_type(x509.UniformResourceIdentifier)
+    if len(uris) != 1:
+        raise ValueError(f"SVID must carry exactly one URI SAN, found {len(uris)}")
+    expected = get_tenant_spiffe_id(customer_hash)
+    if uris[0] != expected:
+        raise ValueError(f"SVID URI SAN {uris[0]!r} != tenant identity {expected!r}")
+    try:
+        bc = cert.extensions.get_extension_for_oid(ExtensionOID.BASIC_CONSTRAINTS).value
+        if bc.ca:
+            raise ValueError("SVID is a CA certificate")
+    except x509.ExtensionNotFound:
+        pass
+    lifetime = (cert.not_valid_after_utc - cert.not_valid_before_utc).total_seconds()
+    if lifetime > max_ttl_seconds + skew_seconds:
+        raise ValueError(
+            f"SVID lifetime {lifetime:.0f}s exceeds tenant TTL {max_ttl_seconds}s (+{skew_seconds}s skew)"
+        )
+    return {
+        "spiffe_id": uris[0],
+        "serial_number": format(cert.serial_number, "x"),
+        "not_before": cert.not_valid_before_utc.isoformat(),
+        "not_after": cert.not_valid_after_utc.isoformat(),
+        "lifetime_seconds": int(lifetime),
+        "fingerprint_sha256": cert.fingerprint(hashes.SHA256()).hex(),
     }
 
 
 class TenantIsolationManager:
     """Thread-safe manager for tenant isolation boundaries and cryptographic credentials."""
 
-    def __init__(self) -> None:
+    def __init__(self, transit: Optional[TransitBackend] = None) -> None:
         self._lock = threading.RLock()
         self._tenants: Dict[str, TenantIsolationConfig] = {}
+        self.transit: TransitBackend = transit if transit is not None else InMemoryTransitBackend()
+        self._shred_receipts: Dict[str, ShredReceipt] = {}
 
     def provision_tenant_boundary(self, company_name: str, customer_hash: Optional[str] = None) -> TenantIsolationConfig:
-        """Create and track an active tenant isolation boundary."""
+        """Create and track an active tenant isolation boundary.
+
+        Leases the tenant's transit key first. If anything after key creation
+        fails, the half-created key is shredded before the error propagates, so
+        a transient fault never leaves an orphaned key or a phantom boundary.
+        """
         h = (customer_hash or derive_customer_hash(company_name)).lower()
         with self._lock:
             if h in self._tenants and self._tenants[h].is_active:
                 logger.info("Reusing active isolation boundary for hash %s", h)
                 return self._tenants[h]
 
-            config = TenantIsolationConfig(
-                company_name=company_name,
-                customer_hash=h,
-                namespace=get_tenant_namespace(h),
-                spiffe_id=get_tenant_spiffe_id(h),
-                transit_key_path=get_tenant_transit_key_path(h),
-                is_active=True
-            )
+            key_name = get_tenant_transit_key_name(h)
+            try:
+                self.transit.create_key(key_name)
+                config = TenantIsolationConfig(
+                    company_name=company_name,
+                    customer_hash=h,
+                    namespace=get_tenant_namespace(h),
+                    spiffe_id=get_tenant_spiffe_id(h),
+                    transit_key_path=get_tenant_transit_key_path(h),
+                    is_active=True
+                )
+            except Exception:
+                self._rollback_key(key_name)
+                raise
             self._tenants[h] = config
+            self._shred_receipts.pop(h, None)
             logger.info("Provisioned isolation boundary: namespace=%s spiffe=%s", config.namespace, config.spiffe_id)
             return config
 
+    def _rollback_key(self, key_name: str) -> None:
+        """Best-effort removal of a key left behind by a failed provision."""
+        try:
+            if self.transit.key_exists(key_name):
+                self.transit.shred_key(key_name)
+                logger.warning("Rolled back transit key %s after failed provision", key_name)
+        except Exception:  # pragma: no cover - logged, original error re-raised by caller
+            logger.exception("Rollback of transit key %s failed; key may be orphaned", key_name)
+
     def teardown_tenant_boundary(self, customer_hash: str) -> bool:
-        """Mark a tenant isolation boundary as terminated."""
+        """Terminate a tenant boundary and permanently shred its transit key."""
         h = customer_hash.lower()
         with self._lock:
-            if h in self._tenants:
-                self._tenants[h].is_active = False
+            if h not in self._tenants:
+                return False
+            config = self._tenants[h]
+            if config.is_active:
+                key_name = get_tenant_transit_key_name(h)
+                if self.transit.key_exists(key_name):
+                    self._shred_receipts[h] = self.transit.shred_key(key_name)
+                config.is_active = False
                 logger.info("Torn down isolation boundary for hash %s", h)
-                return True
-            return False
+            return True
+
+    def get_shred_receipt(self, customer_hash: str) -> Optional[ShredReceipt]:
+        """Receipt for the most recent key shred of this tenant, if any."""
+        with self._lock:
+            return self._shred_receipts.get(customer_hash.lower())
+
+    def _active_key_name(self, customer_hash: str) -> str:
+        h = customer_hash.lower()
+        config = self._tenants.get(h)
+        if config is None or not config.is_active:
+            raise TransitKeyNotFound(get_tenant_transit_key_path(h))
+        return get_tenant_transit_key_name(h)
+
+    def encrypt_for_tenant(self, customer_hash: str, plaintext: bytes) -> str:
+        """Encrypt with the tenant's transit key (active boundaries only)."""
+        with self._lock:
+            key_name = self._active_key_name(customer_hash)
+        return self.transit.encrypt(key_name, plaintext)
+
+    def decrypt_for_tenant(self, customer_hash: str, ciphertext: str) -> bytes:
+        """Decrypt with the tenant's transit key (active boundaries only)."""
+        with self._lock:
+            key_name = self._active_key_name(customer_hash)
+        return self.transit.decrypt(key_name, ciphertext)
 
     def get_tenant_boundary(self, customer_hash: str) -> Optional[TenantIsolationConfig]:
         """Retrieve isolation boundary metadata if present."""
@@ -254,7 +410,10 @@ GLOBAL_TENANT_ISOLATION_MANAGER = TenantIsolationManager()
 # ==============================================================================
 # FastAPI Routing & Endpoints
 # ==============================================================================
-from fastapi import APIRouter, FastAPI, HTTPException, status
+import base64
+import binascii
+
+from fastapi import APIRouter, FastAPI, Header, HTTPException, status
 
 router = APIRouter(prefix="/api/v1/eap/tenants", tags=["eap-tenant-isolation"])
 
@@ -295,21 +454,91 @@ async def api_get_tenant(customer_hash: str) -> TenantIsolationConfig:
 
 @router.delete("/{customer_hash}")
 async def api_teardown_tenant(customer_hash: str) -> Dict[str, Any]:
-    """Teardown a tenant boundary by customer hash."""
+    """Teardown a tenant boundary by customer hash and shred its transit key."""
     success = GLOBAL_TENANT_ISOLATION_MANAGER.teardown_tenant_boundary(customer_hash)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tenant boundary not found for customer hash '{customer_hash}'."
         )
-    return {"status": "torn_down", "customer_hash": customer_hash.lower()}
+    receipt = GLOBAL_TENANT_ISOLATION_MANAGER.get_shred_receipt(customer_hash)
+    return {
+        "status": "torn_down",
+        "customer_hash": customer_hash.lower(),
+        "key_shred": receipt.as_dict() if receipt else None,
+    }
+
+
+class TransitEncryptRequest(BaseModel):
+    """Plaintext to seal with the tenant's transit key (base64)."""
+    model_config = ConfigDict(extra="forbid")
+    plaintext: str = Field(..., description="Base64-encoded plaintext")
+
+
+class TransitDecryptRequest(BaseModel):
+    """Ciphertext produced by this tenant's transit key."""
+    model_config = ConfigDict(extra="forbid")
+    ciphertext: str = Field(..., description="vault:v1: ciphertext")
+
+
+def _authorize_or_403(caller: Optional[str], customer_hash: str) -> None:
+    # The caller identity arrives as a header here; in the deployed topology it
+    # must be taken from the verified mTLS peer SVID, never from a client-set
+    # header. This predicate is the authorization half only.
+    try:
+        authorize_tenant_access(caller, customer_hash)
+    except CrossTenantAccessDenied as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.post("/{customer_hash}/transit/encrypt")
+async def api_tenant_encrypt(
+    customer_hash: str,
+    req: TransitEncryptRequest,
+    x_spiffe_id: Optional[str] = Header(default=None, alias="X-SPIFFE-ID"),
+) -> Dict[str, Any]:
+    """Encrypt with the tenant's own transit key; cross-tenant callers get 403."""
+    _authorize_or_403(x_spiffe_id, customer_hash)
+    try:
+        plaintext = base64.b64decode(req.plaintext, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="plaintext is not base64") from exc
+    try:
+        ciphertext = GLOBAL_TENANT_ISOLATION_MANAGER.encrypt_for_tenant(customer_hash, plaintext)
+    except TransitKeyNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"no active transit key: {exc}") from exc
+    return {"key_path": get_tenant_transit_key_path(customer_hash), "ciphertext": ciphertext}
+
+
+@router.post("/{customer_hash}/transit/decrypt")
+async def api_tenant_decrypt(
+    customer_hash: str,
+    req: TransitDecryptRequest,
+    x_spiffe_id: Optional[str] = Header(default=None, alias="X-SPIFFE-ID"),
+) -> Dict[str, Any]:
+    """Decrypt with the tenant's own transit key; cross-tenant callers get 403."""
+    _authorize_or_403(x_spiffe_id, customer_hash)
+    try:
+        plaintext = GLOBAL_TENANT_ISOLATION_MANAGER.decrypt_for_tenant(customer_hash, req.ciphertext)
+    except TransitKeyNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"no active transit key: {exc}") from exc
+    except TransitDecryptError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"plaintext": base64.b64encode(plaintext).decode("ascii")}
 
 
 @router.get("/{customer_hash}/manifests")
 async def api_get_tenant_manifests(customer_hash: str) -> Dict[str, Any]:
     """Retrieve Kubernetes manifests for tenant isolation boundary."""
     config = GLOBAL_TENANT_ISOLATION_MANAGER.get_tenant_boundary(customer_hash)
-    company = config.company_name if config else "kurasi"
+    if not config:
+        # Never synthesise a boundary: labelling an unknown hash with some
+        # other customer's name is a tenant-identity misattribution.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant boundary not found for customer hash '{customer_hash}'."
+        )
+    company = config.company_name
     h = customer_hash.lower()
     return {
         "namespace": generate_namespace_manifest(company, h),

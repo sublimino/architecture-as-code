@@ -626,6 +626,209 @@ def test_configurable_stress_pass(preemptive_scheduler):
     assert report["query_ms"]["max"] < 5.0, report
 
 
+# ==============================================================================
+# SLES-P3-2 gap (filled by SLES-P4-GOV): Server-Sent Events streaming
+# ==============================================================================
+import asyncio
+
+from pydantic import ValidationError
+
+import scenario_seeding
+from scenario_seeding import stream_customer_events
+
+KURASI_HASH = "6f82ad81"
+
+
+@pytest.fixture
+def fresh_manager(monkeypatch):
+    """Point the API at an empty manager so counts are exact regardless of test order."""
+    mgr = ScenarioManager()
+    monkeypatch.setattr(scenario_seeding, "GLOBAL_SCENARIO_MANAGER", mgr)
+    return mgr
+
+
+def _parse_sse(body: str):
+    frames = []
+    for block in body.split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in block.splitlines() if line and not line.startswith(":"))
+        if "data" in fields:
+            frames.append((fields.get("id"), fields.get("event"), json.loads(fields["data"])))
+    return frames
+
+
+def test_sse_stream_replays_only_the_requested_tenant(fresh_manager):
+    # The foreign tenant is seeded first: a leak then surfaces at the head of the
+    # stream instead of hiding behind the limit (dict insertion order).
+    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "othercorp", "0badf00d")
+    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
+    fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+
+    resp = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream", params={"limit": 6})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    frames = _parse_sse(resp.text)
+    assert [f[0] for f in frames] == ["1", "2", "3", "4", "5", "6"]
+    assert {f[1] for f in frames} == {"audit_event"}
+    assert {f[2]["customer_hash"] for f in frames} == {KURASI_HASH}
+    for _, _, data in frames:
+        SyntheticAuditEvent.model_validate(data)
+
+
+def test_sse_stream_rejects_malformed_customer_hash():
+    for bad in ("6F82AD81", "6f82ad8", "../../etc", "zzzzzzzz"):
+        assert client.get(f"/api/v1/eap/scenarios/events/{bad}/stream").status_code in (404, 422), bad
+
+
+@pytest.mark.asyncio
+async def test_sse_live_delivery_is_sub_second_and_tenant_isolated():
+    mgr = ScenarioManager()
+    mgr.execute_scenario(ScenarioType.COMPLIANCE_PROOF, "othercorp", "0badf00d")  # foreign tenant first
+    mgr.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)  # history, not replayed
+    stream = stream_customer_events(mgr, KURASI_HASH, replay=False, limit=3)
+
+    async def publish():
+        await asyncio.sleep(0.1)
+        mgr.execute_scenario(ScenarioType.LATERAL_TRAVERSAL_BLOCKED, "othercorp", "0badf00d")
+        published_at = time.perf_counter()
+        mgr.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+        return published_at
+
+    publisher = asyncio.create_task(publish())
+    first = await asyncio.wait_for(stream.__anext__(), timeout=2.0)
+    received_at = time.perf_counter()
+    rest = [await asyncio.wait_for(stream.__anext__(), timeout=2.0) for _ in range(2)]
+    latency = received_at - await publisher
+
+    assert latency < 1.0, f"live SSE delivery took {latency:.3f}s"
+    frames = _parse_sse("".join([first, *rest]))
+    assert [f[0] for f in frames] == ["4", "5", "6"]
+    assert [f[2]["verdict"] for f in frames] == ["ALLOW", "INTERCEPT", "BLOCK"]
+    assert {f[2]["customer_hash"] for f in frames} == {KURASI_HASH}
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_sse_idle_stream_emits_heartbeat_without_blocking_the_loop():
+    stream = stream_customer_events(ScenarioManager(), KURASI_HASH, poll_interval=0.01, heartbeat_interval=0.03)
+    ticks = 0
+
+    async def ticker():
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.005)
+            ticks += 1
+
+    t = asyncio.create_task(ticker())
+    frame = await asyncio.wait_for(stream.__anext__(), timeout=1.0)
+    t.cancel()
+    assert frame == ": keepalive\n\n"
+    assert ticks >= 3, "event loop was starved while the stream idled"
+    await stream.aclose()
+
+
+def test_openapi_documents_every_scenario_route_with_models():
+    paths = app.openapi()["paths"]
+    base = "/api/v1/eap/scenarios"
+    assert "requestBody" in paths[f"{base}/execute"]["post"]
+    assert "$ref" in json.dumps(paths[f"{base}/execute"]["post"]["responses"]["201"])
+    assert "$ref" in json.dumps(paths[f"{base}/events/{{customer_hash}}"]["get"]["responses"]["200"])
+    assert "$ref" in json.dumps(paths[f"{base}/history"]["get"]["responses"]["200"])
+    stream = paths[f"{base}/events/{{customer_hash}}/stream"]["get"]
+    hash_param = next(p for p in stream["parameters"] if p["name"] == "customer_hash")
+    assert hash_param["schema"]["pattern"] == scenario_seeding.CUSTOMER_HASH_PATTERN
+    assert {p["name"] for p in stream["parameters"]} == {"customer_hash", "replay", "limit"}
+
+
+# ==============================================================================
+# SLES-P4-1 gap (filled by SLES-P4-GOV): kurasi end-to-end evaluation journey
+# ==============================================================================
+
+def test_kurasi_evaluation_journey_all_four_archetypes(fresh_manager):
+    assert derive_customer_hash("kurasi") == KURASI_HASH
+    for scenario in ScenarioType:
+        # customer_hash omitted: the API must derive the canonical pilot hash itself
+        resp = client.post("/api/v1/eap/scenarios/execute",
+                           json={"scenario_type": scenario.value, "company_name": "kurasi"})
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["customer_hash"] == KURASI_HASH
+
+    events = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}").json()
+    assert len(events) == 9
+    verdicts = [e["verdict"] for e in events]
+    assert (verdicts.count("ALLOW"), verdicts.count("INTERCEPT"), verdicts.count("BLOCK")) == (6, 1, 2)
+    assert {e["plane"] for e in events} == {"control", "data", "policy"}
+    assert {e["namespace"] for e in events} == {"eap-6f82ad81"}
+    assert {e["company_name"] for e in events} == {"kurasi"}
+    assert all(e["risk_score"] >= 0.9 for e in events if e["verdict"] != "ALLOW")
+    for e in events:
+        SyntheticAuditEvent.model_validate_json(json.dumps(e))
+    history = client.get("/api/v1/eap/scenarios/history").json()
+    assert [h["scenario_type"] for h in history] == [s.value for s in ScenarioType]
+
+
+def test_kurasi_journey_schema_rejects_invalid_records():
+    good = generate_baseline_agent_events("kurasi", KURASI_HASH)[0].model_dump()
+    for mutation in ({"risk_score": 1.5}, {"risk_score": -0.1}, {"customer_hash": "6f82ad8"},
+                     {"unexpected_field": "x"}):
+        with pytest.raises(ValidationError):
+            SyntheticAuditEvent.model_validate({**good, **mutation})
+    resp = client.post("/api/v1/eap/scenarios/execute",
+                       json={"scenario_type": "baseline_agent_flow", "company_name": "kurasi", "admin": True})
+    assert resp.status_code == 422
+    resp = client.post("/api/v1/eap/scenarios/execute", json={"scenario_type": "rm_rf"})
+    assert resp.status_code == 422
+
+
+# ==============================================================================
+# Certification blockers (SLES-P4-GOV). Each test states an invariant from the
+# proposal that the code does not yet meet. strict=True: when the defect is
+# fixed the test XPASSes, which fails the run and forces the marker's removal.
+# ==============================================================================
+
+@pytest.mark.xfail(strict=True, reason="BLOCKER B1: scenario API has no authentication dependency")
+def test_blocker_execute_requires_authentication(fresh_manager):
+    resp = client.post("/api/v1/eap/scenarios/execute", json={"company_name": "kurasi"})
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.xfail(strict=True, reason="BLOCKER B2: /history returns every tenant's executions")
+def test_blocker_history_is_tenant_scoped(fresh_manager):
+    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
+    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "othercorp", "0badf00d")
+    history = client.get("/api/v1/eap/scenarios/history").json()
+    assert len({h["customer_hash"] for h in history}) <= 1
+
+
+@pytest.mark.xfail(strict=True, reason="BLOCKER B3: SyntheticAuditEvent lacks MultiPlaneAuditEvent fields")
+def test_blocker_event_schema_matches_multiplane_audit_event():
+    required = {"event_id", "event_type", "timestamp", "plane", "source_agent",
+                "target_resource", "action", "verdict", "risk_score"}
+    assert required <= set(SyntheticAuditEvent.model_fields)
+
+
+@pytest.mark.xfail(strict=True, reason="BLOCKER B4: compliance proof carries no OpenBao transit signature")
+def test_blocker_compliance_proof_is_signed():
+    proof = generate_compliance_proof_events("kurasi", KURASI_HASH)[0]
+    assert str(proof.details.get("signature", "")).startswith("vault:v")
+
+
+@pytest.mark.xfail(strict=True, reason="BLOCKER B5: most seeded events carry no SPIFFE workload identity")
+def test_blocker_every_event_carries_spiffe_identity():
+    mgr = ScenarioManager()
+    for scenario in ScenarioType:
+        mgr.execute_scenario(scenario, "kurasi", KURASI_HASH)
+    spiffe = "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+    assert all(e.details.get("spiffe_id") == spiffe for e in mgr.get_events_for_customer(KURASI_HASH))
+
+
+@pytest.mark.xfail(strict=True, reason="BLOCKER B8: generation is not deterministic per customer hash")
+def test_blocker_generation_is_deterministic():
+    a = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]
+    b = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]
+    assert a == b
+
+
 if __name__ == "__main__":
     import argparse
 

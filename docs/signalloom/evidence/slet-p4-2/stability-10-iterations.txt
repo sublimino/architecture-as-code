@@ -1,0 +1,611 @@
+=== SLET-P4-2 iteration 1/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 64.11s (0:01:04) ===================
+=== SLET-P4-2 iteration 2/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 64.35s (0:01:04) ===================
+=== SLET-P4-2 iteration 3/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 64.47s (0:01:04) ===================
+=== SLET-P4-2 iteration 4/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 64.01s (0:01:04) ===================
+=== SLET-P4-2 iteration 5/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 63.99s (0:01:03) ===================
+=== SLET-P4-2 iteration 6/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 63.92s (0:01:03) ===================
+=== SLET-P4-2 iteration 7/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 64.00s (0:01:04) ===================
+=== SLET-P4-2 iteration 8/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 66.24s (0:01:06) ===================
+=== SLET-P4-2 iteration 9/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 64.81s (0:01:04) ===================
+=== SLET-P4-2 iteration 10/10 (live=1) ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/bin/python3
+rootdir: ~/src/.worktrees/390f7/osramp-demo/d2-signalloom/apps/fe-signalloom/src
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 44 items
+
+tests/test_kurasi_tenant_isolation.py::test_kurasi_canonical_hash_is_derived_not_assumed PASSED [  2%]
+tests/test_kurasi_tenant_isolation.py::test_kurasi_end_to_end_journey PASSED [  4%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead PASSED [  6%]
+tests/test_kurasi_tenant_isolation.py::test_stage6_teardown_is_idempotent_and_does_not_reshred PASSED [  9%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[None] PASSED [ 11%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[] PASSED [ 13%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app] PASSED [ 15%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app] PASSED [ 18%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app] PASSED [ 20%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/default] PASSED [ 22%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app] PASSED [ 25%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app] PASSED [ 27%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app/] PASSED [ 29%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_cross_tenant_identities_are_rejected[spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app?sa=tenant-app] PASSED [ 31%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_positive_control_the_owner_is_admitted PASSED [ 34%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_unknown_hash_is_never_labelled_as_kurasi PASSED [ 36%]
+tests/test_kurasi_tenant_isolation.py::test_stage7_svid_for_another_tenant_is_rejected PASSED [ 38%]
+tests/test_kurasi_tenant_isolation.py::test_stage5_tampered_ciphertext_is_rejected PASSED [ 40%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-enforce-mutate] PASSED [ 43%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-baseline-mutate] PASSED [ 45%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[enforce-privileged-mutate] PASSED [ 47%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-audit-mutate] PASSED [ 50%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-warn-mutate] PASSED [ 52%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[no-labels-mutate] PASSED [ 54%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-hash-mutate] PASSED [ 56%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_namespace_without_restricted_pss[wrong-name-mutate] PASSED [ 59%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_ingress] PASSED [ 61%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_open_egress_peer] PASSED [ 63%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_dns_any_kube_system] PASSED [ 65%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_ingress_all_ports] PASSED [ 68%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_cidr_egress] PASSED [ 70%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_no_egress_type] PASSED [ 72%]
+tests/test_kurasi_tenant_isolation.py::test_checks_reject_weakened_network_policy[_selects_one_pod] PASSED [ 75%]
+tests/test_kurasi_tenant_isolation.py::test_checks_traversal_evaluator_catches_semantic_opening PASSED [ 77%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_transient_fault_after_key_creation_leaves_nothing PASSED [ 79%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_fault_before_key_creation_leaves_nothing PASSED [ 81%]
+tests/test_kurasi_tenant_isolation.py::test_rollback_validation_failure_after_key_creation_shreds_the_key PASSED [ 84%]
+tests/test_kurasi_tenant_isolation.py::test_raw_delete_refused_without_deletion_allowed PASSED [ 86%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key PASSED [ 88%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_mixed_journeys_preserve_the_key_invariant PASSED [ 90%]
+tests/test_kurasi_tenant_isolation.py::test_concurrent_http_journeys_over_asgi PASSED [ 93%]
+tests/test_kurasi_tenant_isolation.py::test_peak_crypto_workload_budget PASSED [ 95%]
+tests/test_kurasi_tenant_isolation.py::test_suite_leaves_no_global_tenant_state_behind PASSED [ 97%]
+tests/test_kurasi_tenant_isolation.py::test_live_kurasi_journey_on_kind_cluster PASSED [100%]
+
+=============================== warnings summary ===============================
+../../../../../../.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40
+  ~/src/.worktrees/.uvcache/archive-v0/AQJ1QyF5yJi88lI31cPVE/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================== 44 passed, 1 warning in 64.40s (0:01:04) ===================
+=== SLET-P4-2: 10 iteration(s), 0 failed ===

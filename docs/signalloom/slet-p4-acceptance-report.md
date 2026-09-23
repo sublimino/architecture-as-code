@@ -34,14 +34,14 @@ These rows were checked before I wrote anything new, following the card's protoc
 | :--- | :--- | :--- |
 | `src/tenant_isolation.py` (329 lines @ `13c87855`) | read in full; `pytest tests/test_eap_tenant_isolation.py` | 9/9 pass. Gaps found: no transit code at all; teardown only set `is_active=False`; `/manifests` fabricated a kurasi-labelled namespace for any hash; DNS egress admitted every kube-system pod |
 | `src/main.py` wiring | `rg -n tenant_isolation main.py` | imported at line 20, mounted at line 46 |
-| 1935 deleted test lines (`13c87855`) | `git show --stat 13c87855`; `git show 13c87855^:…/test_tenant_isolation.py` | a same-name overwrite of the 30-test AMXO cross-tenant authz sweep. **Restored by SLET-P4-PRE `afee7093`**, which is not yet on the integration branch; this card is built on it (see Decisions) |
+| 1935 deleted test lines (`13c87855`) | `git show --stat 13c87855`; `git show 13c87855^:…/test_tenant_isolation.py` | a same-name overwrite of the 30-test AMXO cross-tenant authz sweep. **Restored by SLET-P4-PRE `afee7093`**, which is not yet on the integration branch; this card is built on it (see the SLET-P4-2 errata) |
 | Required suites @ `afee7093` | `pytest test_tenant_isolation test_eap_tenant_isolation test_webhook_triggers test_environment_routing` | **139 passed** |
 | `scripts/eap/test_tailscale_eap_env.sh` | `bash` | **15 passed, 0 failed** |
 | `scripts/eap/test_emit_eap_webhook.sh` | `bash` | **9 passed, 0 failed** |
 | P4-1 "transit lease manager" (row says Pass `13c87855`) | `rg transit tenant_isolation.py@13c87855` | **absent**. Minimal lifecycle implemented here so shredding could be proven |
 | P3-2 "SPIFFE CSI driver binding" | `kubectl get csidriver` | **no CSI drivers installed** (finding F3) |
 
-Baseline logs: `evidence/slet-p4-2/baseline-required-tests.log`.
+Baseline logs: `evidence/slet-p4-2/baseline-required-tests.txt`.
 
 ## Stage results
 
@@ -143,7 +143,7 @@ What this proves:
 - **Concurrent provisioning of one tenant produces one boundary.** 32 threads provisioning kurasi behind a barrier produce one config object and one key. 32 concurrent teardowns produce one shred.
 - **Mixed concurrent traffic keeps the key invariant.** 600 random provision/teardown operations across 12 tenants on 24 threads (seeded, so reproducible) leave `active ⇔ key exists` true for every tenant.
 - **The ASGI stack handles parallel journeys.** 20 parallel provisions, 50 parallel encrypt/decrypt round-trips and 20 parallel teardowns through `httpx.ASGITransport` finish with zero active boundaries and zero keys.
-- **Stability:** 10 consecutive runs of the full suite including the live journey: **44 passed each, 0 failed** (`evidence/slet-p4-2/stability-10-iterations.log`).
+- **Stability:** 10 consecutive runs of the full suite including the live journey: **44 passed each, 0 failed** (`evidence/slet-p4-2/stability-10-iterations.txt`).
 
 ## Performance (10 iterations)
 
@@ -168,7 +168,7 @@ Peak cryptographic workload: 1,000 × 4 KiB seal-and-open cycles take about 26 m
 
 ## Guard falsification (mutation run)
 
-Each control was removed from the engine source and the suite re-run. **10 of 10 mutations were killed** (`evidence/slet-p4-2/mutation-run.log`), and the source was restored byte-identical afterwards.
+Each control was removed from the engine source and the suite re-run. **10 of 10 mutations were killed** (`evidence/slet-p4-2/mutation-run.txt`), and the source was restored byte-identical afterwards.
 
 | Mutation | Tests failed |
 | :--- | ---: |

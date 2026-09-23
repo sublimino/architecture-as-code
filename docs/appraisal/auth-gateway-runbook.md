@@ -218,7 +218,7 @@ curl -k --resolve dashboard.osramp.acme.local:18443:127.0.0.1 \
 | Deploy dashboard + API + routes | `make demo-signalloom-up` | Present (Flux ResourceSet `signalloom-apps`) |
 | Dex OIDC stub deploy | via `signalloom-infra` (inside `demo-signalloom-up`) | Present |
 | Verify Flux / runtime | `make demo-signalloom-test` / `-runtime-test` / `-test-1` | Present |
-| **Open/port-forward the dashboard for a human** | — | **MISSING.** No `make dashboard-open`/`dashboard-forward`. Only `scripts/acceptance-test.sh` (Playwright) sets up the 18443 forward, and it tears it down on exit. Manual step 5 required. |
+| **Open/port-forward the dashboard for a human** | — | **MISSING.** No make target opens or forwards the dashboard. Only `scripts/acceptance-test.sh` (Playwright) sets up the 18443 forward, and it tears it down on exit. Manual step 5 required. |
 | **Bake `VITE_AUTH0_*` into dashboard build** | — | **MISSING.** Dockerfile/build script pass no build args; no `.env`. |
 | **Wire dashboard browser login to Dex (or Auth0)** | — | **MISSING.** No dashboard OIDC-code flow to Dex; `OIDC-BROWSER-001` deferred. |
 | Host port mapping (80/443 → host) | — | **MISSING by design.** Kind config has no `extraPortMappings`; port-forward is the only path. |

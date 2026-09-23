@@ -177,3 +177,50 @@ lint_fixture() {
 	echo "$output"
 	[ "$status" -eq 0 ]
 }
+
+@test "a broken link inside a table row fails" {
+	printf '# Page\n\n| Doc | Purpose |\n|---|---|\n| [guide](docs/missing.md) | text |\n' >"$fixture/page.md"
+	lint_fixture page.md
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"page.md:5: link: target does not exist: docs/missing.md"* ]]
+}
+
+@test "a heading that contains a link has the anchor of its label" {
+	printf '# Page\n\n## Read [the guide](docs/target.md) first\n\nText.\n\nSee [above](#read-the-guide-first).\n' >"$fixture/page.md"
+	lint_fixture page.md
+	echo "$output"
+	[ "$status" -eq 0 ]
+}
+
+# default_lint — run the lint with no file arguments, the way `make docs-lint`
+# does, with nav.md as the whole navigation layer.
+default_lint() {
+	printf '# Nav\n\nRead [the index](docs/README.md).\n' >"$fixture/nav.md"
+	git -C "$fixture" add -A
+	DOCS_LINT_ROOT="$fixture" DOCS_LINT_FILES="nav.md docs/README.md" run "$lint"
+}
+
+@test "default mode: a decision record gets link checks only" {
+	mkdir -p "$fixture/MEMORY"
+	printf '# Record\n\nWe ran `make gone-target`; it worked in the past.\n' >"$fixture/MEMORY/old.md"
+	default_lint
+	echo "$output"
+	[ "$status" -eq 0 ]
+	printf '# Record\n\nSee [the file](missing.md).\n' >"$fixture/MEMORY/old.md"
+	default_lint
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"MEMORY/old.md:3: link: target does not exist"* ]]
+}
+
+@test "default mode: a living doc gets make and fence checks but not prose checks" {
+	mkdir -p "$fixture/runbook"
+	printf '# Runbook\n\nThis sentence is fine; it has a semicolon that only the style tier checks.\n' >"$fixture/runbook/README.md"
+	default_lint
+	echo "$output"
+	[ "$status" -eq 0 ]
+	printf '# Runbook\n\nRun `make gone-target`.\n\n```bash\nmake up\n' >"$fixture/runbook/README.md"
+	default_lint
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"runbook/README.md:3: make: no target 'gone-target'"* ]]
+	[[ "$output" == *"runbook/README.md:5: fence:"* ]]
+}

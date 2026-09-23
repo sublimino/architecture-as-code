@@ -39,8 +39,12 @@ The command `demo-agent-trust-up` confirms readiness of `signalloom-infra`,
 The ResourceSet uses its own ServiceAccount, `agent-trust-flux`. In each of the
 six `agent-trust-*` namespaces, a RoleBinding gives it these resources:
 ConfigMaps, Pods, Secrets, ServiceAccounts, Services, Deployments,
-ReplicaSets, NetworkPolicies, Roles, RoleBindings, and CronJobs. The
-definition is in
+ReplicaSets, NetworkPolicies, Roles, RoleBindings, and CronJobs.
+
+CAUTION: The ClusterRole `agent-trust-flux-namespaces` also lets
+`agent-trust-flux` get, list, watch, and create any Namespace in the cluster.
+Only update, patch, and delete are limited to the six namespaces. Do not give
+this ServiceAccount to another workload. The definition is in
 [`../d2-osramp-fleet/tenants/base/agent-trust.yaml`](../d2-osramp-fleet/tenants/base/agent-trust.yaml).
 
 The command `demo-agent-trust-down` sets `inputs: []`, waits for Flux,

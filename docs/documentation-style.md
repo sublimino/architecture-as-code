@@ -167,11 +167,18 @@ also uses that network.
 
 ## What `make docs-lint` checks
 
-`make docs-lint` runs [`scripts/docs-lint.sh`](../scripts/docs-lint.sh) on the
-navigation layer: the root `README.md`, `AGENTS.md`, `TESTING.md`, and
-`HUMAN_VALIDATION.md`, this directory's `README.md` and this page, and each
-slice `AGENTS.md`. The script lists the files in `DEFAULT_FILES`. To check other
-files, give their paths: `scripts/docs-lint.sh docs/FAQ.md`.
+`make docs-lint` runs [`scripts/docs-lint.sh`](../scripts/docs-lint.sh) on each
+tracked Markdown file. Each file gets one of three tiers:
+
+| Tier | Files | Checks |
+| :--- | :--- | :--- |
+| All checks | The navigation layer: the root `README.md`, `AGENTS.md`, `TESTING.md`, and `HUMAN_VALIDATION.md`, this directory's `README.md` and this page, and each slice `AGENTS.md` (`DEFAULT_FILES` in the script) | All the checks in the table below |
+| Correctness | Each other living document | `link`, `anchor`, `space`, `make`, `fence` |
+| Links only | Decision records (`RECORDS` in the script) | `link`, `anchor`, `space` |
+
+To run all checks on other files, give their paths:
+`scripts/docs-lint.sh docs/FAQ.md`. Move a living document into the navigation
+layer when its prose meets the rules.
 
 | Check | Rule | Finding |
 | :--- | :--- | :--- |

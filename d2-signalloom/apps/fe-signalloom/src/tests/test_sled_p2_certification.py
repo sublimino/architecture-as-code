@@ -65,7 +65,7 @@ def _app(mgr: LifecycleManager, daemon: ReaperDaemon, monkeypatch) -> FastAPI:
 # ---------------------------------------------------------------- event loop
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_reaper_pass_over_1000_envs_is_sub_second_and_loop_lag_bounded():
     mgr = LifecycleManager()
     _fleet(mgr)
@@ -85,7 +85,7 @@ async def test_reaper_pass_over_1000_envs_is_sub_second_and_loop_lag_bounded():
     assert durations[0] > 0 and daemon.cycle_count == 3
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_1000_concurrent_lifecycle_queries_alongside_manual_and_scheduled_reaps(monkeypatch):
     mgr = LifecycleManager()
     _fleet(mgr)
@@ -113,7 +113,7 @@ async def test_1000_concurrent_lifecycle_queries_alongside_manual_and_scheduled_
     assert len({e.customer_hash for e in drains}) == len(drains)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_manual_and_scheduled_passes_never_overlap():
     mgr = LifecycleManager()
     _fleet(mgr, n=200)
@@ -140,7 +140,7 @@ async def test_manual_and_scheduled_passes_never_overlap():
 # ----------------------------------------------------------- fault injection
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_backend_exceptions_do_not_terminate_the_reaper_loop():
     mgr = LifecycleManager()
     daemon = ReaperDaemon(lifecycle_manager=mgr, base_interval=0.005, min_interval=0.005, max_interval=0.005)
@@ -181,7 +181,7 @@ def _fatal_daemon() -> ReaperDaemon:
     return ReaperDaemon(lifecycle_manager=mgr, base_interval=0.005, min_interval=0.005, max_interval=0.005)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_base_exception_other_than_cancel_is_not_swallowed_silently():
     """A BaseException fault ends the task visibly rather than being looped over."""
     daemon = _fatal_daemon()
@@ -192,7 +192,7 @@ async def test_base_exception_other_than_cancel_is_not_swallowed_silently():
         daemon._task.result()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D5: get_status()/`/reaper/status` reports "
                    "is_running=True from a flag, not from task liveness, after the loop task has died")
 async def test_status_reports_dead_reaper_task_as_not_running():
@@ -242,7 +242,7 @@ def test_malformed_record_does_not_starve_the_fleet():
 # ------------------------------------------------ cancellation and leakage
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_repeated_start_stop_leaves_no_tasks_and_completes_promptly():
     mgr = LifecycleManager()
     _fleet(mgr, n=100)
@@ -264,7 +264,7 @@ async def test_repeated_start_stop_leaves_no_tasks_and_completes_promptly():
     assert worst < 0.5
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_stop_while_manual_pass_in_flight_does_not_deadlock():
     mgr = LifecycleManager()
     _fleet(mgr)
@@ -278,7 +278,7 @@ async def test_stop_while_manual_pass_in_flight_does_not_deadlock():
     assert d._active_pass_in_progress is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_steady_state_passes_do_not_grow_memory():
     # The watchdog WARNs on every pass (D2), and pytest's log capture retains each
     # record; that is harness memory, not daemon memory, so logging is muted here.
@@ -362,7 +362,7 @@ def test_threaded_heartbeats_racing_reaper_passes_preserve_invariants():
 # --------------------------------------------------------- defect register
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D3: evaluate_reaping runs on the event loop and "
                    "blocks in threading.RLock.acquire(timeout=5) while a threadpool caller holds the lock")
 async def test_contended_manager_lock_does_not_stall_the_event_loop():

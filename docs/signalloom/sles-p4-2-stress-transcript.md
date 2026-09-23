@@ -263,4 +263,4 @@ FAILED tests/test_audit_provenance.py::test_every_mutating_route_makes_an_audit_
   AssertionError: 13 mutating route(s) neither write an audit event nor declare why they should not
 ```
 
-That failure predates this card. The only code this card changes is `tests/test_scenario_seeding.py`, and the 13 routes named come from the SLEA/SLED/SLES/SLET modules already merged at the base commit (`environment_lifecycle.py`, `environment_routing.py` and others).
+That failure predates this card, whose diff is test and docs only. The unaudited routes were all merged before the base commit. They include this board's own `scenario_seeding.py:api_execute_scenario (POST /execute)`, plus routes in `environment_lifecycle.py`, `environment_routing.py`, `tenant_isolation.py`, `webhook_triggers.py`, `signal_fusion.py`, `onboarding.py` and `external_agent_evidence.py`.

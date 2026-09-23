@@ -2,7 +2,7 @@
 
 **Verdict:** **NOT CERTIFIED — release NOT sealed** (`status=fail`)
 **Recorded:** 2026-09-23 03:35:39+01:00
-**Integration ref:** `refs/heads/integration/slea-v0.1.0` at `8629b5f81e6ab2488dd7c4b4896855de8c7387f0`
+**Integration ref:** `refs/heads/integration/slea-v0.1.0`. The audit ran on base `8629b5f81e6ab2488dd7c4b4896855de8c7387f0`, then re-ran after the governor merged P4-PRE `096281359c9bb518d705ce8b750ec80666a74131` and P4-2 `dcf737f1ddc5f4c579a6bb05e250704c4e0fef29` (merge head `2d8bb2a983570d1115e2e83538a3abaf4ac29462`)
 **Governor worktree:** `/home/andy/src/.worktrees/osramp-demo/slea-v0.1.0/governor`
 
 This report replaces the unevidenced PASS certification that existed only on dangling
@@ -18,7 +18,7 @@ and neither matches the code. The code emits `https://sl-eap-6f82ad81.tailscale`
    route returns `401` without credentials. `/api/v1/environments/*` returns `201`/`200`.
    An anonymous caller can provision, list, extend and tear down environments, and can read
    every `company_name ↔ customer_hash` pairing. That defeats the purpose of the salt.
-2. **Two regression tests fail in the full fe-signalloom suite** (`2 failed, 1474 passed, 83 skipped`):
+2. **Two regression tests fail in the full fe-signalloom suite** (`2 failed, 1487 passed, 83 skipped` after merge; `2 failed, 1474 passed` on base):
    - `test_audit_provenance.py::test_every_mutating_route_makes_an_audit_decision`: 4 SLEA
      mutating routes neither audit nor declare `NOT_AUDIT_WORTHY`.
    - `test_tenant_isolation.py::test_the_route_sweep_covers_every_authenticated_api_route`: 6 SLEA
@@ -28,8 +28,8 @@ and neither matches the code. The code emits `https://sl-eap-6f82ad81.tailscale`
    so any 8-hex hash reverses to a company name by dictionary lookup. The canonical vector
    `kurasi → 6f82ad81` holds **only** under this public default.
 4. **The board's "done" state is unevidenced.** `kanban-check doctor` reports UNHEALTHY with
-   13 zero-output `done` cards. Only one SLEA commit (`8629b5f8`) exists on the integration
-   branch. The artifacts that cards P2–P4 claim are absent (§3).
+   13 zero-output `done` cards. Only one SLEA commit (`8629b5f8`) was on the integration
+   branch. P4-PRE and P4-2 were committed but unmerged, and the governor merged them. P4-1's Result column names the base commit `8629b5f8`, so P4-1 has **no deliverable** (no bootstrapper, no teardown GC). The artifacts that cards P2–P4 claim are absent (§3).
 
 ## 2. Prior-work verification table
 
@@ -39,11 +39,11 @@ and neither matches the code. The code emits `https://sl-eap-6f82ad81.tailscale`
 | `fe-signalloom/src/environment_routing.py` | `wc -l`; `rg install_environment_routing_api main.py` | 520 lines, mounted at `main.py:15,42` — **VERIFIED** |
 | `src/tests/test_environment_routing.py` | `pytest -v` | **15 passed**, 0 failed |
 | `scripts/eap/test_tailscale_eap_env.sh` | `bash …` | **15 passed**, 0 failed (all mock-mode, see §4) |
-| `tests/test_kurasi_eap_lifecycle.py` | `fd` over worktree | **ABSENT** — never on branch |
+| `tests/test_kurasi_eap_lifecycle.py` | `pytest -v` after merging P4-2 | **13 passed** (absent on base; delivered by unmerged `dcf737f1`, merged by this governor) |
 | `tests/test_environment_api.py` | `fd` over worktree | **ABSENT** — API tests live inside `test_environment_routing.py` |
 | `scripts/eap/test_reconcile_eap_ingress.sh` | `ls` | **ABSENT** — no reconciler exists |
 | Dex origin lease / namespace bootstrapper / teardown GC (P3-2, P4-1) | `rg -n 'dex\|namespace\|subprocess' environment_routing.py` | **ABSENT** — only `eap-httproute-template.yaml` (34 lines) |
-| Full fe-signalloom suite | `uv run … pytest tests -q` | **2 failed**, 1474 passed, 83 skipped |
+| Full fe-signalloom suite | `uv run … pytest tests -q` | **2 failed**, 1487 passed, 83 skipped (post-merge) |
 | `kanban-check doctor --shortcode SLEA` | exit code | **rc=1 UNHEALTHY** (13 zero-output cards; P4-GOV oscillation) |
 | Canonical kurasi vector | Python `sha256("signalloom-eap-salt-2026-q3:kurasi")[:8]`; `tailscale-eap-env.sh urls '  KuRaSi '` | `6f82ad81`, `https://sl-eap-6f82ad81.tailscale` — **VERIFIED** in both layers |
 | Salt leakage in telemetry | `rg 'log\|print\|salt' environment_routing.py` | Salt never logged or returned — **PASS**; but `company_name` logged at INFO (`:320`) |
@@ -76,13 +76,13 @@ Real-mesh provisioning remains **unproven**.
 
 | Criterion | Status |
 | :-- | :-- |
-| 100% green across Python, shell and acceptance suites | **FAIL** (2 failures; acceptance suite absent) |
+| 100% green across Python, shell and acceptance suites | **FAIL** (2 failures; SLEA suites 28/28 + shell 15/15 green) |
 | kanban doctor clean | **FAIL** (rc=1) |
 | kurasi vector `6f82ad81` → `https://sl-eap-6f82ad81.tailscale` | PASS (public-default salt only) |
 | Salt loaded securely, never in telemetry | PARTIAL (not logged, but hard-coded default in git) |
 | Threat model: tenant isolation / network boundary | **FAIL** (unauthenticated API; not in tenant sweep) |
 | Docs complete in `docs/signalloom/` | **FAIL** (no SLEA architecture or ops docs exist) |
-| Working tree clean | PASS (only this report added) |
+| Working tree clean | PASS (report + 2 prerequisite merges only) |
 
 Deliverables that presuppose a sealed release are deliberately **not** produced: the release announcement,
 SRE hand-off, architecture summary, post-review and merge seal. Writing them would certify a release that fails its own gate.

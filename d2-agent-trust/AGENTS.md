@@ -1,8 +1,9 @@
 # AGENTS.md — d2-agent-trust
 
-This slice demonstrates a contract-first SPIFFE Agent Trust Hierarchy.
-It reuses existing infrastructure from `d2-signalloom/infra/inf-bao`.
-It consumes the SPIRE Workload API and the OpenBao JWT authentication backend.
+This slice demonstrates a contract-first SPIFFE agent trust hierarchy. It reuses
+the infrastructure in [`../d2-signalloom/infra/inf-bao/`](../d2-signalloom/infra/inf-bao/). It uses the SPIRE
+Workload API and the OpenBao JWT authentication backend. The human guide is
+[`README.md`](README.md), which also holds the truthfulness matrix.
 
 ## Commands
 
@@ -16,28 +17,31 @@ make demo-agent-trust-down        # Remove the six Agent Trust namespaces
 make -C d2-agent-trust render     # Test manifest rendering
 ```
 
-## Truthfulness Matrix
+## Layout
 
-| Area | State | Evidence |
-|---|---|---|
-| A2A JWT signature, replay, and receiver policy | Authentic unit implementation | Tests in `a2a/service.py` |
-| SPIRE Workload API token issuance | Authentic runtime adapter | Tested using mounted SPIRE socket |
-| Kubernetes boundary manifests | Authentic GitOps runtime | Signed OCI artifact and Flux readiness |
-| OpenBao role configuration | Authentic local lifecycle | Five-minute temporary roles via `agent-trust-local.sh` |
-| SPIFFE and OpenBao A2A request flow | Authentic runtime | Planner gets JWT-SVID; triage checks via OpenBao |
-| Cloud provider enrollment (Lambda, Cloud Run) | Modeled contract | `contracts/external-enrollment.v1.json` |
+| Path | Contents |
+|---|---|
+| [`a2a/`](a2a/) | The A2A JWT verifier service |
+| [`adapters/`](adapters/) | The SPIRE Workload API adapter |
+| [`contracts/`](contracts/) | Topology, SPIRE registration, external enrolment, and OpenBao role contracts |
+| [`manifests/`](manifests/) | Boundaries, NetworkPolicies, topology probes, and probe RBAC |
+| [`policies/`](policies/) | The agent identity state protection policy |
+| [`test/test_contracts.py`](test/test_contracts.py) | Contract and A2A unit tests (`make -C d2-agent-trust test`) |
 
-Note: NetworkPolicy controls L3 and L4 network reachability only.
-The receiving application service enforces application-level authorization.
+NOTE: A NetworkPolicy controls L3 and L4 reachability only. The receiving
+service enforces the application-level authorisation.
 
 ## Lifecycle and Rollback
 
 The command `demo-agent-trust-up` confirms readiness of `signalloom-infra`,
 `inf-bao`, OpenBao, and SPIRE. It then activates its ResourceSet.
 
-The ResourceSet uses a dedicated `agent-trust-flux` service account.
-RoleBindings permit only ConfigMaps, Secrets, ServiceAccounts, Services,
-Deployments, and NetworkPolicies in owned namespaces.
+The ResourceSet uses its own ServiceAccount, `agent-trust-flux`. In each of the
+six `agent-trust-*` namespaces, a RoleBinding gives it these resources:
+ConfigMaps, Pods, Secrets, ServiceAccounts, Services, Deployments,
+ReplicaSets, NetworkPolicies, Roles, RoleBindings, and CronJobs. The
+definition is in
+[`../d2-osramp-fleet/tenants/base/agent-trust.yaml`](../d2-osramp-fleet/tenants/base/agent-trust.yaml).
 
 The command `demo-agent-trust-down` sets `inputs: []`, waits for Flux,
 and removes the six `agent-trust-*` namespaces. It does not modify `inf-bao`,

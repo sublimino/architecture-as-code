@@ -769,6 +769,26 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
 # of error this file exists to prevent. An entry here is a debt with a name on
 # it, and it reads as one.
 AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
+    ("tenant_isolation.py", "api_tenant_encrypt"): (
+        "RULED AUDIT-WORTHY; the event is not written yet. "
+        "SLET transit encrypt applies the tenant's OpenBao transit key to customer "
+        "data. Cryptographic use of a tenant key is exactly the evidence a "
+        "regulator asks for (who used which key, when). The tenant engine keeps "
+        "no durable store and fe-signalloom's audit writer needs the database, "
+        "so the write belongs with the persistence work, not the SLET-P4-2 "
+        "acceptance card that added these routes. Delete this entry when the "
+        "audit write lands."
+    ),
+    ("tenant_isolation.py", "api_tenant_decrypt"): (
+        "RULED AUDIT-WORTHY; the event is not written yet. "
+        "SLET transit decrypt applies the tenant's OpenBao transit key to customer "
+        "data. Cryptographic use of a tenant key is exactly the evidence a "
+        "regulator asks for (who used which key, when). The tenant engine keeps "
+        "no durable store and fe-signalloom's audit writer needs the database, "
+        "so the write belongs with the persistence work, not the SLET-P4-2 "
+        "acceptance card that added these routes. Delete this entry when the "
+        "audit write lands."
+    ),
     ("signal_fusion.py", "promote_actor"): (
         "RULED AUDIT-WORTHY; the event is not written yet. "
         "POST /actors/{actor_id}/promote transitions a provisional actor to "

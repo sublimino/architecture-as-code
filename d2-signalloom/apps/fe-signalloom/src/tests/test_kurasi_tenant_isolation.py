@@ -1129,12 +1129,16 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
                         "-parentID", "spiffe://osramp.local/spire/agent/k8s-node",
                         "-selector", f"k8s:ns:{KURASI_NS}", "-selector", "k8s:sa:tenant-app",
                         "-x509SVIDTTL", "3600", "-output", "json", check=False)
-        if foreign.returncode == 0:  # record and remove it; the finding is the acceptance
-            for e in json.loads(foreign.stdout).get("results", []):
-                if e.get("entry", {}).get("id"):
-                    run.spire_entries.append(e["entry"]["id"])
+        # spire-server reports a per-entry failure in the JSON body and still
+        # exits 0, so the exit status proves nothing; read the status code.
+        foreign_results = json.loads(foreign.stdout).get("results", []) if foreign.stdout.strip() else []
+        for e in foreign_results:
+            if e.get("entry", {}).get("id"):
+                run.spire_entries.append(e["entry"]["id"])  # cleaned up either way
         run.log("4-spire", "foreign-trust-domain", rc=foreign.returncode,
                 stdout=foreign.stdout.strip()[:800], stderr=foreign.stderr.strip()[:800])
+        assert foreign_results and all(e["status"]["code"] != 0 for e in foreign_results), (
+            "SPIRE accepted an entry outside its trust domain")
 
         # The server's own trust domain, read from an entry it already holds.
         any_entries = json.loads(spire("entry", "show", "-output", "json").stdout).get("entries") or []

@@ -1,0 +1,862 @@
+{
+ "metrics-1.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 11.016,
+   "cpu_ms": 10.482,
+   "peak_heap_kib": 128.4
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.021,
+   "cpu_ms": 0.021,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.361,
+   "cpu_ms": 0.361,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 6.959,
+   "cpu_ms": 7.073,
+   "peak_heap_kib": 257.7
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 8.904,
+   "cpu_ms": 9.205,
+   "peak_heap_kib": 128.6
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 5.451,
+   "cpu_ms": 5.715,
+   "peak_heap_kib": 76.5
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 10.32,
+   "cpu_ms": 10.813,
+   "peak_heap_kib": 122.3
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 28.046,
+   "cpu_ms": 28.014,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 167.481,
+   "cpu_ms": 2.444,
+   "peak_heap_kib": 69.0
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 112.157,
+   "cpu_ms": 2.018,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 51130.368,
+   "cpu_ms": 23.952,
+   "peak_heap_kib": 73.2
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 396.083,
+   "cpu_ms": 5.929,
+   "peak_heap_kib": 141.2
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 227.13,
+   "cpu_ms": 22.505,
+   "peak_heap_kib": 204.2
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10813.535,
+   "cpu_ms": 17.105,
+   "peak_heap_kib": 152.9
+  }
+ ],
+ "metrics-2.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 7.974,
+   "cpu_ms": 8.304,
+   "peak_heap_kib": 130.7
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.021,
+   "cpu_ms": 0.021,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.347,
+   "cpu_ms": 0.347,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 6.679,
+   "cpu_ms": 6.777,
+   "peak_heap_kib": 257.9
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 7.79,
+   "cpu_ms": 8.099,
+   "peak_heap_kib": 128.8
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 5.182,
+   "cpu_ms": 5.379,
+   "peak_heap_kib": 78.1
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 10.46,
+   "cpu_ms": 10.833,
+   "peak_heap_kib": 119.3
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 26.037,
+   "cpu_ms": 25.999,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 217.878,
+   "cpu_ms": 2.554,
+   "peak_heap_kib": 69.0
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 115.415,
+   "cpu_ms": 1.93,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 51193.165,
+   "cpu_ms": 24.355,
+   "peak_heap_kib": 74.3
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 395.954,
+   "cpu_ms": 5.386,
+   "peak_heap_kib": 141.3
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 226.281,
+   "cpu_ms": 22.154,
+   "peak_heap_kib": 204.3
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10911.829,
+   "cpu_ms": 17.0,
+   "peak_heap_kib": 153.0
+  }
+ ],
+ "metrics-3.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 7.203,
+   "cpu_ms": 7.415,
+   "peak_heap_kib": 128.6
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.021,
+   "cpu_ms": 0.02,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.338,
+   "cpu_ms": 0.338,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 15.83,
+   "cpu_ms": 7.288,
+   "peak_heap_kib": 257.7
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 7.843,
+   "cpu_ms": 8.133,
+   "peak_heap_kib": 129.1
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 5.735,
+   "cpu_ms": 5.921,
+   "peak_heap_kib": 78.4
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 9.847,
+   "cpu_ms": 10.289,
+   "peak_heap_kib": 119.6
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 25.415,
+   "cpu_ms": 25.415,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 206.478,
+   "cpu_ms": 2.532,
+   "peak_heap_kib": 68.8
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 110.605,
+   "cpu_ms": 2.028,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 51414.141,
+   "cpu_ms": 23.315,
+   "peak_heap_kib": 73.0
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 406.353,
+   "cpu_ms": 5.438,
+   "peak_heap_kib": 141.2
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 230.064,
+   "cpu_ms": 24.86,
+   "peak_heap_kib": 204.1
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10844.234,
+   "cpu_ms": 19.322,
+   "peak_heap_kib": 153.1
+  }
+ ],
+ "metrics-4.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 7.876,
+   "cpu_ms": 8.141,
+   "peak_heap_kib": 128.6
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.02,
+   "cpu_ms": 0.02,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.333,
+   "cpu_ms": 0.333,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 6.502,
+   "cpu_ms": 6.594,
+   "peak_heap_kib": 257.7
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 7.554,
+   "cpu_ms": 7.843,
+   "peak_heap_kib": 128.7
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 4.972,
+   "cpu_ms": 5.171,
+   "peak_heap_kib": 78.1
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 10.106,
+   "cpu_ms": 10.56,
+   "peak_heap_kib": 119.3
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 26.473,
+   "cpu_ms": 26.401,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 208.645,
+   "cpu_ms": 2.921,
+   "peak_heap_kib": 69.0
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 120.309,
+   "cpu_ms": 1.811,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 50966.749,
+   "cpu_ms": 25.675,
+   "peak_heap_kib": 73.7
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 454.678,
+   "cpu_ms": 5.686,
+   "peak_heap_kib": 141.3
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 229.922,
+   "cpu_ms": 24.724,
+   "peak_heap_kib": 204.4
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10799.391,
+   "cpu_ms": 17.374,
+   "peak_heap_kib": 152.7
+  }
+ ],
+ "metrics-5.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 8.201,
+   "cpu_ms": 8.495,
+   "peak_heap_kib": 129.6
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.02,
+   "cpu_ms": 0.02,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.354,
+   "cpu_ms": 0.354,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 7.027,
+   "cpu_ms": 7.118,
+   "peak_heap_kib": 258.4
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 8.181,
+   "cpu_ms": 8.394,
+   "peak_heap_kib": 128.8
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 4.762,
+   "cpu_ms": 4.971,
+   "peak_heap_kib": 78.0
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 9.915,
+   "cpu_ms": 10.402,
+   "peak_heap_kib": 119.5
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 26.27,
+   "cpu_ms": 26.271,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 192.011,
+   "cpu_ms": 2.384,
+   "peak_heap_kib": 69.0
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 109.794,
+   "cpu_ms": 1.735,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 50846.127,
+   "cpu_ms": 23.613,
+   "peak_heap_kib": 73.6
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 385.556,
+   "cpu_ms": 6.126,
+   "peak_heap_kib": 141.2
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 227.168,
+   "cpu_ms": 22.984,
+   "peak_heap_kib": 204.2
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10905.702,
+   "cpu_ms": 17.089,
+   "peak_heap_kib": 152.9
+  }
+ ],
+ "metrics-6.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 8.071,
+   "cpu_ms": 8.317,
+   "peak_heap_kib": 128.5
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.021,
+   "cpu_ms": 0.02,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.341,
+   "cpu_ms": 0.341,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 7.887,
+   "cpu_ms": 7.997,
+   "peak_heap_kib": 257.7
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 8.341,
+   "cpu_ms": 8.679,
+   "peak_heap_kib": 129.0
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 5.569,
+   "cpu_ms": 5.748,
+   "peak_heap_kib": 76.5
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 10.043,
+   "cpu_ms": 10.521,
+   "peak_heap_kib": 119.9
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 28.233,
+   "cpu_ms": 28.228,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 236.4,
+   "cpu_ms": 2.712,
+   "peak_heap_kib": 69.0
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 112.335,
+   "cpu_ms": 1.768,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 50741.813,
+   "cpu_ms": 22.944,
+   "peak_heap_kib": 73.3
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 494.395,
+   "cpu_ms": 6.084,
+   "peak_heap_kib": 141.3
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 226.181,
+   "cpu_ms": 21.617,
+   "peak_heap_kib": 204.1
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10859.684,
+   "cpu_ms": 17.34,
+   "peak_heap_kib": 152.6
+  }
+ ],
+ "metrics-7.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 7.311,
+   "cpu_ms": 7.554,
+   "peak_heap_kib": 128.7
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.02,
+   "cpu_ms": 0.02,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.36,
+   "cpu_ms": 0.36,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 6.865,
+   "cpu_ms": 6.968,
+   "peak_heap_kib": 257.4
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 8.068,
+   "cpu_ms": 8.361,
+   "peak_heap_kib": 131.5
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 5.111,
+   "cpu_ms": 5.295,
+   "peak_heap_kib": 76.9
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 10.857,
+   "cpu_ms": 11.368,
+   "peak_heap_kib": 119.1
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 26.571,
+   "cpu_ms": 26.523,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 222.318,
+   "cpu_ms": 2.686,
+   "peak_heap_kib": 68.8
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 121.572,
+   "cpu_ms": 1.772,
+   "peak_heap_kib": 69.9
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 50799.69,
+   "cpu_ms": 25.068,
+   "peak_heap_kib": 74.0
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 441.763,
+   "cpu_ms": 5.716,
+   "peak_heap_kib": 141.2
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 228.35,
+   "cpu_ms": 23.344,
+   "peak_heap_kib": 204.3
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10932.446,
+   "cpu_ms": 19.43,
+   "peak_heap_kib": 153.2
+  }
+ ],
+ "metrics-8.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 7.468,
+   "cpu_ms": 7.704,
+   "peak_heap_kib": 128.3
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.021,
+   "cpu_ms": 0.02,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.335,
+   "cpu_ms": 0.335,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 7.448,
+   "cpu_ms": 7.538,
+   "peak_heap_kib": 257.5
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 8.137,
+   "cpu_ms": 8.439,
+   "peak_heap_kib": 129.1
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 5.101,
+   "cpu_ms": 5.325,
+   "peak_heap_kib": 76.6
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 11.095,
+   "cpu_ms": 11.603,
+   "peak_heap_kib": 122.0
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 26.892,
+   "cpu_ms": 26.849,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 204.952,
+   "cpu_ms": 2.527,
+   "peak_heap_kib": 69.0
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 129.299,
+   "cpu_ms": 2.107,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 51284.108,
+   "cpu_ms": 23.706,
+   "peak_heap_kib": 73.4
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 376.972,
+   "cpu_ms": 5.553,
+   "peak_heap_kib": 141.2
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 226.52,
+   "cpu_ms": 21.799,
+   "peak_heap_kib": 204.2
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 12712.248,
+   "cpu_ms": 16.213,
+   "peak_heap_kib": 153.0
+  }
+ ],
+ "metrics-9.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 7.759,
+   "cpu_ms": 7.939,
+   "peak_heap_kib": 128.5
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.021,
+   "cpu_ms": 0.02,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.34,
+   "cpu_ms": 0.34,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 6.768,
+   "cpu_ms": 6.868,
+   "peak_heap_kib": 257.5
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 8.417,
+   "cpu_ms": 8.78,
+   "peak_heap_kib": 129.1
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 4.968,
+   "cpu_ms": 5.179,
+   "peak_heap_kib": 77.2
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 10.699,
+   "cpu_ms": 11.196,
+   "peak_heap_kib": 121.9
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 27.739,
+   "cpu_ms": 27.648,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 144.077,
+   "cpu_ms": 2.532,
+   "peak_heap_kib": 69.0
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 112.046,
+   "cpu_ms": 1.894,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 51219.458,
+   "cpu_ms": 23.807,
+   "peak_heap_kib": 73.5
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 727.295,
+   "cpu_ms": 5.759,
+   "peak_heap_kib": 141.3
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 229.612,
+   "cpu_ms": 24.321,
+   "peak_heap_kib": 204.2
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 11105.444,
+   "cpu_ms": 17.3,
+   "peak_heap_kib": 152.8
+  }
+ ],
+ "metrics-10.json": [
+  {
+   "stage": "1-provision",
+   "duration_ms": 7.812,
+   "cpu_ms": 8.095,
+   "peak_heap_kib": 129.5
+  },
+  {
+   "stage": "2-pss",
+   "duration_ms": 0.021,
+   "cpu_ms": 0.021,
+   "peak_heap_kib": 0.2
+  },
+  {
+   "stage": "3-netpol",
+   "duration_ms": 0.36,
+   "cpu_ms": 0.36,
+   "peak_heap_kib": 2.1
+  },
+  {
+   "stage": "4-spiffe",
+   "duration_ms": 6.915,
+   "cpu_ms": 7.021,
+   "peak_heap_kib": 257.8
+  },
+  {
+   "stage": "5-transit",
+   "duration_ms": 7.73,
+   "cpu_ms": 8.003,
+   "peak_heap_kib": 128.9
+  },
+  {
+   "stage": "7-negative",
+   "duration_ms": 5.016,
+   "cpu_ms": 5.225,
+   "peak_heap_kib": 78.0
+  },
+  {
+   "stage": "6-teardown",
+   "duration_ms": 9.717,
+   "cpu_ms": 10.203,
+   "peak_heap_kib": 121.6
+  },
+  {
+   "stage": "perf-crypto-1000x4KiB",
+   "duration_ms": 25.752,
+   "cpu_ms": 25.753,
+   "peak_heap_kib": 5441.3
+  },
+  {
+   "stage": "live-1-namespaces",
+   "duration_ms": 218.291,
+   "cpu_ms": 2.658,
+   "peak_heap_kib": 68.9
+  },
+  {
+   "stage": "live-2-psa",
+   "duration_ms": 118.124,
+   "cpu_ms": 1.804,
+   "peak_heap_kib": 70.0
+  },
+  {
+   "stage": "live-3-netpol",
+   "duration_ms": 51387.487,
+   "cpu_ms": 25.234,
+   "peak_heap_kib": 74.1
+  },
+  {
+   "stage": "live-4-spire",
+   "duration_ms": 366.249,
+   "cpu_ms": 5.809,
+   "peak_heap_kib": 141.2
+  },
+  {
+   "stage": "live-5-transit",
+   "duration_ms": 228.405,
+   "cpu_ms": 23.319,
+   "peak_heap_kib": 204.4
+  },
+  {
+   "stage": "live-6-teardown",
+   "duration_ms": 10833.192,
+   "cpu_ms": 17.105,
+   "peak_heap_kib": 153.1
+  }
+ ]
+}

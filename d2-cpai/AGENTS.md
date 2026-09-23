@@ -7,10 +7,10 @@ The `d2-cpai` slice deploys the CPAI runtime proxy. The proxy provides an OpenAI
 | Component | Technology | Path |
 |---|---|---|
 | Runtime server | Go API server with OpenAI compatibility | Built from `$CPAI_CLI_ROOT` |
-| Manifests | Kustomize overlays | `apps/cpai-runtime/base/`, `local/` |
-| Smoke tests | BATS test suite | `test/cpai-runtime.bats` |
-| Multi-turn test | BATS test suite with aichat | `test/conversation.bats` |
-| Client config | YAML client configuration | `test/aichat/config.yaml` |
+| Manifests | Kustomize base and local overlay | [`apps/cpai-runtime/base/`](apps/cpai-runtime/base/), [`apps/cpai-runtime/local/`](apps/cpai-runtime/local/) |
+| Smoke tests | BATS suite | [`test/cpai-runtime.bats`](test/cpai-runtime.bats) |
+| Multi-turn test | BATS suite with aichat | [`test/conversation.bats`](test/conversation.bats) |
+| Client config | aichat configuration | [`test/aichat/config.yaml`](test/aichat/config.yaml) |
 
 ## Namespaces
 
@@ -19,6 +19,8 @@ The `d2-cpai` slice deploys the CPAI runtime proxy. The proxy provides an OpenAI
 | `cpai` | CPAI runtime pod, service, and Google Cloud credentials secret |
 
 ## Architecture
+
+The diagram shows the request path from a client to Vertex AI.
 
 ```mermaid
 flowchart LR
@@ -46,19 +48,30 @@ make demo-cpai-conversation  # Run multi-turn context recall test with aichat
 make demo-cpai-down          # Delete the cpai namespace
 ```
 
+To run CPAI without the full foundation, use `make cpai-only`. It makes a
+minimal foundation (`make cpai-foundation`: Kind, Zot, and cosign keys only)
+and then deploys CPAI.
+
 ## Prerequisites
 
 1. Start the cluster foundation with `make up`.
 2. Check that `$CPAI_CLI_ROOT` points to a checkout of `cpai-cli` that contains `Dockerfile.runtime`.
-3. Create the Google Cloud secret from your Application Default Credentials:
+3. Run `gcloud auth application-default login`, or set
+   `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file.
+   `make demo-cpai-up` makes the `cpai-gcp-adc` Secret from these credentials.
+   If it cannot read them, it gives a warning, and the model calls fail.
+4. Install `aichat` to run the multi-turn conversation test.
+
+To replace expired credentials, run `make demo-cpai-up` again, then restart the
+deployment:
 
 ```bash
-kubectl -n cpai create secret generic cpai-gcp-adc \
-  --from-file=adc.json="$HOME/.config/gcloud/application_default_credentials.json"
 kubectl -n cpai rollout restart deployment/cpai-runtime
 ```
 
-4. Install `aichat` to run multi-turn conversation tests.
+The deployment also mounts the optional Secret `cpai-codex-auth` and sets
+`CPAI_BIN=opencode`
+([`deployment.yaml`](apps/cpai-runtime/base/deployment.yaml)).
 
 ## Direct Service Access
 
@@ -85,6 +98,6 @@ curl -s http://localhost:18080/v1/chat/completions \
 
 ## Common Pitfalls
 
-- **HTTP 5xx responses or skipped tests:** The `cpai-gcp-adc` secret is missing or expired. Recreate the secret and restart the deployment.
+- **HTTP 5xx responses or skipped tests:** The `cpai-gcp-adc` Secret is missing or expired. Run `make demo-cpai-up` again and restart the deployment.
 - **Image build failure:** `$CPAI_CLI_ROOT` does not point to the expected branch. Set the variable explicitly when you run `make demo-cpai-up`.
 - **Port-forward stops on rollout:** Restart the `kubectl port-forward` command after every deployment restart.

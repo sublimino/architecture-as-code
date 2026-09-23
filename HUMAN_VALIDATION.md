@@ -1,6 +1,8 @@
 # Human validation: browser acceptance
 
-Use this checklist to review the live browser experience after the cluster has been deployed. It is intentionally separate from [`TESTING.md`](TESTING.md): that file explains how to run tests; this file records what a person observed.
+Use this checklist to review the live browser experience after you deploy the
+cluster. [`TESTING.md`](TESTING.md) tells you how to run the tests. This file
+records what a person saw.
 
 ## Reviewer record
 

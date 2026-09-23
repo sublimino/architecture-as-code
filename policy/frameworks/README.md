@@ -71,9 +71,13 @@ YAML file, so the two files can differ. The YAML files are not valid JSON. The
 policy engine logs a load error for a version directory that has only
 `framework.yaml`, and it skips that version.
 
-1. Create `policy/frameworks/<framework-id>/v1.0/framework.yaml`.
-2. Follow the schema: `framework` metadata, then `controlSets` containing
-   `controls` with `checks`.
+WARNING: A pack that is only in YAML syntax does not load. The policy engine
+skips it, and the scan results do not include it. Write each new pack as
+`framework.json`, in the shape of the existing v2.1 `framework.json` files.
+
+1. Create `policy/frameworks/<framework-id>/v1.0/framework.json`.
+2. Follow the shape of an existing v2.1 `framework.json`: `id`, `name`,
+   `version`, then `controlSets` containing `controls` with `checks`.
 3. Every check must have a valid `cel` expression evaluable by `cel-go`
    against a Kubernetes pod template spec accessed as `object`.
 4. Add v2.0 (standard) and v2.1 (strict) tiers with progressively more

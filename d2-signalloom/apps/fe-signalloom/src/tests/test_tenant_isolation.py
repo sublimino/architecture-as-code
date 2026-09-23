@@ -735,6 +735,8 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("DELETE", "/api/v1/eap/tenants/{customer_hash}"),
     ("GET", "/api/v1/eap/tenants/{customer_hash}/manifests"),
     ("GET", "/api/v1/eap/tenants/{customer_hash}/spire-entry"),
+    ("POST", "/api/v1/eap/tenants/{customer_hash}/transit/encrypt"),
+    ("POST", "/api/v1/eap/tenants/{customer_hash}/transit/decrypt"),
     #
     # The exemption rests on a fact worth stating, because "no local DB" only
     # explains why the SWEEP cannot test these and not why that is acceptable:

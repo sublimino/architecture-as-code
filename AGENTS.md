@@ -1,41 +1,45 @@
 # AGENTS.md — osramp-demo
 
-This document is the primary onboarding guide for agents. Read this document first.
-Then read the per-slice `AGENTS.md` file for your target D2 installation.
+This is the onboarding guide for agents and engineers. Read it first. Then read
+the `AGENTS.md` file of the slice that you will change.
 
-For the complete documentation map, including GCP lanes and debugging guides, see
-[`docs/README.md`](docs/README.md).
+The complete documentation map is [`docs/README.md`](docs/README.md). The
+writing rules are in [`docs/documentation-style.md`](docs/documentation-style.md).
+Run `make docs-lint` after you change a document.
 
-## Repository Purpose
+## Repository purpose
 
-This monorepo hosts the OSRAMP and Signal Loom demonstration platform. It hosts
-independent D2 delivery slices that share a Kind cluster foundation, Flux GitOps
-control plane, and Envoy Ingress Gateway.
+This monorepo holds the OSRAMP and Signal Loom demonstration platform. It holds
+independent D2 delivery slices. The slices share one Kind cluster, one Flux
+GitOps control plane, and one Envoy ingress gateway.
 
-## Platform Architecture
+## Platform architecture
+
+The diagram shows the shared foundation and the slices that it runs. The
+[slice table](#d2-slices) links to the guide of each slice.
 
 ```mermaid
 flowchart TB
-  subgraph FOUNDATION["Shared Foundation Stack (Kind: osramp)"]
-    KIND["Kind Single-Node Cluster"]
+  subgraph FOUNDATION["Shared foundation (Kind cluster: osramp)"]
+    KIND["Kind single-node cluster"]
     FLUX["Flux Operator + ResourceSets"]
-    INGRESS["Envoy Ingress Gateway (TLS)"]
-    ZOT["In-Cluster Zot OCI Registry"]
-    CERT["cert-manager (Self-Signed Issuer)"]
+    INGRESS["Envoy Gateway (TLS)"]
+    ZOT["In-cluster Zot OCI registry"]
+    CERT["cert-manager (self-signed issuer)"]
     MON["kube-prometheus-stack + Grafana"]
-    SIGN["Cosign + Witness Signing Keys"]
+    SIGN["cosign + witness signing keys"]
   end
 
-  subgraph SLICES["D2 Delivery Slices"]
-    SL["d2-signalloom/<br/>Agent Governance Platform<br/>(Dashboard, Fleet Manager, Docs, Host Sensor)"]
-    OA["d2-osramp-apps/<br/>OSRAMP Apps<br/>(Archiver, Listener, Processor)"]
-    AFM["d2-k8s-afm/<br/>KubeSec-AFM<br/>(Formal-Methods RBAC Analysis)"]
-    FLT["d2-osramp-fleet/<br/>Flux Fleet Definitions<br/>(Clusters, Tenants, ResourceSets)"]
-    INF["d2-infra/<br/>Shared Infrastructure<br/>(Gateway API, Monitoring)"]
-    AGT["d2-agent-trust/<br/>SPIFFE Agent Trust<br/>(A2A, OpenBao JWT, NetPol)"]
-    CPAI["d2-cpai/<br/>CPAI Runtime Proxy<br/>(OpenAI-Compatible Vertex AI Proxy)"]
-    OLLY["olly-replica/<br/>Olly Sentinel AI SRE Replica"]
-    KAG["d2-signalloom/infra/kagent/<br/>Kagent AI Agent Swarm (D5)"]
+  subgraph SLICES["D2 delivery slices"]
+    SL["d2-signalloom/<br/>Agent governance platform"]
+    OA["d2-osramp-apps/<br/>OSRAMP ingestion services"]
+    AFM["d2-k8s-afm/<br/>KubeSec-AFM RBAC analysis"]
+    FLT["d2-osramp-fleet/<br/>Flux fleet definitions"]
+    INF["d2-infra/<br/>Cluster add-ons"]
+    AGT["d2-agent-trust/<br/>SPIFFE agent trust"]
+    CPAI["d2-cpai/<br/>CPAI runtime proxy"]
+    OLLY["olly-replica/<br/>Olly Sentinel replica"]
+    KAG["d2-signalloom/infra/kagent/<br/>Kagent agents (D5)"]
   end
 
   FOUNDATION --> SLICES
@@ -46,343 +50,315 @@ flowchart TB
   class SL,OA,AFM,FLT,INF,AGT,CPAI,OLLY,KAG slice;
 ```
 
-## Shared Foundation Stack
+## Shared foundation
 
 | Layer | Technology | Location |
 |-------|-----------|----------|
-| Cluster | Kind (single-node `osramp`) | `make up` / `make cluster` |
-| GitOps | Flux Operator + ResourceSets | `d2-osramp-fleet/` |
-| Ingress | Envoy Gateway (Gateway API, TLS) | `d2-infra/components/ingress/` |
-| Registry | Zot (in-cluster, persistent `.cache/zot`) | `d2-osramp-fleet/local/zot.yaml` (`make registry`) |
-| Signing | cosign + witness | `.keys/` (made by `make signing-keys`) |
-| Monitoring | kube-prometheus-stack + Grafana | `d2-infra/components/monitoring/` |
-| Certs | cert-manager (self-signed cluster issuer) | `d2-infra/components/cert-manager/` |
+| Cluster | Kind (single node, `osramp`) | `make up` / `make cluster` |
+| GitOps | Flux Operator + ResourceSets | [`d2-osramp-fleet/`](d2-osramp-fleet/) |
+| Ingress | Envoy Gateway (Gateway API, TLS) | [`d2-infra/components/ingress/`](d2-infra/components/ingress/) |
+| Registry | Zot (in-cluster, cache in `.cache/zot`) | [`d2-osramp-fleet/local/zot.yaml`](d2-osramp-fleet/local/zot.yaml) (`make registry`) |
+| Signing | cosign + witness | `.keys/` (made by `make signing-keys`, gitignored) |
+| Monitoring | kube-prometheus-stack + Grafana | [`d2-infra/components/monitoring/`](d2-infra/components/monitoring/) |
+| Certificates | cert-manager (self-signed cluster issuer) | [`d2-infra/components/cert-manager/`](d2-infra/components/cert-manager/) |
 
-## D2 Slices
+## D2 slices
 
-Each slice is an independent deployment boundary. Slices share the cluster, but
-each slice owns its namespaces, images, tests, and lifecycle.
+Each slice is an independent deployment boundary. The slices share the cluster.
+Each slice owns its namespaces, images, tests, and lifecycle.
 
-| Slice | Purpose | Deploy | AGENTS.md |
-|-------|---------|--------|-----------|
-| `d2-signalloom/` | Signal Loom agent governance platform (dashboard, docs, API, identity, infra) | `make demo-signalloom-up` | `d2-signalloom/AGENTS.md` |
-| `d2-signalloom/apps/docs-signalloom/` | User documentation service (Astro Starlight at `/docs`) | `make demo-signalloom-up` | `d2-signalloom/AGENTS.md` |
-| `d2-osramp-apps/` | OSRAMP application services (archiver, listener, processor) | `make demo-osramp-up` | `d2-osramp-apps/AGENTS.md` |
-| `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `make demo-k8s-afm-up` | `d2-k8s-afm/AGENTS.md` |
-| `d2-osramp-fleet/` | Flux fleet definitions (clusters, tenants, ResourceSets) | `make up` (foundation) | `d2-osramp-fleet/AGENTS.md` |
-| `d2-infra/` | Shared infrastructure components | `make up` (foundation) | `d2-infra/AGENTS.md` |
-| `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy (A2A identity, OpenBao JWT roles, NetworkPolicies) | `make demo-agent-trust-up` | `d2-agent-trust/AGENTS.md` |
-| `d2-cpai/` | CPAI runtime proxy (OpenAI-compatible Vertex AI proxy) | `make demo-cpai-up` | `d2-cpai/AGENTS.md` |
-| `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | `olly-replica/README.md` |
-| `d2-signalloom/infra/kagent/` (D5) | CNCF Kagent AI agent framework (CRDs, declarative swarm, SPIFFE/OpenBao) | `make swarm-kagent-up` && `make demo-kagent-up` | `docs/kagent-d5.md` |
+| Slice | Purpose | Deploy | Guide |
+|-------|---------|--------|-------|
+| `d2-signalloom/` | Signal Loom agent governance: dashboard, API, Fleet Manager, docs, identity | `make demo-signalloom-up` | [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md) |
+| `d2-osramp-apps/` | OSRAMP ingestion services: listener, processor, archiver | `make demo-osramp-up` | [`d2-osramp-apps/AGENTS.md`](d2-osramp-apps/AGENTS.md) |
+| `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `make demo-k8s-afm-up` | [`d2-k8s-afm/AGENTS.md`](d2-k8s-afm/AGENTS.md) |
+| `d2-osramp-fleet/` | Flux fleet definitions: clusters, tenants, ResourceSets | `make up` (foundation) | [`d2-osramp-fleet/AGENTS.md`](d2-osramp-fleet/AGENTS.md) |
+| `d2-infra/` | Cluster add-ons: cert-manager, ingress, monitoring, Trivy | `make up` (foundation) | [`d2-infra/AGENTS.md`](d2-infra/AGENTS.md) |
+| `d2-agent-trust/` | SPIFFE agent trust: A2A identity, OpenBao JWT roles, NetworkPolicies | `make demo-agent-trust-up` | [`d2-agent-trust/AGENTS.md`](d2-agent-trust/AGENTS.md) |
+| `d2-cpai/` | CPAI runtime proxy: OpenAI-compatible proxy to Vertex AI | `make demo-cpai-up` | [`d2-cpai/AGENTS.md`](d2-cpai/AGENTS.md) |
+| `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | [`olly-replica/README.md`](olly-replica/README.md) |
+| `d2-signalloom/infra/kagent/` (D5) | Kagent AI agent framework: CRDs, declarative agents, SPIFFE and OpenBao | `make swarm-kagent-up`, then `make demo-kagent-up` | [`docs/kagent-d5.md`](docs/kagent-d5.md) |
 
-One optional service deploys outside the Signal Loom `-up` target:
+The Signal Loom documentation service ([`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/))
+and the AgentMaxxing console (the dashboard route `/demos/agentmaxxing`) deploy
+with `make demo-signalloom-up`.
 
-| Service | Deploy | Consumed by |
-|---------|--------|-------------|
-| `afm-platform` | `make demo-k8s-afm-up` (opt-in service) | `/rbac-analysis` and `/rbac-explorer`, plus nginx prefixes and API httpx call |
+One optional service deploys outside the Signal Loom target:
 
-`make demo-signalloom-up` deploys Fleet Manager through Flux. The target
-`make demo-signalloom-fleet-up` is a direct-apply test escape hatch. Do not use
-that target as the normal deployment path.
+| Service | Deploy | Used by |
+|---------|--------|---------|
+| `afm-platform` | `make demo-k8s-afm-up` | The dashboard pages `/rbac-analysis` and `/rbac-explorer`, through nginx and the API |
 
-The command `make demo-k8s-afm-up` builds its image from `$KUBESEC_AFM_ROOT`. The
-default path is the sibling of the repository root, `<repo>/../kubesec-afm`
-(`scripts/k8s-afm.sh:45`). If that checkout does not exist, `docker build` fails.
+`make demo-signalloom-up` deploys Fleet Manager through Flux.
+`make demo-signalloom-fleet-up` applies Fleet Manager directly. It is a test
+escape hatch. Do not use it as the normal deployment path.
 
-CAUTION: In a git worktree, that default path does not exist. A worktree lives
-outside the source checkout. Set the variable before you build:
+`make demo-k8s-afm-up` builds its image from `$KUBESEC_AFM_ROOT`. The default is
+the directory next to the repository root, `<repo>/../kubesec-afm`
+([`scripts/k8s-afm.sh`](scripts/k8s-afm.sh), line 45). If that checkout does not
+exist, `docker build` fails.
+
+CAUTION: In a git worktree, the default path does not exist. The worktree is
+outside the source checkout, so the build fails. Set the variable before you
+build:
 
 ```bash
 export KUBESEC_AFM_ROOT=/path/to/kubesec-afm
 ```
 
-Run `make gcp-tf-worktree-check` to check this condition.
-See [`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md) for more worktree details.
+Run `make gcp-tf-worktree-check` to check this condition. The worktree section of
+[`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md#working-from-git-worktrees)
+has more detail.
 
 Before you add a backend service, read
-[`docs/deploying-a-backend-service.md`](docs/deploying-a-backend-service.md). Four
-independent layers can each break the page, and none reports "not deployed".
+[`docs/deploying-a-backend-service.md`](docs/deploying-a-backend-service.md).
+Four independent layers can each break the page. None of them reports "not
+deployed".
 
-## Quick Start
+## Quick start
 
 ```bash
-# 1. Start foundation: Kind cluster, Zot registry, signing keys, Flux
+# 1. Start the foundation: Kind cluster, Zot registry, signing keys, Flux
 make up
 
-# 2. Start a demo slice (or combine them):
-make demo-signalloom-up    # Signal Loom
-make demo-agentmaxxing-up  # AgentMaxxing interactive console
-make demo-osramp-up        # OSRAMP apps
-make demo-k8s-afm-up       # KubeSec-AFM
+# 2. Start one or more slices
+make demo-signalloom-up     # Signal Loom (includes the AgentMaxxing console)
+make demo-osramp-up         # OSRAMP apps
+make demo-k8s-afm-up        # KubeSec-AFM
 make demo-olly-up           # Olly Sentinel
 make demo-bao-up            # OpenBao and SPIRE only
-make demo-agent-trust-up    # SPIFFE agent trust (requires inf-bao first)
+make demo-agent-trust-up    # SPIFFE agent trust (needs inf-bao first)
 make demo-cpai-up           # CPAI runtime proxy
-make swarm-kagent-up        # Kagent CRDs and Control Plane (D5)
-make demo-kagent-up         # Kagent Declarative Agents (D5)
-make demo-signalloom-fleet-up  # Fleet Manager direct-apply test escape hatch
+make swarm-kagent-up        # Kagent CRDs and control plane (D5)
+make demo-kagent-up         # Kagent declarative agents (D5)
 
 # 3. Check health
-make healthcheck            # check foundation readiness
-make doctor                 # make comprehensive cluster diagnostic report
+make healthcheck            # foundation readiness
+make doctor                 # full read-only cluster diagnostic
 ```
 
-## Shared Lifecycle Commands
+## Shared lifecycle commands
 
 | Command | Action |
 |---------|--------|
-| `make up` | Start foundation: Kind, Zot, signing keys, Flux |
-| `make down` | Delete Kind cluster (keeps persistent Zot cache) |
-| `make teardown` | Full reset including keys and build state |
-| `make teardown-all` | Full reset including tools installed by setup.sh |
-| `make healthcheck` | Check foundation readiness for demos |
-| `make doctor` | Make comprehensive cluster diagnostic report |
+| `make up` | Start the foundation: Kind, Zot, signing keys, Flux |
+| `make down` | Delete the Kind cluster. The Zot cache stays. |
+| `make teardown` | Full reset, including keys and build state |
+| `make teardown-all` | Full reset, including the tools that `setup.sh` installed |
+| `make healthcheck` | Check that the foundation is ready for demos |
+| `make doctor` | Make a full read-only cluster diagnostic report |
 | `make cluster-debug` | Same as `make doctor` |
 | `make help` | List all make targets |
 
-## Shared Cluster Diagnostics
+Most slices use the same three targets:
 
-Run `make doctor` before you examine a cluster problem. The commands `make doctor`
-and `make cluster-debug` are identical, read-only diagnostic entry points.
-The diagnostic checks cluster connectivity, unhealthy pods, restart counts,
-warning events, Flux state, node metrics, and image-pull failures. Read
-[`TESTING.md`](TESTING.md#shared-cluster-diagnostics) for the step-by-step runbook.
-
-### Per-Slice Lifecycle Pattern
-
-Most demonstration slices follow this pattern:
 ```bash
 make demo-<slice>-up        # Deploy
-make demo-<slice>-test      # Static + readiness checks
-make demo-<slice>-down      # Remove (keeps foundation)
+make demo-<slice>-test      # Static and readiness checks
+make demo-<slice>-down      # Remove the slice. The foundation stays.
 ```
 
-Foundation slices and Kagent use the explicit commands in the slice table.
+The foundation slices and Kagent use the commands in the slice table.
 
-## Shared Testing Commands
+## Shared cluster diagnostics
+
+Run `make doctor` before you examine a cluster problem. `make doctor` and
+`make cluster-debug` are the same read-only diagnostic. It checks connectivity,
+unhealthy pods, restart counts, warning events, Flux state, node metrics, and
+image-pull failures. The runbook is in
+[`TESTING.md`](TESTING.md#shared-cluster-diagnostics).
+
+Do not guess why a page fails. Query the path from inside the pod. The
+triage table for the Signal Loom dashboard is in
+[`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md). Section 8 of
+[`docs/cluster-debugging.md`](docs/cluster-debugging.md) lists probes that can
+give false answers.
+
+| Command | What it checks |
+|---------|----------------|
+| `make doctor` | The full cluster, read-only |
+| `make demo-signalloom-supercred-evidence` | The credential chain, with six probes |
+| `make demo-agent-trust-network-test` | The SPIFFE trust boundaries |
+| `make demo-k8s-afm-status` | The `afm-platform` status and its `/health` endpoint |
+
+## Shared testing commands
 
 | Command | Scope |
 |---------|-------|
-| `make test` | Run end-to-end BATS tests on running cluster |
-| `make acceptance-test` | Run Playwright browser tests (Signal Loom and KubeSec-AFM) |
-| `make demo-signalloom-api-test` | Run FastAPI contract and integration tests |
-| `make demo-agentmaxxing-test` | Run AgentMaxxing acceptance test suite |
-| `make demo-signalloom-coding-agent-topology` | Validate coding agent detective telemetry |
-| `make attested-test` | Run test suite under witness attestation |
+| `make test` | End-to-end BATS tests of `d2-osramp-apps` on a running cluster |
+| `make acceptance-test` | Playwright browser tests (Signal Loom and KubeSec-AFM) |
+| `make demo-signalloom-api-test` | FastAPI contract and integration tests |
+| `make demo-agentmaxxing-acceptance-test` | AgentMaxxing acceptance tests |
+| `make demo-signalloom-coding-agent-topology` | Coding-agent detective telemetry topology check |
+| `make attested-test` | The test suite under witness attestation |
+| `make docs-lint` | Documentation links, make targets, and style rules. No cluster. |
 
-Do not write a manual test count for the acceptance suite. Written counts become
-stale quickly. The file `test/acceptance/SPEC-REGISTRY.tsv` is the single source
-of truth. It records where each spec runs.
+Do not write a test count for the acceptance suite by hand. A hand-written
+count becomes incorrect quickly.
+[`test/acceptance/SPEC-REGISTRY.tsv`](test/acceptance/SPEC-REGISTRY.tsv) is the
+one source. It records where each spec runs.
 
-The test `test/acceptance-spec-coverage.bats` (CI stage 1c) checks each row
-against `playwright.config.ts`, the `Makefile`, and `scripts/ci/vm-pipeline.sh`.
-If a row is incorrect or missing, CI fails.
+The test [`test/acceptance-spec-coverage.bats`](test/acceptance-spec-coverage.bats)
+(CI stage 1c) checks each row against `playwright.config.ts`, the `Makefile`, and
+[`scripts/ci/vm-pipeline.sh`](scripts/ci/vm-pipeline.sh). If a row is incorrect
+or missing, CI fails.
 
-CAUTION: Playwright ignores any spec that no project claims. It reports a
-smaller test total and shows no warning. The spec registry marks an unreferenced
-spec as `unwired` to make the omission visible.
+CAUTION: Playwright ignores a spec that no project claims. It reports a smaller
+total and shows no warning. The spec registry marks such a spec as `unwired`.
 
-## The GCP Estate — Four Lanes
+## The GCP estate: four lanes
 
-The repository also runs on GCP across four independent lanes: `demo-1`,
-`demo-2`, `ci-1`, and `ci-2`. Terraform sets up each lane. A separate step
-builds the estate on the lane. Pass `ENV=<lane>` with each command.
+The repository also runs on GCP in four independent lanes: `demo-1`, `demo-2`,
+`ci-1`, and `ci-2`. Terraform makes each lane. A second step builds the estate
+on the lane. Give `ENV=<lane>` to each command.
 
 ```bash
-make gcp-tf-up        ENV=demo-1              # plan, review, apply, and write hand-off
-make gcp-tf-demo-up   ENV=demo-1              # send code, build estate, and run tests
-make gcp-tf-ts-up     ENV=demo-1              # serve estate on Tailscale; prints URL
-make gcp-tf-ssh       ENV=demo-1              # SSH into lane VM via IAP
-make doctor-node      ENV=demo-1              # check node-level health for one lane
-make doctor-node-all                          # check every lane with a hand-off file
+make gcp-tf-up        ENV=demo-1              # plan, review, apply, write the hand-off file
+make gcp-tf-demo-up   ENV=demo-1              # send the code, build the estate, run the tests
+make gcp-tf-ts-up     ENV=demo-1              # serve the estate on Tailscale and print the URL
+make gcp-tf-ssh       ENV=demo-1              # SSH to the lane VM through IAP
+make doctor-node      ENV=demo-1              # node-level health of one lane
+make doctor-node-all                          # every lane that has a hand-off file
 make gcp-tf-destroy   ENV=demo-1 CONFIRM=demo-1
 ```
 
+WARNING: A lane VM costs money until you destroy it. Run `make gcp-tf-destroy`
+when you finish.
+
 | Document | Purpose |
 | :--- | :--- |
-| [`docs/gcp-demo/RUNBOOK.md`](docs/gcp-demo/RUNBOOK.md) | Step-by-step instructions from start to browser dashboard |
-| [`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md) | Lane details, health tooling, and error traps |
-| [`docs/gcp-demo/INCIDENTS-2026-08.md`](docs/gcp-demo/INCIDENTS-2026-08.md) | Five incident analyses with diagnostic measurements |
+| [`docs/gcp-demo/RUNBOOK.md`](docs/gcp-demo/RUNBOOK.md) | Steps from an empty project to the dashboard in a browser |
+| [`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md) | Lane details, health tools, and operational pitfalls |
+| [`docs/gcp-demo/INCIDENTS-2026-08.md`](docs/gcp-demo/INCIDENTS-2026-08.md) | Incident analyses with diagnostic measurements |
 
-Common traps in `OPERATIONS.md`:
-- The `yes` tool outputs `y`. `terraform destroy` requires the exact word `yes`.
-- Clear `SSH_AUTH_SOCK` (`unset SSH_AUTH_SOCK`) before any `gcloud compute ssh` command.
-- The command `make -n` runs recipe lines that contain `$(MAKE)`.
-- Let's Encrypt limits requests to five certificates per exact DNS name per 168 hours.
+Frequent pitfalls from
+[`OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md#operational-pitfalls):
 
-## The Older CI Lane — Two GCP VMs
+- `yes` sends `y`. `terraform destroy` needs the full word `yes`.
+- Run `unset SSH_AUTH_SOCK` before any `gcloud compute ssh` command.
+- `make -n` runs each recipe line that contains `$(MAKE)`.
+- Let's Encrypt permits five certificates for one exact DNS name in 168 hours.
 
-This system is separate from the four GCP lanes above. It uses two persistent
-VMs (`signalloom-ci` and `signalloom-ci-2`) and runs via `scripts/ci/gcp-ci.sh`.
+## The older CI lane: two GCP VMs
 
-It runs the end-to-end pipeline against a real cluster. VMs suspend between runs
-to save cost. The pipeline `scripts/ci/vm-pipeline.sh` has 8 numbered stages.
-See [`scripts/ci/README.md`](scripts/ci/README.md) for the complete guide.
+This system is separate from the four lanes. It uses two persistent VMs,
+`signalloom-ci` and `signalloom-ci-2`, and runs through
+[`scripts/ci/gcp-ci.sh`](scripts/ci/gcp-ci.sh). It runs the end-to-end pipeline
+[`scripts/ci/vm-pipeline.sh`](scripts/ci/vm-pipeline.sh) against a real cluster.
+The VMs suspend between runs to save cost. The full guide is
+[`scripts/ci/README.md`](scripts/ci/README.md).
 
 | Command | Action |
 |---------|--------|
-| `make ci-gcp` | Warm run (reuses `signalloom-ci`) |
-| `make ci-gcp-2` | Second lane run on `signalloom-ci-2` |
-| `make ci-status` / `ci-status-2` | Show VM state |
-| `make ci-ssh` / `ci-ssh-2` | SSH into VM for debugging |
-| `make ci-report` / `ci-report-2` | Show last stage summary |
+| `make ci-gcp` | Warm run on `signalloom-ci` |
+| `make ci-gcp-2` | Run on the second VM, `signalloom-ci-2` |
+| `make ci-status` / `make ci-status-2` | Show the VM state |
+| `make ci-ssh` / `make ci-ssh-2` | SSH to the VM to debug |
+| `make ci-report` / `make ci-report-2` | Show the last stage summary |
 
-Key rules for CI VMs:
-- `SUSPENDED` is the success state. The script suspends a VM on pass and leaves it running on failure.
-- Run `unset SSH_AUTH_SOCK` before manual `gcloud compute ssh` commands.
-- Never run `gcp-ci.sh destroy` against `signalloom-ci`. It deletes the shared VPC and NAT network.
+- `SUSPENDED` is the success state. The script suspends the VM after a pass. It
+  keeps the VM running after a failure.
+- Run `unset SSH_AUTH_SOCK` before a manual `gcloud compute ssh` command.
 
-## Observing Demonstrations
+WARNING: Do not run `gcp-ci.sh destroy` against `signalloom-ci`. The command
+deletes the VPC and NAT network. The second CI VM also uses that network.
 
-Query the cluster directly to get reliable facts:
+## Repository layout
 
-| Command | Information Returned |
-|---------|----------------------|
-| `make doctor` | Full read-only cluster diagnostic |
-| `make demo-signalloom-supercred-evidence` | Checks the credential chain across six probes |
-| `make demo-agent-trust-network-test` | Checks SPIFFE trust boundaries |
-| `make demo-k8s-afm-status` | Checks `afm-platform` status and `/health` |
+The full table of top-level directories is in
+[`README.md`](README.md#repository-layout). Each slice has its own `AGENTS.md`
+(see the [slice table](#d2-slices)).
 
-Do not assume the cause of a page failure. Query the path from inside the dashboard pod:
+## Shared pitfalls
 
-```bash
-kubectl -n fe-signalloom exec deploy/dashboard-signalloom -- \
-  curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
-  http://localhost:8080/fleet-api/v1/fleet/topology
-# 200 application/json  → Service is healthy
-# 200 text/html         → Missing nginx location; the SPA answered
-# 504                   → NetworkPolicy blocked ingress or egress
-# DNS failure           → Service is not deployed (run make demo-signalloom-fleet-up)
-```
+### A pod rollout stops port-forwards
 
-Read `docs/cluster-debugging.md` §8 for tests that can produce false answers.
-See [`docs/deploying-a-backend-service.md`](docs/deploying-a-backend-service.md)
-for the deployment checklist.
+Each `kubectl rollout restart` stops the active port-forwards. Start them again
+after each image rebuild and deploy.
 
-## Repository Layout
+### Use the wait helpers, not `sleep`
 
-```
-osramp-demo/
-├── Makefile                 # Run `make help` to list documented targets
-├── AGENTS.md                # This file (shared foundation)
-├── docs/README.md           # Documentation index — start here for anything else
-├── d2-signalloom/DESIGN.md   # Visual design guide (dashboard SPA)
-├── scripts/                 # Lifecycle, build, and test scripts
-├── .keys/                   # cosign + witness keys (gitignored, generated)
-├── .cache/zot/              # Persistent Zot OCI cache (gitignored)
-│
-├── d2-signalloom/           # Signal Loom slice → d2-signalloom/AGENTS.md
-│   ├── apps/docs-signalloom/ # User documentation service at /docs
-│   └── infra/kagent/         # Kagent AI agent swarm control plane (D5)
-├── d2-osramp-apps/          # OSRAMP apps slice → d2-osramp-apps/AGENTS.md
-├── d2-k8s-afm/              # KubeSec-AFM slice → d2-k8s-afm/AGENTS.md
-├── d2-osramp-fleet/         # Flux fleet → d2-osramp-fleet/AGENTS.md
-├── d2-infra/                # Shared infra → d2-infra/AGENTS.md
-├── d2-agent-trust/          # SPIFFE agent trust → d2-agent-trust/AGENTS.md
-├── d2-cpai/                 # CPAI runtime proxy → d2-cpai/AGENTS.md
-├── olly-replica/            # Olly Sentinel replica
-│
-├── tools/demo-console/      # Go: Estate 95 broker + API contract fixtures
-├── tools/audit-gen/         # Multi-plane audit log generator
-├── tools/harness-dash/      # Coding agent harness telemetry dashboard
-├── tools/riskctl/           # FAIR risk engine CLI tool
-├── test/acceptance/          # Playwright browser tests (cross-slice)
-├── docs/                    # Per-slice documentation + evidence
-└── .github/workflows/       # CI: e2e-local, push-artifacts/images, release
-```
+[`scripts/lib/wait.sh`](scripts/lib/wait.sh) is the polling library. Use it in
+all scripts and BATS suites. It checks that the object exists first, retries
+with backoff and jitter, and records timing. The helper table is in
+[`docs/resilient-waits.md`](docs/resilient-waits.md).
 
-## Shared Pitfalls
+CAUTION: `wait_k8s_ready` waits for `condition=ready` by default. A Deployment
+has no `Ready` condition, so the wait times out on a healthy Deployment. Use
+`wait_rollout` for a Deployment. Use `wait_job` for a Job.
 
-### Port-forward stops on pod rollout
-
-Every `kubectl rollout restart` command stops active port-forwards. Start
-port-forwards again after each image rebuild and deploy cycle.
-
-### Polling semantics — use shared helpers, never `sleep`
-
-The library `scripts/lib/wait.sh` is the canonical polling library. Use it in all
-scripts and BATS suites. It checks for object existence first, provides backoff
-with jitter, and logs telemetry.
-
-Source `scripts/lib/wait.sh`, then use the appropriate helper:
-
-| Helper | Purpose |
-|---|---|
-| `wait_rollout <deploy> [-n ns] [deadline]` | **Deployments.** Wraps `kubectl rollout status`. |
-| `wait_pods_ready <selector> [-n ns] [deadline]` | Pods by label. Requires at least one match. |
-| `wait_k8s_ready <kind> <name> [-n ns] [--for cond] [deadline]` | Pods, Jobs, Flux objects. Waits for condition. |
-| `wait_flux_ready <kind> <name> [-n ns] [deadline]` | Waits for Flux resource readiness. |
-| `wait_reachable <url> [deadline]` | Waits for an HTTP endpoint response. |
-| `wait_tcp <host> <port> [deadline]` | Waits for an open TCP port. |
-| `_wait_retry <deadline> <label> <cmd>` | Generic retry with exponential backoff. |
-
-CAUTION: `wait_k8s_ready` defaults to `--for=condition=ready`. Deployments have
-no `Ready` condition. Deployments expose only `Available`, `Progressing`, and
-`ReplicaFailure`. Because of this, `kubectl wait --for=condition=ready deployment/x`
-times out on healthy Deployments. Always use `wait_rollout` for Deployments.
-
-In **Playwright**, use web-first assertions such as
+In Playwright, use web-first assertions such as
 `await expect(locator).toBeVisible()`, `waitForResponse`, and `waitForLoadState`.
-Do not use `page.waitForTimeout(n)`. Fixed timeouts cause flaky test runs.
+Do not use `page.waitForTimeout(n)`. A fixed timeout makes the test flaky.
 
-### Mutable `:latest` tag with `imagePullPolicy: IfNotPresent`
+### A mutable `:latest` tag with `imagePullPolicy: IfNotPresent`
 
-After you run `kind load docker-image`, check the image ID in the pod:
+After `kind load docker-image`, check the image ID in the pod:
 
 ```bash
 kubectl get pod <name> -n <ns> -o jsonpath='{.status.containerStatuses[0].imageID}'
 ```
 
-If the ID is stale, run `kubectl delete pod <name>` to force a new image resolve.
+If the ID is old, run `kubectl delete pod <name>`. The new pod resolves the
+image again.
 
 ### Worktree location
 
-Place worktrees in `~/src/.worktrees/<repo>/<branch>/`. Never create worktrees
-inside the repository directory. In-repo worktree directories cause search tools
-and test runners to scan duplicate files.
+Put worktrees in `~/src/.worktrees/<repo>/<branch>/`. Do not make a worktree
+inside the repository directory. Search tools and test runners then scan the
+same files twice.
 
-### Kanban and Worktree Runtime Paths
+### Kanban runtime paths
 
-The Kanban runtime and detective telemetry sensors resolve paths via dynamic environment variables:
-- `KANBAN_HOME`: Root directory for Kanban controller state, database, and telemetry (defaults to `$HOME/.cline/kanban`).
-- `KANBAN_WORKTREES_HOME`: Base directory for Kanban worktrees (defaults to `$HOME/.cline/worktrees`, resolving canonically to `$HOME/src/.worktrees`).
-All watchers and detectors must resolve these paths dynamically per call rather than capturing constants at import time.
+[`kanban_watcher.py`](d2-signalloom/apps/agentmaxxing-host-sensor/kanban_watcher.py)
+in the host sensor reads two environment variables. It reads them on each call,
+not at import time.
 
-### Zot cache persistence
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `KANBAN_HOME` | Kanban controller state, database, and telemetry | The parent of `AJM_AUTO_KANBAN_STATE_DIR` if set, else `$HOME/.cline/kanban` |
+| `KANBAN_WORKTREES_HOME` | Kanban worktrees | `$HOME/.cline/worktrees`, a link to `$HOME/src/.worktrees` |
 
-The cache directory `.cache/zot/` persists after `make down`. Run
-`make zot-cache-reset` if you need to clear the registry cache.
+### The Zot cache stays after `make down`
+
+The cache directory `.cache/zot/` stays after `make down`. Run
+`make zot-cache-reset` to clear it.
 
 ### Flux variable substitution
 
-The setting `postBuild.substituteFrom` in a Flux Kustomization substitutes
-variables across the entire manifest text. It affects `spec.inputs` and
-`spec.resources`.
+`postBuild.substituteFrom` in a Flux Kustomization replaces variables in the
+full manifest text. This includes `spec.inputs` and `spec.resources`.
 
-To prevent race conditions, add `dependsOn: [{name: flux-system}]` to
-`clusters/<env>/tenants.yaml`. This makes sure the ConfigMap `flux-runtime-info`
-is ready before variable substitution occurs.
+Each [`d2-osramp-fleet/clusters/<env>/tenants.yaml`](d2-osramp-fleet/clusters/)
+has `dependsOn: [{name: flux-system}]`. This makes sure that the ConfigMap
+`flux-runtime-info` exists before the substitution. Keep it.
 
-If a manifest contains unresolved `${VAR}` strings, run:
+If a manifest contains an unresolved `${VAR}` string, run:
 
 ```bash
 flux reconcile kustomization tenants -n flux-system --with-source
 ```
 
-This command re-renders the manifests with current ConfigMap values.
+The command renders the manifests again with the current ConfigMap values.
 
-**Annotation convention:** Add a `# FLUX ENVSUBST:` header to every
-`kustomization.yaml` file containing `${VAR}`:
-- `YES` — Reconciled by a Flux Kustomization with `postBuild.substituteFrom`.
-- `NO` — Reconciled without `postBuild`. Workload expands variables at runtime.
-- `N/A` — Applied outside Flux.
-- `FLEET` — Processed by the fleet overlay Kustomization.
+Put a `# FLUX ENVSUBST:` header in each `kustomization.yaml` that contains
+`${VAR}`:
+
+- `YES` — a Flux Kustomization with `postBuild.substituteFrom` reconciles it.
+- `NO` — Flux reconciles it without `postBuild`. The workload expands the variables at runtime.
+- `N/A` — something outside Flux applies it.
+- `FLEET` — the fleet overlay Kustomization processes it.
 
 ## Conventions
 
-- **Commits**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`). Match existing repository git log conventions.
-- **Image Signing**: Sign all images and OCI artifacts with Cosign. Flux rejects unsigned artifacts.
-- **Commit Signing**: Check recent git log signatures before you commit. If the branch history is unsigned, use `git commit --no-gpg-sign`.
-- **Supply Chain**: Include SBOMs (SPDX), SLSA provenance, and digest checks.
-- **Tests**: Write unit, integration, and acceptance tests for all new features.
+- **Commits:** Use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`,
+  `chore:`). Match the style of the repository git log.
+- **Image signing:** Sign all images and OCI artifacts with cosign. Flux rejects
+  an unsigned artifact.
+- **Commit signing:** Check the signatures in the recent git log before you
+  commit. If the branch history is unsigned, use `git commit --no-gpg-sign`.
+- **Supply chain:** Include SBOMs (SPDX), SLSA provenance, and digest checks.
+- **Tests:** Write unit, integration, and acceptance tests for each new feature.
+- **Documentation:** Follow
+  [`docs/documentation-style.md`](docs/documentation-style.md). Run
+  `make docs-lint` before you commit a document change.

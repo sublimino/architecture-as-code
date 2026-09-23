@@ -36,7 +36,14 @@ deadline-driven primitives built on five principles:
 | `wait_k8s_ready <kind> <name> [-n ns] [--for cond] [deadline]` | unguarded `kubectl wait` (~21 sites) |
 | `wait_flux_ready <kind> <name> [-n ns] [deadline]` | Flux Kustomization/ResourceSet readiness |
 | `wait_rollout <deploy> [-n ns] [deadline]` | unguarded `kubectl rollout status` (~7 sites) |
-| `wait_pods_ready <selector> [-n ns] [deadline]` | DETIK spins / `kwaitpod` hand-rolls |
+| `wait_pods_ready <selector> [-n ns] [--for all-ready\|any-ready] [--fail-fast] [deadline]` | DETIK spins / `kwaitpod` hand-rolls |
+| `wait_service_backends <service> [-n ns] [deadline]` | curl-until-200 loops that wait for a Service to get a ready endpoint |
+| `wait_job <name> [-n ns] [--for complete\|terminal\|failed] [--fail-fast] [deadline]` | `kubectl wait --for=condition=complete job/…` |
+| `_wait_retry <deadline> <description> <command...>` | any other poll loop — the primitive the verbs above use |
+
+Use `wait_rollout` for a Deployment, never `wait_k8s_ready`: a Deployment has no
+`Ready` condition, so `wait_k8s_ready`'s default `--for=condition=ready` times
+out on a healthy Deployment. Use `wait_job` for a Job.
 
 ### The "slow mode" lever
 

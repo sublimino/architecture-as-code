@@ -1,36 +1,31 @@
 # Signal Loom application components
 
-## fe-signalloom (API and discovery portal)
+Each subdirectory of this directory holds one application. The
+[application table in `AGENTS.md`](../AGENTS.md#application-components) lists
+each application, its path, and its purpose. That table is the one source for
+the list. Do not copy it here.
 
-API compatibility layer for the Signal Loom agent-governance dashboard.
-30 authenticated endpoints serve live data from PostgreSQL (agents, compliance,
-audit, NHI, settings, consent) and in-cluster Kubernetes queries (agent
-discovery, crypto proofs). Source: `fe-signalloom/src/`. Schema:
-`fe-signalloom/src/db/`. Manifests: `fe-signalloom/base/`.
-See `fe-signalloom/README.md` for full documentation.
+These applications have their own README:
 
-## dashboard-signalloom (React SPA)
+- [`fe-signalloom`](fe-signalloom/README.md): API backend, endpoints, database, and test tiers
+- [`docs-signalloom`](docs-signalloom/README.md): Astro Starlight documentation service
+- [`agentmaxxing-host-sensor`](agentmaxxing-host-sensor/README.md): coding agent host sensor
 
-Signal Loom dashboard. React, Vite, TypeScript, served by nginx on port 8080.
-Dex OIDC login through a single-origin nginx proxy for `/dex` and `/api`.
-Pages: Agents, Compliance, Audit Trail, NHI Discovery, Settings, Cryptography
-(bao-spire proofs), Onboarding wizard. Universal agent deep linking supports
-`id:`, `sa:`, `instance:`, `spiffe:`, and `k8s:sa:` query selectors.
-See `docs/signalloom/agent-deep-linking-and-selectors.md` for the specification.
-Demo-data toggle (bottom-right corner) switches to client-side fixtures for offline rendering.
+## Agent deep linking
 
-## fake-integration-proxy (mock and discovery proxy)
+The dashboard supports agent deep links with query selectors, such as `id:`,
+`sa:`, `spiffe:`, and `k8s:sa:`.
+[`agentQuerySelectors.ts`](dashboard-signalloom/src/data/agentQuerySelectors.ts)
+is the parser and the source of the full list.
+[`agent-deep-linking-and-selectors.md`](../../docs/signalloom/agent-deep-linking-and-selectors.md)
+gives the specification.
 
-Deterministic fixture proxy for demo integrations (`/llm`, `/crm`,
-`/notification`) and live Kubernetes queries (`/agents` for agent discovery,
-`/crypto-proofs` for bao-spire proofs). Runs in `inf-signalloom`. Only
-outbound connection: kube-apiserver (SA-token HTTPS, scoped egress
-NetworkPolicy).
+## fe-signalloom-agents
 
-## fe-signalloom-agents (agent inventory namespace)
-
-Inert podinfo pods that represent AI agents. The fake-proxy `/agents` endpoint
-reads their labels and annotations, then surfaces them in the dashboard.
-Managed with `make demo-signalloom-agents-up/down`. Label schema follows
-kagent conventions (`signalloom.ai/agent=true` selector plus
-`app.kubernetes.io/*`).
+The [`fe-signalloom-agents/`](fe-signalloom-agents/) directory holds only
+[`probe-nono-capability.sh`](fe-signalloom-agents/probe-nono-capability.sh).
+The `fe-signalloom-agents` namespace, the discovery RBAC, and the baseline
+podinfo agent are in the fleet tenant file
+[`signalloom.yaml`](../../d2-osramp-fleet/tenants/local/signalloom.yaml).
+`make demo-signalloom-agents-up` and `make demo-signalloom-agents-down` manage
+the ephemeral agent cohort.

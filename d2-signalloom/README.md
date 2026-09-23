@@ -15,21 +15,25 @@ bootstrap configuration and cannot create a second control plane.
 
 The Signal Loom tenant ResourceSet is in the fleet only, at
 `d2-osramp-fleet/tenants/local/signalloom.yaml`. Flux reconciles files
-inside the fleet OCI artifact. This slice has no duplicate copy. `make test`
-validates the fleet-owned source directly.
+inside the fleet OCI artifact. This slice has no duplicate copy.
+`make -C d2-signalloom test` checks the fleet-owned source directly.
 
 ## Validation
 
+Run the slice check from the repository root:
+
 ```shell
-make test
+make -C d2-signalloom test
 ```
 
-Validates the skeleton and local rendering boundary. Does not bootstrap Flux,
-publish artifacts, create a cluster, or deploy workloads.
+NOTE: The root `make test` runs the `d2-osramp-apps` suite, not this slice.
+
+This target checks the skeleton and the local rendering boundary. It does not
+start Flux, publish artifacts, create a cluster, or deploy workloads.
 
 ## Architecture
 
-For a visual overview of all 28 services, their dependencies, and data flows,
+For a visual overview of the services, their dependencies, and data flows,
 see the [interactive isometric system map](../docs/system-map/).
 
 ```bash

@@ -4,7 +4,8 @@ This Terraform estate is split into three roots because the operators and creden
 
 Apply the roots in this order: bootstrap, then platform, then environments. The sequence matters because bootstrap creates the backend consumed by the other roots, and platform creates shared identities and controls that the environment roots depend on.
 
-`terraform/platform` and `terraform/environments` are part of the intended contract for this layout but are not present in this worktree yet; they land in a later merge. Their backend shape is fixed now so operators can treat the layout as stable even before those roots arrive.
+All three roots are in this directory: [`bootstrap/`](bootstrap/), [`platform/`](platform/), and
+[`environments/`](environments/). Each consuming root declares its backend in its own `backend.tf`.
 
 ## Root Contract
 
@@ -26,7 +27,15 @@ Three mitigations are required, and none is sufficient on its own:
 - A per-environment `TF_DATA_DIR=.terraform-$(ENV)` prevents two environments from sharing one cached backend pointer at all.
 - A post-init assertion reads the resolved backend prefix back and aborts unless it contains the requested environment key.
 
-Those mitigations are delivered by other chunks. They belong in the operator contract here because the hazard exists whether or not the implementation has landed in this worktree yet.
+All three mitigations are in the tree:
+
+| Mitigation | Location |
+|---|---|
+| `target_env` variable and its validation | [`environments/variables.tf`](environments/variables.tf) |
+| Per-environment `TF_DATA_DIR` (`GCP_TF_DATA_DIR`) | [`Makefile`](../Makefile), used by the `gcp-tf-*` targets |
+| Post-init prefix assertion (`gcp_tf_assert_prefix`, exact match) | [`Makefile`](../Makefile) |
+
+[`CONTRACT.md` §5a](CONTRACT.md#5a-environment-identity-must-have-one-source--the-initapply-mismatch) gives the reasons for each mechanism.
 
 ## Destroy Boundaries
 
@@ -36,12 +45,17 @@ That exclusion is deliberate. Destroying the state bucket deletes the record of 
 
 ## Verified Offline
 
-Two offline Bats suites verify the repository contract in under 30 seconds:
+The offline Bats suites are the files that match `test/terraform-*.bats`. `make gcp-tf-validate` finds
+them with a glob and runs them without cloud credentials. It also runs `terraform fmt`, `validate`,
+`tflint`, and `terraform test`. Two suites own the conventions on this page:
 
-- `test/terraform-conventions.bats` checks repo layout, formatting, version pins, variable typing and descriptions, that no state files or `.terraform/` directories are tracked, and that no absolute home-directory paths are committed.
-- `test/terraform-state-protection.bats` checks that bootstrap declares no backend block, the state bucket protection attributes are set, no public-principal IAM is granted, no bucket-admin grant exists, no consuming root declares a state bucket, and the platform backend prefix is `osramp/platform`.
+- [`test/terraform-conventions.bats`](../test/terraform-conventions.bats) checks repo layout, formatting, version pins, and variable typing and descriptions.
+  It also checks that git tracks no state files or `.terraform/` directories, and no absolute home-directory paths.
+- [`test/terraform-state-protection.bats`](../test/terraform-state-protection.bats) checks that bootstrap declares no backend block and that the state bucket protection attributes are set.
+  It also checks that no IAM grant goes to a public principal and that no bucket-admin grant exists.
+  Last, it checks that no consuming root declares a state bucket and that the platform backend prefix is `osramp/platform`.
 
-These suites do not prove successful applies, live GCP behaviour, or remote-state recovery. They verify only the static conventions and protections listed above.
+The offline suites do not prove successful applies, live GCP behaviour, or remote-state recovery.
 
 ## Conventions
 

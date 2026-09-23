@@ -151,17 +151,22 @@ between the components.
 Platform components are cluster add-ons such as CRDs and their respective controllers,
 and are reconciled by Flux as the **cluster admin**.
 
-To onboard a component from the `d2-infra` directory, the platform team must add a
-line for the component in the `.github/workflows/push-artifact.yaml` GitHub Actions
-workflow file for the `d2-infra` directory:
+The platform team onboards a component from the `d2-infra` directory in the root
+[`push-artifacts.yaml`](../.github/workflows/push-artifacts.yaml) workflow. It adds an
+entry for the component to the matrix:
 
 ```yaml
       ...
       matrix:
-        component:
-          - cert-manager
-          - monitoring
+        include:
+          - repository: infra/cert-manager
+            path: ./d2-infra/components/cert-manager
+          - repository: infra/monitoring
+            path: ./d2-infra/components/monitoring
 ```
+
+NOTE: `d2-infra/.github/workflows/push-artifact.yaml` also exists. GitHub runs only
+the workflows in the repository root, so that file has no effect.
 
 With this, an OCI Artifact will be published and signed for the new component.
 

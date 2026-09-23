@@ -56,6 +56,21 @@ Values are denominated in GBP and calibrated for UK regulated industries
 
 ## Adding a New Framework
 
+The policy engine reads these packs. Its loader,
+[`loader.go`](../../d2-signalloom/apps/policy-engine/frameworks/loader.go), reads
+`framework.json` first. It reads `framework.yaml` only when no `framework.json`
+exists. It parses either file as JSON.
+
+CAUTION: Do not edit only `framework.yaml` in a version directory that also
+has a `framework.json`. The policy engine ignores the YAML file there, so your
+change has no effect on scan results.
+
+The v2.1 directories contain both files. Each `framework.json` is a separate,
+smaller pack with a different top-level shape. No script makes it from the
+YAML file, so the two files can differ. The YAML files are not valid JSON. The
+policy engine logs a load error for a version directory that has only
+`framework.yaml`, and it skips that version.
+
 1. Create `policy/frameworks/<framework-id>/v1.0/framework.yaml`.
 2. Follow the schema: `framework` metadata, then `controlSets` containing
    `controls` with `checks`.

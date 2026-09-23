@@ -38,8 +38,10 @@ the short version:
   `X-AuthZ-CTX` on the **Olly -> Orbit A2A hop**, where Orbit re-validates and
   narrows it by its own local grant (`restart_service` 3 -> 1, never widened)
   before proposing. The Agentic SRE dashboard shows the live hand-off (COIN
-  identity, message/send + AuthZ-CTX, input-required) on its A2A panel. Verify
-  with `make authz-test` and the sentinel suite (`tests/test_authz_ctx.py`).
+  identity, message/send + AuthZ-CTX, input-required) on its A2A panel. To check
+  it, run `make -C olly-replica authz-test` from the repository root. That target
+  runs [`apps/authz/tests/test_authz.py`](apps/authz/tests/test_authz.py). The
+  sentinel suite is [`apps/sentinel/tests/test_authz_ctx.py`](apps/sentinel/tests/test_authz_ctx.py).
 - **Registry + agent cards.** ARC's registry holds per-agent governance metadata
   with the A2A card published beside it. The Estate 95 "Agent Registry" window
   already mirrors this (committed-vs-live card diff included); the remaining
@@ -56,6 +58,12 @@ the short version:
 | `components/configs/base/seed/` | The synthetic log generator and the injection corpus, shipped inside the manifest artifact so the seed Job and its corpus version together. | §5, §6 |
 | `components/configs/base/dashboards/` | The Eye in the Sky dashboards: the estate view plus a per-tenant app view. | §2 |
 | `apps/` | The components we build: sentinel (Python/ADK), elk-search-mcp, the stubs, the tenant-app, eval-harness. Each flows through the OSRAMP image pipeline (build, SBOM, scan, VEX, sign/attest, admission). | §5 |
+| [`apps/authz/`](apps/authz/) | The `olly-authz` service (Python). It is the in-cluster stand-in for the ARC identity chain: COIN, PlainID, EEMS, and the audit log. | n/a |
+| [`apps/llm-guard/`](apps/llm-guard/README.md) | The vendored LLM Guard API. It scans the traffic between Olly and Orbit for the Security Sandbox. | n/a |
+| [`apps/security-sandbox/`](apps/security-sandbox/README.md) | The red-team harness (promptfoo) that tests the Olly guard layers. | n/a |
+| [`apps/cmd/replay-producer/`](apps/cmd/replay-producer/main.go) | A Go command that puts one synthetic event on the NOI Event Queue, with source `replay`, and exits. | n/a |
+| [`delivery/`](delivery/README.md) | The packages sent to clients. There is one numbered folder for each delivery. | n/a |
+| [`test/olly.bats`](test/olly.bats) | The live behaviour suite for the tenant. Run it with `make -C olly-replica test` after the fleet reconciles. | n/a |
 
 ## What reconciles today
 

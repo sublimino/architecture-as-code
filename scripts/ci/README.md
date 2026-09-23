@@ -5,7 +5,7 @@ Runs the full Signalloom D2 test suite on a persistent GCP VM that
 On failure the VM stays running so you can SSH in and debug.
 
 Kind cluster + Zot registry + Flux bootstrap + Dex auth + Gateway routing +
-8-stage test suite + Playwright browser journeys. Produces an
+staged test suite + Playwright browser journeys. Produces an
 [OpenReports](https://openreports.io/) format report (`openreports.io/v1alpha1 Report`).
 
 ## Security model
@@ -336,8 +336,8 @@ destroy the instance first. Cold catches a whole defect class warm cannot:
 
 ### A green run that reports failure
 
-If 8/8 (now 9/9) stages pass and `make` still returns non-zero, suspect an EXIT
-trap: under `set -e` an EXIT trap's **final command status replaces** the status
+If every stage passes and `make` still returns non-zero, suspect an EXIT
+trap. Under `set -e`, an EXIT trap's **final command status replaces** the status
 given to `exit`. This bit the lock-release path twice. Every path out of a trap
 should `return 0` explicitly.
 
@@ -359,17 +359,34 @@ should `return 0` explicitly.
 |------|--------|---------|
 | `summary.json` | JSON | `outcome` (PASS/FAIL/ABORTED/RUNNING), phase, per-stage results, commit SHA, timestamps. Written on every exit path — its absence is itself impossible, so it can be trusted as the verdict |
 | `signalloom-ci-report.yaml` | OpenReports v1alpha1 | All tests as ReportResult entries |
-| `stage1-static.tap` | TAP | BATS static contract results |
-| `stage1b-dashboard-unit.xml` | JUnit XML | vitest dashboard unit + guard suite |
-| `stage2-api.xml` | JUnit XML | pytest API contract results |
-| `stage3-fakes.xml` | JUnit XML | pytest fake integration results |
-| `stage4-dashboard.json` | Go test JSON | Dashboard API ownership results |
-| `stage1e-node-images.tap` | TAP | BATS guard on doctor's node-image expectations |
-| `stage1f-ci-terminal-state.tap` | TAP | BATS guard on this harness reporting honestly about itself |
-| `stage5-harness.tap` | TAP | BATS harness contract results |
-| `stage6-flux.tap` | TAP | Flux convergence results |
-| `stage7-runtime.tap` | TAP | BATS runtime negative results |
-| `stage8-browser.xml` | JUnit XML | Playwright browser journey results |
+| `stage<id>-<slug>.<ext>` | TAP, text, or Go test JSON | The output of one stage. There is one file for each stage. |
+| `stage<id>-<slug>.xml` | JUnit XML | Also written by the stages that run vitest, pytest, or Playwright |
+
+Each `run_stage` call in [`vm-pipeline.sh`](vm-pipeline.sh) names one stage and its output file.
+That file is the source of the stage list. The stage IDs are `1` to `8`. A new stage gets a
+letter suffix, such as `1b`, `1c2`, or `8b`, so that the existing file names do not change.
+[`openreports-convert.sh`](openreports-convert.sh) maps each file name to a parser. Its
+`stageMap` is the authoritative list for the report.
+
+To list the stages and their output files, run this command:
+
+```bash
+rg -A2 '^\s*run_stage \\' scripts/ci/vm-pipeline.sh
+```
+
+## Other scripts in this directory
+
+| Script | What it does |
+|---|---|
+| [`vm-pipeline.sh`](vm-pipeline.sh) | Runs the pipeline on the CI VM. `gcp-ci.sh` calls it over SSH. |
+| [`vm-startup.sh`](vm-startup.sh) | The VM startup script. It installs the base tools once, at provisioning. |
+| [`install-ci-tools.sh`](install-ci-tools.sh) | Installs pinned pre-built tool binaries. `vm-pipeline.sh` and `make ci-tools` call it. |
+| [`openreports-convert.sh`](openreports-convert.sh) | Converts the stage output files into the OpenReports report. |
+| [`gcp-tf-ci.sh`](gcp-tf-ci.sh) | Resumes, tests, and suspends one Terraform CI lane. It does not touch the `signalloom-ci` VMs. |
+| [`gcp-tf-reaper.sh`](gcp-tf-reaper.sh) | Suspends Terraform CI lanes that stayed up too long after a run that did not complete. |
+| [`user-surface-gate.sh`](user-surface-gate.sh) | After a deploy, drives each user-facing demo through the tailnet URL. It fails when a demo is not usable. |
+| [`resolve-tailnet-origin.sh`](resolve-tailnet-origin.sh) | Prints the tailnet origin of this node for the user-surface gate. |
+| [`demo-surface-registry.py`](demo-surface-registry.py) | Lists the user-facing demos from the source that serves them. The user-surface gate reads it. |
 
 ## Resuming an isolated VM2 investigation
 
@@ -504,7 +521,7 @@ kubectl auth can-i get pods -n fe-signalloom \
 
 | Code | Meaning |
 |------|---------|
-| 0 | All 8 test stages passed (VM suspended) |
+| 0 | All test stages passed (VM suspended) |
 | 1 | One or more test stages failed (VM left running) |
 | 2 | Infrastructure error (VM not found, SSH failure, etc.) |
 

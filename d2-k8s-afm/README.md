@@ -42,10 +42,18 @@ auto-load at boot from bundled YAML.
 
 ## Tests
 
-- **Backend pytest**: 218 tests (unit + integration + e2e + API) — `make demo-k8s-afm-test`
+- **Backend pytest**: unit, integration, e2e, and API tests in the source repo — `make demo-k8s-afm-test`
 - **Frontend**: TypeScript typecheck (`npm run typecheck`)
-- **Smoke**: `bats d2-k8s-afm/test/afm-smoke.bats` (5 live-cluster assertions)
-- **Contract**: `scripts/check-types.sh` in the source repo (OpenAPI ↔ frontend types drift)
+- **Contract**: `scripts/check-types.sh` checks OpenAPI ↔ frontend type drift. The script is in the
+  external [`kubesec-afm`](https://github.com/controlplaneio/kubesec-afm) repo, not in this repository.
+
+The Bats suites in [`test/`](test/) run from the repository root:
+
+| Suite | Needs | Make target |
+| --- | --- | --- |
+| [`afm-smoke.bats`](test/afm-smoke.bats) | AFM deployed (`make demo-k8s-afm-up`) and a port-forward on 18000 | `make test-all-cluster` |
+| [`afm-live.bats`](test/afm-live.bats) | AFM deployed (`make demo-k8s-afm-up`) | None. Run `bats d2-k8s-afm/test/afm-live.bats`. |
+| [`afm-converter.bats`](test/afm-converter.bats) | Nothing. It checks the converter contract and RBAC manifests offline, against fixtures. | None. Run `bats d2-k8s-afm/test/afm-converter.bats`. |
 
 ## Bridging (future)
 

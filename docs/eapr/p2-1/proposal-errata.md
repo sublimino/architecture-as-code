@@ -113,4 +113,50 @@ NEW unmount webhook_triggers (pass in place of include_router) -> test_guard_eap
 **Cross-vendor review:** Forge (GPT-family via codex) was spawned read-only in
 the background with the known transport caveats (account rejects the gpt-5.4
 pin; codex sandbox cannot nest); its outcome is recorded in the ISA
-`MEMORY/WORK/20260924-eapr-p2-1-eap-router-auth/ISA.md` § Verification.
+`MEMORY/WORK/20260924-eapr-p2-1-eap-router-auth/ISA.md` § Verification and in
+the addendum below.
+
+#### Addendum — EAPR-P2-1 after cross-vendor review
+
+**Created:** 2026-09-24 23:07:52 +0100
+**Repository evidence:** `c7a7084c` (tip of `EAPR-P2-1`); supersedes `c4bdce5b` above; never amend
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=yes -->
+
+Forge (gpt-5.6-sol via codex, sources piped on stdin after bubblewrap refused
+the staged copy) returned eight findings. Two confirmed high, both fixed in
+`c7a7084c`:
+
+1. **Reaper controls were authenticated but not tenant-scoped.** `reap-now`,
+   `reaper/pause`, `reaper/resume`, `reaper/status` and `lifecycle/metrics` act
+   on the one daemon that serves every tenant, so any tenant could pause
+   another tenant's cleanup or read every tenant's hashes in the reap summary,
+   and the default-deny sweep only proved they refused *anonymous* callers.
+   Tenancy cannot bind a process-wide control; they now require the existing
+   `superadmin.require_superadmin` gate (403 `superadmin_required` for a tenant
+   principal, forged headers or not). Tenant-scoped reads and writes
+   (`/active`, `/reaper/dlq`, `/reaper/dlq/clear`, `/audit-events`,
+   register/heartbeat/activity) stay tenant-bound. Asserted behaviourally in
+   the default-deny suite, the forged-header suite and the sealed sweep, and
+   structurally on `route.dependant.dependencies`; dropping the gate from one
+   handler turns exactly three tests red.
+2. **The bearer sat on curl's argv** in the emitter, readable by any local user
+   in `ps` / `/proc/<pid>/cmdline` for the life of the request. It is now piped
+   on stdin and read with `-H @-`; a `bash -x` trace of the POST line carries no
+   token while a recording listener receives `Authorization: Bearer` on the wire.
+
+Also applied: underscore header spellings (`X_Tenant_Id`, `X_SPIFFE_ID`, …) are
+stripped too; `CUSTOMER_HASH_ROUTES` is pinned to the 11 hash-addressed
+operations. Already covered before the review (Forge's staged copy predated
+`c4bdce5b`): the structural mount assertion and the Mount/plain-Route guard.
+Recorded, not changed: the HMAC secret reaches `openssl -hmac` / `python -c`
+via argv in the emitter's `--secret` path (pre-existing, outside this diff);
+`DomainResolutionRequest` lowercases an upper-case key rather than rejecting
+it, which `test_kurasi_canonical_hash_strict` pins deliberately.
+
+| Gate | Result | Evidence |
+| :--- | :----- | :------- |
+| Thirteen suites (eleven EAP + `test_environment_routing.py` + sealed sweep) | PASS | `559 passed, 1 skipped, 22 xfailed, 0 failed` |
+| Full fe-signalloom suite | 1 known failure | `1 failed, 1910 passed, 84 skipped, 22 xfailed` — the P2-2-owned audit test, same payload as base |
+| `anon_sweep.py --expect-zero` | PASS | `REACHABLE 0 of 34 … 0 of 1 websocket`, rc 0 |
+| Operator-gate mutation | red as expected | 3 failed (two behavioural, one structural), file restored |

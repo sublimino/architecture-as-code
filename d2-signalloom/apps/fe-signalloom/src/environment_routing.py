@@ -460,6 +460,7 @@ GLOBAL_ENVIRONMENT_REGISTRY = EnvironmentRegistry()
 
 
 router = APIRouter(prefix="/api/v1/environments", tags=["environments"])
+from eap_audit import _audit_eap_decision
 
 
 @router.post(
@@ -476,6 +477,14 @@ async def provision_environment(req: ProvisionRequest, tenant: Tenant) -> Enviro
     """
     claim_or_403(derive_customer_hash(req.company_name), tenant)
     rec = GLOBAL_ENVIRONMENT_REGISTRY.create(req)
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="environment.provision",
+        target=rec.customer_hash,
+        verdict="allow",
+        detail={"environment_id": rec.id, "company_name": rec.company_name},
+    )
     return rec.to_response()
 
 
@@ -580,6 +589,14 @@ async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest, ten
     """Extend an environment's active lease up to the 72-hour maximum lifetime ceiling."""
     _owned_environment_or_404(environment_id, tenant)
     rec = GLOBAL_ENVIRONMENT_REGISTRY.extend_ttl(environment_id, req.additional_minutes)
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="environment.extend",
+        target=rec.customer_hash,
+        verdict="allow",
+        detail={"environment_id": rec.id, "additional_minutes": req.additional_minutes},
+    )
     return rec.to_response()
 
 
@@ -597,6 +614,14 @@ async def teardown_environment(
     reason = req.reason if req else "API teardown request"
     force = req.force if req else False
     rec = GLOBAL_ENVIRONMENT_REGISTRY.teardown(environment_id, reason=reason, force=force)
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="environment.teardown",
+        target=rec.customer_hash,
+        verdict="allow",
+        detail={"environment_id": rec.id, "reason": reason},
+    )
     return rec.to_response()
 
 

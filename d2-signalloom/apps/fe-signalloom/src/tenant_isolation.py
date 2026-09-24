@@ -392,6 +392,18 @@ class TenantIsolationManager:
             key_name = self._active_key_name(customer_hash)
         return self.transit.decrypt(key_name, ciphertext)
 
+    def sign_for_tenant(self, customer_hash: str, payload: bytes) -> tuple[str, int]:
+        """Sign with the tenant's transit key (active boundaries only)."""
+        with self._lock:
+            key_name = self._active_key_name(customer_hash)
+        return self.transit.sign(key_name, payload)
+
+    def verify_for_tenant(self, customer_hash: str, payload: bytes, signature: str) -> bool:
+        """Verify signature with the tenant's transit key (active boundaries only)."""
+        with self._lock:
+            key_name = self._active_key_name(customer_hash)
+        return self.transit.verify(key_name, payload, signature)
+
     def get_tenant_boundary(self, customer_hash: str) -> Optional[TenantIsolationConfig]:
         """Retrieve isolation boundary metadata if present."""
         h = customer_hash.lower()
@@ -415,6 +427,8 @@ import binascii
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, status
 
+from eap_audit import _audit_eap_decision
+
 router = APIRouter(prefix="/api/v1/eap/tenants", tags=["eap-tenant-isolation"])
 
 
@@ -428,10 +442,19 @@ class TenantProvisionRequest(BaseModel):
 @router.post("", response_model=TenantIsolationConfig, status_code=status.HTTP_201_CREATED)
 async def api_provision_tenant(req: TenantProvisionRequest) -> TenantIsolationConfig:
     """Provision a tenant isolation boundary."""
-    return GLOBAL_TENANT_ISOLATION_MANAGER.provision_tenant_boundary(
+    res = GLOBAL_TENANT_ISOLATION_MANAGER.provision_tenant_boundary(
         company_name=req.company_name,
         customer_hash=req.customer_hash
     )
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="tenant.provision",
+        target=res.customer_hash,
+        verdict="allow",
+        detail={"company_name": res.company_name, "namespace": res.namespace},
+    )
+    return res
 
 
 @router.get("", response_model=List[TenantIsolationConfig])
@@ -462,6 +485,14 @@ async def api_teardown_tenant(customer_hash: str) -> Dict[str, Any]:
             detail=f"Tenant boundary not found for customer hash '{customer_hash}'."
         )
     receipt = GLOBAL_TENANT_ISOLATION_MANAGER.get_shred_receipt(customer_hash)
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="tenant.teardown",
+        target=customer_hash.lower(),
+        verdict="allow",
+        detail={"status": "torn_down"},
+    )
     return {
         "status": "torn_down",
         "customer_hash": customer_hash.lower(),
@@ -507,7 +538,16 @@ async def api_tenant_encrypt(
         ciphertext = GLOBAL_TENANT_ISOLATION_MANAGER.encrypt_for_tenant(customer_hash, plaintext)
     except TransitKeyNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"no active transit key: {exc}") from exc
-    return {"key_path": get_tenant_transit_key_path(customer_hash), "ciphertext": ciphertext}
+    key_path = get_tenant_transit_key_path(customer_hash)
+    await _audit_eap_decision(
+        conn=None,
+        principal=x_spiffe_id,
+        action="tenant.encrypt",
+        target=customer_hash.lower(),
+        verdict="allow",
+        detail={"key_path": key_path},
+    )
+    return {"key_path": key_path, "ciphertext": ciphertext}
 
 
 @router.post("/{customer_hash}/transit/decrypt")
@@ -524,6 +564,15 @@ async def api_tenant_decrypt(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"no active transit key: {exc}") from exc
     except TransitDecryptError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    key_path = get_tenant_transit_key_path(customer_hash)
+    await _audit_eap_decision(
+        conn=None,
+        principal=x_spiffe_id,
+        action="tenant.decrypt",
+        target=customer_hash.lower(),
+        verdict="allow",
+        detail={"key_path": key_path},
+    )
     return {"plaintext": base64.b64encode(plaintext).decode("ascii")}
 
 

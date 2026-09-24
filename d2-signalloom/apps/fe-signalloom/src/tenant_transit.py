@@ -24,7 +24,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, Optional, Protocol
 
-from cryptography.exceptions import InvalidTag
+from cryptography.exceptions import InvalidSignature, InvalidTag
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 TRANSIT_KEY_TYPE = "aes256-gcm96"
@@ -86,6 +88,8 @@ class TransitBackend(Protocol):
     def key_exists(self, name: str) -> bool: ...
     def encrypt(self, name: str, plaintext: bytes) -> str: ...
     def decrypt(self, name: str, ciphertext: str) -> bytes: ...
+    def sign(self, name: str, payload: bytes) -> tuple[str, int]: ...
+    def verify(self, name: str, payload: bytes, signature: str) -> bool: ...
     def shred_key(self, name: str) -> ShredReceipt: ...
 
 
@@ -111,6 +115,11 @@ def parse_ciphertext(ciphertext: str) -> bytes:
 class _KeyState:
     material: bytearray
     deletion_allowed: bool = False
+    signing_key: Optional[ec.EllipticCurvePrivateKey] = None
+    key_version: int = 1
+
+
+_SECP256R1_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
 
 
 @dataclass
@@ -120,6 +129,7 @@ class InMemoryTransitBackend:
     mount: str = "transit"
     _keys: Dict[str, _KeyState] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
+    _signatures: Dict[tuple[str, bytes], str] = field(default_factory=dict)
 
     backend_name = "in-memory-aes256-gcm96"
 
@@ -129,7 +139,12 @@ class InMemoryTransitBackend:
     def create_key(self, name: str) -> None:
         with self._lock:
             if name not in self._keys:
-                self._keys[name] = _KeyState(material=bytearray(secrets.token_bytes(KEY_BYTES)))
+                seed_int = (int.from_bytes(hashlib.sha256(f"transit-key:{name}".encode("utf-8")).digest(), "big") % (_SECP256R1_N - 1)) + 1
+                signing_key = ec.derive_private_key(seed_int, ec.SECP256R1())
+                self._keys[name] = _KeyState(
+                    material=bytearray(secrets.token_bytes(KEY_BYTES)),
+                    signing_key=signing_key,
+                )
         # Ephemeral EAP keys must be deletable, or teardown leaves them behind.
         self.enable_deletion(name)
 
@@ -166,9 +181,46 @@ class InMemoryTransitBackend:
         except InvalidTag as exc:
             raise TransitDecryptError("ciphertext failed authentication for this key") from exc
 
+    def sign(self, name: str, payload: bytes) -> tuple[str, int]:
+        with self._lock:
+            state = self._keys.get(name)
+            if state is None:
+                raise TransitKeyNotFound(self.key_path(name))
+            if state.signing_key is None:
+                seed_int = (int.from_bytes(hashlib.sha256(f"transit-key:{name}".encode("utf-8")).digest(), "big") % (_SECP256R1_N - 1)) + 1
+                state.signing_key = ec.derive_private_key(seed_int, ec.SECP256R1())
+            signing_key = state.signing_key
+            ver = state.key_version
+            cache_key = (name, payload)
+            if cache_key in self._signatures:
+                return self._signatures[cache_key], ver
+            sig = signing_key.sign(payload, ec.ECDSA(hashes.SHA256()))
+            sig_str = f"vault:v{ver}:" + base64.b64encode(sig).decode("ascii")
+            self._signatures[cache_key] = sig_str
+            return sig_str, ver
+
+    def verify(self, name: str, payload: bytes, signature: str) -> bool:
+        with self._lock:
+            state = self._keys.get(name)
+            if state is None or state.signing_key is None:
+                return False
+            pub = state.signing_key.public_key()
+        if not isinstance(signature, str) or not signature.startswith("vault:v"):
+            return False
+        try:
+            parts = signature.split(":", 2)
+            if len(parts) != 3:
+                return False
+            sig_bytes = base64.b64decode(parts[2], validate=True)
+            pub.verify(sig_bytes, payload, ec.ECDSA(hashes.SHA256()))
+            return True
+        except (InvalidSignature, ValueError, TypeError):
+            return False
+
     def shred_key(self, name: str) -> ShredReceipt:
         """Runbook order: enable deletion, then delete (see slet-p4-preflight §7)."""
         with self._lock:
+            self._signatures = {k: v for k, v in self._signatures.items() if k[0] != name}
             self.enable_deletion(name)
             return self.delete_key(name)
 
@@ -265,6 +317,27 @@ class OpenBaoTransitBackend:
         if not self.key_exists(name):
             raise TransitKeyNotFound(self.key_path(name))
         raise TransitDecryptError(f"decrypt {name}: HTTP {r.status_code} {r.text[:200]}")
+
+    def sign(self, name: str, payload: bytes) -> tuple[str, int]:
+        r = self._client.post(
+            self._url(f"sign/{name}"),
+            json={"input": base64.b64encode(payload).decode("ascii")},
+        )
+        if r.status_code == 200:
+            data = r.json()["data"]
+            return data["signature"], data.get("key_version", 1)
+        if not self.key_exists(name):
+            raise TransitKeyNotFound(self.key_path(name))
+        raise TransitError(f"sign {name}: HTTP {r.status_code} {r.text[:200]}")
+
+    def verify(self, name: str, payload: bytes, signature: str) -> bool:
+        r = self._client.post(
+            self._url(f"verify/{name}"),
+            json={"input": base64.b64encode(payload).decode("ascii"), "signature": signature},
+        )
+        if r.status_code == 200:
+            return bool(r.json().get("data", {}).get("valid", False))
+        return False
 
     def shred_key(self, name: str) -> ShredReceipt:
         if not self.key_exists(name):

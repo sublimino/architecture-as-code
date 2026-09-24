@@ -828,20 +828,17 @@ def test_blocker_execute_rejects_non_hex_customer_hash(fresh_manager):
     assert resp.status_code == 422
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B3: SyntheticAuditEvent lacks MultiPlaneAuditEvent fields")
 def test_blocker_event_schema_matches_multiplane_audit_event():
     required = {"event_id", "event_type", "timestamp", "plane", "source_agent",
                 "target_resource", "action", "verdict", "risk_score"}
     assert required <= set(SyntheticAuditEvent.model_fields)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B4: compliance proof carries no OpenBao transit signature")
 def test_blocker_compliance_proof_is_signed():
     proof = generate_compliance_proof_events("kurasi", KURASI_HASH)[0]
     assert str(proof.details.get("signature", "")).startswith("vault:v")
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B5: most seeded events carry no SPIFFE workload identity")
 def test_blocker_every_event_carries_spiffe_identity():
     mgr = ScenarioManager()
     for scenario in ScenarioType:
@@ -850,7 +847,6 @@ def test_blocker_every_event_carries_spiffe_identity():
     assert all(e.details.get("spiffe_id") == spiffe for e in mgr.get_events_for_customer(KURASI_HASH))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B8: generation is not deterministic per customer hash")
 def test_blocker_generation_is_deterministic():
     a = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]
     b = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]

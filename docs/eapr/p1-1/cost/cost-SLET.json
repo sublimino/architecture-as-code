@@ -1,0 +1,441 @@
+{
+  "repo": "/home/andy/src/cp/osramp-demo",
+  "estimate_note": "opencode list-price estimate from token counts \u2014 NOT actual provider billing",
+  "total_cost": 0.0,
+  "tasks": [
+    {
+      "slug": "SLET-P4-PRE",
+      "id": "e28a8",
+      "column": "done",
+      "title": "SLET-P4-PRE: Audit OpenBao Transit key derivation, envelope encryption, and leas\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "agy://open?id=e28a8&dir=/home/andy/.cline/worktrees/e28a8/osramp-demo&host=fortuna&model=gemini-3.7-flash",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P4-2",
+      "id": "390f7",
+      "column": "done",
+      "title": "SLET-P4-2: Author comprehensive kurasi tenant end-to-end attestation suite",
+      "cost": 0.0,
+      "msgs": 206,
+      "elapsed_s": 1911,
+      "session_id": "0934baea-b1b9-4e74-a6d0-00d079dd1e44",
+      "sessions": [
+        "0934baea-b1b9-4e74-a6d0-00d079dd1e44"
+      ],
+      "uri": "kpai://open?id=0934baea-b1b9-4e74-a6d0-00d079dd1e44&dir=/home/andy/.cline/worktrees/390f7/osramp-demo&host=fortuna&model=claude-opus-5-5",
+      "tokens": {
+        "input": 428,
+        "output": 317283,
+        "reasoning": 0,
+        "cache_read": 40576569,
+        "cache_write": 745312
+      },
+      "models": [
+        "claude-haiku-4-5-20251001",
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLET-P4-GOV",
+      "id": "7744e",
+      "column": "done",
+      "title": "SLET-P4-GOV: Final Mission Certification: Full tenant isolation & identity relea\u2026",
+      "cost": 0.0,
+      "msgs": 1,
+      "elapsed_s": 0,
+      "session_id": "ses_f473fa3caffederO5rSLe0eNxq",
+      "sessions": [
+        "ses_f473fa3caffederO5rSLe0eNxq"
+      ],
+      "uri": "kpai://open?id=ses_f473fa3caffederO5rSLe0eNxq&dir=/home/andy/.cline/worktrees/7744e/osramp-demo&host=fortuna&model=gpt-6-astra",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [
+        "gpt-6-astra"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLET-P4-1",
+      "id": "3352c",
+      "column": "archived",
+      "title": "SLET-P4-1: Implement OpenBao Transit key lease manager and revocation logic",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=3352c&dir=/home/andy/.cline/worktrees/3352c/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P3-GOV",
+      "id": "1ad84",
+      "column": "archived",
+      "title": "SLET-P3-GOV: Certify Phase 3 SPIFFE identity issuance and cryptographic validity",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=1ad84&dir=/home/andy/.cline/worktrees/1ad84/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P3-2",
+      "id": "11867",
+      "column": "archived",
+      "title": "SLET-P3-2: Implement ServiceAccount generator and SPIFFE CSI driver binding",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=11867&dir=/home/andy/.cline/worktrees/11867/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P3-1",
+      "id": "0ed34",
+      "column": "archived",
+      "title": "SLET-P3-1: Implement dynamic SPIRE tenant entry registration and pruning",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=0ed34&dir=/home/andy/.cline/worktrees/0ed34/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P3-PRE",
+      "id": "2e629",
+      "column": "archived",
+      "title": "SLET-P3-PRE: Audit SPIFFE/SPIRE workload attestation APIs in Kubernetes",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=2e629&dir=/home/andy/.cline/worktrees/2e629/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P2-GOV",
+      "id": "31b19",
+      "column": "archived",
+      "title": "SLET-P2-GOV: Certify Phase 2 network isolation and zero lateral traversal",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=31b19&dir=/home/andy/.cline/worktrees/31b19/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P2-2",
+      "id": "b21df",
+      "column": "archived",
+      "title": "SLET-P2-2: Implement authorized egress gateway routing (DNS, Tailscale)",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=b21df&dir=/home/andy/.cline/worktrees/b21df/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P2-1",
+      "id": "f3580",
+      "column": "archived",
+      "title": "SLET-P2-1: Author default-deny tenant NetworkPolicy templates and generator",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=f3580&dir=/home/andy/.cline/worktrees/f3580/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P2-PRE",
+      "id": "bd794",
+      "column": "archived",
+      "title": "SLET-P2-PRE: Audit NetworkPolicy enforcement rules and egress filtering",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=bd794&dir=/home/andy/.cline/worktrees/bd794/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P1-GOV",
+      "id": "05bc0",
+      "column": "archived",
+      "title": "SLET-P1-GOV: Certify Phase 1 namespace isolation, security profiles, and quotas",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=05bc0&dir=/home/andy/.cline/worktrees/05bc0/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P1-2",
+      "id": "a4105",
+      "column": "archived",
+      "title": "SLET-P1-2: Implement ResourceQuota and LimitRange configuration for tenants",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=a4105&dir=/home/andy/.cline/worktrees/a4105/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P1-1",
+      "id": "5377e",
+      "column": "archived",
+      "title": "SLET-P1-1: Implement tenant namespace provisioning with restricted security stan\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=5377e&dir=/home/andy/.cline/worktrees/5377e/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P1-PRE",
+      "id": "8b59c",
+      "column": "archived",
+      "title": "SLET-P1-PRE: Audit PSS restricted profile and namespace isolation standards",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=8b59c&dir=/home/andy/.cline/worktrees/8b59c/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P0",
+      "id": "6ab28",
+      "column": "archived",
+      "title": "SLET-P0: Establish tenant isolation baseline, data models, and test harness",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=6ab28&dir=/home/andy/.cline/worktrees/6ab28/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLET-P4-GOV",
+      "id": "67879",
+      "column": "archived",
+      "title": "SLET-P4-GOV: Final Mission Certification: Full tenant isolation & identity relea\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=67879&dir=/home/andy/.cline/worktrees/67879/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    }
+  ],
+  "by_model": [
+    {
+      "model": "claude-opus-5-5",
+      "cost": 0.0,
+      "msgs": 202,
+      "tokens": {
+        "input": 404,
+        "output": 314181,
+        "cache_read": 40568835,
+        "cache_write": 711716
+      }
+    },
+    {
+      "model": "claude-sonnet-5",
+      "cost": 0.0,
+      "msgs": 2,
+      "tokens": {
+        "input": 4,
+        "output": 1248,
+        "cache_read": 7734,
+        "cache_write": 17790
+      }
+    },
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "cost": 0.0,
+      "msgs": 2,
+      "tokens": {
+        "input": 20,
+        "output": 1854,
+        "cache_read": 0,
+        "cache_write": 15806
+      }
+    },
+    {
+      "model": "gpt-6-astra",
+      "cost": 0.0,
+      "msgs": 1,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      }
+    }
+  ]
+}

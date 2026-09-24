@@ -1,0 +1,8 @@
+281c281
+< | `P4-GOV` | governor | Final mission certification: end-to-end kusari EAP environment spin-up and teardown | P4-1, P4-2 | Complete green check on EAP environment provisioning engine | L | deep | fail — not certified (`18c9456d`; see Errata — SLEA-P4-GOV) | $0.00 | N/A | N/A | N/A | N/A — no session | N/A | cpai://open?id=2e010&dir=/home/andy/.cline/worktrees/2e010/osramp-demo&host=fortuna&model=coding_medium |
+---
+> | `P4-GOV` | governor | Final mission certification: end-to-end kusari EAP environment spin-up and teardown | P4-1, P4-2 | Complete green check on EAP environment provisioning engine | L | deep | fail — not certified (`18c9456d`; see Errata — SLEA-P4-GOV) | $0.00 | N/A | N/A | N/A | 0k | N/A | kpai://open?id=ses_f473ff640ffeCO320oSdwOJnL9&dir=/home/andy/.cline/worktrees/cc2a3/osramp-demo&host=fortuna&model=gpt-6-astra |
+408c408
+< | P4-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=2e010&dir=/home/andy/.cline/worktrees/2e010/osramp-demo&host=fortuna&model=coding_medium |
+---
+> | P4-GOV | $0.00 | 0k | N/A | kpai://open?id=ses_f473ff640ffeCO320oSdwOJnL9&dir=/home/andy/.cline/worktrees/cc2a3/osramp-demo&host=fortuna&model=gpt-6-astra |

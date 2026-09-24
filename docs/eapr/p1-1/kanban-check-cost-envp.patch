@@ -1,0 +1,14 @@
+--- a/confExt/skills/ajm-auto-kanban/Tools/kanban-check.sh	2026-09-24 01:52:26.477181693 +0100
++++ b/confExt/skills/ajm-auto-kanban/Tools/kanban-check.sh	2026-09-24 01:52:26.532180574 +0100
+@@ -3256,11 +3256,6 @@
+             board_cards = json.load(f)
+     except Exception:
+         board_cards = {}
+-elif 'COST_BOARD_CARDS' in os.environ:
+-    try:
+-        board_cards = json.loads(os.environ.get('COST_BOARD_CARDS', '{}'))
+-    except Exception:
+-        pass
+ 
+ sessions_data = {}
+ kanban_db_path = os.path.expanduser("~/.cline/kanban/kanban.sqlite")

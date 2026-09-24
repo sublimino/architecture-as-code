@@ -17,6 +17,9 @@ Run from ``d2-signalloom/apps/fe-signalloom/src``::
         python ../../../../scripts/eap/anon_sweep.py
 
 Exit status is 0 whenever the sweep ran; the verdict is the final line.
+With ``--expect-zero`` the exit status is 1 when any HTTP route is reachable
+or any websocket route exists unprobed, so a Governor can wire it as a gate.
+The script refuses to run (exit 2) when ``DATABASE_URL`` is set.
 
 Reading the verdict:
 
@@ -95,7 +98,17 @@ def _sweep(client: TestClient, routes: Iterable[APIRoute]) -> list[tuple[str, st
     return rows
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    expect_zero = "--expect-zero" in (argv if argv is not None else sys.argv[1:])
+
+    # The sweep sends anonymous mutating requests (DELETE tenant, POST
+    # reap-now, POST teardown, POST scenarios/execute).  On a bare app they hit
+    # in-memory stores only; with a live DSN a DB-backed handler could mutate
+    # real rows, so refuse rather than measure against production state.
+    if os.environ.get("DATABASE_URL"):
+        print("refusing to sweep with DATABASE_URL set: unset it and re-run", file=sys.stderr)
+        return 2
+
     # The script lives outside the app tree; import ``main`` from the cwd the
     # way pytest does (run from d2-signalloom/apps/fe-signalloom/src).
     sys.path.insert(0, os.getcwd())
@@ -112,11 +125,19 @@ def main() -> int:
     for method, path, status in rows:
         verdict = "auth" if status in AUTH_STATUSES else "REACHABLE"
         print(f"{method:<7}{path:<{width + 2}}{status:<5}{verdict}")
+    for route in ws:
+        print(f"WS     {route.path:<{width + 2}}-    UNPROBED")
 
     reachable = sum(1 for _, _, s in rows if s not in AUTH_STATUSES)
-    print(f"websocket routes on EAP modules: {len(ws)}")
     print(f"positive control GET /health without token: {control}")
-    print(f"REACHABLE {reachable} of {len(rows)} EAP routes anonymously (non-401/403)")
+    # Websockets are counted, not probed; they ride on the verdict line so a
+    # reader of only the last line cannot take "0 of N" as the whole surface.
+    print(
+        f"REACHABLE {reachable} of {len(rows)} EAP routes anonymously (non-401/403); "
+        f"{len(ws)} websocket route(s) unprobed"
+    )
+    if expect_zero and (reachable or ws):
+        return 1
     return 0
 
 

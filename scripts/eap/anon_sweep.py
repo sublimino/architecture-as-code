@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from typing import Iterable
 
 from fastapi.routing import APIRoute, APIWebSocketRoute
@@ -85,16 +86,36 @@ def _eap_routes(app) -> tuple[list[APIRoute], list[APIWebSocketRoute]]:
     return http, ws
 
 
+# A streaming handler (the SLES SSE route) that is REACHED never finishes the
+# response, so a plain TestClient request would block the sweep forever.  Each
+# probe therefore runs on a daemon thread with a deadline; a probe that is still
+# open when the deadline passes has, by definition, got past any auth gate and
+# is reported as REACHABLE with the sentinel status below.  A 401 returns at
+# once and never trips the deadline.
+PROBE_DEADLINE_SECONDS = 3.0
+STREAM_OPEN = -1  # sentinel status: handler reached and still streaming at the deadline
+
+
+def _probe(client: TestClient, method: str, path: str) -> int:
+    kwargs = {"json": {}} if method in {"POST", "PUT", "PATCH"} else {}
+    result: list[int] = []
+
+    def run() -> None:
+        result.append(client.request(method, path, **kwargs).status_code)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(PROBE_DEADLINE_SECONDS)
+    return result[0] if result else STREAM_OPEN
+
+
 def _sweep(client: TestClient, routes: Iterable[APIRoute]) -> list[tuple[str, str, int]]:
     rows: list[tuple[str, str, int]] = []
     for route in routes:
         for method in sorted(route.methods or ()):
             if method in {"HEAD", "OPTIONS"}:
                 continue
-            path = _fill(route.path)
-            kwargs = {"json": {}} if method in {"POST", "PUT", "PATCH"} else {}
-            resp = client.request(method, path, **kwargs)
-            rows.append((method, route.path, resp.status_code))
+            rows.append((method, route.path, _probe(client, method, _fill(route.path))))
     return rows
 
 
@@ -124,7 +145,8 @@ def main(argv: list[str] | None = None) -> int:
     width = max((len(p) for _, p, _ in rows), default=10)
     for method, path, status in rows:
         verdict = "auth" if status in AUTH_STATUSES else "REACHABLE"
-        print(f"{method:<7}{path:<{width + 2}}{status:<5}{verdict}")
+        shown = "open" if status == STREAM_OPEN else str(status)
+        print(f"{method:<7}{path:<{width + 2}}{shown:<5}{verdict}")
     for route in ws:
         print(f"WS     {route.path:<{width + 2}}-    UNPROBED")
 

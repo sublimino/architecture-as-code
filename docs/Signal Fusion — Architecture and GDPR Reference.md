@@ -140,7 +140,7 @@ Attestation Store")]
 - **Fidelity**: Definitive (signed/authenticated by API server).
 
 #### Plane 2: Network Egress Telemetry (Tetragon eBPF) `[BUILT & CERTIFIED]`
-- **Ingestion Method**: gRPC streaming client connecting to node-local Tetragon daemon (`collectors/ebpf/`).
+- **Ingestion Method**: gRPC streaming client connecting to node-local Tetragon daemon (`collectors/tetragon/`).
 - **Data Extracted**: Process execution (`execve`), socket connect (`tcp_connect`), destination IP/port, namespace, cgroup ID, pod metadata.
 - **Privacy Posture**: Pure socket destination metadata. Payload bytes are dropped at the kernel eBPF probe level.
 
@@ -487,11 +487,11 @@ The following decisions require explicit alignment between Lucas (CEO) and Andy 
 
 | Capability / Surface | Maturity State | Target Component / File | Verification Gate |
 | :--- | :---: | :--- | :--- |
-| **Deterministic Actor Resolver** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/signal-ingest/correlation/resolve.go` | 0 false merges across 1,000 trials; 18/18 red-team passed |
-| **PostgreSQL Delegation Graph** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/signal-ingest/identity/` (`migrations/002_delegation_indices.sql`) | Temporal edge traversal; real-time edge revocation |
+| **Deterministic Actor Resolver** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/signal-ingest/correlation/resolver.go` | 0 false merges across 1,000 trials; 18/18 red-team passed |
+| **PostgreSQL Delegation Graph** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/signal-ingest/correlation/graph.go` | Temporal edge traversal; real-time edge revocation |
 | **FrostDB Columnar Store** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/signal-ingest/store/frostdb.go` | 2.75 ms p95 query latency @ 12k observations (`frostdb_p95.json`) |
-| **Write-Time Attestation** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/signal-ingest/store/segment_attestor.go` | Witness Merkle root signing; byte-tampering detected (fails closed) |
-| **"Who Authorized This?" API** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/fe-signalloom/` (`GET /api/v1/actors/{id}/authorization`) | 7-hop resolution chain verified end-to-end |
+| **Write-Time Attestation** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/signal-ingest/store/attest.go` | Witness Merkle root signing; byte-tampering detected (fails closed) |
+| **"Who Authorized This?" API** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/fe-signalloom/` (`GET /api/v1/actors/{id}/auth`) | 7-hop resolution chain verified end-to-end |
 | **AMXO Host Enrollment & Sandbox** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/agentmaxxing-host-sensor/` | 31/31 cards complete; Landlock LSM, 70/70 host tests pass |
 | **AMXO Audit Upload & Ingestion** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/fe-signalloom/` (`POST /sessions/upload`) | 42/42 ingestion tests pass; idempotent upload deduplication |
 | **3-Tier Dashboard Navigation** | `[BUILT & CERTIFIED]` | `d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx` | Route collision bats tests pass (10/10); backwards redirects live |

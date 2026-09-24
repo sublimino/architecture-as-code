@@ -315,8 +315,8 @@ d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/openai.md"
 	parts=(
 		'/bats-assert/'
 		'^d2-signalloom/apps/docs-signalloom/src/'
-		'/\.forge-prompt[^/]*\.md$'
-		'/THIRD_PARTY_NOTICES\.md$'
+		'(^|/)\.forge-prompt[^/]*\.md$'
+		'(^|/)THIRD_PARTY_NOTICES\.md$'
 	)
 	joined="$(IFS='|'; echo "${parts[*]}")"
 	[ "$pattern" = "$joined" ]
@@ -337,6 +337,7 @@ d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/openai.md"
 	mkdir -p "$fixture/app"
 	printf '# Prompt\n\nUtilize this; see [gone](missing.md).\n' >"$fixture/app/.forge-prompt.md"
 	printf '# Notices\n\nUtilize this; see [gone](missing.md).\n' >"$fixture/app/THIRD_PARTY_NOTICES.md"
+	printf '# Notices\n\nUtilize this; see [gone](missing.md).\n' >"$fixture/THIRD_PARTY_NOTICES.md"
 	default_lint
 	echo "$output"
 	[ "$status" -eq 0 ]

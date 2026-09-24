@@ -53,7 +53,7 @@ CORRECTNESS_ONLY="${DOCS_LINT_CORRECTNESS_ONLY:-^d2-signalloom/apps/dashboard-si
 
 # Files that are not repository documentation: vendored and generated trees,
 # agent prompts, and third-party licence text. test/docs-lint.bats pins the list.
-IGNORED='/bats-assert/|^d2-signalloom/apps/docs-signalloom/src/|/\.forge-prompt[^/]*\.md$|/THIRD_PARTY_NOTICES\.md$'
+IGNORED='/bats-assert/|^d2-signalloom/apps/docs-signalloom/src/|(^|/)\.forge-prompt[^/]*\.md$|(^|/)THIRD_PARTY_NOTICES\.md$'
 
 # Each file gets a tier:
 #   style   all checks (every living document, or the files given as arguments)

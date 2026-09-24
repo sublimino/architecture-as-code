@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 03:21:05+01:00
+Last Updated: 2026-09-24 13:35:00+01:00
 
 ## Verdict
 
@@ -163,5 +163,86 @@ Cato (read-only, claude-opus-5-5 because the codex path was unavailable) verdict
 the exemption total (96, not 110) and the Makefile-target column (P1-3 only),
 flagged "wholesale" as overstated, and noted the anonymous sweep was not
 independently re-run. All three corrections are applied above.
+
+## Relaunch 2026-09-24 12:06Z (task 28b07) — same base, same verdict
+
+Relaunched as kanban task `28b07` at 12:06:58Z, five seconds before the
+restarted twin `065d0` exited (12:07:03Z). The provenance HOLD on P1-GOV was
+cleared at 11:47Z (EAPR-P1-2's missing osramp-demo branch ruled a false
+positive: its contract delivers direct to `~/.andy_sync` master). That ruling
+resolves P1-GOV's Step 0 blocker; it does not put P1-3/P1-4 on the integration
+tip, and P2-PRE was not restarted. Every probe above re-run at 12:13Z gives the
+same answer:
+
+```text
+$ git rev-parse HEAD                                            -> 68d87aca666b28fbdd96c48bdeca881fcf7fef25
+EAPR-P1-3                    1d15a906bcb4 ancestor-rc=1
+EAPR-P1-4                    4621df93ed63 ancestor-rc=1
+integration/sl{ea,et,ed,es,te}-v0.1.0                          ancestor-rc=1 1 1 1 1
+$ git tag -l 'integration/eapr-v0.1.0-p1'                       -> (empty)
+$ wc -l .../tests/test_tenant_isolation.py                      -> 183
+$ rg -n '^test-eap-offline' Makefile                            -> (empty)
+$ rg -n 'NOT_DATABASE_BACKED\s*[:=]' src/tests/                  -> (empty)
+$ proposal '#### Errata — EAPR-P2-PRE' machine tag              -> status=fail proceed=no
+$ kanban task_runs run-7ce29-1790250873041… (P1-GOV)            -> state=running since 2026-09-24 11:54:33Z
+```
+
+STOP condition 1 ("EAPR-P2-PRE errata absent or status!=pass, or its route
+table is missing") fires verbatim. Verdict unchanged: `status=fail proceed=no`.
+
+**What is new.** (1) The restarted twin `065d0` (11:54:45Z–12:07:03Z) recorded
+1 tool call, 0 files modified, and a response beginning "- Five install_*
+functions mounting with dependencies=[Depends(api_compat.authent…" — a
+deliverable list asserted as prose with nothing on disk. It is the
+zero-output-run class the D11 gates exist to refuse; its `awaiting_review` row
+should not be promoted. (2) The launch-ordering defect described in the section
+above is unchanged after the clearance: P2-1 was restarted in parallel with the
+governor it depends on, not after it, and a second P2-1 card was minted while
+the first was still running.
+
+**What this relaunch leaves behind.** `scripts/eap/anon_sweep.py` — the /tmp
+probe from the first refusal, committed so the Governor can reproduce the
+"before" and "after" numbers (card T2 asks for exactly this). It derives the
+route list from `app.routes` by endpoint module, counts websocket routes
+separately (0 on this base), and prints a positive control (`GET /health`
+without a token). Run from `d2-signalloom/apps/fe-signalloom/src` with the uv
+recipe; output on this base:
+
+```text
+POST   /api/v1/environments/provision                                422  REACHABLE
+POST   /api/v1/environments/resolve-domain                           400  REACHABLE
+GET    /api/v1/environments/                                         200  REACHABLE
+GET    /api/v1/environments/{environment_id}                         404  REACHABLE
+POST   /api/v1/environments/{environment_id}/extend                  422  REACHABLE
+POST   /api/v1/environments/{environment_id}/teardown                404  REACHABLE
+POST   /api/v1/webhooks/github                                       401  auth
+POST   /api/v1/webhooks/generic                                      401  auth
+POST   /api/v1/eap/tenants                                           422  REACHABLE
+GET    /api/v1/eap/tenants                                           200  REACHABLE
+GET    /api/v1/eap/tenants/{customer_hash}                           404  REACHABLE
+DELETE /api/v1/eap/tenants/{customer_hash}                           404  REACHABLE
+GET    /api/v1/eap/tenants/{customer_hash}/manifests                 200  REACHABLE
+GET    /api/v1/eap/tenants/{customer_hash}/spire-entry               200  REACHABLE
+POST   /api/v1/eap/lifecycle/register                                422  REACHABLE
+POST   /api/v1/eap/lifecycle/environments/{customer_hash}/heartbeat  404  REACHABLE
+POST   /api/v1/eap/lifecycle/environments/{customer_hash}/activity   404  REACHABLE
+GET    /api/v1/eap/lifecycle/environments/{customer_hash}            404  REACHABLE
+GET    /api/v1/eap/lifecycle/active                                  200  REACHABLE
+POST   /api/v1/eap/lifecycle/reap-now                                200  REACHABLE
+POST   /api/v1/eap/scenarios/execute                                 201  REACHABLE
+GET    /api/v1/eap/scenarios/events/{customer_hash}                  200  REACHABLE
+GET    /api/v1/eap/scenarios/history                                 200  REACHABLE
+websocket routes on EAP modules: 0
+positive control GET /health without token: 200
+REACHABLE 21 of 23 EAP routes anonymously (non-401/403)
+```
+
+Stated precisely, as before: 0 of 23 require a principal; 21 respond non-401
+anonymously; the 2 webhook routes reject on HMAC only. No router, handler,
+middleware, test or Makefile file was changed by this relaunch either.
+
+**Required remediation** is the sequence in the section above, with one
+addition: do not relaunch P2-1 until P2-PRE's errata reads `status=pass` on a
+tip that contains P1-3 and P1-4 and carries `integration/eapr-v0.1.0-p1`.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

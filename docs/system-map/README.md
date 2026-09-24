@@ -1,7 +1,7 @@
 # Signal Loom D2: Isometric System Map
 
 Interactive isometric visualisation of the Signal Loom D2 platform architecture.
-Each building's shape communicates its infrastructure role; coloured paths trace
+Each building's shape communicates its infrastructure role. Coloured paths trace
 real control, data, identity, and GitOps flows between services.
 
 ## Viewing

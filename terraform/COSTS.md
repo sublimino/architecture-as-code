@@ -80,10 +80,10 @@ floor is ~£18/month per environment that exists at all**, and it is the reason
    preemption. Appropriate for `ci-N`, not for a demo someone is about to show a
    customer.
 6. **Committed use discounts.** ~37% (1 year) / ~55% (3 year) on the VM line.
-   Only worth it once the estate is steady-state; a CUD on a demo platform whose
+   Only worth it once the estate is steady-state. A CUD on a demo platform whose
    shape is still changing is a bet, not a saving.
-7. **Keep `data_access_services` tight.** Admin-activity logs are free to ingest;
-   data-access logs are not. Adding a chatty service to that list is the one
+7. **Keep `data_access_services` tight.** Admin-activity logs are free to ingest.
+   Data-access logs are not. Adding a chatty service to that list is the one
    observability change that can move the bill.
 8. **Lower `log_retention_days`.** Storage is the smallest lever here — 400 days
    of audit logs is a few pounds. Do not trade an audit trail for pennies.
@@ -103,8 +103,8 @@ late to act on. 50% is "the month is going faster than planned", 80% is
 The budget is gated behind `billing_account_id != ""` so the module plans for an
 engineer with project access but no billing-account access — the common case.
 When it is disabled the module degrades to "no budget", never to "a budget
-nobody is told about": every alert policy is validated to name at least one
-notification channel, and a plan with alerts enabled and no channel **fails**.
+nobody is told about". The module checks that every alert policy names at least
+one notification channel. A plan with alerts enabled and no channel **fails**.
 
 ---
 

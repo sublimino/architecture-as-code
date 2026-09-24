@@ -3,10 +3,10 @@
 Audit sink, data-access audit config, uptime checks, alert policies, and the billing budget for
 the Signal Loom GCP demo platform.
 
-Instantiated **once**, by `terraform/platform`. It is deliberately not per-environment: an audit
-trail that `make gcp-tf-destroy ENV=demo-1` can delete is not an audit trail, and a budget scoped
-to one demo cannot tell you the estate is overspending. Because these resources live in the
-platform root's state and the environments root never references them, the separation is
+Instantiated **once**, by `terraform/platform`. It is deliberately not per-environment. An audit
+trail that `make gcp-tf-destroy ENV=demo-1` can delete is not an audit trail. A budget scoped
+to one demo cannot tell you the estate is overspending. These resources live in the
+platform root's state and the environments root never references them. So the separation is
 structural rather than a convention someone has to remember.
 
 ## What it creates
@@ -53,36 +53,38 @@ plans.
 
 **The empty-channel validation is a hard failure, not a default.** `notification_channel_ids`
 carries a cross-variable validation block (Terraform ≥ 1.9) that rejects an empty list while
-`enable_alerts` is true. An alert policy with no notification channel is accepted happily by both
-Terraform and GCP: it fires, it is recorded in the console, and the first human to learn of the
+`enable_alerts` is true. Both Terraform and GCP accept an alert policy with no notification
+channel happily. It fires, it is recorded in the console, and the first human to learn of the
 outage is whoever tried to use the demo. There is nowhere else in the stack that this mistake
-surfaces, so it is caught here or not at all. The block does not fall back to a default channel —
-a guard that repairs what it detects can never fail, and the broken input ships green.
+surfaces, so it is caught here or not at all. The block does not fall back to a default channel.
+A guard that repairs what it detects can never fail, and the broken input ships green.
 
 **The backend-health alert is a 5xx-rate proxy, and is labelled as one.** GCP does not export a
 "backend healthy" gauge for the classic external HTTPS load balancer. When the backend instance
 group has no healthy member the LB serves 502s, so
 `loadbalancing.googleapis.com/https/request_count` filtered to `response_code_class="500"` is the
-honest signal. It is documented as a proxy rather than presented as a direct health check,
-because someone will eventually debug an alert that did not fire and needs to know what it was
+honest signal. It is documented as a proxy rather than presented as a direct health check.
+Someone will eventually debug an alert that did not fire and needs to know what it was
 actually watching.
 
 ## Tests
 
 `tests/observability.tftest.hcl` — 9 `run` blocks, `mock_provider` throughout, `command = plan`
-only, ~0.6 s. These assert on the **evaluated** configuration, not on the HCL text: that the sink's
-resolved `destination` is not the state bucket, that the retention period equals
-`log_retention_days * 86400` rather than a literal, that the budget's threshold list evaluates to
-exactly `[0.5, 0.8, 1.0]`, and that every alert policy the plan produced carries at least one
-notification channel.
+only, ~0.6 s. These assert on the **evaluated** configuration, not on the HCL text. They assert
+that:
+
+- the sink's resolved `destination` is not the state bucket.
+- the retention period equals `log_retention_days * 86400` rather than a literal.
+- the budget's threshold list evaluates to exactly `[0.5, 0.8, 1.0]`.
+- every alert policy the plan produced carries at least one notification channel.
 
 The negative run (`expect_failures` on an empty channel list with alerts enabled) is paired with
-**two** positives: one proving the corrected input plans, and one proving `enable_alerts = false`
+**two** positives. One proves the corrected input plans. One proves `enable_alerts = false`
 is the sanctioned way to have no channels. Without the pair, "reject empty channels" would be
-indistinguishable from "channels are always mandatory", and a run block failing for an unrelated
+indistinguishable from "channels are always mandatory". A run block failing for an unrelated
 reason would be indistinguishable from the validation firing correctly.
 
-Both assertions have been mutation-checked: pointing the audit bucket at the state bucket, and
+Both assertions have been mutation-checked. Pointing the audit bucket at the state bucket, and
 changing one budget threshold from `0.8` to `0.9`, each turn the suite red.
 
 ## Verify

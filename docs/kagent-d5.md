@@ -22,7 +22,7 @@ Up to commit `f879ec4c` the "control plane" consisted of placeholders:
 | `kagent-anthropic-key` | the literal string `mock-anthropic-key-for-local-demo` | No agent could complete a single model call. |
 
 All 36 Kagent assertions passed against that stack. That is the defect
-`test/kagent-anti-stub.bats` exists to prevent recurring; its file header explains
+`test/kagent-anti-stub.bats` exists to prevent recurring. Its file header explains
 the reasoning behind each assertion.
 
 **Current state.** The real charts have since landed: `kagent 0.9.9` with
@@ -30,41 +30,41 @@ the reasoning behind each assertion.
 `ghcr.io/kagent-dev/kagent/tools:0.2.1` and `…/ui:0.9.9`. **Twelve of the
 thirteen anti-stub assertions now pass with no change to the tests.** The tool
 server discriminates its input, the controller writes real status conditions,
-and it materialises resources it owns — the three properties the placeholder
-stack could not produce.
+and it materialises resources it owns. Those are the three properties the
+placeholder stack could not produce.
 
-This section is a snapshot and dates quickly; `make demo-kagent-test` is the
+This section is a snapshot and dates quickly. `make demo-kagent-test` is the
 current answer. At the time of writing, verified against the cluster:
 
 - **Seven of eight agents compile. Six of them work.** The two numbers are
   deliberately kept apart, because the gap between them is the entire subject of
   this document. `kagent-chaos-prober` reports `Accepted=True Ready=True` with a
-  Running pod and two tools that do not exist — it began compiling the moment
+  Running pod and two tools that do not exist. It began compiling the moment
   its `RemoteMCPServer` appeared, which made it green without making it capable.
   Quoting the Ready column here would be the exact reading `kagent-anti-stub.bats`
   exists to prevent.
 - **One dangling reference remains:** `kagent-commit-summariser` binds
   `github-tool`, which does not exist, so it does not compile at all
-  (`Accepted=False`, no workload). Note the contrast — an absent *server* fails
-  loudly; absent *tools* on a present server are accepted silently. Only the
+  (`Accepted=False`, no workload). Note the contrast. An absent *server* fails
+  loudly. Absent *tools* on a present server are accepted silently. Only the
   second needed a new test.
 - **Note the CR kind.** The controller resolves `RemoteMCPServer.kagent.dev`,
   not the `MCPServer` CRs the original manifests declared. That mismatch is why
   all eight failed to compile initially.
 - **The placeholder credential is gone.** `mock-anthropic-key-for-local-demo` no
-  longer appears as a live assignment anywhere; the key is supplied by the
+  longer appears as a live assignment anywhere. The key is supplied by the
   operator through OpenBao as `Secret/kagent-anthropic-key`, in both `kagent`
   and `fe-signalloom-agents`. On **this** branch
-  `infra/kagent/base/controller.yaml` does not survive at all — it was deleted
+  `infra/kagent/base/controller.yaml` does not survive at all. It was deleted
   wholesale with the rest of the stub manifests, so there is no comment for the
   forbidden-literal guard to tolerate here. (The guard's comment-stripping is
-  still doing real work: the literal appears in this file's own prose,
+  still doing real work. The literal appears in this file's own prose,
   describing what was removed, and the guard correctly scopes itself to
   manifests. See "a guard matched the comment explaining the absence", below.)
 
-Claims about *declarative structure* — the Agent CRs, their tool bindings,
-SPIFFE naming, the OpenBao path mapping — are verified on disk and in the
-cluster today.
+Claims about *declarative structure* are verified on disk and in the cluster
+today. Those claims cover the Agent CRs, their tool bindings, SPIFFE naming,
+and the OpenBao path mapping.
 
 ## Architecture & lifecycle
 
@@ -91,15 +91,15 @@ Foundation (Kind, Zot, Flux)
 
 > **Known wart.** `swarm-kagent-up` and `swarm-kagent-down` are each declared
 > **twice** in the Makefile (around lines 861 and 2490) with identical recipes.
-> GNU make takes the last definition and warns on every invocation; behaviour is
+> GNU make takes the last definition and warns on every invocation. Behaviour is
 > unchanged, but the duplication should go.
 
 ## The Agent Swarm
 
 Eight Agent CRs in `fe-signalloom-agents`, all `runtime: go`, all sharing one
 `anthropic-claude` ModelConfig and one namespace-local `RemoteMCPServer`
-(`d2-signalloom/infra/agent-swarm/remotemcpserver.yaml`) pointing at the chart's
-built-in tool server at `http://kagent-tools.kagent:8084/mcp`.
+(`d2-signalloom/infra/agent-swarm/remotemcpserver.yaml`). That server points
+at the chart's built-in tool server at `http://kagent-tools.kagent:8084/mcp`.
 
 **Every tool name below has been verified by calling it against that server.**
 That sentence is the whole point of this section — see "How this list got wrong"
@@ -147,8 +147,8 @@ most important thing on this page:**
 
 Do not read this section's agents as "the broken ones you can see". One of them
 is green on every dashboard in the repo. That is why the count that matters is
-"agents whose tool names were verified against `tools/list`" — currently 6 of 8
-— and not the Ready column.
+"agents whose tool names were verified against `tools/list`", currently 6 of 8.
+It is not the Ready column.
 
 7. **Chaos Prober (`kagent-chaos-prober`)** — wants `chaos_simulate_latency`,
    `chaos_probe_recovery`. **Blocker:** the tool server has no chaos tooling of
@@ -181,7 +181,7 @@ installed, **not** on agent configuration.
 | SPIFFE boundary probing | — | **No tool exists** on the server at all. |
 | Live reachability probing | `k8s_check_service_connectivity` | Tool exists; execs a curl pod, which the **read-only tool-server RBAC denies**. |
 
-Installing Kubescape unblocks two rows and re-points two agents; a reachable
+Installing Kubescape unblocks two rows and re-points two agents. A reachable
 Prometheus unblocks one. Both are cluster-capacity decisions, not agent work.
 
 ### How this list got wrong, so it does not happen again
@@ -189,8 +189,8 @@ Prometheus unblocks one. Both are cluster-capacity decisions, not agent work.
 The tool server was a stub until 2026-08-30: `python:3.12-alpine` running
 `http.server`, returning **one hardcoded literal to every POST**. Posting
 `k8s_get_resources` and `totally_made_up_xyz` produced byte-identical output.
-So no tool name in this repo had ever been checked against an implementation,
-and 18 of the 21 requested across the swarm were fictional — including six
+So no tool name in this repo had ever been checked against an implementation.
+Of the 21 requested across the swarm, 18 were fictional, including six
 requested from the tool server that genuinely exists.
 
 Two properties of kagent 0.9.9 kept that invisible:
@@ -204,7 +204,7 @@ Two properties of kagent 0.9.9 kept that invisible:
 
 Compressed to the one line worth remembering:
 
-> **An absent server fails loudly; absent tools on a present server are
+> **An absent server fails loudly. Absent tools on a present server are
 > accepted silently.**
 
 That asymmetry is the whole reason a tool-existence guard had to exist at all.
@@ -212,7 +212,7 @@ The loud half needed no test — the controller already refuses to compile the
 agent and says so. Only the silent half did.
 
 `d2-signalloom/test/kagent-chart.bats` and the tool-existence contract test now
-guard this. Verify by hand with `tools/list` against the tool server; a missing
+guard this. Check by hand with `tools/list` against the tool server. A missing
 tool returns JSON-RPC `-32602 tool 'x' not found`.
 
 Previous revisions of this document described five. Eight are defined on disk
@@ -250,8 +250,8 @@ count.
 
 **Re-run after the change, live, same prompt:** 68 lines, 41 pod bullets, no
 "N pods", no Total, no Summary line. It presented the list and let the reader
-count. Accuracy was also perfect that run — `kubectl` non-Running = 41, agent
-listed 41, missed 0 — but that is one run against a quieter cluster and should
+count. Accuracy was also perfect that run: `kubectl` non-Running = 41, agent
+listed 41, missed 0. But that is one run against a quieter cluster and should
 not be read as caused by the instruction. Only the count suppression reproduced
 deterministically, because it is a behaviour asked for directly.
 
@@ -259,8 +259,8 @@ deterministically, because it is a behaviour asked for directly.
 
 Raised by the credentials workstream and worth stating plainly: the mitigation
 was itself **undetectable if removed**. It lives in a systemMessage, no test
-asserts on model output, so deleting that paragraph would have failed nothing —
-the only detector was a human running the agent and reading. Same shape as the
+asserts on model output, so deleting that paragraph would have failed nothing.
+The only detector was a human running the agent and reading. Same shape as the
 finding, one level up.
 
 That splits into a testable half and an untestable one, and only one of them is
@@ -278,9 +278,9 @@ more than it does is exactly the failure this page is about.
 
 Testing whether the miscount generalised produced the opposite result, and a
 sharper finding. `kagent-security-analyst` was invoked with **no**
-count-suppression instruction and its counts were **correct three times over**
-— "8 out of 9 pods lack `runAsNonRoot: true`", verified against the namespace,
-three for three. So the arithmetic failure does **not** generalise, and rolling
+count-suppression instruction and its counts were **correct three times over**.
+It reported "8 out of 9 pods lack `runAsNonRoot: true`", verified against the
+namespace, three for three. So the arithmetic failure does **not** generalise, and rolling
 the count instruction across the swarm on one instance would have been wrong.
 
 What it did instead is worse. For a pod whose spec genuinely sets
@@ -299,8 +299,8 @@ is the more dangerous of the two:
   **is** the finding. A fabricated value would report healthy sizing, or a
   policy that is not written, on the very workloads that have neither.
 
-Mitigated on the four posture agents — security-analyst, finops-optimizer,
-network-auditor, compliance-checker — each told that an absent field is the
+Mitigated on the four posture agents: security-analyst, finops-optimizer,
+network-auditor, compliance-checker. Each is told that an absent field is the
 finding and never to substitute a plausible value. Not applied to
 `kagent-k8s-reader` (makes no posture claims) or `kagent-incident-responder`
 (reads events and logs, not sparse spec fields). Guarded by
@@ -320,23 +320,23 @@ instruction: **whether the model obeys is untested and untestable here.**
 pods (the UID sweep), and absent-*within*-a-populated-block (the last row).
 
 Rows two and four are the discriminating ones. An instruction that had merely
-suppressed all UID mentions would have lost the true value too; it kept the
+suppressed all UID mentions would have lost the true value too. It kept the
 real one and dropped the invented ones. And in the last row the absent field
-sits **between two correctly-reported ones in the same block** — it did not
+sits **between two correctly-reported ones in the same block**. It did not
 smooth the gap, did not infer a limit from the request, and did not carry the
-memory limit across. It also drew the right conclusion unprompted: *"CPU limits
-are absent in both cases, meaning these workloads have no upper bound on CPU
-consumption and can burst without restriction."*
+memory limit across. It also drew the right conclusion unprompted. It wrote:
+*"CPU limits are absent in both cases, meaning these workloads have no upper
+bound on CPU consumption and can burst without restriction."*
 
-That third shape was the sharpest remaining probe, on the reasoning that a
+That third shape was the sharpest remaining probe. The reasoning is that a
 model is likelier to fill a gap in a populated structure than in an empty one.
 It was run and it held.
 
 ### This evidence expires when the instruction is edited
 
 The four runs above are the **only** evidence of obedience that exists. No test
-asserts it and none can here, so this is a statement about observed model
-behaviour on 2026-08-30 — not a property of the system. **Change the wording
+asserts it and none can here. So this is a statement about observed model
+behaviour on 2026-08-30, not a property of the system. **Change the wording
 and the evidence no longer applies to what is deployed.** If you edit one of
 these systemMessages, re-run the corresponding check and replace the row.
 
@@ -355,9 +355,9 @@ against the cluster.**
 
 Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
 
-**Tool bindings are deliberately not enumerated here.** They are in active flux —
+**Tool bindings are deliberately not enumerated here.** They are in active flux:
 five of the eight were re-pointed at real tools while this document was being
-written — and a list of tool names in prose is a copy of the manifest that goes
+written. And a list of tool names in prose is a copy of the manifest that goes
 stale silently. `kubectl get agents -n fe-signalloom-agents -o yaml` is the
 answer, and `test/kagent-agents.bats` enforces that every name in it exists on
 the live server.
@@ -381,12 +381,12 @@ must exist" below.
 - **Agent execution requires a model API key the operator must supply**, and the
   reference to it is currently lost on apply. Three separate facts, all live:
   1. The `kagent-anthropic-key` Secret now holds a real `ANTHROPIC_API_KEY`.
-     It briefly held *two* keys — the real one plus the original mock `api-key`
-     — because `kubectl apply` merges, so a write that set only the new key left
-     the placeholder underneath it. Resolved with `replace --force`.
+     It briefly held *two* keys, the real one plus the original mock `api-key`.
+     The cause is that `kubectl apply` merges, so a write that set only the new
+     key left the placeholder underneath it. Resolved with `replace --force`.
   2. **`spec.anthropic.apiKeySecret` was silently pruned** — now fixed, and worth
      keeping on record because the failure mode leaves no trace. The v1alpha2 CRD
-     defines `apiKeySecret` and `apiKeySecretKey` at the **top level of `spec`**;
+     defines `apiKeySecret` and `apiKeySecretKey` at the **top level of `spec`**.
      `spec.anthropic` admits only `baseUrl`/`maxTokens`/`temperature`/`topK`/
      `topP`. `kubectl apply` succeeded, nothing warned, and the field was
      dropped — `spec.anthropic` read back as `{}`. A pruned field fails at run
@@ -405,15 +405,15 @@ must exist" below.
   confirm an absence of permissions rather than a drawn boundary. That file states
   the limit in its header rather than papering over it.
 - **`kagent-tool-server` is referenced by five Agent CRs but is not an `MCPServer`
-  CR** in `fe-signalloom-agents` — it is the control-plane MCP endpoint in the
+  CR** in `fe-signalloom-agents`. It is the control-plane MCP endpoint in the
   `kagent` namespace. `test/kagent-agents.bats` excludes it by name when resolving
   MCPServer references.
 
 ## The Model Credential
 
-The Anthropic API key is supplied by the operator, stored in OpenBao under a
-path scoped by each agent's own SPIFFE ID, and projected from there into the one
-Kubernetes Secret the kagent controller is contractually required to read.
+The Anthropic API key is supplied by the operator. It is stored in OpenBao under
+a path scoped by each agent's own SPIFFE ID. From there it is projected into the
+one Kubernetes Secret the kagent controller is contractually required to read.
 
 ```bash
 # 1. put the key in .env at the MAIN checkout root (gitignored, never committed)
@@ -423,11 +423,11 @@ make demo-kagent-credentials          # seed -> sync -> verify
 make demo-kagent-credentials-verify   # evidence without disclosure
 ```
 
-`ANTHROPIC_API_KEY` exported in the environment takes precedence over `.env`;
-the provenance is printed either way, so the source is never a guess.
+`ANTHROPIC_API_KEY` exported in the environment takes precedence over `.env`.
+The provenance is printed either way, so the source is never a guess.
 
 **`.env` is resolved from the MAIN checkout, not from `$PWD`.** It is gitignored,
-so it is never checked out into a linked worktree — and a `$PWD`-relative read
+so it is never checked out into a linked worktree. A `$PWD`-relative read
 from a worktree finds nothing, reports "no key configured", and exits 0 while
 the operator's key sits in the main checkout. `scripts/lib/env-file.sh` resolves
 it through `git rev-parse --git-common-dir`. `SIGNALLOOM_ENV_FILE` overrides,
@@ -441,8 +441,8 @@ in this repo (`kagent-credentials`, `olly-llm-secret`, `olly-pdi-secret`,
 `make up`. `make demo-kagent-invoke` **fails loudly**, because there the key is
 required and quietly doing nothing is the fake-success mode being removed.
 
-This replaces a committed Secret containing a 33-byte placeholder with which no
-agent could complete a model call, and which every presence check reported as
+This replaces a committed Secret containing a 33-byte placeholder. No agent
+could complete a model call with it, and every presence check reported it as
 healthy.
 
 **No key may ever be tracked by git.** `d2-signalloom/test/no-tracked-secrets.bats`
@@ -457,7 +457,7 @@ the intended state and must never trip it.
 | Projection | `Secret/kagent-anthropic-key`, key `ANTHROPIC_API_KEY`, in every namespace holding a `ModelConfig` |
 
 **Per-agent roles, not one shared role.** A single role over `secret/data/agents/*`
-would let any agent's SVID read any other agent's credential — credential
+would let any agent's SVID read any other agent's credential. That is credential
 mediation in the diagram, none of its isolation in practice. Verified: a token
 carrying `signalloom-agent-kagent-k8s-reader` reads its own path, and is denied
 both a sibling's path and enumeration of the prefix.
@@ -482,17 +482,23 @@ make demo-kagent-invoke AGENT=kagent-k8s-reader \
      PROMPT="List every namespace in this cluster, then tell me how many there are."
 ```
 
-Uses kagent's own A2A surface, nothing bespoke: the controller serves
+Uses kagent's own A2A surface, nothing bespoke. The controller serves
 `GET /api/a2a/{namespace}/{agent}/.well-known/agent.json` and
 `POST /api/a2a/{namespace}/{agent}/` (JSON-RPC `message/send`) on port 8083 of
-`svc/kagent-controller` — the same surface the `kagent` CLI and the dashboard
-use. Implemented as a dependency-free client so the kagent CLI need not be
-installed.
+`svc/kagent-controller`. That is the same surface the `kagent` CLI and the
+dashboard use. Implemented as a dependency-free client so the kagent CLI need
+not be installed.
 
 Four distinct failure modes are treated as failures, three of which arrive as
-HTTP 200: a JSON-RPC `error` object; `result.status.state == "failed"`; an HTML
-gateway page served with a 200; and a completed task carrying no text. Checking
-only the status code, or only `.error`, reports the other three as success.
+HTTP 200:
+
+- a JSON-RPC `error` object
+- `result.status.state == "failed"`
+- an HTML gateway page served with a 200
+- a completed task carrying no text
+
+Checking only the status code, or only `.error`, reports the other three as
+success.
 
 ## OpenBao integration
 
@@ -502,22 +508,22 @@ only the status code, or only `.error`, reports the other three as success.
   one data key per agent and is asserted key-by-key by the contract suite.
 - **OpenBao Agent compatibility.** The pod templates and `ModelConfig` definitions
   are shaped so an `openbao-agent` sidecar or injector can render secrets to
-  `/vault/secrets/` on a tmpfs `emptyDir` without modifying the `Agent` CRs or the
-  MCP tool definitions. This is a design property of the manifests; no injector is
-  deployed today.
+  `/vault/secrets/` on a tmpfs `emptyDir`. It can do so without modifying the
+  `Agent` CRs or the MCP tool definitions. This is a design property of the
+  manifests. No injector is deployed today.
 
 ## SPIFFE identity derivation
 
 The dashboard builds a SPIFFE ID as `spiffe://<trust-domain>/ns/<ns>/sa/<sa>`, where
-`<sa>` is **derived from the Agent CR's name** — an `Agent.kagent.dev` CR carries no
+`<sa>` is **derived from the Agent CR's name**. An `Agent.kagent.dev` CR carries no
 ServiceAccount field, so the value is inferred rather than observed. If an agent's
 ServiceAccount ever stops being named after the agent, the governance UI renders an
 identity SPIRE never issued.
 
 Two independent assertions in `d2-signalloom/test/kagent-contract.bats` hold that
-invariant on disk (Agent name == ServiceAccount name; the agent-card `spiffeId`
-matches `spiffe://<domain>/ns/<ns>/sa/<that name>` in full), and
-`test/kagent-credentials.bats` holds it against the cluster.
+invariant on disk. One asserts Agent name == ServiceAccount name. The other asserts
+the agent-card `spiffeId` matches `spiffe://<domain>/ns/<ns>/sa/<that name>` in
+full. `test/kagent-credentials.bats` holds it against the cluster.
 
 ### Trust domain: `signalloom.demo`
 
@@ -528,13 +534,13 @@ expected domain from that file rather than hardcoding it, so changing SPIRE's
 domain automatically requires the agent cards to follow.
 
 All 8 `agent-card.json` files previously advertised
-`spiffe://osramp.acme.local/...`, which was never an identity — `osramp.acme.local`
+`spiffe://osramp.acme.local/...`, which was never an identity. `osramp.acme.local`
 is the Gateway DNS name (`dashboard.osramp.acme.local`, `*.osramp.acme.local`) and
 had been pasted into the SPIFFE authority field. Three independent checks agreed:
 
 - OpenBao's JWT roles bind `bound_subject` to `spiffe://signalloom.demo/...`
   (14 occurrences, none for the other domain). A card advertising
-  `osramp.acme.local` therefore named a credential OpenBao would **reject** — the
+  `osramp.acme.local` therefore named a credential OpenBao would **reject**. The
   cards did not merely disagree with SPIRE, they described something that could
   not work.
 - Live SPIRE registration entries are all `spiffe://signalloom.demo/...`,
@@ -556,17 +562,23 @@ make demo-kagent-invoke AGENT=kagent-k8s-reader \
      PROMPT="List every namespace in this cluster, then tell me how many there are."
 ```
 
-Uses kagent's own A2A surface, nothing bespoke: the controller serves
+Uses kagent's own A2A surface, nothing bespoke. The controller serves
 `GET /api/a2a/{namespace}/{agent}/.well-known/agent.json` and
 `POST /api/a2a/{namespace}/{agent}/` (JSON-RPC `message/send`) on port 8083 of
-`svc/kagent-controller` — the same surface the `kagent` CLI and the dashboard
-use. Implemented as a dependency-free client so the kagent CLI need not be
-installed.
+`svc/kagent-controller`. That is the same surface the `kagent` CLI and the
+dashboard use. Implemented as a dependency-free client so the kagent CLI need
+not be installed.
 
 Four distinct failure modes are treated as failures, three of which arrive as
-HTTP 200: a JSON-RPC `error` object; `result.status.state == "failed"`; an HTML
-gateway page served with a 200; and a completed task carrying no text. Checking
-only the status code, or only `.error`, reports the other three as success.
+HTTP 200:
+
+- a JSON-RPC `error` object
+- `result.status.state == "failed"`
+- an HTML gateway page served with a 200
+- a completed task carrying no text
+
+Checking only the status code, or only `.error`, reports the other three as
+success.
 
 ## Tests & verification
 
@@ -596,8 +608,8 @@ by reintroducing what used to be here.
 Eight tests once pinned each agent's exact `toolNames`. They compared the
 manifest to a copy of the manifest — circular, and green whether or not a
 single named tool existed. Worse, such a test cannot detect the thing it
-appears to: it fails on every *legitimate* re-point until someone edits it to
-match, which trains people to update the expectation without thinking. That is
+appears to. It fails on every *legitimate* re-point until someone edits it to
+match. That trains people to update the expectation without thinking. That is
 ceremony, not detection.
 
 The honest control for "should this agent have that tool" is code review. The
@@ -608,13 +620,13 @@ server, the MCPServer resolves, and the shape is usable.
 
 `Ready` on an Agent CR means **compiled and running**. It does not mean the agent
 can do anything. `kagent-chaos-prober` reports `Accepted=True` / `Ready=True`
-while every tool it binds is unknown to the tool server — the controller does not
-validate `toolNames` against the server, so a fabricated tool name is not a
+while every tool it binds is unknown to the tool server. The controller does not
+check `toolNames` against the server. So a fabricated tool name is not a
 startup error, it is an agent that silently cannot act.
 
 `test/kagent-agents.bats` closes that gap by asking the live server. Measured
 when the guard was written: **124 tools available, 3 of the 21 requested
-(agent, tool) pairs present.** Asserted per pair, not per distinct name —
+(agent, tool) pairs present.** Asserted per pair, not per distinct name.
 `k8s_get_resources` is requested by two agents, so a name-wise count reads
 2 of 20 and hides that one satisfied name is doing double duty.
 
@@ -625,32 +637,32 @@ because each returns something that looks like an answer:
    `initialize`, keep the `mcp-session-id` response header, send
    `notifications/initialized`, then call `tools/list`.
 2. The reply may be **SSE-framed (`data: {...}`) or plain JSON**, varying by
-   call. On `kagent-tools:0.2.1`, `tools/list` answers in plain JSON; a parser
+   call. On `kagent-tools:0.2.1`, `tools/list` answers in plain JSON. A parser
    assuming SSE reads zero tools and reports "the server offers none".
 3. An empty tool list makes every presence check fail, so an unreachable or
-   mis-parsed server reads as *"all 21 tools are missing"* — a true-looking
-   verdict for entirely the wrong reason. The helper therefore **errors on an
-   empty list** instead of returning it.
+   mis-parsed server reads as *"all 21 tools are missing"*. That is a
+   true-looking verdict for entirely the wrong reason. The helper therefore
+   **errors on an empty list** instead of returning it.
 
 **Presence is not callability, and this guard only checks presence.** A tool can
 appear in `tools/list` and fail every time it is called. On this cluster
 `kubescape_*`, `prometheus_*` and `istio_*` are all advertised and all
-non-functional — no Kubescape operator (the `vulnerabilitymanifests` CRD is
-absent), no Prometheus (hardcoded `localhost:9090`), no Istio (`istioctl` exits
-64), and `prometheus_promql_tool` additionally wants an `OPENAI_API_KEY`. An
-earlier re-pointing plan aimed four agents at exactly those tools; it would have
+non-functional. There is no Kubescape operator (the `vulnerabilitymanifests` CRD
+is absent), no Prometheus (hardcoded `localhost:9090`), and no Istio (`istioctl`
+exits 64). `prometheus_promql_tool` additionally wants an `OPENAI_API_KEY`. An
+earlier re-pointing plan aimed four agents at exactly those tools. It would have
 traded "tool does not exist" for "tool exists and always errors", **and this
 guard would have passed it**. The agents were pointed at the verified-working
-`k8s_*` set instead. Closing the gap properly means a `tools/call` probe, which
+`k8s_*` set instead. Closing the gap properly means a `tools/call` probe. That
 needs a per-tool judgement about which calls are safe to make against a live
-cluster — deliberately not attempted here.
+cluster, and it is deliberately not attempted here.
 
 **Deferred agents.** `kagent-chaos-prober` and `kagent-commit-summariser` are
 deferred by ruling: no `chaos_*` tool and no `github_*` tool exist on the server.
 They are named in `DEFERRED_AGENTS` in the test, with a recorded reason each.
 
 A hardcoded allowlist normally rots into a permanent hole, so it carries an
-anti-rot clause: **a deferral asserts that the tools do not exist, and fails the
+anti-rot clause. **A deferral asserts that the tools do not exist, and fails the
 moment they do.** If a `chaos_*` tool ever appears, the deferral is stale and the
 suite fails until the agent is removed from the list and re-enforced. A deferral
 naming an agent that no longer exists fails too, as does one with no reason. The
@@ -658,15 +670,15 @@ list can only shrink by itself.
 
 An earlier draft put this in an Agent CR annotation, so the decision would live
 in the manifest rather than the test. That was the better shape, but neither
-branch owning those manifests was adding annotations, so it would have meant the
+branch owning those manifests was adding annotations. So it would have meant the
 guard staying red on a decision that had in fact been made. Reversed
-deliberately; the anti-rot clause is what makes the static form safe.
+deliberately. The anti-rot clause is what makes the static form safe.
 
 ### Known-red suites
 
 - **`test/kagent-anti-stub.bats` — 13/13 failing at `f879ec4c` by design.** Every
   assertion targets a property the placeholder stack lacks. These flip green when
-  the real charts and credentials land; a passing run against a stub would mean the
+  the real charts and credentials land. A passing run against a stub would mean the
   suite had broken.
 - **`test/kagent-infra.bats` — 4/4 failing.** It tests an interface
   `scripts/kagent-infra.sh` does not implement: a `KAGENT_INFRA_MANIFEST_DIR`
@@ -674,16 +686,17 @@ deliberately; the anti-rot clause is what makes the static form safe.
   unknown subcommand, and a `Usage: kagent-infra.sh` string. The script uses a
   fixed manifest path, `wait_rollout`, exit 1, and `Usage: $0`. The suite was
   omitted from `scripts/kagent-test.sh`, so `make demo-kagent-test` reported green
-  while it was red. It is now included: either the script grows that interface or
-  the suite is rewritten against the one it has — but the mismatch is visible.
+  while it was red. It is now included. Either the script grows that interface or
+  the suite is rewritten against the one it has. Either way, the mismatch is
+  visible.
 
 ### Seven ways these suites have produced a confident wrong answer
 
 Each of these was hit for real while building the kagent suites, the credential
 wiring, and the SPIRE durability work. What they share is not that they fail —
 it is that they **return a plausible verdict instead of an error**. A test that
-fails tells you about itself; one that answers confidently and wrongly does not.
-Most produce a false green; #1 produces a false *accusation*, which is the same
+fails tells you about itself. One that answers confidently and wrongly does not.
+Most produce a false green. #1 produces a false *accusation*, which is the same
 defect seen from the other side.
 
 The one question that resolves all seven:
@@ -701,24 +714,25 @@ failure any of them is:
   can, at all.
 - **#6** — Flux would have to reach its apply stage. It was failing before it.
 
-An earlier draft of this section sorted these into categories — "the check never
-ran" versus "the check ran but its verdict was lossy" versus "the check ran but
-its stimulus never occurred". Every one of those distinctions turned out to be
+An earlier draft of this section sorted these into categories. The categories
+were "the check never ran" versus "the check ran but its verdict was lossy"
+versus "the check ran but its stimulus never occurred". Every one of those
+distinctions turned out to be
 arguable, and two were argued, correctly, after being written down. The
 categories were doing no work that the question above does not do better, so
 they are gone. If you find yourself debating which bucket a new instance belongs
 in, that is the signal to ask the question instead.
 
-1. **A test-filter that matches nothing exits 0.** A mutation harness that breaks
-   a guard and runs `bats -f '<name>'` to watch it fail reads the exit 0 as "the
-   test stayed green under the mutation" — i.e. *this test guards nothing* — and
-   files a false accusation against a guard that works perfectly. The real cause
-   was a filter reading "…retired mock **placeholder**" against a test named
-   "…retired mock **literal**".
+1. **A test-filter that matches nothing exits 0.** A mutation harness breaks
+   a guard and runs `bats -f '<name>'` to watch it fail. It reads the exit 0 as
+   "the test stayed green under the mutation", that is, *this test guards
+   nothing*. It then files a false accusation against a guard that works
+   perfectly. The real cause was a filter reading "…retired mock
+   **placeholder**" against a test named "…retired mock **literal**".
 
-   The filter matching is a **precondition, not a result**: require
+   The filter matching is a **precondition, not a result**. Require
    `bats "$suite" -f "$name" --count` to equal exactly 1 before applying the
-   mutation, and report anything else as INCONCLUSIVE — never as SURVIVED.
+   mutation. Report anything else as INCONCLUSIVE, never as SURVIVED.
    Identical hazard in `pytest -k`, `go test -run`, `jest -t`.
 
 2. **A stub that returns a plausible wrong value rather than failing.** Two
@@ -727,7 +741,7 @@ in, that is the signal to ask the question instead.
 
    - *Quoting mangled through a generated heredoc.* A kubectl stub emitted into a
      `<<'STUB'` heredoc by a Python script lost its escaping, so every query
-     returned empty — and empty is indistinguishable from "the field is absent".
+     returned empty. And empty is indistinguishable from "the field is absent".
      The stub is now a real fixture file
      (`d2-signalloom/test/fixtures/kubectl-stub.sh`), not generated text.
    - *`-o jsonpath` caught by an `-o json` glob.* A `case` arm matching
@@ -738,27 +752,28 @@ in, that is the signal to ask the question instead.
      and require the trailing space (`*"-o json "*`).
 
    "A stub should be more brittle" was the first attempt at a rule here, and it
-   is the wrong axis — it also fails to describe the second instance at all.
+   is the wrong axis. It also fails to describe the second instance at all.
    Two rules, because these are two mechanisms:
 
    1. **A stub's failure value must not be something the real thing could
       legitimately return.** `""`, `0`, `null`, `[]` are almost always legal
-      answers, so a stub that returns one on failure collides with a real state
+      answers. So a stub that returns one on failure collides with a real state
       the caller is entitled to observe. Fail loudly instead.
    2. **A stub must reject queries it does not understand, not fall through.**
       A `*)` arm returning success is where a *well-formed answer to the wrong
       question* gets manufactured. The `-o jsonpath` case was a dispatch error,
-      not a fallback-value one; no amount of brittleness would have caught it.
+      not a fallback-value one. No amount of brittleness would have caught it.
 
    Applying rule 2 to that stub immediately found two more defects in the same
    family. `create --dry-run=client -o yaml` was unhandled, so it emitted
    nothing and the pipeline into `replace --force -f -` carried an **empty
-   manifest** while every test passed — they asserted on argv and never on the
-   pipe having content. Fixing that exposed a fourth: the stub never drained
-   stdin for `-f -`, harmless while it emitted nothing, but once it emitted a
-   real manifest the producer died of **SIGPIPE**, surfacing under `pipefail` as
-   exit **141** with no message. That is now asserted specifically, because a
-   bare non-zero check cannot tell SIGPIPE from a real failure.
+   manifest** while every test passed. The tests asserted on argv and never on
+   the pipe having content. Fixing that exposed a fourth: the stub never drained
+   stdin for `-f -`. That was harmless while it emitted nothing. But once it
+   emitted a real manifest the producer died of **SIGPIPE**, surfacing under
+   `pipefail` as exit **141** with no message. That is now asserted
+   specifically, because a bare non-zero check cannot tell SIGPIPE from a real
+   failure.
 
    **And the fix can be worse than the bug.** Draining stdin unconditionally
    hung an entire bats file — `cat` blocks on a terminal or any inherited
@@ -769,8 +784,8 @@ in, that is the signal to ask the question instead.
    Secret with `jq '.data | to_entries[0].value'` tests whichever key sorts
    first. When `kagent-anthropic-key` grew a second key, `ANTHROPIC_API_KEY`
    (real) sorted ahead of `api-key` (still the mock, and the one the ModelConfig
-   actually names) — so the assertion passed while the credential in use was a
-   placeholder. **Assert over every key; never a positional index.** The general
+   actually names). So the assertion passed while the credential in use was a
+   placeholder. **Assert over every key, never a positional index.** The general
    form: if a collection can grow, an index into it is a silent rebinding.
    Chasing this one found a second defect underneath it: `kubectl apply` MERGES,
    so a stale `api-key` survived beneath a write that only set the new key. The
@@ -779,16 +794,16 @@ in, that is the signal to ask the question instead.
 
 4. **Mutating into an already-red suite proves nothing.** Falsifying the SPIFFE
    trust-domain assertion by pointing one card at `spiffe://wrong.example`
-   produced a red — but the failure named a *different* card, because the suite
+   produced a red. But the failure named a *different* card. The suite
    was already failing on the first one alphabetically and never reached the
-   mutation. A falsification must start from green: fix everything, confirm the
+   mutation. A falsification must start from green. Fix everything, confirm the
    suite passes, then break exactly one thing and check the failure names the
    thing you broke.
 
 5. **`bash -n` misses exactly one syntax fault: the unterminated here-document.**
    Keep using it — this is a single carve-out, not a reason to distrust the tool.
    `bash -n` exits **2** on every other malformed construct. The exception is
-   semantic: bash *accepts* a here-doc delimited by EOF, so to bash it is not an
+   semantic: bash *accepts* a here-doc delimited by EOF. So to bash it is not an
    error at all but a recoverable oddity, reported as a warning at exit 0.
 
    Measured across nine constructs:
@@ -806,13 +821,13 @@ in, that is the signal to ask the question instead.
    `[ -z "$output" ]`** — bats folds stderr into `$output`.
 
    Note the discriminator is the *exit code paired with stderr being non-empty*,
-   never the message text: the unclosed-quote case says "unexpected EOF while
+   never the message text. The unclosed-quote case says "unexpected EOF while
    looking for matching" too, and does so at rc=2. Exit-0-with-stderr was unique
    to the heredoc across all nine.
 
    Worst where a script lives in a ConfigMap block scalar, because the
-   terminator's real column is decided by YAML indent-stripping: indent it two
-   spaces and it still *looks* aligned in the editor, but after extraction it is
+   terminator's real column is decided by YAML indent-stripping. Indent it two
+   spaces and it still *looks* aligned in the editor. But after extraction it is
    no longer at column 0. Corollary: extract the script the way the runtime does
    and check the extracted bytes, never the manifest.
 
@@ -830,13 +845,13 @@ in, that is the signal to ask the question instead.
    failed before doing any work.
 
 7. **A guard matched the comment explaining the absence.** A grep for a forbidden
-   token also matches the line documenting why the token is gone, so the guard
-   reports the defect it was just told had been fixed — and the obvious way to
+   token also matches the line documenting why the token is gone. So the guard
+   reports the defect it was just told had been fixed. And the obvious way to
    make it pass is to delete the explanation. `test/kagent-anti-stub.bats` and
    `bats-registry-coverage.bats` both strip whole-line comments before matching.
 
    Only *whole-line* comments. The fourth case below is what makes that correct
-   rather than merely convenient — and it is the case a naive `sed 's/#.*//'`
+   rather than merely convenient. It is the case a naive `sed 's/#.*//'`
    gets wrong, laundering a live assignment because someone appended a `# TODO`:
 
    | manifest state | verdict |
@@ -848,7 +863,7 @@ in, that is the signal to ask the question instead.
 
    Whole-line stripping also removes `#` lines *inside* a YAML block scalar,
    where they are shell comments in data rather than YAML comments. For a
-   forbidden-literal scan that is the wanted behaviour either way; it would only
+   forbidden-literal scan that is the wanted behaviour either way. It would only
    matter to a guard needing to assert something *about* an embedded script's
    comments.
 
@@ -856,19 +871,19 @@ in, that is the signal to ask the question instead.
 
 `scripts/kagent-harness-exec.sh` writes `.kagent-preflight-proof.json`, which is
 git-tracked. Because it is committed, a stale copy answers for runs it never
-observed — the committed version recorded commit `ef483f3e`, four pod names that no
-longer existed, five Agent CRs out of eight, and `test_assertions_passed: 23`, a
-figure that was a hardcoded literal in the harness and never matched any run.
+observed. The committed version recorded commit `ef483f3e`, four pod names that no
+longer existed, five Agent CRs out of eight, and `test_assertions_passed: 23`.
+That last figure was a hardcoded literal in the harness and never matched any run.
 
-`test/kagent-demo-harness.bats` now asserts freshness: the artefact must still
-describe the current tree, its `agent_crs` must equal the live set exactly, and
-its pass count must be consistent with what the runner measured. Regenerate with
+`test/kagent-demo-harness.bats` now asserts freshness. The artefact must still
+describe the current tree. Its `agent_crs` must equal the live set exactly. Its
+pass count must be consistent with what the runner measured. Regenerate with
 `scripts/kagent-harness-exec.sh` after any run whose evidence you intend to quote.
 
 **Expect the artefact to record one failure more than a fresh run reports**, and
 do not chase it. The freshness test is evaluated *during* the run, at which point
-the artefact on disk is still the previous one — so if any kagent file changed
+the artefact on disk is still the previous one. So if any kagent file changed
 since, that test is legitimately red and gets counted. Committing the new
 artefact then makes it green. The artefact therefore cannot record its own
-freshness assertion as passing; it is a self-reference, not a regression. If the
+freshness assertion as passing. It is a self-reference, not a regression. If the
 counts differ by more than that one test, something real has changed.

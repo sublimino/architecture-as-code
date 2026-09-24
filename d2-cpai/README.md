@@ -7,9 +7,12 @@ own image, its own up/down lifecycle. Bringing it up or tearing it down never
 touches anything else.
 
 The container image is built from `Dockerfile.runtime` in the **cpai-cli** repo,
-pushed to the in-cluster Zot registry, and **cosign-signed** — the only code that
-reaches outside this repo is that image build, which the `cpai-images` target in
-the repo-root `Makefile` drives.
+pushed to the in-cluster Zot registry, and **cosign-signed**. The only code that
+reaches outside this repo is that image build. The `cpai-images` target in
+the repo-root `Makefile` drives it.
+
+The request path from an OpenAI client to Vertex AI is drawn in
+[`AGENTS.md`](AGENTS.md#architecture).
 
 ## What you get
 
@@ -51,7 +54,7 @@ make demo-cpai-down          # remove the cpai namespace (nothing else is touche
 ```
 
 `demo-cpai-up` forces a rollout after apply, so a freshly built+signed image is
-always the one that runs (the `:latest` tag alone would otherwise be a no-op).
+always the one that runs. The `:latest` tag alone would otherwise be a no-op.
 
 ## Talk to it directly
 

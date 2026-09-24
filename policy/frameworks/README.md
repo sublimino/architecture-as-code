@@ -31,7 +31,7 @@ Each framework ships at three strictness levels, encoded as semantic versions:
 | v2.0    | Standard | Defence-in-depth. Resource limits, probes. 5-8 per set.  |
 | v2.1    | Strict   | Full manifest coverage. Labels, annotations. 8-12 per set.|
 
-Higher tiers are strict supersets of lower tiers -- every check in v1.0
+Higher tiers are strict supersets of lower tiers. Every check in v1.0
 appears in v2.0, and every check in v2.0 appears in v2.1 (plus additional
 checks).
 

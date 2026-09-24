@@ -148,19 +148,19 @@ interface SeedEstateResult {
 **Reset semantics — exactly what is claimed.** `resetEstate()` removes every
 `localStorage` key under `amxd.demo.` (enumerated, not hardcoded), clears the
 in-memory bridge event log, and returns `INITIAL_STEPPER_STATE`. It does **not**
-clear backend rows. There is no backend endpoint that would let it:
+clear backend rows. There is no backend endpoint that would let it.
 `rg -n 'reset|seed'` over `external_agent_registration.py`, `host_credential.py`,
-and `host_enrollment.py` returns two matches, both undecorated in-process helpers
-(`external_agent_registration.py:54`, `host_enrollment.py:50`) with no router
-mount, whose sibling `api_compat.py:2353` is documented "Nothing in the running
-application calls this." `backendStateCleared` is typed as the literal `false` so
-this cannot be quietly changed.
+and `host_enrollment.py` returns two matches. Both are undecorated in-process
+helpers (`external_agent_registration.py:54`, `host_enrollment.py:50`) with no
+router mount. Their sibling `api_compat.py:2353` is documented "Nothing in the
+running application calls this." `backendStateCleared` is typed as the literal
+`false` so this cannot be quietly changed.
 
 **Seed semantics — idempotent, never destructive.** `seedEstate()` writes the
-same three keys with the same values for a given preset, so a presenter
-re-running it mid-demo re-establishes the known state rather than losing
-anything. `signature` is a deterministic digest of the preset, which is how
-"returned to a known state twice in succession" is asserted mechanically.
+same three keys with the same values for a given preset. A presenter
+re-running it mid-demo therefore re-establishes the known state rather than
+losing anything. `signature` is a deterministic digest of the preset, which is
+how "returned to a known state twice in succession" is asserted mechanically.
 
 ### Storage namespace
 
@@ -229,9 +229,9 @@ const LIVE_REACHABILITY: Readonly<Record<string, Readonly<Record<StageId, LiveRe
 ## Live-reachable stage transitions — AMXD-P1-4 HAS LANDED
 
 Dated against the nginx state at **2026-09-15**: `nginx.conf` has a
-`location /api/` block **and** a `location /v1/` block (`nginx.conf:118`,
-added by AMXD-P1-4, passthrough via `$api$request_uri` with `Authorization`
-forwarded).
+`location /api/` block **and** a `location /v1/` block (`nginx.conf:118`).
+AMXD-P1-4 added the `/v1/` block. It is a passthrough via `$api$request_uri`
+with `Authorization` forwarded.
 
 | Preset | Stage | Path | Post-P1-4 |
 |---|---|---|---|
@@ -244,31 +244,31 @@ forwarded).
 | revocation-race | `revocation_denied` | `/api/v1/external-agents/evidence-uploads` | reachable |
 
 **What this means per card.** P2-1, P2-2, P3-1, P3-2 and **P4-2** may all build
-against the live channel. Every stage of every preset is live-reachable; there
+against the live channel. Every stage of every preset is live-reachable. There
 is no longer a blocked stage.
 
 ### Reachability and transport are two different questions
 
 The revoke route is mounted **only** on `v1_router`
 (`external_agent_registration.py:1231`) and was never added to `router`
-(`/api/v1/external-agents`), so it must not be routed through `req()`, which
-auto-prefixes `/api` at `client.ts:241`. The live channel uses a direct `fetch`,
-the same way `agentClaim.ts:111` does.
+(`/api/v1/external-agents`). It must therefore not be routed through `req()`,
+which auto-prefixes `/api` at `client.ts:241`. The live channel uses a direct
+`fetch`, the same way `agentClaim.ts:111` does.
 
 That constraint is **independent of reachability** and survives AMXD-P1-4.
-A single predicate answering both questions is a trap: once `/v1/` became
+A single predicate answering both questions is a trap. Once `/v1/` became
 proxied, a reachability-driven transport choice would promote the revoke onto
-`req()` and mangle it into `/api/v1/external-agents/hosts/...`, a route FastAPI
-never registered. `assessLiveReachability` and `selectTransport` are therefore
-deliberately separate, backed by two separate prefix lists.
+`req()`. That would mangle it into `/api/v1/external-agents/hosts/...`, a route
+FastAPI never registered. `assessLiveReachability` and `selectTransport` are
+therefore deliberately separate, backed by two separate prefix lists.
 
 ### How this table is kept honest
 
 AMXD-P1-GOV found that the previous guard was a **tautology**: `bridge.test.ts`
 asserted `LIVE_REACHABILITY_PRE_AMXD_P1_4` agreed with `assessLiveReachability()`,
 but both read the same `NGINX_PROXIED_API_PREFIXES` constant. Two copies of the
-same wrong answer agree perfectly — which is exactly why AMXD-P1-4 could add
-`location /v1/` without a single test going red, leaving the bridge reporting a
+same wrong answer agree perfectly. That is exactly why AMXD-P1-4 could add
+`location /v1/` without a single test going red. The bridge was left reporting a
 reachable stage as blocked.
 
 `bridge.test.ts` now **parses `nginx.conf` itself** and fails if
@@ -281,21 +281,21 @@ tests.
 
 ## Open — later cards may extend these without renegotiation
 
-- **`ChannelDescriptor.label` wording.** Free to change; nothing string-matches it.
-- **`BridgeEvent` additive fields.** New optional fields may be appended; `seq`,
+- **`ChannelDescriptor.label` wording.** Free to change. Nothing string-matches it.
+- **`BridgeEvent` additive fields.** New optional fields may be appended. `seq`,
   `channel`, `stage`, `outcome` are frozen.
 - **`BRIDGE_EVENT_LOG_CAP` value.** Raising it is expected and safe.
 - **`adaptLivePayload` per-stage mapping.** How a backend response maps onto
   `StagePayloadMap[S]` will sharpen as P2–P4 see real shapes. The *return type*
-  is frozen; the mapping is not.
+  is frozen. The mapping is not.
 - **`BridgeUnsupportedError.reason` union.** New reasons may be added.
 - **`AdvanceOptions` additive fields.** `signal`, `dwellMs`, `timeoutMs` are frozen.
-- **Additional `amxd.demo.`-prefixed storage keys.** The prefix is frozen; the key
+- **Additional `amxd.demo.`-prefixed storage keys.** The prefix is frozen. The key
   set is not.
 - **`MOCK_LATENCY_MS`.** Tunable.
 
 ## Explicitly NOT in this contract
 
-- Any backend reset or seed endpoint. None exists; none is added here.
+- Any backend reset or seed endpoint. None exists. None is added here.
 - Any nginx route change. AMXD-P1-4 owns `nginx.conf`.
 - Any enforcement against a real workload, or any display of real customer data.

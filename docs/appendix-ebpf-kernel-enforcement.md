@@ -1,10 +1,10 @@
 # Appendix: eBPF and Kernel-Level Enforcement for AI Agent Containment
 
-> **Author:** Andy Martin, ControlPlane  
-> **Date:** 2026-08-28  
-> **Status:** Research appendix for OSRAMP / Signal Loom  
-> **Parent proposal:** [[Proposal — Secure Agent Swarm Architecture, OpenBao SPIFFE Registration, and Signal Loom Auto-Claim Demo Fleet [Claude Sonnet 4 / OpenCode CPAI] (2026-Q3)]]  
-> **Audience:** CTO-level; assumes familiarity with eBPF, cgroups v2, Linux security modules, and Kubernetes internals
+> **Author:** Andy Martin, ControlPlane.  
+> **Date:** 2026-08-28.  
+> **Status:** Research appendix for OSRAMP / Signal Loom.  
+> **Parent proposal:** [[Proposal — Secure Agent Swarm Architecture, OpenBao SPIFFE Registration, and Signal Loom Auto-Claim Demo Fleet [Claude Sonnet 4 / OpenCode CPAI] (2026-Q3)]].  
+> **Audience:** CTO-level. Assumes familiarity with eBPF, cgroups v2, Linux security modules, and Kubernetes internals.
 
 ---
 
@@ -152,7 +152,7 @@ Key design decisions:
 
 - **Monitor-first by default.** Every policy ships in monitor mode. A `WouldDeny` counterfactual signal shows what would be blocked before flipping to enforce.
 - **CEL expressions** can pull live values from ConfigMaps or HTTP sources on a refresh interval, enabling dynamic policy updates without redeployment.
-- **`monitorFilter`** is a per-observation CEL predicate that runs before a finding is written to OpenReports, filtering noise (e.g., `sh`, `grep`) from exec monitoring.
+- **`monitorFilter`** is a per-observation CEL predicate that runs before a finding is written to OpenReports, filtering noise (for example `sh`, `grep`) from exec monitoring.
 - **OpenReports** integration: findings land as standard Kubernetes objects, not proprietary dashboards.
 
 ### 2.4 Comparison with Signal Loom
@@ -176,9 +176,9 @@ Key design decisions:
 
 2. **Monitor-before-enforce.** Nirmata's `WouldDeny` counterfactual is a pattern Signal Loom should adopt. Before enforcing a stun policy, run it in monitor mode to surface false positives without disrupting running agents.
 
-3. **Continuous enforcement vs. emergency containment.** These are complementary, not competitive. Nirmata Runtime prevents bad behaviour from happening; Signal Loom's stun sentinel is the circuit breaker when prevention fails. A production system wants both layers.
+3. **Continuous enforcement vs. emergency containment.** These are complementary, not competitive. Nirmata Runtime prevents bad behaviour from happening. Signal Loom's stun sentinel is the circuit breaker when prevention fails. A production system wants both layers.
 
-4. **Protocol-aware network filtering.** The stun sentinel's TC drop is a sledgehammer. Nirmata's protocol-level enforcement (blocking by application protocol, not just port) could inform a more graduated network containment where agents are restricted to specific protocols rather than fully network-isolated.
+4. **Protocol-aware network filtering.** The stun sentinel's TC drop is a sledgehammer. Nirmata's protocol-level enforcement (blocking by application protocol, not only port) could inform a more graduated network containment. Agents would be restricted to specific protocols rather than fully network-isolated.
 
 ---
 
@@ -205,7 +205,7 @@ Key design decisions:
 
 Tetragon is the most technically mature eBPF enforcement engine. Two enforcement mechanisms:
 
-1. **Override Return Value** (`bpf_override_return`): The function never executes; an error value (typically `-EPERM`) is returned to the caller. Limited to functions marked `ALLOW_ERROR_INJECTION` -- primarily syscalls and security check functions. Requires `CONFIG_BPF_KPROBE_OVERRIDE=y`.
+1. **Override Return Value** (`bpf_override_return`): The function never executes. An error value (typically `-EPERM`) is returned to the caller. Limited to functions marked `ALLOW_ERROR_INJECTION` -- primarily syscalls and security check functions. Requires `CONFIG_BPF_KPROBE_OVERRIDE=y`.
 
 2. **SIGKILL** (`bpf_send_signal`): Terminates the process synchronously. However, SIGKILL sent during a `write()` does not guarantee the data was not written -- it guarantees the process is terminated after.
 
@@ -213,7 +213,7 @@ The `NotifyEnforcer` action in TracingPolicy takes `argError` (override return) 
 
 **Strengths:** Deep kernel integration, Kubernetes-native (understands pods/namespaces/labels), sub-1% performance overhead, CNCF project with Cisco/Isovalent backing, existing Cilium CNI integration.
 
-**Weakness for Signal Loom:** Tetragon kills processes; it does not freeze them. There is no `cgroup.freeze` equivalent in TracingPolicy. For forensic preservation of rogue AI agents, Tetragon's SIGKILL destroys the evidence.
+**Weakness for Signal Loom:** Tetragon kills processes. It does not freeze them. There is no `cgroup.freeze` equivalent in TracingPolicy. For forensic preservation of rogue AI agents, Tetragon's SIGKILL destroys the evidence.
 
 #### KubeArmor
 
@@ -264,7 +264,7 @@ gVisor provides isolation through architecture, not policy. The Sentry process r
 
 **Performance:** 10-30% overhead on I/O-heavy workloads. Every syscall crosses the user/kernel boundary twice (container -> trap -> Sentry -> host syscall). For AI inference workloads that are GPU-bound, this overhead is negligible. For agents doing heavy file I/O or network calls, it is measurable.
 
-**No freeze capability.** gVisor isolates; it does not contain in the forensic sense. You cannot freeze-in-place a gVisor workload while preserving its state for investigation.
+**No freeze capability.** gVisor isolates. It does not contain in the forensic sense. You cannot freeze-in-place a gVisor workload while preserving its state for investigation.
 
 #### Kata Containers + eBPF (Ant Group Pattern)
 
@@ -308,11 +308,11 @@ However, the sentinel should not be the only enforcement layer. The recommended 
 | **L3: Runtime detection** | Falco | Detect anomalies that prevention rules do not cover |
 | **L4: Emergency containment** | Signal Loom Stun Sentinel | Freeze + network-isolate when L2/L3 trigger a stun decision |
 
-The stun sentinel becomes the **circuit breaker** -- the last-resort mechanism when continuous enforcement has been bypassed or when an agent's behaviour exceeds its declared envelope in a way that warrants preserving state for investigation.
+The stun sentinel becomes the **circuit breaker**, the last-resort mechanism. It acts when continuous enforcement has been bypassed. It also acts when an agent's behaviour exceeds its declared envelope in a way that warrants preserving state for investigation.
 
 ### 4.2 Integrating with Cilium's Existing eBPF Infrastructure
 
-If the cluster runs Cilium as its CNI (which is the case for GKE Autopilot, EKS recommended, AKS built-in), the sentinel's TC filter attachment will conflict with Cilium's existing `clsact` qdisc and eBPF programs on pod veth interfaces.
+Cilium is the CNI for GKE Autopilot, EKS recommended, and AKS built-in. When Cilium is the CNI, the sentinel's TC filter attachment will conflict with Cilium's existing `clsact` qdisc and eBPF programs on pod veth interfaces.
 
 **Recommended integration approach:**
 
@@ -334,7 +334,7 @@ If the cluster runs Cilium as its CNI (which is the case for GKE Autopilot, EKS 
 
 2. **Use Cilium's endpoint API for immediate enforcement.** `CiliumNetworkPolicy` application goes through the API server and the Cilium agent's reconciliation loop. For tighter latency, use `cilium endpoint config <ep-id> --policy-ingress=deny --policy-egress=deny` directly from the sentinel. This bypasses the API server entirely and takes effect within the Cilium agent's BPF map update cycle (~milliseconds).
 
-3. **Leverage Tetragon for the stun trigger.** Instead of watching Kubernetes labels, write a `TracingPolicy` that detects the specific syscall patterns or file access patterns that indicate a rogue agent, and have Tetragon fire a `NotifyEnforcer` that both sends SIGSTOP (not SIGKILL) to the process and notifies the sentinel to apply the cgroup freeze. This reduces the trigger latency from API-watch-speed (~100ms-1s) to syscall-synchronous (~microseconds).
+3. **Use Tetragon for the stun trigger.** Instead of watching Kubernetes labels, write a `TracingPolicy` that detects the specific syscall patterns or file access patterns that indicate a rogue agent. Then have Tetragon fire a `NotifyEnforcer` that both sends SIGSTOP (not SIGKILL) to the process and notifies the sentinel to apply the cgroup freeze. This reduces the trigger latency from API-watch-speed (~100ms-1s) to syscall-synchronous (~microseconds).
 
 ### 4.3 Reducing Privilege Requirements
 
@@ -342,7 +342,7 @@ The current privilege surface can be reduced:
 
 **Drop `hostPID`:**
 
-The current code does not actually use `/proc/{pid}/` for veth resolution -- it lists interfaces by naming convention. If switching to Cilium-based network isolation (recommendation 4.2), the sentinel no longer needs to manipulate host network interfaces at all, eliminating the need for both `hostPID` and `hostNetwork`.
+The current code does not actually use `/proc/{pid}/` for veth resolution -- it lists interfaces by naming convention. If switching to Cilium-based network isolation (recommendation 4.2), the sentinel no longer needs to manipulate host network interfaces at all. That eliminates the need for both `hostPID` and `hostNetwork`.
 
 **Drop `hostNetwork`:**
 
@@ -352,7 +352,7 @@ With Cilium policy-based isolation, the sentinel does not need to see host-side 
 
 Writing to `/sys/fs/cgroup/.../cgroup.freeze` requires write access to a file owned by root. `CAP_DAC_OVERRIDE` bypasses file permission checks without granting the full `SYS_ADMIN` surface. However, this depends on the cgroup filesystem mount options -- if mounted with `nosuid`, additional capabilities may be needed.
 
-**Alternatively, use a privileged init container** that sets up the cgroup write access (e.g., bind-mounts the specific pod cgroup paths with appropriate permissions), and run the main sentinel container with minimal capabilities.
+**Alternatively, use a privileged init container** that sets up the cgroup write access (for example, bind-mounts the specific pod cgroup paths with appropriate permissions). Then run the main sentinel container with minimal capabilities.
 
 **Target privilege surface after refactoring:**
 
@@ -577,7 +577,7 @@ spec:
             signalloom.ai/state: stunned
 ```
 
-This creates a feedback loop: Nirmata Runtime detects policy violations -> violations accumulate in annotations -> Kyverno mutating webhook applies the stun label -> sentinel freezes the pod.
+This creates a feedback loop. Nirmata Runtime detects policy violations -> violations accumulate in annotations -> Kyverno mutating webhook applies the stun label -> sentinel freezes the pod.
 
 ---
 

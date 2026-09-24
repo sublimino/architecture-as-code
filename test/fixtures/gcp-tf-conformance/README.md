@@ -26,12 +26,12 @@ STUB_FIXTURE_BASE=.../compliant          # everything else
 
 A scenario directory therefore holds **only the difference**, which is what
 makes each negative test a single readable file. A fixture whose whole content
-is `__STUB_ERROR__` makes that one call fail, which is how "the state bucket is
+is `__STUB_ERROR__` makes that one call fail. That is how "the state bucket is
 gone" and "this API returned PERMISSION_DENIED" are expressed.
 
 A slug with no fixture in either directory makes the stub exit non-zero. That is
 deliberate: the scripts must report UNKNOWN, never FAIL, when they could not
-look, and a missing fixture is the cheapest way to prove it.
+look. A missing fixture is the cheapest way to prove it.
 
 ## The decoys in `compliant/`
 

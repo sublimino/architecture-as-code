@@ -4,21 +4,21 @@
 > This logical source directory is part of the reference architecture for the
 > [ControlPlane Enterprise for Flux CD](https://fluxcd.control-plane.io/).
 >
-> The `d2` reference architecture comprised of
-> `d2-osramp-fleet`, `d2-infra` and `d2-osramp-apps` directories of the Acme Co. OSRAMP monorepo
-> is a set of best practices and production-ready examples for using Flux Operator
-> and OCI Artifacts to manage the continuous delivery of Kubernetes infrastructure and
+> The `d2` reference architecture is comprised of the
+> `d2-osramp-fleet`, `d2-infra` and `d2-osramp-apps` directories of the Acme Co. OSRAMP monorepo.
+> It is a set of best practices and production-ready examples for using Flux Operator
+> and OCI Artifacts. They manage the continuous delivery of Kubernetes infrastructure and
 > applications on multi-cluster multi-tenant environments.
 >
 > Download the guide: [Flux D2 Architectural Reference](https://raw.githubusercontent.com/controlplaneio-fluxcd/distribution/main/guides/ControlPlane_Flux_D2_Reference_Architecture_Guide.pdf)
 
 ## Scope and Access Control
 
-This logical source directory is managed by the platform team who are responsible for
-the Kubernetes infrastructure and have direct access to the fleet of clusters.
+The platform team manages this logical source directory. The platform team is responsible for
+the Kubernetes infrastructure and has direct access to the fleet of clusters.
 
-The platform team that manages this directory must have **admin** rights to the monorepo path and
-and **cluster admin** rights to all clusters in the fleet to be able to perform the following tasks:
+The platform team that manages this directory must have **admin** rights to the monorepo path.
+It must also have **cluster admin** rights to all clusters in the fleet. Those rights permit the following tasks:
 
 - Bootstrap Flux Operator with multi-tenancy restrictions on the fleet of clusters.
 - Configure the delivery of platform components (defined in [d2-infra](../d2-infra)).
@@ -26,8 +26,8 @@ and **cluster admin** rights to all clusters in the fleet to be able to perform 
 
 ## OCI Artifacts
 
-The content of the D2 logical source directories is packaged as OCI Artifacts and published
-to GitHub Container Registry using GitHub Actions workflows in this monorepo.
+The content of the D2 logical source directories is packaged as OCI Artifacts. GitHub Actions
+workflows in this monorepo publish the artifacts to GitHub Container Registry.
 The artifacts are signed with the Cosign keyless procedure using the GitHub Actions OIDC.
 
 Flux running in the clusters, pulls the OCI Artifacts to reconcile the desired state and
@@ -45,8 +45,8 @@ The artifacts published to `oci://ghcr.io/acme-co/osramp/fleet` are tagged as:
 - `latest-stable` points to the latest artifact tagged as `vX.Y.Z`.
 
 The Flux Operator running on the Kubernetes clusters in the fleet is configured with a
-[FluxInstance](../d2-osramp-fleet/clusters/staging/flux-system/flux-instance.yaml)
-pointing to the OCI Artifact that defines the desired state of each cluster. The staging clusters
+[FluxInstance](../d2-osramp-fleet/clusters/staging/flux-system/flux-instance.yaml).
+The FluxInstance points to the OCI Artifact that defines the desired state of each cluster. The staging clusters
 are synced from the `latest` tag, while the production clusters are synced from the `latest-stable` tag.
 
 ### Components Artifacts
@@ -62,8 +62,8 @@ is published to `oci://ghcr.io/acme-co/osramp/apps/frontend` and is tagged as:
 - `vX.Y.Z` for the release tags matching the Git tag format `<component>/vX.Y.Z`.
 - `latest-stable` points to the latest artifact tagged as `vX.Y.Z`.
 
-A component artifact contains the Kubernetes manifests (Flux resources and Kustomize overlays)
-that define the desired state of the component for the whole fleet of clusters:
+A component artifact contains the Kubernetes manifests (Flux resources and Kustomize overlays).
+Those manifests define the desired state of the component for the whole fleet of clusters:
 
 ```text
 .
@@ -79,7 +79,7 @@ that define the desired state of the component for the whole fleet of clusters:
 ```
 
 When Flux Operator reconciles the `ResourceSet` for the components, it configures the components tagged
-as `latest` to be deployed on the staging clusters, and the ones tagged as
+as `latest` to be deployed on the staging clusters. It configures the ones tagged as
 `latest-stable` to be deployed in production.
 
 Rolling back a component in production can be done by moving its `latest-stable` tag to a previous version,
@@ -90,12 +90,27 @@ latest release of the component.
 
 ## Bootstrap Procedure
 
-The bootstrap procedure is a one-time operation that installs the Flux Operator on the cluster,
-configures the Flux controllers and the delivery of platform components and applications.
+The bootstrap procedure is a one-time operation that installs the Flux Operator on the cluster.
+It configures the Flux controllers and the delivery of platform components and applications.
+
+The diagram shows the order from bootstrap to the tenant workloads.
+
+```mermaid
+flowchart LR
+  BOOT["make bootstrap-staging"] --> OP["Flux Operator"]
+  OP --> FI["FluxInstance<br/>clusters/staging/flux-system"]
+  FI --> FLEET["fleet OCI artifact<br/>ghcr.io/acme-co/osramp/fleet"]
+  FLEET --> RS["tenant ResourceSets<br/>infra, apps, olly, policies,<br/>agent-swarm, agent-trust, signalloom"]
+  RS --> COMP["component OCI artifacts<br/>d2-infra, d2-osramp-apps, ..."]
+```
+
+- Cluster definitions: [`clusters/`](clusters/)
+- Tenant ResourceSets: [`tenants/base/`](tenants/base/) and [`tenants/local/`](tenants/local/)
+- Terraform bootstrap: [`terraform/`](terraform/)
 
 After bootstrap, changes to the Flux configuration and version upgrades are done by
 modifying the [FluxInstance](../d2-osramp-fleet/clusters/staging/flux-system/flux-instance.yaml)
-manifest and letting Flux reconcile the changes, there is no need to run bootstrap
+manifest and letting Flux reconcile the changes. There is no need to run bootstrap
 again nor connect to the cluster.
 
 ### GitHub PAT Configuration
@@ -104,7 +119,7 @@ It is recommended to create a dedicated GitHub account for the Flux bot. This ac
 by the Flux source-controller running on clusters to authenticate with GitHub Container Registry
 to pull the OCI Artifacts.
 
-The Flux bot account must have read access to the monorepo package namespace, and the GitHub Personal Access Token (PAT) should grant read-only access to the GitHub Container Registry
+The Flux bot account must have read access to the monorepo package namespace. The GitHub Personal Access Token (PAT) should grant read-only access to the GitHub Container Registry
 by selecting the `read:packages` scope.
 
 ### Bootstrap a Kubernetes Cluster
@@ -186,7 +201,7 @@ In this fleet directory, the platform team must add a new set of inputs for the
 
 With this, the set of base resources for a component will now also be created for the new component.
 This set includes an `OCIRepository` object that points to the OCI Artifact, and two `Kustomization`
-objects consuming the artifact, `infra-controllers` and `infra-configs`, that together configure the
+objects consuming the artifact, `infra-controllers` and `infra-configs`. Together they configure the
 reconciliation of the new component.
 
 The typical structure of the `d2-infra` logical source directory is as follows:

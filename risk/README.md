@@ -5,7 +5,7 @@
 > nothing. A binary lie."
 
 This directory makes the platform's controls **priceable**. It baselines an AI agent's compliance
-posture against a versioned policy pack and this institution's risk posture, and emits a
+posture against a versioned policy pack and this institution's risk posture. It emits a
 reproducible cash value of the residual risk exposure.
 
 Design, phasing and platform integration: [`docs/policy-as-versioned-code/INTEGRATION.md`](../docs/policy-as-versioned-code/INTEGRATION.md).
@@ -69,21 +69,21 @@ A control whose `buys/yr` exceeds the institution's tolerance band is flagged fo
 
 ## Two things that will surprise you, and should
 
-**Tightening a non-dominant control buys nothing.** Several controls defend the same loss scenario;
-an attacker needs one way in, so the scenario's frequency is set by its *weakest* control. Fixing a
+**Tightening a non-dominant control buys nothing.** Several controls defend the same loss scenario.
+An attacker needs one way in, so the scenario's frequency is set by its *weakest* control. Fixing a
 second-weakest control shows `£0` until the weakest is fixed. That is a true statement about defence
 in depth, and the report shows it rather than flattering you.
 
 **A well-governed agent produces `VaR₉₅ = 0` with `ALE > 0`.** Once more than 5% of simulated years
-contain no loss event, the 95th percentile falls to zero while the mean stays positive, carried
-entirely by rare severe years. The report calls this **tail-dominated** and says what it implies: of
+contain no loss event, the 95th percentile falls to zero while the mean stays positive. Rare severe
+years carry that mean entirely. The report calls this **tail-dominated** and says what it implies. Of
 the four risk-financing moves — avoid, reduce, transfer, retain — you have reached the regime where
 *transfer* starts to beat further control spend. That is the shape an underwriter prices.
 
 ## Honesty
 
 Every triple in `org/*.yaml` is a **calibrated estimate against a named anchor class**, not a
-published figure used verbatim, and every one carries a `provenance` string so it can be argued
+published figure used verbatim. Every one carries a `provenance` string so it can be argued
 with. The loader refuses a magnitude with no provenance and a posture assertion with no evidence
 path. Re-calibrate against real incident history before any board, external or underwriter use.
 
@@ -93,11 +93,11 @@ The apparatus is real and reproducible. The inputs are illustrative until someon
 
 Amounts used to be bare numbers with the currency welded into the field *name* —
 `annual_cost_gbp`, `tolerance_gbp`, `per_deny_control_gbp`. A name does not survive a wire, a
-database column or a chart axis, so nothing downstream could convert, and a UI defaulting to USD
+database column or a chart axis, so nothing downstream could convert. A UI defaulting to USD
 over GBP source data would **relabel** a figure rather than convert it.
 
 Every amount is now `money.Money`, carrying its denomination as data. Each file declares its
-currency once; an individual amount may override it:
+currency once. An individual amount may override it:
 
 ```yaml
 currency: GBP                                   # document default
@@ -112,7 +112,7 @@ Rules that make this safe rather than decorative:
 - **A document containing money must declare a currency.** A bare amount with no default is a load
   error, never a guess.
 - **The old `*_gbp` keys are rejected at load, by name and line.** `yaml.v3` silently ignores keys
-  a struct does not declare, so an unmigrated file would otherwise load every cost as **zero** and
+  a struct does not declare. An unmigrated file would otherwise load every cost as **zero** and
   understate the figure with no warning.
 - **A missing rate is an error naming the pair**, never a silent `1.0`. A conversion that quietly
   passes a number through is the failure mode that puts a wrong figure on a slide.
@@ -129,8 +129,8 @@ figure. Updating rates is a reviewed pull request that re-versions the money alo
 ### Rounding, decided once
 
 **Nothing is rounded until it is displayed.** Conversion is a scalar multiply applied across a
-200,000-iteration simulation; rounding inside that loop accumulates and makes two views of the same
-report disagree. Magnitudes are converted **once**, before sampling; presentation rounds **once**,
+200,000-iteration simulation. Rounding inside that loop accumulates and makes two views of the same
+report disagree. Magnitudes are converted **once**, before sampling. Presentation rounds **once**,
 at the end, half away from zero, to the currency's minor unit (2 for GBP/USD/EUR, 0 for JPY).
 
 Half away from zero — not Go's default half-to-even — because a compliance figure should match what
@@ -150,7 +150,7 @@ riskctl risk --org acme --currency USD   # same verdicts, converted at the last 
 
 ## Territory: a scenario need not be global
 
-A UK-GDPR administrative fine is not a loss a US provider can incur, and pricing it into their
+A UK-GDPR administrative fine is not a loss a US provider can incur. Pricing it into their
 exposure inflates the number in a way an informed reader will catch. A scenario may scope itself to
 jurisdictions, matched against the institution's existing `metadata.jurisdiction`:
 
@@ -162,11 +162,11 @@ scenarios:
     territory_note: UK-GDPR administrative exposure.
 ```
 
-Omitting `territories` means **global**, which is what every scenario in the shipped packs is — so
+Omitting `territories` means **global**, which is what every scenario in the shipped packs is. So
 this axis moves no existing figure until someone deliberately scopes one.
 
 Filtering is **visible, not just applied**. The report prints every scenario with whether it counted
-and *why*, because a total that silently omits scenarios is unexplainable — a reader cannot tell a
+and *why*, because a total that silently omits scenarios is unexplainable. A reader cannot tell a
 deliberate jurisdictional exclusion from a typo in a scenario ID:
 
 ```
@@ -178,7 +178,7 @@ deliberate jurisdictional exclusion from a typo in a scenario ID:
       scenario's territories [UK]
 ```
 
-Out-of-territory controls are still evaluated for compliance — a control can be unmet whether or not
-the loss it defends can happen locally — but they contribute no money and generate no deltas. An
-institution matching *nothing* is reported explicitly, because a bare zero exposure otherwise reads
+Out-of-territory controls are still evaluated for compliance, but they contribute no money and
+create no deltas. A control can be unmet whether or not the loss it defends can happen locally. An
+institution matching *nothing* is reported explicitly. A bare zero exposure otherwise reads
 as "no risk" when it means "this pack prices nothing that can happen here".

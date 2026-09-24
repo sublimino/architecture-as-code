@@ -4,22 +4,22 @@
 
 > ## Execution status — read this before anything else
 >
-> **No step in this document has ever been executed.** Not once, not partially,
+> **No step in this document has ever been run.** Not once, not partially,
 > not against a scratch project. Every command below is written from the
-> configuration, not from a transcript, and the outputs described are what the
+> configuration, not from a transcript. The outputs described are what the
 > configuration says should happen rather than what anyone has watched happen.
->
-> | Step | Ever executed? |
-> |---|---|
-> | 1 — authenticate | no |
-> | 2 — preflight | **the script itself is tested offline against stubs; it has never been pointed at a real project** |
-> | 3 — offline gate | yes — `make gcp-tf-validate` runs green in CI and locally |
-> | 4 — bootstrap the state bucket | no |
-> | 5 — apply platform | no |
-> | 6 — plan and apply `demo-1` | no |
-> | 7 — verify | no |
-> | 8 — destroy | no |
->
+
+| Step | Ever executed? |
+|---|---|
+| 1 — authenticate | no |
+| 2 — preflight | **the script itself is tested offline against stubs; it has never been pointed at a real project** |
+| 3 — offline gate | yes — `make gcp-tf-validate` runs green in CI and locally |
+| 4 — bootstrap the state bucket | no |
+| 5 — apply platform | no |
+| 6 — plan and apply `demo-1` | no |
+| 7 — verify | no |
+| 8 — destroy | no |
+
 > Expect the first real pass to surface an enabled-API gap or an IAM permission
 > this document does not name. When it does, **add it here**, in the step where
 > it bit. A runbook that is not amended on first contact stays wrong forever.
@@ -27,7 +27,7 @@
 ## The real target
 
 Verified read-only against the live project on 2026-08-18. These are not
-placeholders; they are what this runbook now assumes throughout.
+placeholders. They are what this runbook now assumes throughout.
 
 | | |
 |---|---|
@@ -48,19 +48,19 @@ present in `us-east4-a`.
 >
 > `make gcp-tf-plan ENV=demo-1` currently produces a plan that creates **zero
 > resources**. `terraform/environments/main.tf` has one live module,
-> `env_contract`, which declares no resources at all; `network`, `compute`,
+> `env_contract`, which declares no resources at all. `network`, `compute`,
 > `edge` is commented out inside its INTEGRATION BLOCK (`ci_runner` was deleted 2026-08-20),
 > along with the `terraform_remote_state` reference to `terraform/platform`.
 >
 > The comment says those modules "do not exist on this branch". That is now
 > **stale** — `terraform/modules/` contains all of them and `terraform/platform`
-> exists too. The modules landed; the wiring step never happened.
+> exists too. The modules landed. The wiring step never happened.
 >
-> Before any of the steps below can produce infrastructure: follow
+> Before any of the steps below can produce infrastructure, do two things. Follow
 > `terraform/environments/WIRING.md` to uncomment the blocks in dependency
-> order, and apply `terraform/platform` first, because this root consumes its
+> order. Apply `terraform/platform` first, because this root consumes its
 > outputs read-only. Everything else in this runbook is correct and ready — it
-> just has nothing to build until then.
+> has nothing to build until then.
 
 ### Reachability — how you actually reach the demo
 
@@ -68,10 +68,10 @@ present in `us-east4-a`.
 
 The public HTTPS edge is **deliberately not instantiated**. IAP for *web*
 backends needs an HTTPS load balancer, which needs a certificate on a name that
-resolves, and this project has no Cloud DNS managed zone. So instead of a
-self-signed certificate and browser warnings, `hostname = ""` and
+resolves. This project has no Cloud DNS managed zone. So there is no
+self-signed certificate and no browser warning. Instead, `hostname = ""` and
 `dns_managed_zone = ""` mean no global address, no certificate, no proxy and no
-forwarding rule are created at all — `modules/edge` gates every one of them on
+forwarding rule are created at all. `modules/edge` gates every one of them on
 `hostname`, and `empty_hostname_plans_no_public_frontend_at_all` in
 `modules/edge/tests/tls_frontend.tftest.hcl` proves it.
 
@@ -81,9 +81,9 @@ ingress permitted only from `35.235.240.0/20` by `allow_iap_ssh`, with
 
 > **Mind the port, and mind which port.** `allow_iap_ssh` opens TCP **22 only**.
 > The application is opened by a second, separately-named rule,
-> `allow_iap_app`, and only on the environment's `app_port` — which for a demo
-> lane is **8080**, the dashboard nginx Service port. IAP forwarding targets
-> dashboard nginx directly; nginx serves the SPA and proxies `/dex/` and `/api/`
+> `allow_iap_app`, and only on the environment's `app_port`. For a demo
+> lane that is **8080**, the dashboard nginx Service port. IAP forwarding targets
+> dashboard nginx directly. nginx serves the SPA and proxies `/dex/` and `/api/`
 > on the same origin. This avoids the former Gateway and Dex port coupling.
 
 ```bash
@@ -102,15 +102,15 @@ gcloud compute ssh <instance> --zone us-east4-a \
   -- -L 8080:localhost:8080
 ```
 
-`access_mode = "iap"` stays set regardless: it is the safe default and it
+`access_mode = "iap"` stays set regardless. It is the safe default, and it
 becomes the live web posture the moment a hostname is added, with no other
 change. If you later want the real HTTPS edge, set `hostname` to a name you
-control, leave `dns_managed_zone = ""`, and add one A record at your registrar
+control and leave `dns_managed_zone = ""`. Then add one A record at your registrar
 pointing at the `lb_ip_address` the apply reports. A managed certificate
 validates against DNS hosted anywhere — it does not require Cloud DNS.
 
 Note that `roles/iap.tunnelResourceAccessor` is **not** granted by this
-Terraform to a human; you will be using it via project `owner`. From a
+Terraform to a human. You will be using it via project `owner`. From a
 less-privileged account the tunnel returns a 403 that looks like a networking
 fault.
 
@@ -119,11 +119,11 @@ fault.
 ## Step 1 — Fix your gcloud identity
 
 This is first because it bites first, and because the error it produces does not
-look like an identity problem: it looks like the project does not exist.
+look like an identity problem. It looks like the project does not exist.
 
 Two accounts are authenticated on the workstation this was built on. The
-**active** one is a personal account with no access to the target project; the
-work account that does have access is authenticated but not active and its
+**active** one is a personal account with no access to the target project. The
+work account that does have access is authenticated but not active, and its
 credentials need reauthentication. So the default identity is the one that
 cannot see the project, and `gcloud projects describe` answers with a message
 that reads as "no such project".
@@ -163,7 +163,7 @@ it is the reason everything downstream of here is written rather than run.
 ```
 
 Once the state bucket exists (step 4) and a DNS zone is configured, pass them
-too — the script reports `UNKNOWN` for anything it was not given rather than
+too. The script reports `UNKNOWN` for anything it was not given rather than
 guessing:
 
 ```bash
@@ -174,7 +174,7 @@ guessing:
   --dns-zone <ZONE_NAME>
 ```
 
-It creates, modifies and deletes nothing — every cloud call passes through an
+It creates, modifies and deletes nothing. Every cloud call passes through an
 allowlist of `describe`/`list`/`version`, so a call that would mutate aborts the
 script instead. Run it as often as you like, including while an apply is in
 flight.
@@ -190,11 +190,11 @@ Three verdicts, and the difference between the last two matters:
 `UNKNOWN` is never reported as `FAIL`. A preflight that says "API not enabled"
 when it merely could not look sends you to enable an API that was already on.
 
-Exit `0` means no `FAIL`; exit `1` means at least one. **Do not proceed past a
+Exit `0` means no `FAIL`. Exit `1` means at least one. **Do not proceed past a
 `FAIL`.** Every one of them is a thing that makes a later step fail in a less
 obvious place.
 
-**Rollback:** none needed; it changes nothing.
+**Rollback:** none needed. It changes nothing.
 
 ---
 
@@ -207,11 +207,11 @@ make gcp-tf-validate
 `terraform fmt`, `validate` and `tflint` over every root and module, every
 native `terraform test` suite, and every `test/terraform-*.bats` suite. All of
 it discovered by glob, not by a hand-maintained list, so a suite that lands runs
-the same day. No credentials; no network beyond a one-time provider install.
+the same day. No credentials. No network beyond a one-time provider install.
 
 If this is red, **stop**. Nothing below will be more informative.
 
-**Rollback:** none needed; it changes nothing.
+**Rollback:** none needed. It changes nothing.
 
 ---
 
@@ -229,8 +229,8 @@ terraform -chdir=terraform/bootstrap apply bootstrap.tfplan
 ```
 
 The hand step is deliberate. This apply creates the bucket every other root's
-state lives in — the one action in the estate with no state to roll back from —
-so it is not reachable by a one-word make target typed absentmindedly.
+state lives in. It is the one action in the estate with no state to roll back from.
+So it is not reachable by a one-word make target typed absentmindedly.
 
 Record the bucket name. Every command from here on needs it:
 
@@ -242,7 +242,7 @@ export TF_STATE_BUCKET=<the bucket name from the output>
 lifecycle rule, so `terraform destroy` refuses. If it genuinely must go, that is
 a considered manual `gcloud storage rm --recursive` after confirming no other
 root has state in it. Do not automate this. Note that both tripwires live in the
-config, so the same commit that destroys the bucket could delete them — the real
+config, so the same commit that destroys the bucket could delete them. The real
 protection is IAM (CONTRACT §5c): no plan/apply principal holds
 `roles/storage.admin` on the state bucket.
 
@@ -255,9 +255,14 @@ location that is not a valid GCS location.
 
 Platform must be applied **before** `demo-1`, because `demo-1` reads its
 outputs. It owns the project-level singletons that N environments would
-otherwise each claim to own: the Workload Identity pool and provider, the CI
-plan/apply service accounts, the runtime service accounts, the audit log sink
-and bucket, the DNS managed zone, the budget and the notification channels.
+otherwise each claim to own:
+
+- the Workload Identity pool and provider
+- the CI plan/apply service accounts
+- the runtime service accounts
+- the audit log sink and bucket
+- the DNS managed zone
+- the budget and the notification channels
 
 First complete `terraform/platform/WIRING.md` — the `modules/identity` call
 ships commented out because that module is built on a sibling branch. WIRING.md
@@ -290,7 +295,7 @@ terraform -chdir=terraform/platform output
 **Rollback:** `terraform -chdir=terraform/platform destroy`. Know what that
 takes with it: the audit sink and the audit bucket. The audit bucket has
 `force_destroy = false`, so the destroy refuses while objects are inside it and
-within retention — that is the audit trail defending itself, not a bug. No make
+within retention. That is the audit trail defending itself, not a bug. No make
 target can destroy this root.
 
 ---
@@ -308,18 +313,18 @@ cp deploy/gcp/sl-port-over-sandbox.example.tfvars \
 resolved relative to `terraform/environments`. It is gitignored.
 
 **Remove it once the apply is done.** `test/terraform-environment-keys.bats`
-asserts that `find terraform/ -name '*.tfvars'` returns nothing, and it is a
-filesystem check rather than a git one — so the suite stays red for as long as
+asserts that `find terraform/ -name '*.tfvars'` returns nothing. It is a
+filesystem check rather than a git one, so the suite stays red for as long as
 the copy is in place. That is also why the apply-ready input lives outside
 `terraform/`.
 
 Unlike `terraform/environments/demo-1.tfvars.example`, this file is **already
 filled in**: real project id and number, `us-east4`/`us-east4-a`, and the real
-IAP principal. Read it once before planning — the header explains every value —
-but the only thing you may need to change is `hostname`, per the reachability
+IAP principal. Read it once before planning. The header explains every value.
+But the only thing you may need to change is `hostname`, per the reachability
 table at the top of this runbook.
 
-If you copy `demo-1.tfvars.example` instead, nothing in it is usable as shipped:
+If you copy `demo-1.tfvars.example` instead, nothing in it is usable as shipped.
 `CHANGEME-project` is rejected by validation, `*.example.invalid` can never
 resolve, and the allowlists are RFC 5737/3849 documentation ranges. **A copy
 that is not edited fails at plan, not in production.**
@@ -331,8 +336,8 @@ grep -E 'access_mode|iap_members' terraform/environments/environments.tfvars
 ```
 
 `access_mode = "iap"` is the difference between "not publicly accessible" and
-"publicly accessible". `iap_members` is who may authenticate; an empty list is a
-working, fully locked-out environment whose failure mode is a 403 *after* a
+"publicly accessible". `iap_members` is who may authenticate. An empty list is a
+working, fully locked-out environment. Its failure mode is a 403 *after* a
 successful Google login, which reads like a broken deploy.
 
 ### 6b. Plan
@@ -366,8 +371,8 @@ make gcp-tf-apply ENV=demo-1 TF_STATE_BUCKET="${TF_STATE_BUCKET}"
 **`gcp-tf-apply` only ever applies a saved, reviewed plan file.** It refuses,
 non-zero, if `.terraform-demo-1/demo-1.tfplan` does not exist, and it tells you
 to run `gcp-tf-plan`. There is no path through this Makefile to a bare
-`terraform apply` — a bare apply re-plans at apply time, so what a human read
-and what Terraform executes are two different plans. If you find yourself
+`terraform apply`. A bare apply re-plans at apply time, so what a human read
+and what Terraform runs are two different plans. If you find yourself
 wanting to bypass this, you want step 6b again.
 
 **Rollback:** step 8.
@@ -412,7 +417,7 @@ The edge probes automate the last two once the environment is up:
 make gcp-tf-test ENV=demo-1
 ```
 
-**Rollback:** none needed; every command here is read-only.
+**Rollback:** none needed. Every command here is read-only.
 
 ---
 
@@ -438,7 +443,7 @@ to make than to recover from.
 
 ## Prerequisites — everything Andy must supply, in one place
 
-Terraform cannot invent any of these. Collect them before starting; each one
+Terraform cannot invent any of these. Collect them before starting. Each one
 discovered mid-run costs a re-plan.
 
 | # | Value | Needed at | Why | How to get it |
@@ -479,7 +484,7 @@ gcloud services enable \
 ## Why the ordering is bootstrap → platform → environments
 
 The three roots exist for **credential separation**, not tidiness. Running them
-out of order does not merely fail; it fails in ways that look like something
+out of order does not merely fail. It fails in ways that look like something
 else.
 
 | Root | Owns | Needs the role | State lives in |
@@ -489,7 +494,7 @@ else.
 | `terraform/environments` | one demo VM, its subnet, NAT, LB, IAP binding, Cloud Armor policy, DNS record | compute + limited IAM | GCS, prefix `osramp/environments/demo-1` |
 
 Run environments before platform and you get an environment with no runtime
-service account and no zone to attach a record to — and the error names a
+service account and no zone to attach a record to. The error names a
 missing remote state output, not a missing step.
 
 ---
@@ -520,5 +525,5 @@ missing remote state output, not a missing step.
   That is a considered manual action, and the audit bucket's retention policy
   will resist it — correctly.
 - **It does not name a real project id, domain, billing account or address.**
-  Everything in angle brackets is yours to supply; nothing in this repository
+  Everything in angle brackets is yours to supply. Nothing in this repository
   carries a value that could be applied by accident.

@@ -5,8 +5,8 @@ Every row maps a threat from the proposal's Security and Risk table to the
 mitigation with no name is an intention.
 
 > **The IP allowlist is exposure control, not authentication.** It reduces who
-> can reach the demo. It says nothing about who they are, it is trivially
-> defeated by anyone on an allowlisted network, and a demo behind an allowlist
+> can reach the demo. It says nothing about who they are. Anyone on an
+> allowlisted network defeats it without effort. A demo behind an allowlist
 > is not a demo behind a login. Treat every demo environment as reachable by
 > everyone on the allowlisted ranges, and put nothing in it you would not put in
 > a public repository.
@@ -102,7 +102,7 @@ makes a public endpoint *smaller*, never *private*.
 
 **What changes.** `modules/edge` takes an `access_mode` with three values, and
 **the default is `iap`**. A variable that defaults to the weaker posture is how
-the weaker posture ends up in production; the safe value is what you get by not
+the weaker posture ends up in production. The safe value is what you get by not
 thinking about it.
 
 | Mechanism | Where |
@@ -118,32 +118,33 @@ thinking about it.
 **`allAuthenticatedUsers` is not a restriction.** This is the single most
 dangerous value in the module and it deserves its own line. The word
 "authenticated" reads as a constraint — something has been checked, someone has
-proved something. In IAP it means **any Google account on earth**: every Gmail
-address, every Workspace tenant, anyone who can complete a sign-in with any
-identity Google will issue. It is functionally public access wearing the
-vocabulary of access control, and it is more dangerous than `allUsers` precisely
-because `allUsers` is honest about what it does. Neither is a restriction.
+proved something. In IAP it means **any Google account on earth**. That is
+every Gmail address, every Workspace tenant, and anyone who can complete a
+sign-in with any identity Google will issue. It is functionally public access
+wearing the vocabulary of access control. It is more dangerous than `allUsers`
+precisely because `allUsers` is honest about what it does. Neither is a
+restriction.
 Both are rejected at plan time.
 
-**The honest part.** IAP is enforced by Google at the front end, which means it
-is only as good as the principal list and the Google account behind it. It does
-not authenticate service-to-service traffic that bypasses the load balancer, and
-it is not a substitute for the application's own OIDC — a demo VM reachable on
+**The honest part.** Google enforces IAP at the front end. IAP is therefore
+only as good as the principal list and the Google account behind it. It does
+not authenticate service-to-service traffic that bypasses the load balancer.
+It is not a substitute for the application's own OIDC. A demo VM reachable on
 its internal address is still reachable regardless of what IAP says at the edge.
 That path is closed separately, by the network module's firewall rules and by
-the absence of any `access_config` (§3), and it is what
+the absence of any `access_config` (§3). That path is what
 `scripts/gcp-tf/edge-probe-bypass.sh` exists to probe.
 
 **One ordering fact drives the Cloud Armor design.** On a global external
 Application Load Balancer, Cloud Armor is evaluated **before** IAP, against the
-original client IP — *"If Cloud Armor blocks a request, IAP doesn't evaluate the
-request"* ([Cloud Armor
+original client IP. The documentation states: *"If Cloud Armor blocks a
+request, IAP doesn't evaluate the request"* ([Cloud Armor
 integration](https://cloud.google.com/armor/docs/integrating-cloud-armor)). IAP
 is an inline check at the same front end, not an upstream proxy with its own
 source addresses. So in `iap` mode Cloud Armor must admit the client population
-IAP will then authenticate: a policy restricted to "Google's IAP range" would
-return `403` to every real browser and the sign-in page would never render.
-(`35.235.240.0/20` is the IAP **TCP-forwarding** range — it governs the VPC
+IAP will then authenticate. A policy restricted to "Google's IAP range" would
+return `403` to every real browser, and the sign-in page would never render.
+(`35.235.240.0/20` is the IAP **TCP-forwarding** range. It governs the VPC
 firewall for SSH tunnelling, per §3, and carries no web traffic through this
 load balancer.) The wildcard in `iap` mode therefore widens **exposure**, not
 **authorisation**, and `iap_and_allowlist` is the mode that narrows both.
@@ -166,16 +167,16 @@ load balancer.) The wildcard in `iap` mode therefore widens **exposure**, not
 
 **Threat.** The highest-risk failure mode in the design, and the one the
 original contract did not close. Environment identity was carried in two
-independent places — the backend prefix chosen at `init`, and the map key chosen
-at `apply` — with nothing making them agree. `init` against
-`osramp/environments/demo-1` then apply with `demo-2.tfvars` raises no objection:
-a changed backend config is only detected when `init` is re-run, and
+independent places: the backend prefix chosen at `init`, and the map key chosen
+at `apply`. Nothing made them agree. `init` against
+`osramp/environments/demo-1` then apply with `demo-2.tfvars` raises no objection.
+A changed backend config is only detected when `init` is re-run, and
 `plan`/`apply` silently reuse the cached `.terraform/` backend pointer. The
 result is either demo-2's resources written into demo-1's state, or a plan
 reading **"destroy demo-1, create demo-2"** into demo-1's state file. Both are
 silent, and both are plausible on a tired evening.
 
-Three mechanisms. All three are required; none is sufficient alone.
+Three mechanisms. All three are required. None is sufficient alone.
 
 | # | Mechanism | Where | Proven by |
 |---|---|---|---|

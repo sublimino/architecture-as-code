@@ -34,7 +34,8 @@ start Flux, publish artifacts, create a cluster, or deploy workloads.
 ## Architecture
 
 For a visual overview of the services, their dependencies, and data flows,
-see the [interactive isometric system map](../docs/system-map/).
+see the [interactive isometric system map](../docs/system-map/). The service
+topology diagram is in [`AGENTS.md`](AGENTS.md#platform-architecture).
 
 ```bash
 python3 -m http.server 8901 -d docs/system-map   # from repo root

@@ -106,7 +106,7 @@ kubectl -n fe-signalloom exec deploy/dashboard-signalloom -- \
 
 Interpret test results:
 - `200 application/json`: The service functions correctly.
-- `200 text/html`: Reverse proxy missing; nginx returned the SPA HTML.
+- `200 text/html`: Reverse proxy missing. nginx returned the SPA HTML.
 - `504`: NetworkPolicy blocked ingress or egress traffic.
 - DNS failure: The target service is not deployed.
 

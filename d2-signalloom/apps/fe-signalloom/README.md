@@ -140,9 +140,9 @@ make demo-signalloom-agents-list           # List current agents
 `GET /api/rbac/clusters` and `GET /api/rbac/clusters/{id}/correlated`
 (`rbac_correlation.py`) back the dashboard's RBAC Explorer. They call the
 KubeSec-AFM platform (`afm-platform.fe-k8s-afm.svc.cluster.local:8000`)
-server-side and join its four separate endpoints (RBAC, escalation analysis,
-conformance, shared-role findings) into one response, instead of the
-frontend fetching all four and stitching them together in the browser.
+server-side. They join its four separate endpoints (RBAC, escalation analysis,
+conformance, shared-role findings) into one response. The frontend does not
+get all four and stitch them together in the browser.
 
 **Fails closed, not open**: unlike `/api/health/crypto`, an unreachable or
 malformed AFM response here returns `503`, not an empty-but-200 payload. A

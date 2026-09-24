@@ -2891,5 +2891,13 @@
     "verdict": "info",
     "model": "claude-sonnet-5",
     "reason": "Provenance HOLD cleared: EAPR-P1-2 branch-absence is a false positive. EAPR-P1-2 is a tooling-only card; its own merge-boundary contract requires direct-to-master commits in ~/.andy_sync with no branch/worktree/Governor-merge. Verified 12 unsigned commits (git -C ~/.andy_sync log --pretty='%h %G? %s') landing on master, touching exactly confExt/skills/ajm-auto-kanban/{Tools,Workflows}/* + matching test/*.bats, one per subcomponent. Restarted P1-GOV (7ce29) and P2-1 (065d0) with this ruling as guidance at 2026-09-24T11:47Z."
+  },
+  "95c79": {
+    "task_id": "95c79",
+    "reviewed_at": "2026-09-24T17:59:06.829Z",
+    "reviewer": "supervisor",
+    "verdict": "REJECTED",
+    "model": null,
+    "reason": "G6 failed: SLEA, SLET, SLES, and SLED doctors remain unhealthy on historical done-card oscillation, zero-output, and graph findings; certification cannot pass without out-of-scope board mutations"
   }
 }

@@ -2899,5 +2899,13 @@
     "verdict": "REJECTED",
     "model": null,
     "reason": "G6 failed: SLEA, SLET, SLES, and SLED doctors remain unhealthy on historical done-card oscillation, zero-output, and graph findings; certification cannot pass without out-of-scope board mutations"
+  },
+  "1503a": {
+    "task_id": "1503a",
+    "reviewed_at": "2026-09-24T18:40:54.831Z",
+    "reviewer": "supervisor",
+    "verdict": "REJECTED",
+    "model": null,
+    "reason": "Governor refused on detached worktree conflict with canonical governor worktree and Gate G6 legacy doctor exceptions"
   }
 }

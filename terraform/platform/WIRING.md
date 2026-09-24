@@ -1,8 +1,8 @@
 # Wiring the platform root at integration
 
-This root is complete and validates on its own, but one of its two module calls
-is **commented out**: `modules/identity` is built by chunk F5 on branch
-`feat/gcp-tf-identity-ci` and does not exist in the F6 worktree. Terraform
+This root is complete and passes `terraform validate` on its own, but one of its
+two module calls is **commented out**. `modules/identity` is built by chunk F5
+on branch `feat/gcp-tf-identity-ci` and does not exist in the F6 worktree. Terraform
 resolves `source = "../modules/identity"` at `init` time, so an uncommented call
 to a missing directory fails `terraform init` outright — not at plan, not with a
 warning. That is why it ships commented rather than "wired but untested".
@@ -97,14 +97,15 @@ not through a module call.** That changes the ordering from a preference into a
 hard gate, and it is worth being precise about why.
 
 Identity used to be instantiated in the environments root. An adversarial review
-found that to be a reversibility hole: a project-level singleton declared in an
+found that to be a reversibility hole. A project-level singleton declared in an
 environment's root is stored in an *environment's* state file, and
 `make gcp-tf-destroy ENV=demo-1` destroys everything in that state. The destroy
 guard refuses `platform` and `bootstrap` **by path**, so it would have permitted
-exactly that destroy — taking the workload identity pool, both CI service
-accounts and every `google_project_iam_member` with it, after which CI could no
-longer authenticate at all and recovery needed bootstrap-level credentials. So
-the singletons live here, per CONTRACT §5b, and environments reads them:
+exactly that destroy. That destroy would take the workload identity pool, both
+CI service accounts and every `google_project_iam_member` with it. After that,
+CI could no longer authenticate at all and recovery needed bootstrap-level
+credentials. So the singletons live here, per CONTRACT §5b, and environments
+reads them:
 
 ```hcl
 data "terraform_remote_state" "platform" {
@@ -118,17 +119,17 @@ data "terraform_remote_state" "platform" {
 
 The consequence for sequencing: a `terraform_remote_state` data source reads a
 state object that must **already exist**. Planning `demo-1` before this root has
-been *applied* — not planned, applied — fails on a missing remote state, and the
+been *applied* — not planned, applied — fails on a missing remote state. The
 error names a missing output rather than a missing step. There is no plan-time
-stand-in, so this cannot be worked around by validating harder.
+stand-in, so this cannot be worked around by checking harder.
 
 Two practical consequences:
 
 1. **Apply this root before the first environment plan.**
-   `terraform/RUNBOOK.md` step 5 is that apply; step 6 is the environment.
+   `terraform/RUNBOOK.md` step 5 is that apply. Step 6 is the environment.
 2. **`environment_keys` here must be a superset of every environment key that
    will ever be planned.** A runtime service account must exist for *every*
-   environment, not only the one being applied — that is precisely why these are
+   environment, not only the one being applied. That is precisely why these are
    singletons and not per-environment resources. Adding `demo-2` therefore means
    re-applying this root with `environment_keys = ["demo-1", "demo-2"]` first,
    and only then planning `demo-2`.

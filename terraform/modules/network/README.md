@@ -49,11 +49,11 @@ Additive, all optional, all defaulted — callers wiring against the contract ne
 **`enable_default_deny_egress` defaults to `true` and `egress_public_https_destinations`
 defaults to `[]`. With the defaults, an applied environment cannot pull public container
 images.** Docker Hub, ghcr.io, quay.io, and the Debian mirrors publish no stable address
-range, so there is no honest way to allowlist them in a module default.
+range. So there is no honest way to allowlist them in a module default.
 
 That is deliberate, and it is the opposite of the usual shape. "NAT is not egress control"
-is a named threat in the proposal: Cloud NAT gives a private VM outbound reach to the entire
-internet, and GCP's implied allow-all egress at priority 65535 means nothing stops it. A
+is a named threat in the proposal. Cloud NAT gives a private VM outbound reach to the entire
+internet. GCP's implied allow-all egress at priority 65535 means nothing stops it. A
 module variable that defaults open is precisely how that threat survives a security review —
 it reads as configurable while behaving as unconstrained.
 
@@ -86,7 +86,7 @@ Enumerated in the comment block above the egress rules in `main.tf`. In short:
 ## Firewall scoping
 
 Every allow rule sets `target_service_accounts = [var.runtime_service_account_email]`. A
-rule with no target applies to every instance in the VPC, so "SSH is reachable on the demo
+rule with no target applies to every instance in the VPC. So "SSH is reachable on the demo
 VM" silently becomes "SSH is reachable on anything anyone launches in this network". The
 identity chunk (F5) supplies the per-environment service account.
 
@@ -103,31 +103,31 @@ the string would force the default-deny rule out of the tree, which is the wrong
 
 `egress_public_udp_ports` and `egress_public_udp_destinations` **both default to the empty
 list**, and the rule is created only when ports are named. With the defaults there is no UDP
-egress to the internet at all — which is the state this module shipped in before the variables
+egress to the internet at all. That is the state this module shipped in before the variables
 existed.
 
 They exist for Tailscale: `41641/udp` is the node's direct listener, `3478/udp` is STUN. Opening
-them buys a **direct WireGuard path**. It does **not** buy reachability — with them closed
-Tailscale still connects and relays every packet through Tailscale's DERP servers over TCP 443,
-which `allow_egress_public_https` already permits once destinations are named. So this pair buys
+them buys a **direct WireGuard path**. It does **not** buy reachability. With them closed
+Tailscale still connects and relays every packet through Tailscale's DERP servers over TCP 443.
+`allow_egress_public_https` already permits that once destinations are named. So this pair buys
 latency and throughput, and a comment claiming an environment "needs" it to connect would be
 wrong.
 
 **Why it is not folded into `egress_public_ports`.** That list is consumed inside
 `allow { protocol = "tcp" }`. Adding `"41641"` to it opens TCP/41641 — a port nothing listens on
-— while leaving UDP as closed as before: a change that reads as "I opened the port" and grants
-nothing.
+— while leaving UDP as closed as before. That is a change that reads as "I opened the port" and
+grants nothing.
 
 **Why both lists must be non-empty together.** `EGRESS-RULE-04` refuses a port list with no
 destinations. A firewall rule carrying ports and an empty `destination_ranges` is not "no
-destinations"; the provider may render it as every destination, which is the opposite of what an
+destinations". The provider may render it as every destination. That is the opposite of what an
 empty list looks like it means. To close UDP egress entirely, empty the **ports** list — that
 creates no rule at all.
 
-**The cost, stated plainly.** UDP is connectionless, so an allowed UDP port is a one-way channel
-out of the estate that looks identical in the flow logs whether anything answered or not. It is
-the best exfiltration path this policy contains. What bounds it: `target_service_accounts` scopes
-it to one environment's runtime service account, the destinations are a CIDR list rather than
-"the internet" unless someone makes it so, and the port list is short enough to count at a
-glance. **Ingress is entirely unaffected** — Tailscale is outbound-only, so no ingress rule, no
+**The cost, stated plainly.** UDP is connectionless. So an allowed UDP port is a one-way channel
+out of the estate. It looks identical in the flow logs whether anything answered or not. It is
+the best exfiltration path this policy contains. Three things bound it. `target_service_accounts`
+scopes it to one environment's runtime service account. The destinations are a CIDR list rather
+than "the internet" unless someone makes it so. The port list is short enough to count at a
+glance. **Ingress is entirely unaffected.** Tailscale is outbound-only, so no ingress rule, no
 widened source range and no external IP is involved anywhere in this feature.

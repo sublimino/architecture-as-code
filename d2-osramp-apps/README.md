@@ -15,16 +15,16 @@ It defines the application components such as:
 - Flux HelmRepositories (pointing to the application Helm charts in container registries)
 - Flux HelmReleases for the applications with custom configuration per environment
 
-It is reconciled on the cluster fleet by Flux as the **namespace admin**
-and can't contain Kubernetes cluster-wide definitions such as CRDs, Cluster Roles, Namespaces, etc.
+It is reconciled on the cluster fleet by Flux as the **namespace admin**.
+It can't contain Kubernetes cluster-wide definitions such as CRDs, Cluster Roles, Namespaces, etc.
 
 The platform team that manages the `d2-osramp-fleet` directory assigns the
-namespaces to the dev teams and configures Flux with the RBAC to reconcile
-these components across the cluster fleet. Cluster-wide resources the
+namespaces to the dev teams. The platform team also configures Flux with the
+RBAC to reconcile these components across the cluster fleet. Cluster-wide resources the
 applications depend on (CRD controllers, gateway classes, monitoring) live in
 `d2-infra`.
 
-Access is restricted to the dev teams and the Flux bot account; the bot should
+Access is restricted to the dev teams and the Flux bot account. The bot should
 be the only account with direct push access to the `main` branch.
 
 ## Quickstart
@@ -50,12 +50,45 @@ make build           # build the three images and persist them in the in-cluster
 make test            # bats end-to-end suite
 ```
 
+## Components
+
+The diagram shows the two namespaces, the Helm releases in each, and the
+environment overlays that Flux reconciles from them.
+
+```mermaid
+flowchart LR
+  subgraph backend["backend namespace"]
+    ARCH["archivista"]
+    PG["postgres"]
+    MINIO["minio + minio-operator + minio-tenant"]
+    NATS["nats"]
+    REDIS["redis"]
+    MEM["memcached"]
+  end
+  subgraph frontend["frontend namespace"]
+    LISTENER["listener"]
+    ARCHIVER["archiver"]
+    PURL["osramp-purl"]
+  end
+  BASE["base"] --> STAGING["staging"]
+  BASE --> PROD["production"]
+  STAGING --> LOCAL["local"]
+  STAGING -.-> backend
+  STAGING -.-> frontend
+```
+
+- Backend releases: [`components/backend/base/`](components/backend/base/)
+- Frontend releases: [`components/frontend/base/`](components/frontend/base/)
+- Overlays: [`components/backend/local/`](components/backend/local/),
+  [`components/backend/staging/`](components/backend/staging/),
+  [`components/backend/production/`](components/backend/production/)
+
 ## Directory structure
 
 This logical source directory contains the following directories:
 
 - The **components** dir contains Flux HelmReleases that define how the applications
-  are deployed to the cluster fleet and which configuration should be used for each environment.
+  are deployed to the cluster fleet. They also define which configuration should be used for each environment.
 - The **update-policies** dir contains the Flux policies for automating the application's
   version updates of the OCI charts referred in Helm releases.
 

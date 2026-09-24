@@ -1,8 +1,8 @@
 # Terraform Layout
 
-This Terraform estate is split into three roots because the operators and credentials are different, not because the names are different. `terraform/bootstrap` needs bucket-admin rights to create and protect the remote-state bucket, `terraform/platform` needs project-level IAM, logging and DNS administration to create shared singletons, and `terraform/environments` needs neither of those privilege sets because it owns only per-environment runtime infrastructure.
+This Terraform estate is split into three roots because the operators and credentials are different, not because the names are different. `terraform/bootstrap` needs bucket-admin rights to create and protect the remote-state bucket. `terraform/platform` needs project-level IAM, logging and DNS administration to create shared singletons. `terraform/environments` needs neither of those privilege sets because it owns only per-environment runtime infrastructure.
 
-Apply the roots in this order: bootstrap, then platform, then environments. The sequence matters because bootstrap creates the backend consumed by the other roots, and platform creates shared identities and controls that the environment roots depend on.
+Apply the roots in this order: bootstrap, then platform, then environments. The sequence matters for two reasons. Bootstrap creates the backend consumed by the other roots. Platform creates shared identities and controls that the environment roots depend on.
 
 All three roots are in this directory: [`bootstrap/`](bootstrap/), [`platform/`](platform/), and
 [`environments/`](environments/). Each consuming root declares its backend in its own `backend.tf`.
@@ -15,7 +15,7 @@ All three roots are in this directory: [`bootstrap/`](bootstrap/), [`platform/`]
 | `terraform/platform` | Project-level singletons that multiple environments would otherwise each try to own: the Workload Identity Federation pool and provider, the log sink, the audit/log bucket, the data-access audit config, the Cloud DNS managed zone, the billing budget and notification channels, and the CI plan/apply service accounts. | `backend "gcs" {}` initialised with `-backend-config=bucket=CHANGEME-osramp-tfstate -backend-config=prefix=osramp/platform` |
 | `terraform/environments` | Everything scoped to one environment: network, compute, edge, and per-environment runtime service accounts. | `backend "gcs" {}` initialised with `-backend-config=bucket=CHANGEME-osramp-tfstate -backend-config=prefix=osramp/environments/<key>` |
 
-The empty `backend "gcs" {}` form in the consuming roots is deliberate. A partially configured backend would allow an operator to reuse a previous prefix accidentally; an empty block forces `terraform init` to name the bucket and prefix explicitly before an apply can proceed.
+The empty `backend "gcs" {}` form in the consuming roots is deliberate. A partially configured backend would allow an operator to reuse a previous prefix accidentally. An empty block forces `terraform init` to name the bucket and prefix explicitly before an apply can proceed.
 
 ## Environment Identity Hazard
 
@@ -23,7 +23,7 @@ The highest-risk failure mode in this design is environment identity drift. The 
 
 Three mitigations are required, and none is sufficient on its own:
 
-- A required `target_env` variable filters the environment map to exactly one entry, with validation that rejects an unknown key loudly instead of producing a misleading zero-resource plan.
+- A required `target_env` variable filters the environment map to exactly one entry. Its validation rejects an unknown key loudly instead of producing a misleading zero-resource plan.
 - A per-environment `TF_DATA_DIR=.terraform-$(ENV)` prevents two environments from sharing one cached backend pointer at all.
 - A post-init assertion reads the resolved backend prefix back and aborts unless it contains the requested environment key.
 
@@ -41,7 +41,7 @@ All three mitigations are in the tree:
 
 Destroy operations are for platform and environment resources only. They do not touch the state bucket and they do not touch the log sink.
 
-That exclusion is deliberate. Destroying the state bucket deletes the record of what existed, and destroying the log sink deletes the evidence of what happened to it. A teardown that removes its own audit trail cannot be reviewed afterwards; recovering from that is not a rollback but an archaeology exercise.
+That exclusion is deliberate. Destroying the state bucket deletes the record of what existed, and destroying the log sink deletes the evidence of what happened to it. A teardown that removes its own audit trail cannot be reviewed afterwards. Recovering from that is not a rollback but an archaeology exercise.
 
 ## Verified Offline
 
@@ -87,4 +87,4 @@ replaces the other.
 Per-chunk hand-off notes — including what each build agent could not satisfy and why — are in
 [`notes/`](notes/README.md). **Read [`notes/README.md`](notes/README.md) first: it labels which
 notes are historical and which are current.** Read a note before assuming an unmet criterion is
-an oversight; most are deliberate boundary decisions recorded at the time.
+an oversight. Most are deliberate boundary decisions recorded at the time.

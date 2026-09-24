@@ -24,13 +24,14 @@ before reading it:
 - Its plane coverage is **derived** from `AllEnforcementPlanes()` in
   `apps/fleet-manager/schema.go`, never from a list. Adding a sixth plane fails
   the suite until a scenario claims it.
-- Every latency bound is read from `docs/signalloom/sler-p5-2-denial-matrix.json`
-  — P5-2's machine-readable export, not the prose sibling — so a re-benchmark
-  flows through with no edit to the suite. The export keys OpenBao as `openbao`
-  while its `plane` field is `bao`, so the index reads the **field**; keying on
-  the object key leaves that plane unbound and its assertion silently skipped.
+- Every latency bound is read from `docs/signalloom/sler-p5-2-denial-matrix.json`.
+  That file is P5-2's machine-readable export, not the prose sibling. A
+  re-benchmark therefore flows through with no edit to the suite. The export
+  keys OpenBao as `openbao` while its `plane` field is `bao`, so the index reads
+  the **field**. Keying on the object key leaves that plane unbound and its
+  assertion silently skipped.
 
 `test/sler-p6-3-multiplane-acceptance.bats` (repository root) is the wiring
-guard: it re-derives the plane set from `schema.go` with an independent parser
-and asserts the suite is reachable from a make target, a CI stage, the offline
+guard. It re-derives the plane set from `schema.go` with an independent parser.
+It asserts the suite is reachable from a make target, a CI stage, the offline
 lane and the red-team runner. Full design: `docs/signalloom/sler-p6-3-proof.md`.

@@ -5,9 +5,9 @@
 > secret injection, the sidecar pattern, SPIFFE identity chain, credential
 > lifecycle, nono sandbox integration, and production hardening gaps.
 >
-> **Parent proposal:** [[Proposal — Secure Agent Swarm Architecture, OpenBao SPIFFE Registration, and Signal Loom Auto-Claim Demo Fleet [Claude Sonnet 4 / OpenCode CPAI] (2026-Q3)]]
-> **Branch:** `feat/signal-loop-and-bootstrap-refactor`
-> **Date:** 2026-08-28
+> **Parent proposal:** [[Proposal — Secure Agent Swarm Architecture, OpenBao SPIFFE Registration, and Signal Loom Auto-Claim Demo Fleet [Claude Sonnet 4 / OpenCode CPAI] (2026-Q3)]].
+> **Branch:** `feat/signal-loop-and-bootstrap-refactor`.
+> **Date:** 2026-08-28.
 
 ---
 
@@ -15,8 +15,8 @@
 
 ### 1.1 End-to-End Sequence
 
-The credential flow has five stages. Every agent follows the same path;
-the only per-agent variance is which secret paths the OpenBao Agent
+The credential flow has five stages. Every agent follows the same path.
+The only per-agent variance is which secret paths the OpenBao Agent
 sidecar templates render.
 
 ```
@@ -115,8 +115,8 @@ volume read-only and reads the files.
 
 **Stage 5 -- Nono Sandbox.** For agents running under Landlock confinement
 (cpai-engineer), `nono-spiffe-bootstrap.sh` adds `/run/spire/sockets` to
-the sandbox's `allow_read` list and exports `SPIFFE_ID` inside the sandbox,
-preserving identity context across the confinement boundary.
+the sandbox's `allow_read` list and exports `SPIFFE_ID` inside the sandbox.
+This preserves identity context across the confinement boundary.
 
 ---
 
@@ -163,7 +163,7 @@ auto_auth {
 
 Each agent has a per-agent ConfigMap (`<agent-name>-openbao-config`) that
 contains the `agent.hcl` with agent-specific template stanzas. The base
-auto_auth and vault address blocks are identical; only the template blocks
+auto_auth and vault address blocks are identical. Only the template blocks
 differ:
 
 | Agent | Template Path | Destination File |
@@ -189,7 +189,7 @@ template {
 ```
 
 The `error_on_missing_key = true` combined with `template_config { exit_on_retry_failure = true }` means the sidecar will crash (and be restarted
-by kubelet) if a secret is missing, rather than silently injecting an
+by kubelet) if a secret is missing. It does not silently inject an
 empty file.
 
 ### 2.4 Comparison with the Existing Cardvault Pattern
@@ -207,12 +207,12 @@ as the template for the generalised sidecar pattern:
 | Security context | Same hardened posture | Same |
 
 The key difference: cardvault is a Go binary that authenticates to OpenBao
-itself using the SPIFFE JWT-SVID and makes direct API calls
+itself using the SPIFFE JWT-SVID. It makes direct API calls
 (`--bao-addr`, `--bao-role` CLI flags). The sidecar still runs alongside it
 but handles credential lifecycle (renewal, rotation) rather than secret
 templating. The generalised pattern for the other nine agents uses the
-sidecar's native templating to render secrets to files, which is simpler
-for agents that just need environment-variable-shaped credentials.
+sidecar's native templating to render secrets to files. That is simpler
+for agents that only need environment-variable-shaped credentials.
 
 ### 2.5 Sidecar Security Posture
 
@@ -260,8 +260,8 @@ bao write auth/jwt/role/signalloom-agent-generic \
 
 The glob `spiffe://signalloom.demo/ns/*/sa/*` accepts any SPIFFE ID under
 the `signalloom.demo` trust domain. The signature check against SPIRE's
-trust anchor keys is the **authentication** gate (you are who you claim),
-and the templated policy is the **authorisation** gate (you can only access
+trust anchor keys is the **authentication** gate (you are who you claim).
+The templated policy is the **authorisation** gate (you can only access
 your own secrets).
 
 ### 3.2 Templated HCL Policy
@@ -319,7 +319,7 @@ nono-containment-probe      signalloom-stun-sentinel
 
 Each entry uses triple-selector attestation (namespace + service account +
 pod label). The `signalloom.ai/agent: "true"` label acts as a swarm
-membership gate -- a pod in `fe-signalloom-agents` without this label
+membership gate. A pod in `fe-signalloom-agents` without this label
 will not receive an SVID even if it uses a registered service account.
 
 ---
@@ -350,7 +350,7 @@ Three failure modes, ordered by severity:
 
 1. **OpenBao token expires, SPIRE healthy.** The sidecar re-authenticates
    transparently. The application container sees no interruption because
-   the secret files on the shared volume are not deleted -- they are only
+   the secret files on the shared volume are not deleted. They are only
    overwritten when the template re-renders. The worst case is a brief
    window where the sidecar is re-authenticating and cannot refresh a
    rotated secret.
@@ -409,7 +409,7 @@ Two credential-relevant entries:
 
 - **`127.0.0.1:8200`** (connect): allows the sandboxed process to reach
   the OpenBao Agent sidecar's loopback proxy on port 8200. This is a
-  fallback path -- the primary secret delivery is via files on
+  fallback path. The primary secret delivery is via files on
   `/vault/secrets` (which would need to be in `allow_read` for the
   sandboxed process to consume them directly).
 
@@ -426,7 +426,7 @@ The bootstrap script provides a `nono_with_spiffe` function:
    SPIFFE additions
 
 This means the sandboxed process has identity context (knows its own
-SPIFFE ID) and can refresh its SVID, but cannot reach the broader network
+SPIFFE ID) and can refresh its SVID. It cannot reach the broader network
 or filesystem. The OpenBao sidecar runs **outside** the sandbox as a
 separate container in the pod, so its credential-fetching activity is not
 constrained by Landlock.
@@ -437,7 +437,7 @@ The security boundary is the pod, not the sandbox. The sidecar fetches
 secrets and writes them to a shared tmpfs volume. The sandbox confines
 what the application code can do with those secrets. An attacker who
 compromises the sandboxed process can read the secret files (they are on
-a mounted volume) but cannot exfiltrate them to the network (Landlock
+a mounted volume). The attacker cannot exfiltrate them to the network (Landlock
 blocks all outbound except `127.0.0.1:8200`). This is defence in depth:
 the secrets are available, but the exfiltration channel is closed.
 
@@ -452,8 +452,8 @@ The strict profile allows reads from `/workspace`, `/tmp`, `/usr/lib`,
 `/lib`, and `/run/spire/sockets`. The sidecar writes secrets to
 `/vault/secrets`, but this path is not in the profile's `allow_read`
 list. Either the cpai-engineer's main container reads secrets before
-nono confinement begins (which works for static secrets but not for
-rotated ones), or the profile needs updating. This is the single
+nono confinement begins, or the profile needs updating. The first option
+works for static secrets but not for rotated ones. This is the single
 highest-priority gap.
 
 **Gap 2: Hosted-daytona-coder and stun-sentinel have no sidecar.**
@@ -466,7 +466,7 @@ future, the sidecar must be added -- the SPIRE identity is already wired.
 
 **Gap 3: `SPIFFE_ID` environment variable set statically.**
 In the concrete sidecar patches, `SPIFFE_ID` is hardcoded as a static
-`env` value (e.g., `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/triage-ci-worker`). The generic sidecar template uses
+`env` value (for example `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/triage-ci-worker`). The generic sidecar template uses
 `metadata.annotations['signalloom.ai/spiffe-id']` via `fieldRef`, which
 is more flexible but requires the annotation to be set on every pod.
 The static approach is fragile if an agent is moved to a different
@@ -475,8 +475,8 @@ namespace or service account.
 **Gap 4: Secret seeding is demo-only.**
 `swarm-seed-secrets.sh` seeds placeholder demo values. There is no
 mechanism for injecting real API keys. In production, this would need an
-external secrets pipeline (CI/CD sealed secrets, cloud KMS integration,
-or an operator) that seeds the real values at deploy time.
+external secrets pipeline that seeds the real values at deploy time. The
+pipeline could be CI/CD sealed secrets, cloud KMS integration, or an operator.
 
 **Gap 5: Trust anchor key drift.**
 The SPIRE/OpenBao trust anchor is a static copy of SPIRE's JWT signing
@@ -503,7 +503,7 @@ the drift hazard entirely -- OpenBao fetches keys on demand and caches
 with automatic refresh on unknown `kid`.
 
 **R2: Secret rotation webhook.** Add an inotify-based sidecar or use
-OpenBao Agent's `exec` stanza to signal the application container
+OpenBao Agent's `exec` stanza. Either one signals the application container
 (SIGHUP or HTTP endpoint) when a secret file changes on disk.
 
 **R3: Network policy tightening.** The existing `networkpolicy.yaml`
@@ -514,7 +514,7 @@ not container level -- Kubernetes does not support per-container
 network policy natively, so this is a documentation/awareness item.
 
 **R4: Token TTL reduction for high-value agents.** The 30-minute TTL
-is reasonable for demo, but agents with access to production deployment
+is reasonable for demo. Agents with access to production deployment
 credentials (prod-deploy-gate) should have a shorter TTL (5-10 minutes)
 to reduce the blast radius window.
 
@@ -535,7 +535,7 @@ theoretically be compromised.
 
 The sidecar pattern was the correct choice. It provides transparent
 credential lifecycle management without requiring each agent to implement
-OpenBao client logic, while keeping the resource overhead minimal (10m CPU
+OpenBao client logic. It keeps the resource overhead minimal (10m CPU
 / 32Mi RAM per agent, 320Mi total across the swarm).
 
 ---

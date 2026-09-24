@@ -2,7 +2,7 @@
 
 Everything Terraform needs that is specific to a real Google Cloud project lives
 here, and almost none of it is tracked. The Terraform code in `terraform/` is
-generic; this directory is where it meets one billable estate.
+generic. This directory is where it meets one billable estate.
 
 The Makefile is the interface. Nothing in here is meant to be fed to
 `terraform` by hand.
@@ -26,7 +26,7 @@ The Makefile is the interface. Nothing in here is meant to be fed to
 `.gitignore` covers `*.tfvars` (with an exception for `*.example.tfvars`),
 `deploy/gcp/deploy-sa`, `deploy/gcp/*.handoff.json` and `*.tfplan`. A test in
 `test/terraform-make-contract.bats` asserts each of those and asserts that
-`README.md` is *not* ignored — a blanket `deploy/gcp/` ignore would satisfy the
+`README.md` is *not* ignored. A blanket `deploy/gcp/` ignore would satisfy the
 first checks and quietly hide the documentation too.
 
 ---
@@ -39,7 +39,7 @@ Terraform auto-loads `terraform.tfvars` and `*.auto.tfvars` from the root
 directory it is running in. That happens during `terraform test` exactly as it
 happens during `terraform plan`. So a real inputs file sitting in
 `terraform/environments/` silently overrides the fixture values that every
-native test suite asserts against: the suites stay green and stop measuring what
+native test suite asserts against. The suites stay green and stop measuring what
 they claim to measure.
 
 Keeping the real inputs one directory outside any Terraform root makes that
@@ -56,14 +56,14 @@ to `../../deploy/gcp/environments.tfvars` — relative to the `-chdir` root — 
 Terraform runs as a service account. Never as the human at the keyboard.
 
 A human operator on this project typically holds `roles/editor`. That is enough
-to create a VPC, a subnet, a NAT and a VM — and not enough to create the
+to create a VPC, a subnet, a NAT and a VM. It is not enough to create the
 IAM-shaped resources the estate needs. The failure mode is therefore the ugly
-one: the apply gets a long way in, dies part-way through with a permission error
-naming an IAM API, and leaves a half-built estate behind.
+one. The apply gets a long way in, then dies part-way through with a permission
+error naming an IAM API. It leaves a half-built estate behind.
 
 The error names IAM, so the obvious next move is to widen IAM. That is the wrong
 fix, applied under time pressure, to a project that is now in an inconsistent
-state. The cause was never IAM; it was that the run had no impersonation.
+state. The cause was never IAM. It was that the run had no impersonation.
 
 The Makefile makes that unrepeatable:
 
@@ -81,7 +81,7 @@ The Makefile makes that unrepeatable:
   without it.
 
 Bucket *creation* and bucket IAM remain a privileged human step. The deploy
-service account populates buckets and runs plans and applies; it is not a bucket
+service account populates buckets and runs plans and applies. It is not a bucket
 admin, and nothing here asks for that.
 
 ---
@@ -96,22 +96,22 @@ admin, and nothing here asks for that.
 Merging them is a four-line change and would be a mistake. The deploy identity
 holds `roles/compute.admin` and `roles/resourcemanager.projectIamAdmin` — it can
 grant itself anything in the project. Giving it an interactive sudo shell on
-every VM it builds makes build rights and run-on-the-box rights one credential,
-so a compromise of either is a compromise of both.
+every VM it builds makes build rights and run-on-the-box rights one credential.
+A compromise of either is then a compromise of both.
 
 ### Why the operator account exists at all
 
 The operator's own Google account is **external to the organization that owns
 the project**. OS Login refuses to configure POSIX account data for an external
-identity without `roles/compute.osLoginExternalUser`, and that role is grantable
-**only at organization scope** — `gcloud organizations list` returns zero items
-here, so it cannot be self-granted and blocked this work for a day.
+identity without `roles/compute.osLoginExternalUser`. That role is grantable
+**only at organization scope**. `gcloud organizations list` returns zero items
+here, so it cannot be self-granted, and it blocked this work for a day.
 
 A service account created *inside* the project is internal to the owning
 organization by construction, so the rule does not apply to it. Impersonate it
 and OS Login works. Measured on 2026-08-18: the `osLoginExternalUser` error
 disappears entirely and the failure moves to the IAP layer
-(`4033: 'not authorized'`), which is a project-scoped grant the project owner can
+(`4033: 'not authorized'`). That is a project-scoped grant the project owner can
 make.
 
 ```bash
@@ -131,9 +131,9 @@ gcloud compute ssh sl-demo-1-vm --zone us-east4-a --project CHANGEME-project \
 
 That is the whole footprint. A `terraform test` budget pins the count *and* the
 exact membership, so a fifth grant is a failing diff rather than a line nobody
-noticed. The custom role's **permission** list is pinned the same way, because a
-role budget counts roles and one custom role can hold any number of permissions.
-Neither account ever gets a JSON key; access to both is
+noticed. The custom role's **permission** list is pinned the same way. A role
+budget counts roles, and one custom role can hold any number of permissions.
+Neither account ever gets a JSON key. Access to both is
 `roles/iam.serviceAccountTokenCreator`.
 
 > **Suspend needs one thing Terraform may not be able to do for you.** Creating a
@@ -164,8 +164,8 @@ terraform -chdir=terraform/bootstrap apply bootstrap.tfplan
 ```
 
 `gcp-tf-bootstrap` is plan-only on purpose. Applying it creates the bucket every
-other root's state lives in — the one action in the estate with no state to roll
-back from — so it is not reachable by a one-word target typed absentmindedly.
+other root's state lives in. That is the one action in the estate with no state
+to roll back from. So it is not reachable by a one-word target typed absentmindedly.
 
 ### 1. One time per checkout — record the deploy identity
 
@@ -204,17 +204,17 @@ make gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=CHANGEME-project-osramp-tfstate
 
 One target, four ordered steps, none skippable:
 
-1. `init -reconfigure` with the backend prefix derived from `ENV`, then read the
-   resolved prefix back out of the data dir and abort unless it is exactly
+1. `init -reconfigure` with the backend prefix derived from `ENV`. Then read the
+   resolved prefix back out of the data dir, and abort unless it is exactly
    `osramp/environments/demo-1`.
 2. `plan -out=` a saved plan file, then `show` it and print the `Plan:` summary.
 3. `apply` **that exact file**. Any pre-existing plan file is deleted and a
-   sentinel stamped before planning, so a plan file present afterwards was
+   sentinel stamped before planning. So a plan file present afterwards was
    written by this run and is newer than the sentinel. Anything else is refused,
    not applied — a plan file of unknown provenance is a diff nobody read.
 4. Write `deploy/gcp/demo-1.handoff.json`.
 
-`TF_STATE_BUCKET` has no default and never will: a default would be either a
+`TF_STATE_BUCKET` has no default and never will. A default would be either a
 real bucket name in a public repo, or a placeholder that 404s instead of
 explaining itself.
 
@@ -248,12 +248,12 @@ and your shell history said `demo-1`.
 `make gcp-tf-handoff ENV=<key>` writes `deploy/gcp/<key>.handoff.json`.
 
 Every value is derived from `terraform output -json`. Nothing in it is typed by
-a human, and nothing in it is hardcoded in the Makefile — a test asserts that
+a human, and nothing in it is hardcoded in the Makefile. A test asserts that
 changing what Terraform reports changes the file.
 
 If a required field cannot be resolved, **the target fails and writes nothing**.
 It names the field and the output that would have supplied it. A hand-off
-carrying a blank field is strictly worse than no hand-off: the test suite parses
+carrying a blank field is strictly worse than no hand-off. The test suite parses
 it successfully and reports on an estate it never reached.
 
 ### Fields
@@ -277,7 +277,7 @@ it successfully and reports on an estate it never reached.
 | `hostname` | string | `.target_environment.hostname` | **yes** |
 | `generated_at` | string | UTC, `%Y-%m-%dT%H:%M:%SZ` | no |
 
-`hostname` is the one field allowed to be empty: an environment with DNS
+`hostname` is the one field allowed to be empty. An environment with DNS
 disabled genuinely has none, and demanding a value would force a fabricated one.
 The key is always present, so consuming code reads a field rather than
 discovering an absent one at runtime.
@@ -291,21 +291,22 @@ compares it to a port.
 same thing as `var.access_mode` in the tfvars.
 
 Three of its values come from `var.access_mode` and describe the posture of the
-**web edge** — Identity-Aware Proxy in front of an HTTPS load balancer: `iap`,
-`allowlist`, `iap_and_allowlist` (see `terraform/environments/variables.tf`).
+**web edge**. The web edge is Identity-Aware Proxy in front of an HTTPS load
+balancer. The values are `iap`, `allowlist`, `iap_and_allowlist` (see
+`terraform/environments/variables.tf`).
 Anything reading those as a boolean "IAP or allowlist" will mishandle the
 combined mode.
 
 The fourth value is `iap_tunnel`, and it is what this estate reports today.
 `module "edge"` is commented out in `terraform/environments/main.tf`, so no lane
-has a load balancer — verified live against `sl-port-over-sandbox` on
+has a load balancer. This was checked live against `sl-port-over-sandbox` on
 2026-08-20: zero forwarding rules, zero backend services, zero global
 addresses, zero managed certificates, zero Cloud Armor policies. With no web
-front door there is no web posture for `var.access_mode` to describe, and
-echoing `"iap"` told a reader the estate had a control it does not have. The
-path genuinely in force is the IAP **TCP tunnel** —
+front door there is no web posture for `var.access_mode` to describe. Echoing
+`"iap"` told a reader the estate had a control it does not have. The
+path genuinely in force is the IAP **TCP tunnel**:
 `roles/iap.tunnelResourceAccessor`, source range `35.235.240.0/20`, ports 22
-and `app_port` — which is a different and narrower thing, hence a distinct
+and `app_port`. That is a different and narrower thing, hence a distinct
 value rather than a reused one.
 
 It resolves back to `var.access_mode` automatically when the edge is wired up
@@ -314,27 +315,27 @@ in `terraform/environments/main.tf`.
 
 #### Why this is not a schema bump
 
-The field's documented meaning has not changed: it has always been "the access
-path in force", and `iap_tunnel` is the first value that describes that path
-honestly rather than aspirationally. What changed is the value SET, which is a
-compatible change for a consumer treating the field as opaque and a breaking one
-for a consumer enumerating the three tfvars values.
+The field's documented meaning has not changed. It has always been "the access
+path in force". `iap_tunnel` is the first value that describes that path
+honestly rather than aspirationally. What changed is the value SET. That is a
+compatible change for a consumer treating the field as opaque, and a breaking
+one for a consumer enumerating the three tfvars values.
 
 No such consumer exists. Every reference was checked
 (`rg -n 'access_mode' --glob '!.claude'`): the Makefile writes it, this document
 and `terraform/notes/i1-make-handoff.md` describe it, and
 `test/terraform-make-contract.bats` asserts it non-empty and echoed. No script
-branches on it — `scripts/gcp-tf/conformance.sh` mentions `access_mode` only in
+branches on it. `scripts/gcp-tf/conformance.sh` mentions `access_mode` only in
 the prose of a remediation message, and reads the live backend service rather
 than this file. So `schema` stays `signalloom.gcp.handoff/v1` and
 `schema_version` stays `1`.
 
 A consumer that must distinguish "there is a web edge" from "there is not"
 should read the `edge_environment_keys` root output rather than pattern-matching
-this string; an empty list is the unambiguous answer.
+this string. An empty list is the unambiguous answer.
 
 `env` and `schema` are aliases carried for a consumer written against those
-spellings. They are additive; `environment_key` and `schema_version` are the
+spellings. They are additive. `environment_key` and `schema_version` are the
 canonical names. A test asserts `env == environment_key`, so the two cannot
 drift apart.
 
@@ -370,7 +371,7 @@ jq -r '"\(.instance_name) in \(.zone) on port \(.app_port)"' deploy/gcp/demo-1.h
 
 ## Variable reference
 
-Every one is overridable; the defaults are what an operator should be relying on.
+Every one is overridable. The defaults are what an operator should be relying on.
 
 | Variable | Default | Notes |
 |---|---|---|

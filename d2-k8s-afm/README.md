@@ -40,12 +40,31 @@ Single pod, single-process topology: FastAPI serves the Next.js static export
 database: uses SQLite for job storage + in-memory cluster store. Sample clusters
 auto-load at boot from bundled YAML.
 
+The diagram shows the two ways into the pod and what the one process serves.
+
+```mermaid
+flowchart LR
+  PF["kubectl port-forward 8000"] --> SVC["Service afm-platform :8000"]
+  GW["Gateway afm.osramp.acme.local"] --> SVC
+  SVC --> POD["afm-platform pod (namespace fe-k8s-afm)"]
+  POD --> DASH["/dashboard (Next.js static export)"]
+  POD --> API["/clusters API + Z3 BMC engine"]
+  POD --> MCP["MCP server"]
+  POD --> DB["SQLite jobs + in-memory clusters"]
+```
+
+- Manifests: [`apps/afm-platform/base/`](apps/afm-platform/base/)
+  ([`deployment.yaml`](apps/afm-platform/base/deployment.yaml),
+  [`service.yaml`](apps/afm-platform/base/service.yaml),
+  [`gateway-route.yaml`](apps/afm-platform/base/gateway-route.yaml))
+
 ## Tests
 
 - **Backend pytest**: unit, integration, e2e, and API tests in the source repo — `make demo-k8s-afm-test`
 - **Frontend**: TypeScript typecheck (`npm run typecheck`)
-- **Contract**: `scripts/check-types.sh` checks OpenAPI ↔ frontend type drift. The script is in the
-  external [`kubesec-afm`](https://github.com/controlplaneio/kubesec-afm) repo, not in this repository.
+- **Contract**: `check-types.sh` checks OpenAPI ↔ frontend type drift. The script is under
+  `scripts/` in the external
+  [`kubesec-afm`](https://github.com/controlplaneio/kubesec-afm) repository, not in this repository.
 
 The Bats suites in [`test/`](test/) run from the repository root:
 

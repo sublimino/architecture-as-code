@@ -14,14 +14,14 @@ Two layers guard the agent traffic in this estate:
    second opinion on the agent's A2A traffic. It catches the shapes a regex
    cannot: a novel prompt injection, model-detected PII, a malicious URL in a
    reply. It runs the lightweight scanner set from the `research-ai-red-teaming`
-   R&D (Secrets, Anonymize, PromptInjection, Toxicity, Gibberish on input;
-   Sensitive, MaliciousURLs, NoRefusal, Deanonymize, Toxicity, Gibberish on
-   output).
+   R&D. On input: Secrets, Anonymize, PromptInjection, Toxicity, Gibberish.
+   On output: Sensitive, MaliciousURLs, NoRefusal, Deanonymize, Toxicity,
+   Gibberish.
 
 The thesis the sandbox demonstrates: **output from one model is untrusted input
-to the next.** An instruction an attacker plants in a log line is carried by the
-redactor as harmless data, but if it rode unscanned across an agent-to-agent
-hand-off it could steer the next agent. LLM Guard is where that steering is
+to the next.** The redactor carries an instruction an attacker plants in a log
+line as harmless data. If that instruction rode unscanned across an
+agent-to-agent hand-off, it could steer the next agent. LLM Guard is where that steering is
 caught before the downstream agent sees it.
 
 ## Pieces
@@ -41,7 +41,7 @@ default) does not weaken the redactor, which always runs.
 
 **1. Build and deploy the scanner pod** (heavy image: torch + ONNX + scanner
 models). It is part of the GitOps kustomization, so `make push-local` reconciles
-it; for a quick local iteration:
+it. For a quick local iteration:
 
 ```
 make -C olly-replica llm-guard-build
@@ -49,10 +49,10 @@ kubectl -n olly-replica apply -f olly-replica/components/configs/base/llm-guard.
 kubectl -n olly-replica rollout status deploy/llm-guard --timeout=600s
 ```
 
-Models load at pod startup, so the first boot takes a few minutes; after that,
+Models load at pod startup, so the first boot takes a few minutes. After that,
 scans are fast. A kind node needs headroom (Docker Desktop 8GB+).
 
-**2. Toggle the guard on the Olly -> Orbit hop** (optional; off by default):
+**2. Toggle the guard on the Olly -> Orbit hop** (optional, off by default):
 
 ```
 kubectl -n olly-replica set env deploy/olly-sentinel LLM_GUARD_ENABLED=true
@@ -73,7 +73,7 @@ make -C ../.. security-sandbox-up          # or: docker compose up -d
 ```
 
 Open http://localhost:3000 and compare the two runs. The baseline is the
-attack-success rate against the raw agent; the guarded pass shows how much the
+attack-success rate against the raw agent. The guarded pass shows how much the
 scanner removes.
 
 ## How the pieces connect
@@ -89,7 +89,7 @@ promptfoo (:3000) ──POST /api/security/probe {message, llm_guard_enabled}─
 ```
 
 The same LLM Guard pod backs both the live Olly -> Orbit hop (inside the
-sentinel) and the red-team probe (through the broker), so what promptfoo
+sentinel) and the red-team probe (through the broker). So what promptfoo
 measures is the same scanner that protects the running pipeline.
 
 ## Local-setup caveats
@@ -98,5 +98,5 @@ measures is the same scanner that protects the running pipeline.
   fresh pod re-downloads its models. Fine for a demo, not a production topology.
 - The scan API bearer token is a fixed local value (`llm-guard-token`), not a
   managed secret. In ARC this is a COIN M2M credential.
-- promptfoo's attack generation and grading call an external LLM provider; no
+- promptfoo's attack generation and grading call an external LLM provider. No
   estate data leaves the machine, only the synthetic red-team prompts do.

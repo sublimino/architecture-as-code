@@ -1,6 +1,6 @@
 # d2-infra
 
-Infrastructure logical source directory for the Acme Co. OSRAMP demo. It defines the Kubernetes cluster add-ons that the applications depend on, delivered as signed OCI artifacts and reconciled by Flux as the cluster admin. It pairs with `d2-osramp-fleet` (cluster and tenant definitions) and `d2-osramp-apps` (the OSRAMP application services); these are monorepo directories, not separate Git repositories.
+Infrastructure logical source directory for the Acme Co. OSRAMP demo. It defines the Kubernetes cluster add-ons that the applications depend on, delivered as signed OCI artifacts and reconciled by Flux as the cluster admin. It pairs with `d2-osramp-fleet` (cluster and tenant definitions) and `d2-osramp-apps` (the OSRAMP application services). These are monorepo directories, not separate Git repositories.
 
 ## Scope and access control
 
@@ -19,6 +19,24 @@ It is reconciled on the cluster fleet by Flux as the cluster admin, so access is
 | `ingress` | Envoy Gateway with a cluster-wide Gateway (HTTP redirected to HTTPS, TLS from the cluster certificate). |
 | `monitoring` | kube-prometheus-stack (Prometheus and Grafana with the Flux dashboards) and metrics-server. Monitors opt in with the `osramp.acme.co/scrape: Enabled` label. |
 | `trivy-system` | Trivy Operator vulnerability reports and monitoring integration. |
+
+The diagram shows the order in which Flux reconciles the four components and
+what each one supplies to the next.
+
+```mermaid
+flowchart LR
+  CM["cert-manager<br/>cluster issuer + wildcard certificate"]
+  ING["ingress<br/>Envoy Gateway, HTTPS"]
+  MON["monitoring<br/>kube-prometheus-stack, metrics-server"]
+  TRIVY["trivy-system<br/>Trivy Operator"]
+  CM -- "TLS certificate" --> ING
+  TRIVY -- "vulnerability metrics" --> MON
+```
+
+- [`components/cert-manager/`](components/cert-manager/)
+- [`components/ingress/`](components/ingress/)
+- [`components/monitoring/`](components/monitoring/)
+- [`components/trivy-system/`](components/trivy-system/)
 
 ## Directory structure
 

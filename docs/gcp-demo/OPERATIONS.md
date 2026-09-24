@@ -62,6 +62,8 @@ See `scripts/node-doctor/demo.sh` and `scripts/node-doctor/ci.sh`.
 
 ## Lane Lifecycle
 
+The diagram shows the states of a lane and the `make` target that moves it between them.
+
 ```mermaid
 stateDiagram-v2
   [*] --> Absent

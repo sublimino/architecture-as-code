@@ -179,8 +179,8 @@ something other than the cause, so the obvious diagnosis is the wrong one.
 
 `gcp-ci.sh run` suspends on pass and deliberately **leaves the VM RUNNING on
 failure** so you can SSH in and investigate. A suspended VM therefore means the
-last run passed — *unless someone suspended a failed VM by hand to stop the
-cost*, which is the normal thing to do and produces the identical state.
+last run passed, *unless someone suspended a failed VM by hand to stop the
+cost*. That is the normal thing to do, and it produces the identical state.
 
 **The VM's state is not a verdict. Read `ci-reports*/summary.json`, which always
 exists and always says which run it belongs to:**
@@ -192,9 +192,9 @@ exists and always says which run it belongs to:**
 | `ABORTED` | The run never reached a verdict. `phase` names how far it got. **Not a test failure.** |
 | `RUNNING` | A run is in flight right now, or was killed without its trap running (compare `started_at` against the 180m fence). **Not a verdict.** |
 
-`commit` and `branch` name the source under test; `written_at` / `collected_at`
+`commit` and `branch` name the source under test. `written_at` / `collected_at`
 date the claim. The directory is rotated to `ci-reports*.prev` at run **start**,
-so the previous round's verdict is never readable as the current one's — and a
+so the previous round's verdict is never readable as the current one's. A
 `summary.json` whose `commit` disagrees with the tree under test is rejected as
 `ABORTED` rather than reported.
 
@@ -207,9 +207,9 @@ VM's `lastStartTimestamp`, so no state has to be dated by hand.
 checkouts — the main one plus a worktree per agent. That locality is correct:
 two lanes running concurrently must not share a report directory. It also means
 **the obvious place to look is not necessarily the place that ran.** On
-2026-08-14 the main checkout's `ci-reports-2/summary.json` said `d574d7d PASS
-11/11` from the previous day while the run everyone cared about had finished an
-hour earlier in a lane worktree. That artefact was honest — main did produce it —
+2026-08-14 the main checkout's `ci-reports-2/summary.json` said
+`d574d7d PASS 11/11` from the previous day. The run everyone cared about had
+finished an hour earlier in a lane worktree. That artefact was honest — main did produce it —
 and was still the wrong answer.
 
 `make ci-state` is the answer to "what happened to the last run?". It is local,
@@ -217,21 +217,21 @@ touches neither gcloud nor the lock, and is safe to run while a lane is in
 flight. It prints:
 
 - the **absolute path** of the report file it read, and the checkout + HEAD it
-  read it from — the data was never the problem, knowing which file was
-  authoritative was;
+  read it from. The data was never the problem. Knowing which file was
+  authoritative was.
 - the verdict, from the same `classify_run_outcome` the run itself uses, so
-  there is never a second opinion. `STALE` when the report names another commit;
+  there is never a second opinion. `STALE` when the report names another commit.
 - for a `RUNNING` marker, whether the process that wrote it is **still alive**,
   by checking the recorded `pid` and `host`. A marker whose process is gone is
-  reported as `ABORTED`, and a live pid that started *after* the marker is
-  reported as a recycled number, not as a run;
+  reported as `ABORTED`. A live pid that started *after* the marker is
+  reported as a recycled number, not as a run.
 - `origin`, the checkout that produced the report, so a copied or inherited
-  directory cannot pass as a local one;
+  directory cannot pass as a local one.
 - `NEWER ELSEWHERE`, naming any other checkout of this repo holding a fresher
-  report — compared on the time the report *claims*, not file mtime, because
-  mtime is re-dated by any copy.
+  report. The comparison uses the time the report *claims*, not file mtime,
+  because mtime is re-dated by any copy.
 
-It exits 0 only on `PASS`; `FAIL`, `ABORTED`, `STALE` and in-flight all exit
+It exits 0 only on `PASS`. `FAIL`, `ABORTED`, `STALE` and in-flight all exit
 non-zero, so `make ci-state && <next step>` cannot proceed on a non-verdict.
 
 #### Two separate ways a report lands in the wrong checkout
@@ -241,31 +241,31 @@ had to be fixed:
 
 **Writing.** `CI_2_ENV` set `GCP_CI_REPORT_DIR=ci-reports-2` — a *relative*
 value, where the warm lane used gcp-ci.sh's absolute script-anchored default.
-A relative value resolves against the cwd of the process that reads it, so the
+A relative value resolves against the cwd of the process that reads it. So the
 cold lane's reports followed the caller around while the warm lane's did not.
 That asymmetry is how `/home/andy/src/cp/osramp-demo/ci-reports-2/` came to hold
 a report from a run nobody made there. Fixed at both ends: `$(abspath …)` in
 CI_2_ENV, and gcp-ci.sh anchors a relative override at `REPO_ROOT` so a
 hand-typed `GCP_CI_REPORT_DIR=…` cannot reintroduce it. Guarded by
 `test/ci-path-anchoring.bats`, which derives from the Makefile rather than from
-a remembered list of paths — the third instance of this class in this repo, after
-`../$(KEYS_DIR)` and `AUDIT_ANCHOR_KEYS`.
+a remembered list of paths. That is the third instance of this class in this
+repo, after `../$(KEYS_DIR)` and `AUDIT_ANCHOR_KEYS`.
 
-**Reading.** Independent of the above, and it bites agents hardest: a shell that
+**Reading.** Independent of the above, and it bites agents hardest. A shell that
 has not `cd`-ed anywhere starts in the *main checkout*, not in the worktree the
 work is happening in. So `ls ci-reports/` or `jq . ci-reports/summary.json`
 typed without an explicit path reads the main checkout's reports no matter which
 worktree you believe you are in. This is why a lane agent could see a report its
-own worktree had never produced under `ci-reports/` — the *absolute* one, which
-the writing bug above provably cannot move. **Never read a report by relative
+own worktree had never produced under `ci-reports/`. That is the *absolute* one,
+which the writing bug above provably cannot move. **Never read a report by relative
 path.** `make ci-state` prints the absolute path it read for exactly this
 reason.
 
 #### A `RUNNING` marker can only be stranded by SIGKILL
 
-`gcp-ci.sh run` arms `trap run_exit_trap EXIT` before it touches the VM, and
-bash runs an EXIT trap on SIGTERM, SIGINT and SIGHUP as well as on a normal
-exit — verified, not assumed. `timeout(1)` sends SIGTERM first, so even the
+`gcp-ci.sh run` arms `trap run_exit_trap EXIT` before it touches the VM. Bash
+runs an EXIT trap on SIGTERM, SIGINT and SIGHUP as well as on a normal
+exit. This was checked, not assumed. `timeout(1)` sends SIGTERM first, so even the
 outer fence converts the marker to `ABORTED`. The one signal that bypasses it is
 SIGKILL, which no handler can catch: `timeout -k` after its grace period, an
 OOM kill, or `kill -9`. Such a run leaves `RUNNING` on disk forever.
@@ -279,8 +279,8 @@ pid already can.
 ### `unset SSH_AUTH_SOCK` before any ad-hoc `gcloud compute ssh`
 
 With an agent loaded, `gcloud compute ssh` fails with `agent refused operation`.
-The wrapper scripts handle this; ad-hoc calls do not. The failure surfaces
-during the provisioning wait, so it reads as **a VM that never came up** — you
+The wrapper scripts handle this. Ad-hoc calls do not. The failure surfaces
+during the provisioning wait, so it reads as **a VM that never came up**. You
 will go looking at the serial console for a machine that is perfectly healthy.
 
 ```bash
@@ -293,14 +293,14 @@ gcloud compute ssh signalloom-ci-2 --zone europe-west2-a --project cp-dev-ajm --
 `cmd_destroy` deletes the **shared VPC, Cloud NAT and firewall rules** that BOTH
 VMs depend on, not just the instance. Destroying VM1 breaks VM2 mid-run and
 costs ~15 minutes to rebuild. It early-returns to an instance-only delete for any
-other VM name, so `signalloom-ci-2` is safe to destroy — that is exactly how you
+other VM name, so `signalloom-ci-2` is safe to destroy. That is exactly how you
 get a genuine cold run, since `provision` is idempotent and will otherwise resume
 a warm disk.
 
 ### The lock is PER-VM, and a stale one looks identical to a live one
 
-`ci-lock` state lives at `/home/ci/.ci-lock` **on whichever VM is targeted** —
-`ci-lock.sh` contains no VM name at all; `lock_shim` bakes `$VM_NAME` into the
+`ci-lock` state lives at `/home/ci/.ci-lock` **on whichever VM is targeted**.
+`ci-lock.sh` contains no VM name at all. `lock_shim` bakes `$VM_NAME` into the
 SSH command. So the two lanes hold independent locks and **warm and cold can run
 concurrently**. A refusal on one lane is that VM's own stale lock, never
 contention with the other.
@@ -316,19 +316,19 @@ GCP_CI_FORCE_LOCK=1 make ci-gcp-2
 ```
 
 Locks older than 240m reclaim automatically. Historically the common cause of a
-stale lock was release being scheduled AFTER the suspend, so the release SSH
-could never land while `read_lock`'s `|| true` reported `already free` — that
+stale lock was release being scheduled AFTER the suspend. So the release SSH
+could never land, while `read_lock`'s `|| true` reported `already free`. That
 combination leaves a clean-looking log and a lock file on disk. Fixed, but the
 signature is worth recognising.
 
 ### Warm vs cold, and why cold earns its keep
 
-`make ci-gcp` reuses `signalloom-ci`. `make ci-gcp-2` targets `signalloom-ci-2`;
-because `provision` is idempotent, it only gives a **genuinely cold** run if you
+`make ci-gcp` reuses `signalloom-ci`. `make ci-gcp-2` targets `signalloom-ci-2`.
+Because `provision` is idempotent, it only gives a **genuinely cold** run if you
 destroy the instance first. Cold catches a whole defect class warm cannot:
 
-- `bun.lock` vs `package-lock.json` drift — `bun add` writes the former, the
-  dashboard Dockerfile runs `npm ci` against the latter, so a desync builds
+- `bun.lock` vs `package-lock.json` drift. `bun add` writes the former, and the
+  dashboard Dockerfile runs `npm ci` against the latter. So a desync builds
   clean locally and fails only on a clean tree. Stage 1b now runs the guard.
 - `kind load docker-image` exits 0 having transferred **nothing** on a Docker
   daemon using the containerd image store. Masked warm (the node cache
@@ -348,9 +348,9 @@ should `return 0` explicitly.
   is that shell's `/proc/*/cmdline`. `pkill -f pinentry` kills the shell running
   it (silent exit 144). Filter: `pgrep -af PATTERN | grep -v 'claude\|grep'`.
 - **Never `set -u`.** The shell snapshot's `grep`/`rg` wrappers reference
-  `$ZSH_VERSION` unguarded; harmless in bash until nounset makes it fatal.
+  `$ZSH_VERSION` unguarded. That is harmless in bash until nounset makes it fatal.
 - **Commits are unsigned here.** 199 of the last 200 repo-wide report `N`. Use
-  `git commit --no-gpg-sign`; a bare commit launches pinentry against a tty the
+  `git commit --no-gpg-sign`. A bare commit launches pinentry against a tty the
   agent cannot reach and blocks until timeout.
 
 ## Reports
@@ -409,13 +409,13 @@ ls -lah /home/ci/reports-signalloom-ci-2
 
 Read the failing `stage*.{tap,txt}` artifact first, inspect the corresponding
 workload or controller, apply one evidence-backed local fix, then rerun
-`make ci-gcp-2`. A successful run suspends VM2 automatically; a failure leaves
+`make ci-gcp-2`. A successful run suspends VM2 automatically. A failure leaves
 it running for diagnosis.
 
 ## Cold-path failures on the kind node
 
 Two failures that look like application bugs and are not. Both are invisible on
-a **warm** VM — the kind node's state survives between runs — and both bite
+a **warm** VM, because the kind node's state survives between runs. Both bite
 reliably on a **cold** one, which is why they went unnoticed for so long. Both
 were diagnosed on 2026-08-04 after two consecutive CI runs failed identically.
 
@@ -444,11 +444,11 @@ cannot start. `crictl images` is the CRI's view — unpacked, labelled, runnable
 and is the only sound verification.
 
 **Fixed** in `scripts/kind-load-verified.sh`, which every image load in
-`make signalloom-images` now goes through: it loads, verifies against `crictl`,
-recovers via an archive round-trip if the image is missing, and fails loudly
-naming the downstream consequence if recovery does not work. Guarded by
+`make signalloom-images` now goes through. It loads, then checks against `crictl`.
+If the image is missing, it recovers via an archive round-trip. If recovery does
+not work, it fails loudly naming the downstream consequence. Guarded by
 `make test-kind-load-verified` (12 tests against fake docker/kind clients, no
-cluster needed; 10 of the 12 fail against the pre-fix behaviour).
+cluster needed). 10 of the 12 fail against the pre-fix behaviour.
 
 **Manual recovery**, if you meet this on an older checkout — the flags are not
 interchangeable:
@@ -483,8 +483,8 @@ log says `readdirent /var/lib/zot: no such file or directory`.
 
 **Cause.** Zot mounts `/var/local/osramp-zot-cache` from the node as a
 hostPath. That path can survive as a *mount entry* whose backing directory is
-gone, leaving a dentry with a link count of 0. `ls -ld` shows the directory;
-`rm -rf` says `Device or resource busy`; a fresh pod's init container fails with
+gone, leaving a dentry with a link count of 0. `ls -ld` shows the directory.
+`rm -rf` says `Device or resource busy`. A fresh pod's init container fails with
 `error mounting … no such file or directory`. Recreating the cluster does not
 clear it, because the stale mount is inside the node container.
 
@@ -506,9 +506,9 @@ make push-local-foundation && make push-local-signalloom && make bootstrap-local
 ### `signalloom-infra` inputs are reset by a fleet re-apply
 
 Re-applying the fleet resets `spec.inputs` on the `signalloom-infra`
-ResourceSet to `[]`, after which it fails to build with `map has no entry for
-key "tenant"` and renders **none** of its resources — including the whole
-`supercred-demo-runner` RBAC. The runner then deploys and passes both probes
+ResourceSet to `[]`. After that it fails to build with
+`map has no entry for key "tenant"` and renders **none** of its resources,
+including the whole `supercred-demo-runner` RBAC. The runner then deploys and passes both probes
 with no permissions at all. Re-activate with `./scripts/signalloom-local.sh up`,
 and confirm with:
 

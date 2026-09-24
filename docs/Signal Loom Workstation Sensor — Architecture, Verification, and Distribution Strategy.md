@@ -87,7 +87,7 @@ The sensor daemon executes directly on partner Linux host infrastructure under m
    - `PrivateTmp=yes`, `PrivateDevices=yes`, `RestrictSUIDSGID=yes`, `MemoryDenyWriteExecute=yes`.
    - Cgroup v2 resource limits: `MemoryMax=512M`, `TasksMax=64`, `CPUQuota=200%`.
 
-3. **Binary Digest Preflight Gate (`scripts/digest_gate.sh`)**:
+3. **Binary Digest Preflight Gate (`d2-signalloom/apps/agentmaxxing-host-sensor/scripts/digest_gate.sh`)**:
    - Asserts kernel Landlock LSM support.
    - Verifies pinned SHA-256 digest of the `nono` supervisor binary.
    - Verifies pinned SHA-256 digest of the agent binary before execution; fails closed on modification.

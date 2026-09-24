@@ -9,8 +9,8 @@ then *fails*. The real tree is never modified.
 Two properties make these fixtures trustworthy, and both are enforced in code:
 
 1. **The mutation must actually apply.** A `sed` program whose pattern no longer
-   matches silently no-ops and prints nothing — the mutation check would then
-   run against an unmutated Makefile and pass, which is a green test measuring
+   matches silently no-ops and prints nothing. The mutation check would then
+   run against an unmutated Makefile and pass. That is a green test measuring
    nothing. The `apply_mutation` helper diffs the result and fails if it is
    identical to the original. So if a Makefile edit breaks one of these
    patterns, the suite goes red and names the fixture, rather than quietly
@@ -35,5 +35,5 @@ Two properties make these fixtures trustworthy, and both are enforced in code:
 
 To add a mutation: write the `.sed`, add a row above, and add the bats case that
 asserts the guard fails under it. A fixture with no test that consumes it is
-dead weight; `terraform-suite-registration.bats` asserts every fixture here is
+dead weight. `terraform-suite-registration.bats` asserts every fixture here is
 referenced by at least one suite.

@@ -9,7 +9,7 @@ the guard can be proven to fail, on a copy, without ever mutating the real tree
 
 One file per forbidden verb rather than one file containing all of them. A
 single combined fixture would still fire if four of the five patterns worked and
-the fifth had a typo in it — which is precisely the defect a mutation check is
+the fifth had a typo in it. That is precisely the defect a mutation check is
 supposed to find, and precisely the one it would then hide.
 
 | File | The line that must be caught |
@@ -23,6 +23,6 @@ supposed to find, and precisely the one it would then hide.
 
 The last one is the inverse control and it is the reason the guard strips
 comments before matching. The real script's own header documents the split by
-naming `make demo-signalloom-up` in prose; a guard that matched raw text would
+naming `make demo-signalloom-up` in prose. A guard that matched raw text would
 fire on that documentation and report the correctly-written script as broken.
 `hides-it-in-a-comment.sh` must produce ZERO findings.

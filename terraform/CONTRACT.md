@@ -19,7 +19,7 @@ merge conflict by definition.
 
 | Chunk | Branch | Owns (exclusively) |
 |-------|--------|--------------------|
-| F1 foundation | `feat/gcp-tf-foundation` | `terraform/bootstrap/**`, `terraform/versions.tf`, `terraform/README.md`, `terraform/.gitignore` additions, `test/terraform-conventions.bats`, `test/terraform-state-protection.bats` |
+| F1 foundation | `feat/gcp-tf-foundation` | `terraform/bootstrap/**`, `terraform/versions.tf`, `terraform/README.md`, the `terraform` block of the root `.gitignore`, `test/terraform-conventions.bats`, `test/terraform-state-protection.bats` |
 | F2 envmodel | `feat/gcp-tf-envmodel` | `terraform/modules/env-contract/**`, `terraform/environments/**` (variables + validation + tfvars examples), `test/terraform-environment-keys.bats` |
 | F3 network-compute | `feat/gcp-tf-network-compute` | `terraform/modules/network/**`, `terraform/modules/compute/**`, `test/terraform-network-security.bats` |
 | F4 edge | `feat/gcp-tf-edge` | `terraform/modules/edge/**`, `scripts/gcp-tf/edge-probe-*.sh`, `test/terraform-edge-security.bats` |
@@ -64,7 +64,7 @@ Every root (`bootstrap`, `platform`, `environments`) and every module directory 
 ## 3. The environment object type — the single most-shared interface
 
 Declared by **F2** in `terraform/modules/env-contract/variables.tf` and consumed by every
-other chunk. Copy this type verbatim; do not add or rename fields.
+other chunk. Copy this type verbatim. Do not add or rename fields.
 
 ```hcl
 variable "environments" {
@@ -153,7 +153,7 @@ do the `for_each`. This keeps modules simple and makes a single-environment plan
 ### `modules/compute` (F3) — serves BOTH lane kinds
 
 Since 2026-08-20 this module builds demo lanes **and** CI lanes. `modules/ci-runner` was
-absorbed into it and deleted; there is no second compute module. A CI lane is a demo lane
+absorbed into it and deleted. There is no second compute module. A CI lane is a demo lane
 that additionally carries the `ci-lane` label, publishes an idle-suspend budget, and is not
 deletion-protected. Instance names are `sl-<key>-vm` for both kinds.
 
@@ -177,7 +177,7 @@ deletion-protected. Instance names are `sl-<key>-vm` for both kinds.
 | out | `ci_lane_label` | string — the `ci-lane` label value, `""` for a demo lane |
 
 **The `ci-lane` label is a safety interface, not a convenience.** `scripts/ci/gcp-tf-reaper.sh`
-SUSPENDS instances and selects them on it. This module is the only thing that emits it, and its
+SUSPENDS instances and selects them on it. This module is the only thing that emits it. Its
 lifecycle preconditions require `var.kind`, the env-contract `kind` label and the environment
 key's own prefix to agree before the plan proceeds. Do not weaken that agreement.
 
@@ -216,16 +216,16 @@ key's own prefix to agree before the plan proceeds. Do not weaken that agreement
 
 ### `modules/ci-runner` (F5) — **DELETED 2026-08-20**
 
-Absorbed into `modules/compute`. Recorded here rather than removed outright, because the
-obvious repair for a future "CI lanes need something demo lanes do not" is to bring it back.
+Absorbed into `modules/compute`. Recorded here rather than removed outright, for one reason.
+The obvious repair for a future "CI lanes need something demo lanes do not" is to bring it back.
 
 **Do not.** The reason the split was removed is that `modules/ci-runner` had no
-`metadata_startup_script` at all, so a CI lane booted a bare box and every fix to the demo
-bring-up landed on a machine CI never ran — CI was green against something that was not the
+`metadata_startup_script` at all. So a CI lane booted a bare box, and every fix to the demo
+bring-up landed on a machine CI never ran. CI was green against something that was not the
 demo. Add the difference to `modules/compute` behind `var.kind` instead.
 
 Its two lifecycle preconditions (name length ≤ 63, `ci-lane` label integrity) live on in
-`modules/compute` as COMPUTE-RULE-06 and COMPUTE-RULE-09/10, and its `deletion_protection = false`
+`modules/compute` as COMPUTE-RULE-06 and COMPUTE-RULE-09/10. Its `deletion_protection = false`
 hardcode became COMPUTE-RULE-11 so the property survives the value becoming configurable.
 
 The rename it forced is the safety-critical part: instances are `sl-<key>-vm` now, not
@@ -257,8 +257,8 @@ gate list at the head of that script before touching it.
 - `terraform/environments` declares `backend "gcs" {}` (empty) and is initialised with
   `-backend-config=bucket=<x> -backend-config=prefix=osramp/environments/<key>`.
 
-The empty-block form is deliberate: a partially-configured backend makes it *impossible* to
-run `terraform apply` in the environments root without having named a prefix, which is what
+The empty-block form is deliberate. A partially-configured backend makes it *impossible* to
+run `terraform apply` in the environments root without having named a prefix. That is what
 stops "forgot to re-init between environments" from silently reusing the previous state.
 F6's Make targets always run `init -reconfigure` with the prefix derived from `ENV`.
 
@@ -272,16 +272,16 @@ close it.
 Today environment identity is carried in **two independent places**: the backend prefix chosen
 at `terraform init`, and the map key chosen at `terraform apply` via tfvars. Nothing makes them
 agree. Run `init` against `osramp/environments/demo-1`, then `apply` with `demo-2.tfvars`, and
-Terraform raises no objection — a changed backend config is only detected when `init` is re-run,
+Terraform raises no objection. A changed backend config is only detected when `init` is re-run,
 and `plan`/`apply` silently reuse the cached `.terraform/` backend pointer. The result is either
 demo-2's resources written into demo-1's state, or a plan that reads
 **"destroy demo-1, create demo-2"** into demo-1's state file. Both are silent and both are
 plausible on a tired evening.
 
-Three mechanisms close it. All three are required; none is sufficient alone.
+Three mechanisms close it. All three are required. None is sufficient alone.
 
 1. **`target_env` filter.** The environments root takes a required `target_env` variable and
-   instantiates exactly one environment, while keeping the whole map in scope so the
+   instantiates exactly one environment. It keeps the whole map in scope so the
    cross-environment collision validations still bite:
    ```hcl
    for_each = { for k, v in var.environments : k => v if k == var.target_env }
@@ -303,8 +303,8 @@ Three mechanisms close it. All three are required; none is sufficient alone.
 ### 5b. What `terraform/platform` actually owns
 
 The platform root is not a naming convenience — it exists for **credential separation**, and it
-must not ship empty. `bootstrap` needs `roles/storage.admin`; `platform` needs IAM, logging, and
-DNS admin; `environments` needs neither. Platform owns exactly the project-level singletons that
+must not ship empty. `bootstrap` needs `roles/storage.admin`. `platform` needs IAM, logging, and
+DNS admin. `environments` needs neither. Platform owns exactly the project-level singletons that
 N environments would otherwise each claim to own:
 
 - the Workload Identity Federation pool and provider
@@ -338,7 +338,7 @@ insufficient to delete the bucket. Assert the negative as well as the positive.
   Anything that creates, modifies, or deletes is not, regardless of how safe it looks.
 - No `access_config` block anywhere (no external IPs).
 - No `google_service_account_key` resource.
-- No `google_project_iam_policy` resource (authoritative; destroys existing bindings). Use
+- No `google_project_iam_policy` resource (authoritative, and it destroys existing bindings). Use
   `google_project_iam_member`.
 - No IAM binding granting `roles/owner` or `roles/editor`.
 - No firewall rule with `source_ranges` including `0.0.0.0/0`.
@@ -372,7 +372,7 @@ insufficient to delete the bucket. Assert the negative as well as the positive.
 
 This rule previously read "using a fixture copy under `test/fixtures/terraform/` — never by
 mutating the real tree". That was wrong in a way that cost us three dead assertions in a single
-task on 2026-08-20, every one of them inside a suite that was green and had a passing mutation
+task on 2026-08-20. Every one of them was inside a suite that was green and had a passing mutation
 test. A fixture mutation asks "does my scanner detect this string in a file I just wrote it
 into?" — it cannot ask "does the thing I am guarding actually exist in the shipped code?"
 
@@ -380,39 +380,39 @@ The three, because the shapes recur:
 
 1. **Prose satisfied the assertion.** `[[ "$log" == *"Restart=always"* ]]` passed with
    `Restart=no` in the systemd unit. `demo-up.sh` builds remote scripts as heredocs and ships
-   them via `--command`, so the script's own COMMENTS travel to the VM and land in the stub's
-   command log — one of them contained the phrase. Match config directives as **complete
-   lines** (`grep -qxF 'Restart=always'`, `grep -qE '^ExecStart=…'`); a comment can never be a
+   them via `--command`. So the script's own COMMENTS travel to the VM and land in the stub's
+   command log. One of them contained the phrase. Match config directives as **complete
+   lines** (`grep -qxF 'Restart=always'`, `grep -qE '^ExecStart=…'`). A comment can never be a
    whole directive line.
 
 2. **The other branch satisfied the assertion.** A substring check for `systemctl enable`
-   stayed green when it was deleted from the branch under test, because the stub receives the
+   stayed green when it was deleted from the branch under test. The stub receives the
    ENTIRE script — both branches — as one string and cannot report which one ran. Where an
    invariant must hold on every branch, assert a **count**, and say why in the test.
 
 3. **A stub can only ever prove the CALLER's half.** `STUB_PF_RC=5` proves the driver *handles*
-   exit 5. It cannot prove the remote script *produces* it, because the stub never executes
+   exit 5. It cannot prove the remote script *produces* it, because the stub never runs
    that script. Deleting the real `kubectl get service` pre-check failed **nothing** across 57
    tests, including the test written for it. Any assertion about a remote script's behaviour
-   needs a **source-level guard as well**, placed FIRST so the failure names the missing
+   needs a **source-level guard as well**. Place it FIRST so the failure names the missing
    mechanism rather than a missing message.
 
-So: fixture mutations are still welcome for exercising a scanner's edge cases, and are the only
+So: fixture mutations are still welcome for exercising a scanner's edge cases. They are the only
 option when the defect cannot exist in the real tree. But **the guard is not proven until the
 real file has been mutated and the right test has gone red for the right reason.**
 
 Doing that safely is the part the old rule was protecting, and it is a procedure, not a
 prohibition:
 
-- Copy the file to a path **outside the repository** first, and restore from that copy — never
+- Copy the file to a path **outside the repository** first, and restore from that copy. Never
   `git checkout`, which silently reverts uncommitted work in the same directory.
 - **Assert the mutation applied.** A `sed` whose pattern no longer matches exits 0 and changes
-  nothing, so the mutation test that follows runs against correct code and passes — a proof of
-  the opposite of what it claims. Compare hashes, or use a helper that fails on a no-op. Watch
+  nothing. So the mutation test that follows runs against correct code and passes, which is a
+  proof of the opposite of what it claims. Compare hashes, or use a helper that fails on a no-op. Watch
   for shell metacharacters: an unescaped `|` in a `sed` expression is a syntax error that reads
   as "the guard is dead".
 
-- **Assert it applied AT THE RIGHT LEVEL. A hash proves the bytes changed; it does not prove the
+- **Assert it applied AT THE RIGHT LEVEL. A hash proves the bytes changed. It does not prove the
   change reached the thing under test.** These are different claims and only the second one
   matters.
 
@@ -425,15 +425,15 @@ prohibition:
       KEYS_DIR=/parent/inherited/.keys make -n signing-keys   -> mkdir -p /parent/inherited/.keys
 
   The proof then reported a perfectly good guard as dead: `21/0` standalone, `19/2` under the
-  gate. **A false finding that points at working code is indistinguishable from a real one**, and
-  it costs more than a missed defect because it sends someone to fix something that is not broken.
+  gate. **A false finding that points at working code is indistinguishable from a real one.** It
+  costs more than a missed defect because it sends someone to fix something that is not broken.
 
-  So a mutation must additionally move something the system under test actually *evaluates*, and
-  the harness must abort as a HARNESS ERROR rather than return a verdict when it cannot show that.
+  So a mutation must additionally move something the system under test actually *evaluates*. The
+  harness must abort as a HARNESS ERROR rather than return a verdict when it cannot show that.
   Where the target is read from the environment, `unset` it first so the verdict cannot depend on
   the parent process.
 
-  The general form: **inherited environment, defaulted variables (`?=`, `${X:-}`), caches and
+  The general form is this. **Inherited environment, defaulted variables (`?=`, `${X:-}`), caches and
   generated files all sit between the file you mutated and the behaviour you are asserting.** Any
   of them can absorb a mutation silently.
 - **Verify restoration** by comparing the hash to the pre-mutation one, and report it.
@@ -452,7 +452,7 @@ The distinction matters. A bats test greps HCL *text* and proves the source says
 `terraform test` asserts on the *evaluated configuration* — the resource attributes Terraform
 actually computed, after variables, locals, `for_each`, conditionals, and module composition have
 all resolved. A grep cannot tell you that `public_access_prevention` came out `"enforced"` for the
-environment you actually planned; `terraform test` can. Verified working offline in this repo at
+environment you actually planned. `terraform test` can. Verified working offline in this repo at
 Terraform 1.15.8:
 
 ```hcl
@@ -500,7 +500,7 @@ run "state_bucket_is_hardened" {
   correctly. Baseline-green then mutation-red, every time. This is the single most common way a
   `terraform test` suite ends up measuring nothing.
 - `terraform test` requires `terraform init -backend=false` to have run in that directory first.
-  The Make target owns that; do not commit `.terraform/` directories.
+  The Make target owns that. Do not commit `.terraform/` directories.
 - Keep each file under 30 seconds.
 
 ### What goes where
@@ -522,7 +522,7 @@ what a given plan evaluated, not what no configuration anywhere contains. Keep t
 - Conventional commits with a scope: `feat(terraform): …`, `test(terraform): …`,
   `docs(terraform): …`, `feat(make): …`.
 - Commits are **unsigned** — this branch's history shows `%G? = N`. Use
-  `git commit --no-gpg-sign`. Never invoke `gpg` interactively; it blocks on pinentry.
+  `git commit --no-gpg-sign`. Never invoke `gpg` interactively. It blocks on pinentry.
 - Commit early and often inside your worktree. **Zero commits is a failure, not idleness.**
 - Leave the worktree clean at hand-off: `git status --porcelain` empty.
 - Do not rebase, merge, push, or touch any branch other than your own.
@@ -539,6 +539,9 @@ what a given plan evaluated, not what no configuration anywhere contains. Keep t
 5. Your bats file(s) run green offline, and your mutation check proves they can fail.
 6. `shellcheck` passes on every shell script you added.
 7. Your worktree is committed and clean.
-8. `NOTES.md` in your worktree root records: what you built, which ISCs you claim,
-   which you could not satisfy and why, any contract objection, and anything the
-   orchestrator must know before merging.
+8. `NOTES.md` in your worktree root records:
+   - what you built
+   - which ISCs you claim
+   - which you could not satisfy and why
+   - any contract objection
+   - anything the orchestrator must know before merging

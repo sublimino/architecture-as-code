@@ -6,10 +6,10 @@ deadline-driven primitive library, one source of truth, vendored where needed.
 ## The problem this replaces
 
 The audit found ~60 hand-rolled waits across the Makefiles, `scripts/`, and bats
-suites. Every one was fixed-interval with no jitter and no exponential backoff;
-most `kubectl wait` / `rollout status` calls had **no existence check** and so
-error instantly on a cold cluster; the 30-second Zot readiness loop was
-copy-pasted ~9× verbatim; several "waits" were bare `sleep N` guesses. Under CPU
+suites. Every one was fixed-interval with no jitter and no exponential backoff.
+Most `kubectl wait` / `rollout status` calls had **no existence check** and so
+error instantly on a cold cluster. The 30-second Zot readiness loop was
+copy-pasted ~9× verbatim. Several "waits" were bare `sleep N` guesses. Under CPU
 or memory pressure these don't wait longer — they fail early.
 
 ## The fix — one library, five principles
@@ -54,13 +54,13 @@ patiently instead of failing — no code changes. Per-call tunables:
 
 ## Source of truth and vendoring
 
-- **Source of truth:** `~/.andy_sync/includes/wait.sh` (+ `test/functions/wait.bats`).
-  This is where edits happen; it is covered by the andy_sync bats suite.
+- **Source of truth:** `~/.andy_sync/includes/wait.sh` (+ `~/.andy_sync/test/functions/wait.bats`).
+  This is where edits happen. It is covered by the andy_sync bats suite.
 - **The interactive `try-*` suite** (`~/.andy_sync/includes/function-base-2016.sh`)
   now shares the same resilience patterns — per-attempt hang fence
   (`_TRY_LIMIT_ATTEMPT_TIMEOUT`), require-output (`_TRY_LIMIT_REQUIRE_OUTPUT`),
   and jitter (`_TRY_LIMIT_JITTER`). Use `try-backoff` / `try-timeout` at the
-  interactive shell; use `wait.sh` verbs in scripts.
+  interactive shell. Use `wait.sh` verbs in scripts.
 - **Vendored copies** live in each repo that needs them, e.g.
   `osramp-demo/scripts/lib/wait.sh`. They are self-contained (no login-shell
   dependency) so they work in Makefiles, bats, CI, and containers. Refresh with
@@ -73,7 +73,7 @@ patiently instead of failing — no code changes. Per-call tunables:
 - **Makefiles:** call the converted scripts, or `source scripts/lib/wait.sh` in a
   recipe and call a verb.
 - **bats tests:** `source "${BATS_TEST_DIRNAME}/../../scripts/lib/wait.sh"` in
-  `setup_file`, and replace port-forward-then-curl loops with `wait_reachable`,
+  `setup_file`. Replace port-forward-then-curl loops with `wait_reachable`,
   DETIK `verify` races with `wait_pods_ready`, and the three diverged `try-limit`
   copies with the shared engine.
 
@@ -88,7 +88,7 @@ patiently instead of failing — no code changes. Per-call tunables:
 3. **Namespace/Kustomization pollers:** the triplicated loops in
    `osramp-up.sh` / `olly-up.sh` / `signalloom-up.sh` → `wait_flux_ready`.
 4. **bats:** point the three `try-limit` copies and DETIK loops at the shared
-   engine; replace the PF-curl and bare-`sleep` gates with `wait_*`.
+   engine. Replace the PF-curl and bare-`sleep` gates with `wait_*`.
 
 `wait-reconciled.sh` already embodies principle 2 and can stay, or be reduced to
 `wait_flux_ready` calls in a loop.

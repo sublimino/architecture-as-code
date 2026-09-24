@@ -14,7 +14,7 @@ The rules apply to two groups of documents in different ways.
 
 | Group | Examples | Rules that apply |
 | :--- | :--- | :--- |
-| **Living documents** | `README.md`, `AGENTS.md`, `TESTING.md`, `docs/README.md`, slice `AGENTS.md` and `README.md` files, runbooks, reference pages | All rules |
+| **Living documents** | `README.md`, `AGENTS.md`, `TESTING.md`, `docs/README.md`, slice `AGENTS.md` and `README.md` files, runbooks, contracts, module and fixture pages, reference pages | All rules |
 | **Decision records** | Proposals, reports, audits, proofs, evidence, `ISA.md`, `MEMORY/` | Links and anchors only. Do not rewrite a record to match these rules. |
 
 A decision record shows the state at the time of writing. Correct a broken link
@@ -152,7 +152,8 @@ also uses that network.
    target contains a raw space.
 6. Link to a heading with its GitHub anchor. A repeated heading gets `-1`,
    `-2`, and so on.
-7. Add each new top-level page in `docs/` to [`README.md`](README.md).
+7. Add each new top-level page in `docs/`, and each decision record at the
+   repository root, to [`README.md`](README.md).
 
 ## Diagrams
 
@@ -172,13 +173,22 @@ tracked Markdown file. Each file gets one of three tiers:
 
 | Tier | Files | Checks |
 | :--- | :--- | :--- |
-| All checks | The navigation layer: the root `README.md`, `AGENTS.md`, `TESTING.md`, and `HUMAN_VALIDATION.md`, this directory's `README.md` and this page, and each slice `AGENTS.md` (`DEFAULT_FILES` in the script) | All the checks in the table below |
-| Correctness | Each other living document | `link`, `anchor`, `space`, `make`, `fence` |
+| All checks | Every living document. A living document is a tracked Markdown file that is not a decision record, not an exception in the next row, and not ignored. | All the checks in the table below |
+| Correctness | The two long-form reference papers in this directory, and the in-product help text under `d2-signalloom/apps/dashboard-signalloom/src/help-content/` (`CORRECTNESS_ONLY` in the script). They keep their authored prose. | `link`, `anchor`, `space`, `make`, `fence`, `diagram` |
 | Links only | Decision records (`RECORDS` in the script) | `link`, `anchor`, `space` |
 
-To run all checks on other files, give their paths:
-`scripts/docs-lint.sh docs/FAQ.md`. Move a living document into the navigation
-layer when its prose meets the rules.
+The script ignores vendored trees, the Starlight source, the talk media, agent
+prompt files (`.forge-prompt*.md`), and licence notices (`IGNORED`).
+
+A new living document gets all checks with no change to the script. To add a
+decision record, add its path to `RECORDS` and to the
+[Decision records](README.md#5--decision-records) section of the index.
+[`test/docs-index-sync.bats`](../test/docs-index-sync.bats) fails when the two
+disagree. Do not add a living document to `CORRECTNESS_ONLY` to avoid the prose
+checks. Correct the prose.
+
+To check only some files, give their paths: `scripts/docs-lint.sh docs/FAQ.md`.
+A file given as an argument gets all checks.
 
 | Check | Rule | Finding |
 | :--- | :--- | :--- |
@@ -187,7 +197,8 @@ layer when its prose meets the rules.
 | `space` | Structure 5 | A link target contains a raw space |
 | `make` | Descriptions 5 | A `make TARGET` names no target in the root Makefile, the nearest slice Makefile, or the `make -C DIR` Makefile |
 | `fence` | Structure | A code fence is opened and never closed |
-| `orphan` | Structure 7 | A top-level page in `docs/` has no link from `docs/README.md` |
+| `diagram` | Diagrams 2 | A Mermaid fence has no prose line directly before it |
+| `orphan` | Structure 7 | A top-level page in `docs/`, or a decision record at the repository root, has no link from `docs/README.md` |
 | `semicolon` | Punctuation 1 | A prose sentence contains a semicolon |
 | `long` | Descriptions 1 | A prose sentence has more than 25 words |
 | `word` | Words 2 | A prose sentence contains a word from the table in [Words](#words) |

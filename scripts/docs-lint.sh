@@ -16,8 +16,12 @@
 #   long      a prose sentence has more than DOCS_LINT_MAX_WORDS words
 #             (STE Rule 6.3, default 25)
 #   word      a prose sentence uses a word from the banned-word list
+#   path      an inline-code path that starts at a tracked top-level directory
+#             names nothing in the tree (and is not gitignored)
 #   fence     a code fence is opened and never closed
-#   orphan    a top-level docs/*.md file has no link from docs/README.md
+#   diagram   a Mermaid fence has no prose line before it (Diagrams rule 2)
+#   orphan    a top-level docs/*.md file, or a root-level decision record, has
+#             no link from docs/README.md
 #
 # The prose checks (semicolon, long, word) skip fenced code blocks, tables,
 # headings, and HTML comments. The link and make checks read table rows too.
@@ -30,55 +34,47 @@ ROOT="${DOCS_LINT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse -
 MAX_WORDS="${DOCS_LINT_MAX_WORDS:-25}"
 cd "$ROOT"
 
-# The navigation layer: the files a reader or an agent uses to find their way.
-# Point-in-time records (proposals, reports, audits, ISAs) are not in this list.
-DEFAULT_FILES=(
-  README.md
-  AGENTS.md
-  TESTING.md
-  HUMAN_VALIDATION.md
-  docs/README.md
-  docs/documentation-style.md
-  d2-agent-trust/AGENTS.md
-  d2-cpai/AGENTS.md
-  d2-infra/AGENTS.md
-  d2-k8s-afm/AGENTS.md
-  d2-osramp-apps/AGENTS.md
-  d2-osramp-fleet/AGENTS.md
-  d2-signalloom/AGENTS.md
-  d2-signalloom/README.md
-)
-# Tests replace the list with DOCS_LINT_FILES (paths separated by spaces).
-if [[ -n "${DOCS_LINT_FILES:-}" ]]; then
-  read -r -a DEFAULT_FILES <<<"$DOCS_LINT_FILES"
-fi
-
 # Banned words and phrases (lower case, extended regex). Each has a simpler
 # approved replacement in docs/documentation-style.md.
 BANNED='utili[sz]e|leverag(e|es|ed|ing)|in order to|prior to|facilitate|commence|whilst|simply|obviously|basically|e\.g\.|i\.e\.|click here'
 
-# Decision records: dated proposals, reports, audits, proofs, and session
-# records. They keep the state of their date, so only their links are checked.
-# Keep this list in step with "Decision records" in docs/README.md.
-RECORDS='^(MEMORY/|Plans/|ci-evidence/|docs/signalloom/|docs/plans/|docs/policy-as-versioned-code/|terraform/notes/|docs/Proposal |docs/Signal Loom — (CEO|Next-Phase)|docs/(DOCUMENTATION-AUDIT|DOCUMENTATION-DELIVERY-CHECKLIST|COLLABORATOR-REVIEW|FIRST-USER-ONBOARDING-PROPOSAL|multi-agent-supercred-proposal|workspace-agentic-identity-streaming|kpai-harness-verification|ktest-p2-preflight|amxd-p0-baseline|agent-trust-(project-proposal|completion-audit|adversarial-review))\.md|docs/appraisal/(APPRAISAL|api-contract-gap|mocks-proxy-fidelity)\.md|docs/gcp-demo/INCIDENTS-|(CODEBASE-REVIEW-.*|DEPLOYMENT-SCOPE|ISA|PLAN-CI-FIXES|PREFLIGHT-REPORT|PROPOSAL_.*)\.md$)'
+# Decision records: dated proposals, reports, audits, proofs, evidence, ISAs,
+# delivery records, and session records. They keep the state of their date, so
+# only their links are checked. test/docs-index-sync.bats proves that this
+# pattern and the "Decision records" section of docs/README.md agree.
+RECORDS='^(MEMORY/|Plans/|ci-evidence/|docs/signalloom/|docs/plans/|docs/policy-as-versioned-code/|terraform/notes/|terraform/ISA\.md|olly-replica/(delivery/|agentic-sre-design-doc\.md)|d2-signalloom/apps/signal-ingest/(correlation/(CASCADE_REDTEAM|SFDP-P3-1-[A-Z-]+)|store/FROSTDB_BENCHMARK|HARDENING_LEDGER)\.md|docs/Proposal |docs/Signal Loom — (CEO|Next-Phase)|docs/(DOCUMENTATION-AUDIT|DOCUMENTATION-DELIVERY-CHECKLIST|COLLABORATOR-REVIEW|FIRST-USER-ONBOARDING-PROPOSAL|multi-agent-supercred-proposal|workspace-agentic-identity-streaming|kpai-harness-verification|ktest-p2-preflight|amxd-p0-baseline|agent-trust-(project-proposal|completion-audit|adversarial-review))\.md|docs/appraisal/(APPRAISAL|api-contract-gap|mocks-proxy-fidelity|auth-gateway-runbook|WALKING-DEMO-RUNBOOK)\.md|docs/breach-cost-talk/|docs/gcp-demo/INCIDENTS-|(CODEBASE-REVIEW-.*|DEPLOYMENT-SCOPE|ISA|PLAN-CI-FIXES|PREFLIGHT-REPORT|PROPOSAL_.*)\.md$)'
 
-# Files that are not repository documentation: vendored and generated trees.
-IGNORED='(^|/)node_modules/|/bats-assert/|^docs/breach-cost-talk/|^d2-signalloom/apps/docs-signalloom/src/'
+# Living documents that keep their authored prose: the two long-form reference
+# papers in docs/ and the in-product help text that the dashboard bundles.
+# They get the correctness checks, not the prose checks. Tests can replace the
+# pattern with DOCS_LINT_CORRECTNESS_ONLY.
+# The pattern names exact files, never a directory, so a new file in the same
+# place gets all checks. test/docs-lint.bats pins the list.
+CORRECTNESS_ONLY="${DOCS_LINT_CORRECTNESS_ONLY:-^(docs/Signal Fusion — Architecture and GDPR Reference\.md|docs/Signal Loom Workstation Sensor — Architecture, Verification, and Distribution Strategy\.md|d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/(entra|okta|openai)\.md)$}"
+
+# Files that are not repository documentation: vendored and generated trees,
+# agent prompts, and third-party licence text. test/docs-lint.bats pins the list.
+IGNORED='/bats-assert/|^d2-signalloom/apps/docs-signalloom/src/|/\.forge-prompt[^/]*\.md$|/THIRD_PARTY_NOTICES\.md$'
 
 # Each file gets a tier:
-#   style   all checks (the navigation layer, or files given as arguments)
-#   living  correctness checks: link, anchor, space, make, fence
+#   style   all checks (every living document, or the files given as arguments)
+#   living  correctness checks only: link, anchor, space, make, fence, diagram
 #   record  link checks only: link, anchor, space
 declare -A TIER=()
 if [[ $# -gt 0 ]]; then
   FILES=("$@")
   for f in "${FILES[@]}"; do TIER[$f]=style; done
 else
-  FILES=("${DEFAULT_FILES[@]}")
-  for f in "${FILES[@]}"; do TIER[$f]=style; done
+  FILES=()
   while IFS= read -r -d '' f; do
-    [[ -v "TIER[$f]" || "$f" =~ $IGNORED ]] && continue
-    if [[ "$f" =~ $RECORDS ]]; then TIER[$f]=record; else TIER[$f]=living; fi
+    [[ "$f" =~ $IGNORED ]] && continue
+    if [[ "$f" =~ $RECORDS ]]; then
+      TIER[$f]=record
+    elif [[ "$f" =~ $CORRECTNESS_ONLY ]]; then
+      TIER[$f]=living
+    else
+      TIER[$f]=style
+    fi
     FILES+=("$f")
   done < <(git ls-files -z '*.md')
 fi
@@ -91,13 +87,18 @@ done
 # extract FILE — print tab-separated records for one markdown file:
 #   L <line> <link-target>
 #   M <line> <make-args>          (text after "make " up to a shell separator)
+#   C <line> <path>               (an inline-code span that looks like a path)
 #   P <line> <sentence>           (one prose sentence, inline code collapsed)
 #   F <line>                      (a code fence that is never closed)
+#   D <line>                      (a Mermaid fence with no prose line before it)
 # ---------------------------------------------------------------------------
 extract() {
   # A fixed locale: a UTF-8 byte sequence that the current locale cannot decode
   # must not make awk warn or skip a line.
   LC_ALL=C awk -v OFS='\t' '
+    # prevnb is the last non-blank line before the current one. It is read by
+    # the diagram rule and must be kept on every line, so this rule comes first.
+    { if (NR > 1 && lastraw !~ /^[ \t]*$/) prevnb = lastraw; lastraw = $0 }
     function flush(   s, n, i, parts) {
       if (para == "") return
       s = para; para = ""
@@ -116,7 +117,16 @@ extract() {
     /<!-- *docs-lint: *off *-->/ { off = 1; flush(); next }
     /<!-- *docs-lint: *on *-->/  { off = 0; next }
     off { next }
-    /^[ \t]*(```|~~~)/ { flush(); fence = !fence; if (fence) fstart = NR; next }
+    /^[ \t]*(```|~~~)/ {
+      flush(); fence = !fence
+      if (fence) {
+        fstart = NR
+        # A diagram needs one prose line before it: not a heading, a table
+        # row, another fence, or a comment, and not the top of the file.
+        if ($0 ~ /^[ \t]*(```|~~~)[ \t]*mermaid/ && (prevnb !~ /[A-Za-z]/ || prevnb ~ /^[ \t]*(#|\||```|~~~|<)/)) print "D", NR, ""
+      }
+      next
+    }
     fence { if ($0 ~ /^[ \t]*(\$ )?make[ \t]/) makes($0, NR); next }
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
@@ -137,6 +147,7 @@ extract() {
         code = substr(c, RSTART + 1, RLENGTH - 2)
         c = substr(c, RSTART + RLENGTH)
         if (code ~ /^make[ \t]/) makes(code, NR)
+        else if (code ~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+$/) print "C", NR, code
       }
     }
     /^[ \t]*$/ { flush(); next }
@@ -270,6 +281,24 @@ check_make() {
   report "$file" "$ln" make "no target '$name' in Makefile$mf"
 }
 
+# The tracked top-level directories. A path check only fires for an inline-code
+# path that starts at one of them, so paths inside containers, on the VM, or
+# in another repository are not reported.
+declare -A TOPDIRS=()
+while IFS= read -r d; do TOPDIRS[$d]=1; done < <(git ls-files | awk -F/ 'NF > 1 { print $1 }' | sort -u)
+
+check_path() {
+  local file="$1" ln="$2" p="$3" top
+  top="${p%%/*}"
+  [[ -v "TOPDIRS[$top]" ]] || return 0
+  # MCP JSON-RPC method names look like paths under tools/ and are not.
+  [[ "$p" =~ ^(tools|resources|prompts)/(list|call|read|get|templates/list)$ ]] && return 0
+  [[ -e "$p" || -e "$(dirname "$file")/$p" ]] && return 0
+  # A gitignored path is a runtime artefact that the page describes.
+  git check-ignore -q "$p" 2>/dev/null && return 0
+  report "$file" "$ln" path "no such path in the tree: $p"
+}
+
 check_link() {
   local file="$1" ln="$2" target="$3" path frag dest
   target="${target#<}"; target="${target%>}"
@@ -320,13 +349,16 @@ for file in "${FILES[@]}"; do
     case "$kind" in
       L) check_link "$file" "$ln" "$rest" ;;
       M) [[ "$tier" != record ]] && check_make "$file" "$ln" "$rest" ;;
+      C) [[ "$tier" != record ]] && check_path "$file" "$ln" "$rest" ;;
       P) [[ "$tier" == style ]] && check_prose "$file" "$ln" "$rest" ;;
       F) [[ "$tier" != record ]] && report "$file" "$ln" fence "code fence opened here is never closed" ;;
+      D) [[ "$tier" != record ]] && report "$file" "$ln" diagram "no prose line before this Mermaid diagram (Diagrams rule 2)" ;;
     esac
   done < <(extract "$file")
 done
 
-# Every top-level living doc in docs/ must be reachable from the index.
+# Every top-level doc in docs/, and every decision record at the repository
+# root, must be reachable from the index.
 if [[ " ${FILES[*]} " == *" docs/README.md "* ]]; then
   while IFS= read -r -d '' doc; do
     base="${doc#docs/}"
@@ -337,6 +369,12 @@ if [[ " ${FILES[*]} " == *" docs/README.md "* ]]; then
       report docs/README.md 1 orphan "not linked from the index: $doc"
     fi
   done < <(git ls-files -z 'docs/*.md' | tr '\0' '\n' | awk -F/ 'NF == 2' | tr '\n' '\0')
+  while IFS= read -r -d '' doc; do
+    [[ "$doc" =~ $RECORDS ]] || continue
+    if ! rg -qF -e "(../$doc)" docs/README.md; then
+      report docs/README.md 1 orphan "root-level record not linked from the index: $doc"
+    fi
+  done < <(git ls-files -z '*.md' | tr '\0' '\n' | awk -F/ 'NF == 1' | tr '\n' '\0')
 fi
 
 if ((findings > 0)); then

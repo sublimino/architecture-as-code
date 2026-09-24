@@ -98,8 +98,6 @@ Start locally. The local workflow needs Docker.
 | [`../HUMAN_VALIDATION.md`](../HUMAN_VALIDATION.md) | Manual browser checks and their evidence |
 | [`deploying-a-backend-service.md`](deploying-a-backend-service.md) | Checklist for the four layers that can each break a page |
 | [`kagent-d5.md`](kagent-d5.md) | The Kagent agent framework demo (D5) |
-| [`appraisal/WALKING-DEMO-RUNBOOK.md`](appraisal/WALKING-DEMO-RUNBOOK.md) | Walk-through script for a live demo |
-| [`appraisal/auth-gateway-runbook.md`](appraisal/auth-gateway-runbook.md) | Runbook for the authenticated gateway path |
 
 Deploy to GCP after the local tests pass. The GCP workflow costs money and needs cloud credentials.
 
@@ -192,8 +190,25 @@ certifications of each mission. The file prefix is the mission shortcode.
 | [`DOCUMENTATION-DELIVERY-CHECKLIST.md`](DOCUMENTATION-DELIVERY-CHECKLIST.md) | Sign-off sheet for that audit |
 | [`workspace-agentic-identity-streaming.md`](workspace-agentic-identity-streaming.md) | Research on Google Workspace agentic identity streaming |
 | [`appraisal/APPRAISAL.md`](appraisal/APPRAISAL.md) | Mid-2026 platform appraisal, with [API contract gaps](appraisal/api-contract-gap.md) and [mock fidelity](appraisal/mocks-proxy-fidelity.md) |
+| [`appraisal/auth-gateway-runbook.md`](appraisal/auth-gateway-runbook.md) | Auth and gateway appraisal of 2026-07. Superseded on 2026-08-14 and kept as a record of the migration path |
+| [`appraisal/WALKING-DEMO-RUNBOOK.md`](appraisal/WALKING-DEMO-RUNBOOK.md) | Walking-demo script of 2026-07-28, partly superseded on 2026-08-14 |
 | [`plans/d2-bao-integration.md`](plans/d2-bao-integration.md) | Plan for the OpenBao integration |
 | [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | GCP incidents of August 2026 |
+
+### Records at the repository root
+
+These files sit next to `README.md` because active work references them by
+that path. They are decision records, and `make docs-lint` checks that each
+one is linked here.
+
+| Document | What it records |
+| :--- | :--- |
+| [`../PROPOSAL_AGENTS_PAGE_REDESIGN.md`](../PROPOSAL_AGENTS_PAGE_REDESIGN.md) | SFAGENTS mission proposal: the Signal Fusion agents page redesign and evidence dossier (2026-09-06) |
+| [`../CODEBASE-REVIEW-2026-09-05.md`](../CODEBASE-REVIEW-2026-09-05.md) | Codebase review of the signal-loop and bootstrap refactor branch (2026-09-05) |
+| [`../DEPLOYMENT-SCOPE.md`](../DEPLOYMENT-SCOPE.md) | Discussion draft of the release qualification and production deployment scope (2026-09-05) |
+| [`../PREFLIGHT-REPORT.md`](../PREFLIGHT-REPORT.md) | Agentic preflight score of the repository (2026-07-29) |
+| [`../PLAN-CI-FIXES.md`](../PLAN-CI-FIXES.md) | Analysis of five CI failures and the local fix plan (2026-07-31) |
+| [`../ISA.md`](../ISA.md) | Ideal State Artifact of the 2026-09 documentation overhaul |
 
 `MEMORY/WORK/` at the repository root holds session records. They are decision
 records, not descriptions of the current tree.
@@ -201,9 +216,25 @@ records, not descriptions of the current tree.
 `breach-cost-talk/` holds the source media of one conference talk. Start with
 [`breach-cost-talk/TALK.md`](breach-cost-talk/TALK.md).
 
-## Proposed layout
+## Layout decision (2026-09-24)
 
-The top of `docs/` mixes living documents and decision records. A later change
-can move them into `reference/`, `runbooks/`, `proposals/`, and `reports/`. A
-move breaks inbound links from worktrees, kanban cards, and ISA files. Do the
-move as one change, and run `make docs-lint` after it.
+The top of `docs/` and the repository root hold living documents and decision
+records side by side. This index and the lint tiers in
+[`documentation-style.md`](documentation-style.md#what-make-docs-lint-checks)
+divide them. The files stay where they are, because active work references
+them by path. The referrers are kanban card specs, integration branches in
+other worktrees, ISA files, and the `RECORDS` pattern in the lint.
+
+Move the records into `proposals/` and `reports/` only when this probe prints
+nothing for each file you move. It searches every branch, the scripts, the
+tests, the lint, and the kanban card specs:
+
+```bash
+name='PROPOSAL_AGENTS_PAGE_REDESIGN.md'
+git grep -l -F "$name" $(git for-each-ref --format='%(refname)' refs/heads refs/remotes)
+git grep -l -F "$name" -- Makefile scripts test .github
+grep -rlF "$name" ~/.cline/kanban/card-specs
+```
+
+Do the move as one change. Update every link the probe found, then run
+`make docs-lint` and `make docs-lint-test`.

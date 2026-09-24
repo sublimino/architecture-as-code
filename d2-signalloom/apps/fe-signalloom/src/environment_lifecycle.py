@@ -35,6 +35,9 @@ from superadmin import require_superadmin
 #: writes (``/active``, ``/reaper/dlq``, ``/audit-events`` …) stay tenant-bound.
 Operator = Annotated[api_compat.Principal, Depends(require_superadmin)]
 
+from eap_audit import _audit_eap_decision
+from scenario_seeding import GLOBAL_SCENARIO_MANAGER, ScenarioType
+
 logger = logging.getLogger("signalloom.lifecycle")
 
 # Authoritative timeouts, intervals, and ceilings
@@ -475,6 +478,14 @@ class LifecycleManager:
                 metadata={"ttl_minutes": ttl_minutes},
             )
             logger.info("Registered environment %s for lifecycle management (TTL %dm)", h, ttl_minutes)
+            try:
+                GLOBAL_SCENARIO_MANAGER.execute_scenario(
+                    ScenarioType.BASELINE_AGENT_FLOW,
+                    company_name=company_name,
+                    customer_hash=h,
+                )
+            except Exception as exc:
+                logger.warning("Auto-seeding scenario failed for %s: %s", h, exc)
             return rec
 
     def transition_state(
@@ -532,6 +543,11 @@ class LifecycleManager:
                 trigger_reason=reason or "state_transition",
                 operator_or_system_id=operator_or_system_id,
             )
+            if new_state == EnvironmentLifecycleState.TERMINATED:
+                try:
+                    GLOBAL_SCENARIO_MANAGER.expunge(h)
+                except Exception as exc:
+                    logger.warning("Expunging scenario data failed for %s: %s", h, exc)
             logger.info("Transitioned %s: %s -> %s (reason: %s)", h, rec.state.value, new_state.value, reason)
             return updated
 
@@ -1040,28 +1056,60 @@ router = APIRouter(prefix="/api/v1/eap/lifecycle", tags=["eap-lifecycle-governan
 async def api_register_lifecycle(req: RegisterEnvironmentRequest, tenant: Tenant) -> LifecycleRecord:
     """Register an environment into the lifecycle governance engine, bound to the caller's tenant."""
     customer_hash = claim_or_403(req.customer_hash or derive_customer_hash(req.company_name), tenant)
-    return GLOBAL_LIFECYCLE_MANAGER.register_environment(
+    rec = GLOBAL_LIFECYCLE_MANAGER.register_environment(
         company_name=req.company_name,
         customer_hash=customer_hash,
         ttl_minutes=req.ttl_minutes or DEFAULT_LEASE_MINUTES,
     )
+    await _audit_eap_decision(
+        None,
+        getattr(tenant, "principal", None),
+        "environment_lifecycle.register",
+        rec.customer_hash,
+        "ALLOW",
+        {"company_name": req.company_name, "ttl_minutes": req.ttl_minutes},
+    )
+    return rec
 
 
 @router.post("/environments/{customer_hash}/heartbeat", response_model=HeartbeatResponse)
 async def api_heartbeat(customer_hash: CustomerHash, req: HeartbeatRequest, tenant: Tenant) -> HeartbeatResponse:
     """Record heartbeat and request lease renewal."""
     require_owned_or_404(customer_hash, tenant)
-    return GLOBAL_LIFECYCLE_MANAGER.record_heartbeat(
+    res = GLOBAL_LIFECYCLE_MANAGER.record_heartbeat(
         customer_hash=customer_hash,
         extend_minutes=req.extend_minutes,
     )
+    if not res.success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Environment '{customer_hash}' not found or in terminal state '{res.status}'."
+        )
+    await _audit_eap_decision(
+        None,
+        getattr(tenant, "principal", None),
+        "environment_lifecycle.heartbeat",
+        customer_hash,
+        "ALLOW",
+        {"extend_minutes": req.extend_minutes, "expires_at": res.expires_at},
+    )
+    return res
 
 
 @router.post("/environments/{customer_hash}/activity", response_model=LifecycleRecord)
 async def api_record_activity(customer_hash: CustomerHash, tenant: Tenant) -> LifecycleRecord:
     """Touch environment activity timer."""
     require_owned_or_404(customer_hash, tenant)
-    return GLOBAL_LIFECYCLE_MANAGER.record_activity(customer_hash, source="api_touch")
+    rec = GLOBAL_LIFECYCLE_MANAGER.record_activity(customer_hash, source="api_touch")
+    await _audit_eap_decision(
+        None,
+        getattr(tenant, "principal", None),
+        "environment_lifecycle.activity",
+        customer_hash,
+        "ALLOW",
+        {"last_activity_at": rec.last_activity_at.isoformat()},
+    )
+    return rec
 
 
 @router.get("/environments/{customer_hash}", response_model=LifecycleRecord)
@@ -1084,13 +1132,30 @@ async def api_list_active_lifecycle(tenant: Tenant) -> List[LifecycleRecord]:
 @router.post("/reap-now", response_model=ReaperSummary)
 async def api_trigger_reaping_pass(_operator: Operator) -> ReaperSummary:
     """Manually trigger an authoritative reaping evaluation pass (operator only: acts on every tenant)."""
-    return await GLOBAL_REAPER_DAEMON.run_reconciliation_pass()
+    summary = await GLOBAL_REAPER_DAEMON.run_reconciliation_pass()
+    await _audit_eap_decision(
+        None,
+        getattr(_operator, "principal", getattr(_operator, "user_id", "operator")),
+        "environment_lifecycle.reap_now",
+        "all",
+        "ALLOW",
+        {"actions_count": summary.actions_count, "active_remaining": summary.active_remaining},
+    )
+    return summary
 
 
 @router.post("/reaper/pause")
 async def api_pause_reaper(_operator: Operator) -> Dict[str, Any]:
     """Administratively pause background reaping operations (operator only: pauses every tenant's cleanup)."""
     GLOBAL_REAPER_DAEMON.pause()
+    await _audit_eap_decision(
+        None,
+        getattr(_operator, "principal", getattr(_operator, "user_id", "operator")),
+        "environment_lifecycle.pause_reaper",
+        "system",
+        "ALLOW",
+        {"is_paused": True},
+    )
     return {"status": "paused", "is_paused": True}
 
 
@@ -1098,6 +1163,14 @@ async def api_pause_reaper(_operator: Operator) -> Dict[str, Any]:
 async def api_resume_reaper(_operator: Operator) -> Dict[str, Any]:
     """Administratively resume background reaping operations (operator only)."""
     GLOBAL_REAPER_DAEMON.resume()
+    await _audit_eap_decision(
+        None,
+        getattr(_operator, "principal", getattr(_operator, "user_id", "operator")),
+        "environment_lifecycle.resume_reaper",
+        "system",
+        "ALLOW",
+        {"is_paused": False},
+    )
     return {"status": "resumed", "is_paused": False}
 
 
@@ -1125,6 +1198,14 @@ async def api_clear_dlq(
         cleared = GLOBAL_LIFECYCLE_MANAGER.dlq.clear(customer_hash)
     else:
         cleared = sum(GLOBAL_LIFECYCLE_MANAGER.dlq.clear(h) for h in owned_hashes(tenant))
+    await _audit_eap_decision(
+        None,
+        getattr(tenant, "principal", None),
+        "environment_lifecycle.clear_dlq",
+        customer_hash or "all",
+        "ALLOW",
+        {"cleared_count": cleared},
+    )
     return {"status": "cleared", "cleared_count": cleared}
 
 

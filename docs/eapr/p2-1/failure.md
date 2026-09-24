@@ -54,11 +54,57 @@ the five EAP routers, without a bearer:
 REACHABLE 21 of 23 EAP routes anonymously (non-401/403)
 ```
 
-The two 401s are `/api/v1/webhooks/{github,generic}` HMAC signature failures
-inside the handler, not principal authentication; every one of the 23 routes
-reaches its handler without a principal. The 404/422/400 rows are handler
-validation, not auth. The card's expected post-merge count (25, including the
+Stated precisely: 0 of 23 EAP routes require an authenticated principal;
+21 respond non-401 anonymously; the 2 that return 401
+(`/api/v1/webhooks/{github,generic}`) reject on HMAC signature only, not on a
+principal. The 404/422/400 rows are validation responses, not auth. The card's expected post-merge count (25, including the
 two slet transit routes) cannot be measured on this base.
+
+## Evidence hardening (advisor gaps closed)
+
+Every ref below resolves (`git rev-parse --verify <ref>^{commit}`), so the
+ancestor exit status is exactly 1 (not merged), never 128 (missing ref):
+
+```text
+EAPR-P1-3                    1d15a906bcb4  ancestor-rc=1
+EAPR-P1-4                    4621df93ed63  ancestor-rc=1
+integration/slea-v0.1.0      18c9456db5be  ancestor-rc=1
+integration/slet-v0.1.0      7e837f946ebf  ancestor-rc=1
+integration/sled-v0.1.0      aac53d634fdf  ancestor-rc=1
+integration/sles-v0.1.0      f1b6780e702e  ancestor-rc=1
+integration/slte-v0.1.0      377058754c9b  ancestor-rc=1
+```
+
+The wholesale replacement is measured, not asserted
+(`git diff --stat 68d87aca EAPR-P1-4 -- <five routers>`):
+
+```text
+ environment_lifecycle.py | 844 +++++++++++++++++++--
+ environment_routing.py   | 124 ++-
+ scenario_seeding.py      |  83 +-
+ tenant_isolation.py      | 279 ++++++-
+ 4 files changed, 1239 insertions(+), 91 deletions(-)
+ (webhook_triggers.py unchanged: 295 lines on both)
+```
+
+Line counts base | `EAPR-P1-4`: tenant_isolation 329 | 558; scenario_seeding
+327 | 408; environment_routing 520 | 636; environment_lifecycle 399 | 1121.
+
+Exemptions: `NOT_DATABASE_BACKED` does not exist on the base; on `EAPR-P1-4`
+it holds 110 entries, 16 of them EAP routes (the "remove 16" deliverable).
+`x_spiffe_id` / `_authorize_or_403` occur 5 times on `EAPR-P1-4`'s
+`tenant_isolation.py` and 0 times on the base.
+
+All `EAPR-P1-4` content above was read with `git show EAPR-P1-4:<path>` from
+this worktree's object store; no sibling or governor worktree was read.
+
+## Launch anomaly (follow-up owed)
+
+The kanban runtime launched EAPR-P2-1, P2-2 and P2-3 while their dependency
+EAPR-P2-PRE and its predecessor EAPR-P1-GOV were both `proceed=no`. The
+start-ready prerequisite gate (D11 site, EAPR-P1-2) did not hold on this board.
+Follow-up: verify the P1-2 gate is active in the live supervisor before any
+further P2 launch.
 
 ## Why not implement on the HEAD router versions
 
@@ -70,10 +116,9 @@ or "`make test-eap-offline` green", none of which exist here.
 
 ## Required remediation
 
-1. Resolve EAPR-P1-GOV under human review; merge P1-3 and P1-4 into
-   `integration/eapr-v0.1.0`; apply tag `integration/eapr-v0.1.0-p1`.
-2. Re-run EAPR-P2-PRE on the reconciled tip to produce the 25-route table.
-3. Re-launch EAPR-P2-1 from the reconciled tip. Sibling cards EAPR-P2-2 and
-   EAPR-P2-3 were launched on the same unmerged tip and need the same check.
+Human review of P1-GOV/P2-PRE → Governor lands P1-3 + P1-4 on
+`integration/eapr-v0.1.0` → cut tag `integration/eapr-v0.1.0-p1` → re-run
+EAPR-P2-PRE on that tag (25-route table) → relaunch EAPR-P2-1 on that tag.
+Sibling cards EAPR-P2-2 and EAPR-P2-3 were launched on the same unmerged tip.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

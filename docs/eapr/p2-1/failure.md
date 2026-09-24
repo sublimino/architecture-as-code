@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 14:00:38+01:00
+Last Updated: 2026-09-24 14:05:46+01:00
 
 ## Verdict
 
@@ -341,5 +341,26 @@ eleven minutes against an upstream blocker is the loop misfiring, not the card.
 Probes at 14:00 local identical to attempts 1–3: tip `9294bd11`, P1-4/P1-3
 ancestor rc=1, no p1 tag, P2-PRE and P1-GOV `status=fail proceed=no`, P1-GOV
 third run still `running`. Verdict unchanged; nothing in scope to change.
+
+## Remediation attempt 5 of 5 (2026-09-24 14:05:46+01:00, runtime auto-remediation) — not fixable in this scope; loop exhausted
+
+Probes at 14:05 local identical to attempts 1–4: tip `9294bd11`, P1-4/P1-3
+ancestor rc=1, no p1 tag, P2-PRE and P1-GOV `status=fail proceed=no`, P1-GOV
+third run (`7ce29`, 12:46:34Z) still `running`. Verdict unchanged.
+
+### Hand-off (for the human, after the loop)
+
+- Five remediation attempts in 21 minutes, every one against an upstream
+  blocker this card cannot touch. The dispatcher re-runs cards whose
+  predecessors are red; that is the defect to fix before EAPR Phase 2 is
+  relaunched (see "Launch anomaly" above and the P1-2 follow-up it names).
+- Branch `EAPR-P2-1` (base `68d87aca`, ten commits on `4de9dadc`) carries
+  exactly two non-record artefacts: `scripts/eap/anon_sweep.py` and this file.
+  Zero router, handler, middleware, test or Makefile changes. The Governor may
+  merge it as evidence or leave it; either is safe.
+- Unblock order: P1-2 fixes the six BATS cases → P1-GOV passes and lands
+  P1-3 + P1-4 on `integration/eapr-v0.1.0` → tag `integration/eapr-v0.1.0-p1`
+  → re-run P2-PRE to `status=pass` → relaunch P2-1 on that tag with the
+  sweep script as the before/after instrument (`--expect-zero` for the gate).
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

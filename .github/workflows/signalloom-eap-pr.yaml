@@ -1,0 +1,133 @@
+# signalloom-eap-pr.yaml — the PR-time offline gate for the Signal Loom EAP suites.
+#
+# Closes SLES B11: until this file existed the EAP pytest suites ran only on
+# the nightly GCP VM lane (signalloom-ci.yaml: workflow_dispatch + cron). That
+# lane resumes a VM and takes up to 90 minutes, so it cannot be a PR check.
+# This one is runner-hosted, credential-free, and scoped to ONE make target so
+# it stays inside a five-minute budget.
+#
+# It runs `make test-eap-offline` — the flat recipe EAPR-P1-3 adds to the
+# Makefile — and nothing else. Local and CI therefore execute the identical
+# SP-1 invocation (uv run --python 3.12 --with pytest ... python -m pytest);
+# there is no pip-install rewrite that could run different code in CI.
+#
+# BASE BRANCH ASSUMPTION. `make test-eap-offline` lands on
+# integration/eapr-v0.1.0 with EAPR-P1-3. A PR whose base predates that merge
+# (for example a PR to main before the integration branch lands) has no such
+# target. The first step asserts the target exists and fails loudly with the
+# reason, instead of `make` exiting 2 with a one-line "No rule to make target".
+#
+# NO CLOUD CREDENTIALS. No google-github-actions/auth, no id-token, no
+# secrets. A gate that runs on every PR — including fork PRs — must have no
+# cloud reach. The credential-absence step asserts that rather than assumes it.
+#
+# Read-only. This workflow writes nothing, anywhere.
+
+name: signalloom-eap-pr
+
+on:
+  pull_request:
+    paths:
+      - "d2-signalloom/apps/fe-signalloom/**"
+      - "d2-signalloom/test/authz-suite-liveness.bats"
+      - "d2-signalloom/test/api-route-liveness.bats"
+      - "d2-signalloom/test/eap-netpol.bats"
+      - "Makefile"
+      - ".github/workflows/signalloom-eap-pr.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eap-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Mirrors the Makefile defaults so the cache step below and the recipe agree
+  # on one directory. UV_CONFIG_FILE=/dev/null is SP-1: a developer's global uv
+  # config must not leak into the gate.
+  UV_CACHE_DIR: /tmp/uv-cache
+  UV_CONFIG_FILE: /dev/null
+
+jobs:
+  eap-offline:
+    name: EAP offline gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Assert the EAP gate target exists on this base
+        # See BASE BRANCH ASSUMPTION above. `make -n` parses the Makefile and
+        # prints the recipe without running it, so this is a pure existence
+        # probe: no uv, no bats, no network.
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! make -n test-eap-offline >/dev/null 2>&1; then
+            echo "::error file=Makefile::make test-eap-offline is not defined on this base. It lands with EAPR-P1-3 on integration/eapr-v0.1.0; a PR against an older base cannot run the EAP gate."
+            exit 1
+          fi
+          echo "make test-eap-offline resolves; recipe:"
+          make -n test-eap-offline
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          # Same major.minor the developer boxes run; a silent uv bump is not a
+          # thing to discover from a red PR.
+          version: "0.5.10"
+          enable-cache: true
+          cache-local-path: /tmp/uv-cache
+          # Keyed on the one requirements file the SP-1 runner installs from.
+          # First run pays the download; every later run on the same
+          # requirements.txt restores it.
+          cache-dependency-glob: "d2-signalloom/apps/fe-signalloom/src/requirements.txt"
+
+      - name: Install bats
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bats
+
+      - name: Show tool versions
+        run: |
+          uv --version
+          bats --version
+          make --version | head -1
+          python3 --version
+
+      - name: Assert no cloud credentials are present
+        # An anti-criterion, asserted rather than assumed. If a future edit adds
+        # an auth step, this fails and names it, instead of the gate quietly
+        # gaining cloud reach.
+        run: |
+          fail=0
+          for v in GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CREDENTIALS \
+                   CLOUDSDK_CORE_ACCOUNT CLOUDSDK_AUTH_ACCESS_TOKEN \
+                   GOOGLE_OAUTH_ACCESS_TOKEN; do
+            if [ -n "${!v-}" ]; then
+              echo "::error::${v} is set — this job must hold no cloud credentials"
+              fail=1
+            fi
+          done
+          if [ -f "${HOME}/.config/gcloud/application_default_credentials.json" ]; then
+            echo "::error::application default credentials are present on the runner"
+            fail=1
+          fi
+          exit "${fail}"
+
+      - name: make test-eap-offline
+        # The exit status of `make` is the exit status of this step. Nothing is
+        # piped after it, so a red suite cannot be laundered by a trailing
+        # `tee` or `tail`. The wall-clock line is printed on both outcomes and
+        # is the number the five-minute budget is judged against.
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=${SECONDS}
+          rc=0
+          make test-eap-offline || rc=$?
+          echo "eap-offline wall-clock: $((SECONDS - start))s (rc=${rc})"
+          exit "${rc}"

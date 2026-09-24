@@ -65,6 +65,12 @@ from fastapi.testclient import TestClient
 import tenant_isolation
 from environment_routing import DEFAULT_EAP_SALT, derive_customer_hash
 from main import app
+from conftest import EAPClient, eap_bearer
+
+# EAPR-P2-1: the tenants router is mounted behind authenticated_principal and
+# identity headers (X-SPIFFE-ID) are stripped at ingress.  Every request here
+# carries a real token: tenant-a (alice) by default, tenant-b (bob) for the peer.
+EAP_AUTHENTICATED = True
 from tenant_isolation import (
     TenantIsolationManager,
     authorize_tenant_access,
@@ -197,7 +203,7 @@ def manager(monkeypatch: pytest.MonkeyPatch) -> TenantIsolationManager:
 
 @pytest.fixture
 def client(manager: TenantIsolationManager) -> TestClient:
-    return TestClient(app)
+    return EAPClient(app)
 
 
 class Api:
@@ -216,7 +222,9 @@ class Api:
             body = resp.text
         self.transcript.record(
             stage, "http",
-            request={"method": method, "path": path, "headers": headers or {}, "json": json_body},
+            request={"method": method, "path": path, "json": json_body,
+                     "headers": {k: ("<redacted>" if k.lower() == "authorization" else v)
+                                 for k, v in (headers or {}).items()}},
             response={"status": resp.status_code, "json": body},
         )
         return resp
@@ -236,10 +244,6 @@ def error_code(resp: httpx.Response) -> str:
 
 def b64(data: bytes) -> str:
     return base64.b64encode(data).decode("ascii")
-
-
-def spiffe_header(customer_hash: str) -> Dict[str, str]:
-    return {"X-SPIFFE-ID": get_tenant_spiffe_id(customer_hash)}
 
 
 # ── Structural checks (each one is falsified below) ─────────────────────────
@@ -422,7 +426,8 @@ def test_kurasi_canonical_hash_is_derived_not_assumed() -> None:
 
 
 def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
-                                   stage_metrics: StageMetrics, transcript: Transcript) -> None:
+                                   stage_metrics: StageMetrics, transcript: Transcript,
+                                   fresh_tenant_ownership) -> None:
     peer_hash = derive_customer_hash(PEER)
     assert peer_hash != KURASI_HASH
 
@@ -439,8 +444,10 @@ def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
             "is_active": True,
         }
         assert manager.transit.key_exists(f"eap-{KURASI_HASH}")
+        # The peer belongs to another tenant (bob / tenant-b), so Stage 7 is a
+        # genuine cross-tenant negative rather than one caller on two hashes.
         assert api.call("1-provision", "POST", "/api/v1/eap/tenants",
-                        json_body={"company_name": PEER}).status_code == 201
+                        json_body={"company_name": PEER}, headers=eap_bearer("bob")).status_code == 201
 
     manifests = api.call("2-pss", "GET", f"/api/v1/eap/tenants/{KURASI_HASH}/manifests").json()
     transcript.record("2-pss", "manifests", manifests=manifests)
@@ -471,26 +478,26 @@ def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
     # Stage 5 — cryptographic transit
     with stage_metrics.measure("5-transit"):
         r = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
-                     json_body={"plaintext": b64(PAYLOAD)}, headers=spiffe_header(KURASI_HASH))
+                     json_body={"plaintext": b64(PAYLOAD)})
         assert r.status_code == 200, r.text
         assert r.json()["key_path"] == KURASI_KEY_PATH
         ciphertext = r.json()["ciphertext"]
         raw = check_ciphertext_shape(ciphertext, len(PAYLOAD))
         assert PAYLOAD not in raw
         again = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
-                         json_body={"plaintext": b64(PAYLOAD)}, headers=spiffe_header(KURASI_HASH)).json()
+                         json_body={"plaintext": b64(PAYLOAD)}).json()
         assert again["ciphertext"] != ciphertext, "nonce reuse: identical ciphertexts"
         r = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
-                     json_body={"ciphertext": ciphertext}, headers=spiffe_header(KURASI_HASH))
+                     json_body={"ciphertext": ciphertext})
         assert r.status_code == 200
         assert base64.b64decode(r.json()["plaintext"]) == PAYLOAD
 
     # Stage 7 (while live) — negative traversal
     with stage_metrics.measure("7-negative"):
-        peer_identity = spiffe_header(peer_hash)
+        peer_identity = eap_bearer("bob")
         r = api.call("7-negative", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
                      json_body={"ciphertext": ciphertext}, headers=peer_identity)
-        assert r.status_code == 403
+        assert r.status_code == 404  # kurasi is not bob's: existence is not leaked
         # Even through its own door, the peer's key cannot open kurasi's data.
         r = api.call("7-negative", "POST", f"/api/v1/eap/tenants/{peer_hash}/transit/decrypt",
                      json_body={"ciphertext": ciphertext}, headers=peer_identity)
@@ -517,24 +524,25 @@ def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
         assert KURASI_HASH not in [t["customer_hash"] for t in
                                    api.call("6-teardown", "GET", "/api/v1/eap/tenants").json()]
         r = api.call("6-teardown", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
-                     json_body={"ciphertext": ciphertext}, headers=spiffe_header(KURASI_HASH))
+                     json_body={"ciphertext": ciphertext})
         assert r.status_code == 404, "ciphertext still decryptable after shredding"
         transcript.record("6-teardown", "shred-proof", ciphertext=ciphertext, receipt=shred,
                           post_shred_decrypt_status=r.status_code)
-        api.call("6-teardown", "DELETE", f"/api/v1/eap/tenants/{peer_hash}")
+        assert api.call("6-teardown", "DELETE", f"/api/v1/eap/tenants/{peer_hash}",
+                        headers=eap_bearer("bob")).status_code == 200
 
 
 def test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead(api: Api, manager: TenantIsolationManager) -> None:
     """Same tenant, same key name, new key: pre-teardown ciphertext never opens again."""
     api.call("6-reprovision", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
     ct = api.call("6-reprovision", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
-                  json_body={"plaintext": b64(PAYLOAD)}, headers=spiffe_header(KURASI_HASH)).json()["ciphertext"]
+                  json_body={"plaintext": b64(PAYLOAD)}).json()["ciphertext"]
     first = api.call("6-reprovision", "DELETE", f"/api/v1/eap/tenants/{KURASI_HASH}").json()["key_shred"]
 
     assert api.call("6-reprovision", "POST", "/api/v1/eap/tenants",
                     json_body={"company_name": KURASI}).status_code == 201
     r = api.call("6-reprovision", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
-                 json_body={"ciphertext": ct}, headers=spiffe_header(KURASI_HASH))
+                 json_body={"ciphertext": ct})
     assert r.status_code == 400 and error_code(r) == "request_error"
     with pytest.raises(TransitDecryptError, match="authentication"):
         manager.decrypt_for_tenant(KURASI_HASH, ct)
@@ -562,12 +570,27 @@ def test_stage6_teardown_is_idempotent_and_does_not_reshred(api: Api, manager: T
     KURASI_SPIFFE + "/",                                      # trailing slash
     KURASI_SPIFFE + "?sa=tenant-app",                         # query smuggling
 ])
-def test_stage7_cross_tenant_identities_are_rejected(api: Api, caller: Optional[str]) -> None:
-    api.call("7-identities", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
-    headers = {} if caller is None else {"X-SPIFFE-ID": caller}
-    r = api.call("7-identities", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
-                 json_body={"plaintext": b64(PAYLOAD)}, headers=headers)
-    assert r.status_code == 403, (caller, r.status_code, r.text)
+def test_stage7_cross_tenant_identities_are_rejected(api: Api, caller: Optional[str],
+                                                    fresh_tenant_ownership) -> None:
+    """A claimed workload identity grants nothing over HTTP; only the tenant does.
+
+    X-SPIFFE-ID is stripped at ingress (EAPR-P2-1), so each forged identity is
+    sent alongside a real bearer token: another tenant (bob) gets 404 on
+    kurasi's hash, anonymous gets 401, and the owner (alice) still succeeds
+    with the same forged header, so neither refusal is an endpoint that
+    rejects everyone.  The identity check itself is pinned at the function.
+    """
+    assert api.call("7-identities", "POST", "/api/v1/eap/tenants",
+                    json_body={"company_name": KURASI}).status_code == 201
+    forged = {} if caller is None else {"X-SPIFFE-ID": caller}
+    path = f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt"
+    r = api.call("7-identities", "POST", path, json_body={"plaintext": b64(PAYLOAD)},
+                 headers={**forged, **eap_bearer("bob")})
+    assert r.status_code == 404, (caller, r.status_code, r.text)
+    anonymous = TestClient(app).post(path, json={"plaintext": b64(PAYLOAD)}, headers=forged)
+    assert anonymous.status_code == 401, (caller, anonymous.status_code, anonymous.text)
+    owner = api.call("7-identities", "POST", path, json_body={"plaintext": b64(PAYLOAD)}, headers=forged)
+    assert owner.status_code == 200, (caller, owner.status_code, owner.text)
     with pytest.raises(CrossTenantAccessDenied):
         authorize_tenant_access(caller, KURASI_HASH)
 
@@ -577,7 +600,7 @@ def test_stage7_positive_control_the_owner_is_admitted(api: Api) -> None:
     api.call("7-positive", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
     authorize_tenant_access(KURASI_SPIFFE, KURASI_HASH)
     r = api.call("7-positive", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
-                 json_body={"plaintext": b64(PAYLOAD)}, headers={"X-SPIFFE-ID": KURASI_SPIFFE})
+                 json_body={"plaintext": b64(PAYLOAD)})
     assert r.status_code == 200
 
 
@@ -609,13 +632,13 @@ def test_stage7_svid_for_another_tenant_is_rejected() -> None:
 def test_stage5_tampered_ciphertext_is_rejected(api: Api) -> None:
     api.call("5-tamper", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
     ct = api.call("5-tamper", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
-                  json_body={"plaintext": b64(PAYLOAD)}, headers=spiffe_header(KURASI_HASH)).json()["ciphertext"]
+                  json_body={"plaintext": b64(PAYLOAD)}).json()["ciphertext"]
     raw = bytearray(base64.b64decode(ct[len(CIPHERTEXT_PREFIX):]))
     raw[NONCE_BYTES + 3] ^= 0x01
     for bad in (CIPHERTEXT_PREFIX + b64(bytes(raw)), "vault:v2:" + ct[9:], "not-a-ciphertext",
                 CIPHERTEXT_PREFIX + b64(b"short")):
         r = api.call("5-tamper", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
-                     json_body={"ciphertext": bad}, headers=spiffe_header(KURASI_HASH))
+                     json_body={"ciphertext": bad})
         assert r.status_code == 400, (bad, r.text)
 
 
@@ -838,7 +861,7 @@ def test_concurrent_mixed_journeys_preserve_the_key_invariant() -> None:
 async def test_concurrent_http_journeys_over_asgi(manager: TenantIsolationManager) -> None:
     """20 parallel kurasi+peer journeys through the ASGI stack, no state corruption."""
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://slet.test") as ac:
+    async with httpx.AsyncClient(transport=transport, base_url="http://slet.test", headers=eap_bearer()) as ac:
         provisions = await asyncio.gather(*[
             ac.post("/api/v1/eap/tenants", json={"company_name": KURASI if i % 2 == 0 else f"slet-async-{i}"})
             for i in range(20)
@@ -849,9 +872,9 @@ async def test_concurrent_http_journeys_over_asgi(manager: TenantIsolationManage
         async def roundtrip(i: int) -> bytes:
             pt = f"record-{i}".encode()
             ct = (await ac.post(f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
-                                json={"plaintext": b64(pt)}, headers=spiffe_header(KURASI_HASH))).json()["ciphertext"]
+                                json={"plaintext": b64(pt)})).json()["ciphertext"]
             out = await ac.post(f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
-                                json={"ciphertext": ct}, headers=spiffe_header(KURASI_HASH))
+                                json={"ciphertext": ct})
             return base64.b64decode(out.json()["plaintext"])
 
         results = await asyncio.gather(*[roundtrip(i) for i in range(50)])

@@ -16,8 +16,12 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, WebSocket, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+import api_compat
+import eap_tenancy
+from eap_tenancy import Tenant, claim_or_403, owned_hashes
 
 logger = logging.getLogger(__name__)
 
@@ -464,10 +468,26 @@ router = APIRouter(prefix="/api/v1/environments", tags=["environments"])
     status_code=status.HTTP_201_CREATED,
     summary="Provision an on-demand EAP environment",
 )
-async def provision_environment(req: ProvisionRequest) -> EnvironmentResponse:
-    """Provision a new EAP demo/UAT environment with salted domain derivation."""
+async def provision_environment(req: ProvisionRequest, tenant: Tenant) -> EnvironmentResponse:
+    """Provision a new EAP demo/UAT environment with salted domain derivation.
+
+    The hash is derived server-side from the company name and bound to the
+    caller's tenant before anything is created (EAPR-P2-1).
+    """
+    claim_or_403(derive_customer_hash(req.company_name), tenant)
     rec = GLOBAL_ENVIRONMENT_REGISTRY.create(req)
     return rec.to_response()
+
+
+def _owned_environment_or_404(environment_id: str, tenant: str) -> "EnvironmentRecord":
+    """An environment the caller does not own is indistinguishable from one that does not exist."""
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
+    if not rec or rec.customer_hash not in owned_hashes(tenant):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Environment with ID '{environment_id}' not found.",
+        )
+    return rec
 
 
 @router.post(
@@ -476,8 +496,12 @@ async def provision_environment(req: ProvisionRequest) -> EnvironmentResponse:
     status_code=status.HTTP_200_OK,
     summary="Resolve company name or customer hash to Tailscale EAP domains",
 )
-async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionResponse:
-    """Resolve a company name or customer hash to sl-eap-HASH domain names and active status."""
+async def resolve_domain(req: DomainResolutionRequest, tenant: Tenant) -> DomainResolutionResponse:
+    """Resolve a company name or customer hash to sl-eap-HASH domain names and active status.
+
+    Domain synthesis is pure arithmetic; the registry lookup (active flag,
+    environment id, company name) is answered only for the caller's own hashes.
+    """
     if not req.company_name and not req.customer_hash:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -486,12 +510,18 @@ async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionRespon
 
     if req.customer_hash:
         c_hash = req.customer_hash.lower()
-        rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash)
-        c_name = rec.company_name if rec else None
+        c_name = None
     else:
         c_name = normalize_company_name(req.company_name)  # type: ignore[arg-type]
         c_hash = derive_customer_hash(c_name)
-        rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash)
+    # A hash another tenant owns is not resolvable: this route would otherwise
+    # be a company-name -> hash -> is_active oracle across tenants.
+    owner = eap_tenancy.GLOBAL_TENANT_OWNERSHIP.owner_of(c_hash)
+    if owner is not None and owner != tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash) if owner == tenant else None
+    if req.customer_hash:
+        c_name = rec.company_name if rec else None
 
     urls = build_environment_urls(c_hash)
     is_active = bool(rec and rec.state not in (EnvironmentState.TERMINATED,))
@@ -515,13 +545,18 @@ async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionRespon
     summary="List all EAP environments",
 )
 async def list_environments(
+    tenant: Tenant,
     state: Optional[EnvironmentState] = None,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> List[EnvironmentResponse]:
-    """List all registered EAP environments with optional state filter and pagination."""
-    records = GLOBAL_ENVIRONMENT_REGISTRY.list(state=state, limit=limit, offset=offset)
-    return [r.to_response() for r in records]
+    """List the caller's EAP environments with optional state filter and pagination."""
+    mine = owned_hashes(tenant)
+    records = [
+        r for r in GLOBAL_ENVIRONMENT_REGISTRY.list(state=state, limit=10_000, offset=0)
+        if r.customer_hash in mine
+    ]
+    return [r.to_response() for r in records[offset : offset + limit]]
 
 
 @router.get(
@@ -530,15 +565,9 @@ async def list_environments(
     status_code=status.HTTP_200_OK,
     summary="Get EAP environment details",
 )
-async def get_environment(environment_id: str) -> EnvironmentResponse:
+async def get_environment(environment_id: str, tenant: Tenant) -> EnvironmentResponse:
     """Retrieve detailed real-time status and TTL metrics for an EAP environment."""
-    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
-    if not rec:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Environment with ID '{environment_id}' not found.",
-        )
-    return rec.to_response()
+    return _owned_environment_or_404(environment_id, tenant).to_response()
 
 
 @router.post(
@@ -547,8 +576,9 @@ async def get_environment(environment_id: str) -> EnvironmentResponse:
     status_code=status.HTTP_200_OK,
     summary="Extend EAP environment TTL",
 )
-async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest) -> EnvironmentResponse:
+async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest, tenant: Tenant) -> EnvironmentResponse:
     """Extend an environment's active lease up to the 72-hour maximum lifetime ceiling."""
+    _owned_environment_or_404(environment_id, tenant)
     rec = GLOBAL_ENVIRONMENT_REGISTRY.extend_ttl(environment_id, req.additional_minutes)
     return rec.to_response()
 
@@ -559,8 +589,11 @@ async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest) -> 
     status_code=status.HTTP_200_OK,
     summary="Teardown an EAP environment",
 )
-async def teardown_environment(environment_id: str, req: Optional[TeardownRequest] = None) -> EnvironmentResponse:
+async def teardown_environment(
+    environment_id: str, tenant: Tenant, req: Optional[TeardownRequest] = None
+) -> EnvironmentResponse:
     """Initiate orderly de-provisioning and state termination for an environment."""
+    _owned_environment_or_404(environment_id, tenant)
     reason = req.reason if req else "API teardown request"
     force = req.force if req else False
     rec = GLOBAL_ENVIRONMENT_REGISTRY.teardown(environment_id, reason=reason, force=force)
@@ -572,14 +605,9 @@ async def teardown_environment(environment_id: str, req: Optional[TeardownReques
     status_code=status.HTTP_200_OK,
     summary="Health-probe an EAP environment",
 )
-async def probe_environment(environment_id: str) -> Dict[str, Any]:
+async def probe_environment(environment_id: str, tenant: Tenant) -> Dict[str, Any]:
     """Report routability: 200 when serving, 503 while tearing down, 410 once terminated."""
-    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
-    if not rec:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Environment with ID '{environment_id}' not found.",
-        )
+    rec = _owned_environment_or_404(environment_id, tenant)
     if rec.state == EnvironmentState.TERMINATED:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -602,13 +630,14 @@ async def probe_environment(environment_id: str) -> Dict[str, Any]:
 
 
 @router.websocket("/{environment_id}/telemetry")
-async def stream_environment_telemetry(websocket: WebSocket, environment_id: str) -> None:
+async def stream_environment_telemetry(websocket: WebSocket, environment_id: str, tenant: Tenant) -> None:
     """Stream the environment's lifecycle events as JSON frames, then close normally.
 
-    Unknown environments are refused with close code 4404 before accept.
+    Unknown environments, and environments the caller's tenant does not own,
+    are refused with close code 4404 before accept.
     """
     rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
-    if not rec:
+    if not rec or rec.customer_hash not in owned_hashes(tenant):
         await websocket.close(code=4404)
         return
     await websocket.accept()
@@ -621,8 +650,12 @@ async def stream_environment_telemetry(websocket: WebSocket, environment_id: str
 
 
 def install_environment_routing_api(app: FastAPI) -> None:
-    """Install environment routing router and registry on the FastAPI application."""
-    app.include_router(router)
+    """Install environment routing router and registry on the FastAPI application.
+
+    The authentication dependency is attached at the mount (EAPR-P2-1, SP-5) so a
+    route added to this router is denied by default rather than opt-in.
+    """
+    app.include_router(router, dependencies=[Depends(api_compat.authenticated_principal)])
 
     @app.middleware("http")
     async def eap_security_headers(request: Request, call_next):

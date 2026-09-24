@@ -39,6 +39,40 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Signal Loom Discovery Portal", version="0.1.0", lifespan=lifespan)
+
+
+# EAPR-P2-1 credential doctrine (decided 2026-09-23): no identity is ever read
+# from a request header.  Tenancy comes from the verified principal only, so
+# any inbound identity header is dropped at ingress before routing.  Pure ASGI
+# (not BaseHTTPMiddleware) so websocket scopes are covered as well as http.
+# Header names are matched lower-case, as the ASGI spec guarantees they arrive.
+STRIPPED_IDENTITY_HEADERS: frozenset[bytes] = frozenset({b"x-forwarded-user", b"x-tenant-id"})
+STRIPPED_IDENTITY_HEADER_PREFIXES: tuple[bytes, ...] = (b"x-spiffe", b"x-tenant", b"x-principal")
+
+
+def _is_identity_header(name: bytes) -> bool:
+    # ``X_Tenant_Id`` is the same claim as ``X-Tenant-Id`` to anything that
+    # normalises names (CGI-style servers, some proxies); strip both spellings.
+    name = name.replace(b"_", b"-")
+    return name in STRIPPED_IDENTITY_HEADERS or name.startswith(STRIPPED_IDENTITY_HEADER_PREFIXES)
+
+
+class IdentityHeaderStripMiddleware:
+    """Remove client-asserted identity headers from ``scope["headers"]`` before routing."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            headers = scope.get("headers") or []
+            kept = [(name, value) for name, value in headers if not _is_identity_header(name.lower())]
+            if len(kept) != len(headers):
+                scope = dict(scope)
+                scope["headers"] = kept
+        await self.app(scope, receive, send)
+
+
 install_compatibility_api(app)
 install_onboarding_api(app)
 install_audit_ingest_api(app)
@@ -52,6 +86,10 @@ install_webhook_triggers_api(app)
 install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)
 install_scenario_seeding_api(app)
+# Added last so it is the OUTERMOST middleware (Starlette wraps later additions
+# around earlier ones): identity headers are gone before any other middleware,
+# dependency or handler can read them, for http and websocket scopes alike.
+app.add_middleware(IdentityHeaderStripMiddleware)
 
 
 @app.get("/health")

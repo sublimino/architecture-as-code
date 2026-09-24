@@ -14,6 +14,15 @@
 #
 # Required configuration on the GitHub Environment `signalloom-preview`:
 #   secrets.SIGNALLOOM_WEBHOOK_SECRET  per-tenant HMAC secret issued by ControlPlane
+#   secrets.SIGNALLOOM_BEARER_TOKEN    tenant bearer token (JWT) issued by ControlPlane; the
+#                                      receiver is authenticated (EAPR-P2-1) and answers 401
+#                                      to a signed delivery that carries no bearer. The
+#                                      receiver checks `exp`, so this must be a service-principal
+#                                      token with a stated lifetime and a rotation owner, never
+#                                      a pasted interactive login token (minutes to hours: green
+#                                      today, 401 tomorrow). Federating GitHub OIDC
+#                                      (`permissions: id-token: write`) to the issuer is the
+#                                      intended long-term shape and is not in this template yet.
 #   vars.SIGNALLOOM_WEBHOOK_URL        full URL of the generic receiver
 #   vars.SIGNALLOOM_TENANT             tenant slug, e.g. "kusari"
 # Optional (receiver reachable only over the tailnet):
@@ -68,6 +77,7 @@ jobs:
         env:
           SIGNALLOOM_WEBHOOK_URL: ${{ vars.SIGNALLOOM_WEBHOOK_URL }}
           SIGNALLOOM_WEBHOOK_SECRET: ${{ secrets.SIGNALLOOM_WEBHOOK_SECRET }}
+          SIGNALLOOM_BEARER_TOKEN: ${{ secrets.SIGNALLOOM_BEARER_TOKEN }}
           SIGNALLOOM_TENANT: ${{ vars.SIGNALLOOM_TENANT }}
           SIGNALLOOM_TTL_MINUTES: "120"
           PR_ACTION: ${{ github.event.action }}
@@ -80,6 +90,7 @@ jobs:
           set -euo pipefail
           : "${SIGNALLOOM_WEBHOOK_URL:?vars.SIGNALLOOM_WEBHOOK_URL is not set}"
           : "${SIGNALLOOM_WEBHOOK_SECRET:?secrets.SIGNALLOOM_WEBHOOK_SECRET is not set}"
+          : "${SIGNALLOOM_BEARER_TOKEN:?secrets.SIGNALLOOM_BEARER_TOKEN is not set}"
           : "${SIGNALLOOM_TENANT:?vars.SIGNALLOOM_TENANT is not set}"
 
           case "$PR_ACTION" in
@@ -120,6 +131,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-SignalLoom-Timestamp: $ts" \
             -H "X-SignalLoom-Signature: $sig" \
+            -H "Authorization: Bearer $SIGNALLOOM_BEARER_TOKEN" \
             --data-binary "@$body_file.raw" | tee "$body_file.response"
           echo
           if [ -n "${GITHUB_OUTPUT:-}" ]; then

@@ -15,7 +15,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response, status
+
+import api_compat
+from eap_tenancy import Tenant, claim_or_403
 from pydantic import BaseModel, Field
 
 from environment_routing import (
@@ -109,6 +112,7 @@ router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 )
 async def github_webhook_receiver(
     request: Request,
+    tenant: Tenant,
     x_hub_signature_256: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
     x_github_event: Optional[str] = Header(None, alias="X-GitHub-Event"),
     x_github_delivery: Optional[str] = Header(None, alias="X-GitHub-Delivery"),
@@ -134,7 +138,7 @@ async def github_webhook_receiver(
     # For kurasi demo, default to kurasi if repo matches
     company = "kurasi" if "kurasi" in repo_name.lower() else repo_name.split("-")[0]
     normalized_company = normalize_company_name(company)
-    c_hash = derive_customer_hash(normalized_company)
+    c_hash = claim_or_403(derive_customer_hash(normalized_company), tenant)  # EAPR-P2-1: hash bound to the caller's tenant
     urls = build_environment_urls(c_hash)
 
     pr_action = payload.get("action", "")
@@ -214,6 +218,7 @@ async def github_webhook_receiver(
 )
 async def generic_webhook_receiver(
     request: Request,
+    tenant: Tenant,
     x_signalloom_signature: Optional[str] = Header(None, alias="X-SignalLoom-Signature"),
     x_signalloom_timestamp: Optional[str] = Header(None, alias="X-SignalLoom-Timestamp"),
 ) -> WebhookTriggerResponse:
@@ -238,7 +243,7 @@ async def generic_webhook_receiver(
     ttl = int(payload.get("ttl_minutes", 120))
 
     normalized_company = normalize_company_name(company)
-    c_hash = derive_customer_hash(normalized_company)
+    c_hash = claim_or_403(derive_customer_hash(normalized_company), tenant)  # EAPR-P2-1: hash bound to the caller's tenant
     urls = build_environment_urls(c_hash)
 
     action_taken = "ignored"
@@ -290,6 +295,11 @@ async def generic_webhook_receiver(
 
 
 def install_webhook_triggers_api(app: FastAPI) -> None:
-    """Mount webhook triggers router on the FastAPI application."""
-    app.include_router(router)
+    """Mount webhook triggers router on the FastAPI application.
+
+    The authentication dependency is attached at the mount (EAPR-P2-1, SP-5) so a
+    route added to this router is denied by default rather than opt-in.  P3-4
+    deletes this file; until then it must not be the one anonymous router.
+    """
+    app.include_router(router, dependencies=[Depends(api_compat.authenticated_principal)])
     logger.info("Installed Signal Loom external webhook trigger API at /api/v1/webhooks")

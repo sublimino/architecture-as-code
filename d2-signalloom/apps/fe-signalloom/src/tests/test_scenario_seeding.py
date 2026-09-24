@@ -17,8 +17,13 @@ from scenario_seeding import (
     generate_compliance_proof_events,
 )
 from main import app
+import eap_tenancy
+from conftest import EAP_TENANT_A, EAPClient, eap_bearer
 
-client = TestClient(app)
+# EAPR-P2-1: the scenarios router is mounted behind authenticated_principal;
+# every request here carries a real tenant-a token (see tests/conftest.py).
+EAP_AUTHENTICATED = True
+client = EAPClient(app)
 
 
 def test_baseline_agent_events_generation():
@@ -524,7 +529,7 @@ def test_api_concurrent_multitenant_isolation():
 
     def post(company, h, scenario):
         # No context manager: that would run the app lifespan, which needs Postgres.
-        r = TestClient(app).post("/api/v1/eap/scenarios/execute", json={
+        r = EAPClient(app).post("/api/v1/eap/scenarios/execute", json={
             "scenario_type": scenario.value, "company_name": company, "customer_hash": h,
         })
         return r.status_code, r.json()
@@ -663,6 +668,9 @@ def test_sse_stream_replays_only_the_requested_tenant(fresh_manager):
     fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "othercorp", "0badf00d")
     fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
     fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+    # Seeded on the manager, not via POST, so nothing claimed the hash for
+    # tenant-a: claim it explicitly or the stream route answers 404.
+    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KURASI_HASH, EAP_TENANT_A)
 
     resp = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream", params={"limit": 6})
     assert resp.status_code == 200
@@ -677,7 +685,9 @@ def test_sse_stream_replays_only_the_requested_tenant(fresh_manager):
 
 def test_sse_stream_rejects_malformed_customer_hash():
     # Each input reaches the route and is refused by the pattern (422), so a
-    # deleted route (404) cannot satisfy this test.
+    # deleted route (404) cannot satisfy this test.  The well-formed hash must
+    # be tenant-a's so the Last-Event-ID probe below reaches header validation.
+    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KURASI_HASH, EAP_TENANT_A)
     for bad in ("6F82AD81", "6f82ad8", "zzzzzzzz", "6f82ad811"):
         assert client.get(f"/api/v1/eap/scenarios/events/{bad}/stream").status_code == 422, bad
     assert client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream",
@@ -687,6 +697,9 @@ def test_sse_stream_rejects_malformed_customer_hash():
 def test_sse_stream_resumes_after_last_event_id(fresh_manager):
     fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
     fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+    # Seeded on the manager, not via POST, so nothing claimed the hash for
+    # tenant-a: claim it explicitly or the stream route answers 404.
+    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KURASI_HASH, EAP_TENANT_A)
     resp = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream",
                       params={"limit": 3}, headers={"Last-Event-ID": "3"})
     frames = _parse_sse(resp.text)
@@ -752,7 +765,10 @@ def test_openapi_documents_every_scenario_route_with_models():
     stream = paths[f"{base}/events/{{customer_hash}}/stream"]["get"]
     hash_param = next(p for p in stream["parameters"] if p["name"] == "customer_hash")
     assert hash_param["schema"]["pattern"] == scenario_seeding.CUSTOMER_HASH_PATTERN
-    assert {p["name"] for p in stream["parameters"]} == {"customer_hash", "replay", "limit", "last-event-id"}
+    # "authorization" is the router-level authenticated_principal header (EAPR-P2-1).
+    assert {p["name"] for p in stream["parameters"]} == {
+        "customer_hash", "replay", "limit", "last-event-id", "authorization",
+    }
 
 
 # ==============================================================================
@@ -797,32 +813,47 @@ def test_kurasi_journey_schema_rejects_invalid_records():
 
 # ==============================================================================
 # Certification blockers (SLES-P4-GOV). Each test states an invariant from the
-# proposal that the code does not yet meet. strict=True: when the defect is
+# proposal. B1, B2 and B13 were closed by EAPR-P2-1 and are plain tests now;
+# the rest the code does not yet meet. strict=True: when the defect is
 # fixed the test XPASSes, which fails the run and forces the marker's removal.
 # raises=AssertionError: any other exception (e.g. a probe broken by the fix,
 # such as a 401 body where a list was expected) fails loudly instead of
 # staying silently xfailed.
 # ==============================================================================
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B1: scenario API has no authentication dependency")
 def test_blocker_execute_requires_authentication(fresh_manager):
-    resp = client.post("/api/v1/eap/scenarios/execute", json={"company_name": "kurasi"})
-    assert resp.status_code in (401, 403)
+    # B1 (closed by EAPR-P2-1): a raw TestClient sends no Authorization header.
+    anonymous = TestClient(app)
+    resp = anonymous.post("/api/v1/eap/scenarios/execute", json={"company_name": "kurasi"})
+    assert resp.status_code == 401
+    assert fresh_manager.get_history() == []
+    # Positive control: the same body with a real tenant-a token executes.
+    assert client.post("/api/v1/eap/scenarios/execute", json={"company_name": "kurasi"}).status_code == 201
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B2: /history returns every tenant's executions")
-def test_blocker_history_is_tenant_scoped(fresh_manager):
-    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
-    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "othercorp", "0badf00d")
-    resp = client.get("/api/v1/eap/scenarios/history")
-    # Once B1 lands this probe must authenticate as one tenant; an unauthenticated
-    # 401 would raise here and fail the run rather than stay xfailed.
-    assert resp.status_code == 200
-    assert len({h["customer_hash"] for h in resp.json()}) <= 1
+def test_blocker_history_is_tenant_scoped(fresh_manager, fresh_tenant_ownership):
+    # B2 (closed by EAPR-P2-1): seed two tenants through the API, then each
+    # tenant's /history must hold its own execution and nothing else.
+    alice_run = client.post("/api/v1/eap/scenarios/execute", json={
+        "scenario_type": "baseline_agent_flow", "company_name": "kurasi", "customer_hash": KURASI_HASH,
+    })
+    assert alice_run.status_code == 201, alice_run.text
+    bob_run = client.post("/api/v1/eap/scenarios/execute", headers=eap_bearer("bob"), json={
+        "scenario_type": "baseline_agent_flow", "company_name": "othercorp", "customer_hash": "0badf00d",
+    })
+    assert bob_run.status_code == 201, bob_run.text
+    assert len(fresh_manager.get_history()) == 2
+
+    alice_history = client.get("/api/v1/eap/scenarios/history")
+    assert alice_history.status_code == 200
+    assert [h["customer_hash"] for h in alice_history.json()] == [KURASI_HASH]
+    bob_history = client.get("/api/v1/eap/scenarios/history", headers=eap_bearer("bob"))
+    assert bob_history.status_code == 200
+    assert [h["customer_hash"] for h in bob_history.json()] == ["0badf00d"]
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="BLOCKER B13: execute accepts non-hex tenant keys")
 def test_blocker_execute_rejects_non_hex_customer_hash(fresh_manager):
+    # B13 (closed by EAPR-P2-1).
     resp = client.post("/api/v1/eap/scenarios/execute",
                        json={"company_name": "kurasi", "customer_hash": "ZZ/..zz!"})
     assert resp.status_code == 422

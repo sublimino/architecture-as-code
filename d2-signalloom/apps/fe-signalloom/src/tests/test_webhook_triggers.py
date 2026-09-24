@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from environment_routing import GLOBAL_ENVIRONMENT_REGISTRY, EnvironmentState
 from main import app
+from conftest import EAPClient
 from webhook_triggers import (
     DEFAULT_WEBHOOK_SECRET,
     get_webhook_secret,
@@ -18,7 +19,10 @@ from webhook_triggers import (
     verify_github_signature,
 )
 
-client = TestClient(app)
+# EAPR-P2-1: the EAP routers are mounted behind authenticated_principal;
+# every request here carries a real tenant-a token (see tests/conftest.py).
+EAP_AUTHENTICATED = True
+client = EAPClient(app)
 
 
 def test_webhook_secret_resolution():

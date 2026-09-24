@@ -1,0 +1,68 @@
+--- a/test/kanban-max-arg-strlen.bats	2026-09-24 01:55:18.526059641 +0100
++++ b/test/kanban-max-arg-strlen.bats
+@@ -393,3 +393,65 @@
+   "
+   [ "$status" -eq 0 ]
+ }
++
++# ── EAPR-P1-1 (2026-09-24): envp is not a transport ──────────────────────────
++# MAX_ARG_STRLEN (131,072 bytes) bounds every envp entry as well as every argv
++# element, so a whole-board JSON in COST_BOARD_CARDS dies at execve exactly like
++# a whole-board argv. The only sanctioned ingestion path is COST_BOARD_CARDS_FILE.
++
++# Extract the embedded cost Python verbatim so the ingestion branch can be driven
++# with the file path deliberately absent. Through the CLI the file is always
++# created, which is precisely why the legacy env branch was unreachable dead code
++# and why a CLI-level test cannot discriminate its presence.
++_cost_python() {
++  sed -n '/^cmd_cost()/,/^}/p' "$SCRIPT" | sed -n "/python3 - <<'PYEOF'/,/^PYEOF\$/p" | sed '1d;$d'
++}
++
++@test "MAX_ARG_STRLEN: cost ignores COST_BOARD_CARDS env and reads only COST_BOARD_CARDS_FILE" {
++  local py
++  py="$(_cost_python)"
++  [ -n "$py" ]
++  # Board on the file side: one task, no workspacePath override.
++  local tasks_tsv="$BATS_TEST_TMPDIR/tasks.tsv"
++  printf 't-1\tdone\tTEST-P1-1: Implementation Task\n' > "$tasks_tsv"
++  # Env payload: same task id, a DIFFERENT workspacePath, padded to ~100 KiB
++  # (under the exec limit so the process can start at all; see the exec-death
++  # control below for what happens above it).
++  local env_cards
++  env_cards="$(python3 -c "
++import json
++print(json.dumps({'t-1': {'id': 't-1', 'workspacePath': '/ENV-INJECTED/t-1/repo', 'agentId': 'env-agent', 'pad': 'E' * 100000}}))
++")"
++  [ "${#env_cards}" -gt 65536 ]
++  [ "${#env_cards}" -lt 131072 ]
++  run env COST_TASKS_FILE="$tasks_tsv" COST_BOARD_CARDS_FILE="$BATS_TEST_TMPDIR/does-not-exist.json" \
++      COST_BOARD_CARDS="$env_cards" COST_DB="$OPENCODE_DB" COST_REPO="$REPO" COST_FILTER="" \
++      COST_SHORTCODE="TEST" COST_AS_JSON="true" COST_UPDATE_TABLE="false" COST_APPLY="false" \
++      COST_PROPOSAL="$PROPOSAL" COST_WORKSPACE_ID="repo" \
++      python3 -c "$py"
++  [ "$status" -eq 0 ]
++  [[ "$output" != *"Argument list too long"* ]]
++  run jq -e '.tasks | length == 1 and .[0].id == "t-1"' <<<"$output"
++  [ "$status" -eq 0 ]
++  # The env payload must leave no trace: neither its workspacePath nor its agent.
++  [[ "$output" != *"ENV-INJECTED"* ]]
++  [[ "$output" != *"env-agent"* ]]
++}
++
++@test "MAX_ARG_STRLEN: cost ingestion has exactly one board-cards transport (no COST_BOARD_CARDS env branch)" {
++  run grep -c "COST_BOARD_CARDS' in os.environ" "$SCRIPT"
++  [ "$output" = "0" ]
++}
++
++@test "MAX_ARG_STRLEN: a 200 KiB COST_BOARD_CARDS in the environment kills exec of kanban-check.sh itself (E2BIG)" {
++  cat > "$STATE_JSON" <<'JSON'
++{"tasks":[{"id":"t1","title":"TEST-P1-1: Implementation Task","column":"done","baseRef":"integration/test-v1.0.0"}],"dependencies":[]}
++JSON
++  local big
++  big="$(head -c 204800 /dev/zero | tr '\0' 'E')"
++  [ "${#big}" -eq 204800 ]
++  # export only for the one exec under test; every later exec would die too.
++  run env COST_BOARD_CARDS="$big" bash "$SCRIPT" --repo "$REPO" --shortcode "TEST" --proposal "$PROPOSAL" cost --json
++  [ "$status" -ne 0 ]
++  [[ "$output" == *"Argument list too long"* ]]
++}

@@ -43,7 +43,23 @@ EAP_KEY_ID = "eap-test-key"
 #: tenant filter, because every row it can return is the caller's own.
 EAP_ALICE, EAP_TENANT_A = "alice", "tenant-a"
 EAP_BOB, EAP_TENANT_B = "bob", "tenant-b"
-EAP_SUBJECT_TENANTS = {EAP_ALICE: EAP_TENANT_A, EAP_BOB: EAP_TENANT_B}
+#: An operator: a tenant-a principal that is also on the superadmin subject
+#: allow-list.  Process-wide reaper controls (reap-now, pause/resume, status,
+#: metrics) are operator-only; alice and bob are plain tenants and get 403.
+EAP_OPERATOR = "operator"
+EAP_SUBJECT_TENANTS = {EAP_ALICE: EAP_TENANT_A, EAP_BOB: EAP_TENANT_B, EAP_OPERATOR: EAP_TENANT_A}
+#: The process-wide reaper controls, the one place tenant binding is replaced by
+#: the operator role.  Shared by the default-deny suite, the forged-header
+#: suite and the sealed sweep so the three cannot disagree about the list.
+EAP_OPERATOR_ONLY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/api/v1/eap/lifecycle/reap-now"),
+        ("POST", "/api/v1/eap/lifecycle/reaper/pause"),
+        ("POST", "/api/v1/eap/lifecycle/reaper/resume"),
+        ("GET", "/api/v1/eap/lifecycle/reaper/status"),
+        ("GET", "/api/v1/eap/lifecycle/metrics"),
+    }
+)
 
 _EAP_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -116,6 +132,8 @@ def configure_eap_jwt(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "api_jwt_authorized_party", EAP_AZP)
     monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
     monkeypatch.setattr(settings, "api_subject_tenants", dict(EAP_SUBJECT_TENANTS))
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {EAP_OPERATOR})
+    monkeypatch.setattr(settings, "api_superadmin_emails", set())
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _EapJwkClient())
 
 

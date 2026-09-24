@@ -1872,6 +1872,8 @@ def _eap_http_routes() -> list[tuple[str, str]]:
 #: Every HTTP operation the five EAP routers expose, derived at import.
 EAP_TENANT_BOUND_ROUTES: list[tuple[str, str]] = _eap_http_routes()
 
+from conftest import EAP_OPERATOR_ONLY_ROUTES  # noqa: E402 — the P2-1 section's one shared list
+
 #: Path prefixes that identify an EAP route wherever it appears.
 EAP_PATH_PREFIXES = ("/api/v1/eap/", "/api/v1/environments", "/api/v1/webhooks")
 
@@ -1938,7 +1940,7 @@ def _eap_request_for(method: str, path: str, target: dict[str, str]) -> tuple[st
     EAP_TENANT_BOUND_ROUTES,
     ids=[f"{method} {path}" for method, path in EAP_TENANT_BOUND_ROUTES],
 )
-def test_every_eap_route_is_bound_to_the_callers_tenant(client, two_tenant_eap, method, path):
+def test_every_eap_route_is_bound_to_the_callers_tenant(client, two_tenant_eap, method, path, monkeypatch):
     """Anonymous -> 401; another tenant, even with forged identity headers, never sees the target.
 
     Three probes per route, in one function so the positive control cannot be
@@ -1961,6 +1963,31 @@ def test_every_eap_route_is_bound_to_the_callers_tenant(client, two_tenant_eap, 
     url, body = _eap_request_for(method, path, alice)
     is_webhook = path.startswith("/api/v1/webhooks")
     addressed = "{customer_hash}" in path or "{environment_id}" in path
+
+    if (method, path) in EAP_OPERATOR_ONLY_ROUTES:
+        # Process-wide reaper controls (EAPR-P2-1, after cross-vendor review): one
+        # daemon serves every tenant, so tenancy cannot bind them; the operator role
+        # does.  A tenant principal is refused by role, forged headers or not; anonymous
+        # is refused at the mount; the same subject on the operator allow-list gets through.
+        refused = client.request(method, url, json=body, headers=bearer(ALICE))
+        assert refused.status_code == 403, (refused.status_code, refused.text)
+        assert refused.json()["error"]["code"] == "superadmin_required", refused.text
+        anon = client.request(method, url, json=body)
+        assert anon.status_code == 401, (anon.status_code, anon.text)
+        foreign = client.request(
+            method,
+            url,
+            json=body,
+            headers={**bearer(BOB), "X-SPIFFE-ID": f"spiffe://signalloom.demo/ns/eap-{alice['hash']}/sa/tenant-app", "X-Tenant-Id": alice["hash"]},
+        )
+        assert foreign.status_code == 403, (foreign.status_code, foreign.text)
+        assert alice["hash"] not in foreign.text, foreign.text
+        monkeypatch.setattr(settings, "api_superadmin_subjects", {ALICE})
+        own = client.request(method, url, json=body, headers=bearer(ALICE))
+        assert own.status_code == 200, (own.status_code, own.text)
+        if path.endswith("/pause"):
+            client.request("POST", "/api/v1/eap/lifecycle/reaper/resume", headers=bearer(ALICE))
+        return
 
     # 1. Positive control: the same request, as the owner.
     own = client.request(method, url, json=body, headers=bearer(ALICE))

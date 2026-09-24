@@ -23,10 +23,23 @@ SALT="${EAP_SALT:-signalloom-eap-salt-2026-q3}"
 # without an Authorization header and the receiver answers 401.
 BEARER_TOKEN="${EAP_BEARER_TOKEN:-}"
 
-# curl -H arguments for the bearer, or nothing when no token is configured.
-bearer_curl_args() {
+# POST <endpoint> <payload> <header>... — the one place a request leaves this
+# script.  The bearer never touches argv: it would be readable by every local
+# user in `ps` / /proc/<pid>/cmdline for the life of the request, so it is
+# piped to curl on stdin and read with `-H @-` (curl >= 7.55).
+post_signed() {
+    local endpoint="$1" payload="$2"
+    shift 2
+    local -a header_args=()
+    local h
+    for h in "$@"; do
+        header_args+=(-H "$h")
+    done
     if [[ -n "$BEARER_TOKEN" ]]; then
-        printf '%s\n' "-H" "Authorization: Bearer ${BEARER_TOKEN}"
+        printf 'Authorization: Bearer %s\n' "$BEARER_TOKEN" |
+            curl -sS -X POST "$endpoint" "${header_args[@]}" -H @- -d "$payload"
+    else
+        curl -sS -X POST "$endpoint" "${header_args[@]}" -d "$payload"
     fi
 }
 
@@ -163,16 +176,12 @@ EOF
         return 0
     fi
 
-    local -a bearer_args=()
-    mapfile -t bearer_args < <(bearer_curl_args)
     echo "Sending GitHub PR webhook [${action}] for ${company} PR #${pr} to ${endpoint}..."
-    curl -sS -X POST "$endpoint" \
-        -H "Content-Type: application/json" \
-        -H "X-GitHub-Event: pull_request" \
-        -H "X-GitHub-Delivery: ${delivery_id}" \
-        -H "X-Hub-Signature-256: ${header_sig}" \
-        "${bearer_args[@]}" \
-        -d "$payload"
+    post_signed "$endpoint" "$payload" \
+        "Content-Type: application/json" \
+        "X-GitHub-Event: pull_request" \
+        "X-GitHub-Delivery: ${delivery_id}" \
+        "X-Hub-Signature-256: ${header_sig}"
     echo ""
 }
 
@@ -227,15 +236,11 @@ EOF
         return 0
     fi
 
-    local -a bearer_args=()
-    mapfile -t bearer_args < <(bearer_curl_args)
     echo "Sending generic webhook [${action}] for ${company} to ${endpoint}..."
-    curl -sS -X POST "$endpoint" \
-        -H "Content-Type: application/json" \
-        -H "X-SignalLoom-Timestamp: ${timestamp}" \
-        -H "X-SignalLoom-Signature: sha256=${sig}" \
-        "${bearer_args[@]}" \
-        -d "$payload"
+    post_signed "$endpoint" "$payload" \
+        "Content-Type: application/json" \
+        "X-SignalLoom-Timestamp: ${timestamp}" \
+        "X-SignalLoom-Signature: sha256=${sig}"
     echo ""
 }
 

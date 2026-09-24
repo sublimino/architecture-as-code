@@ -18,13 +18,22 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Generator, List, Optional, Set
+from typing import Annotated, Any, Callable, Dict, Generator, List, Optional, Set
 from pydantic import BaseModel, ConfigDict, Field
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 
 import api_compat
 from eap_tenancy import CUSTOMER_HASH_PATTERN, CustomerHash, Tenant, claim_or_403, owned_hashes, require_owned_or_404
 from environment_routing import derive_customer_hash
+from superadmin import require_superadmin
+
+#: The reaper is one process-wide daemon: pausing it, forcing a pass, or reading
+#: its diagnostics acts on every tenant's environments at once, so those
+#: operations cannot be bound to a single tenant.  They are bound to the
+#: operator role instead (EAPR-P2-1, after cross-vendor review): a tenant
+#: principal gets 403 ``superadmin_required``; the tenant-scoped reads and
+#: writes (``/active``, ``/reaper/dlq``, ``/audit-events`` …) stay tenant-bound.
+Operator = Annotated[api_compat.Principal, Depends(require_superadmin)]
 
 logger = logging.getLogger("signalloom.lifecycle")
 
@@ -1073,28 +1082,28 @@ async def api_list_active_lifecycle(tenant: Tenant) -> List[LifecycleRecord]:
 
 
 @router.post("/reap-now", response_model=ReaperSummary)
-async def api_trigger_reaping_pass() -> ReaperSummary:
-    """Manually trigger an authoritative reaping evaluation pass."""
+async def api_trigger_reaping_pass(_operator: Operator) -> ReaperSummary:
+    """Manually trigger an authoritative reaping evaluation pass (operator only: acts on every tenant)."""
     return await GLOBAL_REAPER_DAEMON.run_reconciliation_pass()
 
 
 @router.post("/reaper/pause")
-async def api_pause_reaper() -> Dict[str, Any]:
-    """Administratively pause background reaping operations."""
+async def api_pause_reaper(_operator: Operator) -> Dict[str, Any]:
+    """Administratively pause background reaping operations (operator only: pauses every tenant's cleanup)."""
     GLOBAL_REAPER_DAEMON.pause()
     return {"status": "paused", "is_paused": True}
 
 
 @router.post("/reaper/resume")
-async def api_resume_reaper() -> Dict[str, Any]:
-    """Administratively resume background reaping operations."""
+async def api_resume_reaper(_operator: Operator) -> Dict[str, Any]:
+    """Administratively resume background reaping operations (operator only)."""
     GLOBAL_REAPER_DAEMON.resume()
     return {"status": "resumed", "is_paused": False}
 
 
 @router.get("/reaper/status", response_model=ReaperStatusResponse)
-async def api_get_reaper_status() -> ReaperStatusResponse:
-    """Retrieve runtime diagnostics, interval, and memory metrics for reaper daemon."""
+async def api_get_reaper_status(_operator: Operator) -> ReaperStatusResponse:
+    """Retrieve runtime diagnostics, interval, and memory metrics for the reaper daemon (operator only)."""
     return GLOBAL_REAPER_DAEMON.get_status()
 
 
@@ -1133,8 +1142,8 @@ async def api_get_audit_events(
 
 
 @router.get("/metrics")
-async def api_get_lifecycle_metrics() -> Dict[str, Any]:
-    """Retrieve Prometheus-compatible telemetry metrics for lifecycle and reaper operations."""
+async def api_get_lifecycle_metrics(_operator: Operator) -> Dict[str, Any]:
+    """Retrieve process-wide lifecycle and reaper telemetry (operator only: aggregates every tenant)."""
     return GLOBAL_LIFECYCLE_MANAGER.metrics.get_metrics_summary()
 
 

@@ -1080,11 +1080,6 @@ async def api_heartbeat(customer_hash: CustomerHash, req: HeartbeatRequest, tena
         customer_hash=customer_hash,
         extend_minutes=req.extend_minutes,
     )
-    if not res.success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Environment '{customer_hash}' not found or in terminal state '{res.status}'."
-        )
     await _audit_eap_decision(
         None,
         getattr(tenant, "principal", None),

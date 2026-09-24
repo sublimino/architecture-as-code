@@ -4,7 +4,7 @@
 **Last Updated:** 2026-09-24 13:16:13+01:00
 **Result:** Failed at fifteen-suite gate; Phase 1 not certified
 **Predecessors:** none
-**Repository evidence:** pending this correction commit; never amend
+**Repository evidence:** `61988705351292b57aeeede8a6e7d4d349d10a3d`; never amend
 
 **Decision:** `status=fail`, `proceed=no`. Andy's provenance ruling resolves
 the prior false positive: EAPR-P1-2 is a tooling-only card delivered directly

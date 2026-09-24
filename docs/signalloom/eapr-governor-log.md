@@ -75,4 +75,6 @@ All participating autonomous agents operating on the `EAPR` mission adhere to th
 | `2026-09-24T22:49:28Z` | `Council of Agents` | `EAPR-P2-2_CERTIFIED` | Adversarial Council Review APPROVED across 4 lenses: `eap_audit.py` durable writes, MultiPlane audit schema, ECDSA P-256 transit signing, deterministic seeding, expunge on reap, `test_eap_audit_events.py` (6/6 passed), 0 merge conflicts into `integration/eapr-v0.1.0`. |
 | `2026-09-24T22:50:11Z` | `antigravity` | `EAPR-P2-2_ADVANCED` | `done-advance --reconcile-stuck --apply` executed. `EAPR-P2-2` (Task `09abb`) advanced to `done`. Total completed cards in `done`: 9. |
 | `2026-09-24T22:50:45Z` | `antigravity` | `DOC_7_RESCUE_BRANCHES` | Pinned dangling checkpoint commits (`d8d7869a`, `d9e70034`, `3cb26a61`, `28dc8b55`) with rescue branches, clearing DOC-7 doctor exception. |
+| `2026-09-24T22:54:13Z` | `antigravity` | `EAPR-P2-3_RECREATED` | Stalled task `5ef56` archived. Fresh task `f5f31` created at integration tip `0445bb53` with `--inject-context` under `kpai` harness. |
+| `2026-09-24T22:56:06Z` | `antigravity` | `GRAPH_WIRED_GREEN` | Graph dependencies wired for `f5f31` (`d04e1` → `f5f31` → `db6b2`). `link-check` verified 100% green (`Counts: CRITICAL=0 FAIL=0 WARN=0`). |
 

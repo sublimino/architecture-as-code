@@ -20,17 +20,19 @@ It is reconciled on the cluster fleet by Flux as the cluster admin, so access is
 | `monitoring` | kube-prometheus-stack (Prometheus and Grafana with the Flux dashboards) and metrics-server. Monitors opt in with the `osramp.acme.co/scrape: Enabled` label. |
 | `trivy-system` | Trivy Operator vulnerability reports and monitoring integration. |
 
-The diagram shows the order in which Flux reconciles the four components and
-what each one supplies to the next.
+Flux applies the `infra-controllers` Kustomization first and then
+`infra-configs` in each component namespace
+([`infra.yaml`](../d2-osramp-fleet/tenants/base/infra.yaml)). The diagram
+shows what each component supplies to another.
 
 ```mermaid
 flowchart LR
-  CM["cert-manager<br/>cluster issuer + wildcard certificate"]
-  ING["ingress<br/>Envoy Gateway, HTTPS"]
+  CM["cert-manager<br/>ClusterIssuer cluster-issuer<br/>Certificate cluster"]
+  ING["ingress<br/>Envoy Gateway<br/>Gateway ingress/cluster"]
   MON["monitoring<br/>kube-prometheus-stack, metrics-server"]
   TRIVY["trivy-system<br/>Trivy Operator"]
-  CM -- "TLS certificate" --> ING
-  TRIVY -- "vulnerability metrics" --> MON
+  CM -- "Secret cluster-tls" --> ING
+  TRIVY -- "ServiceMonitor" --> MON
 ```
 
 - [`components/cert-manager/`](components/cert-manager/)
@@ -41,7 +43,7 @@ flowchart LR
 ## Directory structure
 
 - The `components` dir contains the Flux HelmReleases for cluster add-ons with custom configuration per environment.
-- The `update-policies` dir contains the Flux configuration for automating OCI chart updates of the Helm releases.
+- The `update-policies` dir contains the Flux configuration that updates the OCI charts of the Helm releases. It covers cert-manager, Envoy Gateway, and kube-prometheus-stack. Trivy Operator and metrics-server have no policy.
 
 A cluster component is defined in a directory with the following structure:
 
@@ -67,9 +69,8 @@ The CRDs and their controllers are reconciled before the custom resources so the
 
 Each component is published to a dedicated OCI repository under this project's registry namespace and is tagged as:
 
-- `latest` for main branch commits that modify the component.
-- `vX.Y.Z` for release tags matching the Git tag format `<component>/vX.Y.Z`.
-- `latest-stable`, which points to the latest `vX.Y.Z` artifact.
+- `latest` when an operator runs `push-artifacts.yaml` and the component changed.
+- `latest-stable` when an operator runs `release-artifacts.yaml`. No workflow creates a `vX.Y.Z` tag.
 
 Two workflows in the repository root publish and sign the artifacts. Both have only a
 `workflow_dispatch` trigger, so an operator starts them from the Actions tab.

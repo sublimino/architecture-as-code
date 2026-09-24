@@ -1,60 +1,37 @@
 # D2 CPAI — Runtime Proxy Demo
 
-Isolated demo that deploys the **CPAI runtime** (`cpai api` — an OpenAI-compatible
-API server fronting a private OpenCode) into its own `cpai` namespace. Fully
-independent of Signal Loom, OSRAMP, and every other demo: its own namespace, its
-own image, its own up/down lifecycle. Bringing it up or tearing it down never
-touches anything else.
+The `d2-cpai` slice deploys the CPAI runtime into its own `cpai` namespace. The
+runtime is `cpai api`, an OpenAI-compatible API server. It forwards each request
+to a private OpenCode process, which calls Vertex AI. The slice is independent
+of Signal Loom, OSRAMP, and every other demo. It has its own namespace, its own
+image, and its own up and down lifecycle.
 
-The container image is built from `Dockerfile.runtime` in the **cpai-cli** repo,
-pushed to the in-cluster Zot registry, and **cosign-signed**. The only code that
-reaches outside this repo is that image build. The `cpai-images` target in
-the repo-root `Makefile` drives it.
+The container image is built from `Dockerfile.runtime` in the cpai-cli checkout.
+The `cpai-images` target in the root [`Makefile`](../Makefile) builds it, pushes
+it to the in-cluster Zot registry, and signs it with cosign. The image build is
+the only step that reads outside this repository.
 
 The request path from an OpenAI client to Vertex AI is drawn in
 [`AGENTS.md`](AGENTS.md#architecture).
 
 ## What you get
 
-- An OpenAI-compatible endpoint (`/v1/chat/completions`, `/v1/models`) backed by a
-  **real model** (Vertex AI `gemini-2.5-flash`) — a genuine multi-turn conversation,
-  not an echo/mock.
-- Liveness/readiness on `/healthz` and `/readyz`.
-- A signed image in Zot, verifiable with `cosign verify`.
+- An OpenAI-compatible endpoint (`/v1/chat/completions` and `/v1/models`)
+  backed by a real model on Vertex AI. The tests ask for `gemini-2.5-flash` by
+  default.
+- The liveness and readiness probes both call `/healthz`.
+- A signed image in Zot. Check the signature with `cosign verify`.
 
-## Prerequisites
+## Prerequisites and lifecycle
 
-1. **Cluster foundation up:** `make up` from the repo root (creates the kind
-   cluster, Zot registry, and cosign keys under `.keys/`).
-2. **cpai-cli carries the runtime:** `$CPAI_CLI_ROOT` (default
-   `~/cp/cpai-cli`) must contain `Dockerfile.runtime`, `cmd/cpai/cpai` with the
-   `api` subcommand, and `services/openai-compat/`. This ships once the
-   cpai-runtime work is merged to `main`.
-3. **Vertex credentials as a secret.** The runtime calls Vertex AI, so it needs
-   Application Default Credentials mounted as the `cpai-gcp-adc` secret. Create it
-   once from your local ADC (namespace is created by `demo-cpai-up`):
+The prerequisites, the `make demo-cpai-*` targets, and the fast path
+`make cpai-only` are in [`AGENTS.md`](AGENTS.md#lifecycle).
 
-   ```bash
-   kubectl -n cpai create secret generic cpai-gcp-adc \
-     --from-file=adc.json="$HOME/.config/gcloud/application_default_credentials.json"
-   kubectl -n cpai rollout restart deployment/cpai-runtime
-   ```
-
-   The GCP project defaults to `cc-vertex-test` (see `deployment.yaml`).
-4. **`aichat`** installed for the conversation test (`brew install aichat`).
-
-## Quick start
-
-```bash
-# From the repo root (cluster must already be up: make up)
-make demo-cpai-up            # build image from cpai-cli, push to Zot, cosign-sign, deploy
-make demo-cpai-test          # smoke: namespace, pod, /healthz, real hello-world completion
-make demo-cpai-conversation  # 3-turn real conversation (context recall) via aichat
-make demo-cpai-down          # remove the cpai namespace (nothing else is touched)
-```
-
-`demo-cpai-up` forces a rollout after apply, so a freshly built+signed image is
-always the one that runs. The `:latest` tag alone would otherwise be a no-op.
+`make demo-cpai-up` creates the `cpai-gcp-adc` Secret from your ADC file. Run
+`gcloud auth application-default login` first. The GCP project defaults to
+`cc-vertex-test` ([`deployment.yaml`](apps/cpai-runtime/base/deployment.yaml)).
+`CPAI_CLI_ROOT` defaults to `/home/andy/src/cp/cpai-cli`. Set it to your
+cpai-cli checkout.
 
 ## Talk to it directly
 
@@ -78,26 +55,22 @@ curl -s http://localhost:18080/v1/chat/completions \
   }' | jq -r '.choices[0].message.content'
 ```
 
-Point any OpenAI client at `http://localhost:18080/v1` with model
-`google-vertex/gemini-2.5-flash` and any (unused) API key.
+Point any OpenAI client at `http://localhost:18080/v1` with the model
+`google-vertex/gemini-2.5-flash`. The test client sets `api_key: unused`
+([`test/aichat/config.yaml`](test/aichat/config.yaml)).
 
-## Architecture
+## Image signing
 
-```
-client ──OpenAI /v1──▶ cpai-runtime pod (namespace: cpai)
-                         └─ cpai api  (port 8080)
-                            ├─ health server  /healthz /readyz
-                            └─ openai-compat sidecar ──▶ private OpenCode ──▶ Vertex AI
-```
-
-The image is built from `Dockerfile.runtime` in cpai-cli, `kind load`ed, pushed to
-`zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest`,
-and cosign-signed with the local key (`.keys/cosign.key`). Verify a pushed image:
+`make cpai-images` builds the image from `Dockerfile.runtime` in cpai-cli, loads
+it into Kind, and pushes it to
+`zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest`.
+It signs the image with `$(KEYS_DIR)/cosign.key`. In a worktree, `KEYS_DIR` is
+the main checkout's `.keys`. To check a pushed image, run:
 
 ```bash
 kubectl -n registry port-forward svc/zot 5001:5000 &
 DIGEST=$(crane digest --insecure localhost:5001/acme/images/cpai/apps/cpai-runtime:latest)
-cosign verify --key .keys/cosign.pub --insecure-ignore-tlog \
+cosign verify --key "${KEYS_DIR:-.keys}/cosign.pub" --insecure-ignore-tlog \
   --allow-insecure-registry \
   localhost:5001/acme/images/cpai/apps/cpai-runtime@"$DIGEST"
 ```
@@ -120,22 +93,15 @@ d2-cpai/
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CPAI_CLI_ROOT` | `~/cp/cpai-cli` | cpai-cli repo the image is built from (`make cpai-images`) |
+| `CPAI_CLI_ROOT` | `/home/andy/src/cp/cpai-cli` | cpai-cli checkout the image is built from (`make cpai-images`) |
 | `CPAI_TEST_MODEL` | `google-vertex/gemini-2.5-flash` | Model the smoke test asks for |
 | `CPAI_PORT_FORWARD_PORT` | `18080` | Local port the tests forward to |
 | `PORT` | `8080` | Public API port in the container |
 | `GOOGLE_CLOUD_PROJECT` | `cc-vertex-test` | Vertex project (set in `deployment.yaml`) |
 | `CPAI_CONTEXT_ROOT` | `/context` | Artefact mount path |
 
-## Troubleshooting
+## Pitfalls
 
-- **Completions return HTTP 5xx / tests skip** — the `cpai-gcp-adc` secret is
-  missing or stale. Recreate it (Prerequisites §3) and
-  `kubectl -n cpai rollout restart deployment/cpai-runtime`.
-- **Build fails: `Dockerfile.runtime` not found** — `$CPAI_CLI_ROOT` is not on a
-  branch carrying the runtime. Point it at a checkout that has it, e.g.
-  `make demo-cpai-up CPAI_CLI_ROOT=/path/to/cpai-cli-with-runtime`.
-- **A rebuild didn't change the running pod** — shouldn't happen (`demo-cpai-up`
-  forces a rollout), but `kubectl -n cpai rollout restart deployment/cpai-runtime`
-  forces it manually.
-- **`aichat: command not found`** — `brew install aichat` (conversation test only).
+The known failures and their fixes are in [`AGENTS.md`](AGENTS.md#pitfalls).
+For expired credentials, run `make demo-cpai-up` again. Then restart the
+deployment with `kubectl -n cpai rollout restart deployment/cpai-runtime`.

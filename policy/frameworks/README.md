@@ -1,7 +1,7 @@
 # Policy Framework Packs
 
-Regulatory compliance policy packs evaluated offline by the OSRAMP Go compliance
-scanner against Kubernetes manifests using `cel-go`.
+Regulatory compliance policy packs. The policy engine evaluates them offline
+against Kubernetes manifests with `cel-go`.
 
 ## Gemara Tension Hierarchy
 
@@ -17,42 +17,48 @@ framework          # The regulatory standard (EU AI Act, NIST 800-53)
 
 - **Framework** identifies the regulation, version, and strictness tier.
 - **Control Set** maps to a regulatory article or control family.
-- **Control** is a single auditable requirement with a risk triple.
-- **Check** is a concrete CEL expression the scanner evaluates against
-  `object` (a deserialised Kubernetes pod template spec).
+- **Control** is a single auditable requirement. In `framework.json` a
+  control holds `id`, `name`, and `checks`.
+- **Check** is a concrete CEL expression the policy engine evaluates against
+  `object` (a deserialised Kubernetes pod template spec). In `framework.json`
+  each check carries `celExpression`, `riskTriple`, `freqTriple`, and
+  `policyVersions`.
 
 ## Strictness Tiers
 
-Each framework ships at three strictness levels, encoded as semantic versions:
+Each framework directory has three version directories, one per strictness
+tier. Only the v2.1 `framework.json` of each framework loads. The v1.0 and
+v2.0 YAML packs do not load (see
+[Adding a New Framework](#adding-a-new-framework)).
 
-| Version | Tier     | Intent                                                    |
-|---------|----------|-----------------------------------------------------------|
-| v1.0    | Lax      | Bare minimum critical security. 3-5 checks per set.      |
-| v2.0    | Standard | Defence-in-depth. Resource limits, probes. 5-8 per set.  |
-| v2.1    | Strict   | Full manifest coverage. Labels, annotations. 8-12 per set.|
+| Version | Tier     | Intent                                       | Loads |
+|---------|----------|----------------------------------------------|-------|
+| v1.0    | Lax      | Bare minimum critical security.              | No    |
+| v2.0    | Standard | Defence-in-depth. Resource limits, probes.   | No    |
+| v2.1    | Strict   | Full manifest coverage. Labels, annotations. | Yes, from `framework.json` |
 
-Higher tiers are strict supersets of lower tiers. Every check in v1.0
-appears in v2.0, and every check in v2.0 appears in v2.1 (plus additional
-checks).
+In the YAML files, each tier adds controls to the tier below it. The
+`framework.json` that loads is a smaller pack than the YAML file beside it.
+Count the controls in the packs themselves. A count written here goes stale.
 
 ## Risk Triples and FAIR Quantification
 
-Each control carries a `riskTriple` with three values:
+In `framework.json`, each check carries a `riskTriple` with three values. In
+the YAML files, the triple sits on each control.
 
 ```yaml
 riskTriple:
-  min: 5000      # Best-case single loss event (GBP)
-  mode: 25000    # Most likely single loss event (GBP)
-  max: 120000    # Worst-case single loss event (GBP)
+  min: 5000      # Best-case single loss event
+  mode: 25000    # Most likely single loss event
+  max: 120000    # Worst-case single loss event
 ```
 
 These map to FAIR (Factor Analysis of Information Risk) loss magnitude
-estimation using a PERT distribution. The scanner aggregates risk triples
-across failing controls to produce a monetary exposure estimate for the
+estimation using a PERT distribution. The policy engine aggregates risk
+triples across failing checks to produce a monetary exposure estimate for the
 entire workload.
 
-Values are denominated in GBP and calibrated for UK regulated industries
-(financial services, critical infrastructure, healthcare).
+The packs carry no currency field.
 
 ## Adding a New Framework
 
@@ -78,8 +84,8 @@ skips it, and the scan results do not include it. Write each new pack as
 1. Create `policy/frameworks/<framework-id>/v1.0/framework.json`.
 2. Follow the shape of an existing v2.1 `framework.json`: `id`, `name`,
    `version`, then `controlSets` containing `controls` with `checks`.
-3. Every check must have a valid `cel` expression evaluable by `cel-go`
-   against a Kubernetes pod template spec accessed as `object`.
+3. Every check needs a `celExpression` that `cel-go` can evaluate against
+   a Kubernetes pod template spec accessed as `object`.
 4. Add v2.0 (standard) and v2.1 (strict) tiers with progressively more
    checks and higher risk triples.
 5. Update this README if the framework introduces novel conventions.

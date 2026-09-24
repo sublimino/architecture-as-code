@@ -2,25 +2,17 @@
 
 Standalone deployment of the [KubeSec-AFM](https://github.com/controlplaneio/kubesec-afm)
 RBAC privilege-escalation analysis platform in the OSRAMP demo cluster.
-Runs in isolation in the `fe-k8s-afm` namespace.
-
-## Quick start
-
-```bash
-make demo-k8s-afm-up      # Build image, kind-load, deploy, seed sample data
-make demo-k8s-afm-status   # Check pods + /health
-make demo-k8s-afm-test     # Run 218 backend tests (pytest)
-make demo-k8s-afm-down     # Remove the D2 slice
-```
+It runs in the `fe-k8s-afm` namespace. The `make` targets and the `up` steps
+are in [`AGENTS.md`](AGENTS.md#lifecycle).
 
 ## What's inside
 
 | Component | Stack | Details |
 |-----------|-------|---------|
 | Backend | FastAPI + Z3 BMC engine | RBAC escalation analysis, job queue, MCP server |
-| Frontend | Next.js 16 (static export) | Served at `/dashboard` by the backend |
-| API | 29 routes | `/clusters`, `/clusters/{id}/rbac`, `/clusters/{id}/analysis/escalation`, etc. |
-| Image | `kubesec-afm:latest` | Built from `controlplaneio/kubesec-afm` v1 branch |
+| Frontend | Next.js (static export) | Served at `/dashboard` by the backend |
+| API | REST | `/clusters`, `/clusters/{id}/rbac`, `/clusters/{id}/analysis/escalation`, and others |
+| Image | `kubesec-afm:latest` | Built from the `kubesec-afm` checkout at `$KUBESEC_AFM_ROOT`, or loaded from `$AFM_IMAGE_ARCHIVE` |
 
 ## Access
 
@@ -35,30 +27,36 @@ Or via the cluster gateway: `https://afm.osramp.acme.local/dashboard`
 
 ## Architecture
 
-Single pod, single-process topology: FastAPI serves the Next.js static export
-+ the Z3 BMC engine + the optional MCP server — all on port 8000. No external
-database: uses SQLite for job storage + in-memory cluster store. Sample clusters
-auto-load at boot from bundled YAML.
+One pod runs FastAPI, which serves the Next.js static export, the Z3 BMC
+engine, and the optional MCP server on port 8000. No external database is
+deployed. The pod mounts an `emptyDir` at `/app/data` (`KUBESEC_DATA_DIR`), so
+stored data does not survive a pod restart. A CronJob imports this cluster's
+RBAC every 30 minutes.
 
-The diagram shows the two ways into the pod and what the one process serves.
+The diagram shows the three ways into the pod, the import CronJob, and what the
+one process serves.
 
 ```mermaid
 flowchart LR
   PF["kubectl port-forward 8000"] --> SVC["Service afm-platform :8000"]
-  GW["Gateway afm.osramp.acme.local"] --> SVC
+  GW["HTTPRoute afm.osramp.acme.local"] --> SVC
+  NGX["Signal Loom nginx /afm/"] --> SVC
+  CRON["CronJob afm-cluster-import<br/>every 30 min"] -- "POST /clusters/import" --> SVC
   SVC --> POD["afm-platform pod (namespace fe-k8s-afm)"]
   POD --> DASH["/dashboard (Next.js static export)"]
   POD --> API["/clusters API + Z3 BMC engine"]
   POD --> MCP["MCP server"]
-  POD --> DB["SQLite jobs + in-memory clusters"]
+  POD --> DATA["emptyDir /app/data"]
 ```
 
 - Manifests: [`apps/afm-platform/base/`](apps/afm-platform/base/)
   ([`deployment.yaml`](apps/afm-platform/base/deployment.yaml),
   [`service.yaml`](apps/afm-platform/base/service.yaml),
-  [`gateway-route.yaml`](apps/afm-platform/base/gateway-route.yaml))
+  [`gateway-route.yaml`](apps/afm-platform/base/gateway-route.yaml),
+  [`cluster-import.yaml`](apps/afm-platform/base/cluster-import.yaml))
+- Signal Loom proxy: [`nginx.conf`](../d2-signalloom/apps/dashboard-signalloom/nginx.conf)
 
-## Tests
+## Testing
 
 - **Backend pytest**: unit, integration, e2e, and API tests in the source repo — `make demo-k8s-afm-test`
 - **Frontend**: TypeScript typecheck (`npm run typecheck`)

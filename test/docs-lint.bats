@@ -282,9 +282,7 @@ pattern_of() {
 	echo "$matched"
 	expected="d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/entra.md
 d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/okta.md
-d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/openai.md
-docs/Signal Fusion — Architecture and GDPR Reference.md
-docs/Signal Loom Workstation Sensor — Architecture, Verification, and Distribution Strategy.md"
+d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/openai.md"
 	[ "$(printf '%s\n' "$matched" | sort)" = "$(printf '%s\n' "$expected" | sort)" ]
 }
 
@@ -292,7 +290,7 @@ docs/Signal Loom Workstation Sensor — Architecture, Verification, and Distribu
 	pattern="$(pattern_of CORRECTNESS_ONLY)"
 	f="d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/new-connector.md"
 	! [[ "$f" =~ $pattern ]]
-	f="docs/Signal Fusion — A New Paper.md"
+	f="d2-signalloom/apps/dashboard-signalloom/src/help-content/new-page.md"
 	! [[ "$f" =~ $pattern ]]
 }
 

@@ -225,9 +225,9 @@ default deny is the only rule. An empty list never means "allow everything".
 | `allowed_ipv6` | list(string) | `[]` | never `::/0`; validated |
 | `rate_limit_threshold_per_minute` | number | `600` | finite and positive; no "unlimited" |
 | `enable_cdn` | bool | `false` | a cache in front of an authenticated app is a disclosure risk |
-| `rate_limit_ban_duration_sec` | number | `600` | additive to CONTRACT §4 — see `NOTES.md` |
-| `health_check_path` | string | `"/healthz"` | additive to CONTRACT §4 — see `NOTES.md` |
-| `backend_port_name` | string | `"http"` | additive to CONTRACT §4 — see `NOTES.md` |
+| `rate_limit_ban_duration_sec` | number | `600` | additive to CONTRACT §4 — see the [F4 build note](../../notes/f4-edge.md#contract-objections-and-integration-risks) |
+| `health_check_path` | string | `"/healthz"` | additive to CONTRACT §4 — see the [F4 build note](../../notes/f4-edge.md#contract-objections-and-integration-risks) |
+| `backend_port_name` | string | `"http"` | additive to CONTRACT §4 — see the [F4 build note](../../notes/f4-edge.md#contract-objections-and-integration-risks) |
 
 ## Outputs
 
@@ -289,9 +289,11 @@ module "edge" {
 
 ```bash
 terraform -chdir=terraform/modules/edge init -backend=false
-terraform -chdir=terraform/modules/edge test      # 28 runs, offline, mocked providers
+terraform -chdir=terraform/modules/edge test      # 59 run blocks, offline, mocked providers
 bats test/terraform-edge-security.bats            # scripts, absence properties, mutation checks
 ```
+
+The six files under `tests/` hold 59 `run` blocks. Count them with `rg -c '^\s*run "' tests/*.tftest.hcl`.
 
 `terraform test` is the primary surface — it asserts on evaluated plan attributes, not on HCL
 text. The bats file covers what a plan cannot see: shell behaviour, whole-tree absence, and proof

@@ -1,4 +1,4 @@
-# d2-fleet
+# d2-osramp-fleet
 
 > [!NOTE]
 > This logical source directory is part of the reference architecture for the
@@ -28,7 +28,10 @@ It must also have **cluster admin** rights to all clusters in the fleet. Those r
 
 The content of the D2 logical source directories is packaged as OCI Artifacts. GitHub Actions
 workflows in this monorepo publish the artifacts to GitHub Container Registry.
-The artifacts are signed with the Cosign keyless procedure using the GitHub Actions OIDC.
+GitHub Actions signs them with the Cosign keyless procedure and the GitHub Actions OIDC.
+The local fleet signs with a key pair and verifies with the Secret `cosign-pub`
+([`clusters/local/flux-system/flux-instance.yaml`](clusters/local/flux-system/flux-instance.yaml)
+and [`tenants/local/kustomization.yaml`](tenants/local/kustomization.yaml)).
 
 Flux running in the clusters, pulls the OCI Artifacts to reconcile the desired state and
 verifies the integrity of the content using the Cosign signature. On production clusters,
@@ -39,10 +42,12 @@ GitHub workflow used to publish the artifact.
 
 The artifacts published to `oci://ghcr.io/acme-co/osramp/fleet` are tagged as:
 
-- `main-<commit-short-sha>` for the main branch commits.
-- `latest` points to the latest artifact tagged as `main-<commit-short-sha>`.
-- `vX.Y.Z` for the release tags.
-- `latest-stable` points to the latest artifact tagged as `vX.Y.Z`.
+- `latest` from [`push-artifacts.yaml`](../.github/workflows/push-artifacts.yaml)
+  and from `make push`. No workflow publishes `main-<sha>`.
+- `latest-stable` from [`release-artifacts.yaml`](../.github/workflows/release-artifacts.yaml).
+  No workflow creates a `vX.Y.Z` tag.
+
+Both workflows run only by manual trigger.
 
 The Flux Operator running on the Kubernetes clusters in the fleet is configured with a
 [FluxInstance](../d2-osramp-fleet/clusters/staging/flux-system/flux-instance.yaml).
@@ -58,9 +63,10 @@ using the [ResourceSet](tenants) definitions.
 Each component is published to a dedicated OCI repository, for example, the `frontend` component
 is published to `oci://ghcr.io/acme-co/osramp/apps/frontend` and is tagged as:
 
-- `latest` for the main branch commits that modify the component.
-- `vX.Y.Z` for the release tags matching the Git tag format `<component>/vX.Y.Z`.
-- `latest-stable` points to the latest artifact tagged as `vX.Y.Z`.
+- `latest` from `push-artifacts.yaml`, when the component content changed.
+- `latest-stable` from `release-artifacts.yaml`. No workflow creates a
+  `vX.Y.Z` tag. The tag list is the same as for the
+  [fleet artifacts](#fleet-artifacts).
 
 A component artifact contains the Kubernetes manifests (Flux resources and Kustomize overlays).
 Those manifests define the desired state of the component for the whole fleet of clusters:
@@ -82,7 +88,7 @@ When Flux Operator reconciles the `ResourceSet` for the components, it configure
 as `latest` to be deployed on the staging clusters. It configures the ones tagged as
 `latest-stable` to be deployed in production.
 
-Rolling back a component in production can be done by moving its `latest-stable` tag to a previous version,
+Roadmap: with semver tags, a rollback in production moves the `latest-stable` tag to a previous version,
 for example, `flux tag oci://ghcr.io/acme-co/osramp/apps/frontend:v1.2.3 --tag latest-stable`.
 
 The semver tags are considered immutable, while the `latest-stable` tag act as a pointer to the
@@ -97,11 +103,12 @@ The diagram shows the order from bootstrap to the tenant workloads.
 
 ```mermaid
 flowchart LR
-  BOOT["make bootstrap-staging"] --> OP["Flux Operator"]
-  OP --> FI["FluxInstance<br/>clusters/staging/flux-system"]
-  FI --> FLEET["fleet OCI artifact<br/>ghcr.io/acme-co/osramp/fleet"]
-  FLEET --> RS["tenant ResourceSets<br/>infra, apps, olly, policies,<br/>agent-swarm, agent-trust, signalloom"]
-  RS --> COMP["component OCI artifacts<br/>d2-infra, d2-osramp-apps, ..."]
+  BOOT["make bootstrap-staging<br/>or make bootstrap-local"] --> OP["Flux Operator"]
+  OP --> FI["FluxInstance flux<br/>clusters/&lt;cluster&gt;/flux-system"]
+  FI --> FLEET["OCIRepository flux-system<br/>fleet OCI artifact"]
+  FLEET --> KS["Kustomization tenants<br/>clusters/&lt;cluster&gt;/tenants.yaml"]
+  KS --> RS["ResourceSets<br/>policies, infra, agent-trust, agent-swarm,<br/>signalloom-infra, signalloom-apps<br/>(apps, olly: opt-in)"]
+  RS --> COMP["component OCI artifacts<br/>d2-infra, d2-signalloom, ..."]
 ```
 
 - Cluster definitions: [`clusters/`](clusters/)
@@ -124,8 +131,8 @@ by selecting the `read:packages` scope.
 
 ### Bootstrap a Kubernetes Cluster
 
-For testing purposes, you can create a KinD cluster and bootstrap Flux with the staging configuration
-by running the following commands:
+Create a KinD cluster first. The target creates no cluster. Then run
+`make bootstrap-staging` with `GITHUB_TOKEN` set:
 
 ```shell
 export GITHUB_TOKEN=<Flux Bot PAT>
@@ -194,9 +201,13 @@ In this fleet directory, the platform team must add a new set of inputs for the
     - tenant: "cert-manager"
       tag: "${ARTIFACT_TAG}"
       environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
     - tenant: "monitoring"
       tag: "${ARTIFACT_TAG}"
       environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
 ```
 
 With this, the set of base resources for a component will now also be created for the new component.
@@ -204,26 +215,25 @@ This set includes an `OCIRepository` object that points to the OCI Artifact, and
 objects consuming the artifact, `infra-controllers` and `infra-configs`. Together they configure the
 reconciliation of the new component.
 
-The typical structure of the `d2-infra` logical source directory is as follows:
+The [`d2-infra`](../d2-infra/) logical source directory has four components.
+Each component has this structure:
 
 ```shell
 ./components/
 ├── cert-manager
-│   ├── configs
-│   │   ├── base
-│   │   ├── production
-│   │   └── staging
-│   └── controllers
-│       ├── base
-│       ├── production
-│       └── staging
-└── monitoring
-    ├── configs
-    │   ├── base
-    │   ├── production
-    │   └── staging
-    └── controllers
-        ├── base
-        ├── production
-        └── staging
+│   ├── configs
+│   │   ├── base
+│   │   ├── local
+│   │   ├── preview
+│   │   ├── production
+│   │   └── staging
+│   └── controllers
+│       ├── base
+│       ├── local
+│       ├── preview
+│       ├── production
+│       └── staging
+├── ingress
+├── monitoring
+└── trivy-system
 ```

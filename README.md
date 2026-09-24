@@ -26,7 +26,8 @@ OSRAMP gives:
 
 ## The maturity model
 
-OSRAMP has four levels in four phases:
+OSRAMP has four maturity levels and one agent proof of concept. It delivers
+them in four phases:
 
 | Level | Phase | What it gives | Owner |
 | --- | --- | --- | --- |
@@ -56,7 +57,10 @@ Examples:
 
 The diagram shows how signed artifacts go from CI to the cluster, and how the
 ingestion pipeline records its evidence. Both publish workflows start only by
-manual dispatch. The [CI](#ci) section lists the workflows.
+manual dispatch. The [CI](#ci) section lists the workflows. The cluster part of
+the diagram shows GHCR mode. Local mode checks the signatures with the cosign
+key from `make signing-keys`, and starts without the `apps` and `olly` tenants
+(see [`d2-osramp-fleet/tenants/local/kustomization.yaml`](d2-osramp-fleet/tenants/local/kustomization.yaml)).
 
 ```mermaid
 flowchart TB
@@ -75,10 +79,10 @@ flowchart TB
   PA --> ART
   PI --> IMG
 
-  subgraph k8s["Kubernetes cluster · kind"]
+  subgraph k8s["Kubernetes cluster · GHCR mode (staging, production)"]
     FLUX["flux-system<br/>Flux Operator + FluxInstance"]
     RSP["ResourceSet: policies<br/>CEL source allowlist"]
-    RSI["ResourceSet: infra<br/>cert-manager · monitoring"]
+    RSI["ResourceSet: infra<br/>cert-manager · ingress · monitoring · Trivy"]
     RSA["ResourceSet: apps<br/>frontend + backend"]
     FLUX --> RSP
     FLUX --> RSI
@@ -103,7 +107,7 @@ flowchart TB
   PURL <--> NATS
   PURL -- attestations --> ARV
   NATS --> ARCH
-  ARCH -- "results + SBOMs" --> PG
+  ARCH -- "results + SBOMs + signatures" --> PG
   ARV --- MINIO
 
   classDef reg fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c;
@@ -149,7 +153,7 @@ flowchart TB
   end
 
   subgraph UI["Console and documentation"]
-    DASH["dashboard-signalloom<br/>(pod :8080, Vite dev :5173)"]
+    DASH["dashboard-signalloom<br/>(pod :8080, Vite dev :3000)"]
     AMXD["AgentMaxxing console<br/>(dashboard route /demos/agentmaxxing)"]
     DOCS["docs-signalloom (/docs)"]
   end
@@ -183,8 +187,8 @@ flowchart TB
    attestation to Archivista.
 5. The worker publishes the results, SBOMs, and signatures to `tasks.results`, `tasks.sbom`, and
    `tasks.signatures`.
-6. The archiver reads the results and SBOMs from NATS and writes them to PostgreSQL. Teams can query
-   this audit record.
+6. The archiver reads the results, SBOMs, and signatures from NATS. It writes them to PostgreSQL.
+   Teams can query this audit record.
 
 The later phases use this evidence:
 
@@ -219,14 +223,14 @@ Local mode keeps this model without GitHub:
 
 | Path | Description |
 | --- | --- |
-| [`d2-signalloom/`](d2-signalloom/) | Signal Loom agent governance slice: dashboard, FastAPI backend, Fleet Manager, host sensors, and identity plane (`infra/inf-bao`, `infra/kagent`). Guide: [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md). |
+| [`d2-signalloom/`](d2-signalloom/) | Signal Loom agent governance slice: dashboard, FastAPI backend, Fleet Manager, host sensors, the identity plane (`infra/inf-bao`), and Kagent (`infra/kagent`). Guide: [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md). |
 | [`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/) | The user documentation site (Astro Starlight), served at `/docs` from its own container |
 | [`d2-osramp-apps/`](d2-osramp-apps/) | OSRAMP application slice: Go services (`apps/`), manifests (`components/`), BATS tests (`test/`). Guide: [`d2-osramp-apps/AGENTS.md`](d2-osramp-apps/AGENTS.md). |
 | [`d2-k8s-afm/`](d2-k8s-afm/) | KubeSec-AFM slice: formal-methods RBAC privilege-escalation analysis. Guide: [`d2-k8s-afm/AGENTS.md`](d2-k8s-afm/AGENTS.md). |
 | [`d2-osramp-fleet/`](d2-osramp-fleet/) | Cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), and Terraform bootstrap (`terraform/`). Guide: [`d2-osramp-fleet/AGENTS.md`](d2-osramp-fleet/AGENTS.md). |
 | [`d2-infra/`](d2-infra/) | Cluster add-ons: cert-manager, Envoy Gateway, monitoring, Trivy. Guide: [`d2-infra/AGENTS.md`](d2-infra/AGENTS.md). |
 | [`d2-agent-trust/`](d2-agent-trust/) | SPIFFE agent trust: A2A identity, OpenBao JWT roles, NetworkPolicies. Guide: [`d2-agent-trust/AGENTS.md`](d2-agent-trust/AGENTS.md). |
-| [`d2-cpai/`](d2-cpai/) | CPAI runtime proxy: an OpenAI-compatible server in front of Vertex AI `gemini-2.5-flash`. Guide: [`d2-cpai/AGENTS.md`](d2-cpai/AGENTS.md). |
+| [`d2-cpai/`](d2-cpai/) | CPAI runtime proxy: an OpenAI-compatible server that runs OpenCode against Vertex AI. The caller selects the model. Guide: [`d2-cpai/AGENTS.md`](d2-cpai/AGENTS.md). |
 | [`olly-replica/`](olly-replica/) | Olly Sentinel replica tenant: manifests, contracts, seed data, and eval harness. Guide: [`olly-replica/README.md`](olly-replica/README.md). |
 | [`ui/`](ui/) + [`tools/demo-console/`](tools/demo-console/) | The Estate 95 console (`make console`, port 8675): an architecture map in plain HTML, CSS, and JavaScript, and the Go service that runs its commands and streams the output |
 | [`tools/audit-gen/`](tools/audit-gen/) | Generator of synthetic multi-plane containment audit logs |
@@ -251,8 +255,9 @@ Local mode keeps this model without GitHub:
 
 ### Prerequisites
 
-`./scripts/setup.sh` installs the tools in the first table at pinned versions.
-It does not install a tool that is already present.
+`./scripts/setup.sh` installs the tools in the first table. It pins each
+version except skopeo. Skopeo comes from the system package manager. The script
+does not install a tool that is already present.
 
 | Tool | Used for |
 | --- | --- |
@@ -285,6 +290,11 @@ The setup script installs the missing tools. It then makes the shared GitOps
 foundation: a Kind cluster, an in-cluster Zot registry, cosign-signed foundation
 artifacts, and Flux reconciliation.
 
+CAUTION: On the local fleet the `apps` tenant is disabled in
+[`d2-osramp-fleet/tenants/local/kustomization.yaml`](d2-osramp-fleet/tenants/local/kustomization.yaml).
+Re-enable it before you run `make demo-osramp-up`. The script patches the
+`apps` ResourceSet, which that file does not include.
+
 ```bash
 ./scripts/setup.sh    # Install the tools and make a healthy cluster
 make demo-osramp-up   # Deploy the OSRAMP workload
@@ -307,13 +317,21 @@ foundation, checks its health, and prints the optional targets:
 - `make demo-bao-up`
 - `make demo-cpai-up`
 
-Zot keeps the OCI artifacts in `.cache/zot`. The cache stays after
-`make down && make up`, so a cluster restart uses the cached artifacts. To empty
-the registry, run `make zot-cache-reset`.
+CAUTION: On the local fleet the `apps` and `olly` tenants are disabled in
+[`d2-osramp-fleet/tenants/local/kustomization.yaml`](d2-osramp-fleet/tenants/local/kustomization.yaml).
+Re-enable the tenant before you run `make demo-osramp-up` or `make demo-olly-up`.
+
+The Zot cache in `.cache/zot` stays after `make down`. See
+[the Zot cache pitfall](AGENTS.md#the-zot-cache-stays-after-make-down).
+
+If `KUBECONFIG` is not set, make uses `/tmp/osramp-kubeconfig.yaml`. Export that
+path before you run `kubectl`.
 
 CAUTION: `make teardown` removes the local signing keys and the build state. Use
-it only for a full reset. `make teardown-all` also removes the tools that
-`setup.sh` installed. Both keep your `.env` file.
+it only for a full reset. Both targets keep your `.env` file.
+
+WARNING: `make teardown-all` also deletes kind, kubectl, flux, Go, and the other
+setup tools. It deletes them even if you installed them.
 
 Observability (`kube-prometheus-stack` and `trivy-system`) is off by default.
 To turn it on, run:
@@ -350,11 +368,12 @@ make vex-demo
 The demo does these steps:
 
 1. Publishes the service images to the local registry.
-2. Makes syft SBOMs as attested analysis evidence.
+2. Makes syft SBOMs.
 3. Scans the registry images with Grype.
-4. Triages the findings into signed OpenVEX statements.
-5. Merges the statements with `vexctl` and signs the merged file under `witness run`.
-6. Stores the signed document in Archivista.
+4. Triages the findings into OpenVEX statements.
+5. Merges the statements with `vexctl`.
+6. If Archivista, `witness`, and `.keys/witness.pem` are available, signs the merged file under
+   `witness run` and stores it in Archivista. If not, it skips this step.
 7. Scans the images again to show the suppressed findings.
 
 ### Governance demos (phase 3)
@@ -415,6 +434,9 @@ WARNING: A lane VM costs money until you remove it. After
 The fleet definitions also run against artifacts in GHCR:
 
 - The `push-artifacts` and `push-images` workflows publish signed artifacts under `ghcr.io/<owner>/<repo>`.
+- The fleet expects `ghcr.io/acme-co/osramp`. To publish from a different repository, change
+  `REGISTRY_BASE` in [`runtime-info.yaml`](d2-osramp-fleet/clusters/staging/flux-system/runtime-info.yaml)
+  and the OIDC subject in [`apps.yaml`](d2-osramp-fleet/tenants/base/apps.yaml).
 - Staging clusters check the keyless OIDC identity of the publishing workflow.
 - Production clusters follow the `latest-stable` tag.
 
@@ -425,7 +447,7 @@ The workflows are in [`.github/workflows/`](.github/workflows/).
 | Workflow | Trigger | Description |
 | --- | --- | --- |
 | `e2e-local` | Manual (`workflow_dispatch`) | Foundation setup, attested tests, the VEX demo, the Olly tests, and the promotion, admission, and revocation demos in a CI Kind cluster |
-| `push-artifacts` | Manual (`workflow_dispatch`) | Packs the fleet, infra, apps, Signal Loom, and Trivy manifests as OCI artifacts with cosign signatures |
+| `push-artifacts` | Manual (`workflow_dispatch`) | Packs the fleet, infra, apps, Signal Loom, agent trust, and Olly manifests as cosign-signed OCI artifacts |
 | `push-images` | Manual (`workflow_dispatch`) | Builds multi-arch container images with SBOMs and provenance |
 | `release-artifacts` | Manual (`workflow_dispatch`) | Publishes versioned artifacts and moves the `latest-stable` pointer |
 | `reusable-witness-step` | `workflow_call` | Runs commands under `witness run` to record signed evidence |

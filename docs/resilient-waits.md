@@ -14,7 +14,7 @@ or memory pressure these don't wait longer — they fail early.
 
 ## The fix — one library, five principles
 
-`scripts/lib/wait.sh` (vendored from `~/.andy_sync/includes/wait.sh`) provides
+[`scripts/lib/wait.sh`](../scripts/lib/wait.sh) (vendored from `~/.andy_sync/includes/wait.sh`) provides
 deadline-driven primitives built on five principles:
 
 1. **Deadline, not attempt-count.** "Slow but eventually" is a PASS. Every wait
@@ -25,6 +25,22 @@ deadline-driven primitives built on five principles:
 4. **Per-attempt hang fence.** Each attempt runs under `timeout` so one wedged
    curl/kubectl can't block past the deadline.
 5. **Readiness, not wall-clock sleeps.** Probe the real endpoint/condition.
+
+The flowchart shows how one wait runs, from the deadline start to PASS or FAIL.
+
+```mermaid
+flowchart TD
+  start[Start the deadline] --> exists[wait_k8s_exists: poll until the object exists]
+  exists --> cond[Check the condition with a per-attempt timeout]
+  cond -->|ready| pass[PASS: _wait_stat ok]
+  cond -->|not ready| elapsed{Deadline elapsed?}
+  elapsed -->|no| backoff[Sleep with exponential backoff and jitter]
+  backoff --> cond
+  elapsed -->|yes| fail[FAIL: _wait_stat timeout]
+```
+
+The functions in the diagram are in [`scripts/lib/wait.sh`](../scripts/lib/wait.sh).
+`_wait_retry` owns the loop, the backoff, the jitter, and the per-attempt timeout.
 
 ### Verbs
 
@@ -69,7 +85,7 @@ patiently instead of failing — no code changes. Per-call tunables:
 ## How to consume it
 
 - **Shell scripts:** `source "$(dirname "$0")/lib/wait.sh"` then call a verb.
-  (Done: `scripts/with-zot-portforward.sh`.)
+  Most scripts in `scripts/` do this. Run `rg -l 'lib/wait.sh' scripts` for the list.
 - **Makefiles:** call the converted scripts, or `source scripts/lib/wait.sh` in a
   recipe and call a verb.
 - **bats tests:** `source "${BATS_TEST_DIRNAME}/../../scripts/lib/wait.sh"` in
@@ -77,18 +93,18 @@ patiently instead of failing — no code changes. Per-call tunables:
   DETIK `verify` races with `wait_pods_ready`, and the three diverged `try-limit`
   copies with the shared engine.
 
-## Migration order (incremental — each step independently testable)
+## Remaining sites
 
-1. **Zot readiness (highest duplication):** convert `with-zot-portforward.sh`
-   (done), then `push-local*.sh`, `build-sign-dashboard.sh`, the two Makefile
-   `*-images` loops, `admission/vex/revocation-demo.sh`.
-2. **Unguarded `kubectl wait` / `rollout status`:** `healthcheck.sh`,
-   `demo-lifecycle.sh`, `signalloom-local.sh`, `signalloom-runtime-test.sh`,
-   fleet `Makefile`, `cpai-up.sh` → `wait_k8s_ready` / `wait_rollout`.
-3. **Namespace/Kustomization pollers:** the triplicated loops in
-   `osramp-up.sh` / `olly-up.sh` / `signalloom-up.sh` → `wait_flux_ready`.
-4. **bats:** point the three `try-limit` copies and DETIK loops at the shared
-   engine. Replace the PF-curl and bare-`sleep` gates with `wait_*`.
+Two scripts do not source `wait.sh`:
+
+1. [`scripts/signalloom-runtime-test.sh`](../scripts/signalloom-runtime-test.sh)
+2. [`scripts/signalloom-up.sh`](../scripts/signalloom-up.sh)
+
+`signalloom-up.sh` polls the namespace and the Kustomizations with fixed `sleep` loops.
+Convert them to `wait_k8s_exists` and `wait_flux_ready`. `signalloom-runtime-test.sh`
+polls a port-forward with `curl` and `sleep 1`. Convert it to `wait_reachable`. The Zot
+readiness loops are done, including
+[`scripts/revocation-demo.sh`](../scripts/revocation-demo.sh).
 
 `wait-reconciled.sh` already embodies principle 2 and can stay, or be reduced to
 `wait_flux_ready` calls in a loop.

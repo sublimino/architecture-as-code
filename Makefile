@@ -1209,7 +1209,7 @@ demo-kagent-test-config: ## Statically validate the Kagent namespace overlay, th
 	@for d in d2-signalloom/infra/agent-swarm/kagent-*; do [ -d "$$d" ] && kubectl kustomize "$$d" >/dev/null; done
 	bats d2-signalloom/test/kagent-contract.bats
 	bats d2-signalloom/test/kagent-chart.bats
-demo-kagent-up: ## Deploy all Kagent agents (K8s Reader, Commit Summariser, Security Analyst).
+demo-kagent-up: ## Deploy all 8 Kagent agents (K8s Reader, Commit Summariser, Security Analyst, Network Auditor, Incident Responder, Compliance Checker, FinOps Optimizer, Chaos Prober).
 	./scripts/kagent-agents.sh deploy
 demo-kagent-down: ## Remove all Kagent agents.
 	./scripts/kagent-agents.sh destroy

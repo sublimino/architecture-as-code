@@ -19,7 +19,6 @@ flowchart TB
     API["fe-signalloom<br/>(FastAPI Backend)"]
     FM["fleet-manager<br/>(Go Multi-Plane Controller)"]
     INGEST["signal-ingest<br/>(Signal Ingestion Gateway)"]
-    PE["policy-engine<br/>(CEL policy and FAIR risk)"]
   end
 
   subgraph ENFORCE["Enforcement & Telemetry"]
@@ -34,6 +33,7 @@ flowchart TB
     PG["PostgreSQL (Audit & Evidence)"]
     DEX["Dex OIDC Provider"]
     MINIO["MinIO Blob Store"]
+    PE["policy-engine<br/>(CEL policy and FAIR risk)"]
   end
 
   INGRESS --> CONTROL
@@ -46,9 +46,9 @@ flowchart TB
   classDef enf fill:#fff3e0,stroke:#f57c00,color:#e65100;
   classDef idp fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c;
   class SPA,DOCS,CONSOLE ui;
-  class API,FM,INGEST,PE ctrl;
+  class API,FM,INGEST ctrl;
   class SENSOR,SENTINEL,NETASSERT enf;
-  class BAO,SPIRE,PG,DEX,MINIO idp;
+  class BAO,SPIRE,PG,DEX,MINIO,PE idp;
 ```
 
 ## Stack
@@ -64,7 +64,9 @@ flowchart TB
 | Integration services | Python fixture and discovery proxy | [`apps/fake-integration-proxy/`](apps/fake-integration-proxy/) |
 | Identity | Dex OIDC (local static user) | [`infra/inf-signalloom/base/dex.yaml`](infra/inf-signalloom/base/dex.yaml) |
 | Secrets and identity | OpenBao, SPIRE | [`infra/inf-bao/`](infra/inf-bao/) |
-| Kagent control plane | CNCF Kagent CRDs and swarm | [`infra/kagent/`](infra/kagent/) |
+| Kagent namespace | Namespace, NetworkPolicies, and controller manifests. `make swarm-kagent-up` installs the charts. | [`infra/kagent/`](infra/kagent/) |
+| Agent swarm | The `fe-signalloom-agents` namespace, RBAC, NetworkPolicies, and one directory per swarm agent | [`infra/agent-swarm/`](infra/agent-swarm/) |
+| Knative | Serving and Eventing manifests, a broker, and a GitHub source template | [`infra/knative/`](infra/knative/) |
 | Persistence | PostgreSQL, Redis, MinIO | [`infra/inf-signalloom/`](infra/inf-signalloom/) |
 | Agent profiles | `AgentProfile` manifests for the demo agents | [`agents/`](agents/) |
 | Policy compiler | Go CLI. Compiles CEL invariants into admission policies and nono Landlock profiles. | [`cmd/policy-compiler/`](cmd/policy-compiler/) |
@@ -76,16 +78,19 @@ flowchart TB
 | NetAssert runner | Agent pod resolver script for the NetAssert Job image | [`netassert-runner/`](netassert-runner/), [`netassert-runner.Dockerfile`](netassert-runner.Dockerfile) |
 | Go tools | proof-helper | [`proof-helper/`](proof-helper/) |
 | Kubernetes manifests | Kustomize overlays | [`apps/fe-signalloom/base/`](apps/fe-signalloom/base/), [`apps/fe-signalloom/local/`](apps/fe-signalloom/local/) |
-| Tests | BATS and Vitest test suites | [`test/`](test/) |
+| Delivery contracts | Discovery Portal bootstrap SQL | [`contracts/`](contracts/) |
+| Tests | BATS suites | [`test/`](test/) |
+| Unit tests | Vitest, run with `bun run test` | [`apps/dashboard-signalloom/`](apps/dashboard-signalloom/) |
 
 ## Namespaces
 
 | Namespace | Contents |
 |---|---|
-| `fe-signalloom` | Dashboard SPA, API backend, Gateway HTTPRoutes |
+| `fe-signalloom` | Dashboard SPA, docs site, API backend, fleet-manager, signal-ingest, supercred-demo-runner, Gateway HTTPRoutes |
 | `fe-signalloom-agents` | Demo agent workloads |
-| `inf-signalloom` | Dex, PostgreSQL, Redis, MinIO, fake integration proxy |
+| `inf-signalloom` | Dex, dex-ui, fake integration proxy, netassert-controller, PostgreSQL, Redis, MinIO. The SuperCred demo adds policy-engine and cardvault. |
 | `inf-bao` | OpenBao server, SPIRE server, SPIRE agents |
+| `kagent` | Kagent controller, from [`infra/kagent/base/namespace.yaml`](infra/kagent/base/namespace.yaml) |
 
 ## Lifecycle
 
@@ -132,6 +137,8 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/policies` | Compliance Policies | Policy enforcement engine and rule evaluation |
 | `/compliance` | Compliance Overview | Multi-framework regulatory compliance posture |
 | `/compliance/posture` | Agent Posture | Fleet-wide agent posture assessment |
+| `/compliance/risk` | Compliance Risk | Risk view inside the compliance section |
+| `/compliance/policies` | Compliance Policies | Policy view inside the compliance section |
 | `/compliance/:frameworkId` | Framework Detail | Detailed control evaluation for one framework |
 | `/collusion-access` | Collusion & Access | Multi-agent privilege escalation analysis |
 | `/audit` | Audit Trail | Append-only immutable audit log from PostgreSQL |
@@ -155,11 +162,16 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/design-system` | Design System | Component palette and typography showcase |
 | `/design-system/headers` | Design System Headers | Standardised header hierarchy reference |
 | `/redeem-invite` | Redeem Invite | User onboarding and invitation acceptance |
-| `/docs` | Documentation | Embedded Astro Starlight technical documentation |
+
+`/docs` is not a React route. It is an nginx `location` in
+[`nginx.conf`](apps/dashboard-signalloom/nginx.conf) that proxies to the Astro
+Starlight docs site. The `Routes` block in
+[`App.tsx`](apps/dashboard-signalloom/src/App.tsx) is the source of the route list.
 
 Utility routes: `/onboarding` (wizard) and `/redeem-invite` (user signup).
 
-Controls at bottom-right:
+Controls at bottom-right, from [`FloatingConfigControls.tsx`](apps/dashboard-signalloom/src/components/FloatingConfigControls.tsx):
+- **WidthToggle**: Switch the content width.
 - **ThemeToggle**: Switch between Dark, Light, and Andy themes.
 - **DemoToggle**: Switch between live API data and local fixture data.
 
@@ -187,7 +199,7 @@ All application source code resides under `apps/`:
 | `factory-appraiser` | [`apps/factory-appraiser/`](apps/factory-appraiser/) | Asset appraisal agent workload. |
 | `fake-integration-proxy` | [`apps/fake-integration-proxy/`](apps/fake-integration-proxy/) | Deterministic fixture and discovery proxy for LLM and CRM endpoints. |
 | `fe-signalloom` | [`apps/fe-signalloom/`](apps/fe-signalloom/) | FastAPI backend serving dashboard queries and audit transactions. |
-| `fe-signalloom-agents` | [`apps/fe-signalloom-agents/`](apps/fe-signalloom-agents/) | `probe-nono-capability.sh` only. The agent namespace, discovery RBAC, and baseline podinfo agent are in [`signalloom.yaml`](../d2-osramp-fleet/tenants/local/signalloom.yaml). |
+| `fe-signalloom-agents` | [`apps/fe-signalloom-agents/`](apps/fe-signalloom-agents/) | One probe script. [`apps/README.md`](apps/README.md#fe-signalloom-agents) explains where the namespace and RBAC live. |
 | `fleet-agents` | [`apps/fleet-agents/`](apps/fleet-agents/) | Synthetic agents representing remote cluster fleets. |
 | `fleet-manager` | [`apps/fleet-manager/`](apps/fleet-manager/) | Go controller managing multi-plane containment across mesh, admission, OpenBao, SPIRE, and freeze. |
 | `hosted-daytona-coder` | [`apps/hosted-daytona-coder/`](apps/hosted-daytona-coder/) | Hosted cloud development environment agent. |
@@ -212,12 +224,12 @@ Run each command from the repository root.
 
 | Command | Purpose | Duration |
 |---|---|---|
-| `make -C d2-signalloom test` | Run static topology and BATS tests | ~10s |
+| `make -C d2-signalloom test` | Run the topology checks, the Go test packages, the BATS suites, and the mutation proofs | Minutes |
 | `bats d2-signalloom/test/dashboard-routes.bats` | Check nginx SPA fallback (requires port 5173) | ~3s |
 | `bats d2-signalloom/test/dashboard-route-collisions.bats` | Check proxy prefixes against SPA routes | ~2s |
 | `bats d2-signalloom/test/agent-discovery-rbac.bats` | Check pod reading grants for discovery namespaces | ~2s |
 | `bats d2-signalloom/test/fleet-patch-indexes.bats` | Check ResourceSet patch indexes | ~2s |
-| `bats test/supercred-images.bats` | Check image build and load guard (no cluster required) | ~3s |
+| `bats test/supercred-images.bats` | Check image build and load guard (no cluster required). One test waits `SUPERCRED_CRI_ADOPT_TIMEOUT` seconds per image. | 12s or more |
 | `make -C d2-signalloom/apps/fake-integration-proxy test` | Run proxy discovery tests | ~2s |
 | `bats d2-signalloom/test/gateway-dashboard.bats` | Check Envoy Gateway routes (requires port 18443) | ~3s |
 | `bats d2-signalloom/test/dex-auth.bats d2-signalloom/test/dex-runtime.bats` | Check Dex OIDC contract | ~5s |
@@ -228,7 +240,7 @@ Run each command from the repository root.
 | `cd d2-signalloom/apps/dashboard-signalloom && bun run test` | Run Vitest unit tests | ~2s |
 | `cd d2-signalloom/apps/dashboard-signalloom && bun run typecheck` | Run TypeScript typecheck | ~2s |
 | `cd d2-signalloom/apps/dashboard-signalloom && bun run lint` | Run ESLint | ~2s |
-| `cd test/acceptance && bunx playwright test --project=smoke` | Run browser smoke tests | ~7s |
+| `scripts/acceptance-test.sh --project smoke` | Run browser smoke tests. The script starts the port-forwards that the specs need. | ~7s |
 | `make demo-agentmaxxing-acceptance-test` | Run AgentMaxxing acceptance test suite | ~15s |
 | `make demo-signalloom-coding-agent-topology` | Validate coding agent detective telemetry | ~5s |
 | `make demo-agentmaxxing-docs-test` | Run documentation render check with Playwright | ~5s |
@@ -264,7 +276,7 @@ Rules for auditing:
 
 Read [`docs/signalloom/audit-trail.md`](../docs/signalloom/audit-trail.md) for the implementation details.
 
-## Common Pitfalls
+## Pitfalls
 
 - **`audit_events` table is append-only:** Modifying existing rows raises an error (`42501`).
   Use `make demo-signalloom-data-reset` to reset test data.
@@ -311,4 +323,4 @@ Read [`docs/deploying-a-backend-service.md`](../docs/deploying-a-backend-service
 Build the dashboard image with `scripts/build-sign-dashboard.sh`:
 - Generates SPDX SBOM, SLSA provenance, and Cosign signature.
 - Stores evidence in `docs/signalloom/evidence/`.
-- Tested by `bats test/dashboard-supplychain.bats`.
+- Tested by [`test/dashboard-supplychain.bats`](test/dashboard-supplychain.bats). Run `bats d2-signalloom/test/dashboard-supplychain.bats` from the repository root.

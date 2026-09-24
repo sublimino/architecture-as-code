@@ -15,7 +15,7 @@ lives wherever it was pasted.
 | `github_owner_id` | string | — | **Immutable numeric** owner id. See below. |
 | `github_repository` | string | — | `owner/repo`. |
 | `github_allowed_ref` | string | — | e.g. `refs/heads/main`. |
-| `state_bucket_name` | string | `""` | `""` disables the state-bucket binding. Addition to the frozen §4 interface — see `NOTES.md`. |
+| `state_bucket_name` | string | `""` | `""` disables the state-bucket binding. Addition to the frozen §4 interface — see the [F5 build note](../../notes/f-identity-ci.md#contract-objections). |
 | `runtime_roles` | list(string) | IAP + OS Login + telemetry | Validated against owner/editor/storage.admin/osAdminLogin. |
 | `ci_plan_roles` | list(string) | read-only set | Validated; must not intersect `ci_apply_roles`. |
 | `ci_apply_roles` | list(string) | write set | Validated. |
@@ -117,7 +117,7 @@ whenever `attribute_condition`, `github_owner_id`, or the allowed ref changes.
 
 ## What is tested automatically
 
-`tests/identity.tftest.hcl` — 24 runs, mocked providers, `command = plan` only.
+`tests/identity.tftest.hcl` — 27 `run` blocks, mocked providers, `command = plan` only. Count them with `rg -c '^\s*run "' tests/identity.tftest.hcl`.
 Asserts the *evaluated* configuration:
 
 - issuer URI exact.

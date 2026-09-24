@@ -174,7 +174,7 @@ tracked Markdown file. Each file gets one of three tiers:
 | Tier | Files | Checks |
 | :--- | :--- | :--- |
 | All checks | Every living document. A living document is a tracked Markdown file that is not a decision record, not an exception in the next row, and not ignored. | All the checks in the table below |
-| Correctness | The two long-form reference papers in this directory, and the in-product help text under `d2-signalloom/apps/dashboard-signalloom/src/help-content/` (`CORRECTNESS_ONLY` in the script). They keep their authored prose. | `link`, `anchor`, `space`, `make`, `fence`, `diagram` |
+| Correctness | The in-product help text under `d2-signalloom/apps/dashboard-signalloom/src/help-content/` (`CORRECTNESS_ONLY` in the script). The dashboard bundles it, so its prose is product text. | `link`, `anchor`, `space`, `make`, `fence`, `diagram` |
 | Links only | Decision records (`RECORDS` in the script) | `link`, `anchor`, `space` |
 
 The script ignores vendored trees, the Starlight source, the talk media, agent

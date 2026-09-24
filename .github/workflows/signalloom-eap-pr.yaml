@@ -58,6 +58,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # zizmor `artipacked`: the default persists the job token into
+          # .git/config, where any later step (or an uploaded artifact) can read
+          # it. This gate never pushes, so it never needs the token on disk.
+          persist-credentials: false
 
       - name: Assert the EAP gate target exists on this base
         # See BASE BRANCH ASSUMPTION above. `make -n` parses the Makefile and
@@ -117,6 +122,15 @@ jobs:
             fail=1
           fi
           exit "${fail}"
+
+      - name: Lint this workflow's own contract
+        # test/eap-pr-workflow.bats asserts the shape of THIS file: pull_request
+        # trigger, the literal make line, no bare pytest, pinned actions, no
+        # secrets. Running it here makes the workflow its own registered runner
+        # for that suite (d2-signalloom/test/bats-registry-coverage.bats lists
+        # this file beside the two shell pipelines), the same way
+        # gcp-tf-validate owns the terraform-*.bats suites. Offline, ~1s.
+        run: bats test/eap-pr-workflow.bats
 
       - name: make test-eap-offline
         # The exit status of `make` is the exit status of this step. Nothing is

@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import api_compat
+import eap_tenancy
 from eap_tenancy import Tenant, claim_or_403, owned_hashes
 
 logger = logging.getLogger(__name__)
@@ -507,15 +508,20 @@ async def resolve_domain(req: DomainResolutionRequest, tenant: Tenant) -> Domain
             detail="Must provide either company_name or customer_hash to resolve domain.",
         )
 
-    mine = owned_hashes(tenant)
     if req.customer_hash:
         c_hash = req.customer_hash.lower()
-        rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash) if c_hash in mine else None
-        c_name = rec.company_name if rec else None
+        c_name = None
     else:
         c_name = normalize_company_name(req.company_name)  # type: ignore[arg-type]
         c_hash = derive_customer_hash(c_name)
-        rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash) if c_hash in mine else None
+    # A hash another tenant owns is not resolvable: this route would otherwise
+    # be a company-name -> hash -> is_active oracle across tenants.
+    owner = eap_tenancy.GLOBAL_TENANT_OWNERSHIP.owner_of(c_hash)
+    if owner is not None and owner != tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash) if owner == tenant else None
+    if req.customer_hash:
+        c_name = rec.company_name if rec else None
 
     urls = build_environment_urls(c_hash)
     is_active = bool(rec and rec.state not in (EnvironmentState.TERMINATED,))

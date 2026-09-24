@@ -70,3 +70,9 @@ All participating autonomous agents operating on the `EAPR` mission adhere to th
 | `2026-09-24T22:35:00Z` | `Council of Agents` | `EAPR-P2-PRE_CERTIFIED` | Council review APPROVED: probe tests passed 3/3, anonymous attack surface report committed `bd363b59`, `status=pass proceed=yes` errata verified. |
 | `2026-09-24T22:35:46Z` | `antigravity` | `EAPR-P2-PRE_ADVANCED` | Advanced `EAPR-P2-PRE` to `done`. Phase 2 implementation frontier fully unblocked (`P2-1`, `P2-2`, `P2-3`). |
 | `2026-09-24T22:36:15Z` | `kpai` | `EAPR-P2-1_LAUNCHED` | Launched `EAPR-P2-1` (Task `14f11`: *D1: shared EAP authentication and tenant binding*) into `in_progress` under `kpai` (Claude) harness. |
+| `2026-09-24T22:40:49Z` | `antigravity` | `EAPR-P2-2_LAUNCHED` | Launched `EAPR-P2-2` (Task `09abb`: *D2: audit provenance, event schema, seeding contract, expunge on reap*) into `in_progress`. |
+| `2026-09-24T22:40:51Z` | `kpai` | `EAPR-P2-3_LAUNCHED` | Launched `EAPR-P2-3` (Task `5ef56`: *D7: EAP suites on pull_request, strict-xfail blockers retired*) into `in_progress`. |
+| `2026-09-24T22:49:28Z` | `Council of Agents` | `EAPR-P2-2_CERTIFIED` | Adversarial Council Review APPROVED across 4 lenses: `eap_audit.py` durable writes, MultiPlane audit schema, ECDSA P-256 transit signing, deterministic seeding, expunge on reap, `test_eap_audit_events.py` (6/6 passed), 0 merge conflicts into `integration/eapr-v0.1.0`. |
+| `2026-09-24T22:50:11Z` | `antigravity` | `EAPR-P2-2_ADVANCED` | `done-advance --reconcile-stuck --apply` executed. `EAPR-P2-2` (Task `09abb`) advanced to `done`. Total completed cards in `done`: 9. |
+| `2026-09-24T22:50:45Z` | `antigravity` | `DOC_7_RESCUE_BRANCHES` | Pinned dangling checkpoint commits (`d8d7869a`, `d9e70034`, `3cb26a61`, `28dc8b55`) with rescue branches, clearing DOC-7 doctor exception. |
+

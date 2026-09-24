@@ -17,6 +17,20 @@ Run from ``d2-signalloom/apps/fe-signalloom/src``::
         python ../../../../scripts/eap/anon_sweep.py
 
 Exit status is 0 whenever the sweep ran; the verdict is the final line.
+
+Reading the verdict:
+
+* ``REACHABLE`` means the response was not 401/403 — a 200/201 reached the
+  handler; a 404/422/400 means validation or lookup ran, i.e. no principal
+  gate fired before it.  Both count as "no auth".
+* This is an in-process ``TestClient`` sweep on a bare app (no lifespan, no
+  database, no ingress).  It measures the routers, not the deployed topology.
+* Routes are found by endpoint module, so a sub-application or a route whose
+  endpoint lives outside the five modules is invisible: the count is a lower
+  bound on the anonymous surface, not an upper bound.
+* Once the sealed sweep (``tests/test_tenant_isolation.py``, P1-4) is on the
+  base it is the source of truth; this script is the reproduction of the
+  pre-merge number.  If the two disagree, that is a finding.
 """
 
 from __future__ import annotations

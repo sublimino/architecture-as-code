@@ -245,4 +245,25 @@ middleware, test or Makefile file was changed by this relaunch either.
 addition: do not relaunch P2-1 until P2-PRE's errata reads `status=pass` on a
 tip that contains P1-3 and P1-4 and carries `integration/eapr-v0.1.0-p1`.
 
+**Unblock checklist (all three must hold before any relaunch; relaunching on
+`68d87aca` fails deterministically — this is the second refusal on that SHA):**
+
+```text
+[ ] proposal '#### Errata — EAPR-P2-PRE' machine tag reads status=pass proceed=yes
+[ ] git merge-base --is-ancestor EAPR-P1-4 integration/eapr-v0.1.0 ; echo $?   -> 0   (now 1)
+[ ] git merge-base --is-ancestor EAPR-P1-3 integration/eapr-v0.1.0 ; echo $?   -> 0   (now 1)
+[ ] git tag -l 'integration/eapr-v0.1.0-p1'                                     -> non-empty (now empty)
+```
+
+Sweep caveats, stated so the number is not over-read: it is an in-process
+`TestClient` sweep of a bare app (no lifespan, no database, no ingress, no demo
+flag set in the environment), so it measures the routers, not the deployed
+topology; "REACHABLE" means not 401/403 — 404/422/400 rows show validation or
+lookup ran before any principal gate; routes are found by endpoint module, so
+the 23 is a lower bound on the anonymous surface. Once P1-4's sealed sweep is
+on the base, that file is the source of truth and this script is the
+reproduction of the pre-merge number; a disagreement between them is a finding.
+The twin's "1 tool call, 0 files modified" is the run's recorded row after it
+ended (`ended_at` 12:07:03Z), not an inference about a live agent.
+
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

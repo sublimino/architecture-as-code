@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Anonymous-reachability sweep over the five EAP routers.
+
+Durable form of the /tmp probe used by EAPR-P2-PRE and the EAPR-P2-1 refusal
+record, so the Governor can reproduce the "before" and "after" numbers without
+a scratch file.
+
+Route list is derived from ``app.routes`` filtered by the endpoint's module,
+never from a hand-maintained list, so a route added to one of the five
+routers is swept automatically.  Websocket routes are counted separately and
+printed, so a post-merge tree that gains one cannot be silently skipped.
+
+Run from ``d2-signalloom/apps/fe-signalloom/src``::
+
+    UV_CACHE_DIR=/home/andy/src/.worktrees/.uvcache \
+    uv run --python 3.12 --with-requirements requirements.txt \
+        python ../../../../scripts/eap/anon_sweep.py
+
+Exit status is 0 whenever the sweep ran; the verdict is the final line.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from typing import Iterable
+
+from fastapi.routing import APIRoute, APIWebSocketRoute
+from fastapi.testclient import TestClient
+
+EAP_MODULES = {
+    "tenant_isolation",
+    "scenario_seeding",
+    "environment_routing",
+    "environment_lifecycle",
+    "webhook_triggers",
+}
+
+# Placeholder values for path parameters.  They only need to be syntactically
+# acceptable so the request reaches auth (or the handler) rather than 422.
+PATH_PARAMS = {
+    "customer_hash": "deadbeef",
+    "environment_id": "deadbeef",
+    "agent_id": "deadbeef",
+}
+
+AUTH_STATUSES = {401, 403}
+
+
+def _fill(path: str) -> str:
+    for name, value in PATH_PARAMS.items():
+        path = path.replace("{" + name + "}", value)
+    return path
+
+
+def _eap_routes(app) -> tuple[list[APIRoute], list[APIWebSocketRoute]]:
+    http: list[APIRoute] = []
+    ws: list[APIWebSocketRoute] = []
+    for route in app.routes:
+        endpoint = getattr(route, "endpoint", None)
+        module = getattr(endpoint, "__module__", "")
+        if module not in EAP_MODULES:
+            continue
+        if isinstance(route, APIWebSocketRoute):
+            ws.append(route)
+        elif isinstance(route, APIRoute):
+            http.append(route)
+    return http, ws
+
+
+def _sweep(client: TestClient, routes: Iterable[APIRoute]) -> list[tuple[str, str, int]]:
+    rows: list[tuple[str, str, int]] = []
+    for route in routes:
+        for method in sorted(route.methods or ()):
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            path = _fill(route.path)
+            kwargs = {"json": {}} if method in {"POST", "PUT", "PATCH"} else {}
+            resp = client.request(method, path, **kwargs)
+            rows.append((method, route.path, resp.status_code))
+    return rows
+
+
+def main() -> int:
+    # The script lives outside the app tree; import ``main`` from the cwd the
+    # way pytest does (run from d2-signalloom/apps/fe-signalloom/src).
+    sys.path.insert(0, os.getcwd())
+    from main import app  # noqa: WPS433 — same import the test suite uses
+
+    http, ws = _eap_routes(app)
+    # No ``with`` block: entering the client runs the lifespan, which opens a
+    # Postgres pool.  The test suite uses the bare client for the same reason.
+    client = TestClient(app)
+    control = client.get("/health").status_code
+    rows = _sweep(client, http)
+
+    width = max((len(p) for _, p, _ in rows), default=10)
+    for method, path, status in rows:
+        verdict = "auth" if status in AUTH_STATUSES else "REACHABLE"
+        print(f"{method:<7}{path:<{width + 2}}{status:<5}{verdict}")
+
+    reachable = sum(1 for _, _, s in rows if s not in AUTH_STATUSES)
+    print(f"websocket routes on EAP modules: {len(ws)}")
+    print(f"positive control GET /health without token: {control}")
+    print(f"REACHABLE {reachable} of {len(rows)} EAP routes anonymously (non-401/403)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

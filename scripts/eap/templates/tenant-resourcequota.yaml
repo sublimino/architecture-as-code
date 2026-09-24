@@ -1,0 +1,22 @@
+# FLUX ENVSUBST: NO — Dynamic script or EAP reconciler renders variables at runtime.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-quota
+  namespace: ${EAP_NAMESPACE}
+  labels:
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.io/eap-hash: "${EAP_HASH}"
+    signalloom.io/customer: "${EAP_CUSTOMER}"
+spec:
+  hard:
+    requests.cpu: "2"
+    limits.cpu: "4"
+    requests.memory: "2Gi"
+    limits.memory: "4Gi"
+    requests.storage: "5Gi"
+    pods: "10"
+    services: "5"
+    configmaps: "10"
+    secrets: "10"
+    persistentvolumeclaims: "2"

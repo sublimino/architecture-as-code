@@ -25,7 +25,7 @@ CARDS = [
 ]
 
 REPO = "/home/andy/src/cp/osramp-demo"
-PROPOSAL = "/home/andy/src/cp/osramp-demo/docs/Proposal — Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md"
+PROPOSAL = "/home/andy/Documents/Obsidian/v1/2. Areas/CEO/Innovation Proposals/Proposal — SLEA Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md"
 INTEGRATION = "integration/slea-v0.1.0"
 SPEC_BASE = Path.home() / ".cline/kanban/card-specs/SLEA"
 KANBAN_SCRIPT = "/tmp/kanban-check.sh"

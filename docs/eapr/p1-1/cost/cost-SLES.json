@@ -1,0 +1,429 @@
+{
+  "repo": "/home/andy/src/cp/osramp-demo",
+  "estimate_note": "opencode list-price estimate from token counts \u2014 NOT actual provider billing",
+  "total_cost": 0.0,
+  "tasks": [
+    {
+      "slug": "SLES-P4-1",
+      "id": "eb830",
+      "column": "done",
+      "title": "SLES-P4-1: Author kurasi comprehensive scenario evaluation integration suite",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=eb830&dir=/home/andy/.cline/worktrees/eb830/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P3-2",
+      "id": "081b4",
+      "column": "done",
+      "title": "SLES-P3-2: Implement real-time Server-Sent Events streaming for dashboard UI",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=081b4&dir=/home/andy/.cline/worktrees/081b4/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P4-PRE",
+      "id": "b1a17",
+      "column": "done",
+      "title": "SLES-P4-PRE: Audit end-to-end kurasi scenario demonstration and UI integration",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "agy://open?id=b1a17&dir=/home/andy/.cline/worktrees/b1a17/osramp-demo&host=fortuna&model=gemini-3.7-flash",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P4-2",
+      "id": "8f0d8",
+      "column": "done",
+      "title": "SLES-P4-2: Author multi-tenant concurrency and scenario stress testing suite",
+      "cost": 0.0,
+      "msgs": 96,
+      "elapsed_s": 796,
+      "session_id": "2e2e0f5a-8864-41fb-b8cd-9b3a6b00378a",
+      "sessions": [
+        "2e2e0f5a-8864-41fb-b8cd-9b3a6b00378a"
+      ],
+      "uri": "kpai://open?id=2e2e0f5a-8864-41fb-b8cd-9b3a6b00378a&dir=/home/andy/.cline/worktrees/8f0d8/osramp-demo&host=fortuna&model=claude-opus-5-5",
+      "tokens": {
+        "input": 192,
+        "output": 103379,
+        "reasoning": 0,
+        "cache_read": 13360856,
+        "cache_write": 366103
+      },
+      "models": [
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLES-P4-GOV",
+      "id": "ade77",
+      "column": "done",
+      "title": "SLES-P4-GOV: Final Mission Certification: Full scenario & audit seeding release",
+      "cost": 0.0,
+      "msgs": 1,
+      "elapsed_s": 0,
+      "session_id": "ses_f473f7b08ffe1ztgpyv6rFNqAO",
+      "sessions": [
+        "ses_f473f7b08ffe1ztgpyv6rFNqAO"
+      ],
+      "uri": "kpai://open?id=ses_f473f7b08ffe1ztgpyv6rFNqAO&dir=/home/andy/.cline/worktrees/ade77/osramp-demo&host=fortuna&model=gpt-6-astra",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [
+        "gpt-6-astra"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLES-P3-GOV",
+      "id": "5f58f",
+      "column": "archived",
+      "title": "SLES-P3-GOV: Certify Phase 3 API responsiveness, SSE streaming, and concurrency",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=5f58f&dir=/home/andy/.cline/worktrees/5f58f/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P3-1",
+      "id": "de3b9",
+      "column": "archived",
+      "title": "SLES-P3-1: Author interactive scenario execution API and execution runner",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=de3b9&dir=/home/andy/.cline/worktrees/de3b9/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P3-PRE",
+      "id": "c347a",
+      "column": "archived",
+      "title": "SLES-P3-PRE: Audit interactive execution API and Server-Sent Events architecture",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=c347a&dir=/home/andy/.cline/worktrees/c347a/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P2-GOV",
+      "id": "d16f3",
+      "column": "archived",
+      "title": "SLES-P2-GOV: Certify Phase 2 adversarial detection realism and policy accuracy",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=d16f3&dir=/home/andy/.cline/worktrees/d16f3/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P2-2",
+      "id": "65481",
+      "column": "archived",
+      "title": "SLES-P2-2: Author lateral network traversal and IDOR security block scenario",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=65481&dir=/home/andy/.cline/worktrees/65481/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P2-1",
+      "id": "77d79",
+      "column": "archived",
+      "title": "SLES-P2-1: Author adversarial prompt injection and guardrail intercept scenario",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=77d79&dir=/home/andy/.cline/worktrees/77d79/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P2-PRE",
+      "id": "51104",
+      "column": "archived",
+      "title": "SLES-P2-PRE: Audit adversarial security scenarios and policy rule definitions",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=51104&dir=/home/andy/.cline/worktrees/51104/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P1-GOV",
+      "id": "ea80f",
+      "column": "archived",
+      "title": "SLES-P1-GOV: Certify Phase 1 baseline telemetry realism and schema fidelity",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=ea80f&dir=/home/andy/.cline/worktrees/ea80f/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P1-2",
+      "id": "45aa8",
+      "column": "archived",
+      "title": "SLES-P1-2: Implement automatic scenario seeding on environment initialization",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=45aa8&dir=/home/andy/.cline/worktrees/45aa8/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P1-1",
+      "id": "3a86e",
+      "column": "archived",
+      "title": "SLES-P1-1: Implement baseline coding agent telemetry event generator",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=3a86e&dir=/home/andy/.cline/worktrees/3a86e/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P1-PRE",
+      "id": "4dd28",
+      "column": "archived",
+      "title": "SLES-P1-PRE: Audit audit event schemas, tenant scoping, and event bus contracts",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=4dd28&dir=/home/andy/.cline/worktrees/4dd28/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P0",
+      "id": "0aa3a",
+      "column": "archived",
+      "title": "SLES-P0: Establish scenario baseline, data models, and test harness",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=0aa3a&dir=/home/andy/.cline/worktrees/0aa3a/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLES-P4-GOV",
+      "id": "8cfbb",
+      "column": "archived",
+      "title": "SLES-P4-GOV: Final Mission Certification: Full scenario & audit seeding release",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=8cfbb&dir=/home/andy/.cline/worktrees/8cfbb/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    }
+  ],
+  "by_model": [
+    {
+      "model": "claude-sonnet-5",
+      "cost": 0.0,
+      "msgs": 1,
+      "tokens": {
+        "input": 2,
+        "output": 99,
+        "cache_read": 3867,
+        "cache_write": 8872
+      }
+    },
+    {
+      "model": "claude-opus-5-5",
+      "cost": 0.0,
+      "msgs": 95,
+      "tokens": {
+        "input": 190,
+        "output": 103280,
+        "cache_read": 13356989,
+        "cache_write": 357231
+      }
+    },
+    {
+      "model": "gpt-6-astra",
+      "cost": 0.0,
+      "msgs": 1,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      }
+    }
+  ]
+}

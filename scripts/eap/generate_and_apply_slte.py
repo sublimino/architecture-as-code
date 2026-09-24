@@ -11,6 +11,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# EAPR-P1-3: shared card contract — filename-collision refusal and the D1
+# Authorization wire spec carried into every generated card.
+_cc_spec = importlib.util.spec_from_file_location(
+    "_card_contract", str(Path(__file__).resolve().parent / "_card_contract.py"))
+cc = importlib.util.module_from_spec(_cc_spec)
+_cc_spec.loader.exec_module(cc)
+
 # Load prompt-contract
 pc_spec = importlib.util.spec_from_file_location(
     "prompt_contract",
@@ -23,8 +30,8 @@ SPEC_DIR = Path.home() / ".cline" / "kanban" / "card-specs" / "SLTE"
 SPEC_DIR.mkdir(parents=True, exist_ok=True)
 
 PROPOSAL_PATH = Path(
-    "/home/andy/src/cp/osramp-demo/docs/"
-    "Proposal — Signal Loom External Webhook Ingestion & Trigger Engine (2026-Q3).md"
+    "/home/andy/Documents/Obsidian/v1/2. Areas/CEO/Innovation Proposals/"
+    "Proposal — SLTE Signal Loom Inbound Agent Registration Engine (2026-Q3).md"
 )
 CONTRACT_SHA = hashlib.sha256(PROPOSAL_PATH.read_bytes()).hexdigest()
 
@@ -898,6 +905,7 @@ def main():
             print(f"[{status}] {lid} ({band} {role}): {m['words']}w, {m['lines']}l, {m['deliverables']}d, {m['tests']}t, {m['distinctLineRatio']}r")
 
         # Write out to card-specs/SLTE/<ID>.v1.json
+        card_spec = cc.apply_card_contract(card_spec, repo_root=cc.REPO_ROOT)
         spec_payload = {
             "specCacheVersion": 1,
             "shortcode": "SLTE",

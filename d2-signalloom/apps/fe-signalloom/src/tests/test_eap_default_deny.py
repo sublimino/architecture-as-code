@@ -26,12 +26,13 @@ import re
 import threading
 import urllib.parse
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
 import pytest
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.testclient import TestClient
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
@@ -271,6 +272,161 @@ def test_guard_delegated_auth_routes_reach_the_upstream_without_a_principal_chec
         f"and must leave DELEGATED_AUTH_ROUTES"
     )
     assert response.json()["error"]["code"] == "upstream_unavailable"
+
+
+class _RecordingUpstream(BaseHTTPRequestHandler):
+    """A stand-in signal-ingest: records every request's headers and answers 401."""
+
+    seen: list[dict[str, str]] = []
+
+    def _answer(self) -> None:
+        self.seen.append({k.lower(): v for k, v in self.headers.items()})
+        if "content-length" in self.headers:
+            self.rfile.read(int(self.headers["content-length"]))
+        body = b'{"error":{"code":"unauthenticated","message":"stub upstream refused"}}'
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    do_GET = _answer
+    do_POST = _answer
+
+    def log_message(self, *_: Any) -> None:  # keep pytest output clean
+        return
+
+
+@pytest.fixture
+def recording_upstream(monkeypatch: pytest.MonkeyPatch):
+    import coding_agent_telemetry
+
+    _RecordingUpstream.seen = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _RecordingUpstream)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setattr(coding_agent_telemetry, "_SIGNAL_INGEST_URL", f"http://127.0.0.1:{server.server_port}")
+    try:
+        yield _RecordingUpstream
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_guard_delegated_auth_is_really_delegated(recording_upstream) -> None:
+    """The exemption's reason is a claim; this is its proof.
+
+    Against a recording upstream: the anonymous call is forwarded with no
+    Authorization and the upstream's 401 comes back unrewritten; a bearer is
+    forwarded byte-for-byte; a forged identity header never reaches the
+    upstream because the strip middleware ran first.
+    """
+    client = TestClient(app)
+    anonymous = client.get("/api/v1/telemetry/coding-agents")
+    assert anonymous.status_code == 401
+    assert anonymous.json()["error"]["code"] == "unauthenticated", "the upstream verdict must propagate, not be rewritten"
+    assert "authorization" not in recording_upstream.seen[-1]
+
+    token = "Bearer not-a-real-token.exact.bytes"
+    forwarded = client.get(
+        "/api/v1/telemetry/coding-agents",
+        headers={"Authorization": token, "X-SPIFFE-ID": "spiffe://forged/ns/x/sa/y", "X-Tenant-Id": "tenant-b"},
+    )
+    assert forwarded.status_code == 401  # the stub refuses everything; the point is what it received
+    upstream_saw = recording_upstream.seen[-1]
+    assert upstream_saw.get("authorization") == token, "Authorization must be forwarded byte-for-byte"
+    assert "x-spiffe-id" not in upstream_saw and "x-tenant-id" not in upstream_saw, (
+        "a forged identity header reached the upstream; the strip middleware must run before the proxy"
+    )
+
+
+#: The EAP surface, pinned.  ``test_guard_sweep_covers_the_eap_routers`` has a
+#: floor; a floor lets routes vanish (an import error in one router, a mount
+#: dropped by mistake) while the sweep stays green.  Set equality does not.  A
+#: new or removed EAP route must change this list on the record.
+EXPECTED_EAP_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("DELETE", "/api/v1/eap/tenants/{customer_hash}"),
+        ("GET", "/api/v1/eap/lifecycle/active"),
+        ("GET", "/api/v1/eap/lifecycle/audit-events"),
+        ("GET", "/api/v1/eap/lifecycle/environments/{customer_hash}"),
+        ("GET", "/api/v1/eap/lifecycle/metrics"),
+        ("GET", "/api/v1/eap/lifecycle/reaper/dlq"),
+        ("GET", "/api/v1/eap/lifecycle/reaper/status"),
+        ("GET", "/api/v1/eap/scenarios/events/{customer_hash}"),
+        ("GET", "/api/v1/eap/scenarios/events/{customer_hash}/stream"),
+        ("GET", "/api/v1/eap/scenarios/history"),
+        ("GET", "/api/v1/eap/tenants"),
+        ("GET", "/api/v1/eap/tenants/{customer_hash}"),
+        ("GET", "/api/v1/eap/tenants/{customer_hash}/manifests"),
+        ("GET", "/api/v1/eap/tenants/{customer_hash}/spire-entry"),
+        ("GET", "/api/v1/environments/"),
+        ("GET", "/api/v1/environments/{environment_id}"),
+        ("GET", "/api/v1/environments/{environment_id}/probe"),
+        ("POST", "/api/v1/eap/lifecycle/environments/{customer_hash}/activity"),
+        ("POST", "/api/v1/eap/lifecycle/environments/{customer_hash}/heartbeat"),
+        ("POST", "/api/v1/eap/lifecycle/reap-now"),
+        ("POST", "/api/v1/eap/lifecycle/reaper/dlq/clear"),
+        ("POST", "/api/v1/eap/lifecycle/reaper/pause"),
+        ("POST", "/api/v1/eap/lifecycle/reaper/resume"),
+        ("POST", "/api/v1/eap/lifecycle/register"),
+        ("POST", "/api/v1/eap/scenarios/execute"),
+        ("POST", "/api/v1/eap/tenants"),
+        ("POST", "/api/v1/eap/tenants/{customer_hash}/transit/decrypt"),
+        ("POST", "/api/v1/eap/tenants/{customer_hash}/transit/encrypt"),
+        ("POST", "/api/v1/environments/provision"),
+        ("POST", "/api/v1/environments/resolve-domain"),
+        ("POST", "/api/v1/environments/{environment_id}/extend"),
+        ("POST", "/api/v1/environments/{environment_id}/teardown"),
+        ("POST", "/api/v1/webhooks/generic"),
+        ("POST", "/api/v1/webhooks/github"),
+        ("WS", "/api/v1/environments/{environment_id}/telemetry"),
+    }
+)
+
+
+def test_guard_eap_inventory_is_exactly_the_pinned_set() -> None:
+    live = {(m, p) for m, p, r in HTTP_OPERATIONS if _module_of(r) in EAP_MODULES}
+    live |= {("WS", r.path) for r in WEBSOCKET_ROUTES if _module_of(r) in EAP_MODULES}
+    missing = sorted(EXPECTED_EAP_OPERATIONS - live)
+    unexpected = sorted(live - EXPECTED_EAP_OPERATIONS)
+    assert not missing, f"EAP operations vanished from the sweep (unmounted, exempted, or import error): {missing}"
+    assert not unexpected, f"new EAP operations must be added to EXPECTED_EAP_OPERATIONS on the record: {unexpected}"
+
+
+def test_guard_no_route_escapes_the_inventory() -> None:
+    """Nothing is mounted where the sweep cannot see it, and every non-API route is a listed exemption."""
+    mounts = [r.path for r in app.routes if isinstance(r, Mount)]
+    assert mounts == [], f"sub-applications are invisible to the sweep and must not exist: {mounts}"
+    unknown = sorted(
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, Route) and not isinstance(route, APIRoute)
+        for method in (route.methods or ())
+        if method != "HEAD" and (method, route.path) not in ANONYMOUS_ROUTES
+    )
+    assert unknown == [], f"plain Starlette routes outside ANONYMOUS_ROUTES: {unknown}"
+    kinds = {type(r).__name__ for r in app.routes}
+    assert kinds <= {"Route", "APIRoute", "APIWebSocketRoute"}, f"unexpected route kinds: {kinds}"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "route"),
+    [(m, p, r) for m, p, r in HTTP_OPERATIONS if _module_of(r) in EAP_MODULES and m == "GET"],
+    ids=[f"HEAD/OPTIONS {p}" for m, p, r in HTTP_OPERATIONS if _module_of(r) in EAP_MODULES and m == "GET"],
+)
+def test_anonymous_head_and_options_on_eap_routes_never_reach_a_handler(method: str, path: str, route: APIRoute) -> None:
+    """No CORS or automatic HEAD path answers ahead of the auth dependency (401 or 405, never 2xx)."""
+    del method
+    client = TestClient(app)
+    url = _concrete_path(route)
+    for probe in ("HEAD", "OPTIONS"):
+        response = _run_with_deadline(
+            lambda: client.request(probe, url, headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"}),
+            f"{probe} {url}",
+        )
+        assert response.status_code in {401, 405}, f"{probe} {path} answered {response.status_code} anonymously"
+        assert "access-control-allow-origin" not in {k.lower() for k in response.headers}
 
 
 def test_no_oidc_callback_route_is_mounted() -> None:

@@ -1,12 +1,14 @@
 #!/usr/bin/env bats
 #
 # scripts/docs-lint.sh enforces the rules in docs/documentation-style.md on the
-# navigation-layer documentation.
+# living documentation. Decision records get link checks only.
 #
 # The first test runs the lint on the real tree. Each other test builds a small
 # git repository in a temporary directory, plants one defect, and checks that
 # the lint reports it. A lint that reports nothing looks the same as a lint that
 # checks nothing, so every check has a planted defect that must fail it.
+# test/docs-index-sync.bats proves that the RECORDS pattern in the script and
+# the "Decision records" section of docs/README.md agree.
 #
 # The fixtures are made in $BATS_TEST_TMPDIR, never in the scanned tree. A
 # fixture inside the tree would make the lint scan its own planted defects.
@@ -31,7 +33,7 @@ lint_fixture() {
 	DOCS_LINT_ROOT="$fixture" run "$lint" "$@"
 }
 
-@test "the navigation layer passes the lint" {
+@test "the tracked documentation passes the lint" {
 	run "$lint"
 	echo "$output"
 	[ "$status" -eq 0 ]
@@ -158,6 +160,38 @@ lint_fixture() {
 	[[ "$output" == *"orphan: not linked from the index: docs/lost.md"* ]]
 }
 
+@test "a root-level record missing from the index fails, and passes once linked" {
+	printf '# Report\n\nText.\n' >"$fixture/PREFLIGHT-REPORT.md"
+	lint_fixture docs/README.md
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"orphan: root-level record not linked from the index: PREFLIGHT-REPORT.md"* ]]
+	printf '# Index\n\nRead [the target](target.md) and [the report](../PREFLIGHT-REPORT.md).\n' >"$fixture/docs/README.md"
+	lint_fixture docs/README.md
+	echo "$output"
+	[ "$status" -eq 0 ]
+}
+
+@test "a Mermaid fence directly after a heading fails" {
+	printf '# Page\n\n## Flow\n\n```mermaid\nflowchart LR\n  a --> b\n```\n' >"$fixture/page.md"
+	lint_fixture page.md
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"page.md:5: diagram: no prose line before this Mermaid diagram"* ]]
+}
+
+@test "a Mermaid fence directly after another code block fails" {
+	printf '# Page\n\nText.\n\n```bash\nmake up\n```\n\n```mermaid\nflowchart LR\n  a --> b\n```\n' >"$fixture/page.md"
+	lint_fixture page.md
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"page.md:9: diagram:"* ]]
+}
+
+@test "a Mermaid fence after a prose sentence passes" {
+	printf '# Page\n\n## Flow\n\nThe diagram shows the flow from a to b.\n\n```mermaid\nflowchart LR\n  a --> b\n```\n\n- The list item before this diagram is prose too.\n\n```mermaid\nflowchart LR\n  b --> c\n```\n' >"$fixture/page.md"
+	lint_fixture page.md
+	echo "$output"
+	[ "$status" -eq 0 ]
+}
+
 @test "an indexed page with spaces in its name passes when the link is encoded" {
 	printf '# Spaced\n\nText.\n' >"$fixture/docs/My Page.md"
 	printf '# Index\n\nRead [the target](target.md) and [the page](My%%20Page.md).\n' >"$fixture/docs/README.md"
@@ -193,11 +227,11 @@ lint_fixture() {
 }
 
 # default_lint — run the lint with no file arguments, the way `make docs-lint`
-# does, with nav.md as the whole navigation layer.
+# does. Every tracked file in the fixture gets its tier from the patterns in
+# the script. An extra argument replaces the correctness-only pattern.
 default_lint() {
-	printf '# Nav\n\nRead [the index](docs/README.md).\n' >"$fixture/nav.md"
 	git -C "$fixture" add -A
-	DOCS_LINT_ROOT="$fixture" DOCS_LINT_FILES="nav.md docs/README.md" run "$lint"
+	DOCS_LINT_ROOT="$fixture" DOCS_LINT_CORRECTNESS_ONLY="${1:-^paper/}" run "$lint"
 }
 
 @test "default mode: a decision record gets link checks only" {
@@ -212,15 +246,84 @@ default_lint() {
 	[[ "$output" == *"MEMORY/old.md:3: link: target does not exist"* ]]
 }
 
-@test "default mode: a living doc gets make and fence checks but not prose checks" {
+@test "default mode: a living doc gets every check" {
 	mkdir -p "$fixture/runbook"
-	printf '# Runbook\n\nThis sentence is fine; it has a semicolon that only the style tier checks.\n' >"$fixture/runbook/README.md"
+	printf '# Runbook\n\nThis sentence is fine; it has a semicolon that the style tier checks.\n' >"$fixture/runbook/README.md"
+	default_lint
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"runbook/README.md:3: semicolon:"* ]]
+	[[ "$output" != *"docs/target.md"* ]]
+}
+
+@test "default mode: a correctness-only doc gets make and fence checks but not prose checks" {
+	mkdir -p "$fixture/paper"
+	printf '# Paper\n\nThis sentence is fine; the author wrote it and the lint leaves it alone.\n' >"$fixture/paper/README.md"
+	default_lint '^paper/'
+	echo "$output"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"correctness checks: 1"* ]]
+	printf '# Paper\n\nRun `make gone-target`.\n\n```bash\nmake up\n' >"$fixture/paper/README.md"
+	default_lint '^paper/'
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"paper/README.md:3: make: no target 'gone-target'"* ]]
+	[[ "$output" == *"paper/README.md:5: fence:"* ]]
+}
+
+# pattern_of NAME — the value of the single-quoted or default-quoted pattern
+# NAME in the lint script, without sourcing the script.
+pattern_of() {
+	sed -n "s/^$1='\(.*\)'$/\1/p; s/^$1=\"\${DOCS_LINT_[A-Z_]*:-\(.*\)}\"$/\1/p" "$lint"
+}
+
+@test "the correctness-only list names exactly these files, and each exists" {
+	pattern="$(pattern_of CORRECTNESS_ONLY)"
+	[ -n "$pattern" ]
+	matched="$(git -C "$repo_root" -c core.quotepath=off ls-files '*.md' | while IFS= read -r f; do [[ "$f" =~ $pattern ]] && echo "$f"; true; done)"
+	echo "$matched"
+	expected="d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/entra.md
+d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/okta.md
+d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/openai.md
+docs/Signal Fusion — Architecture and GDPR Reference.md
+docs/Signal Loom Workstation Sensor — Architecture, Verification, and Distribution Strategy.md"
+	[ "$(printf '%s\n' "$matched" | sort)" = "$(printf '%s\n' "$expected" | sort)" ]
+}
+
+@test "the correctness-only pattern never matches a new file in the same directory" {
+	pattern="$(pattern_of CORRECTNESS_ONLY)"
+	f="d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/new-connector.md"
+	! [[ "$f" =~ $pattern ]]
+	f="docs/Signal Fusion — A New Paper.md"
+	! [[ "$f" =~ $pattern ]]
+}
+
+@test "the ignored list is pinned, and every entry matches a tracked file" {
+	pattern="$(pattern_of IGNORED)"
+	parts=(
+		'/bats-assert/'
+		'^d2-signalloom/apps/docs-signalloom/src/'
+		'/\.forge-prompt[^/]*\.md$'
+		'/THIRD_PARTY_NOTICES\.md$'
+	)
+	joined="$(IFS='|'; echo "${parts[*]}")"
+	[ "$pattern" = "$joined" ]
+	for part in "${parts[@]}"; do
+		n="$(git -C "$repo_root" -c core.quotepath=off ls-files '*.md' | while IFS= read -r f; do [[ "$f" =~ $part ]] && echo "$f"; done | wc -l)"
+		echo "$part: $n"
+		[ "$n" -ge 1 ]
+	done
+}
+
+@test "docs-lint off markers appear only in the style guide" {
+	files="$(git -C "$repo_root" -c core.quotepath=off grep -l 'docs-lint: off' -- '*.md' || true)"
+	echo "$files"
+	[ "$files" = "docs/documentation-style.md" ]
+}
+
+@test "default mode: an ignored file is not checked" {
+	mkdir -p "$fixture/app"
+	printf '# Prompt\n\nUtilize this; see [gone](missing.md).\n' >"$fixture/app/.forge-prompt.md"
+	printf '# Notices\n\nUtilize this; see [gone](missing.md).\n' >"$fixture/app/THIRD_PARTY_NOTICES.md"
 	default_lint
 	echo "$output"
 	[ "$status" -eq 0 ]
-	printf '# Runbook\n\nRun `make gone-target`.\n\n```bash\nmake up\n' >"$fixture/runbook/README.md"
-	default_lint
-	[ "$status" -eq 1 ]
-	[[ "$output" == *"runbook/README.md:3: make: no target 'gone-target'"* ]]
-	[[ "$output" == *"runbook/README.md:5: fence:"* ]]
 }

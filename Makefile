@@ -824,12 +824,15 @@ docs-render-check: ## Build the docs portal, serve it locally, and render-check 
 	# target therefore serves the tree's own build.
 	./scripts/docs-render-check.sh docs.spec.ts
 
-.PHONY: docs-lint docs-lint-test
-docs-lint: ## Check the navigation-layer docs: links, anchors, make targets, index, and STE rules. No cluster.
+.PHONY: docs-lint docs-lint-test docs-rewrite-guard
+docs-lint: ## Check every tracked doc by tier: links, anchors, paths, make targets, diagrams, index, and STE rules. No cluster.
 	./scripts/docs-lint.sh
 
-docs-lint-test: ## Run the BATS suite for docs-lint, with a planted defect per check. No cluster.
-	bats test/docs-lint.bats
+docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, and the rewrite guard. No cluster.
+	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats
+
+docs-rewrite-guard: ## Check that a doc rewrite kept every fact-bearing token: make docs-rewrite-guard FILES='a.md b.md'. No cluster.
+	./scripts/docs-rewrite-guard.sh $(FILES)
 
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.

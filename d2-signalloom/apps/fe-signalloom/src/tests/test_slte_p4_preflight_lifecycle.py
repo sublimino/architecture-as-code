@@ -50,6 +50,13 @@ except ImportError:
 from environment_routing import GLOBAL_ENVIRONMENT_REGISTRY, EnvironmentState, derive_customer_hash
 from main import app
 from webhook_triggers import DEFAULT_WEBHOOK_SECRET
+from conftest import eap_bearer, eap_token_for
+
+# EAPR-P2-1: the webhooks and environments routers are mounted behind
+# authenticated_principal.  The JWT settings are patched in-process, so the
+# uvicorn server below verifies the same test key; httpx calls carry a real
+# tenant-a token via eap_bearer().
+EAP_AUTHENTICATED = True
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 EMITTER = REPO_ROOT / "scripts" / "eap" / "emit-eap-webhook.sh"
@@ -116,9 +123,10 @@ def _emit(base_url: str, *args: str, secret: str | None = TEST_SECRET, extra_env
     """Run the real emitter against the live server; return the parsed receiver JSON."""
     _require_tools("bash", "curl")
     assert EMITTER.is_file(), EMITTER
-    env = {k: v for k, v in os.environ.items() if k not in ("EAP_WEBHOOK_SECRET",)}
+    env = {k: v for k, v in os.environ.items() if k not in ("EAP_WEBHOOK_SECRET", "EAP_BEARER_TOKEN")}
     if secret is not None:
         env["EAP_WEBHOOK_SECRET"] = secret  # via env, never argv
+    env["EAP_BEARER_TOKEN"] = eap_token_for()  # tenant-a; the receiver is authenticated (EAPR-P2-1)
     env.update(extra_env or {})
     sub = args[0]
     path = "/api/v1/webhooks/generic" if sub == "generic" else "/api/v1/webhooks/github"
@@ -139,7 +147,7 @@ def _github_pr(base_url, tenant, pr, action, **kw):
 
 
 def _get_env(base_url: str, env_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/v1/environments/{env_id}", timeout=10)
+    r = httpx.get(f"{base_url}/api/v1/environments/{env_id}", headers=eap_bearer(), timeout=10)
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -233,7 +241,10 @@ def test_e2e_late_synchronize_after_close_does_not_resurrect(base_url, server_se
 )
 def test_e2e_malformed_auth_headers_rejected_over_the_wire(base_url, server_secret, tenant, path, headers):
     body = json.dumps({"action": "opened", "company_name": tenant, "repository": {"name": f"{tenant}-x"}})
-    resp = httpx.post(base_url + path, content=body, headers={"Content-Type": "application/json", **headers}, timeout=10)
+    # Authenticated as tenant-a, so the 401 below is the HMAC verifier's, not the bearer check's.
+    resp = httpx.post(
+        base_url + path, content=body, headers={"Content-Type": "application/json", **eap_bearer(), **headers}, timeout=10
+    )
     assert resp.status_code == 401
     assert resp.json() == WIRE_401
     assert GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(derive_customer_hash(tenant)) is None
@@ -345,6 +356,7 @@ def _run_template(base_url: str, tenant: str, pr_action: str, pr: int, tmp_path:
     values = {
         "SIGNALLOOM_WEBHOOK_URL": f"{base_url}/api/v1/webhooks/generic",
         "SIGNALLOOM_WEBHOOK_SECRET": TEST_SECRET,
+        "SIGNALLOOM_BEARER_TOKEN": eap_token_for(),
         "SIGNALLOOM_TENANT": tenant,
         "SIGNALLOOM_TTL_MINUTES": "120",
         "PR_ACTION": pr_action,
@@ -383,6 +395,7 @@ def test_template_rejected_when_secret_differs(base_url, monkeypatch, tenant, tm
     env.update(
         SIGNALLOOM_WEBHOOK_URL=f"{base_url}/api/v1/webhooks/generic",
         SIGNALLOOM_WEBHOOK_SECRET=TEST_SECRET,
+        SIGNALLOOM_BEARER_TOKEN=eap_token_for(),
         SIGNALLOOM_TENANT=tenant,
         SIGNALLOOM_TTL_MINUTES="120",
         PR_ACTION="opened",
@@ -489,6 +502,7 @@ def test_gap_emitter_honours_server_secret_variable(base_url, server_secret, ten
 def test_gap_replayed_github_delivery_rejected(base_url, server_secret, tenant):
     body = {"action": "opened", "number": 11, "repository": {"name": f"{tenant}-service"}}
     raw, headers = _signed_github(TEST_SECRET, body)
+    headers.update(eap_bearer())
     first = httpx.post(f"{base_url}/api/v1/webhooks/github", content=raw, headers=headers, timeout=10)
     assert first.status_code == 200 and first.json()["action_taken"] == "provisioned"
     GLOBAL_ENVIRONMENT_REGISTRY.teardown(first.json()["environment_id"], reason="PR closed")
@@ -548,6 +562,7 @@ def test_gap_receiver_fails_closed_without_configured_secret(base_url, monkeypat
     assert "SIGNAL_LOOM_WEBHOOK_SECRET" not in os.environ  # mechanism: the deployed condition
     body = {"action": "opened", "number": 12, "repository": {"name": f"{tenant}-service"}}
     raw, headers = _signed_github(DEFAULT_WEBHOOK_SECRET, body)
+    headers.update(eap_bearer())
     resp = httpx.post(f"{base_url}/api/v1/webhooks/github", content=raw, headers=headers, timeout=10)
     assert resp.status_code in (401, 503)
 
@@ -563,22 +578,33 @@ def test_gap_empty_secret_is_refused(base_url, monkeypatch, tenant):
     assert os.environ["SIGNAL_LOOM_WEBHOOK_SECRET"] == ""  # mechanism: key present, value empty
     body = {"action": "opened", "number": 14, "repository": {"name": f"{tenant}-service"}}
     raw, headers = _signed_github("", body)
+    headers.update(eap_bearer())
     resp = httpx.post(f"{base_url}/api/v1/webhooks/github", content=raw, headers=headers, timeout=10)
     assert resp.status_code in (401, 503)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="G9: /api/v1/environments/* carries no auth dependency and nginx /api/ proxies it; any "
-    "caller can list every tenant's environments and tear down any preview, bypassing webhook HMAC",
-)
 def test_gap_environment_control_api_requires_authentication(base_url, server_secret, tenant):
-    env_id = _github_pr(base_url, tenant, 15, "opened")["environment_id"]
+    # G9 (closed by EAPR-P2-1).  Provisioned with a signed webhook plus tenant-a's
+    # token directly over httpx: the real emitter sends no Authorization header,
+    # so it cannot provision since the webhooks router became authenticated.
+    body = {"action": "opened", "number": 15, "repository": {"name": f"{tenant}-service"}}
+    raw, headers = _signed_github(TEST_SECRET, body)
+    opened = httpx.post(
+        f"{base_url}/api/v1/webhooks/github", content=raw, headers={**headers, **eap_bearer()}, timeout=10
+    )
+    assert opened.status_code == 200, opened.text
+    env_id = opened.json()["environment_id"]
+
     listing = httpx.get(f"{base_url}/api/v1/environments/", timeout=10)  # no Authorization header
     teardown = httpx.post(f"{base_url}/api/v1/environments/{env_id}/teardown", timeout=10)
-    assert listing.status_code in (401, 403, 404)  # 404 is a valid tenant-hiding fix
-    assert teardown.status_code in (401, 403, 404)
+    assert listing.status_code == 401
+    assert teardown.status_code == 401
+    # Another tenant is authenticated but does not own the preview: not found, not torn down.
+    foreign = httpx.post(f"{base_url}/api/v1/environments/{env_id}/teardown", headers=eap_bearer("bob"), timeout=10)
+    assert foreign.status_code == 404
+    # Positive control: the owner still sees it, untouched by either refusal.
+    assert _get_env(base_url, env_id)["state"] == "ready"
+    assert env_id in {e["id"] for e in httpx.get(f"{base_url}/api/v1/environments/", headers=eap_bearer(), timeout=10).json()}
 
 
 @pytest.mark.xfail(
@@ -590,5 +616,6 @@ def test_gap_environment_control_api_requires_authentication(base_url, server_se
 @pytest.mark.parametrize("ttl", ["abc", 100000])
 def test_gap_generic_bad_ttl_is_client_error(base_url, server_secret, tenant, ttl):
     raw, headers = _signed_generic(TEST_SECRET, {"company_name": tenant, "action": "provision", "ttl_minutes": ttl})
+    headers.update(eap_bearer())
     resp = httpx.post(f"{base_url}/api/v1/webhooks/generic", content=raw, headers=headers, timeout=10)
     assert 400 <= resp.status_code < 500

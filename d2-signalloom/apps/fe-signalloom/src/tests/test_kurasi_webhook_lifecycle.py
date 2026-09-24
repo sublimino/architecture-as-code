@@ -45,6 +45,12 @@ from environment_routing import (
     normalize_company_name,
 )
 from main import app
+from conftest import EAPClient
+
+# EAPR-P2-1: the environments/webhooks routers are mounted behind
+# authenticated_principal; every request here carries a real tenant-a token
+# (see tests/conftest.py).
+EAP_AUTHENTICATED = True
 from webhook_triggers import (
     DEFAULT_WEBHOOK_SECRET,
     get_webhook_secret,
@@ -72,8 +78,8 @@ def clean_environment_registry():
 
 @pytest.fixture
 def client() -> TestClient:
-    """FastAPI TestClient for Signal Loom API."""
-    return TestClient(app)
+    """Real-token (tenant-a) TestClient for Signal Loom API."""
+    return EAPClient(app)
 
 
 @pytest.fixture

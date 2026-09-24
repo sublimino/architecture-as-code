@@ -122,8 +122,12 @@ def test_tenant_isolation_manager_lifecycle():
 
 from fastapi.testclient import TestClient
 from main import app
+from conftest import EAPClient
 
-client = TestClient(app)
+# EAPR-P2-1: the tenants router is mounted behind authenticated_principal;
+# every request here carries a real tenant-a token (see tests/conftest.py).
+EAP_AUTHENTICATED = True
+client = EAPClient(app)
 
 
 def test_api_tenant_provision_and_lifecycle():
@@ -180,9 +184,16 @@ def test_api_tenant_manifests_and_spire():
 
 
 def test_api_tenant_not_found_handling():
-    """Verify 404 response when querying or tearing down non-existent tenant."""
-    get_resp = client.get("/api/v1/eap/tenants/nonexist")
+    """Verify 404 response when querying or tearing down non-existent tenant.
+
+    The hash must be well-formed (``^[0-9a-f]{8}$``) to reach the lookup at
+    all; a malformed one is rejected by validation first (422).
+    """
+    get_resp = client.get("/api/v1/eap/tenants/0badcafe")
     assert get_resp.status_code == 404
 
-    del_resp = client.delete("/api/v1/eap/tenants/nonexist")
+    del_resp = client.delete("/api/v1/eap/tenants/0badcafe")
     assert del_resp.status_code == 404
+
+    assert client.get("/api/v1/eap/tenants/nonexist").status_code == 422
+    assert client.delete("/api/v1/eap/tenants/nonexist").status_code == 422

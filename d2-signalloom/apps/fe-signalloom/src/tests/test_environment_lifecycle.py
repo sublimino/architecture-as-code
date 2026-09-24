@@ -29,8 +29,12 @@ from environment_lifecycle import (
     GLOBAL_REAPER_DAEMON,
 )
 from main import app
+from conftest import EAPClient
 
-client = TestClient(app)
+# EAPR-P2-1: the EAP routers are mounted behind authenticated_principal;
+# every request here carries a real tenant-a token (see tests/conftest.py).
+EAP_AUTHENTICATED = True
+client = EAPClient(app)
 
 
 def test_lifecycle_registration_defaults():

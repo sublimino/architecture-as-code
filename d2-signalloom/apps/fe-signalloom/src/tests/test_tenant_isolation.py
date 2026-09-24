@@ -1990,6 +1990,43 @@ def test_every_eap_route_is_bound_to_the_callers_tenant(client, two_tenant_eap, 
         assert foreign.status_code == 404, (foreign.status_code, foreign.text)
 
 
+def test_every_eap_route_carries_the_mount_level_auth_dependency():
+    """The denial lives at the MOUNT, not in the handler (EAPR-P2-1 root cause).
+
+    Behavioural probes cannot tell the two apart: a handler that takes
+    ``tenant: Tenant`` pulls ``authenticated_principal`` in through its own
+    parameter, so removing ``dependencies=[...]`` from four of the five
+    ``include_router`` calls leaves every anonymous probe green (measured:
+    34/34 still passed with the tenant_isolation, scenario_seeding,
+    environment_routing and webhook_triggers mounts stripped).  The property
+    the card actually requires -- a route added to one of these routers is
+    denied by default with no per-handler opt-in -- is structural, so it is
+    asserted structurally: ``include_router(dependencies=...)`` lands in
+    ``route.dependencies`` on every route it mounts (websocket included),
+    whereas a handler parameter does not.
+    """
+    from fastapi.routing import APIWebSocketRoute as _APIWebSocketRoute
+
+    eap_routes = [
+        route for route in app.routes
+        if isinstance(route, (_APIRoute, _APIWebSocketRoute))
+        and getattr(route.endpoint, "__module__", "") in EAP_MODULES
+    ]
+    assert len(eap_routes) >= MINIMUM_SWEEP_SIZES["EAP_TENANT_BOUND_ROUTES"], len(eap_routes)
+    assert any(isinstance(route, _APIWebSocketRoute) for route in eap_routes), "the websocket route is missing"
+
+    unmounted = sorted(
+        f"{type(route).__name__} {route.path}"
+        for route in eap_routes
+        if not any(dep.dependency is api_compat.authenticated_principal for dep in route.dependencies)
+    )
+    assert not unmounted, (
+        "these EAP routes are not covered by a router-level "
+        "dependencies=[Depends(api_compat.authenticated_principal)] at include_router:\n  "
+        + "\n  ".join(unmounted)
+    )
+
+
 def test_no_eap_route_is_exempted_from_the_tenant_sweep():
     """Exemption-list laundering guard (SP-2): EAP routes are swept, never excused.
 
@@ -2054,6 +2091,7 @@ ATTACK_MANIFEST: frozenset[str] = frozenset({
     # EAPR-P2-1: in-memory tenant binding of the five EAP routers
     "test_every_eap_route_is_bound_to_the_callers_tenant",
     "test_no_eap_route_is_exempted_from_the_tenant_sweep",
+    "test_every_eap_route_carries_the_mount_level_auth_dependency",
 })
 
 #: Parametrised expansions, derived so adding a route updates this by itself

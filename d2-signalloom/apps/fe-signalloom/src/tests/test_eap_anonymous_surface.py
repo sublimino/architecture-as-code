@@ -119,29 +119,25 @@ def test_positive_control_protected_route_refuses_anonymous(probe_client: TestCl
     assert resp.json().get("error", {}).get("code") == "authentication_required"
 
 
-def test_forged_x_spiffe_id_allows_transit_decrypt_without_bearer(probe_client: TestClient) -> None:
-    """Demonstrate critical vulnerability: client-forged X-SPIFFE-ID bypasses auth on transit decryption."""
-    # 1. Provision tenant boundary
-    probe_client.post("/api/v1/eap/tenants", json={"company_name": COMPANY_NAME, "customer_hash": CUSTOMER_HASH})
-
-    # 2. Encrypt plaintext using forged header (returns 200 without bearer)
+def test_forged_x_spiffe_id_refused_without_bearer(probe_client: TestClient) -> None:
+    """Verify forged X-SPIFFE-ID header is refused with 401 without valid bearer token."""
+    # Encrypt attempt with forged header without bearer token must return 401
     enc_res = probe_client.post(
         f"/api/v1/eap/tenants/{CUSTOMER_HASH}/transit/encrypt",
         json={"plaintext": base64.b64encode(b"confidential-data").decode("ascii")},
         headers={"X-SPIFFE-ID": TENANT_SPIFFE_ID},
     )
-    assert enc_res.status_code == 200, f"Encrypt failed: {enc_res.text}"
-    ciphertext = enc_res.json()["ciphertext"]
+    assert enc_res.status_code == 401, f"Expected 401, got {enc_res.status_code}: {enc_res.text}"
+    assert enc_res.json().get("error", {}).get("code") == "authentication_required"
 
-    # 3. Decrypt ciphertext using forged header with NO bearer token
+    # Decrypt attempt with forged header without bearer token must return 401
     dec_res = probe_client.post(
         f"/api/v1/eap/tenants/{CUSTOMER_HASH}/transit/decrypt",
-        json={"ciphertext": ciphertext},
+        json={"ciphertext": "vault:v1:test"},
         headers={"X-SPIFFE-ID": TENANT_SPIFFE_ID},
     )
-    assert dec_res.status_code == 200, f"Decrypt failed: {dec_res.text}"
-    plaintext = base64.b64decode(dec_res.json()["plaintext"]).decode("ascii")
-    assert plaintext == "confidential-data"
+    assert dec_res.status_code == 401, f"Expected 401, got {dec_res.status_code}: {dec_res.text}"
+    assert dec_res.json().get("error", {}).get("code") == "authentication_required"
 
 
 def test_enumerate_eap_anonymous_surface(probe_client: TestClient) -> None:

@@ -2027,6 +2027,29 @@ def test_every_eap_route_carries_the_mount_level_auth_dependency():
     )
 
 
+def test_no_eap_router_reads_an_identity_header():
+    """No EAP router source names an identity header (SLET B1 site, closed).
+
+    ``IdentityHeaderStripMiddleware`` makes a reinstated ``X-SPIFFE-ID`` read
+    inert, so the behavioural probes above would stay green through exactly
+    the regression this card exists to prevent.  The doctrine is "never read",
+    not "read but stripped": assert it on the source, comments excluded.
+    """
+    import importlib
+    import inspect
+    import re as _re
+
+    banned = _re.compile(r"X-SPIFFE-ID|x_spiffe_id|X-Tenant-Id|X-Forwarded-User|X-Principal", _re.IGNORECASE)
+    offenders: list[str] = []
+    for name in sorted(EAP_MODULES | {"tenant_transit", "eap_tenancy"}):
+        source = inspect.getsource(importlib.import_module(name))
+        for number, line in enumerate(source.splitlines(), start=1):
+            code = line.split("#", 1)[0]
+            if banned.search(code) and "Header(" in code or banned.search(code) and "headers" in code:
+                offenders.append(f"{name}.py:{number}: {line.strip()}")
+    assert not offenders, "EAP code reads an identity header:\n  " + "\n  ".join(offenders)
+
+
 def test_no_eap_route_is_exempted_from_the_tenant_sweep():
     """Exemption-list laundering guard (SP-2): EAP routes are swept, never excused.
 
@@ -2092,6 +2115,7 @@ ATTACK_MANIFEST: frozenset[str] = frozenset({
     "test_every_eap_route_is_bound_to_the_callers_tenant",
     "test_no_eap_route_is_exempted_from_the_tenant_sweep",
     "test_every_eap_route_carries_the_mount_level_auth_dependency",
+    "test_no_eap_router_reads_an_identity_header",
 })
 
 #: Parametrised expansions, derived so adding a route updates this by itself

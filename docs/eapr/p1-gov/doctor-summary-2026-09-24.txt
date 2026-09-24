@@ -1,18 +1,31 @@
-EAPR-P1-GOV legacy doctor rerun
-Captured: 2026-09-24 08:25:40-05:00
+EAPR-P1-GOV legacy-board doctor evidence
+Captured: 2026-09-24 12:52:14-0500
+Command: kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SC
 
-Invocation root:
-/home/andy/src/.worktrees/osramp-demo/eapr-v0.1.0/governor
+SLEA rc=1 UNHEALTHY
+  state oscillation: cc2a3 SLEA-P4-GOV
 
-SLEA rc=1
-SLET rc=1
-SLES rc=1
-SLED rc=1
-ZZZZ invalid-shortcode control rc=1
+SLET rc=1 UNHEALTHY
+  state oscillation: 7744e SLET-P4-GOV
 
-Common output:
-kanban-check: kanban task list returned no board for /home/andy/src/.worktrees/osramp-demo/eapr-v0.1.0/governor: Task command failed at http://127.0.0.1:3484: Project /home/andy/src/.worktrees/osramp-demo/eapr-v0.1.0/governor is not added to Kanban yet.
+SLES rc=1 UNHEALTHY
+  graph orphan: P3-2
+  zero-output done cards: eb830 SLES-P4-1; 081b4 SLES-P3-2
+  state oscillation: ade77 SLES-P4-GOV
 
-Result: FAIL. No board was registered for the mandated governor worktree, so
-the four real doctors and the invalid-shortcode control could not reach their
-diagnostic predicates.
+SLED rc=1 UNHEALTHY
+  zero-output done card: d20eb SLED-P2-2
+  state oscillation: 255ff SLED-P4-GOV; 90790 SLED-P2-GOV
+
+All four runs also reported the active EAPR-P1-GOV card as temporarily silent.
+That transient cleared when this session emitted output; it is not counted above.
+
+Positive control ZZZZ rc=1 during the run, but only because doctor includes the
+repo-wide active-card stall check. The tool does not reject an unknown shortcode,
+so ZZZZ is not an independent shortcode-validation control.
+
+Disposition:
+  FAIL. The required four healthy doctor outputs were not obtained.
+  The residual cards are historical done cards on other missions. Archiving,
+  rewiring, or re-verdicting them is outside EAPR-P1-GOV's authorized scope.
+  No runtime board state was edited to hide these findings.

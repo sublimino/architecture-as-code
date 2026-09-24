@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 13:20:41+01:00
+Last Updated: 2026-09-24 13:48:01+01:00
 
 ## Verdict
 
@@ -279,5 +279,38 @@ infrastructure reasons plus a manual same-family audit. Verdict `concerns`,
 criticality low, five minor findings, all applied: websocket count on the
 verdict line, `--expect-zero`, `DATABASE_URL` refusal, the T2 wording above,
 and the start-ready sentence above.
+
+## Remediation attempt 1 (2026-09-24 13:48:01+01:00, runtime auto-remediation) — not fixable in this scope
+
+The runtime re-invoked this card as "attempt 1/5" after reading the failure
+signal as a failed review. Re-probed at 13:47 local:
+
+```text
+integration/eapr-v0.1.0                       -> 9294bd11 (moved from 68d87aca: two docs commits, docs/eapr/p1-gov/* only)
+git merge-base --is-ancestor EAPR-P1-4 tip     -> rc=1
+git merge-base --is-ancestor EAPR-P1-3 tip     -> rc=1
+git tag -l 'integration/eapr-v0.1.0-p1'        -> (empty)
+tests/test_tenant_isolation.py on tip          -> 183 lines
+Makefile test-eap-offline on tip               -> absent
+proposal '#### Errata — EAPR-P2-PRE' tag       -> status=fail proceed=no
+docs/eapr/p1-gov/proposal-errata.md on tip     -> status=fail proceed=no (13:16:13+01:00: fifteen-suite BATS gate 369/375, 6 failed, "return the six failures to P1-2")
+kanban task_runs 7ce29 (P1-GOV)                -> a third run started 12:46:34Z, state=running
+```
+
+The blocker moved one layer further up, not closer: P1-GOV's second run
+failed at its own suite gate, so P1-3/P1-4 will not land until P1-2 fixes six
+BATS cases (`supervise: the review column is adjudicated every cycle`, four
+`create:` prompt-compilation cases, one agent-id mapping case) and P1-GOV
+passes. Nothing in EAPR-P2-1's file ownership (five `install_*_api` mounts,
+handler signatures, header middleware, the new tests) can change any of those
+probes. A "materially different strategy" inside this scope does not exist:
+the only alternative — implementing against HEAD's router versions — was
+rejected in the first refusal for three unsatisfiable acceptance criteria and
+a merge collision with P1-4, and both reasons still hold on `9294bd11`.
+
+Strategy recorded: re-verify, state non-fixability, stop. Result: unchanged
+verdict. The branch is not rebased onto `9294bd11`; the two new tip commits
+touch only `docs/eapr/p1-gov/`, so the Governor's `--no-ff` merge is
+conflict-free when the card is eventually accepted.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

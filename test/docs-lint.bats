@@ -96,6 +96,22 @@ lint_fixture() {
 	[[ "$output" == *"no target 'up' in slice/Makefile"* ]]
 }
 
+@test "an inline-code path under a tracked top-level directory that does not exist fails" {
+	printf '# Page\n\nRead `docs/missing/file.md` and `docs/target.md`.\n' >"$fixture/page.md"
+	lint_fixture page.md
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"page.md:3: path: no such path in the tree: docs/missing/file.md"* ]]
+	[[ "$output" != *"docs/target.md"* ]]
+}
+
+@test "an inline-code path that is gitignored, outside the tree, or an MCP method passes" {
+	printf 'docs/build/\n' >"$fixture/.gitignore"
+	printf '# Page\n\nRead `docs/build/out.json`, `/etc/hosts`, `other-repo/x/y.md`, and call `tools/list`.\n' >"$fixture/page.md"
+	lint_fixture page.md
+	echo "$output"
+	[ "$status" -eq 0 ]
+}
+
 @test "a semicolon in prose fails" {
 	printf '# Page\n\nThe cache persists; the cluster does not.\n' >"$fixture/page.md"
 	lint_fixture page.md

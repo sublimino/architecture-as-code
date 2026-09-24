@@ -13,7 +13,10 @@ Canonical done-check
 EAPR-P1-3 status=pass proceed=true blocking_drift=false
   commit=1d15a906bcb4632d148f2f56468f3caefa336454 task_id=027af corroborated=true
 EAPR-P1-GOV status=fail proceed=false blocking_drift=true
-  commit=null task_id=95c79 corroborated=false
+  task_id=95c79 corroborated=false
+  After the evidence commit, the qualified machine-verdict errata resolved
+  commit=5477a2c865b20dbd368ded31839a815de84a77c6. The final qualified
+  errata is appended only after this artifact is committed.
 EAPR-P2-1 status=fail proceed=false blocking_drift=true
   commit=null task_id=14f11 corroborated=false
 
@@ -39,7 +42,8 @@ certification cannot pass without out-of-scope board mutations
 Safety disposition
 ------------------
 Duplicate governor 6039a was stopped and archived through the canonical helper.
-Externally-started EAPR-P2-1 task 14f11 was stopped and returned to backlog;
+Externally-started EAPR-P2-1 task 14f11 was stopped and returned to the
+backlog queue (runtime column `todo`);
 the governor performed no Phase 2 implementation work.
 No integration/eapr-v0.1.0-p1 tag exists.
 No remote branch contains evidence commit 120fc0ebf1b40841e37755eb97754d065863a4b2.

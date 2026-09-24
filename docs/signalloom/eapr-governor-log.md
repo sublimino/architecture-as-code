@@ -67,3 +67,6 @@ All participating autonomous agents operating on the `EAPR` mission adhere to th
 | `2026-09-24T21:58:00Z` | `antigravity` | `PHASE_2_READY` | Phase 1 Governor officially in `done`. Next start-ready frontier: `EAPR-P2-PRE` (Task `d04e1`). Subscription routing: `kpai` / `antigravity`. |
 | `2026-09-24T22:24:00Z` | `antigravity` | `CRON_SCHEDULED` | Recurring supervisor cron scheduled (`*/5 * * * *`, task-669) for continuous card advancement and health monitoring. |
 | `2026-09-24T22:24:30Z` | `antigravity` | `EAPR-P2-PRE_LAUNCHED` | Launched `EAPR-P2-PRE` (Task `d04e1`: *Phase 2 pre-flight: EAP auth surface audit*) into `in_progress`. Rebalanced to Antigravity runtime. |
+| `2026-09-24T22:35:00Z` | `Council of Agents` | `EAPR-P2-PRE_CERTIFIED` | Council review APPROVED: probe tests passed 3/3, anonymous attack surface report committed `bd363b59`, `status=pass proceed=yes` errata verified. |
+| `2026-09-24T22:35:46Z` | `antigravity` | `EAPR-P2-PRE_ADVANCED` | Advanced `EAPR-P2-PRE` to `done`. Phase 2 implementation frontier fully unblocked (`P2-1`, `P2-2`, `P2-3`). |
+| `2026-09-24T22:36:15Z` | `kpai` | `EAPR-P2-1_LAUNCHED` | Launched `EAPR-P2-1` (Task `14f11`: *D1: shared EAP authentication and tenant binding*) into `in_progress` under `kpai` (Claude) harness. |

@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 13:18:00+01:00
+Last Updated: 2026-09-24 13:20:41+01:00
 
 ## Verdict
 
@@ -198,11 +198,18 @@ zero-output-run class the D11 gates exist to refuse; its `awaiting_review` row
 should not be promoted. (2) The launch-ordering defect described in the section
 above is unchanged after the clearance: P2-1 was restarted in parallel with the
 governor it depends on, not after it, and a second P2-1 card was minted while
-the first was still running.
+the first was still running. The 12:06:58Z launch is the same start-ready
+predicate firing: P2-PRE sat in `review` with `proceed=no`, and a prerequisite
+in `review` satisfies `cmd_start_ready` (`kanban-check.sh` ~:1700–1709) unless
+`--proposal` is supplied.
 
 **What this relaunch leaves behind.** `scripts/eap/anon_sweep.py` — the /tmp
 probe from the first refusal, committed so the Governor can reproduce the
-"before" and "after" numbers (card T2 asks for exactly this). It derives the
+"before" and "after" numbers. T2 needs a reproducible sweep and names
+P2-PRE's script as the source; that script is not on this base, so this is a
+stand-in for P2-GOV to reconcile against P2-PRE's at merge. With
+`--expect-zero` it exits 1 while anything is reachable or a websocket route
+exists unprobed; it refuses to run under a live `DATABASE_URL`. It derives the
 route list from `app.routes` by endpoint module, counts websocket routes
 separately (0 on this base), and prints a positive control (`GET /health`
 without a token). Run from `d2-signalloom/apps/fe-signalloom/src` with the uv
@@ -265,5 +272,12 @@ on the base, that file is the source of truth and this script is the
 reproduction of the pre-merge number; a disagreement between them is a finding.
 The twin's "1 tool call, 0 files modified" is the run's recorded row after it
 ended (`ended_at` 12:07:03Z), not an inference about a live agent.
+
+**Cross-vendor audit (relaunch).** Cato's codex path is rejected on this host,
+so the audit ran on a Claude-family model — Rule 2a is recorded as skipped for
+infrastructure reasons plus a manual same-family audit. Verdict `concerns`,
+criticality low, five minor findings, all applied: websocket count on the
+verdict line, `--expect-zero`, `DATABASE_URL` refusal, the T2 wording above,
+and the start-ready sentence above.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

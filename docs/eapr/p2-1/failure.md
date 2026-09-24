@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 13:50:48+01:00
+Last Updated: 2026-09-24 13:55:35+01:00
 
 ## Verdict
 
@@ -327,5 +327,13 @@ requires a different world. The remediation loop is re-invoking a card whose
 predecessors are red — the same start-ready defect this record describes
 twice — and each attempt costs a run without any path to green. Stop
 re-dispatching EAPR-P2-1 until the unblock checklist above is satisfied.
+
+## Remediation attempt 3 (2026-09-24 13:55:35+01:00, runtime auto-remediation) — not fixable in this scope
+
+Probes at 13:55 local identical to attempts 1 and 2: tip `9294bd11`,
+`EAPR-P1-4`/`EAPR-P1-3` ancestor rc=1, no p1 tag, P2-PRE and P1-GOV both
+`status=fail proceed=no`, P1-GOV third run (`7ce29`, 12:46:34Z) still
+`running`. No in-scope action exists; verdict unchanged. Three attempts in
+eleven minutes against an upstream blocker is the loop misfiring, not the card.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

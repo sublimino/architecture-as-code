@@ -77,4 +77,4 @@ All participating autonomous agents operating on the `EAPR` mission adhere to th
 | `2026-09-24T22:50:45Z` | `antigravity` | `DOC_7_RESCUE_BRANCHES` | Pinned dangling checkpoint commits (`d8d7869a`, `d9e70034`, `3cb26a61`, `28dc8b55`) with rescue branches, clearing DOC-7 doctor exception. |
 | `2026-09-24T22:54:13Z` | `antigravity` | `EAPR-P2-3_RECREATED` | Stalled task `5ef56` archived. Fresh task `f5f31` created at integration tip `0445bb53` with `--inject-context` under `kpai` harness. |
 | `2026-09-24T22:56:06Z` | `antigravity` | `GRAPH_WIRED_GREEN` | Graph dependencies wired for `f5f31` (`d04e1` → `f5f31` → `db6b2`). `link-check` verified 100% green (`Counts: CRITICAL=0 FAIL=0 WARN=0`). |
-
+| `2026-09-24T23:02:00Z` | `antigravity` | `TASK_DIAGNOSTICS_EXPLAINED` | Diagnosed `09abb` CEL review gate (`exit_code: null` evaluated as `-1` by SQL COALESCE, advanced to `done`). Diagnosed `5ef56` "task failed to start" label (UI fallback in `board-card.tsx:224` for failed sessions lacking hook activity text; agent had full output but exited due to worktree base mismatch). Documented `kanban task send` protocol for mid-session prompt injection vs recreate. |

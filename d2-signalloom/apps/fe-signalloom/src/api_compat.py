@@ -4878,6 +4878,26 @@ async def get_agent_telemetry(
                 agent_found = True
 
     if not agent_found:
+        # Check discovery upstream (e.g. fake-integration-proxy)
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                res = await client.get(AGENT_DISCOVERY_URL)
+                _check_response_status(res, AGENT_DISCOVERY_URL)
+                payload = res.json()
+            if isinstance(payload, dict):
+                for d in payload.get("agents", []):
+                    if not isinstance(d, dict):
+                        continue
+                    d_id = str(d.get("id")) if d.get("id") is not None else None
+                    d_name = str(d.get("name")) if d.get("name") is not None else None
+                    d_sa = str(d.get("service_account")) if d.get("service_account") is not None else None
+                    if d_id == agent_id or d_name == agent_id or d_sa == agent_id or (d_id and d_id.startswith(agent_id)):
+                        agent_found = True
+                        break
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            pass
+
+    if not agent_found:
         raise APIError(404, "not_found", f"Agent {agent_id} not found")
 
     # Generate comparative telemetry observations based on agent security profile

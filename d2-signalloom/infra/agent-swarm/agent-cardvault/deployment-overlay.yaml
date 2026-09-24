@@ -11,6 +11,7 @@ metadata:
     signalloom.ai/role: "vault"
     signalloom.ai/harness: "go-vault"
     signalloom.ai/model: "deterministic"
+    signalloom.ai/framework: "custom"
     signalloom.ai/tenant: "controlplane"
     signalloom.ai/project: "osramp"
 spec:
@@ -26,10 +27,11 @@ spec:
         signalloom.ai/role: "vault"
         signalloom.ai/harness: "go-vault"
         signalloom.ai/model: "deterministic"
+        signalloom.ai/framework: "custom"
         signalloom.ai/tenant: "controlplane"
         signalloom.ai/project: "osramp"
     spec:
-      serviceAccountName: cardvault-agent
+      serviceAccountName: agent-cardvault
       containers:
         - name: cardvault-agent
           image: cardvault-agent:latest
@@ -70,9 +72,9 @@ spec:
               drop: ["ALL"]
       volumes:
         - name: spiffe-workload-api
-          csi:
-            driver: "csi.spiffe.io"
-            readOnly: true
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
         - name: openbao-agent-config
           configMap:
             name: agent-cardvault-openbao-config

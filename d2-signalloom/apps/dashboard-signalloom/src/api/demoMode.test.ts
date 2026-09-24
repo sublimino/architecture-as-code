@@ -42,12 +42,13 @@ describe('demo mode', () => {
   // +1 capabilities route (GET /capabilities) = 50.
   // +2 live OpenFAIR risk routes (GET /v1/risk/fleet, GET /v1/risk/agents/:id) = 52.
   // +4 coding agent telemetry routes (SLCD-P5-1/SLCD-P5-2: GET list, GET aggregate, POST ordering, POST ingest) = 56.
+  // +1 agent telemetry route (GET /agents/:id/telemetry) = 57.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
   // This count is deliberately exact rather than a lower bound — it is the
   // guard that notices a route silently disappearing in a merge, which is
   // precisely what nearly happened to the stun route here.
-  it('covers the full 56-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(56)
+  it('covers the full 57-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(57)
   })
 
 
@@ -443,5 +444,14 @@ describe('demo mode', () => {
       headers: expect.objectContaining({ Authorization: 'Bearer live-token' }),
     }))
     expect(result).toBe(livePayload)
+  })
+
+  it('resolves agent telemetry fixture in demo mode', async () => {
+    setDemoMode(true)
+
+    const telemetry = await api.agents.telemetry('tok', TRIAGE_AGENT_ID)
+    expect(telemetry.agent_id).toBe(TRIAGE_AGENT_ID)
+    expect(telemetry.observations.length).toBeGreaterThan(0)
+    expect(telemetry.source_health).toBe('healthy')
   })
 })

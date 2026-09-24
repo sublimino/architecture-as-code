@@ -101,3 +101,20 @@ after both branches merge, as the card's consumes-from note states.
 - `.github/workflows/signalloom-eap-pr.yaml`: `persist-credentials: false` on checkout; new step `bats test/eap-pr-workflow.bats` before the make step.
 - `d2-signalloom/test/bats-registry-coverage.bats`: workflow listed as a third runner; failure message names all three.
 - `docs/eapr/p2-3/run3-evidence.md`: this file.
+
+## Scratch-merge check (advisor gap 1)
+
+Throwaway detached worktree from `EAPR-P2-3`, removed afterwards; git objects only, no sibling worktree files read.
+
+```text
+merge EAPR-P2-2 (aca62a5e)                       clean, 0 conflicts
+merge EAPR-P2-1 (fd3a5bc2) on top                CONFLICT: tenant_isolation.py, scenario_seeding.py, environment_lifecycle.py  → aborted
+make test-eap-offline on base+P2-2               2 failed, 192 passed, 3 xfailed, 0 XPASS   elapsed=28.814s   rc=2
+  FAILED tests/test_tenant_isolation.py::test_the_route_sweep_covers_every_authenticated_api_route        (P2-1)
+  FAILED tests/test_audit_provenance.py::test_the_not_audit_worthy_list_has_no_stale_entries             (13 routes P2-2 now audits; P2-1 prunes the list)
+strict run of test_scenario_seeding.py            31 passed, 3 xfailed (B1, B2, B13), 0 XPASS
+```
+
+So P2-2's fixes flip exactly the four markers it retired and no other; merging P2-3 after P2-2 alone still leaves the gate red on two P2-1 items. P2-1 vs P2-2 conflict resolution is P2-GOV's.
+
+Pre-existing and out of scope: `test/terraform-dual-lane-registration.bats` test 3 fails on five suites registered in `vm-pipeline.sh` only; neither pipeline file is touched here.

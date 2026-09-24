@@ -1,0 +1,7 @@
+## baseline pytest (4 required suites @ afee7093)
+139 passed, 1 warning in 16.98s
+## test_tailscale_eap_env.sh
+=== Summary: 15 passed, 0 failed ===
+All CLI automation tests completed successfully!
+## test_emit_eap_webhook.sh
+=== Test Summary: 9 passed, 0 failed ===

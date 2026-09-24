@@ -8,15 +8,18 @@
 # ==============================================================================
 from __future__ import annotations
 
+import asyncio
 import enum
 import logging
 import threading
 import time
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
-from fastapi import APIRouter, FastAPI, HTTPException, status
+from fastapi import APIRouter, FastAPI, Header, HTTPException, Path, Query, status
+from fastapi.responses import StreamingResponse
 
 from environment_routing import derive_customer_hash
 from tenant_isolation import get_tenant_namespace, get_tenant_spiffe_id
@@ -288,6 +291,64 @@ class ScenarioManager:
         with self._lock:
             return list(self._history)
 
+    def get_events_since(self, customer_hash: str, cursor: int) -> tuple[list[SyntheticAuditEvent], int]:
+        """Return one tenant's events after `cursor` and the new cursor.
+
+        A tenant's event list is append-only, so an index into it is a stable
+        resume point for a stream.
+        """
+        with self._lock:
+            events = self._events_by_hash.get(customer_hash.lower(), [])
+            return list(events[cursor:]), len(events)
+
+
+CUSTOMER_HASH_PATTERN = r"^[0-9a-f]{8}$"
+SSE_POLL_INTERVAL_SECONDS = 0.05
+SSE_HEARTBEAT_SECONDS = 15.0
+
+
+async def stream_customer_events(
+    manager: ScenarioManager,
+    customer_hash: str,
+    *,
+    replay: bool = True,
+    start_after: int | None = None,
+    limit: int | None = None,
+    poll_interval: float = SSE_POLL_INTERVAL_SECONDS,
+    heartbeat_interval: float = SSE_HEARTBEAT_SECONDS,
+) -> AsyncIterator[str]:
+    """Yield Server-Sent Event frames for one tenant's seeded audit events.
+
+    Polls the in-memory index with `asyncio.sleep`, so the event loop is never
+    blocked. Frame ids are 1-based positions in the tenant's append-only list,
+    so `start_after` (a client's Last-Event-ID) resumes without duplicates.
+    Otherwise `replay` starts from the tenant's first event, or from the
+    current tail when false. It closes after `limit` events.
+    """
+    h = customer_hash.lower()
+    if start_after is not None:
+        cursor = start_after
+    else:
+        cursor = 0 if replay else manager.get_events_since(h, 0)[1]
+    sent = 0
+    idle = 0.0
+    while limit is None or sent < limit:
+        events, _ = manager.get_events_since(h, cursor)
+        if limit is not None:
+            events = events[: limit - sent]
+        for offset, event in enumerate(events, start=cursor + 1):
+            yield f"id: {offset}\nevent: audit_event\ndata: {event.model_dump_json()}\n\n"
+        sent += len(events)
+        cursor += len(events)
+        if events:
+            idle = 0.0
+            continue
+        await asyncio.sleep(poll_interval)
+        idle += poll_interval
+        if idle >= heartbeat_interval:
+            idle = 0.0
+            yield ": keepalive\n\n"
+
 
 GLOBAL_SCENARIO_MANAGER = ScenarioManager()
 
@@ -314,6 +375,26 @@ async def api_get_customer_events(customer_hash: str) -> List[SyntheticAuditEven
     """Retrieve all seeded audit events for an evaluation customer."""
     events = GLOBAL_SCENARIO_MANAGER.get_events_for_customer(customer_hash)
     return events
+
+
+@router.get("/events/{customer_hash}/stream", response_class=StreamingResponse)
+async def api_stream_customer_events(
+    customer_hash: str = Path(..., pattern=CUSTOMER_HASH_PATTERN),
+    replay: bool = Query(default=True, description="Replay existing events before live ones"),
+    limit: int | None = Query(default=None, ge=1, le=10000, description="Close after N events"),
+    last_event_id: str | None = Header(default=None, pattern=r"^[0-9]{1,9}$"),
+) -> StreamingResponse:
+    """Stream one evaluation customer's seeded audit events via Server-Sent Events.
+
+    A reconnecting EventSource sends Last-Event-ID; the stream resumes after it.
+    """
+    start_after = int(last_event_id) if last_event_id is not None else None
+    return StreamingResponse(
+        stream_customer_events(GLOBAL_SCENARIO_MANAGER, customer_hash, replay=replay,
+                               start_after=start_after, limit=limit),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/history", response_model=List[ScenarioExecutionResult])

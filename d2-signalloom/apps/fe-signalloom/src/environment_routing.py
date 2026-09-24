@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, status
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, WebSocket, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,19 @@ DEFAULT_EAP_SALT = "signalloom-eap-salt-2026-q3"
 MAX_LIFETIME_HOURS = 72
 MAX_INITIAL_TTL_MINUTES = 1440  # 24 hours
 MIN_INITIAL_TTL_MINUTES = 5
+EXPIRY_WARNING_THRESHOLD_MINUTES = 30
+OIDC_CALLBACK_PATH = "/auth/callback"
+
+# Applied to every response under the environments API prefix, errors included.
+# Scoped to the prefix rather than the whole app because the strict CSP would
+# break the FastAPI /docs page, which loads its assets from a CDN.
+EAP_SECURITY_HEADERS: Dict[str, str] = {
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 RFC1123_LABEL_REGEX = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 EAP_SUBDOMAIN_REGEX = re.compile(r"^sl-eap-[a-f0-9]{8}$")
@@ -79,10 +92,12 @@ def build_environment_urls(customer_hash: str) -> Dict[str, str]:
     if not validate_environment_subdomain(hostname):
         raise ValueError(f"Invalid customer hash for subdomain generation: {customer_hash}")
 
+    internal_mesh_url = f"https://{hostname}.tailscale"
     return {
         "hostname": hostname,
-        "internal_mesh_url": f"https://{hostname}.tailscale",
+        "internal_mesh_url": internal_mesh_url,
         "external_fqdn": f"https://{hostname}.ts.net",
+        "oidc_redirect_uri": f"{internal_mesh_url}{OIDC_CALLBACK_PATH}",
     }
 
 
@@ -163,11 +178,13 @@ class EnvironmentResponse(BaseModel):
     hostname: str
     internal_mesh_url: str
     external_fqdn: str
+    oidc_redirect_uri: str
     tier: EnvironmentTier
     state: EnvironmentState
     created_at: datetime
     expires_at: datetime
     ttl_remaining_seconds: int
+    expiry_warning: bool
     metadata: Dict[str, Any]
     enable_funnel: bool
 
@@ -194,6 +211,7 @@ class DomainResolutionResponse(BaseModel):
     hostname: str
     internal_mesh_url: str
     external_fqdn: str
+    oidc_redirect_uri: str
     is_active: bool
     environment_id: Optional[str] = None
 
@@ -239,6 +257,7 @@ class EnvironmentRecord:
         self.hostname = urls["hostname"]
         self.internal_mesh_url = urls["internal_mesh_url"]
         self.external_fqdn = urls["external_fqdn"]
+        self.oidc_redirect_uri = urls["oidc_redirect_uri"]
         self.tier = tier
         self.created_at = created_at
         self.expires_at = expires_at
@@ -248,6 +267,26 @@ class EnvironmentRecord:
         self.version = 1
         self.teardown_reason: Optional[str] = None
         self.updated_at = created_at
+        self.events: List[Dict[str, Any]] = []
+        self.record_event("provisioned", {"expires_at": expires_at.isoformat()})
+
+    def record_event(self, event: str, detail: Optional[Dict[str, Any]] = None) -> None:
+        """Append a lifecycle event; callers hold the registry lock."""
+        self.events.append(
+            {
+                "seq": len(self.events) + 1,
+                "event": event,
+                "state": self.state.value,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "detail": detail or {},
+            }
+        )
+
+    @property
+    def expiry_warning(self) -> bool:
+        if self.state == EnvironmentState.TERMINATED:
+            return False
+        return self.ttl_remaining_seconds < EXPIRY_WARNING_THRESHOLD_MINUTES * 60
 
     @property
     def ttl_remaining_seconds(self) -> int:
@@ -267,11 +306,13 @@ class EnvironmentRecord:
             hostname=self.hostname,
             internal_mesh_url=self.internal_mesh_url,
             external_fqdn=self.external_fqdn,
+            oidc_redirect_uri=self.oidc_redirect_uri,
             tier=self.tier,
             state=self.state,
             created_at=self.created_at,
             expires_at=self.expires_at,
             ttl_remaining_seconds=self.ttl_remaining_seconds,
+            expiry_warning=self.expiry_warning,
             metadata=self.metadata,
             enable_funnel=self.enable_funnel,
         )
@@ -355,7 +396,7 @@ class EnvironmentRegistry:
                 )
             if rec.state == EnvironmentState.TERMINATED:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_410_GONE,
                     detail="Cannot extend TTL of a terminated environment.",
                 )
 
@@ -370,9 +411,18 @@ class EnvironmentRegistry:
                     ),
                 )
 
+            previous_expires = rec.expires_at
             rec.expires_at = new_expires
             rec.version += 1
             rec.updated_at = datetime.now(timezone.utc)
+            rec.record_event(
+                "ttl_extended",
+                {
+                    "additional_minutes": additional_minutes,
+                    "previous_expires_at": previous_expires.isoformat(),
+                    "expires_at": new_expires.isoformat(),
+                },
+            )
             logger.info("Extended EAP environment: id=%s to %s", record_id, new_expires.isoformat())
             return rec
 
@@ -387,10 +437,13 @@ class EnvironmentRegistry:
             if rec.state == EnvironmentState.TERMINATED:
                 return rec  # Idempotent return
 
-            rec.state = EnvironmentState.TERMINATED
             rec.teardown_reason = reason or "De-provisioned via API request"
+            rec.state = EnvironmentState.TEARING_DOWN
+            rec.record_event("teardown_requested", {"reason": rec.teardown_reason, "force": force})
+            rec.state = EnvironmentState.TERMINATED
             rec.version += 1
             rec.updated_at = datetime.now(timezone.utc)
+            rec.record_event("terminated", {"reason": rec.teardown_reason})
             logger.info("Torn down EAP environment: id=%s (reason: %s)", record_id, rec.teardown_reason)
             return rec
 
@@ -449,6 +502,7 @@ async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionRespon
         hostname=urls["hostname"],
         internal_mesh_url=urls["internal_mesh_url"],
         external_fqdn=urls["external_fqdn"],
+        oidc_redirect_uri=urls["oidc_redirect_uri"],
         is_active=is_active,
         environment_id=rec.id if rec else None,
     )
@@ -513,8 +567,70 @@ async def teardown_environment(environment_id: str, req: Optional[TeardownReques
     return rec.to_response()
 
 
+@router.get(
+    "/{environment_id}/probe",
+    status_code=status.HTTP_200_OK,
+    summary="Health-probe an EAP environment",
+)
+async def probe_environment(environment_id: str) -> Dict[str, Any]:
+    """Report routability: 200 when serving, 503 while tearing down, 410 once terminated."""
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
+    if not rec:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Environment with ID '{environment_id}' not found.",
+        )
+    if rec.state == EnvironmentState.TERMINATED:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Environment '{environment_id}' has been terminated.",
+        )
+    if rec.state == EnvironmentState.TEARING_DOWN:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Environment '{environment_id}' is tearing down; retry is not expected to succeed.",
+        )
+    return {
+        "environment_id": rec.id,
+        "hostname": rec.hostname,
+        "internal_mesh_url": rec.internal_mesh_url,
+        "state": rec.state.value,
+        "reachable": True,
+        "ttl_remaining_seconds": rec.ttl_remaining_seconds,
+        "expiry_warning": rec.expiry_warning,
+    }
+
+
+@router.websocket("/{environment_id}/telemetry")
+async def stream_environment_telemetry(websocket: WebSocket, environment_id: str) -> None:
+    """Stream the environment's lifecycle events as JSON frames, then close normally.
+
+    Unknown environments are refused with close code 4404 before accept.
+    """
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
+    if not rec:
+        await websocket.close(code=4404)
+        return
+    await websocket.accept()
+    with GLOBAL_ENVIRONMENT_REGISTRY._lock:
+        events = [dict(e) for e in rec.events]
+    for event in events:
+        await websocket.send_json({"environment_id": rec.id, **event})
+    await websocket.send_json({"environment_id": rec.id, "event": "stream_end", "count": len(events)})
+    await websocket.close(code=1000)
+
+
 def install_environment_routing_api(app: FastAPI) -> None:
     """Install environment routing router and registry on the FastAPI application."""
     app.include_router(router)
+
+    @app.middleware("http")
+    async def eap_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(router.prefix):
+            for name, value in EAP_SECURITY_HEADERS.items():
+                response.headers[name] = value
+        return response
+
     app.state.environment_registry = GLOBAL_ENVIRONMENT_REGISTRY
     logger.info("Installed Signal Loom on-demand environment routing API at /api/v1/environments")

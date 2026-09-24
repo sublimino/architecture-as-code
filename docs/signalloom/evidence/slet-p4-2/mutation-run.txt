@@ -1,0 +1,11 @@
+M1-teardown-flag-flip-only: rc=1 KILLED :: 6 failed, 37 passed, 1 skipped, 1 warning in 1.31s
+M2-authz-prefix-match: rc=1 KILLED :: 4 failed, 39 passed, 1 skipped, 1 warning in 1.33s
+M3-dns-any-kube-system: rc=1 KILLED :: 8 failed, 35 passed, 1 skipped, 1 warning in 1.42s
+M4-no-pss-enforce: rc=1 KILLED :: 9 failed, 34 passed, 1 skipped, 1 warning in 1.31s
+M5-no-rollback: rc=1 KILLED :: 2 failed, 41 passed, 1 skipped, 1 warning in 1.26s
+M6-manifest-fabrication: rc=1 KILLED :: 1 failed, 42 passed, 1 skipped, 1 warning in 1.44s
+M7-shred-without-zeroise: rc=1 KILLED :: 3 failed, 40 passed, 1 skipped, 1 warning in 1.25s
+M8-nonce-reuse: rc=1 KILLED :: 2 failed, 41 passed, 1 skipped, 1 warning in 1.32s
+M9-no-deletion-guard: rc=1 KILLED :: 1 failed, 42 passed, 1 skipped, 1 warning in 1.19s
+M10-ingress-from-peer: rc=1 KILLED :: 8 failed, 35 passed, 1 skipped, 1 warning in 1.36s
+SURVIVORS: []

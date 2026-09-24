@@ -1,0 +1,313 @@
+{
+  "company_name": "kurasi",
+  "steps": [
+    {
+      "step": "1-provision",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/environments/provision",
+        "body": {
+          "company_name": "kurasi",
+          "ttl_minutes": 180
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "tier": "demo",
+          "state": "ready",
+          "created_at": "2026-09-23T01:59:40.664433Z",
+          "expires_at": "2026-09-23T04:59:40.664433Z",
+          "ttl_remaining_seconds": 10799,
+          "expiry_warning": false,
+          "metadata": {},
+          "enable_funnel": false
+        }
+      }
+    },
+    {
+      "step": "2a-resolve-by-name",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/environments/resolve-domain",
+        "body": {
+          "company_name": "kurasi"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "is_active": true,
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a"
+        }
+      }
+    },
+    {
+      "step": "2b-resolve-by-hash",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/environments/resolve-domain",
+        "body": {
+          "customer_hash": "6f82ad81"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "is_active": true,
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a"
+        }
+      }
+    },
+    {
+      "step": "3-status",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/environments/68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "tier": "demo",
+          "state": "ready",
+          "created_at": "2026-09-23T01:59:40.664433Z",
+          "expires_at": "2026-09-23T04:59:40.664433Z",
+          "ttl_remaining_seconds": 10799,
+          "expiry_warning": false,
+          "metadata": {},
+          "enable_funnel": false
+        }
+      }
+    },
+    {
+      "step": "3b-probe",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/environments/68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a/probe",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "state": "ready",
+          "reachable": true,
+          "ttl_remaining_seconds": 10799,
+          "expiry_warning": false
+        }
+      }
+    },
+    {
+      "step": "4-extend",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/environments/68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a/extend",
+        "body": {
+          "additional_minutes": 120
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "tier": "demo",
+          "state": "ready",
+          "created_at": "2026-09-23T01:59:40.664433Z",
+          "expires_at": "2026-09-23T06:59:40.664433Z",
+          "ttl_remaining_seconds": 17999,
+          "expiry_warning": false,
+          "metadata": {},
+          "enable_funnel": false
+        }
+      }
+    },
+    {
+      "step": "5-teardown",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/environments/68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a/teardown",
+        "body": {
+          "reason": "Acceptance test completed"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "tier": "demo",
+          "state": "terminated",
+          "created_at": "2026-09-23T01:59:40.664433Z",
+          "expires_at": "2026-09-23T06:59:40.664433Z",
+          "ttl_remaining_seconds": 17999,
+          "expiry_warning": false,
+          "metadata": {},
+          "enable_funnel": false
+        }
+      }
+    },
+    {
+      "step": "6-teardown-repeat",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/environments/68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a/teardown",
+        "body": {
+          "reason": "Acceptance test completed"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "tier": "demo",
+          "state": "terminated",
+          "created_at": "2026-09-23T01:59:40.664433Z",
+          "expires_at": "2026-09-23T06:59:40.664433Z",
+          "ttl_remaining_seconds": 17999,
+          "expiry_warning": false,
+          "metadata": {},
+          "enable_funnel": false
+        }
+      }
+    },
+    {
+      "step": "7-probe-after-teardown",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/environments/68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a/probe",
+        "body": null
+      },
+      "response": {
+        "status": 410,
+        "body": {
+          "error": {
+            "code": "request_error",
+            "message": "Request failed"
+          }
+        }
+      }
+    },
+    {
+      "step": "8-resolve-after-teardown",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/environments/resolve-domain",
+        "body": {
+          "company_name": "kurasi"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "company_name": "kurasi",
+          "customer_hash": "6f82ad81",
+          "hostname": "sl-eap-6f82ad81",
+          "internal_mesh_url": "https://sl-eap-6f82ad81.tailscale",
+          "external_fqdn": "https://sl-eap-6f82ad81.ts.net",
+          "oidc_redirect_uri": "https://sl-eap-6f82ad81.tailscale/auth/callback",
+          "is_active": false,
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a"
+        }
+      }
+    },
+    {
+      "step": "9-telemetry-stream",
+      "events": [
+        {
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "seq": 1,
+          "event": "provisioned",
+          "state": "ready",
+          "at": "2026-09-23T01:59:40.664471+00:00",
+          "detail": {
+            "expires_at": "2026-09-23T04:59:40.664433+00:00"
+          }
+        },
+        {
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "seq": 2,
+          "event": "ttl_extended",
+          "state": "ready",
+          "at": "2026-09-23T01:59:40.682817+00:00",
+          "detail": {
+            "additional_minutes": 120,
+            "previous_expires_at": "2026-09-23T04:59:40.664433+00:00",
+            "expires_at": "2026-09-23T06:59:40.664433+00:00"
+          }
+        },
+        {
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "seq": 3,
+          "event": "teardown_requested",
+          "state": "tearing_down",
+          "at": "2026-09-23T01:59:40.684134+00:00",
+          "detail": {
+            "reason": "Acceptance test completed",
+            "force": false
+          }
+        },
+        {
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "seq": 4,
+          "event": "terminated",
+          "state": "terminated",
+          "at": "2026-09-23T01:59:40.684139+00:00",
+          "detail": {
+            "reason": "Acceptance test completed"
+          }
+        },
+        {
+          "environment_id": "68b841bd-4cb2-4b74-92c1-7fbbdec6ec4a",
+          "event": "stream_end",
+          "count": 4
+        }
+      ]
+    }
+  ]
+}

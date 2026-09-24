@@ -24,9 +24,14 @@ SPEC_DIR = Path.home() / ".cline" / "kanban" / "card-specs" / "SLED"
 SPEC_DIR.mkdir(parents=True, exist_ok=True)
 
 PROPOSAL_PATH = Path(
-    "/home/andy/src/cp/osramp-demo/docs/"
+    "/home/andy/Documents/Obsidian/v1/2. Areas/CEO/Innovation Proposals/"
     "Proposal — Signal Loom EAP Lifecycle, Heartbeat & Auto-Reaping Daemon (2026-Q3).md"
 )
+if not PROPOSAL_PATH.exists():
+    PROPOSAL_PATH = Path(
+        "/home/andy/src/cp/osramp-demo/docs/"
+        "Proposal — Signal Loom EAP Lifecycle, Heartbeat & Auto-Reaping Daemon (2026-Q3).md"
+    )
 CONTRACT_SHA = hashlib.sha256(PROPOSAL_PATH.read_bytes()).hexdigest()
 
 COMMON_OUT_OF_SCOPE = [

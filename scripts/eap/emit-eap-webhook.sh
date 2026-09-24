@@ -17,6 +17,25 @@ set -euo pipefail
 DEFAULT_SECRET="${EAP_WEBHOOK_SECRET:-signalloom-eap-webhook-secret-dev-2026-q3}"
 DEFAULT_BASE_URL="${EAP_BASE_URL:-http://localhost:8080}"
 SALT="${EAP_SALT:-signalloom-eap-salt-2026-q3}"
+# EAPR-P2-1: the webhook receivers are mounted behind authenticated_principal,
+# so a delivery must also carry the tenant's bearer token.  Read from the
+# environment only (never argv, never logged); when unset the request goes out
+# without an Authorization header and the receiver answers 401.
+BEARER_TOKEN="${EAP_BEARER_TOKEN:-}"
+
+# curl -H arguments for the bearer, or nothing when no token is configured.
+bearer_curl_args() {
+    if [[ -n "$BEARER_TOKEN" ]]; then
+        printf '%s\n' "-H" "Authorization: Bearer ${BEARER_TOKEN}"
+    fi
+}
+
+# Dry-run line for the bearer; the token itself is never printed.
+print_bearer_header() {
+    if [[ -n "$BEARER_TOKEN" ]]; then
+        echo "  Authorization: Bearer <redacted, from EAP_BEARER_TOKEN>"
+    fi
+}
 
 compute_hash() {
     local company="${1:-kurasi}"
@@ -68,6 +87,13 @@ Options for generic:
 
 Options for tamper:
   Same as github-pr, but corrupts the HMAC signature before transmission.
+
+Environment:
+  EAP_WEBHOOK_SECRET   HMAC secret (default: the dev secret above)
+  EAP_BASE_URL         Receiver base URL [default: http://localhost:8080]
+  EAP_BEARER_TOKEN     Tenant bearer token sent as "Authorization: Bearer ..." (EAPR-P2-1:
+                       the receivers are authenticated; unset => no header => 401). Never
+                       passed on argv and never printed; --dry-run shows it redacted.
 
 Examples:
   emit-eap-webhook.sh github-pr --company kurasi --pr 101 --action opened --dry-run
@@ -131,17 +157,21 @@ EOF
         echo "  X-GitHub-Event: pull_request"
         echo "  X-GitHub-Delivery: ${delivery_id}"
         echo "  X-Hub-Signature-256: ${header_sig}"
+        print_bearer_header
         echo "Payload:"
         echo "$payload"
         return 0
     fi
 
+    local -a bearer_args=()
+    mapfile -t bearer_args < <(bearer_curl_args)
     echo "Sending GitHub PR webhook [${action}] for ${company} PR #${pr} to ${endpoint}..."
     curl -sS -X POST "$endpoint" \
         -H "Content-Type: application/json" \
         -H "X-GitHub-Event: pull_request" \
         -H "X-GitHub-Delivery: ${delivery_id}" \
         -H "X-Hub-Signature-256: ${header_sig}" \
+        "${bearer_args[@]}" \
         -d "$payload"
     echo ""
 }
@@ -191,16 +221,20 @@ EOF
         echo "  Content-Type: application/json"
         echo "  X-SignalLoom-Timestamp: ${timestamp}"
         echo "  X-SignalLoom-Signature: sha256=${sig}"
+        print_bearer_header
         echo "Payload:"
         echo "$payload"
         return 0
     fi
 
+    local -a bearer_args=()
+    mapfile -t bearer_args < <(bearer_curl_args)
     echo "Sending generic webhook [${action}] for ${company} to ${endpoint}..."
     curl -sS -X POST "$endpoint" \
         -H "Content-Type: application/json" \
         -H "X-SignalLoom-Timestamp: ${timestamp}" \
         -H "X-SignalLoom-Signature: sha256=${sig}" \
+        "${bearer_args[@]}" \
         -d "$payload"
     echo ""
 }

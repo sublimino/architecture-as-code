@@ -30,6 +30,13 @@ from environment_lifecycle import (
     install_environment_lifecycle_api,
 )
 
+import eap_tenancy
+from conftest import EAP_TENANT_A, EAPClient, eap_bearer
+
+# EAPR-P2-1: install_environment_lifecycle_api mounts the lifecycle router behind
+# authenticated_principal, so the scratch apps below need a real tenant-a token.
+EAP_AUTHENTICATED = True
+
 FLEET = 1000
 
 
@@ -86,15 +93,19 @@ async def test_reaper_pass_over_1000_envs_is_sub_second_and_loop_lag_bounded():
 
 
 @pytest.mark.anyio
-async def test_1000_concurrent_lifecycle_queries_alongside_manual_and_scheduled_reaps(monkeypatch):
+async def test_1000_concurrent_lifecycle_queries_alongside_manual_and_scheduled_reaps(monkeypatch, fresh_tenant_ownership):
     mgr = LifecycleManager()
     _fleet(mgr)
+    # The fleet is registered on the manager, not via POST: bind every hash to
+    # tenant-a so the hash-addressed GETs below are not 404.
+    for i in range(FLEET):
+        eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(f"{i:08x}", EAP_TENANT_A)
     daemon = ReaperDaemon(lifecycle_manager=mgr, base_interval=0.01, min_interval=0.01, max_interval=0.01)
     app = _app(mgr, daemon, monkeypatch)
     transport = httpx.ASGITransport(app=app)
     daemon.start()
     try:
-        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=eap_bearer()) as c:
             gets = [c.get(f"/api/v1/eap/lifecycle/environments/{i:08x}") for i in range(FLEET)]
             reaps = [c.post("/api/v1/eap/lifecycle/reap-now") for _ in range(20)]
             t0 = time.perf_counter()
@@ -391,11 +402,9 @@ async def test_contended_manager_lock_does_not_stall_the_event_loop():
 @pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D1: /metrics returns a JSON dict, not "
                    "OpenMetrics/Prometheus text exposition (no # TYPE, no histogram, no labels)")
 def test_metrics_endpoint_is_openmetrics_exposition(monkeypatch):
-    from fastapi.testclient import TestClient
-
     mgr = LifecycleManager()
     app = _app(mgr, ReaperDaemon(lifecycle_manager=mgr), monkeypatch)
-    r = TestClient(app).get("/api/v1/eap/lifecycle/metrics")
+    r = EAPClient(app).get("/api/v1/eap/lifecycle/metrics")
     ctype = r.headers.get("content-type", "")
     assert "openmetrics-text" in ctype or ctype.startswith("text/plain")
     assert "# TYPE signalloom_eap_reaper_duration_seconds histogram" in r.text
@@ -404,11 +413,9 @@ def test_metrics_endpoint_is_openmetrics_exposition(monkeypatch):
 
 def test_metrics_payload_shape_as_delivered(monkeypatch):
     """Records what P2-1 actually ships so the D1 finding is anchored to evidence."""
-    from fastapi.testclient import TestClient
-
     mgr = LifecycleManager()
     app = _app(mgr, ReaperDaemon(lifecycle_manager=mgr), monkeypatch)
-    r = TestClient(app).get("/api/v1/eap/lifecycle/metrics")
+    r = EAPClient(app).get("/api/v1/eap/lifecycle/metrics")
     print(f"\nCERT metrics content-type={r.headers.get('content-type')} keys={sorted(r.json())}")
     assert r.headers["content-type"].startswith("application/json")
     assert isinstance(r.json()["signalloom_eap_reaper_duration_seconds"], float)

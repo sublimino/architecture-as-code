@@ -40,6 +40,12 @@ from environment_routing import (
     derive_customer_hash,
 )
 from main import app
+from conftest import EAPClient
+
+# EAPR-P2-1: the environments/webhooks routers are mounted behind
+# authenticated_principal; every request here carries a real tenant-a token
+# (see tests/conftest.py).
+EAP_AUTHENTICATED = True
 
 COMPANY = "kurasi"
 HASH = "6f82ad81"
@@ -75,7 +81,7 @@ def fresh_registry(monkeypatch):
 def client():
     # No context manager: the lifespan would open the PostgreSQL pool, which
     # the environment routing engine does not use.
-    return TestClient(app)
+    return EAPClient(app)
 
 
 @pytest.fixture

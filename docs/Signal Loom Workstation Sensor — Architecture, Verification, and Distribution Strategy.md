@@ -15,7 +15,7 @@ project: "[[2026-07-signalloom-d2-platform-baseline]]"
 audience: Andy Martin (CTO), Lucas (CEO), Enterprise Platform Leads, Security Delivery Team
 author: Andy Martin (CTO, technical owner)
 related:
-  - "[[Signal Fusion — Architecture and GDPR Reference]]"
+  - "[[Signal Loom — Architecture, Ingestion Pipelines & GDPR Compliance Reference]]"
   - "[[Signal Loom CEO Delivery Report]]"
   - "[[Proposal — AgentMaxxing Signal Loom User and External Agent Onboarding (2026-Q3)]]"
   - "[[Proposal — Signal Loom Coding Agent & Harness Detective Telemetry (2026-Q3)]]"
@@ -87,7 +87,7 @@ The sensor daemon executes directly on partner Linux host infrastructure under m
    - `PrivateTmp=yes`, `PrivateDevices=yes`, `RestrictSUIDSGID=yes`, `MemoryDenyWriteExecute=yes`.
    - Cgroup v2 resource limits: `MemoryMax=512M`, `TasksMax=64`, `CPUQuota=200%`.
 
-3. **Binary Digest Preflight Gate (`d2-signalloom/apps/agentmaxxing-host-sensor/scripts/digest_gate.sh`)**:
+3. **Binary Digest Preflight Gate (`scripts/digest_gate.sh`)**:
    - Asserts kernel Landlock LSM support.
    - Verifies pinned SHA-256 digest of the `nono` supervisor binary.
    - Verifies pinned SHA-256 digest of the agent binary before execution; fails closed on modification.

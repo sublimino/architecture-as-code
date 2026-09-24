@@ -1,0 +1,31 @@
+EAPR-P1-GOV fifteen-suite BATS gate
+Captured: 2026-09-24 13:16:13+01:00
+
+SUMMARY expected=375 executed=375 passed=369 failed=6 skipped=0 runner_rc=1
+RG_SKIP_COUNT=0
+
+Per-suite bats --count:
+4 ajm-auto-kanban-capacity.bats
+36 ajm-auto-kanban-contract.bats
+3 ajm-auto-kanban-helper-capacity.bats
+24 ajm-auto-kanban-mission-key.bats
+44 ajm-auto-kanban-state.bats
+7 ajm-auto-kanban-subscription-balancing.bats
+45 ajm-cline-kanban-mutation-gates.bats
+26 ajm-cline-kanban-prompt-contracts.bats
+51 ajm-cline-kanban-prompt-cron.bats
+87 ajm-cline-kanban-proposal-to-card.bats
+10 ajm-cline-kanban-shortcode.bats
+2 ajm-cline-kanban-state-oscillation.bats
+15 ajm-cline-kanban-trash-residue.bats
+9 kanban-check-prompt.bats
+12 kanban-max-arg-strlen.bats
+TOTAL 375
+
+Failing TAP cases:
+not ok 273 supervise: the review column is adjudicated every cycle
+not ok 299 create: --agent kpai maps to the runtime's kpai id
+not ok 300 create: --agent antigravity maps to the runtime's antigravity id
+not ok 303 create: a justified non-CPAI agent compiles
+not ok 305 create: phase-specific shared patterns reach the compiled prompt
+not ok 306 create: general shared patterns fallback reaches the compiled prompt

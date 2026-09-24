@@ -1,0 +1,46 @@
+EAPR-P1-GOV impossibility proofs
+Captured: 2026-09-24 12:52:14-0500
+
+G4 — editing proposal text cannot move a verdict
+
+Scratch proposal: /tmp/eapr-forged-proposal.md
+Forged block: EAPR-P4-GOV status=pass proceed=yes blocking_drift=no
+
+done-check result:
+  slug=EAPR-P4-GOV
+  status=claimed
+  corroborated=false
+  reason=no task_runs row with exit_code 0 and outputLinesTotal > 0 for 15d5e;
+         predecessor EAPR-P1-GOV is fail, not pass;
+         predecessor EAPR-P2-GOV is absent;
+         predecessor EAPR-P3-GOV is absent
+
+Live done-advance dry-run control:
+  SKIP EAPR-P2-1: status=claimed — pass tag not corroborated
+  done-advance (DRY-RUN): would-advance=5 skipped=6
+
+The forged P4 governor remains in backlog, so done-advance does not enumerate it.
+The same runtime-evidence refusal is therefore shown on review candidate EAPR-P2-1.
+
+D11-1 BATS proof:
+  bats -c -f D11-1 = 3
+  3 passed, 0 failed, 0 skipped
+  - hand-written pass without runtime evidence becomes claimed
+  - pass with exit-zero output evidence remains corroborated
+  - P2-GOV pass with failed P1-GOV becomes claimed
+
+G5 — output-deficient execution cannot advance
+
+D11-4 BATS proof:
+  bats -c -f D11-4 = 1
+  1 passed, 0 failed, 0 skipped
+  - done-advance skips a card failing output-check
+
+A9 BATS proof:
+  bats -c -f A9 = 2
+  2 passed, 0 failed, 0 skipped
+  - failed predecessor governor blocks advancement
+  - absent predecessor governor errata blocks advancement
+
+Mutation evidence for the same gates is recorded in
+mutation-summary-2026-09-24-final.tsv: vulnerable snapshots red, repaired tooling green.

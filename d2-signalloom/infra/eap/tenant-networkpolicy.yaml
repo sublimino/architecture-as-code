@@ -1,0 +1,117 @@
+# FLUX ENVSUBST: NO — Dynamic script or EAP reconciler renders variables at runtime.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: ${EAP_NAMESPACE}
+  labels:
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.io/eap-hash: "${EAP_HASH}"
+    signalloom.io/customer: "${EAP_CUSTOMER}"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: ${EAP_NAMESPACE}
+  labels:
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.io/eap-hash: "${EAP_HASH}"
+    signalloom.io/customer: "${EAP_CUSTOMER}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: proxy
+              app.kubernetes.io/managed-by: envoy-gateway
+              gateway.envoyproxy.io/owning-gateway-name: cluster
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-tenant-traffic
+  namespace: ${EAP_NAMESPACE}
+  labels:
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.io/eap-hash: "${EAP_HASH}"
+    signalloom.io/customer: "${EAP_CUSTOMER}"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-core-egress
+  namespace: ${EAP_NAMESPACE}
+  labels:
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.io/eap-hash: "${EAP_HASH}"
+    signalloom.io/customer: "${EAP_CUSTOMER}"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution to CoreDNS in kube-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow Dex OIDC authentication in inf-signalloom
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dex
+      ports:
+        - protocol: TCP
+          port: 5556
+    # Allow scoped OpenBao cryptographic secrets access in inf-bao
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openbao
+      ports:
+        - protocol: TCP
+          port: 8200

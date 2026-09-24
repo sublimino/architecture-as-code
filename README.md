@@ -293,7 +293,8 @@ artifacts, and Flux reconciliation.
 CAUTION: On the local fleet the `apps` tenant is disabled in
 [`d2-osramp-fleet/tenants/local/kustomization.yaml`](d2-osramp-fleet/tenants/local/kustomization.yaml).
 Re-enable it before you run `make demo-osramp-up`. The script patches the
-`apps` ResourceSet, which that file does not include.
+`apps` ResourceSet, which that file does not include. Not verified: what the
+target does on a fresh local cluster with the tenant disabled.
 
 ```bash
 ./scripts/setup.sh    # Install the tools and make a healthy cluster

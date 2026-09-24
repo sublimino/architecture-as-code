@@ -245,5 +245,8 @@ git grep -l -F "$name" -- Makefile scripts test .github
 grep -rlF "$name" ~/.cline/kanban/card-specs
 ```
 
+The branch search is advisory. Its result depends on the branches in the clone
+that runs it. The tracked-path searches are reproducible.
+
 Do the move as one change. Update every link the probe found, then run
 `make docs-lint` and `make docs-lint-test`.

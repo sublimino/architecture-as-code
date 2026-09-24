@@ -21,7 +21,8 @@
 # 2 on usage error. Each changed token is printed as "< old" or "> new".
 #
 # The guard proves that tokens survived. It cannot see a clause that lost its
-# condition or a pronoun that now points at a different noun. Read the split
+# condition, a pronoun that now points at a different noun, a "not" that moved
+# to another clause, or two numbers that swapped places. Read the split
 # sentences.
 
 set -o errexit -o pipefail

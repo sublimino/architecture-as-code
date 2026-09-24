@@ -26,7 +26,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from conftest import EAPClient, eap_bearer
+from conftest import EAP_OPERATOR_ONLY_ROUTES, EAPClient, eap_bearer
 from environment_routing import derive_customer_hash
 from main import app
 from tenant_isolation import get_tenant_spiffe_id
@@ -164,6 +164,11 @@ def test_forged_headers_never_change_the_resolved_tenant_on_any_eap_route(two_te
     tenant_listings = []
     for route in listings:
         response = client.get(route.path, headers=forged_bob)
+        if ("GET", route.path) in EAP_OPERATOR_ONLY_ROUTES:
+            # Process-wide reaper diagnostics: a tenant is refused by role, forged headers or not.
+            assert response.status_code == 403, f"{route.path}: bob + forged headers got {response.status_code}"
+            assert alice["hash"] not in response.text
+            continue
         assert response.status_code == 200, f"{route.path}: {response.status_code}"
         assert alice["hash"] not in response.text, f"{route.path} returned alice's data to bob with forged headers"
         if bob["hash"] in response.text:
@@ -205,6 +210,11 @@ def test_forged_identity_headers_are_stripped_before_handlers_see_them() -> None
                 "X-Tenant-Id": "0a1b2c3d",
                 "X-Forwarded-User": "alice",
                 "X-Principal-Sub": "alice",
+                # underscore spellings: the same claims to anything that normalises names
+                "X_SPIFFE_ID": "spiffe://signalloom.demo/ns/eap-0a1b2c3d/sa/tenant-app",
+                "X_Tenant_Id": "0a1b2c3d",
+                "X_Forwarded_User": "alice",
+                "X_Principal_Sub": "alice",
                 "X-Other": "keep",
             },
         )

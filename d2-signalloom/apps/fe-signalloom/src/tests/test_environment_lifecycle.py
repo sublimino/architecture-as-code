@@ -29,7 +29,7 @@ from environment_lifecycle import (
     GLOBAL_REAPER_DAEMON,
 )
 from main import app
-from conftest import EAPClient
+from conftest import EAP_OPERATOR, EAPClient, eap_bearer
 
 # EAPR-P2-1: the EAP routers are mounted behind authenticated_principal;
 # every request here carries a real tenant-a token (see tests/conftest.py).
@@ -518,8 +518,8 @@ def test_api_lifecycle_full_flow():
     hashes = [r["customer_hash"] for r in active_resp.json()]
     assert "6f82ad81" in hashes
 
-    # 6. Manual reap check
-    reap_resp = client.post("/api/v1/eap/lifecycle/reap-now")
+    # 6. Manual reap check (process-wide: operator only)
+    reap_resp = client.post("/api/v1/eap/lifecycle/reap-now", headers=eap_bearer(EAP_OPERATOR))
     assert reap_resp.status_code == 200
     reap_data = reap_resp.json()
     assert "actions" in reap_data
@@ -528,20 +528,23 @@ def test_api_lifecycle_full_flow():
 
 def test_api_reaper_admin_and_diagnostic_endpoints():
     """Verify pause, resume, status, dlq, audit, and metrics endpoints."""
+    # Reaper controls act on every tenant at once, so they take the operator token.
+    operator = eap_bearer(EAP_OPERATOR)
+
     # 1. Status
-    status_resp = client.get("/api/v1/eap/lifecycle/reaper/status")
+    status_resp = client.get("/api/v1/eap/lifecycle/reaper/status", headers=operator)
     assert status_resp.status_code == 200
     status_data = status_resp.json()
     assert "is_running" in status_data
     assert "rss_mb" in status_data
 
     # 2. Pause
-    pause_resp = client.post("/api/v1/eap/lifecycle/reaper/pause")
+    pause_resp = client.post("/api/v1/eap/lifecycle/reaper/pause", headers=operator)
     assert pause_resp.status_code == 200
     assert pause_resp.json()["is_paused"] is True
 
     # 3. Resume
-    resume_resp = client.post("/api/v1/eap/lifecycle/reaper/resume")
+    resume_resp = client.post("/api/v1/eap/lifecycle/reaper/resume", headers=operator)
     assert resume_resp.status_code == 200
     assert resume_resp.json()["is_paused"] is False
 
@@ -560,7 +563,7 @@ def test_api_reaper_admin_and_diagnostic_endpoints():
     assert audit_resp.status_code == 200
     assert isinstance(audit_resp.json(), list)
 
-    # 7. Metrics
-    metrics_resp = client.get("/api/v1/eap/lifecycle/metrics")
+    # 7. Metrics (process-wide: operator only)
+    metrics_resp = client.get("/api/v1/eap/lifecycle/metrics", headers=operator)
     assert metrics_resp.status_code == 200
     assert "signalloom_eap_reaper_cycles_total" in metrics_resp.json()

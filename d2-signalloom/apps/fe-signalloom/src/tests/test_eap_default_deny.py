@@ -36,7 +36,7 @@ from starlette.routing import Mount, Route
 from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
-from conftest import eap_bearer
+from conftest import EAP_OPERATOR, EAP_OPERATOR_ONLY_ROUTES, eap_bearer
 from environment_routing import derive_customer_hash
 from main import app
 
@@ -392,6 +392,57 @@ def test_guard_eap_inventory_is_exactly_the_pinned_set() -> None:
     unexpected = sorted(live - EXPECTED_EAP_OPERATIONS)
     assert not missing, f"EAP operations vanished from the sweep (unmounted, exempted, or import error): {missing}"
     assert not unexpected, f"new EAP operations must be added to EXPECTED_EAP_OPERATIONS on the record: {unexpected}"
+    # The customer_hash validator sweep must cover every pinned hash-addressed operation, so an
+    # empty or shrunken CUSTOMER_HASH_ROUTES cannot pass by having nothing to probe.
+    pinned_hash_ops = {(m, p) for m, p in EXPECTED_EAP_OPERATIONS if "{customer_hash}" in p}
+    assert {(m, p) for m, p, _ in CUSTOMER_HASH_ROUTES} == pinned_hash_ops
+    assert len(pinned_hash_ops) == 11
+
+
+#: Process-wide reaper controls: one daemon serves every tenant, so these cannot
+#: be bound to a tenant and are bound to the operator role instead (shared list in conftest).
+OPERATOR_ONLY_ROUTES = EAP_OPERATOR_ONLY_ROUTES
+
+
+@pytest.mark.parametrize(
+    ("method", "path"), sorted(OPERATOR_ONLY_ROUTES), ids=[f"{m} {p}" for m, p in sorted(OPERATOR_ONLY_ROUTES)]
+)
+def test_reaper_controls_are_operator_only(method: str, path: str, eap_jwt_env) -> None:
+    """A tenant principal cannot pause, force, or inspect the reaper that serves every tenant.
+
+    alice (tenant-a) and bob (tenant-b) get 403 ``superadmin_required`` and the
+    daemon's pause flag does not move; the operator gets 200 on the same call
+    (positive control), so the refusal is the role check and not a dead route.
+    """
+    from environment_lifecycle import GLOBAL_REAPER_DAEMON
+
+    client = TestClient(app)
+    was_paused = GLOBAL_REAPER_DAEMON.is_paused
+    for tenant_subject in ("alice", "bob"):
+        refused = client.request(method, path, headers=eap_bearer(tenant_subject))
+        assert refused.status_code == 403, f"{tenant_subject}: {method} {path} answered {refused.status_code}"
+        assert refused.json()["error"]["code"] == "superadmin_required"
+    assert GLOBAL_REAPER_DAEMON.is_paused == was_paused, "a tenant call moved the process-wide pause flag"
+    allowed = client.request(method, path, headers=eap_bearer(EAP_OPERATOR))
+    assert allowed.status_code == 200, f"positive control: operator got {allowed.status_code} on {method} {path}: {allowed.text}"
+    if path.endswith("/pause"):
+        client.request("POST", "/api/v1/eap/lifecycle/reaper/resume", headers=eap_bearer(EAP_OPERATOR))
+
+
+def test_guard_operator_only_routes_carry_the_superadmin_gate_structurally() -> None:
+    """Each operator-only handler declares the require_superadmin dependency, so the 403 above is not a coincidence."""
+    from superadmin import require_superadmin
+
+    def declares_gate(route: APIRoute) -> bool:
+        return any(d.call is require_superadmin for d in route.dependant.dependencies)
+
+    by_key = {(m, r.path): r for r in app.routes if isinstance(r, APIRoute) for m in (r.methods or ())}
+    ungated = sorted(key for key in OPERATOR_ONLY_ROUTES if not declares_gate(by_key[key]))
+    assert ungated == [], f"operator-only routes without require_superadmin: {ungated}"
+    gated_elsewhere = sorted(
+        key for key, r in by_key.items() if _module_of(r) in EAP_MODULES and declares_gate(r) and key not in OPERATOR_ONLY_ROUTES
+    )
+    assert gated_elsewhere == [], f"EAP routes gained the operator gate without being listed: {gated_elsewhere}"
 
 
 def test_guard_no_route_escapes_the_inventory() -> None:

@@ -51,6 +51,9 @@ STRIPPED_IDENTITY_HEADER_PREFIXES: tuple[bytes, ...] = (b"x-spiffe", b"x-tenant"
 
 
 def _is_identity_header(name: bytes) -> bool:
+    # ``X_Tenant_Id`` is the same claim as ``X-Tenant-Id`` to anything that
+    # normalises names (CGI-style servers, some proxies); strip both spellings.
+    name = name.replace(b"_", b"-")
     return name in STRIPPED_IDENTITY_HEADERS or name.startswith(STRIPPED_IDENTITY_HEADER_PREFIXES)
 
 

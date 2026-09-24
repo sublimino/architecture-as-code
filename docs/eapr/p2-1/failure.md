@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 03:14:50+01:00
+Last Updated: 2026-09-24 03:21:05+01:00
 
 ## Verdict
 
@@ -103,11 +103,38 @@ this worktree's object store; no sibling or governor worktree was read.
 
 ## Launch anomaly (escalate separately — higher severity than this card)
 
-The kanban runtime launched EAPR-P2-1, P2-2 and P2-3 while their dependency
-EAPR-P2-PRE and its predecessor EAPR-P1-GOV were both `proceed=no`. The
-start-ready prerequisite gate (D11 site, EAPR-P1-2) did not hold on this board.
-Follow-up: verify the P1-2 gate is active in the live supervisor before any
-further P2 launch.
+The kanban runtime launched EAPR-P2-1, P2-2 and P2-3 (02:06:09–14 UTC) five
+seconds after EAPR-P2-PRE exited 0 into the `review` column, which itself
+started four seconds after EAPR-P1-GOV exited 0 into `review`. A FiveWhys pass
+over the run records and `kanban-check.sh` found the mechanism:
+
+1. `supervise --apply` STEP 0b → `cmd_start_ready` judged P2-PRE satisfied.
+2. The start-ready predicate (`kanban-check.sh` ~:1700–1709) blocks only on
+   prerequisite columns `backlog | in_progress | trash | archived` when no
+   proposal is supplied; `review`, `done` and `blocked` fall through as
+   satisfied. The errata verdict tag is never read on that path.
+3. The supervise invocation carried no `--proposal` (deduced: no
+   `errata-seen.EAPR.json` / `supervisor-prompt.EAPR.md` exist, which supervise
+   writes only under a proposal; `SKILL.md:333` documents the no-proposal form).
+4. The D11 site-2 fix from EAPR-P1-2 (`905dc062`) is an opt-in overlay keyed on
+   `DONE_CHECK_PROPOSAL`; the legacy "review = ready" semantics remain the
+   default, and `--apply` does not enforce a proposal.
+5. Its regression test (`ajm-cline-kanban-mutation-gates.bats:221`) passes
+   `--proposal` in both arms, so it proved the gate works when armed, never that
+   it is armed. The runtime's own `evaluateStartableTasks` uses
+   `SATISFIED_COLUMNS = {review, done, archived}` and `task start` has no
+   dependency guard, so both layers equate "agent finished" with "satisfied".
+
+Fail-closed cards exit 0 by contract, so a refusal is indistinguishable from a
+pass at every mechanical gate on this path. Corrective actions (owner: Andy,
+P1-2 follow-up card, before any EAPR relaunch): refuse `--apply` without a
+resolvable proposal and resolve it from the mission capsule; invert start-ready
+to an allow-list requiring a corroborated pass; add BATS for prereq-in-`review`
+and prereq-in-`blocked` without `--proposal`; add a start-time gate that the
+integration tip contains each predecessor's errata `Commit:` SHA (or the
+`integration/<x>-p<N-1>` tag); adjudicate `review` before STEP 0b. EAPR-P2-3
+was still running on the same base at the time of writing; no board state was
+touched by this card.
 
 ## Why not implement on the HEAD router versions
 

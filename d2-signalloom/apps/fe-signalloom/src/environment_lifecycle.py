@@ -20,8 +20,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Generator, List, Optional, Set
 from pydantic import BaseModel, ConfigDict, Field
-from fastapi import APIRouter, FastAPI, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 
+import api_compat
+from eap_tenancy import CUSTOMER_HASH_PATTERN, CustomerHash, Tenant, claim_or_403, owned_hashes, require_owned_or_404
 from environment_routing import derive_customer_hash
 
 logger = logging.getLogger("signalloom.lifecycle")
@@ -135,7 +137,7 @@ class RegisterEnvironmentRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     company_name: str = Field(..., min_length=1, max_length=64)
-    customer_hash: Optional[str] = Field(default=None, min_length=8, max_length=8)
+    customer_hash: Optional[str] = Field(default=None, pattern=CUSTOMER_HASH_PATTERN)
     ttl_minutes: Optional[int] = Field(default=DEFAULT_LEASE_MINUTES, ge=5, le=480)
 
 
@@ -1026,18 +1028,20 @@ router = APIRouter(prefix="/api/v1/eap/lifecycle", tags=["eap-lifecycle-governan
 
 
 @router.post("/register", response_model=LifecycleRecord, status_code=status.HTTP_201_CREATED)
-async def api_register_lifecycle(req: RegisterEnvironmentRequest) -> LifecycleRecord:
-    """Register an environment into the lifecycle governance engine."""
+async def api_register_lifecycle(req: RegisterEnvironmentRequest, tenant: Tenant) -> LifecycleRecord:
+    """Register an environment into the lifecycle governance engine, bound to the caller's tenant."""
+    customer_hash = claim_or_403(req.customer_hash or derive_customer_hash(req.company_name), tenant)
     return GLOBAL_LIFECYCLE_MANAGER.register_environment(
         company_name=req.company_name,
-        customer_hash=req.customer_hash,
+        customer_hash=customer_hash,
         ttl_minutes=req.ttl_minutes or DEFAULT_LEASE_MINUTES,
     )
 
 
 @router.post("/environments/{customer_hash}/heartbeat", response_model=HeartbeatResponse)
-async def api_heartbeat(customer_hash: str, req: HeartbeatRequest) -> HeartbeatResponse:
+async def api_heartbeat(customer_hash: CustomerHash, req: HeartbeatRequest, tenant: Tenant) -> HeartbeatResponse:
     """Record heartbeat and request lease renewal."""
+    require_owned_or_404(customer_hash, tenant)
     return GLOBAL_LIFECYCLE_MANAGER.record_heartbeat(
         customer_hash=customer_hash,
         extend_minutes=req.extend_minutes,
@@ -1045,14 +1049,16 @@ async def api_heartbeat(customer_hash: str, req: HeartbeatRequest) -> HeartbeatR
 
 
 @router.post("/environments/{customer_hash}/activity", response_model=LifecycleRecord)
-async def api_record_activity(customer_hash: str) -> LifecycleRecord:
+async def api_record_activity(customer_hash: CustomerHash, tenant: Tenant) -> LifecycleRecord:
     """Touch environment activity timer."""
+    require_owned_or_404(customer_hash, tenant)
     return GLOBAL_LIFECYCLE_MANAGER.record_activity(customer_hash, source="api_touch")
 
 
 @router.get("/environments/{customer_hash}", response_model=LifecycleRecord)
-async def api_get_lifecycle(customer_hash: str) -> LifecycleRecord:
+async def api_get_lifecycle(customer_hash: CustomerHash, tenant: Tenant) -> LifecycleRecord:
     """Retrieve current lifecycle status for an environment."""
+    require_owned_or_404(customer_hash, tenant)
     rec = GLOBAL_LIFECYCLE_MANAGER.get_lifecycle(customer_hash)
     if not rec:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found")
@@ -1060,9 +1066,10 @@ async def api_get_lifecycle(customer_hash: str) -> LifecycleRecord:
 
 
 @router.get("/active", response_model=List[LifecycleRecord])
-async def api_list_active_lifecycle() -> List[LifecycleRecord]:
-    """List all active (non-terminated) environments."""
-    return GLOBAL_LIFECYCLE_MANAGER.list_active()
+async def api_list_active_lifecycle(tenant: Tenant) -> List[LifecycleRecord]:
+    """List the caller's active (non-terminated) environments."""
+    mine = owned_hashes(tenant)
+    return [r for r in GLOBAL_LIFECYCLE_MANAGER.list_active() if r.customer_hash in mine]
 
 
 @router.post("/reap-now", response_model=ReaperSummary)
@@ -1092,22 +1099,37 @@ async def api_get_reaper_status() -> ReaperStatusResponse:
 
 
 @router.get("/reaper/dlq", response_model=List[DeadLetterRecord])
-async def api_get_dlq() -> List[DeadLetterRecord]:
-    """Retrieve dead-letter queue records for failed reconciliation passes."""
-    return GLOBAL_LIFECYCLE_MANAGER.dlq.get_all()
+async def api_get_dlq(tenant: Tenant) -> List[DeadLetterRecord]:
+    """Retrieve the caller's dead-letter queue records for failed reconciliation passes."""
+    mine = owned_hashes(tenant)
+    return [r for r in GLOBAL_LIFECYCLE_MANAGER.dlq.get_all() if r.customer_hash in mine]
 
 
 @router.post("/reaper/dlq/clear")
-async def api_clear_dlq(customer_hash: Optional[str] = None) -> Dict[str, Any]:
-    """Clear dead-letter queue records."""
-    cleared = GLOBAL_LIFECYCLE_MANAGER.dlq.clear(customer_hash)
+async def api_clear_dlq(
+    tenant: Tenant,
+    customer_hash: Optional[str] = Query(default=None, pattern=CUSTOMER_HASH_PATTERN),
+) -> Dict[str, Any]:
+    """Clear the caller's dead-letter queue records (one hash, or all of the caller's)."""
+    if customer_hash is not None:
+        require_owned_or_404(customer_hash, tenant)
+        cleared = GLOBAL_LIFECYCLE_MANAGER.dlq.clear(customer_hash)
+    else:
+        cleared = sum(GLOBAL_LIFECYCLE_MANAGER.dlq.clear(h) for h in owned_hashes(tenant))
     return {"status": "cleared", "cleared_count": cleared}
 
 
 @router.get("/audit-events", response_model=List[ReaperAuditEvent])
-async def api_get_audit_events(customer_hash: Optional[str] = None) -> List[ReaperAuditEvent]:
-    """Retrieve structured audit events recorded during lifecycle transitions."""
-    return GLOBAL_LIFECYCLE_MANAGER.get_audit_events(customer_hash)
+async def api_get_audit_events(
+    tenant: Tenant,
+    customer_hash: Optional[str] = Query(default=None, pattern=CUSTOMER_HASH_PATTERN),
+) -> List[ReaperAuditEvent]:
+    """Retrieve structured audit events recorded during lifecycle transitions for the caller's hashes."""
+    if customer_hash is not None:
+        require_owned_or_404(customer_hash, tenant)
+        return GLOBAL_LIFECYCLE_MANAGER.get_audit_events(customer_hash)
+    mine = owned_hashes(tenant)
+    return [e for e in GLOBAL_LIFECYCLE_MANAGER.get_audit_events() if e.customer_hash in mine]
 
 
 @router.get("/metrics")
@@ -1117,5 +1139,9 @@ async def api_get_lifecycle_metrics() -> Dict[str, Any]:
 
 
 def install_environment_lifecycle_api(app: FastAPI) -> None:
-    """Mount lifecycle API router into FastAPI application."""
-    app.include_router(router)
+    """Mount lifecycle API router into FastAPI application.
+
+    The authentication dependency is attached at the mount (EAPR-P2-1, SP-5) so a
+    route added to this router is denied by default rather than opt-in.
+    """
+    app.include_router(router, dependencies=[Depends(api_compat.authenticated_principal)])

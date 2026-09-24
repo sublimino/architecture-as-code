@@ -13,7 +13,6 @@ import uuid
 from typing import Any, Optional
 
 import api_compat
-from api_compat import _audit_log
 
 logger = logging.getLogger("signalloom.eap_audit")
 
@@ -84,17 +83,3 @@ async def _audit_eap_decision(
             return
         except Exception as exc:
             logger.warning("DB audit log failed for EAP decision: %s", exc)
-
-    if conn is not None:
-        try:
-            await _audit_log(
-                executor=conn,
-                tenant_id=tenant_id,
-                event_type=event_type,
-                agent_id=str(agent_uuid),
-                agent_name=agent_id,
-                actor=actor_str,
-                detail=clean_detail,
-            )
-        except Exception as exc:
-            logger.warning("Audit log fallback failed for EAP decision: %s", exc)

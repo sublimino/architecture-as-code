@@ -1,0 +1,50 @@
+EAPR-P1-GOV FINAL DISPOSITION
+Captured: 2026-09-24 13:06:36-0500
+
+Pinned verifier
+---------------
+Tool snapshot: /tmp/eapr-andy-sync/confExt/skills/ajm-auto-kanban/Tools/kanban-check.sh
+Verified tooling commit represented by snapshot: b00fd2d2
+Reason for pinning: the live ~/.andy_sync checkout changed during final probes;
+the certification rerun therefore used the already-tested immutable snapshot.
+
+Canonical done-check
+--------------------
+EAPR-P1-3 status=pass proceed=true blocking_drift=false
+  commit=1d15a906bcb4632d148f2f56468f3caefa336454 task_id=027af corroborated=true
+EAPR-P1-GOV status=fail proceed=false blocking_drift=true
+  commit=null task_id=95c79 corroborated=false
+EAPR-P2-1 status=fail proceed=false blocking_drift=true
+  commit=null task_id=14f11 corroborated=false
+
+Current doctor rerun
+--------------------
+SLEA: UNHEALTHY — task cc2a3 historical state oscillation.
+SLET: UNHEALTHY — task 7744e historical state oscillation.
+SLES: UNHEALTHY — orphan P3-2; tasks eb830/081b4 zero-output;
+      task ade77 historical state oscillation.
+SLED: UNHEALTHY — task d20eb zero-output; tasks 255ff/90790
+      historical state oscillation.
+
+Supervisor review ledger
+------------------------
+task_id=95c79
+reviewer=supervisor
+verdict=REJECTED
+reviewed_at=2026-09-24T17:59:06.829Z
+reason=G6 failed: SLEA, SLET, SLES, and SLED doctors remain unhealthy on
+historical done-card oscillation, zero-output, and graph findings;
+certification cannot pass without out-of-scope board mutations
+
+Safety disposition
+------------------
+Duplicate governor 6039a was stopped and archived through the canonical helper.
+Externally-started EAPR-P2-1 task 14f11 was stopped and returned to backlog;
+the governor performed no Phase 2 implementation work.
+No integration/eapr-v0.1.0-p1 tag exists.
+No remote branch contains evidence commit 120fc0ebf1b40841e37755eb97754d065863a4b2.
+
+Verdict
+-------
+REJECTED. G6 is not satisfied. Fail-closed done-check, absent release tag,
+Phase 2 hold, and supervisor rejection are the required honest disposition.

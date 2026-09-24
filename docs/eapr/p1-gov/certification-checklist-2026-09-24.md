@@ -1,6 +1,6 @@
 # EAPR Phase 1 certification checklist
 
-Captured: 2026-09-24 12:52:14-0500
+Captured: 2026-09-24 13:06:36-0500
 
 | Requirement | Artifact or probe | Result |
 |---|---|---|
@@ -19,14 +19,21 @@ Captured: 2026-09-24 12:52:14-0500
 | SLES doctor healthy | `doctor-summary-2026-09-24.txt` | FAIL — orphan, zero-output, oscillation |
 | SLED doctor healthy | `doctor-summary-2026-09-24.txt` | FAIL — zero-output, oscillation |
 | Offline acceptance baseline | `acceptance-summary-2026-09-24.txt` | PASS — only two documented reds |
-| No Phase 2 execution | board inspection and command history | PASS — no P2 card started by governor |
-| No remote push | local Git inspection | PASS — no push performed |
-| P1 governor errata | canonical vault proposal | PENDING — append after final evidence commit |
-| Corroborated done-check | canonical tool against vault proposal | PENDING |
-| Supervisor review verdict | canonical review ledger | PENDING |
+| No Phase 2 execution | board inspection and command history | PASS — governor started no P2 workload; externally-started P2-1 was stopped and returned to backlog |
+| No remote push | `git branch -r --contains 120fc0eb`; local command history | PASS — no remote contains the evidence commit |
+| No integration tag on failure | `git tag -l integration/eapr-v0.1.0-p1` | PASS — absent as required by failed certification |
+| P1 governor errata | canonical vault proposal | PASS — final `fail` errata appended through Obsidian bridge |
+| Corroborated done-check | pinned `b00fd2d2` tool against vault proposal | FAIL — `status=fail`, `proceed=false`, `blocking_drift=true`, `corroborated=false`, task `95c79` |
+| Supervisor review verdict | canonical review ledger exposed by `card --task-id 95c79` | PASS — supervisor recorded `REJECTED` with G6 reason |
+| Duplicate governor containment | archived task `6039a` | PASS — canonical lifecycle helper removed duplicate from active selection |
 
 ## Current verdict
 
-Certification remains blocked by G6. The governor did not archive, rewrite, or
-re-verdict historical cards merely to make doctor green. Those mutations are
-outside the Phase 1 governor's authorization boundary.
+Certification is rejected because G6 remains red. The governor did not archive,
+rewrite, re-verdict, or rewire historical SLEA/SLET/SLES/SLED cards merely to
+make doctor green. Those unrelated-mission mutations exceed the Phase 1
+governor's authorization boundary and would invalidate the evidence-led gate.
+
+The final canonical done-check therefore remains fail-closed and uncorroborated;
+the supervisor ledger records `REJECTED`, not a fabricated PASS. No release tag
+was created and Phase 2 remains held.

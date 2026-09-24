@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 03:10:13+01:00
+Last Updated: 2026-09-24 03:14:50+01:00
 
 ## Verdict
 
@@ -24,7 +24,7 @@ No router, handler, middleware, test, or Makefile file was changed.
 | P1-4 sealed sweep | `test_tenant_isolation.py` 1983 lines, `NOT_DATABASE_BACKED` (16 EAP entries) | 183 lines, no `NOT_DATABASE_BACKED` | 1983 lines |
 | P1-4 merged branches | `integration/sl{ea,et,ed,es,te}-v0.1.0` ancestors of HEAD | all five `NOT-MERGED` | merged in order |
 | P1-4 slet transit routes | `x_spiffe_id` Header params, `_authorize_or_403` | none (`rg` empty) | present on slet |
-| P1-3 gate | `make test-eap-offline` | absent | present |
+| P1-3 gate | `make test-eap-offline` | absent | absent — exists only on `EAPR-P1-3` (`Makefile:536`); `EAPR-P1-3` is not an ancestor of `EAPR-P1-4` (rc=1), so the Governor lands them separately |
 | P1 certification | tag `integration/eapr-v0.1.0-p1` | absent | n/a |
 
 Verbatim probes:
@@ -32,7 +32,7 @@ Verbatim probes:
 ```text
 $ git merge-base --is-ancestor EAPR-P1-4 HEAD; echo $?        -> 1
 $ git merge-base --is-ancestor EAPR-P1-3 HEAD; echo $?        -> 1
-$ for b in slea slet sled sles slte: integration/$b-v0.1.0     -> NOT-MERGED (x5)
+$ for b in slea slet sled sles slte; do git merge-base --is-ancestor integration/$b-v0.1.0 HEAD; echo $?; done -> 1 1 1 1 1
 $ git tag -l 'integration/eapr-v0.1.0-p1'                      -> (empty)
 $ wc -l d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py -> 183
 $ git show EAPR-P1-4:.../tests/test_tenant_isolation.py | wc -l -> 1983
@@ -75,7 +75,7 @@ integration/sles-v0.1.0      f1b6780e702e  ancestor-rc=1
 integration/slte-v0.1.0      377058754c9b  ancestor-rc=1
 ```
 
-The wholesale replacement is measured, not asserted
+The router divergence is measured, not asserted
 (`git diff --stat 68d87aca EAPR-P1-4 -- <five routers>`):
 
 ```text
@@ -91,14 +91,17 @@ Line counts base | `EAPR-P1-4`: tenant_isolation 329 | 558; scenario_seeding
 327 | 408; environment_routing 520 | 636; environment_lifecycle 399 | 1121.
 
 Exemptions: `NOT_DATABASE_BACKED` does not exist on the base; on `EAPR-P1-4`
-it holds 110 entries, 16 of them EAP routes (the "remove 16" deliverable).
+(`tests/test_tenant_isolation.py:670`) `ast.literal_eval` of the list gives
+96 entries, 16 of them EAP routes (the "remove 16" deliverable). An earlier
+revision of this record said 110 — a line-count regex, not a parse; corrected
+after cross-vendor audit.
 `x_spiffe_id` / `_authorize_or_403` occur 5 times on `EAPR-P1-4`'s
 `tenant_isolation.py` and 0 times on the base.
 
 All `EAPR-P1-4` content above was read with `git show EAPR-P1-4:<path>` from
 this worktree's object store; no sibling or governor worktree was read.
 
-## Launch anomaly (follow-up owed)
+## Launch anomaly (escalate separately — higher severity than this card)
 
 The kanban runtime launched EAPR-P2-1, P2-2 and P2-3 while their dependency
 EAPR-P2-PRE and its predecessor EAPR-P1-GOV were both `proceed=no`. The
@@ -108,11 +111,16 @@ further P2 launch.
 
 ## Why not implement on the HEAD router versions
 
-P1-4 replaces the same five router files wholesale (slea's
-`environment_routing.py`, slet's `tenant_isolation.py` with the transit pair,
-sled's `environment_lifecycle.py`). A P2-1 diff against HEAD would conflict at
-the Governor's P1-4 merge and cannot satisfy "16 entries removed, sweep 0 failed"
-or "`make test-eap-offline` green", none of which exist here.
+The decisive reason is that three acceptance criteria are unsatisfiable on the
+base: "16 entries removed" (no `NOT_DATABASE_BACKED`), "sweep 0 failed" (183-line
+stub, not the 1983-line sealed sweep), and "`make test-eap-offline` green" (no
+target). Both predecessor gates independently say `proceed=no`.
+
+Supporting, not decisive: P1-4 changes four of the five routers, mostly by
+addition (+1239/−91; `tenant_isolation.py` +279 including the transit pair,
+`environment_lifecycle.py` +844). A P2-1 diff against HEAD's versions of those
+files carries a real merge-conflict risk at the Governor's P1-4 merge, but no
+trial merge was run, so that risk is inference rather than proof.
 
 ## Required remediation
 
@@ -120,5 +128,13 @@ Human review of P1-GOV/P2-PRE → Governor lands P1-3 + P1-4 on
 `integration/eapr-v0.1.0` → cut tag `integration/eapr-v0.1.0-p1` → re-run
 EAPR-P2-PRE on that tag (25-route table) → relaunch EAPR-P2-1 on that tag.
 Sibling cards EAPR-P2-2 and EAPR-P2-3 were launched on the same unmerged tip.
+
+## Cross-vendor audit
+
+Cato (read-only, claude-opus-5-5 because the codex path was unavailable) verdict:
+`concerns`. It reproduced all six probes and the router line counts, corrected
+the exemption total (96, not 110) and the Makefile-target column (P1-3 only),
+flagged "wholesale" as overstated, and noted the anonymous sweep was not
+independently re-run. All three corrections are applied above.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

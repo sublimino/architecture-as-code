@@ -7,8 +7,8 @@ a scratch file.
 
 Route list is derived from ``app.routes`` filtered by the endpoint's module,
 never from a hand-maintained list, so a route added to one of the five
-routers is swept automatically.  Websocket routes are counted separately and
-printed, so a post-merge tree that gains one cannot be silently skipped.
+routers is swept automatically.  Websocket routes are probed by an anonymous
+handshake: a denial response counts as auth, an accepted socket as REACHABLE.
 
 Run from ``d2-signalloom/apps/fe-signalloom/src``::
 
@@ -17,8 +17,8 @@ Run from ``d2-signalloom/apps/fe-signalloom/src``::
         python ../../../../scripts/eap/anon_sweep.py
 
 Exit status is 0 whenever the sweep ran; the verdict is the final line.
-With ``--expect-zero`` the exit status is 1 when any HTTP route is reachable
-or any websocket route exists unprobed, so a Governor can wire it as a gate.
+With ``--expect-zero`` the exit status is 1 when any HTTP or websocket route is
+reachable, so a Governor can wire it as a gate.
 The script refuses to run (exit 2) when ``DATABASE_URL`` is set.
 
 Reading the verdict:
@@ -109,6 +109,28 @@ def _probe(client: TestClient, method: str, path: str) -> int:
     return result[0] if result else STREAM_OPEN
 
 
+def _probe_websocket(client: TestClient, path: str) -> int:
+    """Anonymous websocket handshake: the HTTP status of the denial, or 101 if accepted."""
+    from starlette.testclient import WebSocketDenialResponse
+    from starlette.websockets import WebSocketDisconnect
+
+    result: list[int] = []
+
+    def run() -> None:
+        try:
+            with client.websocket_connect(path):
+                result.append(101)
+        except WebSocketDenialResponse as denial:  # handshake refused with an HTTP response
+            result.append(denial.status_code)
+        except WebSocketDisconnect as closed:  # accepted-or-not, then closed by the app
+            result.append(101 if closed.code != 1008 else 403)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(PROBE_DEADLINE_SECONDS)
+    return result[0] if result else STREAM_OPEN
+
+
 def _sweep(client: TestClient, routes: Iterable[APIRoute]) -> list[tuple[str, str, int]]:
     rows: list[tuple[str, str, int]] = []
     for route in routes:
@@ -147,18 +169,23 @@ def main(argv: list[str] | None = None) -> int:
         verdict = "auth" if status in AUTH_STATUSES else "REACHABLE"
         shown = "open" if status == STREAM_OPEN else str(status)
         print(f"{method:<7}{path:<{width + 2}}{shown:<5}{verdict}")
+    ws_reachable = 0
     for route in ws:
-        print(f"WS     {route.path:<{width + 2}}-    UNPROBED")
+        status = _probe_websocket(client, _fill(route.path))
+        verdict = "auth" if status in AUTH_STATUSES else "REACHABLE"
+        if verdict == "REACHABLE":
+            ws_reachable += 1
+        print(f"WS     {route.path:<{width + 2}}{status:<5}{verdict}")
 
     reachable = sum(1 for _, _, s in rows if s not in AUTH_STATUSES)
     print(f"positive control GET /health without token: {control}")
-    # Websockets are counted, not probed; they ride on the verdict line so a
-    # reader of only the last line cannot take "0 of N" as the whole surface.
+    # Websockets ride on the verdict line so a reader of only the last line
+    # cannot take "0 of N" as the whole surface.
     print(
         f"REACHABLE {reachable} of {len(rows)} EAP routes anonymously (non-401/403); "
-        f"{len(ws)} websocket route(s) unprobed"
+        f"{ws_reachable} of {len(ws)} websocket route(s) reachable"
     )
-    if expect_zero and (reachable or ws):
+    if expect_zero and (reachable or ws_reachable):
         return 1
     return 0
 

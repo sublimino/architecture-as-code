@@ -17,6 +17,38 @@ set -euo pipefail
 DEFAULT_SECRET="${EAP_WEBHOOK_SECRET:-signalloom-eap-webhook-secret-dev-2026-q3}"
 DEFAULT_BASE_URL="${EAP_BASE_URL:-http://localhost:8080}"
 SALT="${EAP_SALT:-signalloom-eap-salt-2026-q3}"
+# EAPR-P2-1: the webhook receivers are mounted behind authenticated_principal,
+# so a delivery must also carry the tenant's bearer token.  Read from the
+# environment only (never argv, never logged); when unset the request goes out
+# without an Authorization header and the receiver answers 401.
+BEARER_TOKEN="${EAP_BEARER_TOKEN:-}"
+
+# POST <endpoint> <payload> <header>... — the one place a request leaves this
+# script.  The bearer never touches argv: it would be readable by every local
+# user in `ps` / /proc/<pid>/cmdline for the life of the request, so it is
+# piped to curl on stdin and read with `-H @-` (curl >= 7.55).
+post_signed() {
+    local endpoint="$1" payload="$2"
+    shift 2
+    local -a header_args=()
+    local h
+    for h in "$@"; do
+        header_args+=(-H "$h")
+    done
+    if [[ -n "$BEARER_TOKEN" ]]; then
+        printf 'Authorization: Bearer %s\n' "$BEARER_TOKEN" |
+            curl -sS -X POST "$endpoint" "${header_args[@]}" -H @- -d "$payload"
+    else
+        curl -sS -X POST "$endpoint" "${header_args[@]}" -d "$payload"
+    fi
+}
+
+# Dry-run line for the bearer; the token itself is never printed.
+print_bearer_header() {
+    if [[ -n "$BEARER_TOKEN" ]]; then
+        echo "  Authorization: Bearer <redacted, from EAP_BEARER_TOKEN>"
+    fi
+}
 
 compute_hash() {
     local company="${1:-kurasi}"
@@ -68,6 +100,13 @@ Options for generic:
 
 Options for tamper:
   Same as github-pr, but corrupts the HMAC signature before transmission.
+
+Environment:
+  EAP_WEBHOOK_SECRET   HMAC secret (default: the dev secret above)
+  EAP_BASE_URL         Receiver base URL [default: http://localhost:8080]
+  EAP_BEARER_TOKEN     Tenant bearer token sent as "Authorization: Bearer ..." (EAPR-P2-1:
+                       the receivers are authenticated; unset => no header => 401). Never
+                       passed on argv and never printed; --dry-run shows it redacted.
 
 Examples:
   emit-eap-webhook.sh github-pr --company kurasi --pr 101 --action opened --dry-run
@@ -131,18 +170,18 @@ EOF
         echo "  X-GitHub-Event: pull_request"
         echo "  X-GitHub-Delivery: ${delivery_id}"
         echo "  X-Hub-Signature-256: ${header_sig}"
+        print_bearer_header
         echo "Payload:"
         echo "$payload"
         return 0
     fi
 
     echo "Sending GitHub PR webhook [${action}] for ${company} PR #${pr} to ${endpoint}..."
-    curl -sS -X POST "$endpoint" \
-        -H "Content-Type: application/json" \
-        -H "X-GitHub-Event: pull_request" \
-        -H "X-GitHub-Delivery: ${delivery_id}" \
-        -H "X-Hub-Signature-256: ${header_sig}" \
-        -d "$payload"
+    post_signed "$endpoint" "$payload" \
+        "Content-Type: application/json" \
+        "X-GitHub-Event: pull_request" \
+        "X-GitHub-Delivery: ${delivery_id}" \
+        "X-Hub-Signature-256: ${header_sig}"
     echo ""
 }
 
@@ -191,17 +230,17 @@ EOF
         echo "  Content-Type: application/json"
         echo "  X-SignalLoom-Timestamp: ${timestamp}"
         echo "  X-SignalLoom-Signature: sha256=${sig}"
+        print_bearer_header
         echo "Payload:"
         echo "$payload"
         return 0
     fi
 
     echo "Sending generic webhook [${action}] for ${company} to ${endpoint}..."
-    curl -sS -X POST "$endpoint" \
-        -H "Content-Type: application/json" \
-        -H "X-SignalLoom-Timestamp: ${timestamp}" \
-        -H "X-SignalLoom-Signature: sha256=${sig}" \
-        -d "$payload"
+    post_signed "$endpoint" "$payload" \
+        "Content-Type: application/json" \
+        "X-SignalLoom-Timestamp: ${timestamp}" \
+        "X-SignalLoom-Signature: sha256=${sig}"
     echo ""
 }
 

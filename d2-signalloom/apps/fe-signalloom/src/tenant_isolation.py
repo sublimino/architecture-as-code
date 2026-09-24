@@ -413,7 +413,18 @@ GLOBAL_TENANT_ISOLATION_MANAGER = TenantIsolationManager()
 import base64
 import binascii
 
-from fastapi import APIRouter, FastAPI, Header, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+
+import api_compat
+from eap_tenancy import (
+    CUSTOMER_HASH_PATTERN,
+    TENANT_KEY_RE,  # noqa: F401 — re-exported: tenant_isolation owns the tenant model
+    CustomerHash,
+    Tenant,
+    claim_or_403,
+    owned_hashes,
+    require_owned_or_404,
+)
 
 router = APIRouter(prefix="/api/v1/eap/tenants", tags=["eap-tenant-isolation"])
 
@@ -422,27 +433,32 @@ class TenantProvisionRequest(BaseModel):
     """Payload for provisioning a tenant isolation boundary."""
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     company_name: str = Field(..., min_length=1, max_length=64, description="Customer company name")
-    customer_hash: Optional[str] = Field(default=None, min_length=8, max_length=8, description="Optional custom or precomputed hash")
+    customer_hash: Optional[str] = Field(
+        default=None, pattern=CUSTOMER_HASH_PATTERN, description="Optional custom or precomputed 8-char hex hash"
+    )
 
 
 @router.post("", response_model=TenantIsolationConfig, status_code=status.HTTP_201_CREATED)
-async def api_provision_tenant(req: TenantProvisionRequest) -> TenantIsolationConfig:
-    """Provision a tenant isolation boundary."""
+async def api_provision_tenant(req: TenantProvisionRequest, tenant: Tenant) -> TenantIsolationConfig:
+    """Provision a tenant isolation boundary, bound to the caller's tenant."""
+    customer_hash = claim_or_403(req.customer_hash or derive_customer_hash(req.company_name), tenant)
     return GLOBAL_TENANT_ISOLATION_MANAGER.provision_tenant_boundary(
         company_name=req.company_name,
-        customer_hash=req.customer_hash
+        customer_hash=customer_hash,
     )
 
 
 @router.get("", response_model=List[TenantIsolationConfig])
-async def api_list_tenants() -> List[TenantIsolationConfig]:
-    """List all active tenant boundaries."""
-    return GLOBAL_TENANT_ISOLATION_MANAGER.list_active_boundaries()
+async def api_list_tenants(tenant: Tenant) -> List[TenantIsolationConfig]:
+    """List the caller's active tenant boundaries."""
+    mine = owned_hashes(tenant)
+    return [b for b in GLOBAL_TENANT_ISOLATION_MANAGER.list_active_boundaries() if b.customer_hash in mine]
 
 
 @router.get("/{customer_hash}", response_model=TenantIsolationConfig)
-async def api_get_tenant(customer_hash: str) -> TenantIsolationConfig:
+async def api_get_tenant(customer_hash: CustomerHash, tenant: Tenant) -> TenantIsolationConfig:
     """Retrieve tenant boundary configuration by customer hash."""
+    require_owned_or_404(customer_hash, tenant)
     config = GLOBAL_TENANT_ISOLATION_MANAGER.get_tenant_boundary(customer_hash)
     if not config:
         raise HTTPException(
@@ -453,8 +469,9 @@ async def api_get_tenant(customer_hash: str) -> TenantIsolationConfig:
 
 
 @router.delete("/{customer_hash}")
-async def api_teardown_tenant(customer_hash: str) -> Dict[str, Any]:
+async def api_teardown_tenant(customer_hash: CustomerHash, tenant: Tenant) -> Dict[str, Any]:
     """Teardown a tenant boundary by customer hash and shred its transit key."""
+    require_owned_or_404(customer_hash, tenant)
     success = GLOBAL_TENANT_ISOLATION_MANAGER.teardown_tenant_boundary(customer_hash)
     if not success:
         raise HTTPException(
@@ -481,24 +498,19 @@ class TransitDecryptRequest(BaseModel):
     ciphertext: str = Field(..., description="vault:v1: ciphertext")
 
 
-def _authorize_or_403(caller: Optional[str], customer_hash: str) -> None:
-    # The caller identity arrives as a header here; in the deployed topology it
-    # must be taken from the verified mTLS peer SVID, never from a client-set
-    # header. This predicate is the authorization half only.
-    try:
-        authorize_tenant_access(caller, customer_hash)
-    except CrossTenantAccessDenied as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+# EAPR-P2-1: the transit routes authorise by ``tenant == owner(customer_hash)``,
+# where the tenant comes from the verified principal.  No identity header is
+# read here or anywhere else in the EAP routers; main.py strips them at ingress.
 
 
 @router.post("/{customer_hash}/transit/encrypt")
 async def api_tenant_encrypt(
-    customer_hash: str,
+    customer_hash: CustomerHash,
     req: TransitEncryptRequest,
-    x_spiffe_id: Optional[str] = Header(default=None, alias="X-SPIFFE-ID"),
+    tenant: Tenant,
 ) -> Dict[str, Any]:
-    """Encrypt with the tenant's own transit key; cross-tenant callers get 403."""
-    _authorize_or_403(x_spiffe_id, customer_hash)
+    """Encrypt with the tenant's own transit key; another tenant's key is not found."""
+    require_owned_or_404(customer_hash, tenant)
     try:
         plaintext = base64.b64decode(req.plaintext, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -512,12 +524,12 @@ async def api_tenant_encrypt(
 
 @router.post("/{customer_hash}/transit/decrypt")
 async def api_tenant_decrypt(
-    customer_hash: str,
+    customer_hash: CustomerHash,
     req: TransitDecryptRequest,
-    x_spiffe_id: Optional[str] = Header(default=None, alias="X-SPIFFE-ID"),
+    tenant: Tenant,
 ) -> Dict[str, Any]:
-    """Decrypt with the tenant's own transit key; cross-tenant callers get 403."""
-    _authorize_or_403(x_spiffe_id, customer_hash)
+    """Decrypt with the tenant's own transit key; another tenant's key is not found."""
+    require_owned_or_404(customer_hash, tenant)
     try:
         plaintext = GLOBAL_TENANT_ISOLATION_MANAGER.decrypt_for_tenant(customer_hash, req.ciphertext)
     except TransitKeyNotFound as exc:
@@ -528,8 +540,9 @@ async def api_tenant_decrypt(
 
 
 @router.get("/{customer_hash}/manifests")
-async def api_get_tenant_manifests(customer_hash: str) -> Dict[str, Any]:
+async def api_get_tenant_manifests(customer_hash: CustomerHash, tenant: Tenant) -> Dict[str, Any]:
     """Retrieve Kubernetes manifests for tenant isolation boundary."""
+    require_owned_or_404(customer_hash, tenant)
     config = GLOBAL_TENANT_ISOLATION_MANAGER.get_tenant_boundary(customer_hash)
     if not config:
         # Never synthesise a boundary: labelling an unknown hash with some
@@ -548,11 +561,16 @@ async def api_get_tenant_manifests(customer_hash: str) -> Dict[str, Any]:
 
 
 @router.get("/{customer_hash}/spire-entry")
-async def api_get_tenant_spire_entry(customer_hash: str) -> Dict[str, Any]:
+async def api_get_tenant_spire_entry(customer_hash: CustomerHash, tenant: Tenant) -> Dict[str, Any]:
     """Retrieve SPIRE workload attestation entry for tenant."""
+    require_owned_or_404(customer_hash, tenant)
     return generate_spire_registration_entry(customer_hash.lower())
 
 
 def install_tenant_isolation_api(app: FastAPI) -> None:
-    """Mount tenant isolation API routes into the FastAPI application."""
-    app.include_router(router)
+    """Mount tenant isolation API routes into the FastAPI application.
+
+    The authentication dependency is attached at the mount (EAPR-P2-1, SP-5) so a
+    route added to this router is denied by default rather than opt-in.
+    """
+    app.include_router(router, dependencies=[Depends(api_compat.authenticated_principal)])

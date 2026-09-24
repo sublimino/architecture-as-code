@@ -18,9 +18,12 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
-from fastapi import APIRouter, FastAPI, Header, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
+import api_compat
+from eap_tenancy import CUSTOMER_HASH_PATTERN as _TENANT_KEY_PATTERN
+from eap_tenancy import CustomerHash, Tenant, claim_or_403, owned_hashes, require_owned_or_404
 from environment_routing import derive_customer_hash
 from tenant_isolation import get_tenant_namespace, get_tenant_spiffe_id
 
@@ -57,7 +60,7 @@ class ExecuteScenarioRequest(BaseModel):
 
     scenario_type: ScenarioType = Field(default=ScenarioType.BASELINE_AGENT_FLOW)
     company_name: str = Field(default="kurasi", min_length=1, max_length=64)
-    customer_hash: Optional[str] = Field(default=None, min_length=8, max_length=8)
+    customer_hash: Optional[str] = Field(default=None, pattern=_TENANT_KEY_PATTERN)
 
 
 class ScenarioExecutionResult(BaseModel):
@@ -302,7 +305,7 @@ class ScenarioManager:
             return list(events[cursor:]), len(events)
 
 
-CUSTOMER_HASH_PATTERN = r"^[0-9a-f]{8}$"
+CUSTOMER_HASH_PATTERN = _TENANT_KEY_PATTERN  # single definition lives in eap_tenancy (EAPR-P2-1)
 SSE_POLL_INTERVAL_SECONDS = 0.05
 SSE_HEARTBEAT_SECONDS = 15.0
 
@@ -361,25 +364,33 @@ router = APIRouter(prefix="/api/v1/eap/scenarios", tags=["eap-synthetic-scenario
 
 
 @router.post("/execute", response_model=ScenarioExecutionResult, status_code=status.HTTP_201_CREATED)
-async def api_execute_scenario(req: ExecuteScenarioRequest) -> ScenarioExecutionResult:
-    """Trigger execution of a synthetic governance or security scenario."""
+async def api_execute_scenario(req: ExecuteScenarioRequest, tenant: Tenant) -> ScenarioExecutionResult:
+    """Trigger execution of a synthetic governance or security scenario.
+
+    The customer hash is derived server-side when the body omits it and is
+    bound to the caller's tenant; a hash another tenant owns is refused with
+    403 (EAPR-P2-1).
+    """
+    customer_hash = claim_or_403(req.customer_hash or derive_customer_hash(req.company_name), tenant)
     return GLOBAL_SCENARIO_MANAGER.execute_scenario(
         scenario_type=req.scenario_type,
         company_name=req.company_name,
-        customer_hash=req.customer_hash
+        customer_hash=customer_hash,
     )
 
 
 @router.get("/events/{customer_hash}", response_model=List[SyntheticAuditEvent])
-async def api_get_customer_events(customer_hash: str) -> List[SyntheticAuditEvent]:
-    """Retrieve all seeded audit events for an evaluation customer."""
+async def api_get_customer_events(customer_hash: CustomerHash, tenant: Tenant) -> List[SyntheticAuditEvent]:
+    """Retrieve all seeded audit events for one of the caller's evaluation customers."""
+    require_owned_or_404(customer_hash, tenant)
     events = GLOBAL_SCENARIO_MANAGER.get_events_for_customer(customer_hash)
     return events
 
 
 @router.get("/events/{customer_hash}/stream", response_class=StreamingResponse)
 async def api_stream_customer_events(
-    customer_hash: str = Path(..., pattern=CUSTOMER_HASH_PATTERN),
+    customer_hash: CustomerHash,
+    tenant: Tenant,
     replay: bool = Query(default=True, description="Replay existing events before live ones"),
     limit: int | None = Query(default=None, ge=1, le=10000, description="Close after N events"),
     last_event_id: str | None = Header(default=None, pattern=r"^[0-9]{1,9}$"),
@@ -388,6 +399,7 @@ async def api_stream_customer_events(
 
     A reconnecting EventSource sends Last-Event-ID; the stream resumes after it.
     """
+    require_owned_or_404(customer_hash, tenant)
     start_after = int(last_event_id) if last_event_id is not None else None
     return StreamingResponse(
         stream_customer_events(GLOBAL_SCENARIO_MANAGER, customer_hash, replay=replay,
@@ -398,11 +410,16 @@ async def api_stream_customer_events(
 
 
 @router.get("/history", response_model=List[ScenarioExecutionResult])
-async def api_get_scenario_history() -> List[ScenarioExecutionResult]:
-    """Retrieve audit history of all executed scenarios."""
-    return GLOBAL_SCENARIO_MANAGER.get_history()
+async def api_get_scenario_history(tenant: Tenant) -> List[ScenarioExecutionResult]:
+    """Retrieve the caller's scenario execution history."""
+    mine = owned_hashes(tenant)
+    return [h for h in GLOBAL_SCENARIO_MANAGER.get_history() if h.customer_hash in mine]
 
 
 def install_scenario_seeding_api(app: FastAPI) -> None:
-    """Mount synthetic scenario API router into FastAPI application."""
-    app.include_router(router)
+    """Mount synthetic scenario API router into FastAPI application.
+
+    The authentication dependency is attached at the mount (EAPR-P2-1, SP-5) so a
+    route added to this router is denied by default rather than opt-in.
+    """
+    app.include_router(router, dependencies=[Depends(api_compat.authenticated_principal)])

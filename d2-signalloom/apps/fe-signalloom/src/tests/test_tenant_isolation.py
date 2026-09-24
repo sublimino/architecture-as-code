@@ -616,8 +616,11 @@ def test_the_route_sweep_covers_every_authenticated_api_route(client):
     checked -- which is how the existing four-route sample came to be treated
     as coverage in the first place.
 
-    Every ``/api`` route must therefore appear in ``DB_ROUTES`` or in
-    ``NOT_DATABASE_BACKED`` with a stated reason.
+    Every ``/api`` route must therefore appear in ``DB_ROUTES``, in
+    ``NOT_DATABASE_BACKED`` with a stated reason, or (EAPR-P2-1) in the
+    ``EAP_TENANT_BOUND_ROUTES`` list derived from the five EAP routers, whose
+    tenant binding ``test_every_eap_route_is_bound_to_the_callers_tenant``
+    checks in memory.
     """
     # This FastAPI version stores included routers as opaque _IncludedRouter
     # entries, so app.routes no longer exposes their paths. OpenAPI is the
@@ -631,7 +634,7 @@ def test_the_route_sweep_covers_every_authenticated_api_route(client):
     }
     # DB_ROUTES holds concrete URLs; map them back to their templates.
     swept = {(method, _template_for(path)) for method, path, _ in DB_ROUTES}
-    classified = swept | set(NOT_DATABASE_BACKED)
+    classified = swept | set(NOT_DATABASE_BACKED) | set(EAP_TENANT_BOUND_ROUTES)
 
     unclassified = registered - classified
     assert not unclassified, (
@@ -718,25 +721,8 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/demo/distancelatency/reset"),
     ("GET", "/api/demo/distancelatency/status"),
     # Signal fusion -- pure proxy to Go signal-ingest service; no local DB.
-    # SLEA on-demand EAP environment routing & mesh manager (in-memory / tailscale)
-    ("GET", "/api/v1/environments/"),
-    ("GET", "/api/v1/environments/{environment_id}"),
-    ("POST", "/api/v1/environments/provision"),
-    ("POST", "/api/v1/environments/resolve-domain"),
-    ("POST", "/api/v1/environments/{environment_id}/extend"),
-    ("POST", "/api/v1/environments/{environment_id}/teardown"),
-    # SLTE webhook triggers (stateless signature verifier / event pipeline)
-    ("POST", "/api/v1/webhooks/generic"),
-    ("POST", "/api/v1/webhooks/github"),
-    # SLET EAP tenant isolation & cryptographic identity engine (K8s/OpenBao/SPIRE)
-    ("GET", "/api/v1/eap/tenants"),
-    ("POST", "/api/v1/eap/tenants"),
-    ("GET", "/api/v1/eap/tenants/{customer_hash}"),
-    ("DELETE", "/api/v1/eap/tenants/{customer_hash}"),
-    ("GET", "/api/v1/eap/tenants/{customer_hash}/manifests"),
-    ("GET", "/api/v1/eap/tenants/{customer_hash}/spire-entry"),
-    ("POST", "/api/v1/eap/tenants/{customer_hash}/transit/encrypt"),
-    ("POST", "/api/v1/eap/tenants/{customer_hash}/transit/decrypt"),
+    # (The 16 EAP routes that used to sit here left on EAPR-P2-1: they are
+    # tenant-bound in memory and swept by EAP_TENANT_BOUND_ROUTES below.)
     #
     # The exemption rests on a fact worth stating, because "no local DB" only
     # explains why the SWEEP cannot test these and not why that is acceptable:
@@ -1837,6 +1823,275 @@ def test_rbac_correlation_routes_are_not_tenant_scoped_at_all(client, monkeypatc
 # THE SUSPICIOUS STATE. So the count and the names are declared here and checked
 # against what pytest actually collected.
 #
+# ---------------------------------------------------------------------------
+# EAPR-P2-1: the five EAP routers are tenant-bound in memory, not in SQL
+# ---------------------------------------------------------------------------
+#
+# The four EAP engines (tenant boundaries, environment registry, lifecycle
+# manager, scenario manager) are module-level in-memory stores keyed by
+# customer hash.  None issues a SQL statement, so the DB_ROUTES sweep above
+# cannot see them; 16 of their routes used to sit in NOT_DATABASE_BACKED and
+# the other 18 were simply unclassified (the coverage test was red on the
+# merged base).  Tenancy for them is the ownership map in ``eap_tenancy``: a
+# create claims the hash for the caller's tenant, every hash- or id-addressed
+# route answers 404 to any other tenant, and listings are filtered.
+#
+# The route list is DERIVED from ``app.routes`` by endpoint module -- never a
+# hand list -- so a route added to one of the five routers is swept here
+# automatically and cannot be born unclassified.  A route that is derived but
+# not actually bound fails ``test_every_eap_route_is_bound_to_the_callers_tenant``
+# rather than the coverage test, which is the difference between "classified"
+# and "exempt".
+
+import base64 as _base64
+
+from fastapi.routing import APIRoute as _APIRoute
+
+EAP_MODULES: frozenset[str] = frozenset({
+    "tenant_isolation",
+    "scenario_seeding",
+    "environment_routing",
+    "environment_lifecycle",
+    "webhook_triggers",
+})
+
+
+def _eap_http_routes() -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    for route in app.routes:
+        if not isinstance(route, _APIRoute):
+            continue
+        if getattr(route.endpoint, "__module__", "") not in EAP_MODULES:
+            continue
+        for method in sorted(route.methods or ()):
+            if method not in {"HEAD", "OPTIONS"}:
+                found.append((method, route.path))
+    return sorted(found)
+
+
+#: Every HTTP operation the five EAP routers expose, derived at import.
+EAP_TENANT_BOUND_ROUTES: list[tuple[str, str]] = _eap_http_routes()
+
+from conftest import EAP_OPERATOR_ONLY_ROUTES  # noqa: E402 — the P2-1 section's one shared list
+
+#: Path prefixes that identify an EAP route wherever it appears.
+EAP_PATH_PREFIXES = ("/api/v1/eap/", "/api/v1/environments", "/api/v1/webhooks")
+
+ALICE_EAP_COMPANY, BOB_EAP_COMPANY = "alice-eap-corp", "bob-eap-corp"
+
+
+def _terminate_stale_environment(company: str) -> None:
+    """A failed earlier test can leave an active environment behind; clear it directly."""
+    import environment_routing as _er
+
+    rec = _er.GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(_er.derive_customer_hash(company))
+    if rec and rec.state != _er.EnvironmentState.TERMINATED:
+        _er.GLOBAL_ENVIRONMENT_REGISTRY.teardown(rec.id, reason="test reset", force=True)
+
+
+@pytest.fixture
+def two_tenant_eap(client, fresh_tenant_ownership):
+    """Seed BOTH tenants in every EAP engine through the API, foreign tenant first.
+
+    Two tenants, always: a single seeded tenant cannot reveal a missing filter
+    because every row it can return is the caller's own (see the SQL sweep
+    above, and SLES-P4-GOV M1 on dict order -- the foreign tenant is seeded
+    first so a filter that returns "the first N" is caught).
+    """
+    seeded: dict[str, dict[str, str]] = {}
+    for subject, company in ((BOB, BOB_EAP_COMPANY), (ALICE, ALICE_EAP_COMPANY)):
+        _terminate_stale_environment(company)
+        headers = bearer(subject)
+        env = client.post("/api/v1/environments/provision", json={"company_name": company}, headers=headers)
+        assert env.status_code == 201, env.text
+        for path in ("/api/v1/eap/tenants", "/api/v1/eap/lifecycle/register", "/api/v1/eap/scenarios/execute"):
+            created = client.post(path, json={"company_name": company}, headers=headers)
+            assert created.status_code == 201, (path, created.text)
+        seeded[subject] = {"hash": env.json()["customer_hash"], "env_id": env.json()["id"]}
+    yield seeded
+    for subject, own in seeded.items():
+        client.post(f"/api/v1/environments/{own['env_id']}/teardown", json={"force": True}, headers=bearer(subject))
+
+
+def _eap_request_for(method: str, path: str, target: dict[str, str]) -> tuple[str, dict[str, Any] | None]:
+    """A concrete request for a route template, addressed at ``target``'s resources."""
+    url = path.replace("{customer_hash}", target["hash"]).replace("{environment_id}", target["env_id"])
+    if url.endswith("/stream"):
+        url += "?limit=1"  # the SSE stream closes after one event instead of running forever
+    bodies = {
+        "/provision": {"company_name": ALICE_EAP_COMPANY},
+        "/resolve-domain": {"company_name": ALICE_EAP_COMPANY},
+        "/api/v1/eap/tenants": {"company_name": ALICE_EAP_COMPANY},
+        "/execute": {"company_name": ALICE_EAP_COMPANY},
+        "/register": {"company_name": ALICE_EAP_COMPANY},
+        "/heartbeat": {"extend_minutes": 5},
+        "/transit/encrypt": {"plaintext": _base64.b64encode(b"tenant-bound").decode()},
+        "/transit/decrypt": {"ciphertext": "vault:v1:AAAA"},
+        "/extend": {"additional_minutes": 5},
+    }
+    body: dict[str, Any] | None = None
+    if method in {"POST", "PUT", "PATCH"}:
+        body = next((b for suffix, b in bodies.items() if path.endswith(suffix)), {})
+    return url, body
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    EAP_TENANT_BOUND_ROUTES,
+    ids=[f"{method} {path}" for method, path in EAP_TENANT_BOUND_ROUTES],
+)
+def test_every_eap_route_is_bound_to_the_callers_tenant(client, two_tenant_eap, method, path, monkeypatch):
+    """Anonymous -> 401; another tenant, even with forged identity headers, never sees the target.
+
+    Three probes per route, in one function so the positive control cannot be
+    deselected away from the negatives:
+
+    1. ALICE addresses her own resource and gets through (not 401/403/404), and
+       for reads her hash is in the body -- so an empty or refused body below
+       cannot be mistaken for isolation.
+    2. Nobody: no Authorization at all -> 401 from the router mount, before any
+       validation or handler runs.
+    3. BOB, with a valid bearer AND ``X-SPIFFE-ID`` / ``X-Tenant-Id`` naming
+       ALICE: the body never contains ALICE's hash or environment id, and a
+       hash- or id-addressed route answers 404 (not 403: existence is not
+       leaked).
+
+    The webhook receivers verify an HMAC after the mount; without a signature
+    they answer 401 for everyone, which is asserted as such.
+    """
+    alice = two_tenant_eap[ALICE]
+    url, body = _eap_request_for(method, path, alice)
+    is_webhook = path.startswith("/api/v1/webhooks")
+    addressed = "{customer_hash}" in path or "{environment_id}" in path
+
+    if (method, path) in EAP_OPERATOR_ONLY_ROUTES:
+        # Process-wide reaper controls (EAPR-P2-1, after cross-vendor review): one
+        # daemon serves every tenant, so tenancy cannot bind them; the operator role
+        # does.  A tenant principal is refused by role, forged headers or not; anonymous
+        # is refused at the mount; the same subject on the operator allow-list gets through.
+        refused = client.request(method, url, json=body, headers=bearer(ALICE))
+        assert refused.status_code == 403, (refused.status_code, refused.text)
+        assert refused.json()["error"]["code"] == "superadmin_required", refused.text
+        anon = client.request(method, url, json=body)
+        assert anon.status_code == 401, (anon.status_code, anon.text)
+        foreign = client.request(
+            method,
+            url,
+            json=body,
+            headers={**bearer(BOB), "X-SPIFFE-ID": f"spiffe://signalloom.demo/ns/eap-{alice['hash']}/sa/tenant-app", "X-Tenant-Id": alice["hash"]},
+        )
+        assert foreign.status_code == 403, (foreign.status_code, foreign.text)
+        assert alice["hash"] not in foreign.text, foreign.text
+        monkeypatch.setattr(settings, "api_superadmin_subjects", {ALICE})
+        own = client.request(method, url, json=body, headers=bearer(ALICE))
+        assert own.status_code == 200, (own.status_code, own.text)
+        if path.endswith("/pause"):
+            client.request("POST", "/api/v1/eap/lifecycle/reaper/resume", headers=bearer(ALICE))
+        return
+
+    # 1. Positive control: the same request, as the owner.
+    own = client.request(method, url, json=body, headers=bearer(ALICE))
+    if is_webhook:
+        assert own.status_code == 401, (own.status_code, own.text)  # HMAC gate, not the mount
+    else:
+        assert own.status_code not in (401, 403, 404), (own.status_code, own.text)
+        if method == "GET" and (addressed or path.endswith(("/tenants", "/active", "/history", "/environments/"))):
+            assert alice["hash"] in own.text or alice["env_id"] in own.text, own.text
+
+    # 2. Anonymous: refused at the mount.
+    anon = client.request(method, url, json=body)
+    assert anon.status_code == 401, (anon.status_code, anon.text)
+
+    # 3. Cross-tenant with forged identity headers.
+    forged = {
+        **bearer(BOB),
+        "X-SPIFFE-ID": f"spiffe://signalloom.demo/ns/eap-{alice['hash']}/sa/tenant-app",
+        "X-Tenant-Id": alice["hash"],
+        "X-Forwarded-User": ALICE,
+    }
+    foreign = client.request(method, url, json=body, headers=forged)
+    assert foreign.status_code < 500, (foreign.status_code, foreign.text)
+    assert alice["hash"] not in foreign.text, foreign.text
+    assert alice["env_id"] not in foreign.text, foreign.text
+    if addressed and not is_webhook:
+        assert foreign.status_code == 404, (foreign.status_code, foreign.text)
+
+
+def test_every_eap_route_carries_the_mount_level_auth_dependency():
+    """The denial lives at the MOUNT, not in the handler (EAPR-P2-1 root cause).
+
+    Behavioural probes cannot tell the two apart: a handler that takes
+    ``tenant: Tenant`` pulls ``authenticated_principal`` in through its own
+    parameter, so removing ``dependencies=[...]`` from four of the five
+    ``include_router`` calls leaves every anonymous probe green (measured:
+    34/34 still passed with the tenant_isolation, scenario_seeding,
+    environment_routing and webhook_triggers mounts stripped).  The property
+    the card actually requires -- a route added to one of these routers is
+    denied by default with no per-handler opt-in -- is structural, so it is
+    asserted structurally: ``include_router(dependencies=...)`` lands in
+    ``route.dependencies`` on every route it mounts (websocket included),
+    whereas a handler parameter does not.
+    """
+    from fastapi.routing import APIWebSocketRoute as _APIWebSocketRoute
+
+    eap_routes = [
+        route for route in app.routes
+        if isinstance(route, (_APIRoute, _APIWebSocketRoute))
+        and getattr(route.endpoint, "__module__", "") in EAP_MODULES
+    ]
+    assert len(eap_routes) >= MINIMUM_SWEEP_SIZES["EAP_TENANT_BOUND_ROUTES"], len(eap_routes)
+    assert any(isinstance(route, _APIWebSocketRoute) for route in eap_routes), "the websocket route is missing"
+
+    unmounted = sorted(
+        f"{type(route).__name__} {route.path}"
+        for route in eap_routes
+        if not any(dep.dependency is api_compat.authenticated_principal for dep in route.dependencies)
+    )
+    assert not unmounted, (
+        "these EAP routes are not covered by a router-level "
+        "dependencies=[Depends(api_compat.authenticated_principal)] at include_router:\n  "
+        + "\n  ".join(unmounted)
+    )
+
+
+def test_no_eap_router_reads_an_identity_header():
+    """No EAP router source names an identity header (SLET B1 site, closed).
+
+    ``IdentityHeaderStripMiddleware`` makes a reinstated ``X-SPIFFE-ID`` read
+    inert, so the behavioural probes above would stay green through exactly
+    the regression this card exists to prevent.  The doctrine is "never read",
+    not "read but stripped": assert it on the source, comments excluded.
+    """
+    import importlib
+    import inspect
+    import re as _re
+
+    banned = _re.compile(r"X-SPIFFE-ID|x_spiffe_id|X-Tenant-Id|X-Forwarded-User|X-Principal", _re.IGNORECASE)
+    offenders: list[str] = []
+    for name in sorted(EAP_MODULES | {"tenant_transit", "eap_tenancy"}):
+        source = inspect.getsource(importlib.import_module(name))
+        for number, line in enumerate(source.splitlines(), start=1):
+            code = line.split("#", 1)[0]
+            if banned.search(code) and "Header(" in code or banned.search(code) and "headers" in code:
+                offenders.append(f"{name}.py:{number}: {line.strip()}")
+    assert not offenders, "EAP code reads an identity header:\n  " + "\n  ".join(offenders)
+
+
+def test_no_eap_route_is_exempted_from_the_tenant_sweep():
+    """Exemption-list laundering guard (SP-2): EAP routes are swept, never excused.
+
+    Deleting the 16 entries is only meaningful if nothing can put one back;
+    this fails the moment any EAP path reappears in NOT_DATABASE_BACKED, and it
+    fails if the derived list shrinks below the surface P2-PRE inventoried.
+    """
+    exempted = sorted(f"{m} {p}" for m, p in NOT_DATABASE_BACKED if p.startswith(EAP_PATH_PREFIXES))
+    assert not exempted, "EAP routes are back in NOT_DATABASE_BACKED:\n  " + "\n  ".join(exempted)
+    assert len(EAP_TENANT_BOUND_ROUTES) >= MINIMUM_SWEEP_SIZES["EAP_TENANT_BOUND_ROUTES"], EAP_TENANT_BOUND_ROUTES
+    # Every derived route really is an EAP path, so the prefixes above and the
+    # module filter agree on what "EAP" means.
+    assert all(p.startswith(EAP_PATH_PREFIXES) for _, p in EAP_TENANT_BOUND_ROUTES), EAP_TENANT_BOUND_ROUTES
+
+
 # Verified empirically rather than assumed: under `-n auto --dist worksteal`
 # (this repo's default addopts) every xdist worker's `session.items` holds the
 # FULL collected set -- measured, one worker, whole suite: `WORKER=gw15 SEES=82`.
@@ -1883,6 +2138,11 @@ ATTACK_MANIFEST: frozenset[str] = frozenset({
     "test_the_policy_scan_path_does_filter_the_same_governance_tables",
     "test_rbac_correlation_routes_are_not_tenant_scoped_at_all",
     "test_demo_runs_are_a_global_singleton_readable_by_every_tenant",
+    # EAPR-P2-1: in-memory tenant binding of the five EAP routers
+    "test_every_eap_route_is_bound_to_the_callers_tenant",
+    "test_no_eap_route_is_exempted_from_the_tenant_sweep",
+    "test_every_eap_route_carries_the_mount_level_auth_dependency",
+    "test_no_eap_router_reads_an_identity_header",
 })
 
 #: Parametrised expansions, derived so adding a route updates this by itself
@@ -1892,11 +2152,12 @@ PARAMETRISED_CASES: dict[str, int] = {
     "test_privileged_routes_refuse_an_ordinary_authenticated_caller": len(SUPERADMIN_ROUTES),
     "test_privileged_routes_get_past_the_gate_for_a_real_superadmin": len(SUPERADMIN_ROUTES),
     "test_each_claim_forgery_is_refused_by_the_check_it_targets": 10,
+    "test_every_eap_route_is_bound_to_the_callers_tenant": len(EAP_TENANT_BOUND_ROUTES),
 }
 
 #: Floors, so a table that is emptied by a bad merge cannot satisfy the
 #: derivation above by making both sides zero.
-MINIMUM_SWEEP_SIZES = {"DB_ROUTES": 30, "SUPERADMIN_ROUTES": 6}
+MINIMUM_SWEEP_SIZES = {"DB_ROUTES": 30, "SUPERADMIN_ROUTES": 6, "EAP_TENANT_BOUND_ROUTES": 23}
 
 
 def test_every_declared_attack_case_was_actually_collected(request):

@@ -8,7 +8,15 @@ from __future__ import annotations
 
 import json
 import os
+import importlib.util
 from pathlib import Path
+
+# EAPR-P1-3: shared card contract — filename-collision refusal and the D1
+# Authorization wire spec carried into every generated card.
+_cc_spec = importlib.util.spec_from_file_location(
+    "_card_contract", str(Path(__file__).resolve().parent / "_card_contract.py"))
+cc = importlib.util.module_from_spec(_cc_spec)
+_cc_spec.loader.exec_module(cc)
 
 SPEC_DIR = Path.home() / ".cline" / "kanban" / "card-specs" / "SLEA"
 SPEC_DIR.mkdir(parents=True, exist_ok=True)
@@ -834,7 +842,7 @@ SPECS = {
         "approach": [
             "Run all unit, integration, and acceptance tests in fe-signalloom.",
             "Run scripts/eap/test_tailscale_eap_env.sh CLI test suite.",
-            "Verify that docs/Proposal — SLEA Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md has clean errata.",
+            "Verify that /home/andy/Documents/Obsidian/v1/2. Areas/CEO/Innovation Proposals/Proposal — SLEA Signal Loom On-Demand EAP Environment Routing & Tailscale Provisioning Engine (2026-Q3).md has clean errata.",
             "Run scripts/kanban-check.sh doctor --shortcode SLEA to confirm zero unresolved defects.",
             "Publish mission certification record in docs/signalloom/slea-mission-complete.md and append final errata block."
         ],
@@ -880,6 +888,7 @@ def main():
     
     count = 0
     for logical_id, card_spec in SPECS.items():
+        card_spec = cc.apply_card_contract(card_spec, repo_root=cc.REPO_ROOT)
         spec_payload = {
             "specCacheVersion": 1,
             "shortcode": "SLEA",

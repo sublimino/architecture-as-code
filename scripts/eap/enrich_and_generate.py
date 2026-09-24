@@ -15,6 +15,13 @@ import os
 import sys
 from pathlib import Path
 
+# EAPR-P1-3: shared card contract — filename-collision refusal and the D1
+# Authorization wire spec carried into every generated card.
+_cc_spec = importlib.util.spec_from_file_location(
+    "_card_contract", str(Path(__file__).resolve().parent / "_card_contract.py"))
+cc = importlib.util.module_from_spec(_cc_spec)
+_cc_spec.loader.exec_module(cc)
+
 # Load prompt-contract spec_metrics
 pc_spec = importlib.util.spec_from_file_location(
     "prompt_contract",
@@ -33,7 +40,7 @@ PROPOSAL_PATH = Path(
 CONTRACT_SHA = hashlib.sha256(PROPOSAL_PATH.read_bytes()).hexdigest()
 
 # Load the base specs from generate_slea_specs_v2
-v2_spec = importlib.util.spec_from_file_location("v2", "/home/andy/src/cp/osramp-demo/scripts/eap/generate_slea_specs_v2.py")
+v2_spec = importlib.util.spec_from_file_location("v2", str(Path(__file__).resolve().parent / "generate_slea_specs_v2.py"))
 v2 = importlib.util.module_from_spec(v2_spec)
 v2_spec.loader.exec_module(v2)
 specs = v2.RAW_SPECS
@@ -419,6 +426,7 @@ def main():
             print(f"[{status}] {lid} ({band} {role}): {m['words']}w, {m['lines']}l, {m['deliverables']}d, {m['tests']}t, {m['distinctLineRatio']}r")
 
         # Write out to card-specs/SLEA/<ID>.v1.json
+        card_spec = cc.apply_card_contract(card_spec, repo_root=cc.REPO_ROOT)
         spec_payload = {
             "specCacheVersion": 1,
             "shortcode": "SLEA",

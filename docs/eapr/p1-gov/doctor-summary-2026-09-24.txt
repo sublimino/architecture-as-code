@@ -1,0 +1,18 @@
+EAPR-P1-GOV legacy doctor rerun
+Captured: 2026-09-24 08:25:40-05:00
+
+Invocation root:
+/home/andy/src/.worktrees/osramp-demo/eapr-v0.1.0/governor
+
+SLEA rc=1
+SLET rc=1
+SLES rc=1
+SLED rc=1
+ZZZZ invalid-shortcode control rc=1
+
+Common output:
+kanban-check: kanban task list returned no board for /home/andy/src/.worktrees/osramp-demo/eapr-v0.1.0/governor: Task command failed at http://127.0.0.1:3484: Project /home/andy/src/.worktrees/osramp-demo/eapr-v0.1.0/governor is not added to Kanban yet.
+
+Result: FAIL. No board was registered for the mandated governor worktree, so
+the four real doctors and the invalid-shortcode control could not reach their
+diagnostic predicates.

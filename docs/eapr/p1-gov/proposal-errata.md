@@ -111,3 +111,39 @@ from the fifteen-suite gate only after all 375 tests pass with zero skips.
 Human final review required before any P2 card starts
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+---
+
+#### Rerun Errata — EAPR-P1-GOV Phase 1 Governor
+
+**Created:** 2026-09-23 20:44:10-05:00
+**Last Updated:** 2026-09-24 08:25:40-05:00
+**Result:** Failed after green fifteen-suite gate; Phase 1 remains uncertified
+**Decision:** `status=fail`, `proceed=no`, `blocking_drift=yes`
+
+The complete fifteen-suite gate now passes: 375 loaded, 375 passed, zero
+failed, zero skipped. Certification stops at later independent hard gates:
+
+1. Mutation rows 1-10 are red-then-green, but row 11 is green-then-green. The
+   current `kanban-max-arg-strlen.bats` hardcodes the merged script and no longer
+   honours `KANBAN_CHECK_SCRIPT`, so it cannot exercise the preserved pre-fix
+   executable.
+2. The forged proposal-only marker is rewritten to `claimed` and
+   `corroborated=false`, but the absent board card is omitted from
+   `done-advance --dry-run` rather than printed as the required SKIP.
+3. The current database retains none of the thirteen historical zero-output
+   card rows named by P1-1; the predicate remains covered by mutation row D11-3
+   but cannot be demonstrated on a retained live card.
+4. SLEA, SLET, SLES, SLED, ZZZZ control, and the mechanical EAPR cost command
+   all fail before their predicates because the mandated governor worktree is
+   not registered as a Kanban project.
+
+No P1-4/P1-3 merge, offline acceptance run, tag, push, runtime-state mutation,
+tooling patch, self-approval, or P2 operation was performed. Human review and
+P1-2 remediation are required before another certification rerun.
+
+Evidence: `docs/eapr/p1-gov/rerun-2026-09-24.md` and its referenced summaries.
+
+Human final review required before any P2 card starts
+
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

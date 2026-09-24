@@ -1,4 +1,11 @@
 {
+  "18050": {
+    "task_id": "18050",
+    "reviewed_at": "2026-09-15T13:49:12Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLCD-P6-GOV final mission governor certified delivery: full mission test surface verified green, all 6 phases audited, commits df3d6ef1, b5d7c12c, b1c336b0 integrated"
+  },
   "21309": {
     "task_id": "21309",
     "reviewed_at": "2026-09-01T23:56:59Z",
@@ -55,6 +62,13 @@
     "verdict": "pass",
     "reason": "Temporal edge invalidation, StunEventListener, DelegationReaper sweeper with panic recovery, POST /api/v1/delegations/revoke, and HTTP 403 Forbidden with REVOKED badge (<12ms latency) verified with 100% passing tests (18/18 packages)"
   },
+  "50129": {
+    "task_id": "50129",
+    "reviewed_at": "2026-09-15T12:46:43Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLCD-P6-1 verified: 5 mission-wide test suites consolidated (+2,066 lines); 10/10 slcd-ci-parity.bats pass; 17 prohibited procfs deny-list pinned; dynamic path contracts preserved"
+  },
   "55793": {
     "task_id": "55793",
     "reviewed_at": "2026-09-07T20:15:34Z",
@@ -75,6 +89,13 @@
     "reviewer": "supervisor",
     "verdict": "pass",
     "reason": "AMXO-P3-GOV: Phase 3 Governor certified; reconciled migrations 040 and 041, least privilege credential scope verified, 149/149 host and isolation tests green, proof recorded in docs/signalloom/amxo-p3-gov-proof.md"
+  },
+  "57887": {
+    "task_id": "57887",
+    "reviewed_at": "2026-09-15T13:22:07Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLCD-P6-4 verified: Makefile demo-signalloom-coding-agent-topology target and aggregator wired; SPEC-REGISTRY.tsv updated; 7/7 acceptance-spec-coverage.bats pass"
   },
   "58461": {
     "task_id": "58461",
@@ -131,7 +152,7 @@
     "reviewed_at": "2026-09-15T06:21:11.474963Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50\u00b5s), and defined forensic ledger schema and Go types"
+    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
   },
   "80803": {
     "task_id": "80803",
@@ -2272,7 +2293,7 @@
     "reviewed_at": "2026-09-14T20:35:04Z",
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
-    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc §7.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   },
   "302f6": {
     "task_id": "302f6",
@@ -2848,13 +2869,6 @@
     "verdict": "APPROVED",
     "reason": "SLCD-P6-2 verified: complete docs suite (architecture, zero-payload, runbook, ranges, lawful basis); clean astro build (28 pages); 13/13 docs render tests pass"
   },
-  "50129": {
-    "task_id": "50129",
-    "reviewed_at": "2026-09-15T12:46:43Z",
-    "reviewer": "Council of Agents",
-    "verdict": "APPROVED",
-    "reason": "SLCD-P6-1 verified: 5 mission-wide test suites consolidated (+2,066 lines); 10/10 slcd-ci-parity.bats pass; 17 prohibited procfs deny-list pinned; dynamic path contracts preserved"
-  },
   "4d5c9": {
     "task_id": "4d5c9",
     "reviewed_at": "2026-09-15T13:10:52Z",
@@ -2862,18 +2876,20 @@
     "verdict": "APPROVED",
     "reason": "SLCD-P6-3 verified: 8 Playwright acceptance tests in coding-agent-topology.spec.ts pass in 3.3s; 8/8 mutations killed; cluster-free harness; SPEC-REGISTRY coverage 7/7 pass"
   },
-  "57887": {
-    "task_id": "57887",
-    "reviewed_at": "2026-09-15T13:22:07Z",
-    "reviewer": "Council of Agents",
-    "verdict": "APPROVED",
-    "reason": "SLCD-P6-4 verified: Makefile demo-signalloom-coding-agent-topology target and aggregator wired; SPEC-REGISTRY.tsv updated; 7/7 acceptance-spec-coverage.bats pass"
+  "065d0": {
+    "task_id": "065d0",
+    "reviewed_at": "2026-09-24T02:27:12.566Z",
+    "reviewer": "sensai",
+    "verdict": "REJECTED",
+    "model": null,
+    "reason": "HOLD: Phase 2 implementation blocked on Phase 1 Governor provenance resolution; refusal recorded; timeout: 2026-09-24T12:00:00Z"
   },
-  "18050": {
-    "task_id": "18050",
-    "reviewed_at": "2026-09-15T13:49:12Z",
-    "reviewer": "Council of Agents",
-    "verdict": "APPROVED",
-    "reason": "SLCD-P6-GOV final mission governor certified delivery: full mission test surface verified green, all 6 phases audited, commits df3d6ef1, b5d7c12c, b1c336b0 integrated"
+  "7ce29": {
+    "task_id": "7ce29",
+    "reviewed_at": "2026-09-24T02:27:19.520Z",
+    "reviewer": "sensai",
+    "verdict": "REJECTED",
+    "model": null,
+    "reason": "HOLD: Refusal recorded at Step 0 due to EAPR-P1-2 delivered to ~/.andy_sync master without osramp-demo branch; awaiting human provenance ruling; timeout: 2026-09-24T12:00:00Z"
   }
 }

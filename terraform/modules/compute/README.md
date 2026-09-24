@@ -78,7 +78,7 @@ Additive, all optional, all defaulted:
 
 | Name | Type | Default |
 |---|---|---|
-| `app_port` | number | — (required; the contract lists it on `modules/network` and `modules/edge`, and the instance group's named port needs it too — see NOTES.md) |
+| `app_port` | number | — (required; the contract lists it on `modules/network` and `modules/edge`, and the instance group's named port needs it too — see the [F3 build note](../../notes/f3-network-compute.md#contract-objections)) |
 | `boot_disk_type` | string | `"pd-balanced"` |
 | `image_family` | string | `"debian-12"` |
 | `image_project` | string | `"debian-cloud"` |

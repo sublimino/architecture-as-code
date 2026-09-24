@@ -127,7 +127,7 @@ it needs one line in that suite's header
 and not this chunk's to edit. Until then the rule still bites at the module
 boundary. That is also the only point at which an empty list can lock anyone
 out. Before the edge module is wired there is no edge. Only the location of the
-error moves, not whether it is raised. Recorded in `NOTES.md`.
+error moves, not whether it is raised. Recorded in the [G2 build note](../notes/g-demo1-bringup.md#the-one-validation-not-mirrored).
 
 After each step: `terraform init -backend=false && terraform validate && tflint`. Do not batch
 the uncommenting. A single `plan` covering five newly-live modules attributes every error to the

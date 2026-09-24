@@ -47,7 +47,7 @@ scripts/acceptance-test.sh --project <name>
 
 [`scripts/acceptance-test.sh`](../../scripts/acceptance-test.sh) runs the
 cluster doctor and starts the port-forwards. It forwards the Envoy Gateway to
-local port 18443, because Dex pins its callback to that port. It then passes
+local port 30754, because Dex pins its callback to that port. It then passes
 its arguments to `bunx playwright test`. Use the script. Without its
 port-forwards, the specs fail on connection errors, not on assertions.
 

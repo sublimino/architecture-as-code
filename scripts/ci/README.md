@@ -379,6 +379,7 @@ rg -A2 '^\s*run_stage \\' scripts/ci/vm-pipeline.sh
 | Script | What it does |
 |---|---|
 | [`vm-pipeline.sh`](vm-pipeline.sh) | Runs the pipeline on the CI VM. `gcp-ci.sh` calls it over SSH. |
+| [`ci-lock.sh`](ci-lock.sh) | Holds the per-VM run lock at `/home/ci/.ci-lock` on the target VM. `CI_LOCK_PATH` overrides the path. |
 | [`vm-startup.sh`](vm-startup.sh) | The VM startup script. It installs the base tools once, at provisioning. |
 | [`install-ci-tools.sh`](install-ci-tools.sh) | Installs pinned pre-built tool binaries. `vm-pipeline.sh` and `make ci-tools` call it. |
 | [`openreports-convert.sh`](openreports-convert.sh) | Converts the stage output files into the OpenReports report. |

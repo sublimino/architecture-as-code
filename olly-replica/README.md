@@ -70,6 +70,12 @@ The short version:
 The fleet's `olly` ResourceSet creates the `olly-replica` tenant namespace and
 reconciles two Kustomizations from the `olly/olly-replica` artifact.
 
+CAUTION: On the local fleet, the `olly` tenant is disabled. Re-enable it in
+[`d2-osramp-fleet/tenants/local/kustomization.yaml`](../d2-osramp-fleet/tenants/local/kustomization.yaml)
+before you run `make demo-olly-up`. The script
+[`scripts/olly-up.sh`](../scripts/olly-up.sh) patches the ResourceSet `olly`,
+which the local fleet does not create.
+
 **olly-controllers** installs the ECK operator (scoped to this namespace) and a
 single-broker Redpanda, both HelmReleases from allowlisted chart repos. The
 namespace carries the `toolkit.fluxcd.io/role: tenant` label, so the CEL

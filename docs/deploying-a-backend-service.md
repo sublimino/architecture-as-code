@@ -28,6 +28,31 @@ Do not treat these layers as a linear pipeline where one failure masks another.
 These layers operate independently. Resolving one layer reveals faults in subsequent layers.
 For fleet-manager, fixing DNS immediately revealed HTTP 504 errors in layers 3 and 4.
 
+The sequence diagram shows the four layers on the path from the browser to fleet-manager.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant N as nginx (dashboard-signalloom:8080)
+  participant E as NetworkPolicy allow-dashboard-egress
+  participant I as NetworkPolicy fleet-manager (ingress)
+  participant F as fleet-manager:8082
+  B->>N: GET /fleet-api/v1/fleet/topology
+  Note over N: No location block: 200 text/html
+  N->>E: proxy to fleet-manager.fe-signalloom:8082
+  Note over E: No egress rule for 8082: 504
+  E->>I: TCP 8082
+  Note over I: Caller labels not admitted: 504
+  I->>F: GET /api/v1/fleet/topology
+  Note over F: Not deployed: DNS failure at nginx
+  F-->>B: 200 application/json
+```
+
+The names in the diagram are in
+[`nginx.conf`](../d2-signalloom/apps/dashboard-signalloom/nginx.conf),
+[`fe-signalloom/base/networkpolicy.yaml`](../d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml),
+and [`fleet-manager/base/networkpolicy.yaml`](../d2-signalloom/apps/fleet-manager/base/networkpolicy.yaml).
+
 **1. Service Deployment**:
 Provide targets to build the container image, load it into Kind, and apply Kubernetes manifests.
 Execute these targets systematically.

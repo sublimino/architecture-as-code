@@ -1,15 +1,12 @@
 # Wiring the platform root at integration
 
-This root is complete and passes `terraform validate` on its own, but one of its
-two module calls is **commented out**. `modules/identity` is built by chunk F5
-on branch `feat/gcp-tf-identity-ci` and does not exist in the F6 worktree. Terraform
-resolves `source = "../modules/identity"` at `init` time, so an uncommented call
-to a missing directory fails `terraform init` outright — not at plan, not with a
-warning. That is why it ships commented rather than "wired but untested".
+This page records the wiring state of the platform root. The state changed after the first draft.
 
-`modules/observability` is **already live** — it is owned by this chunk, it
-exists here, and the tftest suite in `tests/` asserts on its evaluated output.
-Nothing needs uncommenting for observability.
+`modules/identity` is tracked in this tree and its call is **live**. `main.tf` declares the five wiring variables and the `module "identity"` block. `outputs.tf` re-exports `runtime_service_account_emails`, `ci_plan_service_account_email`, and `ci_apply_service_account_email` from the live module. Steps 1 to 3 below are done. Two items remain commented out. The `WIRING BLOCK` in `outputs.tf` is a duplicate of the live outputs, except `workload_identity_provider_name`, which has no live output. The `wif_provider_carries_a_non_empty_attribute_condition` run block in `tests/platform_wiring.tftest.hcl` is still commented (step 4).
+
+`modules/observability` is **dormant**. `main.tf` keeps the `module "observability"` call commented out, with its variables and outputs. The module, its variables, and its tftest suite remain on disk. To restore it, uncomment those blocks.
+
+The steps below record the original procedure. Use them as the reference for each block.
 
 ## What to uncomment, in order
 

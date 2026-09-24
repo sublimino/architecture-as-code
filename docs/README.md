@@ -1,7 +1,8 @@
 # Documentation index
 
 This page is the entry point for all repository documentation. It lists every
-document in `docs/` and tells you when to read it.
+top-level document in `docs/`, each subdirectory, and each record at the
+repository root, and it tells you when to read them.
 
 Two files at the repository root start the path:
 
@@ -56,7 +57,6 @@ flowchart TB
   end
 
   subgraph ref["4 · Reference"]
-    ARCH["Architecture references"]
     STYLE["documentation-style.md"]
   end
 
@@ -64,6 +64,7 @@ flowchart TB
     PROP["Proposals"]
     MIS["signalloom/ mission records"]
     REP["Reports and audits"]
+    ARCH["Architecture references and plans"]
   end
 
   START --> learn --> run --> debug
@@ -81,11 +82,8 @@ flowchart TB
 
 | Document | What it covers |
 | :--- | :--- |
-| [`../README.md`](../README.md) | OSRAMP, the maturity model, team ownership, the ingestion flow, and the demos |
-| [`../AGENTS.md`](../AGENTS.md) | The foundation, the slices, lifecycle targets, and shared pitfalls |
 | [`system-map/`](system-map/) | Interactive map of the core services and their communication paths |
-| [`osramp-component-flows.html`](osramp-component-flows.html) | Static page of OSRAMP component flows |
-| [`FAQ.md`](FAQ.md) | Answers to frequent questions |
+| [`osramp-component-flows.html`](osramp-component-flows.html) | Interactive flow map of the OSRAMP components, derived from the code in 2026-09. It loads its libraries from the internet. |
 
 ## 2 · Run the platform
 
@@ -108,7 +106,7 @@ Deploy to GCP after the local tests pass. The GCP workflow costs money and needs
 | [`../deploy/gcp/README.md`](../deploy/gcp/README.md) | Project inputs, service account roles, and the hand-off file |
 | [`../terraform/README.md`](../terraform/README.md) | Why the estate uses three Terraform roots |
 | [`../terraform/CONTRACT.md`](../terraform/CONTRACT.md) | Invariants between the Terraform roots |
-| [`../terraform/RUNBOOK.md`](../terraform/RUNBOOK.md) | Terraform steps for `demo-1` |
+| [`../terraform/RUNBOOK.md`](../terraform/RUNBOOK.md) | Terraform steps for `demo-1`. The file says that most steps were never run. Use `gcp-demo/RUNBOOK.md` first. |
 | [`../scripts/ci/README.md`](../scripts/ci/README.md) | The older CI pipeline on the `signalloom-ci` VMs |
 
 ## 3 · Debug the system
@@ -118,22 +116,15 @@ Deploy to GCP after the local tests pass. The GCP workflow costs money and needs
 | [`cluster-debugging.md`](cluster-debugging.md) | Field notes for the local stack. Section 8 lists probes that give false answers. |
 | [`resilient-waits.md`](resilient-waits.md) | The wait helpers in `scripts/lib/wait.sh` and why a bare `sleep` fails |
 | [`gcp-demo/OPERATIONS.md#operational-pitfalls`](gcp-demo/OPERATIONS.md#operational-pitfalls) | Commands that report an incorrect status |
-| [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | Incident analyses from August 2026, with measurements |
-| [`local-lifecycle-errata.md`](local-lifecycle-errata.md) | Known defects in the local lifecycle scripts |
+| [`FAQ.md`](FAQ.md) | Answers on the audit trail, the FX rates, and the staleness guard |
 
 ## 4 · Reference
 
-These are living documents. They describe the current design.
+This is a living document. It describes the current rules.
 
 | Document | What it covers |
 | :--- | :--- |
 | [`documentation-style.md`](documentation-style.md) | The writing rules for this repository and the `make docs-lint` check |
-| [`Signal Fusion — Architecture and GDPR Reference.md`](Signal%20Fusion%20—%20Architecture%20and%20GDPR%20Reference.md) | Signal Fusion architecture and its GDPR position |
-| [`Signal Loom Workstation Sensor — ….md`](Signal%20Loom%20Workstation%20Sensor%20—%20Architecture,%20Verification,%20and%20Distribution%20Strategy.md) | The workstation sensor: architecture, verification, and distribution |
-| [`appendix-credential-architecture.md`](appendix-credential-architecture.md) | Credential architecture of the Signal Loom agent swarm |
-| [`appendix-ebpf-kernel-enforcement.md`](appendix-ebpf-kernel-enforcement.md) | eBPF and kernel-level containment of AI agents |
-| [`policy-as-versioned-code/`](policy-as-versioned-code/) | Policy as versioned code: [integration](policy-as-versioned-code/INTEGRATION.md) and [worktree merge plan](policy-as-versioned-code/WORKTREE-INTEGRATION.md) |
-| [`../terraform/notes/README.md`](../terraform/notes/README.md) | Index of the Terraform design notes |
 
 ## 5 · Decision records
 
@@ -154,7 +145,8 @@ status without a linked record is "No completion record".
 | [AgentMaxxing User and External Agent Onboarding](Proposal%20—%20AgentMaxxing%20Signal%20Loom%20User%20and%20External%20Agent%20Onboarding%20%282026-Q3%29.md) | AMXO | Phase 6 proved: [Governor proof](signalloom/amxo-p6-gov-proof.md) |
 | [AgentMaxxing Interactive Demo Console](Proposal%20—%20Signal%20Loom%20AgentMaxxing%20Interactive%20Demo%20Console%20%282026-Q3%29.md) | AMXD | No completion record. Baseline: [`amxd-p0-baseline.md`](amxd-p0-baseline.md) |
 | [Signal Fusion Actor-Resolution Spine V2](Proposal%20—%20Signal%20Fusion%20Actor-Resolution%20Spine%20V2%20%282026-Q3%29.md) | SFAS | Delivered: [programme certification](signalloom/sfas-final-programme-certification.md) |
-| [Signal Fusion Actor-Resolution Spine (V1)](Proposal%20—%20Signal%20Fusion%20Actor-Resolution%20Spine%20%282026-Q3%29.md) | SFAS | Superseded by V2. V2 records this in its mission history. |
+| [Signal Fusion Actor-Resolution Spine (V1)](Proposal%20—%20Signal%20Fusion%20Actor-Resolution%20Spine%20%282026-Q3%29.md) | SFDP | Delivered: [production certification](signalloom/sfdp-p3-1-production-certification.md). V2 supersedes it. |
+| [Signal Fusion Agents Page Operational Redesign](../PROPOSAL_AGENTS_PAGE_REDESIGN.md) | SFAGENTS | Draft, awaiting sign-off. Preflight: [`sfagents-p3-preflight-proof.md`](signalloom/sfagents-p3-preflight-proof.md) |
 | [Exhaustive System Security and Vulnerability Audit](Proposal%20—%20Exhaustive%20System%20Security%20and%20Vulnerability%20Audit%20%282026-Q3%29.md) | — | No completion record |
 | [First User and Privileged-User Onboarding (precursor)](FIRST-USER-ONBOARDING-PROPOSAL.md) | — | Evidence analysis. SLON and AMXO build on it. |
 | [SuperCredential Multi-Agent Evolution](multi-agent-supercred-proposal.md) | — | No completion record |
@@ -173,9 +165,10 @@ certifications of each mission. The file prefix is the mission shortcode.
 | SLCD — Coding Agent Detective Telemetry | [`slcd-mission-certification.md`](signalloom/slcd-mission-certification.md), [`slcd-p0-baseline.md`](signalloom/slcd-p0-baseline.md), [`slcd-p1-5-lawful-basis.md`](signalloom/slcd-p1-5-lawful-basis.md) |
 | SLDP — Data Protection | [`sldp-mission-certification.md`](signalloom/sldp-mission-certification.md), [`sldp-downstream-contract.md`](signalloom/sldp-downstream-contract.md), [`sldp-p0-boundary-map.md`](signalloom/sldp-p0-boundary-map.md) |
 | SFAS — Signal Fusion Actor-Resolution Spine | [`sfas-final-programme-certification.md`](signalloom/sfas-final-programme-certification.md), [`sfas-governor-log.md`](signalloom/sfas-governor-log.md) |
-| SFDP — Signal Fusion data plane | [`sfdp-p3-1-production-certification.md`](signalloom/sfdp-p3-1-production-certification.md), [`sfdp-p1-preflight-proof.md`](signalloom/sfdp-p1-preflight-proof.md), [`sfdp-p2-4-runtime-evidence.md`](signalloom/sfdp-p2-4-runtime-evidence.md) |
+| SFDP — Deterministic actor-resolution engine (Signal Fusion V1) | [`sfdp-p3-1-production-certification.md`](signalloom/sfdp-p3-1-production-certification.md), [`sfdp-p1-preflight-proof.md`](signalloom/sfdp-p1-preflight-proof.md), [`sfdp-p2-4-runtime-evidence.md`](signalloom/sfdp-p2-4-runtime-evidence.md) |
+| SFAGENTS — Signal Fusion agents page redesign | [`sfagents-p3-preflight-proof.md`](signalloom/sfagents-p3-preflight-proof.md) |
 | AMXO — AgentMaxxing Onboarding | [`amxo-p6-gov-proof.md`](signalloom/amxo-p6-gov-proof.md), [`amxo-governor-log.md`](signalloom/amxo-governor-log.md), [`amxo-p1-1-proof.md`](signalloom/amxo-p1-1-proof.md) |
-| CRKC — Containment red-team | [`crkc-final-mission-certification.md`](signalloom/crkc-final-mission-certification.md) |
+| CRKC — Runtime Confinement, Live FAIR Risk, and Kernel Containment | [`crkc-final-mission-certification.md`](signalloom/crkc-final-mission-certification.md) |
 
 ### Reports, audits, and baselines
 
@@ -194,6 +187,22 @@ certifications of each mission. The file prefix is the mission shortcode.
 | [`appraisal/WALKING-DEMO-RUNBOOK.md`](appraisal/WALKING-DEMO-RUNBOOK.md) | Walking-demo script of 2026-07-28, partly superseded on 2026-08-14 |
 | [`plans/d2-bao-integration.md`](plans/d2-bao-integration.md) | Plan for the OpenBao integration |
 | [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | GCP incidents of August 2026 |
+| [`local-lifecycle-errata.md`](local-lifecycle-errata.md) | A dated correction (2026-07-27): `make up` creates only the foundation, not the demos |
+
+### Architecture references and plans
+
+These documents are dated. Each one has a status, open decisions, or action
+items of its date. The lint checks their links and leaves their prose as the
+author wrote it.
+
+| Document | What it records |
+| :--- | :--- |
+| [`Signal Fusion — Architecture and GDPR Reference.md`](Signal%20Fusion%20—%20Architecture%20and%20GDPR%20Reference.md) | Signal Fusion architecture and its GDPR position, with the as-built maturity matrix of 2026-09-14 |
+| [`Signal Loom Workstation Sensor — ….md`](Signal%20Loom%20Workstation%20Sensor%20—%20Architecture,%20Verification,%20and%20Distribution%20Strategy.md) | The workstation sensor: architecture, verification, and distribution, with test counts of 2026-09-14 |
+| [`appendix-credential-architecture.md`](appendix-credential-architecture.md) | Credential architecture of the Signal Loom agent swarm (appendix of 2026-08-28) |
+| [`appendix-ebpf-kernel-enforcement.md`](appendix-ebpf-kernel-enforcement.md) | eBPF and kernel-level containment of AI agents (appendix of 2026-08-28) |
+| [`policy-as-versioned-code/`](policy-as-versioned-code/) | Policy as versioned code: [integration](policy-as-versioned-code/INTEGRATION.md) and the [worktree merge plan](policy-as-versioned-code/WORKTREE-INTEGRATION.md) |
+| [`../terraform/notes/README.md`](../terraform/notes/README.md) | Index of the Terraform design notes |
 
 ### Records at the repository root
 

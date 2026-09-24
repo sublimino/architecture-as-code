@@ -13,7 +13,7 @@ cluster. Run `make doctor` before you debug a failure that needs a cluster.
 ```mermaid
 flowchart TB
   Q1{"Does the change need<br/>a running cluster?"}
-  Q1 -- no --> OFF["Offline suites<br/>(see Other test suites)"]
+  Q1 -- no --> OFF["Offline suites<br/>(rows marked Not needed)"]
   Q1 -- yes --> Q2{"Is it browser<br/>behaviour?"}
   Q2 -- yes --> ACC["make acceptance-test"]
   Q2 -- no --> E2E["make test, or the slice demo-*-test target"]
@@ -28,7 +28,9 @@ The sections are [Browser acceptance tests](#browser-acceptance-tests),
 
 ## Browser acceptance tests
 
-The browser suite uses Playwright, Bun, and Google Chrome.
+The browser suite uses Playwright and Bun. `make acceptance-test` uses
+Playwright's bundled Chromium (`PW_CHANNEL=chromium` in the `Makefile`). Run
+the script directly to use Google Chrome.
 
 [`test/acceptance/SPEC-REGISTRY.tsv`](test/acceptance/SPEC-REGISTRY.tsv) is the
 one source for where each spec runs. The CI check
@@ -43,28 +45,28 @@ text has no such check.
 CAUTION: Playwright gives no warning when no project claims a spec. It reports
 a lower total and exits 0. Add each new spec to a Playwright project.
 
-NOTE: `make acceptance-test` without arguments runs all suites. The tests
-`supercred-ui-lifecycle` and `supercred-evidence-lifecycle` have 30-minute
-timeouts.
+NOTE: `make acceptance-test` runs each project that is not gated on
+`DOCS_BASE_URL` or `AMXD_DEMO_CONSOLE`. A spec marked `unwired` never runs. The
+tests `supercred-ui-lifecycle` and `supercred-evidence-lifecycle` have
+30-minute timeouts.
 
-To run one spec file, give its name as an argument.
+To run one spec file, give its name to `./scripts/acceptance-test.sh`.
 
 ### Prerequisites
 
-- Install Docker, Kind, kubectl, Bun, and Google Chrome.
-- Select the `kind-osramp` context.
+- Install Docker, Kind, kubectl, and Bun.
+- Export `KUBECONFIG=/tmp/osramp-kubeconfig.yaml`, the path that make uses when
+  `KUBECONFIG` is not set.
 - Deploy the target workloads and check their health.
-- Make sure that the local ports `13000`, `15556`, `18000`, `18080`, `18082`,
-  and `18443` are free. [`scripts/acceptance-test.sh`](scripts/acceptance-test.sh)
-  forwards them.
+- Make sure that port `30754` is free. [`scripts/acceptance-test.sh`](scripts/acceptance-test.sh)
+  forwards the gateway to it and refuses a listener that it does not own.
+- The script reuses a listener on `13000`, `15556`, `18000`, `18080`, or
+  `18082`. It forwards each free port itself.
 
-Install the acceptance test dependencies:
+Install the browser. The script runs `bun install` itself:
 
 ```bash
-cd test/acceptance
-bun install --frozen-lockfile
-bunx playwright install ffmpeg
-cd ../..
+PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright bunx playwright install chromium ffmpeg
 ```
 
 ### Commands
@@ -75,13 +77,25 @@ Run the full acceptance suite from the repository root:
 make acceptance-test
 ```
 
-The script runs the cluster diagnostics, starts the port-forwards, runs
-Playwright, and stops the port-forwards when it exits.
+The diagram shows the order of the harness steps. A preflight failure fails
+the run even when every test passes.
 
-To filter the tests, give arguments to the script:
+```mermaid
+flowchart LR
+  DOC["scripts/doctor.sh<br/>(result ignored)"] --> PF["port-forwards"]
+  PF --> PRE["preflight"]
+  PRE --> PW["Playwright"]
+  PW --> CLEAN["cleanup"]
+```
+
+The steps are in [`scripts/acceptance-test.sh`](scripts/acceptance-test.sh).
+The first step runs [`scripts/doctor.sh`](scripts/doctor.sh). This is not
+`make doctor`. Its result does not stop the run.
+
+To run some spec files, give their names to the script:
 
 ```bash
-./scripts/acceptance-test.sh --grep "SignalLoom Frontend"
+./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts
 ```
 
 ### Diagnostics and artifacts
@@ -92,7 +106,6 @@ Playwright keeps these artifacts for a failed run:
 - Test artifacts: `test/acceptance/test-results/`
 - Traces: `trace.zip`
 - Failure screenshots: `failure-screenshot-*.png`
-- Failure videos: `video.webm`
 - Browser logs: `browser-diagnostics-*.txt`
 
 To open a trace:
@@ -115,7 +128,8 @@ make doctor  # Same as: make cluster-debug
 `make doctor` and `make cluster-debug` make the same read-only report. It shows
 cluster connectivity, unhealthy pods, restart counts, recent warning events,
 Flux objects that are not ready, node metrics, and image-pull failures. It exits
-non-zero when it finds an unhealthy pod.
+1 only when the API server is unreachable. With unhealthy pods it exits 0. Read
+the `SUMMARY` section.
 
 ### Inspect Flux resources that are not ready
 
@@ -175,13 +189,8 @@ make check-deployed-staleness                                 # All instrumented
 | `2` | **Cannot check** | The check could not connect to the cluster or read the container filesystem. |
 
 Exit code 2 does not mean fresh. The check compares content fingerprints made at
-build time. It does not compare git tags or SHA strings.
-
-To test the staleness checker without a cluster, run:
-
-```bash
-make test-deployed-staleness
-```
+build time. It does not compare git tags or SHA strings. The table in
+[Other test suites](#other-test-suites) has the offline test of the checker.
 
 ## Other test suites
 
@@ -189,6 +198,7 @@ Run these suites from the repository root.
 
 | Suite | Command | Cluster |
 |---|---|---|
+| Offline umbrella | `make test-all-offline` | Not needed |
 | Documentation lint | `make docs-lint` | Not needed |
 | Documentation lint self-test | `make docs-lint-test` | Not needed |
 | Deployed staleness guard (mock kubectl) | `make test-deployed-staleness` | Not needed |
@@ -206,6 +216,6 @@ Run these suites from the repository root.
 | SuperCred image build guard (mock docker and kind) | `make demo-signalloom-supercred-images-test` | Not needed |
 | SuperCred proxy unit suite | `make -C d2-signalloom/apps/fake-integration-proxy test` | Not needed |
 
-NOTE: `make fx` is not a check. It writes the files in `risk/fx/` again from
-`rates.yaml`. After you run it, `git diff` shows whether the committed copies
-were out of date.
+NOTE: `make fx` is not a check. It writes `risk/fx/*.json` from `rates.yaml`.
+It also writes the dashboard copy with bun. After you run it, `git diff` shows
+whether the committed copies were out of date.

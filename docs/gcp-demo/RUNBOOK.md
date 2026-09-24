@@ -19,7 +19,7 @@ Select one of two secure access paths:
 Use Tailscale as your default access path.
 Use IAP when users cannot join the tailnet (for example, client laptops or external auditors).
 
-Set `ENV` to the target environment key (`demo-1`, `demo-2`, or `ci-1`).
+Set `ENV` to the target environment key (`demo-1`, `demo-2`, `ci-1`, or `ci-2`).
 The scripts validate input against `^(demo|ci)-[1-9][0-9]*$`.
 
 ---
@@ -331,6 +331,22 @@ device already on the tailnet, including a phone. There is **no hosts file, no
 certificate warning and no terminal held open**. Nothing has to keep running:
 close the laptop and the demo stays up.
 
+The flowchart shows the path from a browser to the dashboard on both access paths.
+
+```mermaid
+flowchart LR
+  B[Browser] -->|Tailscale| TS["tailscale serve :443<br/>on the VM"]
+  B -->|IAP| IAP["IAP tunnel to the<br/>internal IP:app_port"]
+  TS --> PF["127.0.0.1:app_port<br/>signalloom-dashboard-pf.service"]
+  IAP --> PF
+  PF --> N["svc/dashboard-signalloom:8080<br/>nginx in fe-signalloom"]
+  N --> R["/api, /dex, /afm, ..."]
+```
+
+The unit and the service names are in
+[`scripts/gcp-tf/demo-up.sh`](../../scripts/gcp-tf/demo-up.sh) and
+[`d2-signalloom/apps/fe-signalloom/base/dashboard-service.yaml`](../../d2-signalloom/apps/fe-signalloom/base/dashboard-service.yaml).
+
 Before it prints anything it does four checks, in this order and deliberately:
 
 1. **Is there a tailscale client here, and is its daemon up?** Local, free.
@@ -347,38 +363,16 @@ Before it prints anything it does four checks, in this order and deliberately:
 4. **Does `/readyz` return a real HTTP 200 at that URL?** Only then is anything
    clickable printed.
 
-### What it does on the VM, and why none of it is a manual step
+### What runs on the VM, and why none of it is a manual step
 
 `tailscale serve` terminates TLS on the node itself, with a real,
 publicly-trusted certificate for its MagicDNS name. It proxies to a backend we
 name: `http://127.0.0.1:<app_port>`, the VM-side forward to the dashboard's
 nginx. So the browser gets HTTPS without anyone installing a certificate, and
-nothing has to hold a tunnel open.
-
-It used to do more than that. The forward targeted the in-cluster Envoy Gateway,
-which routes by **SNI** on `dashboard.osramp.acme.local`. So `serve` had to dial
-its backend *by that name*, and `gcp-tf-ts-up` wrote
-`127.0.0.1 dashboard.osramp.acme.local` into the VM's `/etc/hosts` to make that possible. A
-request with any other name in the handshake was closed during TLS and presented
-as `UNEXPECTED_EOF_WHILE_READING`, which reads as a broken tunnel. The forward
-now targets `dashboard-signalloom:8080`: nginx, path routing, no TLS. So there
-is no name to match, and the VM's `/etc/hosts` is left alone.
-
-The measurement behind that, because "routes by SNI" understates it. Envoy also
-matches the request's `:authority` against its listener hostname
-(`*.osramp.acme.local`). Holding SNI constant and varying only the Host header:
-
-```
-Host: dashboard.osramp.acme.local  ->  200 OK
-Host: <node>.<tailnet>.ts.net      ->  404 Not Found
-```
-
-So even with the alias in place and the handshake succeeding, a MagicDNS name
-got a 404 from a perfectly healthy Gateway. That reads as a broken
-application, not as a name mismatch. Serving nginx removes the Host-header 404,
-the SNI discipline and the `/etc/hosts` alias together.
-
-### What runs on the VM, and why none of it is a manual step
+nothing has to hold a tunnel open. The forward targets `dashboard-signalloom:8080`:
+nginx, path routing, no TLS. So there is no name to match, and the VM's
+`/etc/hosts` is left alone. The earlier Envoy-based forward is in
+[History](#history).
 
 Everything below is performed by the target. **There is no reason to SSH to the
 box**, and that is the property this path is for. Each was once a hand step in
@@ -509,8 +503,7 @@ password: demo-user
 ```
 
 That is the whole list. There is no `/etc/hosts` line and no certificate warning
-— see [What changed, and why there is less to
-do](#what-changed-and-why-there-is-less-to-do) below.
+— see [How the IAP path works](#how-the-iap-path-works) below.
 
 ### Confirm the tunnel before opening a browser
 
@@ -534,22 +527,12 @@ Dex's issuer and callback follow the origin, so the URL becomes
 <http://localhost:18080>. The remote end stays on the estate's `app_port`, which
 is what the IAP firewall rule is derived from.
 
-### What changed, and why there is less to do
-
-This path used to tunnel to the in-cluster **Envoy Gateway**, and everything
-awkward about it descended from that one choice:
-
-* the tunnel was pinned to **30754**, because Dex's callback was pinned to it.
-* you had to add `127.0.0.1 dashboard.osramp.acme.local` to `/etc/hosts`,
-  because Envoy routes by **SNI**.
-* the certificate was self-signed, because it was Envoy's.
-* browsing any other hostname 404'd, because Envoy matches the request's
-  `:authority` against `*.osramp.acme.local`.
+### How the IAP path works
 
 The tunnel now reaches `dashboard-signalloom:8080`, the dashboard's **nginx**.
 It serves the app and proxies `/dex/`, `/api/`, `/afm/`, `/demo/`, `/fleet/`
 and `/supercred-api/` on the same origin. It routes by path, terminates no TLS
-and inspects no hostname, so all four of those disappear together.
+and inspects no hostname. The four Envoy problems in [History](#history) disappear together.
 `scripts/public-tunnel.sh` (ngrok) has always worked this way. Every access
 method now does.
 
@@ -922,3 +905,45 @@ Tailscale path:
 | [`../../terraform/notes/README.md`](../../terraform/notes/README.md) | the build-notes index; most of the series is historical |
 | `test/terraform-demo-driver.bats` | what the IAP lane is actually proven to do |
 | `test/terraform-tailscale-access.bats` | what the Tailscale lane is actually proven to do |
+
+---
+
+## History
+
+### 2026-08-20: every access method moved from Envoy to the dashboard nginx
+
+Commit `dc7a913f` routed the Tailscale and IAP paths to `dashboard-signalloom:8080`.
+The notes below describe the state before that change.
+
+**The Tailscale forward.** The forward targeted the in-cluster Envoy Gateway,
+which routes by **SNI** on `dashboard.osramp.acme.local`. So `serve` had to dial
+its backend *by that name*, and `gcp-tf-ts-up` wrote
+`127.0.0.1 dashboard.osramp.acme.local` into the VM's `/etc/hosts` to make that possible. A
+request with any other name in the handshake was closed during TLS and presented
+as `UNEXPECTED_EOF_WHILE_READING`, which reads as a broken tunnel. The forward
+now targets `dashboard-signalloom:8080`: nginx, path routing, no TLS. So there
+is no name to match, and the VM's `/etc/hosts` is left alone.
+
+The measurement behind that, because "routes by SNI" understates it. Envoy also
+matches the request's `:authority` against its listener hostname
+(`*.osramp.acme.local`). Holding SNI constant and varying only the Host header:
+
+```
+Host: dashboard.osramp.acme.local  ->  200 OK
+Host: <node>.<tailnet>.ts.net      ->  404 Not Found
+```
+
+So even with the alias in place and the handshake succeeding, a MagicDNS name
+got a 404 from a perfectly healthy Gateway. That reads as a broken
+application, not as a name mismatch. Serving nginx removes the Host-header 404,
+the SNI discipline and the `/etc/hosts` alias together.
+
+**The IAP tunnel.** This path tunnelled to the in-cluster **Envoy Gateway**. Everything
+awkward about it descended from that one choice:
+
+* the tunnel was pinned to **30754**, because Dex's callback was pinned to it.
+* you had to add `127.0.0.1 dashboard.osramp.acme.local` to `/etc/hosts`,
+  because Envoy routes by **SNI**.
+* the certificate was self-signed, because it was Envoy's.
+* browsing any other hostname 404'd, because Envoy matches the request's
+  `:authority` against `*.osramp.acme.local`.

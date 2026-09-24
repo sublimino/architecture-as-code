@@ -8,8 +8,8 @@ bootstrap configuration and cannot create a second control plane.
 
 | Path | Owner | Responsibility |
 | --- | --- | --- |
-| `infra/` | Infrastructure | `inf-bao` and `inf-signalloom` component roots. |
-| `apps/` | Application delivery | `fe-signalloom` API and discovery portal. `dashboard-signalloom` React SPA. |
+| `infra/` | Infrastructure | The `inf-bao` and `inf-signalloom` component roots, plus `agent-swarm`, `kagent`, `knative`, `systemd`, and the API audit policy. [`infra/README.md`](infra/README.md) lists them. |
+| `apps/` | Application delivery | One directory per application. The [Application Components](AGENTS.md#application-components) table in `AGENTS.md` lists them. |
 | `contracts/` | Cross-slice | Generated and reviewed delivery contracts. |
 | `test/` | Cross-slice | Static topology and render validation. |
 
@@ -28,8 +28,9 @@ make -C d2-signalloom test
 
 NOTE: The root `make test` runs the `d2-osramp-apps` suite, not this slice.
 
-This target checks the skeleton and the local rendering boundary. It does not
-start Flux, publish artifacts, create a cluster, or deploy workloads.
+This target runs the topology checks, the Go test packages, the BATS suites,
+and the mutation proofs. It does not start Flux, publish artifacts, create a
+cluster, or deploy workloads.
 
 ## Architecture
 

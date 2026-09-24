@@ -221,8 +221,8 @@ Capture complete command output before matching patterns with grep.
 
 ### `ssh-agent` Conflicts with gcloud Commands
 
-Run `unset SSH_AUTH_SOCK` before running `gcloud compute ssh`.
-Without this step, gcloud commands fail with `agent refused operation`.
+A populated `ssh-agent` breaks an ad-hoc `gcloud compute ssh`. The cause and the fix are in
+[RUNBOOK.md](RUNBOOK.md#agent-refused-operation-or-an-iap-ssh-that-times-out).
 Always supply `--impersonate-service-account` for SSH connections.
 
 ### Recursive Make Executes During Dry Runs

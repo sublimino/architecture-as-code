@@ -285,15 +285,15 @@ session the token belongs to.)
 ### What does "cannot verify" mean from the staleness guard, and why isn't it a pass?
 
 It means the question was not answered: no `kubectl` on `PATH`, no reachable cluster, no
-running pod, or the readback failed. Exit code 2.
+running pod, or the readback failed. The exit codes are in
+[TESTING.md](../TESTING.md#check-the-deployed-code-against-the-source).
 
 It is not a pass because it is not evidence. `make check-deployed-staleness` exits 0 only
 on a **positive proof**. Every checked workload was reached, its build fingerprint was
-read out of the running container's own filesystem, and it matched the working tree. Exit
-1 is drift: something is provably running code other than yours. Exit 2 is the absence of
-an answer. It is a distinct, loud, non-zero outcome for one reason. A guard reporting OK
-when it could not reach the cluster manufactures confidence. That is the exact failure
-this script exists to remove, so it must not reintroduce it in its own implementation.
+read out of the running container's own filesystem, and it matched the working tree.
+A guard reporting OK when it could not reach the cluster manufactures confidence. That is
+the exact failure this script exists to remove, so it must not reintroduce it in its own
+implementation.
 
 That failure was real. On 2026-08-13 a streaming fix landed across 22 commits and was
 verified by 315 backend tests, 1,657 dashboard tests and a browser harness. It was
@@ -302,15 +302,12 @@ reported as working. It was not: the pods answering the requests predated every 
 the `dashboard-signalloom` bundle contained none of the fix. Every test was green and
 every one of them tested the source tree. Nothing tested what was *running*.
 
-Two things to know when you read its output. It compares a content fingerprint baked in at
-build time and read back **out of the running container**. It does not compare a tag, git
-SHA or image digest. Tags were byte-identical across the rebuild that caused the incident.
-A git SHA does not move on an uncommitted edit. The pod-reported `imageID` is a local
-config digest for one workload and a registry manifest digest for another, so it cannot be
-compared uniformly. And a pass names what it checked rather than claiming "all clear",
-because only instrumented workloads are covered. `fe-signalloom`, `fleet-manager`,
-`cardvault`, `policy-engine` and the AFM backend are all built from this repo, carry no
-build marker yet, and are **not** covered.
+A pass names what it checked rather than claiming "all clear", because only instrumented
+workloads are covered. [`scripts/check-deployed-staleness.sh`](../scripts/check-deployed-staleness.sh)
+covers four workloads: `supercred-demo-runner`, `dashboard-signalloom`, `docs-signalloom`,
+and `fe-signalloom`. `fe-signalloom` and `docs-signalloom` were added on 2026-08-18.
+`signal-ingest` is the known gap. Its image has no shell, so the readback cannot run.
+[`d2-signalloom/test/api-route-liveness.bats`](../d2-signalloom/test/api-route-liveness.bats) asks the question over HTTP instead.
 
 `make test-deployed-staleness` exercises the guard itself against a fake `kubectl`,
 including that it cannot pass vacuously. No cluster required.

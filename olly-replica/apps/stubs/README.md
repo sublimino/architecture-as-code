@@ -29,4 +29,6 @@ ship in the `olly/stubs` image (persisted in the in-cluster Zot registry as
   make olly-pdi-secret    # creates the servicenow-pdi secret, restarts the stub
   ```
 
+  Run both commands from the repository root. The `.env.example` is the one at the root, not in this directory. `make olly-pdi-secret` loads the `.env` at the root of the main checkout through `scripts/lib/env-file.sh`, so a linked worktree also reads that file.
+
 Olly Sentinel never holds the write path. That separation is deliberate.

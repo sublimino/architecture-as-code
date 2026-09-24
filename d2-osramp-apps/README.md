@@ -10,10 +10,10 @@
 This logical source directory is managed by the dev teams who are responsible for
 the delivery of applications to the Kubernetes cluster fleet.
 
-It defines the application components such as:
+It defines the application components:
 
-- Flux HelmRepositories (pointing to the application Helm charts in container registries)
-- Flux HelmReleases for the applications with custom configuration per environment
+- Kustomize manifests for the `frontend` and `backend` namespaces, with a values overlay per environment
+- One Flux HelmRepository and HelmRelease pair, for NATS in [`components/backend/base/nats.yaml`](components/backend/base/nats.yaml)
 
 It is reconciled on the cluster fleet by Flux as the **namespace admin**.
 It can't contain Kubernetes cluster-wide definitions such as CRDs, Cluster Roles, Namespaces, etc.
@@ -24,8 +24,10 @@ RBAC to reconcile these components across the cluster fleet. Cluster-wide resour
 applications depend on (CRD controllers, gateway classes, monitoring) live in
 `d2-infra`.
 
-Access is restricted to the dev teams and the Flux bot account. The bot should
-be the only account with direct push access to the `main` branch.
+Access is restricted to the dev teams and the Flux bot account.
+
+NOTE: The policy is that the bot is the only account with direct push access to
+the `main` branch. No file in this tree enforces the policy.
 
 ## Quickstart
 
@@ -41,8 +43,10 @@ make test        # end-to-end suite for the opted-in OSRAMP workload
 For tight inner-loop work on the services themselves, this directory has a
 direct path that bypasses GitOps:
 
+Run `make up` from the repository root first. `make build` pushes to the
+in-cluster Zot registry, and `make cluster-up` does not create that registry.
+
 ```bash
-make cluster-up      # kind cluster (skip if make up already created it)
 kubectl create ns frontend
 make signing-key     # ed25519 key the processor signs attestations with
 make local-dev       # apply backend + frontend manifests directly
@@ -52,7 +56,7 @@ make test            # bats end-to-end suite
 
 ## Components
 
-The diagram shows the two namespaces, the Helm releases in each, and the
+The diagram shows the two namespaces, the workloads in each, and the
 environment overlays that Flux reconciles from them.
 
 ```mermaid
@@ -60,10 +64,8 @@ flowchart LR
   subgraph backend["backend namespace"]
     ARCH["archivista"]
     PG["postgres"]
-    MINIO["minio + minio-operator + minio-tenant"]
-    NATS["nats"]
-    REDIS["redis"]
-    MEM["memcached"]
+    MINIO["minio"]
+    NATS["nats (HelmRelease)"]
   end
   subgraph frontend["frontend namespace"]
     LISTENER["listener"]
@@ -87,33 +89,33 @@ flowchart LR
 
 This logical source directory contains the following directories:
 
-- The **components** dir contains Flux HelmReleases that define how the applications
-  are deployed to the cluster fleet. They also define which configuration should be used for each environment.
-- The **update-policies** dir contains the Flux policies for automating the application's
-  version updates of the OCI charts referred in Helm releases.
+- The **components** dir contains the Kustomize manifests that define how Flux
+  deploys the applications to the cluster fleet. A values overlay per environment
+  patches the base.
+- The **update-policies** dir contains Flux `ImageRepository` and `ImagePolicy`
+  objects for podinfo, redis and memcached. No active release uses them.
 
 The application components are grouped by namespace, and are defined in a directory with the following structure:
 
 ```sh
 ./components/
-└── namespace (e.g. frontend, backend)
+└── namespace (frontend, backend)
     ├── base
     │   ├── kustomization.yaml
-    │   └── release1.yaml
-    │   └── release2.yaml
-    ├── local (inherits from *staging*)
+    │   ├── workload1.yaml
+    │   └── workload2.yaml
+    ├── local (inherits from staging)
     │   ├── kustomization.yaml
-    │   └── release1.yaml
-    │   └── release2.yaml
+    │   └── workload1-values.yaml   # frontend only; backend/local holds kustomization.yaml alone
     ├── production (inherits from base)
     │   ├── kustomization.yaml
-    │   ├── release1-values.yaml
-    │   └── release2-values.yaml
+    │   ├── workload1-values.yaml
+    │   └── workload2-values.yaml
     └── staging (inherits from base)
         ├── kustomization.yaml
-        ├── release1-values.yaml
-        └── release2-values.yaml
+        ├── workload1-values.yaml
+        └── workload2-values.yaml
 ```
 
-Each namespace is independently reconciled on clusters and can
-contain multiple HelmReleases with custom configuration per environment.
+Flux reconciles each namespace on its own. Each namespace holds several
+workloads with a configuration patch per environment.

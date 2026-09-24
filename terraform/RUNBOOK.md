@@ -260,13 +260,13 @@ otherwise each claim to own:
 - the Workload Identity pool and provider
 - the CI plan/apply service accounts
 - the runtime service accounts
-- the audit log sink and bucket
+- the operator identity
 - the DNS managed zone
-- the budget and the notification channels
+- the notification channels
 
-First complete `terraform/platform/WIRING.md` — the `modules/identity` call
-ships commented out because that module is built on a sibling branch. WIRING.md
-lists exactly what to uncomment and in what order.
+The audit log sink, the log bucket, and the budget belong to `modules/observability`. That module is dormant. `terraform/platform/main.tf` keeps its call commented out, so this apply does not create them.
+
+The `module "identity"` call in `terraform/platform/main.tf` is live. `terraform/platform/WIRING.md` records what is wired and what is still commented out.
 
 ```bash
 terraform -chdir=terraform/platform init -reconfigure \

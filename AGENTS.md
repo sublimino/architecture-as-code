@@ -26,7 +26,7 @@ flowchart TB
     INGRESS["Envoy Gateway (TLS)"]
     ZOT["In-cluster Zot OCI registry"]
     CERT["cert-manager (self-signed issuer)"]
-    MON["kube-prometheus-stack + Grafana"]
+    MON["kube-prometheus-stack + Grafana<br/>(off by default)"]
     SIGN["cosign + witness signing keys"]
   end
 
@@ -58,8 +58,8 @@ flowchart TB
 | GitOps | Flux Operator + ResourceSets | [`d2-osramp-fleet/`](d2-osramp-fleet/) |
 | Ingress | Envoy Gateway (Gateway API, TLS) | [`d2-infra/components/ingress/`](d2-infra/components/ingress/) |
 | Registry | Zot (in-cluster, cache in `.cache/zot`) | [`d2-osramp-fleet/local/zot.yaml`](d2-osramp-fleet/local/zot.yaml) (`make registry`) |
-| Signing | cosign + witness | `.keys/` (made by `make signing-keys`, gitignored) |
-| Monitoring | kube-prometheus-stack + Grafana | [`d2-infra/components/monitoring/`](d2-infra/components/monitoring/) |
+| Signing | cosign + witness | `.keys/` in the main checkout (made by `make signing-keys`, gitignored). All linked worktrees share it. |
+| Monitoring | kube-prometheus-stack and Grafana. It is off by default. Set `ENABLE_OBSERVABILITY=true` to turn it on. | [`d2-infra/components/monitoring/`](d2-infra/components/monitoring/) |
 | Certificates | cert-manager (self-signed cluster issuer) | [`d2-infra/components/cert-manager/`](d2-infra/components/cert-manager/) |
 
 ## D2 slices
@@ -77,6 +77,7 @@ Each slice owns its namespaces, images, tests, and lifecycle.
 | `d2-agent-trust/` | SPIFFE agent trust: A2A identity, OpenBao JWT roles, NetworkPolicies | `make demo-agent-trust-up` | [`d2-agent-trust/AGENTS.md`](d2-agent-trust/AGENTS.md) |
 | `d2-cpai/` | CPAI runtime proxy: OpenAI-compatible proxy to Vertex AI | `make demo-cpai-up` | [`d2-cpai/AGENTS.md`](d2-cpai/AGENTS.md) |
 | `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | [`olly-replica/README.md`](olly-replica/README.md) |
+| `d2-signalloom/infra/inf-bao/` | OpenBao and SPIRE only | `make demo-bao-up` | [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md) |
 | `d2-signalloom/infra/kagent/` (D5) | Kagent AI agent framework: CRDs, declarative agents, SPIFFE and OpenBao | `make swarm-kagent-up`, then `make demo-kagent-up` | [`docs/kagent-d5.md`](docs/kagent-d5.md) |
 
 The Signal Loom documentation service ([`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/))
@@ -93,14 +94,14 @@ One optional service deploys outside the Signal Loom target:
 `make demo-signalloom-fleet-up` applies Fleet Manager directly. It is a test
 escape hatch. Do not use it as the normal deployment path.
 
-`make demo-k8s-afm-up` builds its image from `$KUBESEC_AFM_ROOT`. The default is
-the directory next to the repository root, `<repo>/../kubesec-afm`
-([`scripts/k8s-afm.sh`](scripts/k8s-afm.sh), line 45). If that checkout does not
-exist, `docker build` fails.
+`make demo-k8s-afm-up` uses the source at `$KUBESEC_AFM_ROOT` or the image
+archive at `$AFM_IMAGE_ARCHIVE` ([`scripts/k8s-afm.sh`](scripts/k8s-afm.sh)).
+The default source is the directory next to the repository root,
+`<repo>/../kubesec-afm`. The default archive is `.afm-image/kubesec-afm.tar.gz`.
+If both are absent, the script stops with an error.
 
-CAUTION: In a git worktree, the default path does not exist. The worktree is
-outside the source checkout, so the build fails. Set the variable before you
-build:
+CAUTION: In a git worktree, the default source path does not exist. The worktree
+is outside the source checkout. Set the variable before you build:
 
 ```bash
 export KUBESEC_AFM_ROOT=/path/to/kubesec-afm
@@ -144,7 +145,7 @@ make doctor                 # full read-only cluster diagnostic
 | `make up` | Start the foundation: Kind, Zot, signing keys, Flux |
 | `make down` | Delete the Kind cluster. The Zot cache stays. |
 | `make teardown` | Full reset, including keys and build state |
-| `make teardown-all` | Full reset, including the tools that `setup.sh` installed |
+| `make teardown-all` | Full reset. It also deletes kind, kubectl, flux, Go, and the other setup tools, even if you installed them. |
 | `make healthcheck` | Check that the foundation is ready for demos |
 | `make doctor` | Make a full read-only cluster diagnostic report |
 | `make cluster-debug` | Same as `make doctor` |
@@ -158,15 +159,13 @@ make demo-<slice>-test      # Static and readiness checks
 make demo-<slice>-down      # Remove the slice. The foundation stays.
 ```
 
-The foundation slices and Kagent use the commands in the slice table.
+The foundation slices use `make up`. Kagent needs `make swarm-kagent-up` before
+`make demo-kagent-up`.
 
 ## Shared cluster diagnostics
 
-Run `make doctor` before you examine a cluster problem. `make doctor` and
-`make cluster-debug` are the same read-only diagnostic. It checks connectivity,
-unhealthy pods, restart counts, warning events, Flux state, node metrics, and
-image-pull failures. The runbook is in
-[`TESTING.md`](TESTING.md#shared-cluster-diagnostics).
+Run `make doctor` before you examine a cluster problem. The runbook and the
+list of checks are in [`TESTING.md`](TESTING.md#shared-cluster-diagnostics).
 
 Do not guess why a page fails. Query the path from inside the pod. The
 triage table for the Signal Loom dashboard is in
@@ -178,7 +177,7 @@ give false answers.
 |---------|----------------|
 | `make doctor` | The full cluster, read-only |
 | `make demo-signalloom-supercred-evidence` | The credential chain, with six probes |
-| `make demo-agent-trust-network-test` | The SPIFFE trust boundaries |
+| `make demo-agent-trust-network-test` | The Agent Trust NetworkPolicy boundaries. It reports UNVERIFIED without an enforcing CNI. |
 | `make demo-k8s-afm-status` | The `afm-platform` status and its `/health` endpoint |
 
 ## Shared testing commands
@@ -186,31 +185,38 @@ give false answers.
 | Command | Scope |
 |---------|-------|
 | `make test` | End-to-end BATS tests of `d2-osramp-apps` on a running cluster |
-| `make acceptance-test` | Playwright browser tests (Signal Loom and KubeSec-AFM) |
-| `make demo-signalloom-api-test` | FastAPI contract and integration tests |
+| `make acceptance-test` | Playwright tests of each project that is not gated. A spec marked `unwired` never runs. |
+| `make demo-signalloom-api-test` | FastAPI contract tests. For integration tests, set `TIER=integration` and `DATABASE_URL`. |
 | `make demo-agentmaxxing-acceptance-test` | AgentMaxxing acceptance tests |
-| `make demo-signalloom-coding-agent-topology` | Coding-agent detective telemetry topology check |
-| `make attested-test` | The test suite under witness attestation |
-| `make docs-lint` | Documentation links, make targets, and style rules. No cluster. |
+| `make demo-signalloom-coding-agent-topology` | A Playwright test of the coding-agent topology view. It needs no cluster. |
+| `make attested-test` | The OSRAMP BATS suite under `witness run`. It needs a cluster. `ATTESTED_TEST_SOURCE=segments` runs the FrostDB proof. |
+| `make docs-lint` | Documentation links, paths, make targets, diagrams, index, and style rules. No cluster. |
+| `make docs-lint-test` | The three BATS suites behind the documentation checks. No cluster. |
+| `make test-all-offline` | All offline suites. It needs no cluster. |
 
-Do not write a test count for the acceptance suite by hand. A hand-written
-count becomes incorrect quickly.
-[`test/acceptance/SPEC-REGISTRY.tsv`](test/acceptance/SPEC-REGISTRY.tsv) is the
-one source. It records where each spec runs.
-
-The test [`test/acceptance-spec-coverage.bats`](test/acceptance-spec-coverage.bats)
-(CI stage 1c) checks each row against `playwright.config.ts`, the `Makefile`, and
-[`scripts/ci/vm-pipeline.sh`](scripts/ci/vm-pipeline.sh). If a row is incorrect
-or missing, CI fails.
-
-CAUTION: Playwright ignores a spec that no project claims. It reports a smaller
-total and shows no warning. The spec registry marks such a spec as `unwired`.
+[`test/acceptance/SPEC-REGISTRY.tsv`](test/acceptance/SPEC-REGISTRY.tsv) records
+where each spec runs. The rules for the registry and the `unwired` caution are
+in [`TESTING.md`](TESTING.md#browser-acceptance-tests).
 
 ## The GCP estate: four lanes
 
 The repository also runs on GCP in four independent lanes: `demo-1`, `demo-2`,
 `ci-1`, and `ci-2`. Terraform makes each lane. A second step builds the estate
 on the lane. Give `ENV=<lane>` to each command.
+
+The diagram shows the order of the lane commands, from an empty project to the
+check that nothing remains.
+
+```mermaid
+flowchart LR
+  UP["make gcp-tf-up"] --> DEMO["make gcp-tf-demo-up"]
+  DEMO --> TS["make gcp-tf-ts-up"]
+  TS --> DESTROY["make gcp-tf-destroy"]
+  DESTROY --> VERIFY["teardown-verify.sh"]
+```
+
+The scripts behind the diagram are in [`scripts/gcp-tf/`](scripts/gcp-tf/), and
+the last step is [`scripts/gcp-tf/teardown-verify.sh`](scripts/gcp-tf/teardown-verify.sh).
 
 ```bash
 make gcp-tf-up        ENV=demo-1              # plan, review, apply, write the hand-off file
@@ -258,7 +264,6 @@ The VMs suspend between runs to save cost. The full guide is
 
 - `SUSPENDED` is the success state. The script suspends the VM after a pass. It
   keeps the VM running after a failure.
-- Run `unset SSH_AUTH_SOCK` before a manual `gcloud compute ssh` command.
 
 WARNING: Do not run `gcp-ci.sh destroy` against `signalloom-ci`. The command
 deletes the VPC and NAT network. The second CI VM also uses that network.
@@ -329,8 +334,8 @@ The cache directory `.cache/zot/` stays after `make down`. Run
 `postBuild.substituteFrom` in a Flux Kustomization replaces variables in the
 full manifest text. This includes `spec.inputs` and `spec.resources`.
 
-Each [`d2-osramp-fleet/clusters/<env>/tenants.yaml`](d2-osramp-fleet/clusters/)
-has `dependsOn: [{name: flux-system}]`. This makes sure that the ConfigMap
+Each `tenants.yaml` in [`d2-osramp-fleet/clusters/`](d2-osramp-fleet/clusters/)
+(`local`, `staging`, `prod-eu`, and `prod-us`) has `dependsOn: [{name: flux-system}]`. This makes sure that the ConfigMap
 `flux-runtime-info` exists before the substitution. Keep it.
 
 If a manifest contains an unresolved `${VAR}` string, run:
@@ -352,13 +357,22 @@ Put a `# FLUX ENVSUBST:` header in each `kustomization.yaml` that contains
 ## Conventions
 
 - **Commits:** Use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`,
-  `chore:`). Match the style of the repository git log.
+  `chore:`). A scope is optional, for example `feat(signalloom):`. Match the
+  style of the repository git log.
 - **Image signing:** Sign all images and OCI artifacts with cosign. Flux rejects
   an unsigned artifact.
 - **Commit signing:** Check the signatures in the recent git log before you
   commit. If the branch history is unsigned, use `git commit --no-gpg-sign`.
+  In the `nono` worktree sandbox, commit with [`bin/agent-git`](bin/agent-git).
+  It adds `--no-gpg-sign`. The sandbox denies `~/.gnupg`.
 - **Supply chain:** Include SBOMs (SPDX), SLSA provenance, and digest checks.
 - **Tests:** Write unit, integration, and acceptance tests for each new feature.
 - **Documentation:** Follow
   [`docs/documentation-style.md`](docs/documentation-style.md). Run
-  `make docs-lint` before you commit a document change.
+  `make docs-lint` before you commit a document change. A new Markdown file
+  gets every check. A dated record (a proposal, report, audit, or proof) goes
+  into the `RECORDS` pattern of
+  [`scripts/docs-lint.sh`](scripts/docs-lint.sh) and into the
+  [Decision records](docs/README.md#5--decision-records) section of the index.
+  After a style rewrite, run `make docs-rewrite-guard FILES='<file>'` to check
+  that every command, path, number, link, and heading survived.

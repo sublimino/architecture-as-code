@@ -107,7 +107,7 @@ thinking about it.
 
 | Mechanism | Where |
 |---|---|
-| `access_mode` defaults to `"iap"` — Identity-Aware Proxy authenticates and authorises **every** request at the Google edge before any byte reaches the backend | `modules/edge/variables.tf`, asserted on the **evaluated default** by `tests/iap_access.tftest.hcl` → `default_access_mode_is_iap`, and mutation-proved in bats ("defaulting access_mode to allowlist turns the suite red") |
+| `access_mode` defaults to `"iap"` — Identity-Aware Proxy authenticates and authorises **every** request at the Google edge before any byte reaches the backend | `modules/edge/variables.tf`, asserted on the **evaluated default** by `modules/edge/tests/iap_access.tftest.hcl` → `default_access_mode_is_iap`, and mutation-proved in bats ("defaulting access_mode to allowlist turns the suite red") |
 | `iap_enabled = true` on the backend service, with the **IAP-managed OAuth client** (no client secret in tfvars or state) | `modules/edge/main.tf`, asserted on the evaluated `iap` block |
 | `roles/iap.httpsResourceAccessor` granted to a named `iap_members` list, bound to *this* backend service | `google_iap_web_backend_service_iam_member`, asserted on role, member shape, and target backend |
 | Empty `iap_members` rejected under any IAP mode — IAP with no authorised principal is a locked door with no key | variable validation, proven by `expect_failures` **paired with a positive** |

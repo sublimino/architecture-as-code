@@ -55,8 +55,8 @@ current answer. At the time of writing, verified against the cluster:
   longer appears as a live assignment anywhere. The key is supplied by the
   operator through OpenBao as `Secret/kagent-anthropic-key`, in both `kagent`
   and `fe-signalloom-agents`. On **this** branch
-  `infra/kagent/base/controller.yaml` does not survive at all. It was deleted
-  wholesale with the rest of the stub manifests, so there is no comment for the
+  `infra/kagent/base/controller.yaml` is a one-line comment. Its content was
+  deleted with the rest of the stub manifests, so there is no credential for the
   forbidden-literal guard to tolerate here. (The guard's comment-stripping is
   still doing real work. The literal appears in this file's own prose,
   describing what was removed, and the guard correctly scopes itself to
@@ -68,31 +68,62 @@ and the OpenBao path mapping.
 
 ## Architecture & lifecycle
 
+The diagram shows the three namespaces on the foundation.
+
+```mermaid
+flowchart TD
+  F[Foundation: Kind, Zot, Flux] --> B
+  F --> K
+  F --> A
+  subgraph B[inf-bao]
+    S[SPIRE Server]
+    O[OpenBao JWT auth]
+  end
+  subgraph K[kagent]
+    C[kagent-controller:8083]
+    P[PostgreSQL state store]
+    T[kagent-tools:8084 MCP tool server]
+    U[UI]
+  end
+  subgraph A[fe-signalloom-agents]
+    R[8 Agent CRs with SPIFFE identity]
+  end
 ```
-Foundation (Kind, Zot, Flux)
-      │
-      ├── inf-bao (SPIRE Server & OpenBao JWT Auth)
-      ├── kagent namespace (Controller, Postgres state store, MCP tool server, UI)
-      └── fe-signalloom-agents namespace (8 declarative Agent CRs with SPIFFE identity)
+
+The sequence diagram shows one invocation from `make demo-kagent-invoke` to the model.
+
+```mermaid
+sequenceDiagram
+  participant M as make demo-kagent-invoke
+  participant C as svc/kagent-controller:8083
+  participant G as Agent CR
+  participant T as kagent-tools MCP server
+  participant L as Model
+  M->>C: POST /api/a2a/{namespace}/{agent}/ (message/send)
+  C->>G: run the agent
+  G->>T: MCP tool call
+  T-->>G: tool result
+  G->>L: model request
+  L-->>G: model response
+  G-->>M: JSON-RPC result
 ```
+
+The names in the diagrams are in
+[`d2-signalloom/infra/kagent`](../d2-signalloom/infra/kagent),
+[`d2-signalloom/infra/agent-swarm/remotemcpserver.yaml`](../d2-signalloom/infra/agent-swarm/remotemcpserver.yaml),
+and [`scripts/kagent-invoke.sh`](../scripts/kagent-invoke.sh).
 
 ### Lifecycle targets
 
 | Command | Purpose |
 |---------|---------|
 | `make swarm-kagent-up` | Deploy Kagent CRDs, controller, PostgreSQL, tool server, and UI |
-| `make swarm-kagent-down` | Remove the Kagent control plane and CRDs |
+| `make swarm-kagent-down` | Uninstall the Kagent release and namespace. The CRDs stay in place |
 | `make demo-kagent-up` | Deploy all 8 Kagent declarative agents to `fe-signalloom-agents` |
 | `make demo-kagent-down` | Remove the Kagent declarative agents |
 | `make demo-kagent-test-config` | Statically render the CRDs and agent overlays, then run the contract suite — no cluster required |
 | `make demo-kagent-test` | Run every Kagent BATS suite against a live cluster |
 | `make demo-kagent-demo` | Run the interactive CLI walkthrough |
-
-
-> **Known wart.** `swarm-kagent-up` and `swarm-kagent-down` are each declared
-> **twice** in the Makefile (around lines 861 and 2490) with identical recipes.
-> GNU make takes the last definition and warns on every invocation. Behaviour is
-> unchanged, but the duplication should go.
 
 ## The Agent Swarm
 
@@ -351,7 +382,7 @@ difference is the evidence rather than the plausibility of the story.
 **Treat agent prose as unverified until a human or a tool has checked it
 against the cluster.**
 
-## The Model Credential
+## Tool bindings
 
 Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
 
@@ -393,12 +424,11 @@ must exist" below.
      time, not at apply time, so nothing between the manifest and the first
      model call would have told you. `test/kagent-credentials.bats` accepts the
      reference at either location and fails if it resolves at neither.
-  3. `d2-signalloom/infra/kagent/base/controller.yaml:12` still carries the
-     literal `mock-anthropic-key-for-local-demo`. The chart now supplies the
-     Secret, so that manifest's Secret block is **dead** — the placeholder ships
-     but nothing consumes it. `test/kagent-anti-stub.bats` fails on it anyway,
-     because a mock credential in a tracked manifest is a hazard whether or not
-     today's topology happens to read it.
+  3. [`d2-signalloom/infra/kagent/base/controller.yaml`](../d2-signalloom/infra/kagent/base/controller.yaml)
+     is now a one-line comment and carries no credential. The chart supplies the
+     Secret. `test/kagent-anti-stub.bats` fails on any mock credential in a
+     tracked manifest, because that is a hazard whether or not today's topology
+     reads it.
 - **Seven of the eight agent ServiceAccounts hold no RBAC at all.** Only
   `kagent-k8s-reader` is bound to a Role. The negative RBAC assertions in
   `test/kagent-adversarial.bats` are therefore true but weak for those seven: they
@@ -554,31 +584,6 @@ before the change, so the authority was the only wrong segment. Fixed.
 Unrelated and still outstanding: `signalloom.local` appears as `trustDomain:` in
 `d2-signalloom/agents/*.yaml` and `apps/fleet-manager/base/fleet-config.yaml`.
 That is a third domain, outside the kagent surface and not covered by these tests.
-
-## Invoking an Agent
-
-```bash
-make demo-kagent-invoke AGENT=kagent-k8s-reader \
-     PROMPT="List every namespace in this cluster, then tell me how many there are."
-```
-
-Uses kagent's own A2A surface, nothing bespoke. The controller serves
-`GET /api/a2a/{namespace}/{agent}/.well-known/agent.json` and
-`POST /api/a2a/{namespace}/{agent}/` (JSON-RPC `message/send`) on port 8083 of
-`svc/kagent-controller`. That is the same surface the `kagent` CLI and the
-dashboard use. Implemented as a dependency-free client so the kagent CLI need
-not be installed.
-
-Four distinct failure modes are treated as failures, three of which arrive as
-HTTP 200:
-
-- a JSON-RPC `error` object
-- `result.status.state == "failed"`
-- an HTML gateway page served with a 200
-- a completed task carrying no text
-
-Checking only the status code, or only `.error`, reports the other three as
-success.
 
 ## Tests & verification
 

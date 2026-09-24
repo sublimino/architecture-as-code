@@ -70,7 +70,6 @@ class IdentityHeaderStripMiddleware:
         await self.app(scope, receive, send)
 
 
-app.add_middleware(IdentityHeaderStripMiddleware)
 install_compatibility_api(app)
 install_onboarding_api(app)
 install_audit_ingest_api(app)
@@ -84,6 +83,10 @@ install_webhook_triggers_api(app)
 install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)
 install_scenario_seeding_api(app)
+# Added last so it is the OUTERMOST middleware (Starlette wraps later additions
+# around earlier ones): identity headers are gone before any other middleware,
+# dependency or handler can read them, for http and websocket scopes alike.
+app.add_middleware(IdentityHeaderStripMiddleware)
 
 
 @app.get("/health")

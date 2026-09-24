@@ -1,7 +1,7 @@
 # EAPR-P1-GOV Step 0 Refusal Evidence
 
 Created: 2026-09-23 20:44:10-05:00
-Last Updated: 2026-09-23 20:44:10-05:00
+Last Updated: 2026-09-23 20:50:08-05:00
 
 ## Verdict
 
@@ -14,6 +14,7 @@ Phase 2 remains blocked pending human resolution. Predecessor governors: none.
 - Worktree: `/home/andy/src/.worktrees/osramp-demo/eapr-v0.1.0/governor`
 - Branch: `integration/eapr-v0.1.0`
 - Initial integration tip: `844afa5acd2bef019641bb915bc8a63aa9c6e0d4`
+- Initial evidence commit: `c5ec8dcb30ba6bf928edb521ac8a482e18323141`
 - Protected base tip: `c429beea958ace9ee12752271c99542e5e6e4af7`
 - Initial tracked status: clean
 

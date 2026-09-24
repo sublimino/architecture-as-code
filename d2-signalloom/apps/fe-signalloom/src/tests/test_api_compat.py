@@ -2165,6 +2165,49 @@ def test_agent_telemetry_unknown_agent_404(client, monkeypatch):
     assert err["error"]["code"] == "not_found"
 
 
+def test_agent_telemetry_discovered_agent_success(client, monkeypatch):
+    """SFAGENTS-P3-1: Proves GET /api/agents/{agent_id}/telemetry resolves discovered agents without 404."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+
+    class FakeDiscoveryResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "agents": [
+                    {
+                        "id": "agent-cardvault",
+                        "name": "Cardvault Agent",
+                        "namespace": "fe-signalloom-agents",
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            return FakeDiscoveryResponse()
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", FakeAsyncClient)
+
+    res = client.get("/api/agents/agent-cardvault/telemetry", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    data = res.json()
+    assert data["agent_id"] == "agent-cardvault"
+    assert len(data["observations"]) > 0
+
+
 def test_agent_sentinel_containment_feedback_model():
     """SFAGENTS-P3-2: Proves SentinelKernelTelemetry model serialization supports Sentinel ACK, drop count, and containment probe states."""
     telemetry = api_compat.SentinelKernelTelemetry(

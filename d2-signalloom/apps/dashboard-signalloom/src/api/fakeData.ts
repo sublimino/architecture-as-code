@@ -10,6 +10,7 @@ import type {
   AgentCreateRequest,
   AgentListResponse,
   AgentResponse,
+  AgentTelemetryResponse,
   AuditListResponse,
   CapabilitiesResponse,
   ComplianceSummaryResponse,
@@ -220,6 +221,56 @@ function listAgents(): AgentListResponse {
 function readAgent(path: string): AgentResponse | undefined {
   const record = findDemoAgent(readAgentId(path))
   return record ? cloneAgent(record.agent) : undefined
+}
+
+function agentTelemetryFixture(path: string): AgentTelemetryResponse | undefined {
+  const agentId = readAgentId(path)
+  const record = findDemoAgent(agentId)
+  if (!record && agentId !== 'agent-cardvault' && !agentId.startsWith('agent-') && !agentId.startsWith('kagent-')) {
+    return undefined
+  }
+  return {
+    agent_id: agentId,
+    tenant_id: TENANT,
+    observations: [
+      {
+        id: `obs-${agentId}-1`,
+        observed_at: nowIso(),
+        source: 'frostdb-columnar',
+        layer: 'LayerNetworkEgress',
+        actor_id: agentId,
+        principal_id: TENANT,
+        action: 'egress.traffic_allowed',
+        details: { destination: 'internal-mesh.local', bytes: 1024, port: 443 },
+        confidence: 0.98,
+      },
+      {
+        id: `obs-${agentId}-2`,
+        observed_at: nowIso(),
+        source: 'ebpf-sentinel',
+        layer: 'LayerKernelSocket',
+        actor_id: agentId,
+        principal_id: TENANT,
+        action: 'socket.ebpf_traced',
+        details: { protocol: 'tcp', cgroup_id: 4096, pid: 12345 },
+        confidence: 1.0,
+      },
+      {
+        id: `obs-${agentId}-3`,
+        observed_at: nowIso(),
+        source: 'tc-ebpf',
+        layer: 'LayerCgroup',
+        actor_id: agentId,
+        principal_id: TENANT,
+        action: 'cgroup.containment_probe',
+        details: { state: 'active', filter: 'tc_clsact' },
+        confidence: 0.95,
+      },
+    ],
+    total_count: 3,
+    pushdown_filters: {},
+    source_health: 'healthy',
+  }
 }
 
 function readAgentUpdate(body: unknown): Partial<AgentResponse> {
@@ -878,6 +929,7 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
   { method: 'POST', test: re(/^\/agents\/violations\/[^/]+\/acknowledge$/), data: () => ({ status: 'acknowledged' }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/compliance\/[^/]+\/reassess$/), data: () => reassessment },
+  { method: 'GET', test: re(/^\/agents\/[^/]+\/telemetry$/), data: (path) => agentTelemetryFixture(path) },
   { method: 'GET', test: re(/^\/agents\/[^/]+$/), data: (path) => readAgent(path) },
   // compliance
   { method: 'GET', test: re(/^\/compliance\/summary$/), data: () => complianceSummary },

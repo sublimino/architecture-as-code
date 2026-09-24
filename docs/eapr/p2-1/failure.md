@@ -1,7 +1,7 @@
 # EAPR-P2-1 Preflight Refusal Evidence
 
 Created: 2026-09-24 03:10:13+01:00
-Last Updated: 2026-09-24 13:48:01+01:00
+Last Updated: 2026-09-24 13:50:48+01:00
 
 ## Verdict
 
@@ -312,5 +312,20 @@ Strategy recorded: re-verify, state non-fixability, stop. Result: unchanged
 verdict. The branch is not rebased onto `9294bd11`; the two new tip commits
 touch only `docs/eapr/p1-gov/`, so the Governor's `--no-ff` merge is
 conflict-free when the card is eventually accepted.
+
+## Remediation attempt 2 (2026-09-24 13:50:48+01:00, runtime auto-remediation) — not fixable in this scope
+
+Re-probed three minutes after attempt 1; every value identical: tip
+`9294bd11`, `EAPR-P1-4`/`EAPR-P1-3` ancestor rc=1, no p1 tag, sweep 183
+lines, no `make test-eap-offline`, P2-PRE `status=fail proceed=no`, P1-GOV on
+the tip `status=fail proceed=no`, P1-GOV third run (`7ce29`, started
+12:46:34Z) still `running`. The only working-tree change is the runtime's own
+`.kanban-failed-28b07` marker, left untouched.
+
+Diagnosis is unchanged because the evidence is unchanged; a different strategy
+requires a different world. The remediation loop is re-invoking a card whose
+predecessors are red — the same start-ready defect this record describes
+twice — and each attempt costs a run without any path to green. Stop
+re-dispatching EAPR-P2-1 until the unblock checklist above is satisfied.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

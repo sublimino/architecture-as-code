@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { colors } from '../../styles/tokens'
 import {
   type DemoBridge,
   type StageOutcome,
@@ -12,6 +11,11 @@ import {
 } from './scenarios'
 import type { ConfinementStreamingPayload } from './types'
 import { ZeroPayloadInspector } from './ZeroPayloadInspector'
+import {
+  AgentMaxxingLogStream,
+  useAgentMaxxingLogStream,
+  type UseAgentMaxxingLogStreamReturn,
+} from './AgentMaxxingLogStream'
 
 export interface ArtifactHashItem {
   readonly artifactId: string
@@ -35,6 +39,8 @@ export interface ConfinementTelemetryPanelProps {
   readonly customArtifacts?: readonly ArtifactHashItem[]
   readonly onOutcome?: (outcome: StageOutcome<'confinement_streaming'>) => void
   readonly onTelemetryPolled?: (payload: ConfinementStreamingPayload) => void
+  readonly logStream?: UseAgentMaxxingLogStreamReturn
+  readonly showLogStream?: boolean
 }
 
 /**
@@ -79,9 +85,8 @@ export function formatTimeHms(timestamp: number | Date | string): string {
  */
 export function deriveArtifactsForPreset(
   preset: ScenarioPreset,
-  payload: ConfinementStreamingPayload | null
+  payload: ConfinementStreamingPayload | null,
 ): ArtifactHashItem[] {
-  // If payload has expectedSha256 and observedSha256 and they differ, or if preset is tamper breach
   const isTamper =
     preset.id === TAMPER_BREACH_PRESET.id ||
     (payload !== null && payload.expectedSha256 !== payload.observedSha256)
@@ -159,6 +164,8 @@ export function ConfinementTelemetryPanel({
   customArtifacts,
   onOutcome,
   onTelemetryPolled,
+  logStream,
+  showLogStream = true,
 }: ConfinementTelemetryPanelProps): React.JSX.Element {
   const [payload, setPayload] = useState<ConfinementStreamingPayload | null>(initialPayload)
   const [sourceHealth, setSourceHealth] = useState<SourceHealthState>('healthy')
@@ -167,6 +174,11 @@ export function ConfinementTelemetryPanel({
   const [displayRssBytes, setDisplayRssBytes] = useState<number>(initialPayload?.rssBytes ?? 0)
   const [isFetching, setIsFetching] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+
+  const internalLogStream = useAgentMaxxingLogStream({ defaultStage: 'confinement_streaming' })
+  const activeLogStream = logStream ?? internalLogStream
+  const logStreamRef = useRef(activeLogStream)
+  logStreamRef.current = activeLogStream
 
   const isMountedRef = useRef<boolean>(true)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -237,6 +249,9 @@ export function ConfinementTelemetryPanel({
             }, debounceMs)
           }
 
+          // Hook into log stream
+          logStreamRef.current.appendStageLog('confinement_streaming', freshPayload)
+
           onTelemetryPolled?.(freshPayload)
           if (isInitial) {
             onOutcome?.(outcome)
@@ -245,6 +260,7 @@ export function ConfinementTelemetryPanel({
           if (outcome.error.kind === 'aborted') return
           setSourceHealth('degraded')
           setError(outcome.error.message)
+          logStreamRef.current.appendError('confinement_streaming', outcome.error.message)
           if (isInitial) {
             onOutcome?.(outcome)
           }
@@ -254,13 +270,14 @@ export function ConfinementTelemetryPanel({
         const msg = err instanceof Error ? err.message : String(err)
         setSourceHealth('degraded')
         setError(msg)
+        logStreamRef.current.appendError('confinement_streaming', msg)
       } finally {
         if (isMountedRef.current) {
           setIsFetching(false)
         }
       }
     },
-    [bridge, debounceMs, onOutcome, onTelemetryPolled]
+    [bridge, debounceMs, onOutcome, onTelemetryPolled],
   )
 
   // Poll loop: starts on mount, cleans up cleanly on unmount with zero dangling timers
@@ -305,9 +322,9 @@ export function ConfinementTelemetryPanel({
     <div
       data-testid="confinement-telemetry-panel"
       style={{
-        backgroundColor: colors.slateDark,
+        backgroundColor: 'var(--surface)',
         borderRadius: 6,
-        border: `1px solid ${colors.elevatedSlate}`,
+        border: '1px solid var(--border)',
         padding: 24,
         display: 'flex',
         flexDirection: 'column',
@@ -318,7 +335,7 @@ export function ConfinementTelemetryPanel({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: colors.electricWhite }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
               Stage 3: Landlock Confinement & Telemetry
             </h3>
             <span
@@ -327,8 +344,8 @@ export function ConfinementTelemetryPanel({
                 fontSize: 11,
                 padding: '2px 8px',
                 borderRadius: 4,
-                backgroundColor: colors.elevatedSlate,
-                color: bridge.channelKind === 'live' ? colors.tealLoom : colors.cyanLoom,
+                backgroundColor: 'var(--surface2)',
+                color: bridge.channelKind === 'live' ? 'var(--teal)' : 'var(--cyan)',
                 fontWeight: 500,
               }}
             >
@@ -340,15 +357,15 @@ export function ConfinementTelemetryPanel({
                 fontSize: 11,
                 padding: '2px 8px',
                 borderRadius: 4,
-                backgroundColor: colors.deepMidnight,
-                color: colors.muted,
+                backgroundColor: 'var(--bg)',
+                color: 'var(--muted)',
                 fontFamily: 'monospace',
               }}
             >
               Poll interval: {(pollIntervalMs / 1000).toFixed(1)}s
             </span>
           </div>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: colors.muted }}>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             Stream metadata-only process metrics and live SHA-256 artifact verification.
           </p>
         </div>
@@ -360,8 +377,8 @@ export function ConfinementTelemetryPanel({
           disabled={isFetching || inFlight}
           onClick={handleManualRefresh}
           style={{
-            backgroundColor: isFetching || inFlight ? colors.elevatedSlate : colors.cyanLoom,
-            color: isFetching || inFlight ? colors.muted : colors.deepMidnight,
+            backgroundColor: isFetching || inFlight ? 'var(--surface2)' : 'var(--cyan)',
+            color: isFetching || inFlight ? 'var(--muted)' : 'var(--bg)',
             border: 'none',
             borderRadius: 4,
             padding: '8px 14px',
@@ -386,27 +403,27 @@ export function ConfinementTelemetryPanel({
           justifyContent: 'space-between',
           alignItems: 'center',
           fontSize: 12,
-          color: colors.muted,
+          color: 'var(--muted)',
           fontFamily: 'monospace',
-          backgroundColor: colors.deepMidnight,
+          backgroundColor: 'var(--bg)',
           padding: '8px 12px',
           borderRadius: 4,
         }}
       >
         <span>POST /api/v1/external-agents/evidence-uploads</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span data-testid="last-polled-at" style={{ color: colors.electricWhite }}>
-            Last polled at: <strong style={{ color: colors.cyanLoom }}>{lastPolledAt}</strong>
+          <span data-testid="last-polled-at" style={{ color: 'var(--text)' }}>
+            Last polled at: <strong style={{ color: 'var(--cyan)' }}>{lastPolledAt}</strong>
           </span>
           <span
             data-testid="zero-payload-badge"
             style={{
-              color: colors.tealLoom,
-              backgroundColor: colors.slateDark,
+              color: 'var(--teal)',
+              backgroundColor: 'var(--surface)',
               padding: '2px 6px',
               borderRadius: 3,
               fontSize: 11,
-              border: `1px solid ${colors.tealLoom}`,
+              border: '1px solid var(--teal)',
             }}
           >
             Zero Customer Payload
@@ -419,11 +436,11 @@ export function ConfinementTelemetryPanel({
         <div
           data-testid="telemetry-error"
           style={{
-            backgroundColor: colors.deepMidnight,
-            border: `1px solid ${colors.red}`,
+            backgroundColor: 'var(--bg)',
+            border: '1px solid var(--error)',
             borderRadius: 4,
             padding: 12,
-            color: colors.red,
+            color: 'var(--error)',
             fontSize: 13,
           }}
         >
@@ -444,8 +461,8 @@ export function ConfinementTelemetryPanel({
         <div
           data-testid="cpu-gauge"
           style={{
-            backgroundColor: colors.deepMidnight,
-            border: `1px solid ${isDegraded ? colors.amber : colors.elevatedSlate}`,
+            backgroundColor: 'var(--bg)',
+            border: `1px solid ${isDegraded ? 'var(--amber)' : 'var(--border)'}`,
             borderRadius: 6,
             padding: 16,
             display: 'flex',
@@ -455,7 +472,7 @@ export function ConfinementTelemetryPanel({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: colors.electricWhite }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
               CPU Execution Time
             </span>
             <span
@@ -466,8 +483,8 @@ export function ConfinementTelemetryPanel({
                 textTransform: 'uppercase',
                 padding: '2px 6px',
                 borderRadius: 4,
-                backgroundColor: colors.slateDark,
-                color: isHealthy ? colors.tealLoom : isDegraded ? colors.amber : colors.slateGray,
+                backgroundColor: 'var(--surface)',
+                color: isHealthy ? 'var(--teal)' : isDegraded ? 'var(--amber)' : 'var(--slate-gray)',
               }}
             >
               {sourceHealth}
@@ -481,12 +498,12 @@ export function ConfinementTelemetryPanel({
                 fontSize: 24,
                 fontFamily: 'monospace',
                 fontWeight: 700,
-                color: colors.cyanLoom,
+                color: 'var(--cyan)',
               }}
             >
               {cpuFormattedMs}
             </span>
-            <span style={{ fontSize: 12, color: colors.muted, fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'monospace' }}>
               ({cpuFormattedSec})
             </span>
           </div>
@@ -496,7 +513,7 @@ export function ConfinementTelemetryPanel({
             style={{
               width: '100%',
               height: 6,
-              backgroundColor: colors.slateDark,
+              backgroundColor: 'var(--surface)',
               borderRadius: 3,
               overflow: 'hidden',
             }}
@@ -505,7 +522,7 @@ export function ConfinementTelemetryPanel({
               style={{
                 width: `${Math.min(100, Math.max(8, (displayCpuTicks % 5000) / 50))}%`,
                 height: '100%',
-                backgroundColor: colors.cyanLoom,
+                backgroundColor: 'var(--cyan)',
                 transition: 'width 0.3s ease',
               }}
             />
@@ -515,7 +532,7 @@ export function ConfinementTelemetryPanel({
             data-testid="cpu-gauge-note"
             style={{
               fontSize: 11,
-              color: colors.muted,
+              color: 'var(--muted)',
               lineHeight: 1.3,
             }}
           >
@@ -527,9 +544,9 @@ export function ConfinementTelemetryPanel({
             data-testid="cpu-last-polled-at"
             style={{
               fontSize: 11,
-              color: colors.dim,
+              color: 'var(--dim)',
               fontFamily: 'monospace',
-              borderTop: `1px solid ${colors.elevatedSlate}`,
+              borderTop: '1px solid var(--border)',
               paddingTop: 6,
             }}
           >
@@ -541,8 +558,8 @@ export function ConfinementTelemetryPanel({
         <div
           data-testid="rss-gauge"
           style={{
-            backgroundColor: colors.deepMidnight,
-            border: `1px solid ${isDegraded ? colors.amber : colors.elevatedSlate}`,
+            backgroundColor: 'var(--bg)',
+            border: `1px solid ${isDegraded ? 'var(--amber)' : 'var(--border)'}`,
             borderRadius: 6,
             padding: 16,
             display: 'flex',
@@ -552,7 +569,7 @@ export function ConfinementTelemetryPanel({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: colors.electricWhite }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
               Resident Memory (RSS)
             </span>
             <span
@@ -563,8 +580,8 @@ export function ConfinementTelemetryPanel({
                 textTransform: 'uppercase',
                 padding: '2px 6px',
                 borderRadius: 4,
-                backgroundColor: colors.slateDark,
-                color: isHealthy ? colors.tealLoom : isDegraded ? colors.amber : colors.slateGray,
+                backgroundColor: 'var(--surface)',
+                color: isHealthy ? 'var(--teal)' : isDegraded ? 'var(--amber)' : 'var(--slate-gray)',
               }}
             >
               {sourceHealth}
@@ -578,7 +595,7 @@ export function ConfinementTelemetryPanel({
                 fontSize: 24,
                 fontFamily: 'monospace',
                 fontWeight: 700,
-                color: colors.irisViolet,
+                color: 'var(--violet)',
               }}
             >
               {rssFormattedMb}
@@ -587,7 +604,7 @@ export function ConfinementTelemetryPanel({
 
           <div
             data-testid="rss-gauge-raw-bytes"
-            style={{ fontSize: 12, color: colors.muted, fontFamily: 'monospace' }}
+            style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'monospace' }}
           >
             {displayRssBytes.toLocaleString()} bytes allocated
           </div>
@@ -597,7 +614,7 @@ export function ConfinementTelemetryPanel({
             style={{
               width: '100%',
               height: 6,
-              backgroundColor: colors.slateDark,
+              backgroundColor: 'var(--surface)',
               borderRadius: 3,
               overflow: 'hidden',
             }}
@@ -606,7 +623,7 @@ export function ConfinementTelemetryPanel({
               style={{
                 width: `${Math.min(100, Math.max(10, (displayRssBytes / (128 * 1024 * 1024)) * 100))}%`,
                 height: '100%',
-                backgroundColor: colors.irisViolet,
+                backgroundColor: 'var(--violet)',
                 transition: 'width 0.3s ease',
               }}
             />
@@ -616,9 +633,9 @@ export function ConfinementTelemetryPanel({
             data-testid="rss-last-polled-at"
             style={{
               fontSize: 11,
-              color: colors.dim,
+              color: 'var(--dim)',
               fontFamily: 'monospace',
-              borderTop: `1px solid ${colors.elevatedSlate}`,
+              borderTop: '1px solid var(--border)',
               paddingTop: 6,
             }}
           >
@@ -630,8 +647,8 @@ export function ConfinementTelemetryPanel({
         <div
           data-testid="open-fds-slot"
           style={{
-            backgroundColor: colors.deepMidnight,
-            border: `1px solid ${colors.elevatedSlate}`,
+            backgroundColor: 'var(--bg)',
+            border: '1px solid var(--border)',
             borderRadius: 6,
             padding: 16,
             display: 'flex',
@@ -642,7 +659,7 @@ export function ConfinementTelemetryPanel({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: colors.muted }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>
               Open File Descriptors
             </span>
             <span
@@ -653,8 +670,8 @@ export function ConfinementTelemetryPanel({
                 textTransform: 'uppercase',
                 padding: '2px 6px',
                 borderRadius: 4,
-                backgroundColor: colors.slateDark,
-                color: colors.slateGray,
+                backgroundColor: 'var(--surface)',
+                color: 'var(--slate-gray)',
               }}
             >
               Unavailable
@@ -668,7 +685,7 @@ export function ConfinementTelemetryPanel({
                 fontSize: 24,
                 fontFamily: 'monospace',
                 fontWeight: 700,
-                color: colors.slateGray,
+                color: 'var(--slate-gray)',
               }}
             >
               N/A
@@ -679,7 +696,7 @@ export function ConfinementTelemetryPanel({
             data-testid="open-fds-note"
             style={{
               fontSize: 11,
-              color: colors.muted,
+              color: 'var(--muted)',
               lineHeight: 1.3,
             }}
           >
@@ -691,9 +708,9 @@ export function ConfinementTelemetryPanel({
             data-testid="open-fds-last-polled-at"
             style={{
               fontSize: 11,
-              color: colors.dim,
+              color: 'var(--dim)',
               fontFamily: 'monospace',
-              borderTop: `1px solid ${colors.elevatedSlate}`,
+              borderTop: '1px solid var(--border)',
               paddingTop: 6,
             }}
           >
@@ -709,15 +726,15 @@ export function ConfinementTelemetryPanel({
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
-          backgroundColor: colors.deepMidnight,
+          backgroundColor: 'var(--bg)',
           borderRadius: 6,
           padding: 16,
-          border: `1px solid ${colors.elevatedSlate}`,
+          border: '1px solid var(--border)',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: colors.electricWhite }}>
+            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
               Cryptographic Artifact SHA-256 Verification Table
             </h4>
             <span
@@ -726,15 +743,15 @@ export function ConfinementTelemetryPanel({
                 fontSize: 11,
                 padding: '1px 6px',
                 borderRadius: 3,
-                backgroundColor: colors.slateDark,
-                color: colors.cyanLoom,
+                backgroundColor: 'var(--surface)',
+                color: 'var(--cyan)',
                 fontFamily: 'monospace',
               }}
             >
               {artifacts.length} {artifacts.length === 1 ? 'artifact' : 'artifacts'}
             </span>
           </div>
-          <span style={{ fontSize: 12, color: colors.muted }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
             TOCTOU Safe • Landlock Confinement Boundary
           </span>
         </div>
@@ -744,7 +761,7 @@ export function ConfinementTelemetryPanel({
           style={{
             maxHeight: 280,
             overflowY: 'auto',
-            border: `1px solid ${colors.elevatedSlate}`,
+            border: '1px solid var(--border)',
             borderRadius: 4,
           }}
         >
@@ -760,9 +777,9 @@ export function ConfinementTelemetryPanel({
             <thead>
               <tr
                 style={{
-                  backgroundColor: colors.slateDark,
-                  color: colors.muted,
-                  borderBottom: `1px solid ${colors.elevatedSlate}`,
+                  backgroundColor: 'var(--surface)',
+                  color: 'var(--muted)',
+                  borderBottom: '1px solid var(--border)',
                   fontSize: 11,
                   textTransform: 'uppercase',
                   letterSpacing: '0.05em',
@@ -785,8 +802,8 @@ export function ConfinementTelemetryPanel({
                     data-testid={`artifact-hash-row-${artifact.artifactId}`}
                     data-testid-group="hash-comparison-row"
                     style={{
-                      borderBottom: `1px solid ${colors.elevatedSlate}`,
-                      backgroundColor: isMatch ? 'transparent' : 'rgba(239, 68, 68, 0.08)',
+                      borderBottom: '1px solid var(--border)',
+                      backgroundColor: isMatch ? 'transparent' : 'rgba(220, 38, 38, 0.08)',
                     }}
                   >
                     <td
@@ -794,7 +811,7 @@ export function ConfinementTelemetryPanel({
                       style={{
                         padding: '10px 12px',
                         fontFamily: 'monospace',
-                        color: colors.electricWhite,
+                        color: 'var(--text)',
                         fontWeight: 500,
                       }}
                     >
@@ -805,7 +822,7 @@ export function ConfinementTelemetryPanel({
                       style={{
                         padding: '10px 12px',
                         fontFamily: 'monospace',
-                        color: colors.muted,
+                        color: 'var(--muted)',
                       }}
                     >
                       {artifact.rootId}
@@ -816,7 +833,7 @@ export function ConfinementTelemetryPanel({
                       style={{
                         padding: '10px 12px',
                         fontFamily: 'monospace',
-                        color: colors.cyanLoom,
+                        color: 'var(--cyan)',
                         fontSize: 11,
                       }}
                     >
@@ -828,7 +845,7 @@ export function ConfinementTelemetryPanel({
                       style={{
                         padding: '10px 12px',
                         fontFamily: 'monospace',
-                        color: isMatch ? colors.cyanLoom : colors.red,
+                        color: isMatch ? 'var(--cyan)' : 'var(--error)',
                         fontWeight: isMatch ? 400 : 600,
                         fontSize: 11,
                       }}
@@ -840,7 +857,7 @@ export function ConfinementTelemetryPanel({
                       style={{
                         padding: '10px 12px',
                         fontFamily: 'monospace',
-                        color: colors.muted,
+                        color: 'var(--muted)',
                         fontSize: 11,
                       }}
                     >
@@ -855,9 +872,11 @@ export function ConfinementTelemetryPanel({
                           textTransform: 'uppercase',
                           padding: '3px 8px',
                           borderRadius: 4,
-                          backgroundColor: isMatch ? 'rgba(20, 184, 166, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                          color: isMatch ? colors.tealLoom : colors.red,
-                          border: `1px solid ${isMatch ? colors.tealLoom : colors.red}`,
+                          backgroundColor: isMatch
+                            ? 'rgba(16, 185, 129, 0.15)'
+                            : 'rgba(220, 38, 38, 0.15)',
+                          color: isMatch ? 'var(--teal)' : 'var(--error)',
+                          border: `1px solid ${isMatch ? 'var(--teal)' : 'var(--error)'}`,
                         }}
                       >
                         {isMatch ? 'Match' : 'Mismatch'}
@@ -873,6 +892,17 @@ export function ConfinementTelemetryPanel({
 
       {/* Stage 3 Sub-panel: Zero-Payload Telemetry & Allowlist Inspector (AMXD-P3-2) */}
       <ZeroPayloadInspector isLiveChannel={bridge.channelKind === 'live'} />
+
+      {/* Stage 3 Live Log Stream */}
+      {showLogStream && (
+        <div style={{ marginTop: 8 }} data-testid="confinement-log-stream-container">
+          <AgentMaxxingLogStream
+            logStream={activeLogStream}
+            stage="confinement_streaming"
+            title="Stage 3 · Landlock Confinement Telemetry Stream"
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -340,7 +340,7 @@ def authorize_tenant_access(caller_spiffe_id: Optional[str], customer_hash: str)
     """Allow only the tenant's own workload identity to act on its boundary.
 
     Exact match against the canonical SPIFFE ID — never a prefix or substring,
-    so ``eap-6f82ad81`` cannot be reached by ``eap-6f82ad810`` or by any other
+    so a namespace cannot be reached by a prefix/suffix variant or by any other
     service account in the same namespace.
     """
     expected = get_tenant_spiffe_id(customer_hash)

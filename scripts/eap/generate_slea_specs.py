@@ -24,8 +24,8 @@ SPEC_DIR.mkdir(parents=True, exist_ok=True)
 SHARED_KEY_FACTS = [
     "Repository root is /home/andy/src/cp/osramp-demo.",
     "Integration branch is feat/signal-loop-and-bootstrap-refactor.",
-    "First customer company name is 'kurasi', canonical salt is 'signalloom-eap-salt-2026-q3', yielding hash '6f82ad81'.",
-    "Tailscale internal mesh URL format is https://sl-eap-6f82ad81.tailscale and MagicDNS FQDN is https://sl-eap-6f82ad81.ts.net.",
+    "First customer company name is 'kusari', canonical salt is 'test-eap-salt-2026', yielding hash 'a0314bec'.",
+    "Tailscale internal mesh URL format is https://sl-eap-a0314bec.tailscale and MagicDNS FQDN is https://sl-eap-a0314bec.ts.net.",
     "Backend FastAPI application lives in d2-signalloom/apps/fe-signalloom/src/ with test suite in tests/.",
     "Dex OIDC callback origin leasing must be claimed via dex_origin apply tailscale <origin> to avoid login bounce failures.",
     "Tailscale Serve and Funnel automation requires --accept-dns=false and idempotent logout/reset on de-provisioning."
@@ -104,13 +104,13 @@ SPECS = {
         "objective": (
             "Audit customer hashing salt, DNS label constraints, and Tailscale MagicDNS contracts. "
             "Verify RFC 1123 compliance for generated sl-eap-HASH subdomains, confirm the canonical test vector "
-            "for initial customer 'kurasi', and verify that the proposed cryptographic salt structure prevents "
+            "for initial customer 'kusari', and verify that the proposed cryptographic salt structure prevents "
             "both rainbow table inversion and domain collisions."
         ),
         "approach": [
             "Review RFC 1123 and Tailscale MagicDNS requirements: max 63 chars per DNS label, lowercase alphanumeric and hyphens only.",
-            "Validate that canonical company name 'kurasi' with salt 'signalloom-eap-salt-2026-q3' hashes deterministically to '6f82ad81'.",
-            "Verify that 'sl-eap-6f82ad81' is exactly 15 characters, well within the 63-character DNS label limit.",
+            "Validate that canonical company name 'kusari' with salt 'test-eap-salt-2026' hashes deterministically to 'a0314bec'.",
+            "Verify that 'sl-eap-a0314bec' is exactly 15 characters, well within the 63-character DNS label limit.",
             "Inspect Python hashlib and hmac modules to choose optimal, zero-dependency hashing implementation.",
             "Document DNS specifications, collision probability analysis, and salt rotation strategy in docs/signalloom/slea-p1-pre-audit.md."
         ],
@@ -121,7 +121,7 @@ SPECS = {
             "Recorded preflight checklist proving readiness for Phase 1 implementation."
         ],
         "testSurface": [
-            "python3 -c 'import re; assert re.match(r\"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$\", \"sl-eap-6f82ad81\")'",
+            "python3 -c 'import re; assert re.match(r\"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$\", \"sl-eap-a0314bec\")'",
             "test -f docs/signalloom/slea-p1-pre-audit.md",
             "~/.claude/skills/ajm-auto-kanban/Tools/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLEA"
         ],
@@ -158,21 +158,21 @@ SPECS = {
         "approach": [
             "Create d2-signalloom/apps/fe-signalloom/src/environment_routing.py containing derive_customer_hash and build_environment_urls.",
             "Implement normalization: name.strip().lower() to ensure whitespace and casing variations yield identical hashes.",
-            "Implement configurable salt support reading SIGNAL_LOOM_EAP_SALT with fallback to 'signalloom-eap-salt-2026-q3'.",
+            "Implement configurable salt support reading SIGNAL_LOOM_EAP_SALT with fallback to 'test-eap-salt-2026'.",
             "Format hostnames as sl-eap-{hash} and URLs as https://sl-eap-{hash}.tailscale and https://sl-eap-{hash}.{tailnet}.ts.net.",
-            "Write comprehensive unit tests in tests/test_environment_routing.py verifying kurasi test vector and edge cases."
+            "Write comprehensive unit tests in tests/test_environment_routing.py verifying kusari test vector and edge cases."
         ],
         "deliverables": [
             "d2-signalloom/apps/fe-signalloom/src/environment_routing.py with derive_customer_hash and build_environment_urls functions.",
             "Comprehensive unit test suite in tests/test_environment_routing.py asserting test vectors and error boundaries.",
-            "Validation of 'kurasi' yielding exactly '6f82ad81' and hostname 'sl-eap-6f82ad81'.",
+            "Validation of 'kusari' yielding exactly 'a0314bec' and hostname 'sl-eap-a0314bec'.",
             "Type hints and docstrings following PEP 484 and Google Python style guide.",
             "Clean pytest run with zero failures or regressions."
         ],
         "testSurface": [
             "pytest tests/test_environment_routing.py -k 'test_derive_customer_hash' -v",
             "pytest tests/test_environment_routing.py -k 'test_build_environment_urls' -v",
-            "pytest tests/test_environment_routing.py -k 'test_kurasi_canonical_vector' -v",
+            "pytest tests/test_environment_routing.py -k 'test_kusari_canonical_vector' -v",
             "pytest tests/test_environment_routing.py -v"
         ],
         "evidence": [
@@ -181,8 +181,8 @@ SPECS = {
             "Errata block appended for SLEA-P1-1 with status=pass."
         ],
         "failureModes": [
-            "Failing to strip leading/trailing whitespace resulting in different hashes for 'kurasi' vs ' kurasi '.",
-            "Case sensitivity bugs where 'Kurasi' produces a different hash than 'kurasi'.",
+            "Failing to strip leading/trailing whitespace resulting in different hashes for 'kusari' vs ' kusari '.",
+            "Case sensitivity bugs where 'Kusari' produces a different hash than 'kusari'.",
             "Hardcoding the salt string directly in code without environment variable override capability."
         ],
         "stopAndReport": SHARED_STOP_AND_REPORT,
@@ -253,7 +253,7 @@ SPECS = {
     "P1-GOV": {
         "logicalId": "P1-GOV",
         "objective": (
-            "Certify Phase 1 deliverables: verify that hashing vectors (specifically the 'kurasi' check) "
+            "Certify Phase 1 deliverables: verify that hashing vectors (specifically the 'kusari' check) "
             "and domain generation contracts meet all enterprise requirements with zero regressions. Audit code "
             "quality, type coverage, and test suites across P1-1 and P1-2, proving that 100 random customer inputs "
             "generate valid RFC 1123 hostnames without collisions."
@@ -261,7 +261,7 @@ SPECS = {
         "approach": [
             "Execute full test suite in d2-signalloom/apps/fe-signalloom/src/tests/test_environment_routing.py.",
             "Run randomized fuzzing test with 1,000 distinct company names to mathematically verify zero collisions.",
-            "Verify that 'kurasi' strictly outputs hash '6f82ad81' and hostname 'sl-eap-6f82ad81'.",
+            "Verify that 'kusari' strictly outputs hash 'a0314bec' and hostname 'sl-eap-a0314bec'.",
             "Check that all Pydantic models reject invalid inputs and serialize valid ISO-8601 timestamps.",
             "Run scripts/kanban-check.sh doctor to ensure repo health and append certified errata block."
         ],
@@ -273,7 +273,7 @@ SPECS = {
         ],
         "testSurface": [
             "pytest tests/test_environment_routing.py -v",
-            "python3 -c 'from environment_routing import derive_customer_hash; assert derive_customer_hash(\"kurasi\") == \"6f82ad81\"'",
+            "python3 -c 'from environment_routing import derive_customer_hash; assert derive_customer_hash(\"kusari\") == \"a0314bec\"'",
             "~/.claude/skills/ajm-auto-kanban/Tools/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLEA"
         ],
         "evidence": [
@@ -283,7 +283,7 @@ SPECS = {
         ],
         "failureModes": [
             "Overlooking subtle case normalization regressions between different operating systems.",
-            "Failing to assert that the canonical customer 'kurasi' produces exact hash '6f82ad81'."
+            "Failing to assert that the canonical customer 'kusari' produces exact hash 'a0314bec'."
         ],
         "stopAndReport": SHARED_STOP_AND_REPORT,
         "loopOn": [
@@ -364,7 +364,7 @@ SPECS = {
             "POST /api/v1/environments/resolve-domain endpoint for pre-flight URL resolution.",
             "Router installation in d2-signalloom/apps/fe-signalloom/src/main.py.",
             "Automated integration tests in tests/test_environment_routing.py using starlette/fastapi TestClient.",
-            "Idempotency test confirming re-provisioning kurasi returns existing record without duplicating ID."
+            "Idempotency test confirming re-provisioning kusari returns existing record without duplicating ID."
         ],
         "testSurface": [
             "pytest tests/test_environment_routing.py -k 'test_api_provision_endpoint' -v",
@@ -453,13 +453,13 @@ SPECS = {
             "Certify Phase 2 deliverables: verify the complete REST API contract for environment provisioning, "
             "TTL extensions, domain resolution, and teardown under both happy path and adversarial conditions. "
             "Audit OpenAPI schema generation, verify zero regressions across all fe-signalloom tests, and confirm "
-            "that the kurasi EAP environment endpoint responds according to specification."
+            "that the kusari EAP environment endpoint responds according to specification."
         ),
         "approach": [
             "Run full pytest suite on fe-signalloom/src/tests/test_environment_routing.py.",
             "Verify OpenAPI specification (/openapi.json) includes all /api/v1/environments routes and schemas.",
             "Run negative tests: invalid customer names, out-of-range TTLs, non-existent environment IDs.",
-            "Verify that kurasi provisioning returns HTTP 201 with hostname 'sl-eap-6f82ad81' and URL 'https://sl-eap-6f82ad81.tailscale'.",
+            "Verify that kusari provisioning returns HTTP 201 with hostname 'sl-eap-a0314bec' and URL 'https://sl-eap-a0314bec.tailscale'.",
             "Run scripts/kanban-check.sh doctor and append certified errata block."
         ],
         "deliverables": [
@@ -546,7 +546,7 @@ SPECS = {
         "objective": (
             "Build the Tailscale EAP dynamic routing automation script in scripts/eap/tailscale-eap-env.sh. "
             "The script must provide subcommands: hash, provision, status, serve, and teardown. It must compute the "
-            "salted hash for customer names (supporting 'kurasi' -> '6f82ad81'), execute or mock 'tailscale serve' "
+            "salted hash for customer names (supporting 'kusari' -> 'a0314bec'), execute or mock 'tailscale serve' "
             "on target port 8080/443, manage Dex origin leases, and provide structured JSON output for automation."
         ),
         "approach": [
@@ -565,14 +565,14 @@ SPECS = {
             "Documented usage instructions and examples in script header."
         ],
         "testSurface": [
-            "bash scripts/eap/tailscale-eap-env.sh hash --customer kurasi",
-            "bash scripts/eap/tailscale-eap-env.sh provision --customer kurasi --mock",
-            "bash scripts/eap/tailscale-eap-env.sh status --customer kurasi --mock",
-            "bash scripts/eap/tailscale-eap-env.sh teardown --customer kurasi --mock",
+            "bash scripts/eap/tailscale-eap-env.sh hash --customer kusari",
+            "bash scripts/eap/tailscale-eap-env.sh provision --customer kusari --mock",
+            "bash scripts/eap/tailscale-eap-env.sh status --customer kusari --mock",
+            "bash scripts/eap/tailscale-eap-env.sh teardown --customer kusari --mock",
             "bash scripts/eap/test_tailscale_eap_env.sh"
         ],
         "evidence": [
-            "Captured CLI output verifying 'kurasi' produces exact hash '6f82ad81' and hostname 'sl-eap-6f82ad81'.",
+            "Captured CLI output verifying 'kusari' produces exact hash 'a0314bec' and hostname 'sl-eap-a0314bec'.",
             "Execution log from test_tailscale_eap_env.sh passing all subcommands.",
             "Errata block appended for SLEA-P3-1 with status=pass."
         ],
@@ -620,7 +620,7 @@ SPECS = {
             "pytest tests/test_environment_routing.py -v"
         ],
         "evidence": [
-            "Captured YAML manifest generated for 'kurasi' matching hostname 'sl-eap-6f82ad81'.",
+            "Captured YAML manifest generated for 'kusari' matching hostname 'sl-eap-a0314bec'.",
             "Pytest execution log proving HTTPRoute generation logic passes.",
             "Errata block appended for SLEA-P3-2 with status=pass."
         ],
@@ -645,13 +645,13 @@ SPECS = {
         "logicalId": "P3-GOV",
         "objective": (
             "Certify Phase 3 deliverables: verify dynamic mesh routing, Dex callback stability, and Tailscale "
-            "CLI automation. Execute synthetic end-to-end routing validation for 'sl-eap-6f82ad81', confirm that "
+            "CLI automation. Execute synthetic end-to-end routing validation for 'sl-eap-a0314bec', confirm that "
             "Dex OIDC origin leases are maintained without race conditions, and audit script safety under error scenarios."
         ),
         "approach": [
             "Run full test suite in scripts/eap/test_tailscale_eap_env.sh.",
             "Run fe-signalloom pytest suite asserting HTTPRoute manifest rendering.",
-            "Verify that kurasi EAP environment endpoint generates valid Dex redirect URI https://sl-eap-6f82ad81.tailscale/callback.",
+            "Verify that kusari EAP environment endpoint generates valid Dex redirect URI https://sl-eap-a0314bec.tailscale/callback.",
             "Inspect script exit codes under simulated network failures to verify robust error handling.",
             "Run scripts/kanban-check.sh doctor and append certified errata block."
         ],
@@ -691,7 +691,7 @@ SPECS = {
         "logicalId": "P4-PRE",
         "objective": (
             "Audit tenant namespace templates, Flux ResourceSets, and teardown cleanup guards prior to Phase 4. "
-            "Verify how ephemeral tenant namespaces (e.g. sl-eap-6f82ad81) are isolated using Kubernetes NetworkPolicies, "
+            "Verify how ephemeral tenant namespaces (e.g. sl-eap-a0314bec) are isolated using Kubernetes NetworkPolicies, "
             "how OpenBao injects tenant-scoped credentials, and confirm teardown safety guards to ensure tenant "
             "deprovisioning never impacts foundation services."
         ),
@@ -739,7 +739,7 @@ SPECS = {
         "objective": (
             "Implement on-demand demo/UAT namespace bootstrapper and teardown garbage collector. "
             "Build the controller worker that reconciles environment requests into ephemeral Kubernetes namespaces "
-            "(e.g. sl-eap-6f82ad81), deploys tenant service bindings, monitors lease expiration, and automatically "
+            "(e.g. sl-eap-a0314bec), deploys tenant service bindings, monitors lease expiration, and automatically "
             "triggers cryptographic deprovisioning when TTL expires."
         ),
         "approach": [
@@ -787,31 +787,31 @@ SPECS = {
     "P4-2": {
         "logicalId": "P4-2",
         "objective": (
-            "Build comprehensive acceptance and purple-team test suite for the kurasi EAP environment lifecycle. "
+            "Build comprehensive acceptance and purple-team test suite for the kusari EAP environment lifecycle. "
             "Assert the end-to-end journey: resolve domain -> provision environment -> verify HTTP 201 response -> "
-            "verify hostname sl-eap-6f82ad81 -> probe Dex origin lease -> extend TTL -> initiate teardown -> verify clean state."
+            "verify hostname sl-eap-a0314bec -> probe Dex origin lease -> extend TTL -> initiate teardown -> verify clean state."
         ),
         "approach": [
-            "Create dedicated acceptance test suite tests/test_kurasi_eap_lifecycle.py.",
-            "Simulate external API trigger for customer 'kurasi' with 24-hour demo environment request.",
-            "Assert response status 201, environment_id 'env-eap-6f82ad81', hostname 'sl-eap-6f82ad81', and URL 'https://sl-eap-6f82ad81.tailscale'.",
+            "Create dedicated acceptance test suite tests/test_kusari_eap_lifecycle.py.",
+            "Simulate external API trigger for customer 'kusari' with 24-hour demo environment request.",
+            "Assert response status 201, environment_id 'env-eap-a0314bec', hostname 'sl-eap-a0314bec', and URL 'https://sl-eap-a0314bec.tailscale'.",
             "Assert that calling resolve-domain returns identical hash and hostname.",
             "Assert that extending TTL by 12 hours updates expires_at correctly.",
             "Assert that teardown marks status TORN_DOWN and cleans up active lease records."
         ],
         "deliverables": [
-            "Dedicated acceptance test file tests/test_kurasi_eap_lifecycle.py.",
-            "End-to-end verification of customer 'kurasi' lifecycle from provision to teardown.",
+            "Dedicated acceptance test file tests/test_kusari_eap_lifecycle.py.",
+            "End-to-end verification of customer 'kusari' lifecycle from provision to teardown.",
             "Idempotence and edge-case validation tests.",
             "Full pytest pass across entire fe-signalloom test directory with zero warnings or failures."
         ],
         "testSurface": [
-            "pytest tests/test_kurasi_eap_lifecycle.py -v",
+            "pytest tests/test_kusari_eap_lifecycle.py -v",
             "pytest tests/test_environment_routing.py -v",
             "pytest tests/ -v"
         ],
         "evidence": [
-            "Captured pytest log showing 100% pass on kurasi EAP acceptance suite.",
+            "Captured pytest log showing 100% pass on kusari EAP acceptance suite.",
             "JSON transcript of full environment lifecycle states.",
             "Errata block appended for SLEA-P4-2 with status=pass."
         ],
@@ -821,7 +821,7 @@ SPECS = {
         ],
         "stopAndReport": SHARED_STOP_AND_REPORT,
         "loopOn": [
-            "pytest tests/test_kurasi_eap_lifecycle.py -v"
+            "pytest tests/test_kusari_eap_lifecycle.py -v"
         ],
         "outOfScope": SHARED_OUT_OF_SCOPE,
         "sharedFileRisks": [
@@ -835,7 +835,7 @@ SPECS = {
         "logicalId": "P4-GOV",
         "objective": (
             "Final mission certification for SLEA: verify complete end-to-end on-demand EAP environment routing, "
-            "Tailscale provisioning engine, and customer kurasi validation. Audit code coverage, documentation, "
+            "Tailscale provisioning engine, and customer kusari validation. Audit code coverage, documentation, "
             "API wire contracts, and ensure zero regressions across all repository test suites before declaring "
             "mission complete."
         ),
@@ -853,7 +853,7 @@ SPECS = {
             "Final errata block in proposal marking Phase 4 certified."
         ],
         "testSurface": [
-            "pytest tests/test_kurasi_eap_lifecycle.py -v",
+            "pytest tests/test_kusari_eap_lifecycle.py -v",
             "pytest tests/test_environment_routing.py -v",
             "bash scripts/eap/test_tailscale_eap_env.sh",
             "~/.claude/skills/ajm-auto-kanban/Tools/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLEA"
@@ -869,7 +869,7 @@ SPECS = {
         ],
         "stopAndReport": SHARED_STOP_AND_REPORT,
         "loopOn": [
-            "pytest tests/test_kurasi_eap_lifecycle.py -v"
+            "pytest tests/test_kusari_eap_lifecycle.py -v"
         ],
         "outOfScope": SHARED_OUT_OF_SCOPE,
         "sharedFileRisks": [

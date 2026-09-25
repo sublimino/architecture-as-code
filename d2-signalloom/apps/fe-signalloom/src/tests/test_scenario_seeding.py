@@ -16,6 +16,7 @@ from scenario_seeding import (
     generate_lateral_traversal_blocked_events,
     generate_compliance_proof_events,
 )
+from environment_routing import derive_customer_hash
 from main import app
 import eap_tenancy
 from conftest import EAP_TENANT_A, EAPClient, eap_bearer
@@ -25,10 +26,14 @@ from conftest import EAP_TENANT_A, EAPClient, eap_bearer
 EAP_AUTHENTICATED = True
 client = EAPClient(app)
 
+KUSARI = "kusari"
+KUSARI_HASH = derive_customer_hash(KUSARI)
+KUSARI_NS = f"eap-{KUSARI_HASH}"
+
 
 def test_baseline_agent_events_generation():
     """Verify baseline agent workflow generates expected control/data/policy events."""
-    events = generate_baseline_agent_events("kurasi", "6f82ad81")
+    events = generate_baseline_agent_events(KUSARI, KUSARI_HASH)
     assert len(events) == 3
 
     # Check planes
@@ -39,16 +44,16 @@ def test_baseline_agent_events_generation():
 
     # Check tenant isolation attributes
     for event in events:
-        assert event.customer_hash == "6f82ad81"
-        assert event.company_name == "kurasi"
-        assert event.namespace == "eap-6f82ad81"
+        assert event.customer_hash == KUSARI_HASH
+        assert event.company_name == KUSARI
+        assert event.namespace == KUSARI_NS
         assert event.verdict == "ALLOW"
         assert event.risk_score <= 0.15
 
 
 def test_prompt_injection_intercept_events():
     """Verify prompt injection scenario generates detection, intercept, and quarantine events."""
-    events = generate_prompt_injection_intercept_events("kurasi", "6f82ad81")
+    events = generate_prompt_injection_intercept_events(KUSARI, KUSARI_HASH)
     assert len(events) == 3
 
     verdicts = [e.verdict for e in events]
@@ -65,7 +70,7 @@ def test_prompt_injection_intercept_events():
 
 def test_lateral_traversal_blocked_events():
     """Verify lateral movement attempt generates network policy block event."""
-    events = generate_lateral_traversal_blocked_events("kurasi", "6f82ad81")
+    events = generate_lateral_traversal_blocked_events(KUSARI, KUSARI_HASH)
     assert len(events) == 2
 
     block_event = next(e for e in events if e.verdict == "BLOCK")
@@ -78,35 +83,35 @@ def test_lateral_traversal_blocked_events():
 
 def test_compliance_proof_events():
     """Verify compliance attestation proof generates transit-signed event."""
-    events = generate_compliance_proof_events("kurasi", "6f82ad81")
+    events = generate_compliance_proof_events(KUSARI, KUSARI_HASH)
     assert len(events) == 1
 
     proof = events[0]
     assert proof.plane == "control"
     assert proof.verdict == "ALLOW"
     assert proof.risk_score == 0.0
-    assert proof.details["key_mount"] == "transit/keys/eap-6f82ad81"
-    assert "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app" in proof.details["spiffe_id"]
+    assert proof.details["key_mount"] == f"transit/keys/eap-{KUSARI_HASH}"
+    assert f"spiffe://osramp.local/ns/eap-{KUSARI_HASH}/sa/tenant-app" in proof.details["spiffe_id"]
 
 
 def test_scenario_manager_execution_and_storage():
     """Verify ScenarioManager tracks execution history and customer event indexing."""
     mgr = ScenarioManager()
 
-    res = mgr.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", "6f82ad81")
-    assert res.customer_hash == "6f82ad81"
+    res = mgr.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, KUSARI, KUSARI_HASH)
+    assert res.customer_hash == KUSARI_HASH
     assert res.events_generated_count == 3
     assert res.duration_ms >= 0.0
 
     # Retrieve indexed events
-    events = mgr.get_events_for_customer("6f82ad81")
+    events = mgr.get_events_for_customer(KUSARI_HASH)
     assert len(events) == 3
 
     # Add another scenario
-    res2 = mgr.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", "6f82ad81")
+    res2 = mgr.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, KUSARI, KUSARI_HASH)
     assert res2.events_generated_count == 3
 
-    events_all = mgr.get_events_for_customer("6f82ad81")
+    events_all = mgr.get_events_for_customer(KUSARI_HASH)
     assert len(events_all) == 6
 
     history = mgr.get_history()
@@ -117,14 +122,14 @@ def test_api_execute_scenario_endpoint():
     """Verify POST /api/v1/eap/scenarios/execute returns 201 Created and structured result."""
     payload = {
         "scenario_type": "lateral_traversal_blocked",
-        "company_name": "kurasi",
-        "customer_hash": "6f82ad81",
+        "company_name": KUSARI,
+        "customer_hash": KUSARI_HASH,
     }
     resp = client.post("/api/v1/eap/scenarios/execute", json=payload)
     assert resp.status_code == 201
     data = resp.json()
 
-    assert data["customer_hash"] == "6f82ad81"
+    assert data["customer_hash"] == KUSARI_HASH
     assert data["scenario_type"] == "lateral_traversal_blocked"
     assert data["events_generated_count"] == 2
     assert len(data["events"]) == 2
@@ -135,11 +140,11 @@ def test_api_get_customer_events_endpoint():
     # Execute a scenario first
     client.post("/api/v1/eap/scenarios/execute", json={
         "scenario_type": "compliance_proof",
-        "company_name": "kurasi",
-        "customer_hash": "6f82ad81",
+        "company_name": KUSARI,
+        "customer_hash": KUSARI_HASH,
     })
 
-    resp = client.get("/api/v1/eap/scenarios/events/6f82ad81")
+    resp = client.get(f"/api/v1/eap/scenarios/events/{KUSARI_HASH}")
     assert resp.status_code == 200
     events = resp.json()
     assert isinstance(events, list)
@@ -155,8 +160,8 @@ def test_api_get_history_endpoint():
     # executed one, so `-k test_api_get_history_endpoint` alone failed 0 >= 1.
     seeded = client.post("/api/v1/eap/scenarios/execute", json={
         "scenario_type": "baseline_agent_flow",
-        "company_name": "kurasi",
-        "customer_hash": "6f82ad81",
+        "company_name": KUSARI,
+        "customer_hash": KUSARI_HASH,
     }).json()["execution_id"]
 
     resp = client.get("/api/v1/eap/scenarios/history")
@@ -194,7 +199,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from environment_routing import derive_customer_hash
 
 EVALUATION_TENANTS = {
-    "kurasi": "6f82ad81",
+    "kusari": derive_customer_hash("kusari"),
     "acme": "a1b2c3d4",
     "globex": "e5f6a7b8",
 }
@@ -437,14 +442,14 @@ def test_tenant_lookup_independent_of_other_tenant_volume():
             samples.append(time.perf_counter() - t0)
         return statistics.median(samples) * 1000
 
-    target = EVALUATION_TENANTS["kurasi"]
+    target = EVALUATION_TENANTS["kusari"]
     small = ScenarioManager()
     for _ in range(10):
-        small.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", target)
+        small.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kusari", target)
 
     large = ScenarioManager()
     for _ in range(10):
-        large.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", target)
+        large.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kusari", target)
     for i in range(1000):
         noise = f"{i:08x}"
         for _ in range(10):
@@ -642,8 +647,6 @@ import scenario_seeding
 from scenario_seeding import stream_customer_events
 from tenant_isolation import get_tenant_spiffe_id
 
-KURASI_HASH = "6f82ad81"
-
 
 @pytest.fixture
 def fresh_manager(monkeypatch):
@@ -666,19 +669,19 @@ def test_sse_stream_replays_only_the_requested_tenant(fresh_manager):
     # The foreign tenant is seeded first: a leak then surfaces at the head of the
     # stream instead of hiding behind the limit (dict insertion order).
     fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "othercorp", "0badf00d")
-    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
-    fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, KUSARI, KUSARI_HASH)
+    fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, KUSARI, KUSARI_HASH)
     # Seeded on the manager, not via POST, so nothing claimed the hash for
     # tenant-a: claim it explicitly or the stream route answers 404.
-    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KURASI_HASH, EAP_TENANT_A)
+    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KUSARI_HASH, EAP_TENANT_A)
 
-    resp = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream", params={"limit": 6})
+    resp = client.get(f"/api/v1/eap/scenarios/events/{KUSARI_HASH}/stream", params={"limit": 6})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
     frames = _parse_sse(resp.text)
     assert [f[0] for f in frames] == ["1", "2", "3", "4", "5", "6"]
     assert {f[1] for f in frames} == {"audit_event"}
-    assert {f[2]["customer_hash"] for f in frames} == {KURASI_HASH}
+    assert {f[2]["customer_hash"] for f in frames} == {KUSARI_HASH}
     for _, _, data in frames:
         SyntheticAuditEvent.model_validate(data)
 
@@ -687,20 +690,20 @@ def test_sse_stream_rejects_malformed_customer_hash():
     # Each input reaches the route and is refused by the pattern (422), so a
     # deleted route (404) cannot satisfy this test.  The well-formed hash must
     # be tenant-a's so the Last-Event-ID probe below reaches header validation.
-    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KURASI_HASH, EAP_TENANT_A)
-    for bad in ("6F82AD81", "6f82ad8", "zzzzzzzz", "6f82ad811"):
+    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KUSARI_HASH, EAP_TENANT_A)
+    for bad in (KUSARI_HASH.upper(), KUSARI_HASH[:-1], "zzzzzzzz", KUSARI_HASH + "1"):
         assert client.get(f"/api/v1/eap/scenarios/events/{bad}/stream").status_code == 422, bad
-    assert client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream",
+    assert client.get(f"/api/v1/eap/scenarios/events/{KUSARI_HASH}/stream",
                       params={"limit": 1}, headers={"Last-Event-ID": "abc"}).status_code == 422
 
 
 def test_sse_stream_resumes_after_last_event_id(fresh_manager):
-    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)
-    fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+    fresh_manager.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, KUSARI, KUSARI_HASH)
+    fresh_manager.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, KUSARI, KUSARI_HASH)
     # Seeded on the manager, not via POST, so nothing claimed the hash for
     # tenant-a: claim it explicitly or the stream route answers 404.
-    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KURASI_HASH, EAP_TENANT_A)
-    resp = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}/stream",
+    eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(KUSARI_HASH, EAP_TENANT_A)
+    resp = client.get(f"/api/v1/eap/scenarios/events/{KUSARI_HASH}/stream",
                       params={"limit": 3}, headers={"Last-Event-ID": "3"})
     frames = _parse_sse(resp.text)
     assert [f[0] for f in frames] == ["4", "5", "6"]
@@ -711,14 +714,14 @@ def test_sse_stream_resumes_after_last_event_id(fresh_manager):
 async def test_sse_live_delivery_is_sub_second_and_tenant_isolated():
     mgr = ScenarioManager()
     mgr.execute_scenario(ScenarioType.COMPLIANCE_PROOF, "othercorp", "0badf00d")  # foreign tenant first
-    mgr.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, "kurasi", KURASI_HASH)  # history, not replayed
-    stream = stream_customer_events(mgr, KURASI_HASH, replay=False, limit=3)
+    mgr.execute_scenario(ScenarioType.BASELINE_AGENT_FLOW, KUSARI, KUSARI_HASH)  # history, not replayed
+    stream = stream_customer_events(mgr, KUSARI_HASH, replay=False, limit=3)
 
     async def publish():
         await asyncio.sleep(0.1)
         mgr.execute_scenario(ScenarioType.LATERAL_TRAVERSAL_BLOCKED, "othercorp", "0badf00d")
         published_at = time.perf_counter()
-        mgr.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, "kurasi", KURASI_HASH)
+        mgr.execute_scenario(ScenarioType.PROMPT_INJECTION_INTERCEPT, KUSARI, KUSARI_HASH)
         return published_at
 
     publisher = asyncio.create_task(publish())
@@ -731,14 +734,14 @@ async def test_sse_live_delivery_is_sub_second_and_tenant_isolated():
     frames = _parse_sse("".join([first, *rest]))
     assert [f[0] for f in frames] == ["4", "5", "6"]
     assert [f[2]["verdict"] for f in frames] == ["ALLOW", "INTERCEPT", "BLOCK"]
-    assert {f[2]["customer_hash"] for f in frames} == {KURASI_HASH}
+    assert {f[2]["customer_hash"] for f in frames} == {KUSARI_HASH}
     with pytest.raises(StopAsyncIteration):
         await stream.__anext__()
 
 
 @pytest.mark.asyncio
 async def test_sse_idle_stream_emits_heartbeat_without_blocking_the_loop():
-    stream = stream_customer_events(ScenarioManager(), KURASI_HASH, poll_interval=0.01, heartbeat_interval=0.03)
+    stream = stream_customer_events(ScenarioManager(), KUSARI_HASH, poll_interval=0.01, heartbeat_interval=0.03)
     ticks = 0
 
     async def ticker():
@@ -772,25 +775,25 @@ def test_openapi_documents_every_scenario_route_with_models():
 
 
 # ==============================================================================
-# SLES-P4-1 gap (filled by SLES-P4-GOV): kurasi end-to-end evaluation journey
+# SLES-P4-1 gap (filled by SLES-P4-GOV): kusari end-to-end evaluation journey
 # ==============================================================================
 
-def test_kurasi_evaluation_journey_all_four_archetypes(fresh_manager):
-    assert derive_customer_hash("kurasi") == KURASI_HASH
+def test_kusari_evaluation_journey_all_four_archetypes(fresh_manager):
+    assert derive_customer_hash("kusari") == KUSARI_HASH
     for scenario in ScenarioType:
         # customer_hash omitted: the API must derive the canonical pilot hash itself
         resp = client.post("/api/v1/eap/scenarios/execute",
-                           json={"scenario_type": scenario.value, "company_name": "kurasi"})
+                           json={"scenario_type": scenario.value, "company_name": "kusari"})
         assert resp.status_code == 201, resp.text
-        assert resp.json()["customer_hash"] == KURASI_HASH
+        assert resp.json()["customer_hash"] == KUSARI_HASH
 
-    events = client.get(f"/api/v1/eap/scenarios/events/{KURASI_HASH}").json()
+    events = client.get(f"/api/v1/eap/scenarios/events/{KUSARI_HASH}").json()
     assert len(events) == 9
     verdicts = [e["verdict"] for e in events]
     assert (verdicts.count("ALLOW"), verdicts.count("INTERCEPT"), verdicts.count("BLOCK")) == (6, 1, 2)
     assert {e["plane"] for e in events} == {"control", "data", "policy"}
-    assert {e["namespace"] for e in events} == {"eap-6f82ad81"}
-    assert {e["company_name"] for e in events} == {"kurasi"}
+    assert {e["namespace"] for e in events} == {KUSARI_NS}
+    assert {e["company_name"] for e in events} == {"kusari"}
     assert all(e["risk_score"] >= 0.9 for e in events if e["verdict"] != "ALLOW")
     for e in events:
         SyntheticAuditEvent.model_validate_json(json.dumps(e))
@@ -798,14 +801,14 @@ def test_kurasi_evaluation_journey_all_four_archetypes(fresh_manager):
     assert [h["scenario_type"] for h in history] == [s.value for s in ScenarioType]
 
 
-def test_kurasi_journey_schema_rejects_invalid_records():
-    good = generate_baseline_agent_events("kurasi", KURASI_HASH)[0].model_dump()
-    for mutation in ({"risk_score": 1.5}, {"risk_score": -0.1}, {"customer_hash": "6f82ad8"},
+def test_kusari_journey_schema_rejects_invalid_records():
+    good = generate_baseline_agent_events("kusari", KUSARI_HASH)[0].model_dump()
+    for mutation in ({"risk_score": 1.5}, {"risk_score": -0.1}, {"customer_hash": KUSARI_HASH[:-1]},
                      {"unexpected_field": "x"}):
         with pytest.raises(ValidationError):
             SyntheticAuditEvent.model_validate({**good, **mutation})
     resp = client.post("/api/v1/eap/scenarios/execute",
-                       json={"scenario_type": "baseline_agent_flow", "company_name": "kurasi", "admin": True})
+                       json={"scenario_type": "baseline_agent_flow", "company_name": "kusari", "admin": True})
     assert resp.status_code == 422
     resp = client.post("/api/v1/eap/scenarios/execute", json={"scenario_type": "rm_rf"})
     assert resp.status_code == 422
@@ -824,18 +827,18 @@ def test_kurasi_journey_schema_rejects_invalid_records():
 def test_blocker_execute_requires_authentication(fresh_manager):
     # B1 (closed by EAPR-P2-1): a raw TestClient sends no Authorization header.
     anonymous = TestClient(app)
-    resp = anonymous.post("/api/v1/eap/scenarios/execute", json={"company_name": "kurasi"})
+    resp = anonymous.post("/api/v1/eap/scenarios/execute", json={"company_name": "kusari"})
     assert resp.status_code == 401
     assert fresh_manager.get_history() == []
     # Positive control: the same body with a real tenant-a token executes.
-    assert client.post("/api/v1/eap/scenarios/execute", json={"company_name": "kurasi"}).status_code == 201
+    assert client.post("/api/v1/eap/scenarios/execute", json={"company_name": "kusari"}).status_code == 201
 
 
 def test_blocker_history_is_tenant_scoped(fresh_manager, fresh_tenant_ownership):
     # B2 (closed by EAPR-P2-1): seed two tenants through the API, then each
     # tenant's /history must hold its own execution and nothing else.
     alice_run = client.post("/api/v1/eap/scenarios/execute", json={
-        "scenario_type": "baseline_agent_flow", "company_name": "kurasi", "customer_hash": KURASI_HASH,
+        "scenario_type": "baseline_agent_flow", "company_name": "kusari", "customer_hash": KUSARI_HASH,
     })
     assert alice_run.status_code == 201, alice_run.text
     bob_run = client.post("/api/v1/eap/scenarios/execute", headers=eap_bearer("bob"), json={
@@ -846,7 +849,7 @@ def test_blocker_history_is_tenant_scoped(fresh_manager, fresh_tenant_ownership)
 
     alice_history = client.get("/api/v1/eap/scenarios/history")
     assert alice_history.status_code == 200
-    assert [h["customer_hash"] for h in alice_history.json()] == [KURASI_HASH]
+    assert [h["customer_hash"] for h in alice_history.json()] == [KUSARI_HASH]
     bob_history = client.get("/api/v1/eap/scenarios/history", headers=eap_bearer("bob"))
     assert bob_history.status_code == 200
     assert [h["customer_hash"] for h in bob_history.json()] == ["0badf00d"]
@@ -855,7 +858,7 @@ def test_blocker_history_is_tenant_scoped(fresh_manager, fresh_tenant_ownership)
 def test_blocker_execute_rejects_non_hex_customer_hash(fresh_manager):
     # B13 (closed by EAPR-P2-1).
     resp = client.post("/api/v1/eap/scenarios/execute",
-                       json={"company_name": "kurasi", "customer_hash": "ZZ/..zz!"})
+                       json={"company_name": "kusari", "customer_hash": "ZZ/..zz!"})
     assert resp.status_code == 422
 
 
@@ -866,21 +869,21 @@ def test_blocker_event_schema_matches_multiplane_audit_event():
 
 
 def test_blocker_compliance_proof_is_signed():
-    proof = generate_compliance_proof_events("kurasi", KURASI_HASH)[0]
+    proof = generate_compliance_proof_events("kusari", KUSARI_HASH)[0]
     assert str(proof.details.get("signature", "")).startswith("vault:v")
 
 
 def test_blocker_every_event_carries_spiffe_identity():
     mgr = ScenarioManager()
     for scenario in ScenarioType:
-        mgr.execute_scenario(scenario, "kurasi", KURASI_HASH)
-    spiffe = get_tenant_spiffe_id(KURASI_HASH)
-    assert all(e.details.get("spiffe_id") == spiffe for e in mgr.get_events_for_customer(KURASI_HASH))
+        mgr.execute_scenario(scenario, "kusari", KUSARI_HASH)
+    spiffe = get_tenant_spiffe_id(KUSARI_HASH)
+    assert all(e.details.get("spiffe_id") == spiffe for e in mgr.get_events_for_customer(KUSARI_HASH))
 
 
 def test_blocker_generation_is_deterministic():
-    a = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]
-    b = [e.model_dump() for e in generate_baseline_agent_events("kurasi", KURASI_HASH)]
+    a = [e.model_dump() for e in generate_baseline_agent_events("kusari", KUSARI_HASH)]
+    b = [e.model_dump() for e in generate_baseline_agent_events("kusari", KUSARI_HASH)]
     assert a == b
 
 

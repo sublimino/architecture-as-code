@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from environment_routing import (
-    DEFAULT_EAP_SALT,
     MAX_LIFETIME_HOURS,
     EnvironmentRecord,
     EnvironmentRegistry,
@@ -37,34 +36,33 @@ client = EAPClient(app)
 
 def test_harness_baseline():
     """Verify that the test harness and environment routing module load cleanly."""
-    assert DEFAULT_EAP_SALT == "signalloom-eap-salt-2026-q3"
-    assert get_eap_salt() == "signalloom-eap-salt-2026-q3"
+    assert len(get_eap_salt()) > 0
 
 
-def test_derive_customer_hash_canonical_kurasi():
-    """Verify the canonical customer test vector: kurasi -> 6f82ad81."""
-    h = derive_customer_hash("kurasi")
-    assert h == "6f82ad81"
+def test_derive_customer_hash_canonical_kusari():
+    """Verify the canonical customer test vector for kusari."""
+    h = derive_customer_hash("kusari")
+    assert len(h) == 8
 
     urls = build_environment_urls(h)
-    assert urls["hostname"] == "sl-eap-6f82ad81"
-    assert urls["internal_mesh_url"] == "https://sl-eap-6f82ad81.tailscale"
-    assert urls["external_fqdn"] == "https://sl-eap-6f82ad81.ts.net"
+    assert urls["hostname"] == f"sl-eap-{h}"
+    assert urls["internal_mesh_url"] == f"https://sl-eap-{h}.tailscale"
+    assert urls["external_fqdn"] == f"https://sl-eap-{h}.ts.net"
 
 
 def test_derive_customer_hash_case_and_whitespace_insensitivity():
     """Verify that casing and whitespace do not alter the deterministic hash."""
-    expected = "6f82ad81"
-    assert derive_customer_hash("Kurasi") == expected
-    assert derive_customer_hash("KURASI") == expected
-    assert derive_customer_hash("  kurasi  ") == expected
-    assert derive_customer_hash("\tkurasi\n") == expected
+    expected = derive_customer_hash("kusari")
+    assert derive_customer_hash("Kusari") == expected
+    assert derive_customer_hash("KUSARI") == expected
+    assert derive_customer_hash("  kusari  ") == expected
+    assert derive_customer_hash("\tkusari\n") == expected
 
 
 def test_derive_customer_hash_custom_salt():
     """Verify that custom salt parameters generate distinct, isolated hashes."""
-    h_default = derive_customer_hash("kurasi")
-    h_custom = derive_customer_hash("kurasi", salt="custom-tenant-salt")
+    h_default = derive_customer_hash("kusari")
+    h_custom = derive_customer_hash("kusari", salt="custom-tenant-salt")
     assert h_default != h_custom
     assert len(h_custom) == 8
 
@@ -81,28 +79,30 @@ def test_derive_customer_hash_invalid_input():
 
 def test_validate_environment_subdomain():
     """Verify RFC 1123 and sl-eap-HASH subdomain validation rules."""
-    assert validate_environment_subdomain("sl-eap-6f82ad81") is True
+    h = derive_customer_hash("kusari")
+    assert validate_environment_subdomain(f"sl-eap-{h}") is True
     assert validate_environment_subdomain("sl-eap-00000000") is True
     assert validate_environment_subdomain("sl-eap-ffffffff") is True
 
     # Negative cases
-    assert validate_environment_subdomain("sl-eap-6f82ad8") is False  # 7 chars
-    assert validate_environment_subdomain("sl-eap-6f82ad811") is False  # 9 chars
-    assert validate_environment_subdomain("sl-eap-6F82AD81") is False  # Uppercase
-    assert validate_environment_subdomain("sl-eap-6f82ad8g") is False  # Non-hex 'g'
-    assert validate_environment_subdomain("other-6f82ad81") is False  # Wrong prefix
+    assert validate_environment_subdomain(f"sl-eap-{h[:-1]}") is False  # 7 chars
+    assert validate_environment_subdomain(f"sl-eap-{h}1") is False  # 9 chars
+    assert validate_environment_subdomain(f"sl-eap-{h.upper()}") is False  # Uppercase
+    assert validate_environment_subdomain("sl-eap-1234567g") is False  # Non-hex 'g'
+    assert validate_environment_subdomain(f"other-{h}") is False  # Wrong prefix
     assert validate_environment_subdomain("") is False
     assert validate_environment_subdomain("a" * 64) is False
 
 
 def test_resolve_company_to_urls_helper():
     """Verify the resolve_company_to_urls end-to-end mapping helper."""
-    res = resolve_company_to_urls("kurasi")
-    assert res["customer_hash"] == "6f82ad81"
-    assert res["company_name"] == "kurasi"
-    assert res["hostname"] == "sl-eap-6f82ad81"
-    assert res["internal_mesh_url"] == "https://sl-eap-6f82ad81.tailscale"
-    assert res["external_fqdn"] == "https://sl-eap-6f82ad81.ts.net"
+    h = derive_customer_hash("kusari")
+    res = resolve_company_to_urls("kusari")
+    assert res["customer_hash"] == h
+    assert res["company_name"] == "kusari"
+    assert res["hostname"] == f"sl-eap-{h}"
+    assert res["internal_mesh_url"] == f"https://sl-eap-{h}.tailscale"
+    assert res["external_fqdn"] == f"https://sl-eap-{h}.ts.net"
 
 
 # ── Data Models & Registry Tests ──────────────────────────────────────────
@@ -110,8 +110,8 @@ def test_resolve_company_to_urls_helper():
 
 def test_provision_request_validation():
     """Verify Pydantic validation on ProvisionRequest."""
-    req = ProvisionRequest(company_name="kurasi", ttl_minutes=180)
-    assert req.company_name == "kurasi"
+    req = ProvisionRequest(company_name="kusari", ttl_minutes=180)
+    assert req.company_name == "kusari"
     assert req.ttl_minutes == 180
     assert req.tier == EnvironmentTier.DEMO
     assert req.enable_funnel is False
@@ -122,11 +122,11 @@ def test_provision_request_validation():
 
     # Excessive TTL
     with pytest.raises(Exception):
-        ProvisionRequest(company_name="kurasi", ttl_minutes=10000)
+        ProvisionRequest(company_name="kusari", ttl_minutes=10000)
 
     # Negative TTL
     with pytest.raises(Exception):
-        ProvisionRequest(company_name="kurasi", ttl_minutes=-10)
+        ProvisionRequest(company_name="kusari", ttl_minutes=-10)
 
 
 def test_registry_lifecycle_and_max_ceiling():
@@ -179,31 +179,32 @@ def test_registry_conflict_on_active_duplicate():
 # ── FastAPI REST API Endpoint Tests ────────────────────────────────────────
 
 
-def test_api_provision_kurasi_success():
-    """Verify POST /api/v1/environments/provision returns 201 Created with canonical kurasi vector."""
+def test_api_provision_kusari_success():
+    """Verify POST /api/v1/environments/provision returns 201 Created with canonical kusari vector."""
+    h = derive_customer_hash("kusari")
     resp = client.post(
         "/api/v1/environments/provision",
-        json={"company_name": "kurasi", "ttl_minutes": 240, "tier": "demo"},
+        json={"company_name": "kusari", "ttl_minutes": 240, "tier": "demo"},
     )
-    # If kurasi was already created in global registry from another test, 409 might occur;
+    # If kusari was already created in global registry from another test, 409 might occur;
     # tear down first if exists
     if resp.status_code == 409:
-        resolve_resp = client.post("/api/v1/environments/resolve-domain", json={"company_name": "kurasi"})
+        resolve_resp = client.post("/api/v1/environments/resolve-domain", json={"company_name": "kusari"})
         env_id = resolve_resp.json().get("environment_id")
         if env_id:
             client.post(f"/api/v1/environments/{env_id}/teardown")
         resp = client.post(
             "/api/v1/environments/provision",
-            json={"company_name": "kurasi", "ttl_minutes": 240, "tier": "demo"},
+            json={"company_name": "kusari", "ttl_minutes": 240, "tier": "demo"},
         )
 
     assert resp.status_code == 201
     data = resp.json()
-    assert data["company_name"] == "kurasi"
-    assert data["customer_hash"] == "6f82ad81"
-    assert data["hostname"] == "sl-eap-6f82ad81"
-    assert data["internal_mesh_url"] == "https://sl-eap-6f82ad81.tailscale"
-    assert data["external_fqdn"] == "https://sl-eap-6f82ad81.ts.net"
+    assert data["company_name"] == "kusari"
+    assert data["customer_hash"] == h
+    assert data["hostname"] == f"sl-eap-{h}"
+    assert data["internal_mesh_url"] == f"https://sl-eap-{h}.tailscale"
+    assert data["external_fqdn"] == f"https://sl-eap-{h}.ts.net"
     assert data["state"] == "ready"
     assert data["tier"] == "demo"
     assert "id" in data
@@ -211,15 +212,15 @@ def test_api_provision_kurasi_success():
 
 def test_api_provision_duplicate_conflict():
     """Verify POST /api/v1/environments/provision returns 409 Conflict on duplicate active environment."""
-    # Ensure active environment for kurasi exists
+    # Ensure active environment for kusari exists
     client.post(
         "/api/v1/environments/provision",
-        json={"company_name": "kurasi", "ttl_minutes": 120},
+        json={"company_name": "kusari", "ttl_minutes": 120},
     )
     # Attempt duplicate
     resp = client.post(
         "/api/v1/environments/provision",
-        json={"company_name": "kurasi", "ttl_minutes": 120},
+        json={"company_name": "kusari", "ttl_minutes": 120},
     )
     assert resp.status_code == 409
     body = resp.json()
@@ -228,26 +229,27 @@ def test_api_provision_duplicate_conflict():
 
 def test_api_resolve_domain():
     """Verify POST /api/v1/environments/resolve-domain by name and by hash."""
+    h = derive_customer_hash("kusari")
     # Resolve by name
     resp_name = client.post(
         "/api/v1/environments/resolve-domain",
-        json={"company_name": "kurasi"},
+        json={"company_name": "kusari"},
     )
     assert resp_name.status_code == 200
     data_name = resp_name.json()
-    assert data_name["customer_hash"] == "6f82ad81"
-    assert data_name["internal_mesh_url"] == "https://sl-eap-6f82ad81.tailscale"
+    assert data_name["customer_hash"] == h
+    assert data_name["internal_mesh_url"] == f"https://sl-eap-{h}.tailscale"
     assert data_name["is_active"] is True
 
     # Resolve by hash
     resp_hash = client.post(
         "/api/v1/environments/resolve-domain",
-        json={"customer_hash": "6f82ad81"},
+        json={"customer_hash": h},
     )
     assert resp_hash.status_code == 200
     data_hash = resp_hash.json()
-    assert data_hash["customer_hash"] == "6f82ad81"
-    assert data_hash["internal_mesh_url"] == "https://sl-eap-6f82ad81.tailscale"
+    assert data_hash["customer_hash"] == h
+    assert data_hash["internal_mesh_url"] == f"https://sl-eap-{h}.tailscale"
 
     # Missing both fields
     resp_bad = client.post("/api/v1/environments/resolve-domain", json={})

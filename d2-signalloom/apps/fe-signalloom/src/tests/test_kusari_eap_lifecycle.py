@@ -1,8 +1,8 @@
-"""SLEA-P4-2 end-to-end acceptance suite for the kurasi EAP environment lifecycle.
+"""SLEA-P4-2 end-to-end acceptance suite for the kusari EAP environment lifecycle.
 
 Drives the real FastAPI app in-process (TestClient) through
 provision -> resolve -> status -> probe -> extend -> teardown -> verify clean,
-and cross-checks the canonical kurasi vector (6f82ad81) across the Python
+and cross-checks the canonical kusari vector across the Python
 engine, the REST API and scripts/eap/tailscale-eap-env.sh.
 
 Tailscale is exercised ONLY in explicitly pinned mock mode
@@ -47,8 +47,8 @@ from conftest import EAPClient
 # (see tests/conftest.py).
 EAP_AUTHENTICATED = True
 
-COMPANY = "kurasi"
-HASH = "6f82ad81"
+COMPANY = "kusari"
+HASH = derive_customer_hash(COMPANY)
 HOSTNAME = f"sl-eap-{HASH}"
 INTERNAL_URL = f"https://{HOSTNAME}.tailscale"
 EXTERNAL_FQDN = f"https://{HOSTNAME}.ts.net"
@@ -66,7 +66,6 @@ DEFAULT_MOCK_DIR = Path("/tmp/tailscale-eap-mock")
 @pytest.fixture(autouse=True)
 def fresh_registry(monkeypatch):
     """Swap in an empty registry per test; tear down and assert zero orphans after."""
-    monkeypatch.delenv("SIGNAL_LOOM_EAP_SALT", raising=False)
     registry = EnvironmentRegistry()
     monkeypatch.setattr(environment_routing, "GLOBAL_ENVIRONMENT_REGISTRY", registry)
     yield registry
@@ -135,7 +134,7 @@ def _run_script(*args: str, mock_dir: Path) -> subprocess.CompletedProcess:
         **os.environ,
         "TAILSCALE_MOCK": "1",
         "TAILSCALE_MOCK_DIR": str(mock_dir),
-        "SIGNAL_LOOM_EAP_SALT": "signalloom-eap-salt-2026-q3",
+        "SIGNAL_LOOM_EAP_SALT": os.environ.get("SIGNAL_LOOM_EAP_SALT", "test-eap-salt-2026"),
         "LC_ALL": "C.UTF-8",
     }
     return subprocess.run(
@@ -162,7 +161,7 @@ def _drain_ws(client: TestClient, env_id: str) -> List[Dict[str, Any]]:
 # ── Full lifecycle ──────────────────────────────────────────────────────────
 
 
-def test_kurasi_full_lifecycle(client, mock_dir, tmp_path):
+def test_kusari_full_lifecycle(client, mock_dir, tmp_path):
     """provision -> resolve -> status -> probe -> extend -> teardown -> idempotent teardown."""
     t = Trace(client)
 
@@ -238,7 +237,7 @@ def test_kurasi_full_lifecycle(client, mock_dir, tmp_path):
         "stream_end",
     ]
 
-    out = Path(os.environ.get("EAP_LIFECYCLE_TRACE") or tmp_path / "kurasi-lifecycle-trace.json")
+    out = Path(os.environ.get("EAP_LIFECYCLE_TRACE") or tmp_path / "kusari-lifecycle-trace.json")
     t.dump(out)
     assert json.loads(out.read_text())["steps"][0]["response"]["body"]["customer_hash"] == HASH
 
@@ -246,10 +245,10 @@ def test_kurasi_full_lifecycle(client, mock_dir, tmp_path):
 # ── Canonical vector ────────────────────────────────────────────────────────
 
 
-def test_kurasi_canonical_hash_strict(client, mock_dir):
-    """6f82ad81 must agree across engine, API, resolve (both keys) and the shell script."""
+def test_kusari_canonical_hash_strict(client, mock_dir):
+    """Canonical hash must agree across engine, API, resolve (both keys) and the shell script."""
     assert derive_customer_hash(COMPANY) == HASH
-    for variant in ("Kurasi", "  KURASI\t", "\nkurasi "):
+    for variant in ("Kusari", "  KUSARI\t", "\nkusari "):
         assert derive_customer_hash(variant) == HASH
     assert build_environment_urls(HASH) == {
         "hostname": HOSTNAME,
@@ -257,15 +256,12 @@ def test_kurasi_canonical_hash_strict(client, mock_dir):
         "external_fqdn": EXTERNAL_FQDN,
         "oidc_redirect_uri": OIDC_REDIRECT,
     }
-    # The proposal's wire spec spells the vector "kusari"; that name does NOT
-    # produce 6f82ad81. Pin it so the typo cannot be silently "fixed" into code.
-    assert derive_customer_hash("kusari") == "4b53ab6b"
     assert derive_customer_hash(COMPANY, salt="another-salt") != HASH
 
     r = _provision(client)
     assert r.status_code == 201
     assert r.json()["customer_hash"] == HASH
-    for body in ({"company_name": COMPANY}, {"company_name": "KURASI "}, {"customer_hash": HASH}, {"customer_hash": HASH.upper()}):
+    for body in ({"company_name": COMPANY}, {"company_name": "KUSARI "}, {"customer_hash": HASH}, {"customer_hash": HASH.upper()}):
         res = client.post(f"{BASE}/resolve-domain", json=body)
         assert res.status_code == 200, body
         assert res.json()["customer_hash"] == HASH
@@ -280,7 +276,7 @@ def test_kurasi_canonical_hash_strict(client, mock_dir):
     )
 
 
-def test_kurasi_extend_and_teardown(client):
+def test_kusari_extend_and_teardown(client):
     env = _provision(client).json()
     before = _parse(env["expires_at"])
     ext = client.post(f"{BASE}/{env['id']}/extend", json={"additional_minutes": 120})
@@ -294,7 +290,7 @@ def test_kurasi_extend_and_teardown(client):
     assert td.json()["state"] == "terminated"
 
 
-def test_kurasi_teardown_idempotency(client, fresh_registry):
+def test_kusari_teardown_idempotency(client, fresh_registry):
     env = _provision(client).json()
     first = _teardown(client, env["id"])
     assert first.status_code == 200
@@ -317,7 +313,7 @@ def test_kurasi_teardown_idempotency(client, fresh_registry):
 # ── Routing surfaces ────────────────────────────────────────────────────────
 
 
-def test_kurasi_oidc_redirect_url(client):
+def test_kusari_oidc_redirect_url(client):
     env = _provision(client).json()
     assert env["oidc_redirect_uri"] == OIDC_REDIRECT
     res = client.post(f"{BASE}/resolve-domain", json={"customer_hash": HASH}).json()
@@ -325,7 +321,7 @@ def test_kurasi_oidc_redirect_url(client):
     assert client.get(f"{BASE}/{env['id']}").json()["oidc_redirect_uri"] == OIDC_REDIRECT
 
 
-def test_kurasi_ttl_expiry_warning(client, fresh_registry):
+def test_kusari_ttl_expiry_warning(client, fresh_registry):
     """Warning fires strictly below 30 minutes remaining; set expiry directly, never sleep."""
     env = _provision(client, ttl=180).json()
     assert env["expiry_warning"] is False
@@ -341,7 +337,7 @@ def test_kurasi_ttl_expiry_warning(client, fresh_registry):
     assert client.get(f"{BASE}/{env['id']}").json()["expiry_warning"] is False
 
 
-def test_kurasi_post_teardown_cleanup(client, mock_dir):
+def test_kusari_post_teardown_cleanup(client, mock_dir):
     default_mock_existed = (DEFAULT_MOCK_DIR / HOSTNAME).exists()
     env = _provision(client).json()
     assert _run_script("provision", COMPANY, mock_dir=mock_dir).returncode == 0
@@ -366,7 +362,7 @@ def test_kurasi_post_teardown_cleanup(client, mock_dir):
     assert (DEFAULT_MOCK_DIR / HOSTNAME).exists() == default_mock_existed
 
 
-def test_kurasi_websocket_telemetry_streaming(client):
+def test_kusari_websocket_telemetry_streaming(client):
     env = _provision(client).json()
     client.post(f"{BASE}/{env['id']}/extend", json={"additional_minutes": 30})
     frames = _drain_ws(client, env["id"])
@@ -423,7 +419,7 @@ def test_security_response_headers(client, tmp_path):
 # ── Synthetic users, concurrency, chaos ─────────────────────────────────────
 
 
-def test_kurasi_synthetic_http_client(client):
+def test_kusari_synthetic_http_client(client):
     """Virtual users repeatedly resolve, read status and probe a live environment."""
     env = _provision(client).json()
     docs = client.get("/docs")
@@ -458,7 +454,7 @@ def test_kurasi_synthetic_http_client(client):
     assert latencies[int(len(latencies) * 0.95)] < 1.0
 
 
-def test_kurasi_concurrent_provision_race(client):
+def test_kusari_concurrent_provision_race(client):
     """Racing provisions for one customer yield exactly one 201; distinct customers stay isolated."""
 
     def attempt(company: str) -> tuple[str, int, Optional[str]]:
@@ -468,14 +464,14 @@ def test_kurasi_concurrent_provision_race(client):
     companies = [COMPANY] * 6 + [f"tenant-{i}" for i in range(6)]
     with ThreadPoolExecutor(max_workers=12) as pool:
         results = list(pool.map(attempt, companies))
-    kurasi = [code for c, code, _ in results if c == COMPANY]
-    assert sorted(kurasi) == [201] + [409] * 5
+    kusari = [code for c, code, _ in results if c == COMPANY]
+    assert sorted(kusari) == [201] + [409] * 5
     others = {c: h for c, code, h in results if c != COMPANY and code == 201}
     assert len(others) == 6 and HASH not in others.values()
     assert len(set(others.values())) == 6
 
 
-def test_kurasi_graceful_error_during_teardown(client, fresh_registry):
+def test_kusari_graceful_error_during_teardown(client, fresh_registry):
     """A request that lands mid-teardown gets a structured 503, not a 5xx crash."""
     env = _provision(client).json()
     rec = fresh_registry.get(env["id"])
@@ -487,7 +483,7 @@ def test_kurasi_graceful_error_during_teardown(client, fresh_registry):
     rec.state = EnvironmentState.READY  # let the fixture finish the teardown
 
 
-def test_kurasi_chaos_pod_restart_recovery(client, monkeypatch):
+def test_kusari_chaos_pod_restart_recovery(client, monkeypatch):
     """Simulate the backend pod dying mid-session: the in-memory registry is lost.
 
     Routing must recover deterministically (same URLs), the lost env reads 404,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # scripts/eap/run_slet_p4_2_acceptance.sh
-# SLET-P4-2 — run the kurasi tenant isolation acceptance suite.
+# SLET-P4-2 — run the kusari tenant isolation acceptance suite.
 #
 #   run_slet_p4_2_acceptance.sh              # tier 1 only (hermetic)
 #   run_slet_p4_2_acceptance.sh --live       # tier 1 + tier 2 against kind-osramp
@@ -61,7 +61,7 @@ for ((i = 1; i <= iterations; i++)); do
   echo "=== SLET-P4-2 iteration ${i}/${iterations} (live=${live}) ==="
   if ! (cd "${src}" && uv run -q --python 3.12 --with pytest --with pytest-asyncio \
       --with-requirements requirements.txt python -m pytest \
-      tests/test_kurasi_tenant_isolation.py -v -p no:cacheprovider -rs); then
+      tests/test_kusari_tenant_isolation.py -v -p no:cacheprovider -rs); then
     fail=$((fail + 1))
   fi
 done

@@ -74,7 +74,7 @@ export default defineConfig({
     },
     {
       name: "chromium",
-      testMatch: "signalloom-test-1.spec.ts",
+      testMatch: /(?:signalloom-test-1|tenant-warnings)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         channel: CHANNEL,

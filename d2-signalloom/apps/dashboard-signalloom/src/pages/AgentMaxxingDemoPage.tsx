@@ -1,10 +1,18 @@
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import StageProgressionController from '../components/demos/StageProgressionController'
 import { TokenIssuePanel } from '../components/demos/TokenIssuePanel'
 import { EnrollmentPanel } from '../components/demos/EnrollmentPanel'
 import { ConfinementTelemetryPanel } from '../components/demos/ConfinementTelemetryPanel'
 import { AdversarialSimulationPanel } from '../components/demos/AdversarialSimulationPanel'
 import { RevocationPanel } from '../components/demos/RevocationPanel'
+import { LandlockPolicyInspector } from '../components/demos/LandlockPolicyInspector'
+import { AttestationBundleExport } from '../components/demos/AttestationBundleExport'
+import {
+  HAPPY_PATH_PRESET,
+  SCENARIO_PRESETS,
+  type ScenarioPreset,
+} from '../components/demos/scenarios'
+import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 import {
   STAGE_METADATA,
   getStageIndex,
@@ -44,6 +52,14 @@ export const AgentMaxxingDemoPage: React.FC = () => {
   const operatorPrincipal = useOperatorPrincipal()
   const logStream = useAgentMaxxingLogStream({ defaultStage: 'operator_init' })
   const streamedStagesRef = useRef<Set<string>>(new Set())
+  const [activePreset, setActivePreset] = useState<ScenarioPreset>(HAPPY_PATH_PRESET)
+  const [demoMode, setDemoMode] = useState<boolean>(() => isDemoMode())
+
+  useEffect(() => {
+    return subscribeDemoMode((on) => setDemoMode(on))
+  }, [])
+
+  const channelKind: 'mock' | 'live' = demoMode ? 'mock' : 'live'
 
   return (
     <div
@@ -97,11 +113,93 @@ export const AgentMaxxingDemoPage: React.FC = () => {
           confinement telemetry, live cryptographic artifact verification, adversarial tamper
           containment, and instant attributable revocation with 403 Forbidden denial proofs.
         </p>
+
+        {/* Preset Switcher UI */}
+        <div
+          data-testid="preset-switcher"
+          style={{
+            marginTop: 18,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              color: 'var(--muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            Scenario Preset:
+          </span>
+          <div
+            style={{
+              display: 'inline-flex',
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 3,
+              gap: 4,
+            }}
+          >
+            {SCENARIO_PRESETS.map((p) => {
+              const isSelected = activePreset.id === p.id
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  data-testid={`preset-option-${p.id}`}
+                  onClick={() => {
+                    if (activePreset.id !== p.id) {
+                      try {
+                        localStorage.removeItem('amxd.demo.currentStage')
+                      } catch {
+                        /* ignore storage error */
+                      }
+                      setActivePreset(p)
+                    }
+                  }}
+                  style={{
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    fontWeight: isSelected ? 600 : 500,
+                    padding: '5px 12px',
+                    borderRadius: 4,
+                    border: isSelected ? '1px solid var(--cyan)' : '1px solid transparent',
+                    background: isSelected ? 'rgba(6, 182, 212, 0.12)' : 'transparent',
+                    color: isSelected ? 'var(--cyan)' : 'var(--text)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {p.name}
+                </button>
+              )
+            })}
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              fontFamily: 'monospace',
+              color: 'var(--muted)',
+            }}
+          >
+            {activePreset.description}
+          </span>
+        </div>
       </header>
 
       {/* Main Interactive Progression Controller */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <StageProgressionController
+          key={`${activePreset.id}-${channelKind}`}
+          preset={activePreset}
+          channel={channelKind}
           statCards={({ state, bridge, inFlight }) => {
             const currentStep = getStageIndex(state.currentStage) + 1
             const stepStr = String(currentStep).padStart(2, '0')
@@ -109,7 +207,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
             const progressLabel = `${stepStr} / 05 ${isConfirmed ? 'Confirmed' : 'Pending'}`
             const executionState = inFlight ? 'In Flight' : 'Active'
             const channelPreset = `${bridge.channelKind.toUpperCase()} / LIVE`
-            const presetName = bridge.preset?.name || 'Standard Baseline'
+            const presetName = bridge.preset?.name || activePreset.name
 
             return (
               <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 24 }}>
@@ -155,16 +253,16 @@ export const AgentMaxxingDemoPage: React.FC = () => {
 
             // Stream stage logs whenever stage transitions or is confirmed
             useEffect(() => {
-              const stageKey = `${activeViewStage}-${isConfirmed ? 'confirmed' : 'pending'}-${isInFlight ? 'flight' : 'idle'}`
+              const stageKey = `${activePreset.id}-${activeViewStage}-${isConfirmed ? 'confirmed' : 'pending'}-${isInFlight ? 'flight' : 'idle'}`
               if (!streamedStagesRef.current.has(stageKey)) {
                 streamedStagesRef.current.add(stageKey)
-                const payload = state.stagePayloads[activeViewStage]
+                const currentPayload = state.stagePayloads[activeViewStage]
                 // Stream with short delay if inFlight, or append directly if confirmed
                 if (isInFlight || isConfirmed) {
-                  logStream.appendStageLog(activeViewStage, payload, { progressive: isInFlight, delayMs: 30 })
+                  logStream.appendStageLog(activeViewStage, currentPayload, { progressive: isInFlight, delayMs: 30 })
                 }
               }
-            }, [activeViewStage, isConfirmed, isInFlight, state.stagePayloads])
+            }, [activePreset.id, activeViewStage, isConfirmed, isInFlight, state.stagePayloads])
 
             return (
               <>
@@ -278,22 +376,25 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                     />
                   )}
 
-                  {/* Stage 3 — AMXD-P3-1 ConfinementTelemetryPanel */}
+                  {/* Stage 3 — AMXD-P3-1 ConfinementTelemetryPanel & LandlockPolicyInspector */}
                   {activeViewStage === 'confinement_streaming' && (
-                    <ConfinementTelemetryPanel
-                      bridge={bridge}
-                      preset={bridge.preset}
-                      inFlight={inFlight}
-                      initialPayload={state.stagePayloads.confinement_streaming ?? null}
-                      onOutcome={(outcome) => {
-                        if (outcome.status === 'ok') {
-                          recordStagePayload('confinement_streaming', outcome.payload)
-                        }
-                      }}
-                      onTelemetryPolled={(polledPayload) => {
-                        recordStagePayload('confinement_streaming', polledPayload)
-                      }}
-                    />
+                    <>
+                      <ConfinementTelemetryPanel
+                        bridge={bridge}
+                        preset={bridge.preset}
+                        inFlight={inFlight}
+                        initialPayload={state.stagePayloads.confinement_streaming ?? null}
+                        onOutcome={(outcome) => {
+                          if (outcome.status === 'ok') {
+                            recordStagePayload('confinement_streaming', outcome.payload)
+                          }
+                        }}
+                        onTelemetryPolled={(polledPayload) => {
+                          recordStagePayload('confinement_streaming', polledPayload)
+                        }}
+                      />
+                      <LandlockPolicyInspector defaultOpen={true} />
+                    </>
                   )}
 
                   {/* Stage 4 — AMXD-P4-1 AdversarialSimulationPanel */}
@@ -366,6 +467,14 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                       </pre>
                     </div>
                   )}
+
+                  {/* Cryptographic Attestation Bundle Export */}
+                  <AttestationBundleExport
+                    preset={bridge.preset}
+                    activeStage={activeViewStage}
+                    state={state}
+                    payload={payload}
+                  />
                 </section>
 
                 {/* Execution Log Stream Slot — Streams logs like SuperCredential Demo */}

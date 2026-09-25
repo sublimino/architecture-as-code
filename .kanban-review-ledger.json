@@ -3079,5 +3079,13 @@
     "verdict": "pass",
     "model": null,
     "reason": "Adversarial Council Review APPROVED across 4 lenses: D8 satisfiable governor criterion in Scaffold.md, tag-only sunset clause 2026-10-07 across 6 proposals, 20 governor sessions corroborated, SLED blockers flipped, SLTE re-scoped, bats 10/10 ok, doctor healthy, commit 0a752859"
+  },
+  "15d5e": {
+    "task_id": "15d5e",
+    "reviewed_at": "2026-09-25T19:30:32.198Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "EAPR Phase 4 Governor certified: all 14 KPIs pass, 100% test suites green, doctor healthy"
   }
 }

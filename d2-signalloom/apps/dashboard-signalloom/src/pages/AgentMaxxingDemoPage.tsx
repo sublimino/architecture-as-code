@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 import StageProgressionController from '../components/demos/StageProgressionController'
 import { TokenIssuePanel } from '../components/demos/TokenIssuePanel'
 import { EnrollmentPanel } from '../components/demos/EnrollmentPanel'
+import { ConfinementTelemetryPanel } from '../components/demos/ConfinementTelemetryPanel'
 import { AdversarialSimulationPanel } from '../components/demos/AdversarialSimulationPanel'
 import { RevocationPanel } from '../components/demos/RevocationPanel'
 import {
@@ -196,57 +197,22 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                   />
                 )}
 
-                {/* Stage 3 — generic telemetry frame (confinement_streaming). */}
-                {activeViewStage !== 'operator_init' &&
-                  activeViewStage !== 'host_enrolled' &&
-                  activeViewStage !== 'adversarial_tamper' &&
-                  activeViewStage !== 'revocation_denied' && (
-                  <div className="min-h-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5 flex flex-col justify-between">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-xs font-mono text-[var(--muted)] border-b border-[var(--border)]/50 pb-2">
-                        <span>COMPONENT: {meta.owningCard}</span>
-                        <span>STAGE ID: {activeViewStage}</span>
-                      </div>
-
-                      <div className="py-4 space-y-2">
-                        <div className="text-sm font-medium text-[var(--text)]">
-                          {activeViewStage === 'confinement_streaming' && 'Landlock LSM Telemetry & SHA-256 Hashing'}
-                        </div>
-                        <p className="text-xs text-[var(--muted)] leading-relaxed">
-                          {isConfirmed
-                            ? 'Stage execution verified. State machine transition resolved with immutable cryptographic telemetry.'
-                            : isInFlight
-                              ? 'Executing dual-lock async gate (minimum dwell timer + backend/mock verification resolution)...'
-                              : 'Stage pending execution. Click "Advance Stage" above or use keyboard right-arrow to step.'}
-                        </p>
-                      </div>
-
-                      {payload && (
-                        <div
-                          data-testid={`stage-payload-preview-${activeViewStage}`}
-                          className="mt-2 p-3 bg-[var(--surface)] border border-[var(--border)] rounded text-xs font-mono text-[var(--dim)] overflow-x-auto"
-                        >
-                          <pre className="text-[11px] leading-tight">
-                            {JSON.stringify(payload, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-3 border-t border-[var(--border)]/50 flex items-center justify-between text-xs text-[var(--muted)]">
-                      <span>Zero customer code or prompt tokens processed</span>
-                      {canAdvance && (
-                        <button
-                          type="button"
-                          onClick={advance}
-                          disabled={inFlight}
-                          className="text-xs font-medium text-[var(--cyan)] hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          Advance to Stage {meta.stepNumber + 1} →
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                {/* Stage 3 — AMXD-P3-1 ConfinementTelemetryPanel */}
+                {activeViewStage === 'confinement_streaming' && (
+                  <ConfinementTelemetryPanel
+                    bridge={bridge}
+                    preset={bridge.preset}
+                    inFlight={inFlight}
+                    initialPayload={state.stagePayloads.confinement_streaming ?? null}
+                    onOutcome={(outcome) => {
+                      if (outcome.status === 'ok') {
+                        recordStagePayload('confinement_streaming', outcome.payload)
+                      }
+                    }}
+                    onTelemetryPolled={(freshPayload) => {
+                      recordStagePayload('confinement_streaming', freshPayload)
+                    }}
+                  />
                 )}
               </section>
             )

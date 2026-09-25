@@ -525,25 +525,25 @@ def test_probe_threat_4_non_hex_keys(eap_jwt_env, fresh_tenant_ownership) -> Non
 
     Negative:
     - /execute with customer_hash:
-      - '6F82AD81' (uppercase hex) -> 422
-      - '6f82ad8' (7 chars, too short) -> 422
-      - '6f82ad81a' (9 chars, too long) -> 422
+      - 'A0314BEC' (uppercase hex) -> 422
+      - 'a0314be' (7 chars, too short) -> 422
+      - 'a0314beca' (9 chars, too long) -> 422
       - '../../etc' (path traversal) -> 422
-      - '6f82ad81; DROP' (SQL injection token) -> 422
+      - 'a0314bec; DROP' (SQL injection token) -> 422
       - 'ghjk1234' (non-hex characters) -> 422
     - Every negative MUST return 422 Unprocessable Entity.
 
     Positive Control:
-    - A valid lowercase 8-hex character key ('6f82ad81') returns 201 Created on /execute.
+    - A valid lowercase 8-hex character key ('a0314bec') returns 201 Created on /execute.
     """
     client = TestClient(app, raise_server_exceptions=False)
 
     invalid_keys = [
-        "6F82AD81",           # Uppercase hex
-        "6f82ad8",            # 7 chars (too short)
-        "6f82ad81a",          # 9 chars (too long)
+        "A0314BEC",           # Uppercase hex
+        "a0314be",            # 7 chars (too short)
+        "a0314beca",          # 9 chars (too long)
         "../../etc",          # Path traversal
-        "6f82ad81; DROP",     # SQL injection token
+        "a0314bec; DROP",     # SQL injection token
         "ghjk1234",           # Non-hex characters
     ]
 
@@ -556,7 +556,7 @@ def test_probe_threat_4_non_hex_keys(eap_jwt_env, fresh_tenant_ownership) -> Non
         assert exec_resp.status_code == 422, f"Expected 422 for bad key '{bad_key}', got {exec_resp.status_code}: {exec_resp.text}"
 
     # Positive Control: valid lowercase 8-hex key
-    valid_hex = "6f82ad81"
+    valid_hex = "a0314bec"
     valid_resp = client.post(
         "/api/v1/eap/scenarios/execute",
         json={"scenario_type": "baseline_agent_flow", "company_name": "kusari", "customer_hash": valid_hex},
@@ -568,14 +568,14 @@ def test_probe_threat_4_non_hex_keys(eap_jwt_env, fresh_tenant_ownership) -> Non
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
-    reason="EAPR-P2-1: ExecuteScenarioRequest str_strip_whitespace=True strips trailing newline on customer_hash turning '6f82ad81\\n' into '6f82ad81' (201 instead of 422)",
+    reason="EAPR-P2-1: ExecuteScenarioRequest str_strip_whitespace=True strips trailing newline on customer_hash turning 'a0314bec\\n' into 'a0314bec' (201 instead of 422)",
 )
 def test_probe_threat_4_newline_injection_in_customer_hash(eap_jwt_env, fresh_tenant_ownership) -> None:
     """Finding probe: Trailing newline in customer_hash should be rejected with 422 rather than stripped."""
     client = TestClient(app, raise_server_exceptions=False)
     exec_resp = client.post(
         "/api/v1/eap/scenarios/execute",
-        json={"company_name": "kusari", "customer_hash": "6f82ad81\n"},
+        json={"company_name": "kusari", "customer_hash": "a0314bec\n"},
         headers=eap_bearer("alice"),
     )
     assert exec_resp.status_code == 422, f"Expected 422 for newline key, got {exec_resp.status_code}"

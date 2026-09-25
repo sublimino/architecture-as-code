@@ -84,7 +84,11 @@ assert '"environment":"fe-signalloom/local"' in restore
 
 with tempfile.TemporaryDirectory() as temporary:
     artifact = Path(temporary) / "apps"
-    shutil.copytree(root / "d2-signalloom/apps", artifact)
+    shutil.copytree(
+        root / "d2-signalloom/apps",
+        artifact,
+        ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "node_modules", ".cache", "*.pyc"),
+    )
     subprocess.run(
         ["kubectl", "kustomize", str(artifact / "fe-signalloom/local")],
         check=True,

@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 

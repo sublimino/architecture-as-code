@@ -54,16 +54,10 @@ teardown() {
 }
 
 start_server() {
-  if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
-    for _ in $(seq 1 20); do
-      sleep 0.05
-      nc -z 127.0.0.1 "$PORT" 2>/dev/null || break
-    done
-    if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
-      echo "port $PORT is already in use before starting server" >&2
-      return 1
-    fi
-  fi
+  while nc -z 127.0.0.1 "$PORT" 2>/dev/null; do
+    PORT=$(( PORT + 1 ))
+    export KAGENT_A2A_BASE="http://127.0.0.1:${PORT}"
+  done
   A2A_SCENARIO="$1" A2A_PORT="$PORT" \
     bun "$SERVER" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
   SERVER_PID=$!

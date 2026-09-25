@@ -49,7 +49,7 @@ render_py() {
 
 @test "2. Rendered tenant pod spec has exactly one csi volume and zero hostPath volumes" {
 	local json
-	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_tenant_pod_manifest("6f82ad81")))')"
+	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_tenant_pod_manifest("a0314bec")))')"
 
 	# Exactly one volume with driver csi.spiffe.io
 	local vol_count
@@ -82,7 +82,7 @@ render_py() {
 
 @test "2b. Mutation: pod spec with injected hostPath fails zero-hostPath check" {
 	local json
-	json="$(render_py 'import json, tenant_isolation as t; pod = t.generate_tenant_pod_manifest("6f82ad81"); pod["spec"]["volumes"].append({"name": "bad-hostpath", "hostPath": {"path": "/run/spire"}}); print(json.dumps(pod))')"
+	json="$(render_py 'import json, tenant_isolation as t; pod = t.generate_tenant_pod_manifest("a0314bec"); pod["spec"]["volumes"].append({"name": "bad-hostpath", "hostPath": {"path": "/run/spire"}}); print(json.dumps(pod))')"
 
 	# Injected hostPath must be detected
 	local hostpath_count
@@ -92,7 +92,7 @@ render_py() {
 
 @test "3. Tenant namespace manifest carries enforce, warn, and audit all equal to restricted" {
 	local json
-	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_namespace_manifest("kurasi", "6f82ad81")))')"
+	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_namespace_manifest("kusari", "a0314bec")))')"
 
 	local enforce
 	enforce="$(echo "$json" | jq -r '.metadata.labels["pod-security.kubernetes.io/enforce"]')"
@@ -113,7 +113,7 @@ render_py() {
 
 @test "4. Every egress rule targets inf-bao or kube-system and no rule names inf-spire" {
 	local json
-	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_network_policy_manifest("6f82ad81")))')"
+	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_network_policy_manifest("a0314bec")))')"
 
 	# Check no rule targets inf-spire
 	run grep -q "inf-spire" <<< "$json"
@@ -132,7 +132,7 @@ render_py() {
 
 @test "4b. Egress port list equals named constants OPENBAO_PORT and SPIRE_SERVER_PORT" {
 	local json
-	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_network_policy_manifest("6f82ad81")))')"
+	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_network_policy_manifest("a0314bec")))')"
 
 	local inf_bao_ports
 	inf_bao_ports="$(echo "$json" | jq -r '.spec.egress[] | select(.to[]?.namespaceSelector.matchLabels["kubernetes.io/metadata.name"] == "inf-bao") | .ports[].port' | sort -n)"
@@ -148,7 +148,7 @@ render_py() {
 
 @test "5. OpenBao ingress policy in inf-bao selects tenant namespace on OPENBAO_PORT" {
 	local json
-	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_openbao_ingress_policy("6f82ad81")))')"
+	json="$(render_py 'import json, tenant_isolation as t; print(json.dumps(t.generate_openbao_ingress_policy("a0314bec")))')"
 
 	local ns
 	ns="$(echo "$json" | jq -r '.metadata.namespace')"
@@ -160,7 +160,7 @@ render_py() {
 
 	local from_ns
 	from_ns="$(echo "$json" | jq -r '.spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]')"
-	[ "$from_ns" = "eap-6f82ad81" ]
+	[ "$from_ns" = "eap-a0314bec" ]
 
 	local port
 	port="$(echo "$json" | jq -r '.spec.ingress[0].ports[0].port')"

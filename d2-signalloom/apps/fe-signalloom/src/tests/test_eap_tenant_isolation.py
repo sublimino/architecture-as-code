@@ -96,24 +96,24 @@ def test_generate_network_policy_manifest():
 
 def test_generate_openbao_ingress_policy():
     """Verify OpenBao ingress policy in inf-bao allows tenant namespace."""
-    manifest = generate_openbao_ingress_policy("6f82ad81")
+    manifest = generate_openbao_ingress_policy(KUSARI_HASH)
     assert manifest["apiVersion"] == "networking.k8s.io/v1"
     assert manifest["kind"] == "NetworkPolicy"
-    assert manifest["metadata"]["name"] == "allow-eap-6f82ad81-to-openbao"
+    assert manifest["metadata"]["name"] == f"allow-{KUSARI_NS}-to-openbao"
     assert manifest["metadata"]["namespace"] == "inf-bao"
     assert manifest["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/name"] == "openbao"
 
     from_ns = manifest["spec"]["ingress"][0]["from"][0]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
-    assert from_ns == "eap-6f82ad81"
+    assert from_ns == KUSARI_NS
     assert manifest["spec"]["ingress"][0]["ports"][0]["port"] == OPENBAO_PORT
 
 
 def test_generate_tenant_pod_manifest_csi():
     """Verify tenant pod spec uses SPIFFE CSI ephemeral volume and no hostPath."""
-    pod = generate_tenant_pod_manifest("6f82ad81")
+    pod = generate_tenant_pod_manifest(KUSARI_HASH)
     assert pod["apiVersion"] == "v1"
     assert pod["kind"] == "Pod"
-    assert pod["metadata"]["namespace"] == "eap-6f82ad81"
+    assert pod["metadata"]["namespace"] == KUSARI_NS
 
     volumes = pod["spec"]["volumes"]
     assert len(volumes) == 1

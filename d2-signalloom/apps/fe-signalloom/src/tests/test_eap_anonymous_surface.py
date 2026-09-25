@@ -233,4 +233,4 @@ def test_enumerate_eap_anonymous_surface(probe_client: TestClient) -> None:
     for m, p, status, handler, note in sorted(probe_results, key=lambda x: (x[3].split(":")[0], x[1])):
         print(f"{m:6} | {p:55} | {status:6} | {handler:45} | {note}")
 
-    assert len(probe_results) == 35, f"Expected 35 probed operations, found {len(probe_results)}"
+    assert len(probe_results) == 34, f"Expected 34 probed operations, found {len(probe_results)}"

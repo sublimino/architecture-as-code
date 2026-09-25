@@ -41,9 +41,9 @@ from environment_routing import derive_customer_hash
 from main import app
 
 EAP_MODULES = frozenset(
-    {"tenant_isolation", "scenario_seeding", "environment_routing", "environment_lifecycle", "webhook_triggers"}
+    {"tenant_isolation", "scenario_seeding", "environment_routing", "environment_lifecycle"}
 )
-EAP_PATH_PREFIXES = ("/api/v1/eap/", "/api/v1/environments", "/api/v1/webhooks")
+EAP_PATH_PREFIXES = ("/api/v1/eap/", "/api/v1/environments")
 
 #: Method/path pairs reachable without a principal, and why.  Minimal on purpose.
 #:
@@ -378,8 +378,6 @@ EXPECTED_EAP_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/v1/environments/resolve-domain"),
         ("POST", "/api/v1/environments/{environment_id}/extend"),
         ("POST", "/api/v1/environments/{environment_id}/teardown"),
-        ("POST", "/api/v1/webhooks/generic"),
-        ("POST", "/api/v1/webhooks/github"),
         ("WS", "/api/v1/environments/{environment_id}/telemetry"),
     }
 )

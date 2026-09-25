@@ -515,6 +515,12 @@ ADDITIONS = {
 }
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Build and optionally apply SLTE card specifications")
+    parser.add_argument("--export", type=str, default=None, help="Export all generated cards to JSON file")
+    parser.add_argument("--no-apply", action="store_true", help="Do not apply cards to Kanban board")
+    args, _ = parser.parse_known_args()
+
     print("Enriching, validating, and generating SLTE card specifications...\n")
     all_ok = True
     processed_specs = {}
@@ -587,6 +593,23 @@ def main():
         sys.exit(1)
 
     print(f"\nSUCCESS: All {len(processed_specs)} SLTE card specifications generated and 100% compliant with SPEC_FLOORS!")
+
+    if args.export:
+        export_p = Path(args.export)
+        export_p.parent.mkdir(parents=True, exist_ok=True)
+        export_payload = {
+            "shortcode": "SLTE",
+            "proposalContractSha256": CONTRACT_SHA,
+            "cachedAt": "2026-09-25T00:00:00Z",
+            "cardCount": len(processed_specs),
+            "cards": processed_specs,
+        }
+        export_p.write_text(json.dumps(export_payload, indent=2), encoding="utf-8")
+        print(f"Staged all {len(processed_specs)} SLTE cards to {args.export}")
+
+    if args.no_apply or args.export:
+        print("\nSkipping application to Kanban board (--no-apply or --export set). Staged for human.")
+        return
 
     # Now apply cards to Kanban board
     print("\nApplying all 17 SLTE cards to Kanban board...")

@@ -32,7 +32,7 @@ from main import app
 from tenant_isolation import get_tenant_spiffe_id
 
 EAP_MODULES = frozenset(
-    {"tenant_isolation", "scenario_seeding", "environment_routing", "environment_lifecycle", "webhook_triggers"}
+    {"tenant_isolation", "scenario_seeding", "environment_routing", "environment_lifecycle"}
 )
 PROBE_DEADLINE_SECONDS = 3.0
 ECHO_PATH = "/__eapr_p2_1_echo_headers"

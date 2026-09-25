@@ -1,11 +1,14 @@
 """Atomic one-time external host enrollment token exchange service and router.
 
-Implements AMXO-P3-1:
+Implements AMXO-P3-1 and EAPR-P3-4:
 1. Operator token issuance with CSPRNG entropy and SHA-256 hashed storage.
 2. Single-use atomic compare-and-set redemption with immediate token invalidation.
 3. Strict constant-time hash comparison preventing timing attacks.
 4. Concurrency-safe replay protection rejecting duplicate and expired redemption attempts.
-5. Audit event emission on successful and rejected enrollment attempts.
+5. Audit event emission on successful, rejected, and revoked enrollment attempts with SPIFFE ID.
+6. Server-minted SPIFFE IDs and SPIRE registration entries under spiffe://signalloom.demo.
+7. Explicit refusal (HTTP 422) if client supplies credential_reference.
+8. Authenticated, tenant-bound revocation endpoint with SPIRE entry deletion.
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ import secrets
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -26,18 +29,20 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import api_compat
 from agent_claim import sync_claim_delegation_to_spine
+from environment_routing import derive_customer_hash
 from external_agent_contract import (
     ContractError,
     EnrollmentRequest,
     EnrollmentResult,
 )
 import external_agent_registration
+from tenant_isolation import generate_spire_registration_entry, get_tenant_spiffe_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/external-agents", tags=["host-enrollment"])
-api_router = APIRouter(prefix="/api/v1/external-agents", tags=["host-enrollment-api"])
-compat_router = APIRouter(prefix="/api/external-agents", tags=["host-enrollment-compat"])
+router = APIRouter(prefix="/v1/external-agents", tags=["host-enrollment"], dependencies=[Depends(api_compat.authenticated_principal)])
+api_router = APIRouter(prefix="/api/v1/external-agents", tags=["host-enrollment-api"], dependencies=[Depends(api_compat.authenticated_principal)])
+compat_router = APIRouter(prefix="/api/external-agents", tags=["host-enrollment-compat"], dependencies=[Depends(api_compat.authenticated_principal)])
 
 BEARER_AUTH_REGEX = re.compile(r"^Bearer\s+([A-Za-z0-9_.-]{16,2048})$", re.IGNORECASE)
 
@@ -45,11 +50,19 @@ BEARER_AUTH_REGEX = re.compile(r"^Bearer\s+([A-Za-z0-9_.-]{16,2048})$", re.IGNOR
 _HOST_ENROLL_LOCK = threading.Lock()
 # token_hash -> dict
 _HOST_ENROLLMENT_TOKENS: dict[str, dict[str, Any]] = {}
+# agent_id / entry_id -> dict
+_SPIRE_REGISTRATION_ENTRIES: dict[str, dict[str, Any]] = {}
 
 
 def reset_host_enrollment_state() -> None:
     with _HOST_ENROLL_LOCK:
         _HOST_ENROLLMENT_TOKENS.clear()
+        _SPIRE_REGISTRATION_ENTRIES.clear()
+
+
+def get_spire_registration_entry_for_agent(agent_id: str) -> dict[str, Any] | None:
+    with _HOST_ENROLL_LOCK:
+        return _SPIRE_REGISTRATION_ENTRIES.get(agent_id)
 
 
 def _now_utc() -> datetime:
@@ -68,6 +81,12 @@ def hash_enrollment_token(token: str) -> str:
 def generate_secure_token() -> str:
     """Generate cryptographically secure enrollment token with 256 bits entropy."""
     return secrets.token_urlsafe(32)
+
+
+def _compute_spiffe_id(tenant_id: str, agent_id: str) -> str:
+    """Compute server-minted SPIFFE ID under signalloom.demo trust domain."""
+    tenant_hash = tenant_id if re.match(r"^[0-9a-f]{8}$", tenant_id) else derive_customer_hash(tenant_id)
+    return f"spiffe://signalloom.demo/ns/eap-{tenant_hash.lower()}/sa/agent-{agent_id}"
 
 
 class TokenIssueRequest(BaseModel):
@@ -273,6 +292,138 @@ async def issue_enrollment_token_for_agent(
     )
 
 
+async def revoke_external_agent_for_host(
+    agent_id: str,
+    tenant_id: str,
+    principal: api_compat.Principal,
+    reason: str = "operator_revocation",
+) -> dict[str, Any]:
+    """Revoke an enrolled external agent registration and clear its SPIRE entry."""
+    now = _now_utc()
+    now_str = _format_rfc3339(now)
+    spiffe_id = _compute_spiffe_id(tenant_id, agent_id)
+
+    pool = await api_compat._get_pool()
+    if pool is not None:
+        async with api_compat._write(pool) as conn:
+            reg = await conn.fetchrow(
+                """SELECT * FROM public.external_agent_registrations
+                    WHERE agent_id = $1 AND tenant_id = $2 FOR UPDATE""",
+                agent_id,
+                tenant_id,
+            )
+            if reg is None:
+                raise api_compat.APIError(404, "not_found", f"External agent '{agent_id}' not found")
+
+            await conn.execute(
+                """UPDATE public.external_agent_registrations
+                      SET enrollment_status = 'revoked',
+                          revoked_at = NOW(),
+                          revoked_by_subject = $2,
+                          revocation_reason = $3,
+                          enrollment_token_hash = NULL,
+                          enrollment_token_expires_at = NULL,
+                          updated_at = NOW()
+                    WHERE agent_id = $1 AND tenant_id = $4""",
+                agent_id,
+                principal.subject,
+                reason,
+                tenant_id,
+            )
+            with _HOST_ENROLL_LOCK:
+                _SPIRE_REGISTRATION_ENTRIES.pop(agent_id, None)
+
+            await _audit_log_enrollment(
+                conn,
+                tenant_id,
+                "external_agent.revoked",
+                agent_id,
+                principal.email or principal.subject,
+                principal.subject,
+                {
+                    "action": "revoked",
+                    "agent_id": agent_id,
+                    "spiffe_id": spiffe_id,
+                    "reason": reason,
+                    "revoked_by": principal.subject,
+                },
+            )
+    else:
+        with external_agent_registration._REG_LOCK:
+            t_regs = external_agent_registration._EXTERNAL_REGISTRATIONS.get(tenant_id, {})
+            if agent_id not in t_regs:
+                raise api_compat.APIError(404, "not_found", f"External agent '{agent_id}' not found")
+            reg = t_regs[agent_id]
+            reg["enrollment_status"] = "revoked"
+            reg["revoked_at"] = now_str
+            reg["revoked_by_subject"] = principal.subject
+            reg["revocation_reason"] = reason
+            reg["enrollment_token_hash"] = None
+            reg["enrollment_token_expires_at"] = None
+            reg["updated_at"] = now_str
+
+        with _HOST_ENROLL_LOCK:
+            _SPIRE_REGISTRATION_ENTRIES.pop(agent_id, None)
+
+        await _audit_log_enrollment(
+            None,
+            tenant_id,
+            "external_agent.revoked",
+            agent_id,
+            principal.email or principal.subject,
+            principal.subject,
+            {
+                "action": "revoked",
+                "agent_id": agent_id,
+                "spiffe_id": spiffe_id,
+                "reason": reason,
+                "revoked_by": principal.subject,
+            },
+        )
+
+    return {
+        "schema_version": "1.0.0",
+        "status": "revoked",
+        "revocation_state": "revocation-accepted",
+        "agent_id": agent_id,
+        "tenant_id": tenant_id,
+        "credential_reference": spiffe_id,
+        "spiffe_id": spiffe_id,
+        "revoked_at": now_str,
+        "revocation_reason": reason,
+    }
+
+
+async def revoke_all_agents_for_tenant(
+    tenant_id: str,
+    principal: api_compat.Principal,
+    reason: str = "environment_reaped",
+) -> list[dict[str, Any]]:
+    """Revoke every registered agent under a tenant (invoked during environment reap / teardown)."""
+    results: list[dict[str, Any]] = []
+    pool = await api_compat._get_pool()
+    if pool is not None:
+        async with api_compat._read(pool) as conn:
+            rows = await conn.fetch(
+                """SELECT agent_id FROM public.external_agent_registrations
+                    WHERE tenant_id = $1 AND enrollment_status != 'revoked'""",
+                tenant_id,
+            )
+            for row in rows:
+                rev = await revoke_external_agent_for_host(row["agent_id"], tenant_id, principal, reason)
+                results.append(rev)
+    else:
+        with external_agent_registration._REG_LOCK:
+            t_regs = list(external_agent_registration._EXTERNAL_REGISTRATIONS.get(tenant_id, {}).keys())
+        for agent_id in t_regs:
+            try:
+                rev = await revoke_external_agent_for_host(agent_id, tenant_id, principal, reason)
+                results.append(rev)
+            except Exception:
+                pass
+    return results
+
+
 # --- Handlers ---
 
 async def issue_token_handler(
@@ -294,6 +445,24 @@ async def issue_token_handler(
     )
 
 
+async def revoke_agent_handler(
+    agent_id: str,
+    principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
+) -> JSONResponse:
+    """Revoke external agent registration, deleting SPIRE entry and setting revoked status."""
+    tenant_id = principal.tenant
+    if not tenant_id:
+        raise api_compat.APIError(401, "unauthenticated", "Authentication required")
+
+    result = await revoke_external_agent_for_host(
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        principal=principal,
+        reason="operator_revocation",
+    )
+    return JSONResponse(status_code=200, content=result)
+
+
 async def enroll_host_handler(
     request: Request,
     authorization: str | None = Header(None),
@@ -301,7 +470,8 @@ async def enroll_host_handler(
     """Atomic one-time external host enrollment token exchange endpoint.
 
     Validates Bearer enrollment token, verifies agent pre-registration,
-    executes atomic compare-and-set state transition, and invalidates the token.
+    executes atomic compare-and-set state transition, mints server-issued SPIFFE ID
+    and SPIRE registration entry, and invalidates the token.
     """
     # 1. Content-Type check (must be application/json)
     content_type = request.headers.get("content-type", "")
@@ -325,9 +495,15 @@ async def enroll_host_handler(
         if not raw_body:
             return _make_error_response(400, "malformed-request", "Empty request body")
         body_json = json.loads(raw_body)
-        body = EnrollmentRequest.model_validate(body_json)
     except json.JSONDecodeError:
         return _make_error_response(400, "malformed-request", "Invalid JSON body")
+
+    # Step 7: Refuse client-supplied credential_reference with 422
+    if "credential_reference" in body_json and body_json["credential_reference"] is not None:
+        return _make_error_response(422, "validation-failed", "credential_reference is server-issued")
+
+    try:
+        body = EnrollmentRequest.model_validate(body_json)
     except Exception as exc:
         return _make_error_response(422, "validation-failed", f"Contract validation failed: {exc}")
 
@@ -335,6 +511,17 @@ async def enroll_host_handler(
     now_str = _format_rfc3339(now)
     cred_expires = now + timedelta(days=90)
     cred_expires_str = _format_rfc3339(cred_expires)
+
+    # Step 6: Timestamp 300s window check
+    raw_ts = body.timestamp or body_json.get("timestamp") or request.headers.get("x-timestamp") or request.headers.get("x-auth-timestamp")
+    if raw_ts:
+        try:
+            ts_clean = str(raw_ts).replace("Z", "+00:00")
+            ts_dt = datetime.fromisoformat(ts_clean)
+            if abs((now - ts_dt).total_seconds()) > 300:
+                return _make_error_response(401, "unauthenticated", "Request timestamp outside 300-second validity window")
+        except Exception:
+            return _make_error_response(401, "unauthenticated", "Invalid request timestamp")
 
     pool = await api_compat._get_pool()
     if pool is not None:
@@ -376,17 +563,48 @@ async def enroll_host_handler(
                 )
                 return _make_error_response(409, "conflict", f"Host ID mismatch: expected '{reg['host_id']}', got '{body.host_id}'")
 
+            # Step 6: Refuse body naming a tenant other than the token's tenant with 403
+            req_tenant = body.tenant_id or body_json.get("tenant_id")
+            if req_tenant and req_tenant != tenant_id:
+                await _audit_log_enrollment(
+                    conn,
+                    tenant_id,
+                    "external_agent.cross_tenant_rejected",
+                    body.agent_id,
+                    f"host:{body.host_id}",
+                    body.host_id,
+                    {
+                        "reason": "cross_tenant_mismatch",
+                        "token_tenant": tenant_id,
+                        "provided_tenant": req_tenant,
+                        "agent_id": body.agent_id,
+                    },
+                )
+                return _make_error_response(403, "forbidden", f"Tenant mismatch: token is bound to '{tenant_id}', request specified '{req_tenant}'")
+
+            # Step 6: Client nonce idempotency (return original result, no second SPIRE entry)
+            if reg["enrollment_status"] == "enrolled" and reg["enrolled_client_nonce"] == body.client_nonce:
+                spiffe_id = reg["enrolled_credential_reference"] or _compute_spiffe_id(tenant_id, body.agent_id)
+                result = EnrollmentResult(
+                    schema_version="1.0.0",
+                    tenant_id=tenant_id,
+                    agent_id=body.agent_id,
+                    host_id=body.host_id,
+                    key_id=body.key_id,
+                    enrollment_state="enrolled",
+                    credential_kind=body.credential_kind,
+                    credential_scope=body.credential_scope,
+                    credential_bootstrap=body.credential_bootstrap,
+                    credential_reference=spiffe_id,
+                    credential_expires_at=reg["enrolled_credential_expires_at"] or cred_expires_str,
+                    revocation_endpoint=f"/v1/external-agents/{body.agent_id}/revocations",
+                    svid_path="jwt-svid-fetch",
+                )
+                return JSONResponse(status_code=201, content=result.model_dump(mode="json"))
+
             # 4. Check token presence and constant-time match
             stored_hash = reg["enrollment_token_hash"]
             token_valid = bool(stored_hash and hmac.compare_digest(stored_hash, token_hash))
-            if not token_valid and plaintext_token.count(".") == 2:
-                try:
-                    claims = api_compat.validate_jwt(plaintext_token)
-                    sub = claims.get("sub")
-                    if sub and api_compat.settings.api_subject_tenants.get(sub) == tenant_id:
-                        token_valid = True
-                except Exception:
-                    pass
 
             if not token_valid:
                 # Token already consumed or invalid
@@ -421,11 +639,23 @@ async def enroll_host_handler(
                 )
                 return _make_error_response(401, "unauthenticated", "Enrollment token has expired")
 
-            # 6. Execute atomic compare-and-set UPDATE
+            # Step 7: Server-minted SPIFFE ID
             claim_id = f"claim-{uuid.uuid4().hex[:12]}"
             agent_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{body.agent_id}")
-            spiffe_id = body.credential_reference or f"spiffe://signalloom.demo/ns/agents/sa/{body.agent_id}"
+            spiffe_id = _compute_spiffe_id(tenant_id, body.agent_id)
 
+            # Step 8: SPIRE registration entry creation
+            tenant_hash = tenant_id if re.match(r"^[0-9a-f]{8}$", tenant_id) else derive_customer_hash(tenant_id)
+            spire_entry = generate_spire_registration_entry(tenant_hash, service_account=f"agent-{body.agent_id}")
+            spire_entry["spiffe_id"] = spiffe_id
+            spire_entry_id = f"spire-entry-{uuid.uuid4().hex[:12]}"
+            spire_entry["entry_id"] = spire_entry_id
+
+            with _HOST_ENROLL_LOCK:
+                _SPIRE_REGISTRATION_ENTRIES[body.agent_id] = spire_entry
+                _SPIRE_REGISTRATION_ENTRIES[spire_entry_id] = spire_entry
+
+            # 6. Execute atomic compare-and-set UPDATE
             updated = await conn.fetchrow(
                 """UPDATE public.external_agent_registrations
                       SET enrollment_status = 'enrolled',
@@ -513,7 +743,7 @@ async def enroll_host_handler(
                 reg["allocated_token_budget"],
             )
 
-            # Audit log
+            # Step 10: Audit log on register with server-minted SPIFFE ID
             await _audit_log_enrollment(
                 conn,
                 tenant_id,
@@ -529,6 +759,7 @@ async def enroll_host_handler(
                     "public_key": body.public_key,
                     "client_nonce": body.client_nonce,
                     "spiffe_id": spiffe_id,
+                    "spire_entry_id": spire_entry_id,
                     "credential_kind": body.credential_kind,
                     "credential_scope": body.credential_scope,
                 },
@@ -547,6 +778,7 @@ async def enroll_host_handler(
                 credential_reference=spiffe_id,
                 credential_expires_at=cred_expires_str,  # type: ignore[arg-type]
                 revocation_endpoint=f"/v1/external-agents/{body.agent_id}/revocations",
+                svid_path="jwt-svid-fetch",
             )
             return JSONResponse(status_code=201, content=result.model_dump(mode="json"))
 
@@ -576,17 +808,48 @@ async def enroll_host_handler(
         if reg_item.get("host_id") != body.host_id:
             return _make_error_response(409, "conflict", f"Host ID mismatch: expected '{reg_item.get('host_id')}', got '{body.host_id}'")
 
+        # Step 6: Refuse body naming a tenant other than the token's tenant with 403
+        req_tenant = body.tenant_id or body_json.get("tenant_id")
+        if req_tenant and req_tenant != tenant_id:
+            await _audit_log_enrollment(
+                None,
+                tenant_id,
+                "external_agent.cross_tenant_rejected",
+                body.agent_id,
+                f"host:{body.host_id}",
+                body.host_id,
+                {
+                    "reason": "cross_tenant_mismatch",
+                    "token_tenant": tenant_id,
+                    "provided_tenant": req_tenant,
+                    "agent_id": body.agent_id,
+                },
+            )
+            return _make_error_response(403, "forbidden", f"Tenant mismatch: token is bound to '{tenant_id}', request specified '{req_tenant}'")
+
+        # Step 6: Client nonce idempotency (return original result, no second SPIRE entry)
+        if reg_item.get("enrollment_status") == "enrolled" and reg_item.get("enrolled_client_nonce") == body.client_nonce:
+            spiffe_id = reg_item.get("enrolled_credential_reference") or _compute_spiffe_id(tenant_id, body.agent_id)
+            result = EnrollmentResult(
+                schema_version="1.0.0",
+                tenant_id=tenant_id,
+                agent_id=body.agent_id,
+                host_id=body.host_id,
+                key_id=body.key_id,
+                enrollment_state="enrolled",
+                credential_kind=body.credential_kind,
+                credential_scope=body.credential_scope,
+                credential_bootstrap=body.credential_bootstrap,
+                credential_reference=spiffe_id,
+                credential_expires_at=reg_item.get("enrolled_credential_expires_at") or cred_expires_str,
+                revocation_endpoint=f"/v1/external-agents/{body.agent_id}/revocations",
+                svid_path="jwt-svid-fetch",
+            )
+            return JSONResponse(status_code=201, content=result.model_dump(mode="json"))
+
         # 4. Check token match
         stored_hash = reg_item.get("enrollment_token_hash")
         token_valid = bool(stored_hash and hmac.compare_digest(stored_hash, token_hash))
-        if not token_valid and plaintext_token.count(".") == 2:
-            try:
-                claims = api_compat.validate_jwt(plaintext_token)
-                sub = claims.get("sub")
-                if sub and api_compat.settings.api_subject_tenants.get(sub) == tenant_id:
-                    token_valid = True
-            except Exception:
-                pass
 
         if not token_valid:
             is_already_enrolled = reg_item.get("enrollment_status") == "enrolled"
@@ -609,6 +872,19 @@ async def enroll_host_handler(
         if reg_item.get("enrollment_status") != "pending":
             return _make_error_response(409, "conflict", "Enrollment token was consumed by a concurrent request")
 
+        # Step 7: Server-minted SPIFFE ID
+        spiffe_id = _compute_spiffe_id(tenant_id, body.agent_id)
+
+        # Step 8: SPIRE registration entry creation
+        tenant_hash = tenant_id if re.match(r"^[0-9a-f]{8}$", tenant_id) else derive_customer_hash(tenant_id)
+        spire_entry = generate_spire_registration_entry(tenant_hash, service_account=f"agent-{body.agent_id}")
+        spire_entry["spiffe_id"] = spiffe_id
+        spire_entry_id = f"spire-entry-{uuid.uuid4().hex[:12]}"
+        spire_entry["entry_id"] = spire_entry_id
+
+        _SPIRE_REGISTRATION_ENTRIES[body.agent_id] = spire_entry
+        _SPIRE_REGISTRATION_ENTRIES[spire_entry_id] = spire_entry
+
         reg_item["enrollment_status"] = "enrolled"
         reg_item["enrolled_at"] = now_str
         reg_item["enrollment_token_hash"] = None
@@ -616,8 +892,9 @@ async def enroll_host_handler(
         reg_item["enrolled_key_id"] = body.key_id
         reg_item["enrolled_public_key"] = body.public_key
         reg_item["enrolled_client_nonce"] = body.client_nonce
-        reg_item["enrolled_credential_reference"] = body.credential_reference
+        reg_item["enrolled_credential_reference"] = spiffe_id
         reg_item["enrolled_credential_expires_at"] = cred_expires_str
+        reg_item["spire_entry_id"] = spire_entry_id
         reg_item["token_consumed_at"] = now_str
         reg_item["updated_at"] = now_str
 
@@ -632,9 +909,7 @@ async def enroll_host_handler(
             token_entry["consumed_by_client_nonce"] = body.client_nonce
             token_entry["updated_at"] = now_str
 
-    spiffe_id = body.credential_reference or f"spiffe://signalloom.demo/ns/agents/sa/{body.agent_id}"
-
-    # In-memory audit
+    # Step 10: In-memory audit with server-minted SPIFFE ID
     await _audit_log_enrollment(
         None,
         tenant_id,
@@ -650,6 +925,7 @@ async def enroll_host_handler(
             "public_key": body.public_key,
             "client_nonce": body.client_nonce,
             "spiffe_id": spiffe_id,
+            "spire_entry_id": spire_entry_id,
             "credential_kind": body.credential_kind,
             "credential_scope": body.credential_scope,
         },
@@ -668,66 +944,37 @@ async def enroll_host_handler(
         credential_reference=spiffe_id,
         credential_expires_at=cred_expires_str,  # type: ignore[arg-type]
         revocation_endpoint=f"/v1/external-agents/{body.agent_id}/revocations",
+        svid_path="jwt-svid-fetch",
     )
     return JSONResponse(status_code=201, content=result.model_dump(mode="json"))
 
 
 # Mount router endpoints
-router.add_api_route(
-    "/enroll",
-    enroll_host_handler,
-    methods=["POST"],
-    status_code=201,
-    summary="Enroll external Linux host and exchange one-time token",
-)
-router.add_api_route(
-    "/registrations/{agent_id}/token",
-    issue_token_handler,
-    methods=["POST"],
-    response_model=TokenIssueResponse,
-    summary="Issue or rotate host enrollment token",
-)
-
-api_router.add_api_route(
-    "/enroll",
-    enroll_host_handler,
-    methods=["POST"],
-    status_code=201,
-    summary="Enroll external Linux host and exchange one-time token (api prefix)",
-)
-api_router.add_api_route(
-    "/registrations/{agent_id}/token",
-    issue_token_handler,
-    methods=["POST"],
-    response_model=TokenIssueResponse,
-    summary="Issue or rotate host enrollment token (api prefix)",
-)
-api_router.add_api_route(
-    "/{agent_id}/token",
-    issue_token_handler,
-    methods=["POST"],
-    response_model=TokenIssueResponse,
-    summary="Issue or rotate host enrollment token (alias)",
-)
-
-compat_router.add_api_route(
-    "/enroll",
-    enroll_host_handler,
-    methods=["POST"],
-    status_code=201,
-    summary="Enroll external Linux host (compat)",
-)
-compat_router.add_api_route(
-    "/registrations/{agent_id}/token",
-    issue_token_handler,
-    methods=["POST"],
-    response_model=TokenIssueResponse,
-    summary="Issue or rotate host enrollment token (compat)",
-)
-compat_router.add_api_route(
-    "/{agent_id}/token",
-    issue_token_handler,
-    methods=["POST"],
-    response_model=TokenIssueResponse,
-    summary="Issue or rotate host enrollment token (compat alias)",
-)
+for r in (router, api_router, compat_router):
+    r.add_api_route(
+        "/enroll",
+        enroll_host_handler,
+        methods=["POST"],
+        status_code=201,
+        summary="Enroll external Linux host and exchange one-time token",
+    )
+    r.add_api_route(
+        "/registrations/{agent_id}/token",
+        issue_token_handler,
+        methods=["POST"],
+        response_model=TokenIssueResponse,
+        summary="Issue or rotate host enrollment token",
+    )
+    r.add_api_route(
+        "/{agent_id}/token",
+        issue_token_handler,
+        methods=["POST"],
+        response_model=TokenIssueResponse,
+        summary="Issue or rotate host enrollment token (alias)",
+    )
+    r.add_api_route(
+        "/registrations/{agent_id}/revoke",
+        revoke_agent_handler,
+        methods=["POST"],
+        summary="Revoke external agent registration and SPIRE entry",
+    )

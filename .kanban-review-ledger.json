@@ -118,6 +118,14 @@
     "verdict": "pass",
     "reason": "AMXO-P4-GOV: Phase 4 Governor certified; merged host confinement, bounded process telemetry, descriptor-relative anti-escape openat2, and TOCTOU hasher into integration/agentmaxxing-onboarding-v0.1.0 (commit edbf6d0f), unified demo-agentmaxxing-host-test passes 70/70 tests with zero skips or failures, proof in docs/signalloom/amxo-p4-gov-proof.md"
   },
+  "59904": {
+    "task_id": "59904",
+    "reviewed_at": "2026-09-25T01:05:42.787Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: D3 workload identity plumbing, SPIFFE CSI driver ephemeral volume projection under PSS restricted, hostPath mounts eliminated, trust domain signalloom.demo aligned, inf-bao egress NetworkPolicy, test/eap-netpol.bats (7/7 pass), test_eap_identity.py (6/6 pass), test_eap_tenant_isolation.py (11/11 pass), svid-fetch-proof.sh verified, commit 052f2be9"
+  },
   "60569": {
     "task_id": "60569",
     "reviewed_at": "2026-09-15T02:08:11Z",
@@ -2991,5 +2999,21 @@
     "verdict": "APPROVED",
     "model": null,
     "reason": "Adversarial council review complete: all 4 lenses verified. Live identity plane, PSS constraints, constants, SLED defects, and SLTE surfaces pinned with committed evidence. Doctor 100% healthy, blocking_drift=false."
+  },
+  "201c9": {
+    "task_id": "201c9",
+    "reviewed_at": "2026-09-25T01:06:16.228Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: MAX_LIFETIME_HOURS=8 and MAX_INITIAL_TTL_MINUTES=480 consolidated, all 5 strict-xfails D1-D5 retired in test_sled_p2_certification.py (17/17 pass), ordered teardown run_ordered_teardown verified (47/47 pass), commit 98a789ca"
+  },
+  "9f403": {
+    "task_id": "9f403",
+    "reviewed_at": "2026-09-25T01:06:16.946Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: D13 UI notifications delivered (useTenantWarnings.ts, NotificationBell.tsx, deep linking), 7 unit tests passed, cross-tenant isolation verified, tenant-warnings.spec.ts wired into SPEC-REGISTRY.tsv and playwright config, commit 1f2a5cf0"
   }
 }

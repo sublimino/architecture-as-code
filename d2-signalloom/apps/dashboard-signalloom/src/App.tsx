@@ -434,6 +434,7 @@ export default function App() {
                 <Route path="/fleet" element={<ProtectedRoute><FleetDemoPage /></ProtectedRoute>} />
                 <Route path="/fleet/audience" element={<ProtectedRoute><FleetDemoPage audience /></ProtectedRoute>} />
                 <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />
+                <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />
                 {/* Superadmin is a VISIBILITY control (see auth/superadmin.ts):
                     the Sidebar decides whether to render the link, the route
                     stays registered and reachable by URL like every other one. */}

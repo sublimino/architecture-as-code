@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import StageProgressionController from '../components/demos/StageProgressionController'
 import { TokenIssuePanel } from '../components/demos/TokenIssuePanel'
 import { EnrollmentPanel } from '../components/demos/EnrollmentPanel'
@@ -7,7 +7,13 @@ import { AdversarialSimulationPanel } from '../components/demos/AdversarialSimul
 import { RevocationPanel } from '../components/demos/RevocationPanel'
 import {
   STAGE_METADATA,
+  getStageIndex,
 } from '../components/demos/types'
+import {
+  AgentMaxxingLogStream,
+  useAgentMaxxingLogStream,
+} from '../components/demos/AgentMaxxingLogStream'
+import { StatCard } from '../components/DashKit'
 import { useAuth0 } from '../auth/oidc'
 
 /**
@@ -36,36 +42,57 @@ function useOperatorPrincipal(): string | undefined {
 
 export const AgentMaxxingDemoPage: React.FC = () => {
   const operatorPrincipal = useOperatorPrincipal()
+  const logStream = useAgentMaxxingLogStream({ defaultStage: 'operator_init' })
+  const streamedStagesRef = useRef<Set<string>>(new Set())
 
   return (
     <div
       data-testid="agentmaxxing-demo-page"
-      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+      style={{ paddingBottom: 40 }}
     >
       {/* Page Header */}
-      <header className="space-y-2 border-b border-[var(--border)] pb-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="px-2.5 py-0.5 rounded text-[11px] font-mono font-semibold uppercase tracking-wider bg-[var(--cyan)]/15 text-[var(--cyan)] border border-[var(--cyan)]/30">
-              Agent Governance Lab
-            </span>
-            <span className="text-xs font-mono text-[var(--muted)]">
-              AMXD v0.1.0 • Deterministic 5-Stage Stepper
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono bg-[var(--surface)] text-[var(--teal)] border border-[var(--teal)]/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--teal)]" />
-              Zero Customer Payload Invariant
-            </span>
-          </div>
+      <header style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <span
+            className="tag"
+            style={{
+              background: 'rgba(6, 182, 212, 0.12)',
+              color: 'var(--cyan)',
+              border: '1px solid rgba(6, 182, 212, 0.3)',
+              fontFamily: 'monospace',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.05em',
+            }}
+          >
+            Agent Governance Lab
+          </span>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--muted)' }}>
+            AMXD v0.1.0 • Deterministic 5-Stage Stepper
+          </span>
+          <span
+            className="tag"
+            style={{
+              marginLeft: 'auto',
+              background: 'var(--surface)',
+              color: 'var(--teal)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              fontFamily: 'monospace',
+              fontSize: 11,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--teal)' }} />
+            Zero Customer Payload Invariant
+          </span>
         </div>
 
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[var(--text)]">
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: 0, marginBottom: 6 }}>
           AgentMaxxing Interactive Demo Console
         </h1>
-        <p className="text-sm text-[var(--muted)] max-w-4xl leading-relaxed">
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, maxWidth: 780, lineHeight: 1.55 }}>
           Step-by-step laboratory for external Linux host agent onboarding, Landlock LSM process
           confinement telemetry, live cryptographic artifact verification, adversarial tamper
           containment, and instant attributable revocation with 403 Forbidden denial proofs.
@@ -73,148 +100,248 @@ export const AgentMaxxingDemoPage: React.FC = () => {
       </header>
 
       {/* Main Interactive Progression Controller */}
-      <main className="space-y-6">
-        <StageProgressionController>
+      <main style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <StageProgressionController
+          statCards={({ state, bridge, inFlight }) => {
+            const currentStep = getStageIndex(state.currentStage) + 1
+            const stepStr = String(currentStep).padStart(2, '0')
+            const isConfirmed = state.stageStatuses[state.currentStage] === 'confirmed'
+            const progressLabel = `${stepStr} / 05 ${isConfirmed ? 'Confirmed' : 'Pending'}`
+            const executionState = inFlight ? 'In Flight' : 'Active'
+            const channelPreset = `${bridge.channelKind.toUpperCase()} / LIVE`
+            const presetName = bridge.preset?.name || 'Standard Baseline'
+
+            return (
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 24 }}>
+                <StatCard
+                  label="Stage Progress"
+                  value={progressLabel}
+                  sub="Deterministic 5-Stage Stepper"
+                  accent="var(--cyan)"
+                />
+                <StatCard
+                  label="Execution State"
+                  value={executionState}
+                  sub="Dual-lock async gate"
+                  accent="var(--teal)"
+                />
+                <StatCard
+                  label="Channel & Preset"
+                  value={channelPreset}
+                  sub={presetName}
+                  accent="var(--violet)"
+                />
+                <StatCard
+                  label="Invariant Status"
+                  value="Zero Customer Payload"
+                  sub="SHA-256 verifiable"
+                  accent="var(--teal)"
+                />
+              </div>
+            )
+          }}
+        >
           {({
             activeViewStage,
             state,
             bridge,
             inFlight,
-            canAdvance,
-            advance,
             recordStagePayload,
           }) => {
             const meta = STAGE_METADATA[activeViewStage]
             const isConfirmed = state.stageStatuses[activeViewStage] === 'confirmed'
             const isInFlight = state.stageStatuses[activeViewStage] === 'in_flight'
-            const payload = state.stagePayloads[activeViewStage]
+
+            // Stream stage logs whenever stage transitions or is confirmed
+            useEffect(() => {
+              const stageKey = `${activeViewStage}-${isConfirmed ? 'confirmed' : 'pending'}-${isInFlight ? 'flight' : 'idle'}`
+              if (!streamedStagesRef.current.has(stageKey)) {
+                streamedStagesRef.current.add(stageKey)
+                const payload = state.stagePayloads[activeViewStage]
+                // Stream with short delay if inFlight, or append directly if confirmed
+                if (isInFlight || isConfirmed) {
+                  logStream.appendStageLog(activeViewStage, payload, { progressive: isInFlight, delayMs: 30 })
+                }
+              }
+            }, [activeViewStage, isConfirmed, isInFlight, state.stagePayloads])
 
             return (
-              <section
-                data-testid={`stage-panel-${activeViewStage}`}
-                className="bg-[var(--surface)] border border-[var(--border)] rounded-lg p-5 sm:p-6 space-y-5 shadow-sm"
-              >
-                {/* Active Stage Header */}
-                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] pb-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-[var(--cyan)]">
-                        STAGE 0{meta.stepNumber}
-                      </span>
-                      <span className="text-[var(--border)]">•</span>
-                      <span className="text-xs font-mono text-[var(--muted)]">
-                        {bridge.channelKind.toUpperCase()} CHANNEL ({bridge.preset.name})
+              <>
+                <section
+                  data-testid={`stage-panel-${activeViewStage}`}
+                  className="card"
+                  style={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: 24,
+                  }}
+                >
+                  {/* Active Stage Header */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
+                      gap: 16,
+                      borderBottom: '1px solid var(--border)',
+                      paddingBottom: 16,
+                      marginBottom: 20,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            fontWeight: 700,
+                            color: 'var(--cyan)',
+                          }}
+                        >
+                          STAGE 0{meta.stepNumber}
+                        </span>
+                        <span style={{ color: 'var(--border)' }}>•</span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          {bridge.channelKind.toUpperCase()} CHANNEL ({bridge.preset.name})
+                        </span>
+                      </div>
+                      <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+                        {meta.title}
+                      </h2>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                        {meta.description}
+                      </p>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        data-testid={`panel-status-badge-${activeViewStage}`}
+                        className="tag"
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          background: isConfirmed
+                            ? 'rgba(16, 185, 129, 0.15)'
+                            : isInFlight
+                              ? 'rgba(6, 182, 212, 0.20)'
+                              : 'var(--surface2)',
+                          border: isConfirmed
+                            ? '1px solid var(--teal)'
+                            : isInFlight
+                              ? '1px solid var(--cyan)'
+                              : '1px solid var(--border)',
+                          color: isConfirmed
+                            ? 'var(--teal)'
+                            : isInFlight
+                              ? 'var(--cyan)'
+                              : 'var(--muted)',
+                        }}
+                      >
+                        {state.stageStatuses[activeViewStage]}
                       </span>
                     </div>
-                    <h2 className="text-xl font-bold text-[var(--text)]">{meta.title}</h2>
-                    <p className="text-xs sm:text-sm text-[var(--muted)]">{meta.description}</p>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span
-                      data-testid={`panel-status-badge-${activeViewStage}`}
-                      className={`px-2.5 py-1 rounded text-xs font-mono font-medium uppercase tracking-wider border ${
-                        isConfirmed
-                          ? 'bg-[var(--teal)]/15 border-[var(--teal)] text-[var(--teal)]'
-                          : isInFlight
-                            ? 'bg-[var(--cyan)]/20 border-[var(--cyan)] text-[var(--cyan)] animate-pulse'
-                            : 'bg-[var(--surface2)] border-[var(--border)] text-[var(--muted)]'
-                      }`}
-                    >
-                      {state.stageStatuses[activeViewStage]}
-                    </span>
-                  </div>
+                  {/* Stage 1 — AMXD-P2-2 TokenIssuePanel */}
+                  {activeViewStage === 'operator_init' && (
+                    <TokenIssuePanel
+                      bridge={bridge}
+                      preset={bridge.preset}
+                      inFlight={inFlight}
+                      operatorId={operatorPrincipal}
+                      initialPayload={state.stagePayloads.operator_init ?? null}
+                      onIssued={(issued) => recordStagePayload('operator_init', issued)}
+                    />
+                  )}
+
+                  {/* Stage 2 — AMXD-P2-2 EnrollmentPanel */}
+                  {activeViewStage === 'host_enrolled' && (
+                    <EnrollmentPanel
+                      bridge={bridge}
+                      preset={bridge.preset}
+                      inFlight={inFlight}
+                      operatorId={operatorPrincipal}
+                      initialPayload={state.stagePayloads.host_enrolled ?? null}
+                    />
+                  )}
+
+                  {/* Stage 3 — AMXD-P3-1 ConfinementTelemetryPanel */}
+                  {activeViewStage === 'confinement_streaming' && (
+                    <ConfinementTelemetryPanel
+                      bridge={bridge}
+                      preset={bridge.preset}
+                      inFlight={inFlight}
+                      initialPayload={state.stagePayloads.confinement_streaming ?? null}
+                      onOutcome={(outcome) => {
+                        if (outcome.status === 'ok') {
+                          recordStagePayload('confinement_streaming', outcome.payload)
+                        }
+                      }}
+                      onTelemetryPolled={(polledPayload) => {
+                        recordStagePayload('confinement_streaming', polledPayload)
+                      }}
+                    />
+                  )}
+
+                  {/* Stage 4 — AMXD-P4-1 AdversarialSimulationPanel */}
+                  {activeViewStage === 'adversarial_tamper' && (
+                    <AdversarialSimulationPanel
+                      bridge={bridge}
+                      preset={bridge.preset}
+                      inFlight={inFlight}
+                      initialPayload={state.stagePayloads.adversarial_tamper ?? null}
+                      onOutcome={(outcome) => {
+                        if (outcome.status === 'ok') {
+                          recordStagePayload('adversarial_tamper', outcome.payload)
+                        }
+                      }}
+                      onTamperInjected={(tamperPayload) => {
+                        recordStagePayload('adversarial_tamper', tamperPayload)
+                      }}
+                    />
+                  )}
+
+                  {/* Stage 5 — AMXD-P4-2 RevocationPanel */}
+                  {activeViewStage === 'revocation_denied' && (
+                    <RevocationPanel
+                      bridge={bridge}
+                      preset={bridge.preset}
+                      inFlight={inFlight}
+                      operatorId={operatorPrincipal}
+                      initialPayload={state.stagePayloads.revocation_denied ?? null}
+                      onRevocationComplete={(revoked) =>
+                        recordStagePayload('revocation_denied', revoked)
+                      }
+                    />
+                  )}
+                </section>
+
+                {/* Execution Log Stream Slot — Streams logs like SuperCredential Demo */}
+                <div
+                  data-testid="execution-log-stream-slot"
+                  style={{ marginTop: 8 }}
+                >
+                  <AgentMaxxingLogStream
+                    logStream={logStream}
+                    stage={activeViewStage}
+                    streaming={inFlight || logStream.isStreaming}
+                    title={`AgentMaxxing Telemetry · ${meta.shortTitle}`}
+                    testId="agentmaxxing-log-stream"
+                  />
                 </div>
-
-                {/* Stage 1 — AMXD-P2-2 TokenIssuePanel.
-                    `operator_init` is pre-confirmed at boot and is never a target of the
-                    controller's advance(), so this panel performs the stage itself and
-                    hands the result back through recordStagePayload — otherwise the
-                    header reports the stage confirmed while stagePayloads stays empty. */}
-                {activeViewStage === 'operator_init' && (
-                  <TokenIssuePanel
-                    bridge={bridge}
-                    preset={bridge.preset}
-                    inFlight={inFlight}
-                    operatorId={operatorPrincipal}
-                    initialPayload={state.stagePayloads.operator_init ?? null}
-                    onIssued={(issued) => recordStagePayload('operator_init', issued)}
-                  />
-                )}
-
-                {/* Stage 2 — AMXD-P2-2 EnrollmentPanel, rendered as the RESULT of the
-                    transition. `host_enrolled` is a controller advance target, so by the
-                    time this panel mounts the controller has already run
-                    bridge.advance('host_enrolled') and the resolved payload is in the
-                    reducer; the panel reads it back through initialPayload.
-
-                    KNOWN OPEN DEFECT (AMXD-P2-GOV, handed to AMXD-P3-GOV): the panel's own
-                    "Enroll Host" button still calls bridge.advance('host_enrolled')
-                    directly, so a second click re-advances the bridge without the reducer
-                    knowing. It is NOT wired to the controller here because the controller's
-                    advance() means "go to the NEXT stage", which is the wrong verb for an
-                    enroll button. Fixing it needs a controlled/read-only mode on the panel,
-                    which is a P2-2 component change beyond this governor's surgical scope. */}
-                {activeViewStage === 'host_enrolled' && (
-                  <EnrollmentPanel
-                    bridge={bridge}
-                    preset={bridge.preset}
-                    inFlight={inFlight}
-                    operatorId={operatorPrincipal}
-                    initialPayload={state.stagePayloads.host_enrolled ?? null}
-                  />
-                )}
-
-                {/* Stage 4 — AMXD-P4-1 AdversarialSimulationPanel */}
-                {activeViewStage === 'adversarial_tamper' && (
-                  <AdversarialSimulationPanel
-                    bridge={bridge}
-                    preset={bridge.preset}
-                    inFlight={inFlight}
-                    initialPayload={state.stagePayloads.adversarial_tamper ?? null}
-                    onOutcome={(outcome) => {
-                      if (outcome.status === 'ok') {
-                        recordStagePayload('adversarial_tamper', outcome.payload)
-                      }
-                    }}
-                    onTamperInjected={(tamperPayload) => {
-                      recordStagePayload('adversarial_tamper', tamperPayload)
-                    }}
-                  />
-                )}
-
-                {/* Stage 5 — AMXD-P4-2 RevocationPanel */}
-                {activeViewStage === 'revocation_denied' && (
-                  <RevocationPanel
-                    bridge={bridge}
-                    preset={bridge.preset}
-                    inFlight={inFlight}
-                    operatorId={operatorPrincipal}
-                    initialPayload={state.stagePayloads.revocation_denied ?? null}
-                    onRevocationComplete={(revoked) =>
-                      recordStagePayload('revocation_denied', revoked)
-                    }
-                  />
-                )}
-
-                {/* Stage 3 — AMXD-P3-1 ConfinementTelemetryPanel */}
-                {activeViewStage === 'confinement_streaming' && (
-                  <ConfinementTelemetryPanel
-                    bridge={bridge}
-                    preset={bridge.preset}
-                    inFlight={inFlight}
-                    initialPayload={state.stagePayloads.confinement_streaming ?? null}
-                    onOutcome={(outcome) => {
-                      if (outcome.status === 'ok') {
-                        recordStagePayload('confinement_streaming', outcome.payload)
-                      }
-                    }}
-                    onTelemetryPolled={(freshPayload) => {
-                      recordStagePayload('confinement_streaming', freshPayload)
-                    }}
-                  />
-                )}
-              </section>
+              </>
             )
           }}
         </StageProgressionController>

@@ -31,4 +31,43 @@ describe('AgentMaxxingDemoPage', () => {
 
     expect(screen.getByTestId('panel-status-badge-host_enrolled')).toHaveTextContent('confirmed')
   })
+
+  it('renders StatCards row with Stage Progress, Execution State, Channel & Preset, and Invariant Status', () => {
+    render(<AgentMaxxingDemoPage />)
+
+    expect(screen.getByText('Stage Progress')).toBeInTheDocument()
+    expect(screen.getByText('01 / 05 Confirmed')).toBeInTheDocument()
+    expect(screen.getByText('Execution State')).toBeInTheDocument()
+    expect(screen.getByText('Active')).toBeInTheDocument()
+    expect(screen.getByText('Channel & Preset')).toBeInTheDocument()
+    expect(screen.getByText('MOCK / LIVE')).toBeInTheDocument()
+    expect(screen.getByText('Invariant Status')).toBeInTheDocument()
+    expect(screen.getByText('SHA-256 verifiable')).toBeInTheDocument()
+  })
+
+  it('renders execution log stream slot and mounts ConfinementTelemetryPanel at Stage 3', async () => {
+    render(<AgentMaxxingDemoPage />)
+
+    expect(screen.getByTestId('execution-log-stream-slot')).toBeInTheDocument()
+
+    const advanceBtn = screen.getByTestId('stepper-advance-button')
+
+    // Advance to Stage 2
+    await act(async () => {
+      fireEvent.click(advanceBtn)
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('stage-panel-host_enrolled')).toBeInTheDocument()
+    })
+
+    // Advance to Stage 3
+    await act(async () => {
+      fireEvent.click(advanceBtn)
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('stage-panel-confinement_streaming')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('panel-status-badge-confinement_streaming')).toHaveTextContent('confirmed')
+  })
 })

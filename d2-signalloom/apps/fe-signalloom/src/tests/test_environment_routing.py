@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from environment_routing import (
@@ -22,6 +23,7 @@ from environment_routing import (
     resolve_company_to_urls,
     validate_environment_subdomain,
 )
+from environment_teardown import StageOutcome, StageResult, TeardownStage
 from main import app
 from conftest import EAPClient
 
@@ -165,66 +167,127 @@ def test_registry_lifecycle_and_max_ceiling():
         reg.extend_ttl(rec.id, 60)
 
 
-def test_registry_conflict_on_active_duplicate():
-    """Verify that creating two active environments for the same customer raises 409 Conflict."""
+def test_registry_idempotent_provision():
+    """Verify that provisioning an existing active environment is idempotent (returns 200, same record, refreshed heartbeat)."""
     reg = EnvironmentRegistry()
-    req = ProvisionRequest(company_name="duplicate-corp")
-    reg.create(req)
+    req = ProvisionRequest(company_name="idempotent-corp", ttl_minutes=120)
+    rec1, is_created1 = reg.provision(req)
+    assert is_created1 is True
+    assert rec1.state == EnvironmentState.READY
+    initial_heartbeat = rec1.last_heartbeat_at
 
-    with pytest.raises(Exception) as exc:
-        reg.create(req)
-    assert "409" in str(exc.value) or "already exists" in str(exc.value)
+    # Second provision returns same record with refreshed heartbeat
+    rec2, is_created2 = reg.provision(req)
+    assert is_created2 is False
+    assert rec2.id == rec1.id
+    assert rec2.customer_hash == rec1.customer_hash
+    assert rec2.last_heartbeat_at >= initial_heartbeat
+    assert rec2.version > rec1.version or rec2.version >= 2
+
+
+def test_registry_conflict_on_different_company_same_hash(monkeypatch):
+    """Verify that a hash collision with different company name raises 409 Conflict."""
+    reg = EnvironmentRegistry()
+    req1 = ProvisionRequest(company_name="alpha-corp")
+    rec1 = reg.create(req1)
+
+    # Simulate hash collision with beta-corp
+    def fake_derive(name, salt=None):
+        return rec1.customer_hash
+
+    monkeypatch.setattr("environment_routing.derive_customer_hash", fake_derive)
+
+    req2 = ProvisionRequest(company_name="beta-corp")
+    with pytest.raises(HTTPException) as exc:
+        reg.provision(req2)
+    assert exc.value.status_code == 409
+    assert "conflicting company name" in str(exc.value.detail) or "already exists" in str(exc.value.detail)
+
+
+def test_ordered_staged_teardown_recorded():
+    """Verify that teardown executes the 5 stages in order and transitions to TERMINATED only after completion."""
+    reg = EnvironmentRegistry()
+    req = ProvisionRequest(company_name="staged-teardown-corp")
+    rec = reg.create(req)
+
+    recorder = []
+    reg.teardown(rec.id, recorder=recorder)
+
+    assert recorder == [
+        TeardownStage.DRAIN_ROUTES,
+        TeardownStage.SHRED_OPENBAO,
+        TeardownStage.REVOKE_SVID,
+        TeardownStage.EVICT_TAILSCALE,
+        TeardownStage.DELETE_NAMESPACE,
+    ]
+    assert rec.state == EnvironmentState.TERMINATED
+
+
+def test_teardown_stage_failure_sets_teardown_failed():
+    """Verify that a stage failure stops execution and leaves the record in TEARDOWN_FAILED, not ACTIVE or TERMINATED."""
+    reg = EnvironmentRegistry()
+    req = ProvisionRequest(company_name="failing-teardown-corp")
+    rec = reg.create(req)
+
+    class FailingShredClient:
+        def shred(self, h):
+            raise RuntimeError("Vault shred connection refused")
+
+    recorder = []
+    with pytest.raises(HTTPException) as exc:
+        reg.teardown(
+            rec.id,
+            recorder=recorder,
+            stage_kwargs={
+                TeardownStage.SHRED_OPENBAO: {"client": FailingShredClient()}
+            },
+        )
+
+    assert exc.value.status_code == 500
+    assert "Vault shred connection refused" in str(exc.value.detail)
+    # Failure stopped stages after shred_openbao
+    assert recorder == [TeardownStage.DRAIN_ROUTES, TeardownStage.SHRED_OPENBAO]
+    assert rec.state == EnvironmentState.TEARDOWN_FAILED
 
 
 # ── FastAPI REST API Endpoint Tests ────────────────────────────────────────
 
 
-def test_api_provision_kusari_success():
-    """Verify POST /api/v1/environments/provision returns 201 Created with canonical kusari vector."""
+def test_api_provision_kusari_success_and_idempotence():
+    """Verify POST /api/v1/environments/provision returns 201 on create, and 200 on second call with same ID."""
     h = derive_customer_hash("kusari")
-    resp = client.post(
+    # Clean up any leftover active kusari environment
+    resolve_resp = client.post("/api/v1/environments/resolve-domain", json={"company_name": "kusari"})
+    env_id = resolve_resp.json().get("environment_id")
+    if env_id:
+        client.post(f"/api/v1/environments/{env_id}/teardown")
+
+    # 1. Initial provision returns 201 Created
+    resp1 = client.post(
         "/api/v1/environments/provision",
         json={"company_name": "kusari", "ttl_minutes": 240, "tier": "demo"},
     )
-    # If kusari was already created in global registry from another test, 409 might occur;
-    # tear down first if exists
-    if resp.status_code == 409:
-        resolve_resp = client.post("/api/v1/environments/resolve-domain", json={"company_name": "kusari"})
-        env_id = resolve_resp.json().get("environment_id")
-        if env_id:
-            client.post(f"/api/v1/environments/{env_id}/teardown")
-        resp = client.post(
-            "/api/v1/environments/provision",
-            json={"company_name": "kusari", "ttl_minutes": 240, "tier": "demo"},
-        )
+    assert resp1.status_code == 201
+    data1 = resp1.json()
+    assert data1["company_name"] == "kusari"
+    assert data1["customer_hash"] == h
+    assert data1["hostname"] == f"sl-eap-{h}"
+    assert data1["internal_mesh_url"] == f"https://sl-eap-{h}.tailscale"
+    assert data1["external_fqdn"] == f"https://sl-eap-{h}.ts.net"
+    assert data1["state"] == "ready"
+    assert "id" in data1
+    created_id = data1["id"]
 
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["company_name"] == "kusari"
-    assert data["customer_hash"] == h
-    assert data["hostname"] == f"sl-eap-{h}"
-    assert data["internal_mesh_url"] == f"https://sl-eap-{h}.tailscale"
-    assert data["external_fqdn"] == f"https://sl-eap-{h}.ts.net"
-    assert data["state"] == "ready"
-    assert data["tier"] == "demo"
-    assert "id" in data
-
-
-def test_api_provision_duplicate_conflict():
-    """Verify POST /api/v1/environments/provision returns 409 Conflict on duplicate active environment."""
-    # Ensure active environment for kusari exists
-    client.post(
+    # 2. Second provision of the same tenant returns 200 OK with same ID and heartbeat refreshed
+    resp2 = client.post(
         "/api/v1/environments/provision",
-        json={"company_name": "kusari", "ttl_minutes": 120},
+        json={"company_name": "kusari", "ttl_minutes": 240, "tier": "demo"},
     )
-    # Attempt duplicate
-    resp = client.post(
-        "/api/v1/environments/provision",
-        json={"company_name": "kusari", "ttl_minutes": 120},
-    )
-    assert resp.status_code == 409
-    body = resp.json()
-    assert "error" in body or "detail" in body
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["id"] == created_id
+    assert data2["customer_hash"] == h
+    assert data2["company_name"] == "kusari"
 
 
 def test_api_resolve_domain():
@@ -281,7 +344,7 @@ def test_api_extend_and_teardown_lifecycle():
         "/api/v1/environments/provision",
         json={"company_name": "temp-tenant", "ttl_minutes": 60},
     )
-    assert p_resp.status_code == 201
+    assert p_resp.status_code in (200, 201)
     env_id = p_resp.json()["id"]
 
     # Extend

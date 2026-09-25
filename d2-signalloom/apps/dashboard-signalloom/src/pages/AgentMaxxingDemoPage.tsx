@@ -151,6 +151,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
             const meta = STAGE_METADATA[activeViewStage]
             const isConfirmed = state.stageStatuses[activeViewStage] === 'confirmed'
             const isInFlight = state.stageStatuses[activeViewStage] === 'in_flight'
+            const payload = state.stagePayloads[activeViewStage]
 
             // Stream stage logs whenever stage transitions or is confirmed
             useEffect(() => {
@@ -325,6 +326,45 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                         recordStagePayload('revocation_denied', revoked)
                       }
                     />
+                  )}
+
+                  {/* Cryptographic Evidence Payload Preview */}
+                  {payload && (
+                    <div
+                      data-testid={`stage-payload-preview-${activeViewStage}`}
+                      style={{
+                        marginTop: 16,
+                        padding: '12px 16px',
+                        background: 'var(--surface2)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        overflowX: 'auto',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          color: 'var(--muted)',
+                          marginBottom: 6,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                        }}
+                      >
+                        Cryptographic Evidence Payload ({activeViewStage})
+                      </div>
+                      <pre
+                        style={{
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          margin: 0,
+                          color: 'var(--text)',
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {JSON.stringify(payload, null, 2)}
+                      </pre>
+                    </div>
                   )}
                 </section>
 

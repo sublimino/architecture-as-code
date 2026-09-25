@@ -3047,5 +3047,29 @@
     "verdict": "pass",
     "model": null,
     "reason": "Adversarial council review APPROVED across 4 lenses: tailnet posture on fortuna verified, 13 cited boards enumerated, D8 governor criterion drafted, 85 heuristic approvals inventoried, eapr-p4-preflight-facts.json committed 44625581, make test-eap-offline green, doctor healthy, unblocks P4-1/P4-2/P4-4"
+  },
+  "0aaf7": {
+    "task_id": "0aaf7",
+    "reviewed_at": "2026-09-25T05:05:48.977Z",
+    "reviewer": "Council of Agents (adversarial-review)",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: D9 purple-team adversarial sweep across all 8 threats implemented in test_eap_adversarial.py (10 passed, 1 strict xfail for threat 4 newline injection verified with --runxfail), independent positive controls verified, report documented in eap-adversarial-sweep-2026-09-25.md, make test-eap-offline integrated (243 passed, 1 xfailed), commit 779be3e5 on branch EAPR-P4-4"
+  },
+  "ecc1d": {
+    "task_id": "ecc1d",
+    "reviewed_at": "2026-09-25T05:07:44.689Z",
+    "reviewer": "Council of Agents (adversarial-review)",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses with safety stop waiver: D6 SLEA routing engine hardening, input validation, auto-mock removal (exit 3 on missing tailscale), bootstrap, reconciler, GC scripts, eap-ingress-reconcile.bats (8 tests), environment_routing.py (idempotent provision, 5-stage teardown), make test-eap-offline green (235 passed, 18 BATS, 33 CLI tests), commit 0d358da7 on branch EAPR-P4-1. Live real-mesh safely blocked to protect workstation fortuna as recorded in EAPR-P4-PRE"
+  },
+  "fd1cd": {
+    "task_id": "fd1cd",
+    "reviewed_at": "2026-09-25T05:13:44.773Z",
+    "reviewer": "Council of Agents (adversarial-review)",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: D12 evidence-cited board re-audit completed across all 12 boards, tombstones appended for failing certificates (SLER-P5-GOV, STUN-P1-GOV, CRKC-P1..P4-GOV, SLON-P1..P3-GOV), 85 heuristic approvals re-verdicted (5 genuine executions approved, 80 withdrawn), scripts/eap/reaudit-boards.sh delivered, make test-eap-offline green (233 pytest, 10/10 BATS), commit f704e95e on branch EAPR-P4-2"
   }
 }

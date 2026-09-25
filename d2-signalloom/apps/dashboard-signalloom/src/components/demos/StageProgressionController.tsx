@@ -66,6 +66,7 @@ export interface StageProgressionControllerProps {
   readonly onReset?: () => void
   readonly storage?: Storage | null
   readonly className?: string
+  readonly statCards?: (context: StageProgressionContextValue) => React.ReactNode
   readonly children?: (context: StageProgressionContextValue) => React.ReactNode
 }
 
@@ -118,6 +119,7 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
   onReset,
   storage: propStorage,
   className = '',
+  statCards,
   children,
 }) => {
   const store = resolveStorageInstance(propStorage)
@@ -329,7 +331,8 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
       role="region"
       aria-label="AgentMaxxing Stage Progression Controller"
       onKeyDown={handleKeyDown}
-      className={`space-y-4 focus:outline-none ${className}`}
+      style={{ outline: 'none' }}
+      className={className}
       data-testid="stage-progression-controller"
     >
       {/* ARIA Live Region for Screen-Reader Announcements */}
@@ -342,6 +345,9 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
       >
         {announcement}
       </div>
+
+      {/* StatCards Row slot if provided */}
+      {statCards && statCards(contextValue)}
 
       {/* Stepper Header Presentational Component */}
       <StepperHeader
@@ -368,9 +374,21 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
       {/* Controller Navigation Toolbar */}
       <div
         data-testid="stepper-controls-bar"
-        className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-[var(--surface)] border border-[var(--border)] rounded-lg"
+        className="card"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '12px 16px',
+          flexWrap: 'wrap',
+          marginBottom: 16,
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+        }}
       >
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
             type="button"
             data-testid="stepper-retreat-button"
@@ -378,13 +396,14 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
             aria-label="Previous Stage"
             disabled={!canRetreat || state.inFlight}
             onClick={retreat}
-            className={`btn px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded transition-all ${
-              !canRetreat || state.inFlight
-                ? 'opacity-40 cursor-not-allowed bg-[var(--surface2)] text-[var(--muted)] border-[var(--border)]'
-                : 'btn-secondary hover:border-[var(--cyan)]'
-            }`}
+            className="btn btn-secondary"
+            style={{
+              fontSize: 13,
+              opacity: !canRetreat || state.inFlight ? 0.4 : 1,
+              cursor: !canRetreat || state.inFlight ? 'not-allowed' : 'pointer',
+            }}
           >
-            ← Back
+            ← Previous Stage
           </button>
 
           <button
@@ -394,17 +413,19 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
             aria-label={state.inFlight ? 'Advancing stage...' : 'Next Stage'}
             disabled={!canAdvance || state.inFlight}
             onClick={advance}
-            className={`btn px-4 py-1.5 text-xs sm:text-sm font-medium rounded transition-all flex items-center gap-2 ${
-              !canAdvance || state.inFlight
-                ? 'opacity-50 cursor-not-allowed bg-[var(--surface2)] text-[var(--muted)] border-[var(--border)]'
-                : 'btn-primary bg-[var(--cyan)] text-[var(--bg)] font-semibold hover:brightness-110'
-            }`}
+            className="btn btn-primary"
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              opacity: !canAdvance || state.inFlight ? 0.5 : 1,
+              cursor: !canAdvance || state.inFlight ? 'not-allowed' : 'pointer',
+            }}
           >
             {state.inFlight ? (
               <>
                 <svg
                   aria-hidden="true"
-                  className="animate-spin h-3.5 w-3.5 text-current"
+                  style={{ width: 14, height: 14 }}
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -420,10 +441,49 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
               <span>Advance Stage →</span>
             )}
           </button>
+
+          <span
+            style={{
+              fontSize: 11,
+              fontFamily: 'monospace',
+              color: 'var(--muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              marginLeft: 4,
+            }}
+          >
+            <kbd
+              style={{
+                padding: '2px 5px',
+                borderRadius: 3,
+                background: 'var(--surface2)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text)',
+                fontSize: 10,
+              }}
+            >
+              ←
+            </kbd>
+            <span>/</span>
+            <kbd
+              style={{
+                padding: '2px 5px',
+                borderRadius: 3,
+                background: 'var(--surface2)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text)',
+                fontSize: 10,
+              }}
+            >
+              →
+            </kbd>
+            <span style={{ marginLeft: 2 }}>keys</span>
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-[var(--muted)] hidden sm:inline">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--muted)' }}>
             Stage {getStageIndex(state.currentStage) + 1} of 5
           </span>
 
@@ -433,11 +493,17 @@ export const StageProgressionController: React.FC<StageProgressionControllerProp
             aria-label="Reset demo estate"
             disabled={state.inFlight}
             onClick={resetEstate}
-            className={`btn px-3 py-1.5 text-xs font-medium rounded transition-all ${
-              state.inFlight
-                ? 'opacity-40 cursor-not-allowed text-[var(--muted)]'
-                : 'text-[var(--error)] border border-[var(--error)]/30 hover:bg-[var(--error)]/10'
-            }`}
+            className="btn"
+            style={{
+              fontSize: 12,
+              color: 'var(--error)',
+              background: 'transparent',
+              border: '1px solid rgba(220, 38, 38, 0.3)',
+              borderRadius: 4,
+              padding: '6px 12px',
+              opacity: state.inFlight ? 0.4 : 1,
+              cursor: state.inFlight ? 'not-allowed' : 'pointer',
+            }}
           >
             Reset Estate
           </button>

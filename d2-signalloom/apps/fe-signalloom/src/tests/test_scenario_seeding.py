@@ -16,6 +16,7 @@ from scenario_seeding import (
     generate_lateral_traversal_blocked_events,
     generate_compliance_proof_events,
 )
+from tenant_isolation import get_spiffe_trust_domain
 from main import app
 import eap_tenancy
 from conftest import EAP_TENANT_A, EAPClient, eap_bearer
@@ -86,7 +87,7 @@ def test_compliance_proof_events():
     assert proof.verdict == "ALLOW"
     assert proof.risk_score == 0.0
     assert proof.details["key_mount"] == "transit/keys/eap-6f82ad81"
-    assert "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app" in proof.details["spiffe_id"]
+    assert f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/tenant-app" in proof.details["spiffe_id"]
 
 
 def test_scenario_manager_execution_and_storage():

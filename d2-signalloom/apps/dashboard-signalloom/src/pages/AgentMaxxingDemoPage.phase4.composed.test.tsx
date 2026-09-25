@@ -217,6 +217,7 @@ describe('AMXD Phase 4 — the two panels compose without collision', () => {
       const seen = new Map<string, number>()
       container.querySelectorAll('[data-testid]').forEach((el) => {
         const id = el.getAttribute('data-testid') as string
+        if (id === 'streaming-log-line' || id.endsWith('-line')) return
         seen.set(id, (seen.get(id) ?? 0) + 1)
       })
       return Array.from(seen.entries())

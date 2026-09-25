@@ -97,7 +97,6 @@ export default function AgentActivityTab({
   sourceHealthDetail,
   onAcknowledgeViolation,
   onRefresh,
-  isLiveStreaming: initialLiveStreaming = true,
   onToggleLiveStream,
   streamEvents = [],
 }: AgentActivityTabProps) {
@@ -127,6 +126,8 @@ export default function AgentActivityTab({
   const [activeChain, setActiveChain] = useState<AuthorizationChain | null>(null)
   const [attestationDrawerOpen, setAttestationDrawerOpen] = useState<boolean>(false)
   const [activeAttestation, setActiveAttestation] = useState<AttestationPayload | null>(null)
+
+  const auditParam = searchParams.get('audit')
 
   const handleViewProof = useCallback((actionId: string, item: AttributableTimelineItem) => {
     setActiveActionId(actionId)
@@ -449,6 +450,14 @@ export default function AgentActivityTab({
       return true
     })
   }, [rawTimelineItems, typeFilter, actorFilter, layerFilter, sourceFilter, searchQuery, delegationTypeFilter, minHopsFilter])
+
+  useEffect(() => {
+    if (!auditParam) return
+    const targetElement = document.querySelector(`[data-testid="activity-event-${auditParam}"]`)
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [auditParam, filteredItems])
 
   // Summary counts
   const totalEventsCount = rawTimelineItems.length
@@ -1327,6 +1336,8 @@ export default function AgentActivityTab({
               const evidenceRef = ev.evidence_ref || (detailObj && typeof detailObj.evidence_ref === 'string' ? detailObj.evidence_ref : null)
               const kernelRef = ev.kernel_telemetry_ref || (detailObj && typeof detailObj.kernel_telemetry_ref === 'string' ? detailObj.kernel_telemetry_ref : null)
 
+              const isAuditHighlighted = ev.id === auditParam || (Boolean(auditParam) && ev.id.endsWith(`:${auditParam}`))
+
               return (
                 <div
                   key={`e-${ev.id}`}
@@ -1334,8 +1345,12 @@ export default function AgentActivityTab({
                   style={{
                     display: 'flex',
                     gap: 14,
-                    padding: '12px 0',
+                    padding: isAuditHighlighted ? '12px 10px' : '12px 0',
                     borderBottom: idx < filteredItems.length - 1 ? '1px solid var(--border)' : 'none',
+                    background: isAuditHighlighted ? 'color-mix(in srgb, var(--amber) 12%, transparent)' : 'transparent',
+                    border: isAuditHighlighted ? '1px solid var(--amber)' : undefined,
+                    borderRadius: isAuditHighlighted ? 6 : undefined,
+                    transition: 'background 0.3s ease',
                   }}
                 >
                   <div style={{

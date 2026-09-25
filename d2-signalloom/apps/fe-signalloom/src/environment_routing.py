@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import api_compat
@@ -178,10 +178,12 @@ def resolve_company_to_urls(company_name: str, salt: Optional[str] = None) -> Di
 class EnvironmentState(str, Enum):
     PENDING = "pending"
     PROVISIONING = "provisioning"
+    ACTIVE = "active"
     READY = "ready"
     DEGRADED = "degraded"
     EXPIRING = "expiring"
     TEARING_DOWN = "tearing_down"
+    TEARDOWN_FAILED = "teardown_failed"
     TERMINATED = "terminated"
 
 
@@ -226,7 +228,6 @@ class ProvisionRequest(BaseModel):
         clean = normalize_company_name(v)
         # Check that normalized name doesn't contain forbidden chars
         if not re.match(r"^[a-z0-9][a-z0-9 ._-]*[a-z0-9]$", clean) and len(clean) > 1:
-            # allow single char if within length constraints, but min_length=2
             raise ValueError("Company name contains invalid characters.")
         return clean
 
@@ -249,6 +250,8 @@ class EnvironmentResponse(BaseModel):
     expiry_warning: bool
     metadata: Dict[str, Any]
     enable_funnel: bool
+    last_heartbeat_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class DomainResolutionRequest(BaseModel):
@@ -310,7 +313,7 @@ class EnvironmentRecord:
         expires_at: datetime,
         metadata: Dict[str, Any],
         enable_funnel: bool = False,
-        state: EnvironmentState = EnvironmentState.PROVISIONING,
+        state: EnvironmentState = EnvironmentState.READY,
     ):
         self.id = record_id
         self.company_name = company_name
@@ -322,6 +325,7 @@ class EnvironmentRecord:
         self.oidc_redirect_uri = urls["oidc_redirect_uri"]
         self.tier = tier
         self.created_at = created_at
+        self.last_heartbeat_at = created_at
         self.expires_at = expires_at
         self.metadata = metadata
         self.enable_funnel = enable_funnel
@@ -331,6 +335,14 @@ class EnvironmentRecord:
         self.updated_at = created_at
         self.events: List[Dict[str, Any]] = []
         self.record_event("provisioned", {"expires_at": expires_at.isoformat()})
+
+    def heartbeat(self) -> None:
+        """Record a heartbeat timestamp on the environment record."""
+        now = datetime.now(timezone.utc)
+        self.last_heartbeat_at = now
+        self.updated_at = now
+        self.version += 1
+        self.record_event("heartbeat", {"at": now.isoformat()})
 
     def record_event(self, event: str, detail: Optional[Dict[str, Any]] = None) -> None:
         """Append a lifecycle event; callers hold the registry lock."""
@@ -377,6 +389,8 @@ class EnvironmentRecord:
             expiry_warning=self.expiry_warning,
             metadata=self.metadata,
             enable_funnel=self.enable_funnel,
+            last_heartbeat_at=self.last_heartbeat_at,
+            updated_at=self.updated_at,
         )
 
 
@@ -388,20 +402,33 @@ class EnvironmentRegistry:
         self._records: Dict[str, EnvironmentRecord] = {}  # by id
         self._by_hash: Dict[str, str] = {}  # hash -> id
 
-    def create(self, req: ProvisionRequest) -> EnvironmentRecord:
+    def provision(self, req: ProvisionRequest) -> tuple[EnvironmentRecord, bool]:
+        """Provision an environment or return existing active record idempotently.
+
+        Returns (record, is_created).
+        If an active record exists for the customer hash:
+          - If company_name matches, refreshes heartbeat and returns (existing_record, False).
+          - If company_name differs, raises 409 Conflict.
+        If no active record exists, creates a new record and returns (new_record, True).
+        """
         with self._lock:
-            c_hash = derive_customer_hash(req.company_name)
+            norm_name = normalize_company_name(req.company_name)
+            c_hash = derive_customer_hash(norm_name)
             existing_id = self._by_hash.get(c_hash)
             if existing_id:
                 rec = self._records.get(existing_id)
-                if rec and rec.state not in (EnvironmentState.TERMINATED,):
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=(
-                            f"An active environment already exists for customer '{req.company_name}' "
-                            f"(hash: {c_hash}, id: {rec.id}, state: {rec.state.value})."
-                        ),
-                    )
+                if rec and rec.state not in (EnvironmentState.TERMINATED, EnvironmentState.TEARDOWN_FAILED):
+                    if normalize_company_name(rec.company_name) != norm_name:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=(
+                                f"An active environment already exists for hash '{c_hash}' with conflicting "
+                                f"company name '{rec.company_name}' (requested: '{req.company_name}')."
+                            ),
+                        )
+                    rec.heartbeat()
+                    logger.info("Idempotent re-provision for EAP environment: id=%s, hash=%s", rec.id, c_hash)
+                    return rec, False
 
             now = datetime.now(timezone.utc)
             expires = now + timedelta(minutes=req.ttl_minutes)
@@ -409,19 +436,23 @@ class EnvironmentRegistry:
 
             record = EnvironmentRecord(
                 record_id=rec_id,
-                company_name=req.company_name,
+                company_name=norm_name,
                 customer_hash=c_hash,
                 tier=req.tier,
                 created_at=now,
                 expires_at=expires,
                 metadata=dict(req.metadata),
                 enable_funnel=req.enable_funnel,
-                state=EnvironmentState.READY,  # Immediately ready for demo routing
+                state=EnvironmentState.READY,
             )
             self._records[rec_id] = record
             self._by_hash[c_hash] = rec_id
             logger.info("Created EAP environment: id=%s, hash=%s, company=%s", rec_id, c_hash, req.company_name)
-            return record
+            return record, True
+
+    def create(self, req: ProvisionRequest) -> EnvironmentRecord:
+        rec, _ = self.provision(req)
+        return rec
 
     def get(self, record_id: str) -> Optional[EnvironmentRecord]:
         with self._lock:
@@ -444,7 +475,6 @@ class EnvironmentRegistry:
             items = list(self._records.values())
             if state is not None:
                 items = [r for r in items if r.state == state]
-            # sort by created_at descending
             items.sort(key=lambda r: r.created_at, reverse=True)
             return items[offset : offset + limit]
 
@@ -488,7 +518,14 @@ class EnvironmentRegistry:
             logger.info("Extended EAP environment: id=%s to %s", record_id, new_expires.isoformat())
             return rec
 
-    def teardown(self, record_id: str, reason: Optional[str] = None, force: bool = False) -> EnvironmentRecord:
+    def teardown(
+        self,
+        record_id: str,
+        reason: Optional[str] = None,
+        force: bool = False,
+        recorder: Optional[Any] = None,
+        stage_kwargs: Optional[Dict[Any, Dict[str, Any]]] = None,
+    ) -> EnvironmentRecord:
         with self._lock:
             rec = self._records.get(record_id)
             if not rec:
@@ -502,10 +539,51 @@ class EnvironmentRegistry:
             rec.teardown_reason = reason or "De-provisioned via API request"
             rec.state = EnvironmentState.TEARING_DOWN
             rec.record_event("teardown_requested", {"reason": rec.teardown_reason, "force": force})
+
+        # Run ordered 5-stage teardown pipeline outside lock to prevent deadlock
+        from environment_teardown import STAGE_ORDER, run_ordered_teardown
+
+        report = run_ordered_teardown(
+            rec.customer_hash,
+            company_name=rec.company_name,
+            stages=STAGE_ORDER,
+            trigger_reason=rec.teardown_reason,
+            actor="system:environment-routing",
+            recorder=recorder,
+            stage_kwargs=stage_kwargs,
+        )
+
+        with self._lock:
+            if not report.ok:
+                rec.state = EnvironmentState.TEARDOWN_FAILED
+                rec.record_event(
+                    "teardown_failed",
+                    {
+                        "stages_completed": report.stages_completed,
+                        "results": [r.to_dict() for r in report.results],
+                    },
+                )
+                logger.error(
+                    "Teardown failed for environment %s (hash: %s): %s",
+                    record_id,
+                    rec.customer_hash,
+                    report.stages_completed,
+                )
+                last_err = report.results[-1].detail if report.results else "unknown stage failure"
+                last_stg = report.results[-1].stage.value if report.results else "unknown"
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Teardown failed at stage {last_stg}: {last_err}",
+                )
+
+            # In-memory flip to TERMINATED happens only after all stages succeed
             rec.state = EnvironmentState.TERMINATED
             rec.version += 1
             rec.updated_at = datetime.now(timezone.utc)
-            rec.record_event("terminated", {"reason": rec.teardown_reason})
+            rec.record_event(
+                "terminated",
+                {"reason": rec.teardown_reason, "stages_completed": report.stages_completed},
+            )
             logger.info("Torn down EAP environment: id=%s (reason: %s)", record_id, rec.teardown_reason)
             return rec
 
@@ -527,21 +605,30 @@ from eap_audit import _audit_eap_decision
     status_code=status.HTTP_201_CREATED,
     summary="Provision an on-demand EAP environment",
 )
-async def provision_environment(req: ProvisionRequest, tenant: Tenant) -> EnvironmentResponse:
+async def provision_environment(
+    req: ProvisionRequest,
+    tenant: Tenant,
+    response: Response,
+) -> EnvironmentResponse:
     """Provision a new EAP demo/UAT environment with salted domain derivation.
 
     The hash is derived server-side from the company name and bound to the
     caller's tenant before anything is created (EAPR-P2-1).
+    A repeat provision for an existing active tenant is idempotent, returning 200 OK
+    with the existing record and a refreshed heartbeat.
     """
     claim_or_403(derive_customer_hash(req.company_name), tenant)
-    rec = GLOBAL_ENVIRONMENT_REGISTRY.create(req)
+    rec, is_created = GLOBAL_ENVIRONMENT_REGISTRY.provision(req)
+    if not is_created:
+        response.status_code = status.HTTP_200_OK
+
     await _audit_eap_decision(
         conn=None,
         principal=None,
         action="environment.provision",
         target=rec.customer_hash,
         verdict="allow",
-        detail={"environment_id": rec.id, "company_name": rec.company_name},
+        detail={"environment_id": rec.id, "company_name": rec.company_name, "is_created": is_created},
     )
     return rec.to_response()
 
@@ -644,7 +731,7 @@ async def get_environment(environment_id: str, tenant: Tenant) -> EnvironmentRes
     summary="Extend EAP environment TTL",
 )
 async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest, tenant: Tenant) -> EnvironmentResponse:
-    """Extend an environment's active lease up to the 72-hour maximum lifetime ceiling."""
+    """Extend an environment's active lease up to the 8-hour maximum lifetime ceiling."""
     _owned_environment_or_404(environment_id, tenant)
     rec = GLOBAL_ENVIRONMENT_REGISTRY.extend_ttl(environment_id, req.additional_minutes)
     await _audit_eap_decision(
@@ -696,7 +783,7 @@ async def probe_environment(environment_id: str, tenant: Tenant) -> Dict[str, An
             status_code=status.HTTP_410_GONE,
             detail=f"Environment '{environment_id}' has been terminated.",
         )
-    if rec.state == EnvironmentState.TEARING_DOWN:
+    if rec.state in (EnvironmentState.TEARING_DOWN, EnvironmentState.TEARDOWN_FAILED):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Environment '{environment_id}' is tearing down; retry is not expected to succeed.",

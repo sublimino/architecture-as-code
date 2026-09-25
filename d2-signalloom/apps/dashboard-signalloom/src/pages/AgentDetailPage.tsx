@@ -850,10 +850,13 @@ export default function AgentDetailPage() {
   searchParamsRef.current = searchParams
 
   // Tab State
-  const tabParam = (searchParams.get('tab') as DossierTabId) || 'overview'
+  const auditParam = searchParams.get('audit')
+  const rawTabParam = searchParams.get('tab') as DossierTabId | null
+  const defaultTab: DossierTabId = auditParam ? 'activity' : 'overview'
+  const tabParam = rawTabParam || defaultTab
   const activeTab: DossierTabId = ['overview', 'identity', 'access', 'assessments', 'activity'].includes(tabParam)
     ? tabParam
-    : 'overview'
+    : defaultTab
 
   const handleSelectTab = useCallback((tabId: DossierTabId) => {
     setSearchParams(prev => {

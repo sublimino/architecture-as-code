@@ -1,0 +1,78 @@
+=== EAP Tenant NetworkPolicy NetAssert Validation (2026-09-25) ===
+Target Namespace: eap-6f82ad81
+Target Pod: tenant-app (SPIFFE CSI + PSS restricted)
+
+[NetAssert-v2.1.5]: Running Network Isolation Suite (d2-signalloom/test/eap-netassert.yaml)
+[NetAssert-v2.1.5]: ✅ Successfully pinged /healthz endpoint of the Kubernetes server
+[NetAssert-v2.1.5]: ✅ Ephemeral containers are supported by the Kubernetes server
+[NetAssert-v2.1.5]: 🟢 Running TCP test: Name=tenant-to-spire-allowed
+[NetAssert-v2.1.5]: Found Pod: Parent-deployment=spire-server Pod=spire-server-75f4b9f64-8j7fv Namespace=inf-bao IP=10.0.0.60
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-ekosgb4m8
+[NetAssert-v2.1.5]: 🟢 Running TCP test: Name=tenant-to-openbao-allowed
+[NetAssert-v2.1.5]: Found Pod: Parent-deployment=openbao Pod=openbao-8cd988bf7-cqbzx Namespace=inf-bao IP=10.0.0.93
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-3632199oe
+[NetAssert-v2.1.5]: 🟢 Running UDP test: Name=tenant-to-dns-udp-allowed
+[NetAssert-v2.1.5]: Found Pod: Parent-deployment=coredns Pod=coredns-589f44dc88-rpx2f Namespace=kube-system IP=10.0.0.111
+[NetAssert-v2.1.5]: Patching Pod: Pod=coredns-589f44dc88-rpx2f Namespace=kube-system Container=netassertv2-sniffer-ft8oc9af8
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-novzics1s
+[NetAssert-v2.1.5]: 🟢 Running TCP test: Name=tenant-to-dns-tcp-allowed
+[NetAssert-v2.1.5]: Found Pod: Parent-deployment=coredns Pod=coredns-589f44dc88-rpx2f Namespace=kube-system IP=10.0.0.111
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-8ogtswsn5
+[NetAssert-v2.1.5]: 🟢 Running TCP test: Name=tenant-to-fe-signalloom-8080-denied
+[NetAssert-v2.1.5]: Found Pod: Parent-deployment=fe-signalloom Pod=fe-signalloom-654869cccf-xpwk2 Namespace=fe-signalloom IP=10.0.0.234
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-shpcoz3p3
+[NetAssert-v2.1.5]: 🟢 Running TCP test: Name=tenant-to-fe-signalloom-8000-denied
+[NetAssert-v2.1.5]: Found Pod: Parent-deployment=fe-signalloom Pod=fe-signalloom-654869cccf-xpwk2 Namespace=fe-signalloom IP=10.0.0.234
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-r4xbdx5df
+[NetAssert-v2.1.5]: 🟢 Running TCP test: Name=tenant-to-postgresql-denied
+[NetAssert-v2.1.5]: Found Pod: Parent-deployment=postgresql Pod=postgresql-74f986bf-l2zsg Namespace=inf-signalloom IP=10.0.0.165
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-7c72s1qmo
+[NetAssert-v2.1.5]: 🟢 Running TCP test: Name=tenant-to-external-egress-denied
+[NetAssert-v2.1.5]: Patching Pod: Pod=tenant-app Namespace=eap-6f82ad81 Container=netassertv2-client-9brm5jhwj
+
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-ekosgb4m8
+[NetAssert-v2.1.5]: Got exit code from ephemeral container: testName=tenant-to-spire-allowed exitCode=0 container=netassertv2-client-ekosgb4m8
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-r4xbdx5df
+[NetAssert-v2.1.5]: Got exit code from ephemeral container: testName=tenant-to-fe-signalloom-8000-denied exitCode=1 container=netassertv2-client-r4xbdx5df
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-shpcoz3p3
+[NetAssert-v2.1.5]: Got exit code from ephemeral container: testName=tenant-to-fe-signalloom-8080-denied exitCode=1 container=netassertv2-client-shpcoz3p3
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-3632199oe
+[NetAssert-v2.1.5]: Got exit code from ephemeral container: testName=tenant-to-openbao-allowed exitCode=0 container=netassertv2-client-3632199oe
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-7c72s1qmo
+[NetAssert-v2.1.5]: Got exit code from ephemeral container: testName=tenant-to-postgresql-denied exitCode=1 container=netassertv2-client-7c72s1qmo
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-sniffer-ft8oc9af8
+[NetAssert-v2.1.5]: Got exit code from ephemeral sniffer container: testName=tenant-to-dns-udp-allowed exitCode=0 containerName=netassertv2-sniffer-ft8oc9af8
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-9brm5jhwj
+[NetAssert-v2.1.5]: Got exit code from ephemeral container: testName=tenant-to-external-egress-denied exitCode=1 container=netassertv2-client-9brm5jhwj
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-8ogtswsn5
+[NetAssert-v2.1.5]: Got exit code from ephemeral container: testName=tenant-to-dns-tcp-allowed exitCode=0 container=netassertv2-client-8ogtswsn5
+[NetAssert-v2.1.5]: Ephemeral container has finished executing: name=netassertv2-client-novzics1s
+[NetAssert-v2.1.5]: Got exit code from ephemeral scanner container: testName=tenant-to-dns-udp-allowed exitCode=0 containerName=netassertv2-client-novzics1s
+
+TAP Results:
+TAP version 14
+1..8
+ok 1 - tenant-to-spire-allowed
+ok 2 - tenant-to-openbao-allowed
+ok 3 - tenant-to-dns-udp-allowed
+ok 4 - tenant-to-dns-tcp-allowed
+ok 5 - tenant-to-fe-signalloom-8080-denied
+ok 6 - tenant-to-fe-signalloom-8000-denied
+ok 7 - tenant-to-postgresql-denied
+ok 8 - tenant-to-external-egress-denied
+
+=== Positive Control Validation ===
+1. Egress to 1.1.1.1:443 with NetworkPolicy ACTIVE:
+   $ nc -zv -w 2 1.1.1.1 443
+   nc: 1.1.1.1 (1.1.1.1:443): Operation timed out
+   Result: BLOCKED (exitCode=1)
+
+2. Egress to 1.1.1.1:443 with NetworkPolicy DELETED:
+   $ kubectl delete netpol -n eap-6f82ad81 eap-default-deny-and-isolation
+   $ nc -zv -w 3 1.1.1.1 443
+   1.1.1.1 (1.1.1.1:443) open
+   Result: ALLOWED (exitCode=0, proving non-vacuous isolation)
+
+3. NetworkPolicy Restored:
+   $ kubectl apply -f /tmp/eap-netpol-backup.yaml
+   networkpolicy.networking.k8s.io/eap-default-deny-and-isolation created

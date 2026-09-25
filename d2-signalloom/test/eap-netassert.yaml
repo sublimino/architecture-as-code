@@ -1,0 +1,156 @@
+# netassert network policy tests for EAP tenant isolation boundary.
+#
+# Validates that deployed NetworkPolicies enforce the expected connectivity:
+# - Tenant → SPIRE Server in inf-bao:8081 (allowed)
+# - Tenant → OpenBao in inf-bao:8200 (allowed)
+# - Tenant → CoreDNS in kube-system:53 (allowed)
+# - Tenant → fe-signalloom:8080 (denied)
+# - Tenant → fe-signalloom:8000 (denied)
+# - Tenant → PostgreSQL in inf-signalloom:5432 (denied)
+# - Tenant → External internet 1.1.1.1:443 (denied)
+
+# ── ALLOWED paths ────────────────────────────────────────────────────────────
+
+- name: tenant-to-spire-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8081
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    k8sResource:
+      kind: deployment
+      name: spire-server
+      namespace: inf-bao
+
+- name: tenant-to-openbao-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 8200
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    k8sResource:
+      kind: deployment
+      name: openbao
+      namespace: inf-bao
+
+- name: tenant-to-dns-udp-allowed
+  type: k8s
+  protocol: udp
+  targetPort: 53
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    k8sResource:
+      kind: deployment
+      name: coredns
+      namespace: kube-system
+
+- name: tenant-to-dns-tcp-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 53
+  timeoutSeconds: 30
+  attempts: 3
+  exitCode: 0
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    k8sResource:
+      kind: deployment
+      name: coredns
+      namespace: kube-system
+
+# ── DENIED paths (negative tests) ───────────────────────────────────────────
+
+- name: tenant-to-fe-signalloom-8080-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8080
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    k8sResource:
+      kind: deployment
+      name: fe-signalloom
+      namespace: fe-signalloom
+
+- name: tenant-to-fe-signalloom-8000-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 8000
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    k8sResource:
+      kind: deployment
+      name: fe-signalloom
+      namespace: fe-signalloom
+
+- name: tenant-to-postgresql-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 5432
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    k8sResource:
+      kind: deployment
+      name: postgresql
+      namespace: inf-signalloom
+
+- name: tenant-to-external-egress-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 443
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource:
+      kind: pod
+      name: tenant-app
+      namespace: eap-6f82ad81
+  dst:
+    host:
+      name: 1.1.1.1

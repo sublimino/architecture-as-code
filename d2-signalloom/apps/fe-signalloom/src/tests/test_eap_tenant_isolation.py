@@ -4,15 +4,20 @@
 # ==============================================================================
 import pytest
 from tenant_isolation import (
+    OPENBAO_PORT,
+    SPIRE_SERVER_PORT,
     TenantIsolationManager,
     TenantIsolationConfig,
+    get_spiffe_trust_domain,
     get_tenant_namespace,
     get_tenant_spiffe_id,
     get_tenant_transit_key_path,
     generate_namespace_manifest,
     generate_network_policy_manifest,
+    generate_openbao_ingress_policy,
     generate_resource_quota_manifest,
     generate_spire_registration_entry,
+    generate_tenant_pod_manifest,
 )
 
 
@@ -23,7 +28,7 @@ def test_tenant_naming_conventions_kurasi():
     assert ns == "eap-6f82ad81"
 
     spiffe_id = get_tenant_spiffe_id(kurasi_hash)
-    assert spiffe_id == "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+    assert spiffe_id == f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/tenant-app"
 
     transit_path = get_tenant_transit_key_path(kurasi_hash)
     assert transit_path == "transit/keys/eap-6f82ad81"
@@ -64,13 +69,62 @@ def test_generate_network_policy_manifest():
     assert "ingress" in allowed_ns
     assert "fe-signalloom" in allowed_ns
 
-    # Check egress allows DNS
+    # Check egress allows DNS to kube-system and SPIRE/OpenBao to inf-bao
+    egress_ns = [
+        to["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
+        for rule in spec["egress"]
+        for to in rule.get("to", [])
+    ]
+    assert "kube-system" in egress_ns
+    assert "inf-bao" in egress_ns
+    assert "inf-spire" not in egress_ns
+
     egress_ports = [
         p["port"]
         for rule in spec["egress"]
         for p in rule.get("ports", [])
     ]
     assert 53 in egress_ports
+    assert OPENBAO_PORT in egress_ports
+    assert SPIRE_SERVER_PORT in egress_ports
+
+
+def test_generate_openbao_ingress_policy():
+    """Verify OpenBao ingress policy in inf-bao allows tenant namespace."""
+    manifest = generate_openbao_ingress_policy("6f82ad81")
+    assert manifest["apiVersion"] == "networking.k8s.io/v1"
+    assert manifest["kind"] == "NetworkPolicy"
+    assert manifest["metadata"]["name"] == "allow-eap-6f82ad81-to-openbao"
+    assert manifest["metadata"]["namespace"] == "inf-bao"
+    assert manifest["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/name"] == "openbao"
+
+    from_ns = manifest["spec"]["ingress"][0]["from"][0]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
+    assert from_ns == "eap-6f82ad81"
+    assert manifest["spec"]["ingress"][0]["ports"][0]["port"] == OPENBAO_PORT
+
+
+def test_generate_tenant_pod_manifest_csi():
+    """Verify tenant pod spec uses SPIFFE CSI ephemeral volume and no hostPath."""
+    pod = generate_tenant_pod_manifest("6f82ad81")
+    assert pod["apiVersion"] == "v1"
+    assert pod["kind"] == "Pod"
+    assert pod["metadata"]["namespace"] == "eap-6f82ad81"
+
+    volumes = pod["spec"]["volumes"]
+    assert len(volumes) == 1
+    assert "csi" in volumes[0]
+    assert volumes[0]["csi"]["driver"] == "csi.spiffe.io"
+    assert volumes[0]["csi"]["readOnly"] is True
+    assert not any("hostPath" in v for v in volumes)
+
+    container = pod["spec"]["containers"][0]
+    env_vars = {e["name"]: e["value"] for e in container["env"]}
+    assert env_vars["SPIFFE_ENDPOINT_SOCKET"] == "unix:///spiffe-workload-api/spire-agent.sock"
+
+    vm = container["volumeMounts"][0]
+    assert vm["name"] == "spiffe-workload-api"
+    assert vm["mountPath"] == "/spiffe-workload-api"
+    assert vm["readOnly"] is True
 
 
 def test_generate_resource_quota_manifest():
@@ -87,7 +141,7 @@ def test_generate_resource_quota_manifest():
 def test_generate_spire_registration_entry():
     """Verify SPIRE registration entry schema and selectors."""
     entry = generate_spire_registration_entry("6f82ad81")
-    assert entry["spiffe_id"] == "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+    assert entry["spiffe_id"] == f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/tenant-app"
     assert "k8s:ns:eap-6f82ad81" in entry["selectors"]
     assert "k8s:sa:tenant-app" in entry["selectors"]
     assert entry["ttl"] == 3600
@@ -141,7 +195,7 @@ def test_api_tenant_provision_and_lifecycle():
     assert data["company_name"] == "kurasi"
     assert data["customer_hash"] == "6f82ad81"
     assert data["namespace"] == "eap-6f82ad81"
-    assert data["spiffe_id"] == "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+    assert data["spiffe_id"] == f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/tenant-app"
     assert data["transit_key_path"] == "transit/keys/eap-6f82ad81"
     assert data["is_active"] is True
 
@@ -174,12 +228,14 @@ def test_api_tenant_manifests_and_spire():
     assert "namespace" in manifests
     assert "network_policy" in manifests
     assert "resource_quota" in manifests
+    assert "pod" in manifests
+    assert "openbao_ingress_policy" in manifests
     assert manifests["namespace"]["metadata"]["name"] == "eap-6f82ad81"
 
     spire_resp = client.get("/api/v1/eap/tenants/6f82ad81/spire-entry")
     assert spire_resp.status_code == 200
     spire_entry = spire_resp.json()
-    assert spire_entry["spiffe_id"] == "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+    assert spire_entry["spiffe_id"] == f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/tenant-app"
     assert client.delete("/api/v1/eap/tenants/6f82ad81").status_code == 200
 
 

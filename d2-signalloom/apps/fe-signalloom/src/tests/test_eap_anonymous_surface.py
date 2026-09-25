@@ -25,10 +25,11 @@ from fastapi.testclient import TestClient
 from api_compat import settings
 from db.connection import set_pool_for_testing
 from main import app
+from tenant_isolation import get_spiffe_trust_domain
 
 CUSTOMER_HASH = "6f82ad81"
 COMPANY_NAME = "kurasi"
-SLET_SPIFFE_TRUST_DOMAIN = "osramp.local"
+SLET_SPIFFE_TRUST_DOMAIN = get_spiffe_trust_domain()
 TENANT_SPIFFE_ID = f"spiffe://{SLET_SPIFFE_TRUST_DOMAIN}/ns/eap-{CUSTOMER_HASH}/sa/tenant-app"
 
 EAP_PREFIXES = (

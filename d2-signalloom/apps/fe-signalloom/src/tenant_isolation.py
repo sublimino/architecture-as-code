@@ -24,26 +24,21 @@ from tenant_transit import (
     TransitKeyNotFound,
 )
 
+from eap_contract import (
+    OPENBAO_PORT,
+    SPIRE_SERVER_PORT,
+    SPIFFE_TRUST_DOMAIN,
+    get_spiffe_trust_domain,
+)
+
 logger = logging.getLogger("signalloom.tenant_isolation")
 
-SPIFFE_TRUST_DOMAIN = "osramp.local"
 DEFAULT_TRANSIT_MOUNT = "transit"
 TENANT_SERVICE_ACCOUNT = "tenant-app"
 SVID_TTL_SECONDS = 3600
 # SPIRE backdates NotBefore by 10s to absorb clock skew, so a 1h SVID really
 # spans 3610s. Anything beyond that is a TTL violation.
 SVID_CLOCK_SKEW_SECONDS = 10
-
-
-def get_spiffe_trust_domain() -> str:
-    """Trust domain for tenant SPIFFE IDs.
-
-    Defaults to the proposal's ``osramp.local``. Overridable through
-    ``SLET_SPIFFE_TRUST_DOMAIN`` because a real SPIRE server only registers and
-    mints IDs in its own trust domain (the kind-osramp cluster runs
-    ``signalloom.demo``). Read per call so tests cannot leak it between cases.
-    """
-    return os.environ.get("SLET_SPIFFE_TRUST_DOMAIN", SPIFFE_TRUST_DOMAIN)
 
 
 class TenantIsolationConfig(BaseModel):
@@ -166,15 +161,8 @@ def generate_network_policy_manifest(customer_hash: str) -> Dict[str, Any]:
                     ]
                 },
                 {
-                    # Allow communication to SPIRE agent and OpenBao server
+                    # Allow communication to SPIRE server and OpenBao server in inf-bao
                     "to": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {
-                                    "kubernetes.io/metadata.name": "inf-spire"
-                                }
-                            }
-                        },
                         {
                             "namespaceSelector": {
                                 "matchLabels": {
@@ -184,8 +172,116 @@ def generate_network_policy_manifest(customer_hash: str) -> Dict[str, Any]:
                         }
                     ],
                     "ports": [
-                        {"protocol": "TCP", "port": 8200}
+                        {"protocol": "TCP", "port": OPENBAO_PORT},
+                        {"protocol": "TCP", "port": SPIRE_SERVER_PORT},
                     ]
+                }
+            ]
+        }
+    }
+
+
+def generate_openbao_ingress_policy(customer_hash: str) -> Dict[str, Any]:
+    """Generate NetworkPolicy in inf-bao admitting OpenBao egress from tenant."""
+    h = customer_hash.lower()
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": f"allow-eap-{h}-to-openbao",
+            "namespace": "inf-bao",
+            "labels": {
+                "app.kubernetes.io/managed-by": "signalloom-eap",
+                "signalloom.io/eap-hash": h,
+            }
+        },
+        "spec": {
+            "podSelector": {
+                "matchLabels": {
+                    "app.kubernetes.io/name": "openbao",
+                }
+            },
+            "policyTypes": ["Ingress"],
+            "ingress": [
+                {
+                    "from": [
+                        {
+                            "namespaceSelector": {
+                                "matchLabels": {
+                                    "kubernetes.io/metadata.name": get_tenant_namespace(h),
+                                }
+                            }
+                        }
+                    ],
+                    "ports": [
+                        {"protocol": "TCP", "port": OPENBAO_PORT}
+                    ]
+                }
+            ]
+        }
+    }
+
+
+def generate_tenant_pod_manifest(
+    customer_hash: str,
+    image: str = "ghcr.io/spiffe/spire-agent:1.11.1",
+    service_account: str = TENANT_SERVICE_ACCOUNT,
+) -> Dict[str, Any]:
+    """Generate Kubernetes Pod manifest for tenant workload using SPIFFE CSI driver."""
+    ns_name = get_tenant_namespace(customer_hash)
+    return {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": "tenant-app",
+            "namespace": ns_name,
+            "labels": {
+                "app.kubernetes.io/name": "tenant-app",
+                "app.kubernetes.io/managed-by": "signalloom-eap",
+                "signalloom.io/eap-hash": customer_hash.lower(),
+            },
+        },
+        "spec": {
+            "serviceAccountName": service_account,
+            "restartPolicy": "Never",
+            "containers": [
+                {
+                    "name": "tenant-app",
+                    "image": image,
+                    "env": [
+                        {
+                            "name": "SPIFFE_ENDPOINT_SOCKET",
+                            "value": "unix:///spiffe-workload-api/spire-agent.sock",
+                        }
+                    ],
+                    "volumeMounts": [
+                        {
+                            "name": "spiffe-workload-api",
+                            "mountPath": "/spiffe-workload-api",
+                            "readOnly": True,
+                        }
+                    ],
+                    "securityContext": {
+                        "allowPrivilegeEscalation": False,
+                        "readOnlyRootFilesystem": True,
+                        "runAsNonRoot": True,
+                        "runAsUser": 10001,
+                        "capabilities": {
+                            "drop": ["ALL"]
+                        },
+                        "seccompProfile": {
+                            "type": "RuntimeDefault"
+                        }
+                    }
+                }
+            ],
+            "volumes": [
+                {
+                    "name": "spiffe-workload-api",
+                    "csi": {
+                        "driver": "csi.spiffe.io",
+                        "readOnly": True,
+                    }
                 }
             ]
         }
@@ -606,6 +702,8 @@ async def api_get_tenant_manifests(customer_hash: CustomerHash, tenant: Tenant) 
         "namespace": generate_namespace_manifest(company, h),
         "network_policy": generate_network_policy_manifest(h),
         "resource_quota": generate_resource_quota_manifest(h),
+        "pod": generate_tenant_pod_manifest(h),
+        "openbao_ingress_policy": generate_openbao_ingress_policy(h),
     }
 
 

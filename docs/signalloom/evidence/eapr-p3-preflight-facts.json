@@ -1,0 +1,166 @@
+{
+  "audit_timestamp": "2026-09-25T01:34:24+01:00",
+  "base_sha": "84db1345052adf26ab3a5bf79eb9a0f57ab704fe",
+  "cluster_facts": {
+    "cluster_reachable": true,
+    "cluster_endpoint": "https://127.0.0.1:34777",
+    "spire_namespace": {
+      "live_namespace": "inf-bao",
+      "manifest_count_inf_bao": 27,
+      "manifest_count_inf_spire": 0,
+      "preflight_script": "scripts/sentinel-preflight.sh:3 sets SPIRE_NAMESPACE=${SPIRE_NAMESPACE:-inf-bao}",
+      "spire_agent_pods": ["spire-agent-w9g48 (Running)"],
+      "spire_server_pods": ["spire-server-6bd5c8bd45-z9t4k (Running)"],
+      "openbao_pods": ["openbao-0 (Running)"]
+    },
+    "trust_domain": {
+      "live_spire_server_trust_domain": "signalloom.demo",
+      "spire_bundle_cert_san": "URI:spiffe://signalloom.demo",
+      "spire_entries_sample": [
+        "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-finops-optimizer",
+        "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/signalloom-stun-sentinel",
+        "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom",
+        "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
+      ],
+      "in_repo_counts": {
+        "spiffe://signalloom.demo": 420,
+        "spiffe://cluster.local": 281,
+        "spiffe://osramp.local": 167
+      },
+      "code_mismatch_site": "tenant_isolation.py:29 declares SPIFFE_TRUST_DOMAIN = 'osramp.local'"
+    },
+    "csi_driver": {
+      "installed_drivers": [],
+      "csi_spiffe_io_present": false,
+      "kubectl_get_csidriver_output": "No resources found",
+      "positive_control_command": "kubectl api-resources | grep -i csidrivers",
+      "positive_control_output": "csidrivers storage.k8s.io/v1 false CSIDriver"
+    },
+    "pss_enforcement": {
+      "enforce_labels_in_cluster": [],
+      "code_enforce_label_generator": "tenant_isolation.py:95 ('pod-security.kubernetes.io/enforce': 'restricted')",
+      "positive_control_in_repo": "d2-signalloom/deploy/stun-sentinel-daemonset.yaml:34 ('pod-security.kubernetes.io/enforce: privileged')",
+      "hostpath_restricted_admission_error": "Error from server (Forbidden): error when creating \"STDIN\": pods \"test-hostpath-pod\" is forbidden: violates PodSecurity \"restricted:latest\": allowPrivilegeEscalation != false (container \"test\" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container \"test\" must set securityContext.capabilities.drop=[\"ALL\"]), restricted volume types (volume \"spire-socket\" uses restricted volume type \"hostPath\"), runAsNonRoot != true (pod or container \"test\" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container \"test\" must set securityContext.seccompProfile.type to \"RuntimeDefault\" or \"Localhost\")"
+    }
+  },
+  "constants": {
+    "MAX_LIFETIME_HOURS": {
+      "environment_lifecycle_py": {
+        "line": 45,
+        "value": 8,
+        "usage_line": 450,
+        "file_lines_total": 1232
+      },
+      "environment_routing_py": {
+        "line": 29,
+        "value": 72,
+        "usage_lines": [408, 413],
+        "file_lines_total": 694
+      },
+      "spec_value": 8,
+      "reconciliation_decision": "Collapse to single module-owned value of 8 hours"
+    },
+    "MAX_INITIAL_TTL_MINUTES": {
+      "environment_routing_py": {
+        "line": 30,
+        "value": 1440,
+        "usage_line": 153,
+        "spec_value": 480
+      }
+    },
+    "extend_bound": "environment_routing.py:408-413 (bounds /extend to created_at + MAX_LIFETIME_HOURS)"
+  },
+  "sled_defects": {
+    "probes_file": "d2-signalloom/apps/fe-signalloom/src/tests/test_sled_p2_certification.py",
+    "run_result": "5 failed, 12 passed under --runxfail",
+    "D1": {
+      "probe": "test_metrics_endpoint_is_openmetrics_exposition",
+      "failure_assertion": "assert ('openmetrics-text' in 'application/json' or False)",
+      "site": "environment_lifecycle.py:1220 (api_get_lifecycle_metrics returns JSON dict from PrometheusReaperMetrics.get_metrics_summary at line 385, no OpenMetrics/Prometheus text exposition with # TYPE, histogram, labels)"
+    },
+    "D2": {
+      "probe": "test_memory_watchdog_reports_current_not_peak_rss",
+      "failure_assertion": "assert 314146816 < ((64 * 1024) * 1024)",
+      "measured": "vmrss_mb=134.8 watchdog_mb=434.4",
+      "site": "environment_lifecycle.py:314-320 (MemoryWatchdog.get_rss_bytes reads resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024, monotonic peak RSS instead of current /proc/self/status VmRSS)"
+    },
+    "D3": {
+      "probe": "test_contended_manager_lock_does_not_stall_the_event_loop[asyncio]",
+      "failure_assertion": "assert 0.3903851229008287 < 0.05",
+      "measured": "contended_lock_loop_lag_ms=390.4",
+      "site": "environment_lifecycle.py:413 (_acquire_lock calls self._lock.acquire(timeout=5)) and line 645 (evaluate_reaping acquires lock synchronously on the event loop without asyncio.to_thread)"
+    },
+    "D4": {
+      "probe": "test_malformed_record_does_not_starve_the_fleet",
+      "failure_assertion": "assert 0 == 9",
+      "site": "environment_lifecycle.py:651-660 (_priority sort key evaluates current_time >= r.expires_at outside per-record try, aborting pass before loop and failing to route to DeadLetterQueue)"
+    },
+    "D5": {
+      "probe": "test_status_reports_dead_reaper_task_as_not_running[asyncio]",
+      "failure_assertion": "assert not status.is_running where status.is_running = True",
+      "site": "environment_lifecycle.py:1028 (get_status returns is_running=self._is_running, reflecting static flag rather than task liveness / not task.done())"
+    },
+    "P3_GOV_items": [
+      "Stage 3/4 ordered teardown: Route drain -> OpenBao shred -> SVID revoke -> Tailscale evict -> namespace delete",
+      "LifecycleRecord.teardown_stages_completed (:104) tracking not gated before logical termination",
+      "Fail-open effect probe",
+      "Live Tailscale failure suppression and local-node targeting removal",
+      "Deployment path-depth defect",
+      "Async-plugin support in test environment"
+    ]
+  },
+  "slte_surface": {
+    "deletion_list": [
+      {
+        "file": "d2-signalloom/apps/fe-signalloom/src/webhook_triggers.py",
+        "lines": 305,
+        "details": "DEFAULT_WEBHOOK_SECRET at :37; POST /github at :107/:113; POST /generic at :213/:219; mount in main.py:50"
+      },
+      {
+        "file": "d2-signalloom/apps/fe-signalloom/src/tests/test_webhook_triggers.py",
+        "lines": 167,
+        "details": "Unit test suite for webhook receivers"
+      },
+      {
+        "file": "scripts/eap/emit-eap-webhook.sh",
+        "details": "Third-party webhook dispatch script"
+      },
+      {
+        "file": "scripts/eap/test_emit_eap_webhook.sh",
+        "details": "Test for webhook emission script"
+      },
+      {
+        "file": "scripts/eap/validate-webhook-ingress.sh",
+        "details": "Ingress validation for webhook endpoint"
+      }
+    ],
+    "retention_list": [
+      {
+        "file": "d2-signalloom/apps/fe-signalloom/src/host_enrollment.py",
+        "lines": 733,
+        "details": "Routers at :38-:40 (prefixes /v1/external-agents, /api/v1/external-agents, /api/external-agents); routes /enroll, /registrations/{agent_id}/token, /{agent_id}/token at :676-:733; _audit_log_enrollment at :101; hmac.compare_digest at :381/:581; client_nonce at :450/:474; finding at :427/:635 where credential_reference is client-controlled and must be server-minted in P3-4"
+      },
+      {
+        "file": "d2-signalloom/apps/fe-signalloom/src/tests/test_host_enrollment.py",
+        "lines": 450,
+        "details": "Host enrollment integration test suite"
+      },
+      {
+        "file": "d2-signalloom/apps/agentmaxxing-host-sensor/dispatcher.py",
+        "details": "Sensor dispatcher sending Authorization: Bearer <auth_token> at lines 92-93"
+      },
+      {
+        "file": "d2-signalloom/apps/signal-ingest/api/auth.go",
+        "details": "NewJWTAuthenticator at line 113; validSPIFFEForDomain at line 270"
+      }
+    ]
+  },
+  "dashboard_surface": {
+    "vitest_lane": "make test-dashboard-weave / node vitest.mjs run / bun x vitest run",
+    "tenant_claim_decoding": "d2-signalloom/apps/dashboard-signalloom/src/auth/tenant.ts: getTenantIdFromToken(token) decodes https://signalloom.ai/tenant_id claim from JWT payload",
+    "audit_api_client": "d2-signalloom/apps/dashboard-signalloom/src/api/client.ts: api.audit(token, {agent, limit}) at lines 498-516; auditStreamUrl at lines 453-458 (agent stream) and lines 519-525 (tenant stream)",
+    "page_callsites": "d2-signalloom/apps/dashboard-signalloom/src/pages/AgentDetailPage.tsx: api.audit calls at lines 873 and 977",
+    "playwright_config": "test/acceptance/playwright.config.ts (projects: setup, chromium, smoke; --host-resolver-rules for SNI; PW_CHANNEL=chromium fallback; FONTCONFIG_FILE required; auth.setup.ts logs in with DEX_DEMO_PASSWORD)",
+    "positive_control": "grep -rl 'Modal' src --include='*.tsx' matched 22 component files"
+  }
+}

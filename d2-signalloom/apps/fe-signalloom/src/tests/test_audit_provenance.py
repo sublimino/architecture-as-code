@@ -815,6 +815,10 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
     ("webhook_triggers.py", "github_webhook_receiver"): (
         "Ingests incoming GitHub Actions deployment trigger webhooks with cryptographic validation."
     ),
+    ("environment_teardown.py", "api_network_teardown"): (
+        "Multi-stage network teardown pipeline emits structured audit events via build_audit_event "
+        "and the dedicated audit_logger stream for each individual stage transition."
+    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate

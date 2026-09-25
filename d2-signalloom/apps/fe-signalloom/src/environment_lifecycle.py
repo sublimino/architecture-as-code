@@ -13,6 +13,7 @@ import asyncio
 from contextlib import contextmanager
 import enum
 import logging
+import os
 import resource
 import threading
 import time
@@ -20,7 +21,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Callable, Dict, Generator, List, Optional, Set
 from pydantic import BaseModel, ConfigDict, Field
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Response, status
 
 import api_compat
 from eap_tenancy import CUSTOMER_HASH_PATTERN, CustomerHash, Tenant, claim_or_403, owned_hashes, require_owned_or_404
@@ -38,11 +39,17 @@ Operator = Annotated[api_compat.Principal, Depends(require_superadmin)]
 from eap_audit import _audit_eap_decision
 from scenario_seeding import GLOBAL_SCENARIO_MANAGER, ScenarioType
 
+from eap_contract import (
+    HEARTBEAT_WINDOW_SECONDS,
+    MAX_INITIAL_TTL_MINUTES,
+    MAX_LIFETIME_HOURS,
+    SPIFFE_TRUST_DOMAIN,
+)
+
 logger = logging.getLogger("signalloom.lifecycle")
 
 # Authoritative timeouts, intervals, and ceilings
 DEFAULT_LEASE_MINUTES = 120
-MAX_LIFETIME_HOURS = 8
 IDLE_TIMEOUT_MINUTES = 30
 GRACE_PERIOD_SECONDS = 300
 
@@ -61,6 +68,7 @@ class EnvironmentLifecycleState(str, enum.Enum):
     ACTIVE = "active"
     DRAINING = "draining"
     TERMINATED = "terminated"
+    TEARDOWN_FAILED = "teardown_failed"
 
 
 # Permitted lifecycle state transition graph
@@ -70,18 +78,27 @@ VALID_TRANSITIONS: Dict[EnvironmentLifecycleState, set[EnvironmentLifecycleState
         EnvironmentLifecycleState.ACTIVE,
         EnvironmentLifecycleState.DRAINING,
         EnvironmentLifecycleState.TERMINATED,
+        EnvironmentLifecycleState.TEARDOWN_FAILED,
     },
     EnvironmentLifecycleState.WARMING: {
         EnvironmentLifecycleState.ACTIVE,
         EnvironmentLifecycleState.DRAINING,
         EnvironmentLifecycleState.TERMINATED,
+        EnvironmentLifecycleState.TEARDOWN_FAILED,
     },
     EnvironmentLifecycleState.ACTIVE: {
         EnvironmentLifecycleState.DRAINING,
         EnvironmentLifecycleState.TERMINATED,
+        EnvironmentLifecycleState.TEARDOWN_FAILED,
     },
     EnvironmentLifecycleState.DRAINING: {
         EnvironmentLifecycleState.TERMINATED,
+        EnvironmentLifecycleState.TEARDOWN_FAILED,
+    },
+    EnvironmentLifecycleState.TEARDOWN_FAILED: {
+        EnvironmentLifecycleState.DRAINING,
+        EnvironmentLifecycleState.TERMINATED,
+        EnvironmentLifecycleState.TEARDOWN_FAILED,
     },
     EnvironmentLifecycleState.TERMINATED: set(),
 }
@@ -312,12 +329,21 @@ class MemoryWatchdog:
         self.max_rss_bytes = max_rss_bytes
 
     def get_rss_bytes(self) -> int:
-        """Measure resident set size in bytes."""
+        """Measure resident set size (VmRSS) in bytes, falling back to ru_maxrss."""
         try:
-            # On Linux, ru_maxrss is reported in kilobytes
+            if os.path.exists("/proc/self/status"):
+                with open("/proc/self/status", "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("VmRSS:"):
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                return int(parts[1]) * 1024
+            # Fallback for non-Linux platforms
+            logger.warning("Reading current VmRSS from /proc/self/status failed or unsupported; falling back to ru_maxrss")
             usage = resource.getrusage(resource.RUSAGE_SELF)
             return int(usage.ru_maxrss * 1024)
-        except Exception:
+        except Exception as ex:
+            logger.warning("Error reading memory RSS: %s", ex)
             return 0
 
     def check_rss(self) -> Dict[str, Any]:
@@ -391,6 +417,45 @@ class PrometheusReaperMetrics:
                 "signalloom_eap_reaper_duration_seconds": self.last_duration_seconds,
                 "signalloom_eap_dlq_total": self.dlq_total,
             }
+
+    def render_openmetrics(self) -> str:
+        """Render Prometheus/OpenMetrics text exposition format (ending with # EOF)."""
+        with self._lock:
+            lines: List[str] = [
+                "# HELP signalloom_eap_reaper_cycles Total number of reaper reconciliation cycles executed.",
+                "# TYPE signalloom_eap_reaper_cycles counter",
+                f"signalloom_eap_reaper_cycles_total {self.cycles_total}",
+                "# HELP signalloom_eap_active_environments Current number of active EAP environments.",
+                "# TYPE signalloom_eap_active_environments gauge",
+                f"signalloom_eap_active_environments {self.active_environments}",
+                "# HELP signalloom_eap_dlq_total Current number of records in the dead letter queue.",
+                "# TYPE signalloom_eap_dlq_total gauge",
+                f"signalloom_eap_dlq_total {self.dlq_total}",
+                "# HELP signalloom_eap_reaper_duration_seconds Duration of the last reaper reconciliation cycle in seconds.",
+                "# TYPE signalloom_eap_reaper_duration_seconds histogram",
+            ]
+
+            buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+            dur = self.last_duration_seconds
+            count = 1 if self.cycles_total > 0 else 0
+            for b in buckets:
+                cum = 1 if (count > 0 and dur <= b) else 0
+                lines.append(f'signalloom_eap_reaper_duration_seconds_bucket{{le="{b}"}} {cum}')
+            lines.append(f'signalloom_eap_reaper_duration_seconds_bucket{{le="+Inf"}} {count}')
+            lines.append(f"signalloom_eap_reaper_duration_seconds_sum {dur if count > 0 else 0.0}")
+            lines.append(f"signalloom_eap_reaper_duration_seconds_count {count}")
+
+            lines.append("# HELP signalloom_eap_reaped Total number of environments reaped by action and reason.")
+            lines.append("# TYPE signalloom_eap_reaped counter")
+            if not self.reaped_total:
+                lines.append('signalloom_eap_reaped_total{action="none",reason="none"} 0')
+            else:
+                for k, v in sorted(self.reaped_total.items()):
+                    action, reason = k.split(":", 1) if ":" in k else (k, "unknown")
+                    lines.append(f'signalloom_eap_reaped_total{{action="{action}",reason="{reason}"}} {v}')
+
+            lines.append("# EOF")
+            return "\n".join(lines) + "\n"
 
 
 # ==============================================================================
@@ -649,17 +714,28 @@ class LifecycleManager:
             # Priority 2: Inactivity exceeding idle timeout
             # Priority 3: Other active environments
             def _priority(item: tuple[str, LifecycleRecord]) -> int:
-                _, r = item
-                if r.state in (EnvironmentLifecycleState.ACTIVE, EnvironmentLifecycleState.WARMING, EnvironmentLifecycleState.PROVISIONING):
-                    if current_time >= r.expires_at or current_time >= r.max_lifetime_expires_at:
+                try:
+                    _, r = item
+                    if r is None or not hasattr(r, "state"):
                         return 0
-                    if current_time >= r.last_activity_at + timedelta(minutes=IDLE_TIMEOUT_MINUTES):
-                        return 2
-                elif r.state == EnvironmentLifecycleState.DRAINING:
-                    grace_exp = r.grace_period_expires_at or (r.expires_at + timedelta(seconds=GRACE_PERIOD_SECONDS))
-                    if current_time >= grace_exp:
-                        return 1
-                return 3
+                    if r.state in (
+                        EnvironmentLifecycleState.ACTIVE,
+                        EnvironmentLifecycleState.WARMING,
+                        EnvironmentLifecycleState.PROVISIONING,
+                    ):
+                        if r.expires_at is None or r.max_lifetime_expires_at is None:
+                            return 0
+                        if current_time >= r.expires_at or current_time >= r.max_lifetime_expires_at:
+                            return 0
+                        if r.last_activity_at is not None and current_time >= r.last_activity_at + timedelta(minutes=IDLE_TIMEOUT_MINUTES):
+                            return 2
+                    elif r.state == EnvironmentLifecycleState.DRAINING:
+                        grace_exp = r.grace_period_expires_at or ((r.expires_at + timedelta(seconds=GRACE_PERIOD_SECONDS)) if r.expires_at else current_time)
+                        if current_time >= grace_exp:
+                            return 1
+                    return 3
+                except Exception:
+                    return 0
 
             sorted_items = sorted(list(self._records.items()), key=_priority)
 
@@ -667,6 +743,9 @@ class LifecycleManager:
                 try:
                     now_ns = time.time_ns()
                     now_iso = current_time.isoformat()
+
+                    if rec is None or getattr(rec, "expires_at", None) is None or getattr(rec, "created_at", None) is None:
+                        raise ValueError(f"Malformed environment record for {h}: missing required timestamps")
 
                     # Case 1: Active/Warming/Provisioning expired -> DRAINING
                     if rec.state in (
@@ -699,7 +778,7 @@ class LifecycleManager:
                             continue
 
                         # Check idle expiration (30m without activity)
-                        idle_limit = rec.last_activity_at + timedelta(minutes=IDLE_TIMEOUT_MINUTES)
+                        idle_limit = (rec.last_activity_at or rec.created_at) + timedelta(minutes=IDLE_TIMEOUT_MINUTES)
                         if current_time >= idle_limit:
                             reason = "idle_timeout"
                             self.transition_state(
@@ -749,49 +828,36 @@ class LifecycleManager:
                             })
 
                 except Exception as ex:
-                    # Robust exception isolation: record error, increment failure count, route to DLQ if persistent
+                    # Robust exception isolation: record error, increment failure count, route to DLQ
                     logger.exception("Reaper evaluation error on environment %s: %s", h, ex)
-                    failures = rec.consecutive_reconciliation_failures + 1
-                    # Update record failure counter
-                    self._records[h] = LifecycleRecord(
-                        customer_hash=rec.customer_hash,
-                        company_name=rec.company_name,
-                        state=rec.state,
-                        created_at=rec.created_at,
-                        last_heartbeat_at=rec.last_heartbeat_at,
-                        last_activity_at=rec.last_activity_at,
-                        expires_at=rec.expires_at,
-                        max_lifetime_expires_at=rec.max_lifetime_expires_at,
-                        grace_period_expires_at=rec.grace_period_expires_at,
-                        reap_reason=rec.reap_reason,
-                        teardown_stages_completed=list(rec.teardown_stages_completed),
-                        consecutive_reconciliation_failures=failures,
-                        transition_timestamp_ns=rec.transition_timestamp_ns,
-                    )
+                    failures = (getattr(rec, "consecutive_reconciliation_failures", 0) or 0) + 1
+                    try:
+                        self._records[h] = rec.model_copy(update={"consecutive_reconciliation_failures": failures})
+                    except Exception:
+                        pass
 
-                    if failures >= MAX_RECONCILIATION_FAILURES:
-                        dlq_rec = DeadLetterRecord(
-                            customer_hash=h,
-                            company_name=rec.company_name,
-                            state=rec.state,
-                            failure_count=failures,
-                            last_error=str(ex),
-                            error_code="ERR_TRANSITION_FAILED",
-                        )
-                        self._dlq.enqueue(dlq_rec)
-                        self._alert_notifier.dispatch(
-                            "dead_letter_enqueued",
-                            {"customer_hash": h, "failure_count": failures, "error": str(ex)},
-                        )
+                    dlq_rec = DeadLetterRecord(
+                        customer_hash=h,
+                        company_name=getattr(rec, "company_name", "unknown") or "unknown",
+                        state=getattr(rec, "state", EnvironmentLifecycleState.ACTIVE) or EnvironmentLifecycleState.ACTIVE,
+                        failure_count=failures,
+                        last_error=str(ex),
+                        error_code="ERR_TRANSITION_FAILED",
+                    )
+                    self._dlq.enqueue(dlq_rec)
+                    self._alert_notifier.dispatch(
+                        "dead_letter_enqueued",
+                        {"customer_hash": h, "failure_count": failures, "error": str(ex)},
+                    )
 
                     actions.append({
                         "customer_hash": h,
-                        "company_name": rec.company_name,
+                        "company_name": getattr(rec, "company_name", "unknown") if rec else "unknown",
                         "action": "failed",
                         "reason": "transition_error",
                         "trigger_reason": "transition_error",
-                        "previous_state": rec.state.value,
-                        "current_state": rec.state.value,
+                        "previous_state": getattr(getattr(rec, "state", None), "value", "unknown") if rec else "unknown",
+                        "current_state": getattr(getattr(rec, "state", None), "value", "unknown") if rec else "unknown",
                         "timestamp_iso": current_time.isoformat(),
                         "timestamp_ns": time.time_ns(),
                         "description": f"Reconciliation failed on {h}: {ex}",
@@ -855,6 +921,20 @@ class LifecycleManager:
                 return [e for e in self._audit_log if e.customer_hash == h]
             return list(self._audit_log)
 
+    def record_teardown_stage(self, customer_hash: str, stage: str) -> LifecycleRecord:
+        """Append a completed teardown stage (SLED-P3); a repeat call is a no-op."""
+        h = customer_hash.lower()
+        with self._acquire_lock():
+            if h not in self._records:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found")
+            rec = self._records[h]
+            if stage in rec.teardown_stages_completed:
+                return rec
+            updated = rec.model_copy(update={"teardown_stages_completed": [*rec.teardown_stages_completed, stage]})
+            self._records[h] = updated
+            logger.info("Teardown stage %s recorded for %s", stage, h)
+            return updated
+
 
 # ==============================================================================
 # Reaper Daemon (Background Worker)
@@ -890,7 +970,12 @@ class ReaperDaemon:
 
     @property
     def is_running(self) -> bool:
-        return self._is_running
+        """Derive liveness from task status and lifecycle state."""
+        if not self._is_running:
+            return False
+        if self._task is None or self._task.done():
+            return False
+        return True
 
     @property
     def is_paused(self) -> bool:
@@ -962,8 +1047,8 @@ class ReaperDaemon:
             eval_time_ns = time.time_ns()
 
             try:
-                # evaluate_reaping is synchronous and fast (sub-millisecond)
-                actions = self.lifecycle_manager.evaluate_reaping(now=eval_time)
+                # Offload evaluate_reaping from the event loop thread to worker threadpool
+                actions = await asyncio.to_thread(self.lifecycle_manager.evaluate_reaping, eval_time)
                 duration_ns = time.perf_counter_ns() - start_ns
                 duration_ms = duration_ns / 1_000_000.0
                 duration_sec = duration_ns / 1_000_000_000.0
@@ -1026,7 +1111,7 @@ class ReaperDaemon:
         rss_info = self.lifecycle_manager.watchdog.check_rss()
 
         return ReaperStatusResponse(
-            is_running=self._is_running,
+            is_running=self.is_running,
             is_paused=self._is_paused,
             cycle_count=self._cycle_count,
             last_run_at=self._last_run_at.isoformat() if self._last_run_at else None,
@@ -1218,9 +1303,13 @@ async def api_get_audit_events(
 
 
 @router.get("/metrics")
-async def api_get_lifecycle_metrics(_operator: Operator) -> Dict[str, Any]:
+async def api_get_lifecycle_metrics(_operator: Operator) -> Response:
     """Retrieve process-wide lifecycle and reaper telemetry (operator only: aggregates every tenant)."""
-    return GLOBAL_LIFECYCLE_MANAGER.metrics.get_metrics_summary()
+    metrics_text = GLOBAL_LIFECYCLE_MANAGER.metrics.render_openmetrics()
+    return Response(
+        content=metrics_text,
+        media_type="application/openmetrics-text; version=1.0.0; charset=utf-8",
+    )
 
 
 def install_environment_lifecycle_api(app: FastAPI) -> None:
@@ -1229,4 +1318,8 @@ def install_environment_lifecycle_api(app: FastAPI) -> None:
     The authentication dependency is attached at the mount (EAPR-P2-1, SP-5) so a
     route added to this router is denied by default rather than opt-in.
     """
+    from environment_teardown import teardown_router
+
     app.include_router(router, dependencies=[Depends(api_compat.authenticated_principal)])
+    app.include_router(teardown_router, dependencies=[Depends(api_compat.authenticated_principal)])
+

@@ -9,3 +9,4 @@ redis[hiredis]==5.0.8
 boto3==1.35.0
 azure-identity==1.17.1
 azure-storage-blob==12.22.0
+prometheus-client==0.20.0

@@ -56,7 +56,9 @@ class EnrollmentRequest(ClosedModel):
     credential_kind: Literal["existing-mtls-identity"]
     credential_scope: Literal["audit-upload-only"]
     credential_bootstrap: Literal["pre-provisioned-out-of-band"]
-    credential_reference: Annotated[str, Field(pattern=r"^spiffe://[A-Za-z0-9._~:/-]+$", max_length=512)]
+    credential_reference: Annotated[str, Field(pattern=r"^spiffe://[A-Za-z0-9._~:/-]+$", max_length=512)] | None = None
+    timestamp: Annotated[str, BeforeValidator(_datetime_string)] | None = None
+    tenant_id: SafeID | None = None
 
 class ProcessAttributes(ClosedModel):
     health_state: Literal["starting", "running", "stopped", "failed", "unknown"]
@@ -196,6 +198,7 @@ class EnrollmentResult(ClosedModel):
     credential_reference: Annotated[str, Field(pattern=r"^spiffe://[A-Za-z0-9._~:/-]+$", max_length=512)]
     credential_expires_at: Rfc3339Datetime
     revocation_endpoint: Annotated[str, Field(pattern=r"^/v1/external-agents/[a-z][a-z0-9-]{2,63}/revocations$", max_length=256)]
+    svid_path: Literal["csi-workload-api", "jwt-svid-fetch"] | None = None
 
 class UploadResult(ClosedModel):
     schema_version: Literal["1.0.0"]

@@ -20,10 +20,7 @@ from risk import install_risk_api
 from scenario_seeding import install_scenario_seeding_api
 from signal_fusion import install_signal_fusion_api
 from tenant_isolation import install_tenant_isolation_api
-from webhook_triggers import install_webhook_triggers_api
 from db.connection import close_db_pool, get_pool, init_db_pool
-
-logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -82,7 +79,6 @@ install_signal_fusion_api(app)
 install_coding_agent_telemetry_api(app)
 install_risk_api(app)
 install_environment_routing_api(app)
-install_webhook_triggers_api(app)
 install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)
 install_scenario_seeding_api(app)

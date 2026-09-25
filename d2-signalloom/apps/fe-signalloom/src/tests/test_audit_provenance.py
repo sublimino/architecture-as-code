@@ -809,12 +809,6 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
     ("environment_routing.py", "resolve_domain"): (
         "Resolves ingress domain mappings for evaluation environment mesh routing."
     ),
-    ("webhook_triggers.py", "generic_webhook_receiver"): (
-        "Ingests incoming external generic webhook trigger payloads with HMAC signature verification."
-    ),
-    ("webhook_triggers.py", "github_webhook_receiver"): (
-        "Ingests incoming GitHub Actions deployment trigger webhooks with cryptographic validation."
-    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate

@@ -250,6 +250,8 @@ All participating autonomous agents operating on the `EAPR` mission adhere to th
 | `2026-09-25T19:15:08Z` | `antigravity` | `SUPERVISOR_CYCLE_263` | Supervisor cycle 263 executed (streak 151, graph clean, 0 dirty). Task 15d5e (EAPR-P4-GOV) holding in_progress at proceed=no awaiting Andrew Martin human sign-off. |
 | `2026-09-25T19:20:08Z` | `antigravity` | `SUPERVISOR_CYCLE_264` | Supervisor cycle 264 executed (streak 152, graph clean, 0 dirty). Task 15d5e (EAPR-P4-GOV) holding in_progress at proceed=no awaiting Andrew Martin human sign-off. |
 | `2026-09-25T19:25:08Z` | `antigravity` | `SUPERVISOR_CYCLE_265` | Supervisor cycle 265 executed (streak 153, graph clean, 0 dirty). Task 15d5e (EAPR-P4-GOV) holding in_progress at proceed=no awaiting Andrew Martin human sign-off. |
+| `2026-09-25T19:38:00Z` | `antigravity` | `MISSION_COMPLETION` | Andrew Martin human review sign-off recorded (`APPROVED`). Errata tag updated to `proceed=yes`. Card 15d5e advanced to `done`. `completion-check` verified (25/25 cards done, 0 blocking, doctor clean, 100% test suites green). Mission EAPR officially certified and sealed. Supervisor cron terminated. |
+
 
 
 

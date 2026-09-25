@@ -3071,5 +3071,13 @@
     "verdict": "pass",
     "model": null,
     "reason": "Adversarial Council Review APPROVED across 4 lenses: D12 evidence-cited board re-audit completed across all 12 boards, tombstones appended for failing certificates (SLER-P5-GOV, STUN-P1-GOV, CRKC-P1..P4-GOV, SLON-P1..P3-GOV), 85 heuristic approvals re-verdicted (5 genuine executions approved, 80 withdrawn), scripts/eap/reaudit-boards.sh delivered, make test-eap-offline green (233 pytest, 10/10 BATS), commit f704e95e on branch EAPR-P4-2"
+  },
+  "28f30": {
+    "task_id": "28f30",
+    "reviewed_at": "2026-09-25T06:09:32.405Z",
+    "reviewer": "Council of Agents (adversarial-review)",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: D8 satisfiable governor criterion in Scaffold.md, tag-only sunset clause 2026-10-07 across 6 proposals, 20 governor sessions corroborated, SLED blockers flipped, SLTE re-scoped, bats 10/10 ok, doctor healthy, commit 0a752859"
   }
 }

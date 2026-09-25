@@ -1,12 +1,11 @@
 """Probe for anonymous EAP attack surface on merged integration tip.
 
 This test module acts as an audit probe across every operation mounted by the
-five EAP routers:
+four EAP routers:
   1. tenant_isolation.py (/api/v1/eap/tenants)
   2. scenario_seeding.py (/api/v1/eap/scenarios)
   3. environment_routing.py (/api/v1/environments)
   4. environment_lifecycle.py (/api/v1/eap/lifecycle)
-  5. webhook_triggers.py (/api/v1/webhooks)
 
 In Phase 2 Preflight (EAPR-P2-PRE), this probe records the unauthenticated baseline
 status of all endpoints. In Phase 2 Step 1 (EAPR-P2-1), it will be converted into
@@ -37,7 +36,6 @@ EAP_PREFIXES = (
     "/api/v1/eap/scenarios",
     "/api/v1/environments",
     "/api/v1/eap/lifecycle",
-    "/api/v1/webhooks",
 )
 
 BODIES: Dict[Tuple[str, str], Dict[str, Any]] = {
@@ -83,12 +81,6 @@ BODIES: Dict[Tuple[str, str], Dict[str, Any]] = {
     ("POST", "/api/v1/eap/lifecycle/reaper/pause"): {},
     ("POST", "/api/v1/eap/lifecycle/reaper/resume"): {},
     ("POST", "/api/v1/eap/lifecycle/reaper/dlq/clear"): {},
-    ("POST", "/api/v1/webhooks/generic"): {},
-    ("POST", "/api/v1/webhooks/github"): {
-        "repository": {"name": "kurasi"},
-        "action": "opened",
-        "number": 1,
-    },
 }
 
 

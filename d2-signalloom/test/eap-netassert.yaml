@@ -22,7 +22,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     k8sResource:
       kind: deployment
@@ -40,7 +40,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     k8sResource:
       kind: deployment
@@ -58,7 +58,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     k8sResource:
       kind: deployment
@@ -76,7 +76,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     k8sResource:
       kind: deployment
@@ -96,7 +96,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     k8sResource:
       kind: deployment
@@ -114,7 +114,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     k8sResource:
       kind: deployment
@@ -132,7 +132,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     k8sResource:
       kind: deployment
@@ -150,7 +150,7 @@
     k8sResource:
       kind: pod
       name: tenant-app
-      namespace: eap-6f82ad81
+      namespace: eap-a0314bec
   dst:
     host:
       name: 1.1.1.1

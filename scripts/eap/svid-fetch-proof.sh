@@ -7,8 +7,8 @@
 # ==============================================================================
 set -euo pipefail
 
-HASH="${1:-6f82ad81}"
-CUSTOMER="${2:-kurasi}"
+HASH="${1:-a0314bec}"
+CUSTOMER="${2:-kusari}"
 NS="eap-${HASH}"
 TRUST_DOMAIN="${SIGNAL_LOOM_TRUST_DOMAIN:-signalloom.demo}"
 EXPECTED_SPIFFE_ID="spiffe://${TRUST_DOMAIN}/ns/${NS}/sa/tenant-app"

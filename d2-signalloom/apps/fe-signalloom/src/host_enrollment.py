@@ -40,9 +40,9 @@ from tenant_isolation import generate_spire_registration_entry, get_tenant_spiff
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/external-agents", tags=["host-enrollment"], dependencies=[Depends(api_compat.authenticated_principal)])
-api_router = APIRouter(prefix="/api/v1/external-agents", tags=["host-enrollment-api"], dependencies=[Depends(api_compat.authenticated_principal)])
-compat_router = APIRouter(prefix="/api/external-agents", tags=["host-enrollment-compat"], dependencies=[Depends(api_compat.authenticated_principal)])
+router = APIRouter(prefix="/v1/external-agents", tags=["host-enrollment"])
+api_router = APIRouter(prefix="/api/v1/external-agents", tags=["host-enrollment-api"])
+compat_router = APIRouter(prefix="/api/external-agents", tags=["host-enrollment-compat"])
 
 BEARER_AUTH_REGEX = re.compile(r"^Bearer\s+([A-Za-z0-9_.-]{16,2048})$", re.IGNORECASE)
 
@@ -384,6 +384,7 @@ async def revoke_external_agent_for_host(
     return {
         "schema_version": "1.0.0",
         "status": "revoked",
+        "enrollment_status": "revoked",
         "revocation_state": "revocation-accepted",
         "agent_id": agent_id,
         "tenant_id": tenant_id,
@@ -447,6 +448,7 @@ async def issue_token_handler(
 
 async def revoke_agent_handler(
     agent_id: str,
+    body: dict[str, Any] | None = None,
     principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
 ) -> JSONResponse:
     """Revoke external agent registration, deleting SPIRE entry and setting revoked status."""
@@ -454,11 +456,15 @@ async def revoke_agent_handler(
     if not tenant_id:
         raise api_compat.APIError(401, "unauthenticated", "Authentication required")
 
+    reason = "operator_revocation"
+    if body and isinstance(body, dict):
+        reason = body.get("reason") or body.get("reason_code") or "operator_revocation"
+
     result = await revoke_external_agent_for_host(
         agent_id=agent_id,
         tenant_id=tenant_id,
         principal=principal,
-        reason="operator_revocation",
+        reason=reason,
     )
     return JSONResponse(status_code=200, content=result)
 

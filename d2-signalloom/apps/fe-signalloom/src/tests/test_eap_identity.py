@@ -12,6 +12,7 @@ from eap_contract import (
     SPIFFE_TRUST_DOMAIN,
     get_spiffe_trust_domain,
 )
+from environment_routing import derive_customer_hash
 from tenant_isolation import (
     get_tenant_namespace,
     get_tenant_spiffe_id,
@@ -21,6 +22,10 @@ from tenant_isolation import (
     generate_tenant_pod_manifest,
     generate_namespace_manifest,
 )
+
+KUSARI = "kusari"
+KUSARI_HASH = derive_customer_hash(KUSARI)
+KUSARI_NS = f"eap-{KUSARI_HASH}"
 
 
 def test_trust_domain_matches_cluster():
@@ -43,20 +48,20 @@ def test_trust_domain_matches_cluster():
 
 def test_spiffe_id_generation_and_spire_entry():
     """Verify tenant SPIFFE ID and SPIRE registration parent_id use signalloom.demo."""
-    customer_hash = "6f82ad81"
+    customer_hash = KUSARI_HASH
     spiffe_id = get_tenant_spiffe_id(customer_hash)
-    assert spiffe_id == "spiffe://signalloom.demo/ns/eap-6f82ad81/sa/tenant-app"
+    assert spiffe_id == f"spiffe://signalloom.demo/ns/{KUSARI_NS}/sa/tenant-app"
 
     entry = generate_spire_registration_entry(customer_hash)
-    assert entry["spiffe_id"] == "spiffe://signalloom.demo/ns/eap-6f82ad81/sa/tenant-app"
+    assert entry["spiffe_id"] == f"spiffe://signalloom.demo/ns/{KUSARI_NS}/sa/tenant-app"
     assert entry["parent_id"] == "spiffe://signalloom.demo/spire/agent/k8s-node"
-    assert entry["selectors"] == ["k8s:ns:eap-6f82ad81", "k8s:sa:tenant-app"]
+    assert entry["selectors"] == [f"k8s:ns:{KUSARI_NS}", "k8s:sa:tenant-app"]
     assert entry["ttl"] == 3600
 
 
 def test_network_policy_inf_bao_and_ports():
     """Verify network policy egress targets inf-bao with SPIRE and OpenBao ports."""
-    policy = generate_network_policy_manifest("6f82ad81")
+    policy = generate_network_policy_manifest(KUSARI_HASH)
     egress_rules = policy["spec"]["egress"]
 
     egress_namespaces = []
@@ -82,20 +87,20 @@ def test_network_policy_inf_bao_and_ports():
 
 def test_openbao_ingress_policy():
     """Verify OpenBao ingress policy admits tenant traffic on OPENBAO_PORT in inf-bao."""
-    np = generate_openbao_ingress_policy("6f82ad81")
-    assert np["metadata"]["name"] == "allow-eap-6f82ad81-to-openbao"
+    np = generate_openbao_ingress_policy(KUSARI_HASH)
+    assert np["metadata"]["name"] == f"allow-{KUSARI_NS}-to-openbao"
     assert np["metadata"]["namespace"] == "inf-bao"
     assert np["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/name"] == "openbao"
 
     ingress_rule = np["spec"]["ingress"][0]
     from_ns = ingress_rule["from"][0]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
-    assert from_ns == "eap-6f82ad81"
+    assert from_ns == KUSARI_NS
     assert ingress_rule["ports"][0]["port"] == 8200
 
 
 def test_tenant_pod_csi_volume_and_no_hostpath():
     """Verify tenant pod spec utilizes SPIFFE CSI ephemeral volume without any hostPath."""
-    pod = generate_tenant_pod_manifest("6f82ad81")
+    pod = generate_tenant_pod_manifest(KUSARI_HASH)
     volumes = pod["spec"]["volumes"]
     assert len(volumes) == 1
     assert "csi" in volumes[0]
@@ -122,7 +127,7 @@ def test_tenant_pod_csi_volume_and_no_hostpath():
 
 def test_namespace_pss_labels():
     """Verify tenant namespace manifest sets enforce, warn, and audit to restricted."""
-    ns = generate_namespace_manifest("kurasi", "6f82ad81")
+    ns = generate_namespace_manifest(KUSARI, KUSARI_HASH)
     labels = ns["metadata"]["labels"]
     assert labels["pod-security.kubernetes.io/enforce"] == "restricted"
     assert labels["pod-security.kubernetes.io/warn"] == "restricted"

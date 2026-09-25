@@ -98,19 +98,19 @@ teardown_again="$("$BIN" teardown kusari)"
 assert_contains "Repeated teardown is idempotent" "$teardown_again" "cleared cleanly"
 
 # 9. Test teardown addressed by customer hash (SLED-P3-1 Stage 2 contract)
-"$BIN" provision kurasi >/dev/null
-"$BIN" serve kurasi >/dev/null
-"$BIN" funnel kurasi >/dev/null
+"$BIN" provision kusari >/dev/null
+"$BIN" serve kusari >/dev/null
+"$BIN" funnel kusari >/dev/null
 assert_eq "Serve+funnel mock files exist before hash teardown" \
-  "$([[ -f "$TEST_MOCK_DIR/sl-eap-6f82ad81/serve.json" && -f "$TEST_MOCK_DIR/sl-eap-6f82ad81/funnel.json" ]] && echo yes)" "yes"
-hash_out="$("$BIN" teardown --hash 6f82ad81)"
-assert_contains "Hash teardown names the node" "$hash_out" "sl-eap-6f82ad81"
+  "$([[ -f "$TEST_MOCK_DIR/sl-eap-$EXPECTED_HASH/serve.json" && -f "$TEST_MOCK_DIR/sl-eap-$EXPECTED_HASH/funnel.json" ]] && echo yes)" "yes"
+hash_out="$("$BIN" teardown --hash "$EXPECTED_HASH")"
+assert_contains "Hash teardown names the node" "$hash_out" "sl-eap-$EXPECTED_HASH"
 assert_eq "Hash teardown purges serve/funnel state" \
-  "$([[ -d "$TEST_MOCK_DIR/sl-eap-6f82ad81" ]] && echo yes || echo no)" "no"
-hash_again="$("$BIN" teardown --hash 6f82ad81)"
+  "$([[ -d "$TEST_MOCK_DIR/sl-eap-$EXPECTED_HASH" ]] && echo yes || echo no)" "no"
+hash_again="$("$BIN" teardown --hash "$EXPECTED_HASH")"
 assert_contains "Repeated hash teardown is idempotent" "$hash_again" "cleared cleanly"
 assert_eq "Status reports node gone after eviction" \
-  "$("$BIN" status kurasi | grep -c NotProvisioned)" "1"
+  "$("$BIN" status kusari | grep -c NotProvisioned)" "1"
 
 # 10. Malformed hash is rejected with exit 2, never mapped to a node
 set +e

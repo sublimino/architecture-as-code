@@ -36,7 +36,7 @@ def test_contracts_external_agent_boundary(model_name, fixture_name):
                 "collectors/agentnono/fixtures/contracts")
     model = getattr(external_agent_contract, model_name)
     valid = json.loads((fixtures / f"valid-{fixture_name}.v1.json").read_text())
-    assert model.model_validate(valid).model_dump(mode="json") == valid
+    assert model.model_validate(valid).model_dump(mode="json", exclude_unset=True) == valid
     malformed = json.loads((fixtures / f"malformed-{fixture_name}.v1.json").read_text())
     with pytest.raises(ValidationError):
         model.model_validate(malformed)

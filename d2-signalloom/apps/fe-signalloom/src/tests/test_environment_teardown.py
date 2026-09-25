@@ -39,8 +39,10 @@ from environment_teardown import (
     sever_ingress_routes,
 )
 
-H = "6f82ad81"          # derive_customer_hash("kurasi") with the default salt
-OTHER = "4b53ab6b"      # derive_customer_hash("kusari") — must survive H's teardown
+from environment_routing import derive_customer_hash
+KUSARI = "kusari"
+H = derive_customer_hash(KUSARI)
+OTHER = derive_customer_hash("other-tenant")
 SRC = Path(__file__).resolve().parents[1]
 
 FAKE_KUBECTL = textwrap.dedent(r'''
@@ -116,7 +118,7 @@ def tsmock(tmp_path, monkeypatch):
     monkeypatch.delenv("SIGNALLOOM_TAILSCALE_EAP_SCRIPT", raising=False)
     env = {**os.environ, "TAILSCALE_MOCK": "1", "TAILSCALE_MOCK_DIR": str(mdir)}
     for cmd in ("provision", "serve", "funnel"):
-        subprocess.run(["bash", str(DEFAULT_TAILSCALE_SCRIPT), cmd, "kurasi"], env=env, check=True,
+        subprocess.run(["bash", str(DEFAULT_TAILSCALE_SCRIPT), cmd, KUSARI], env=env, check=True,
                        capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
     node = mdir / f"sl-eap-{H}"
     assert (node / "serve.json").is_file() and (node / "funnel.json").is_file()
@@ -255,7 +257,7 @@ def test_stage2_is_idempotent_and_handles_absent_node(tsmock):
 
 def test_stage2_only_evicts_the_named_customer(tsmock, monkeypatch):
     env = {**os.environ, "TAILSCALE_MOCK": "1"}
-    subprocess.run(["bash", str(DEFAULT_TAILSCALE_SCRIPT), "provision", "kusari"], env=env, check=True,
+    subprocess.run(["bash", str(DEFAULT_TAILSCALE_SCRIPT), "provision", "other-tenant"], env=env, check=True,
                    capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
     other = tsmock.parent / f"sl-eap-{OTHER}"
     assert other.is_dir()
@@ -270,7 +272,7 @@ def test_stage2_defaults_to_mock_even_with_tailscale_installed(tmp_path, monkeyp
     monkeypatch.delenv("SIGNALLOOM_EAP_TAILSCALE_LIVE", raising=False)
     monkeypatch.setenv("TAILSCALE_MOCK", "0")   # an ambient 0 must not leak through
     res = evict_tailscale_node(H, script=str(spy), mock_dir=str(tmp_path / "m"))
-    assert res.mode == "mock" and "TAILSCALE_MOCK=1 args=teardown --hash 6f82ad81" in res.detail
+    assert res.mode == "mock" and f"TAILSCALE_MOCK=1 args=teardown --hash {H}" in res.detail
     monkeypatch.setenv("SIGNALLOOM_EAP_TAILSCALE_LIVE", "1")
     live = evict_tailscale_node(H, script=str(spy))
     assert live.mode == "live" and "TAILSCALE_MOCK=0" in live.detail
@@ -295,7 +297,7 @@ def test_stage2_timeout_is_bounded(tmp_path, monkeypatch):
     assert time.monotonic() - t0 < 3.0
 
 
-@pytest.mark.parametrize("bad", ["", "6F82AD8", "6f82ad8g", "../../etc", "6f82ad81; rm -rf /"])
+@pytest.mark.parametrize("bad", ["", "A0314BE", "a0314beg", "../../etc", f"{H}; rm -rf /"])
 def test_helpers_reject_malformed_hashes(bad):
     with pytest.raises(ValueError):
         sever_ingress_routes(bad)
@@ -309,7 +311,7 @@ def test_helpers_reject_malformed_hashes(bad):
 
 def _draining_manager():
     mgr = LifecycleManager()
-    mgr.register_environment("kurasi")
+    mgr.register_environment(KUSARI)
     mgr.transition_state(H, EnvironmentLifecycleState.ACTIVE)
     mgr.transition_state(H, EnvironmentLifecycleState.DRAINING, reason="ttl_expired")
     eap_tenancy.GLOBAL_TENANT_OWNERSHIP.claim(H, EAP_TENANT_A)
@@ -326,7 +328,7 @@ def test_pipeline_records_both_stages_and_emits_audit(kube, tsmock):
                 "current_state", "trigger_reason", "operator_or_system_id"}
     for e in events:
         assert required <= set(e)
-        assert e["customer_hash"] == H and e["company_name"] == "kurasi"
+        assert e["customer_hash"] == H and e["company_name"] == KUSARI
         assert e["previous_state"] == "draining" and e["operator_or_system_id"] == td.SYSTEM_ACTOR
     assert len({e["event_id"] for e in events}) == 2
 
@@ -401,14 +403,14 @@ def api(kube, tsmock):
 
 
 def test_api_refuses_teardown_of_active_environment(api, tsmock):
-    GLOBAL_LIFECYCLE_MANAGER.register_environment("kurasi")
+    GLOBAL_LIFECYCLE_MANAGER.register_environment(KUSARI)
     GLOBAL_LIFECYCLE_MANAGER.transition_state(H, EnvironmentLifecycleState.ACTIVE)
     r = api.post(f"/api/v1/eap/lifecycle/environments/{H}/teardown/network")
     assert r.status_code == 409 and tsmock.exists()
 
 
 def test_api_tears_down_draining_environment(api, kube, tsmock):
-    GLOBAL_LIFECYCLE_MANAGER.register_environment("kurasi")
+    GLOBAL_LIFECYCLE_MANAGER.register_environment(KUSARI)
     GLOBAL_LIFECYCLE_MANAGER.transition_state(H, EnvironmentLifecycleState.DRAINING, reason="idle_timeout")
     r = api.post(f"/api/v1/eap/lifecycle/environments/{H}/teardown/network")
     assert r.status_code == 200, r.text
@@ -446,7 +448,7 @@ def test_cli_full_teardown_json(kube, tsmock):
 
 
 def test_cli_company_derives_canonical_hash(kube, tsmock):
-    p = _cli("teardown", "--company", "Kurasi", "--stages", "tailscale", "--json")
+    p = _cli("teardown", "--company", "Kusari", "--stages", "tailscale", "--json")
     assert p.returncode == 0, p.stderr
     assert json.loads(p.stdout)["customer_hash"] == H and not tsmock.exists()
 
@@ -460,7 +462,7 @@ def test_cli_stage_failure_exits_1(kube, tsmock):
 @pytest.mark.parametrize("args", [
     ("teardown",),
     ("teardown", "--hash", "XYZ"),
-    ("teardown", "--hash", H, "--company", "kurasi"),
+    ("teardown", "--hash", H, "--company", KUSARI),
     ("teardown", "--hash", H, "--stages", "dns"),
     ("teardown", "--hash", H, "--timeout", "0"),
 ])

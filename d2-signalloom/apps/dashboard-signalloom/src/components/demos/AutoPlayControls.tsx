@@ -285,28 +285,78 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
   return (
     <div
       data-testid="autoplay-controls"
-      className={`p-4 bg-[var(--surface)] border border-[var(--border)] rounded-lg space-y-3.5 shadow-sm ${className}`}
+      className={`card ${className}`}
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: '14px 18px',
+        marginBottom: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+      }}
     >
       {/* Top Header Row: Title, Mode Indicator Badge */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)]/60 pb-3">
-        <div className="flex items-center gap-2.5">
-          <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--cyan)]">
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          borderBottom: '1px solid var(--border)',
+          paddingBottom: 10,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--cyan)',
+            }}
+          >
             Auto-Play & Estate Control
           </span>
-          <span className="text-xs font-mono text-[var(--muted)]">
-            • Dwell-AND-Confirmation Gate
+          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--muted)' }}>
+            • Dual-Lock Async Gate
           </span>
         </div>
 
-        {/* Visible 3-Way Mode Indicator: Running vs Halted on Rejection vs Manual */}
-        <div className="flex items-center gap-2">
+        {/* Visible 3-Way Mode Indicator: Running vs Halted on Rejection vs Manual vs Completed */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {status === 'running' && (
             <span
               data-testid="autoplay-mode-indicator"
               data-mode="running"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-semibold bg-[var(--cyan)]/20 text-[var(--cyan)] border border-[var(--cyan)]/40 animate-pulse"
+              className="tag"
+              style={{
+                background: 'rgba(6, 182, 212, 0.15)',
+                color: 'var(--cyan)',
+                border: '1px solid rgba(6, 182, 212, 0.4)',
+                fontSize: 10,
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                letterSpacing: '0.05em',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+              }}
             >
-              <span className="w-2 h-2 rounded-full bg-[var(--cyan)] animate-ping" />
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'var(--cyan)',
+                  boxShadow: '0 0 8px var(--cyan)',
+                }}
+              />
               AUTO-PLAY RUNNING ({pacing.toUpperCase()})
             </span>
           )}
@@ -315,9 +365,29 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
             <span
               data-testid="autoplay-mode-indicator"
               data-mode="halted"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-semibold bg-[var(--error)]/20 text-[var(--error)] border border-[var(--error)]/50"
+              className="tag"
+              style={{
+                background: 'rgba(220, 38, 38, 0.15)',
+                color: 'var(--error)',
+                border: '1px solid rgba(220, 38, 38, 0.4)',
+                fontSize: 10,
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                letterSpacing: '0.05em',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+              }}
             >
-              <span className="w-2 h-2 rounded-full bg-[var(--error)]" />
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'var(--error)',
+                }}
+              />
               AUTO-PLAY HALTED ON REJECTION
             </span>
           )}
@@ -326,9 +396,29 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
             <span
               data-testid="autoplay-mode-indicator"
               data-mode="manual"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-medium bg-[var(--surface2)] text-[var(--muted)] border border-[var(--border)]"
+              className="tag"
+              style={{
+                background: 'var(--surface2)',
+                color: 'var(--muted)',
+                border: '1px solid var(--border)',
+                fontSize: 10,
+                fontFamily: 'monospace',
+                fontWeight: 500,
+                letterSpacing: '0.05em',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+              }}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted)]" />
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'var(--muted)',
+                }}
+              />
               MANUAL STEPPING
             </span>
           )}
@@ -337,9 +427,30 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
             <span
               data-testid="autoplay-mode-indicator"
               data-mode="completed"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-semibold bg-[var(--teal)]/20 text-[var(--teal)] border border-[var(--teal)]/40"
+              className="tag"
+              style={{
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: 'var(--teal)',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                fontSize: 10,
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                letterSpacing: '0.05em',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+              }}
             >
-              <span className="w-2 h-2 rounded-full bg-[var(--teal)]" />
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'var(--teal)',
+                  boxShadow: '0 0 6px var(--teal)',
+                }}
+              />
               AUTO-PLAY COMPLETED
             </span>
           )}
@@ -347,10 +458,18 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
       </div>
 
       {/* Main Controls Row: Auto-Play Start/Stop, 3-Speed Toggle, Reset Estate */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Left Side: Auto-Play Toggle & Speed Switcher */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Auto-Play Start / Stop Button */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        {/* Left Side: Auto-Play Start/Stop Button & Speed Switcher */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {/* Start / Stop Button */}
           <button
             type="button"
             data-testid="autoplay-toggle-button"
@@ -358,40 +477,60 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
             aria-label={status === 'running' ? 'Pause Auto-Play' : 'Start Auto-Play'}
             disabled={disabled}
             onClick={handleToggleAutoPlay}
-            className={`btn ps-3.5 pe-4 py-1.5 text-xs sm:text-sm font-semibold rounded transition-all flex items-center gap-2 ${
-              status === 'running'
-                ? 'bg-[var(--error)]/15 text-[var(--error)] border border-[var(--error)]/40 hover:bg-[var(--error)]/25'
-                : 'btn-primary bg-[var(--cyan)] text-[var(--bg)] hover:brightness-110'
-            }`}
+            className={`btn ps-3.5 pe-4 ${status === 'running' ? 'btn-danger' : 'btn-primary'}`}
+            style={{
+              padding: '7px 16px',
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: 'inherit',
+              borderRadius: 4,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.5 : 1,
+              background: status === 'running' ? 'rgba(220, 38, 38, 0.15)' : 'var(--cyan)',
+              color: status === 'running' ? 'var(--error)' : 'var(--bg)',
+              border: status === 'running' ? '1px solid rgba(220, 38, 38, 0.4)' : '1px solid transparent',
+              transition: 'all 0.15s ease-in-out',
+            }}
           >
             {status === 'running' ? (
-              <>
-                <span data-testid="autoplay-stop-button" className="inline-flex items-center gap-1.5">
-                  <svg aria-hidden="true" className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                    <rect x="6" y="4" width="4" height="16" />
-                    <rect x="14" y="4" width="4" height="16" />
-                  </svg>
-                  Stop Auto-Play
-                </span>
-              </>
+              <span data-testid="autoplay-stop-button" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <svg aria-hidden="true" style={{ width: 12, height: 12, fill: 'currentColor' }} viewBox="0 0 24 24">
+                  <rect x="6" y="4" width="4" height="16" />
+                  <rect x="14" y="4" width="4" height="16" />
+                </svg>
+                <span>Stop Auto-Play</span>
+              </span>
             ) : (
-              <>
-                <span data-testid="autoplay-start-button" className="inline-flex items-center gap-1.5">
-                  <svg aria-hidden="true" className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" style={{ transform: 'translateX(1.5px)' }}>
-                    <polygon points="5,3 19,12 5,21" />
-                  </svg>
-                  {isLastStageConfirmed ? 'Restart Auto-Play' : 'Start Auto-Play'}
-                </span>
-              </>
+              <span data-testid="autoplay-start-button" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <svg
+                  aria-hidden="true"
+                  style={{ width: 12, height: 12, fill: 'currentColor', transform: 'translateX(1.5px)' }}
+                  viewBox="0 0 24 24"
+                >
+                  <polygon points="5,3 19,12 5,21" />
+                </svg>
+                <span>{isLastStageConfirmed ? 'Restart Auto-Play' : 'Start Auto-Play'}</span>
+              </span>
             )}
           </button>
 
-          {/* Three Speed Toggles: 1x (4s), 2x (2s), instant (100ms) */}
+          {/* Segmented Speed Selector: 1x (4s), 2x (2s), instant (100ms) */}
           <div
             data-testid="autoplay-speed-toggle"
             role="radiogroup"
             aria-label="Auto-Play Speed Toggle"
-            className="inline-flex rounded-md border border-[var(--border)] bg-[var(--bg)] p-0.5"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              background: 'var(--bg)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 2,
+              gap: 2,
+            }}
           >
             {(['1x', '2x', 'instant'] as const).map((spd) => {
               const isActive = pacing === spd
@@ -409,14 +548,34 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
                   data-static="true"
                   disabled={disabled}
                   onClick={() => handleSpeedSelect(spd)}
-                  className={`px-2.5 py-1 text-xs font-mono font-medium rounded transition-all ${
-                    isActive
-                      ? 'bg-[var(--cyan)] text-[var(--bg)] font-bold shadow-sm'
-                      : 'text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface2)]'
-                  }`}
+                  style={{
+                    padding: '5px 12px',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    fontWeight: isActive ? 700 : 500,
+                    borderRadius: 4,
+                    border: isActive ? '1px solid rgba(6, 182, 212, 0.4)' : '1px solid transparent',
+                    background: isActive ? 'var(--surface2)' : 'transparent',
+                    color: isActive ? 'var(--cyan)' : 'var(--muted)',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s ease-in-out',
+                    boxShadow: isActive ? '0 1px 3px rgba(0, 0, 0, 0.25)' : 'none',
+                  }}
                   title={`${spd} speed (${dwellLabel} dwell minimum floor per stage)`}
                 >
-                  {spd} <span className="opacity-75 text-[10px]">({dwellLabel})</span>
+                  <span>{spd}</span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      opacity: isActive ? 0.9 : 0.6,
+                      color: isActive ? 'var(--cyan)' : 'var(--muted)',
+                    }}
+                  >
+                    ({dwellLabel})
+                  </span>
                 </button>
               )
             })}
@@ -424,18 +583,33 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
         </div>
 
         {/* Right Side: Idempotent Reset Estate */}
-        <div className="flex items-center gap-2">
+        <div>
           <button
             type="button"
             data-testid="autoplay-reset-estate-button"
             data-reset-btn="true"
             aria-label="Reset demo estate to initial baseline"
             onClick={handleResetEstate}
-            className="btn ps-2.5 pe-3.5 py-1.5 text-xs font-mono font-semibold rounded text-[var(--error)] border border-[var(--error)]/30 hover:bg-[var(--error)]/10 transition-all flex items-center gap-1.5"
+            className="btn btn-secondary ps-2.5 pe-3.5"
+            style={{
+              padding: '7px 14px',
+              fontSize: 12,
+              fontFamily: 'monospace',
+              fontWeight: 600,
+              borderRadius: 4,
+              border: '1px solid var(--border)',
+              background: 'var(--surface2)',
+              color: 'var(--muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease-in-out',
+            }}
           >
             <svg
               aria-hidden="true"
-              className="w-3.5 h-3.5"
+              style={{ width: 13, height: 13, color: 'var(--muted)' }}
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
@@ -447,7 +621,7 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
               />
             </svg>
-            Reset Estate
+            <span>Reset Estate</span>
           </button>
         </div>
       </div>
@@ -457,34 +631,79 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
         <div
           data-testid="autoplay-halted-banner"
           role="alert"
-          className="p-3 bg-[var(--error)]/10 border border-[var(--error)]/30 rounded-lg flex flex-wrap items-center justify-between gap-3 text-xs"
+          style={{
+            padding: '12px 16px',
+            background: 'rgba(220, 38, 38, 0.08)',
+            border: '1px solid rgba(220, 38, 38, 0.3)',
+            borderRadius: 6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginTop: 4,
+          }}
         >
-          <div className="space-y-0.5">
-            <div className="font-semibold text-[var(--error)] flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--error)]" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--error)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--error)' }} />
               <span>
                 Stage {haltedStage ? STAGE_METADATA[haltedStage].stepNumber : ''} Verification
                 Rejected — Auto-Play Halted
               </span>
             </div>
-            <p data-testid="autoplay-error-message" className="text-[var(--muted)] font-mono">
+            <p
+              data-testid="autoplay-error-message"
+              style={{
+                margin: 0,
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: 'var(--muted)',
+              }}
+            >
               {haltReason || 'Stage confirmation condition not satisfied.'}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               type="button"
               data-testid="autoplay-retry-button"
               onClick={handleRetryHalted}
-              className="btn px-3 py-1 text-xs font-semibold rounded bg-[var(--error)]/20 text-[var(--error)] hover:bg-[var(--error)]/30 border border-[var(--error)]/40 transition-all"
+              className="btn"
+              style={{
+                padding: '4px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 4,
+                background: 'rgba(220, 38, 38, 0.2)',
+                color: 'var(--error)',
+                border: '1px solid rgba(220, 38, 38, 0.4)',
+                cursor: 'pointer',
+              }}
             >
               Retry Stage
             </button>
             <button
               type="button"
               onClick={handleResetEstate}
-              className="btn px-3 py-1 text-xs font-medium rounded text-[var(--muted)] hover:text-[var(--text)] transition-all"
+              className="btn btn-secondary"
+              style={{
+                padding: '4px 10px',
+                fontSize: 11,
+                fontWeight: 500,
+                borderRadius: 4,
+                cursor: 'pointer',
+              }}
             >
               Reset Estate
             </button>

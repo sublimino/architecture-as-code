@@ -600,6 +600,82 @@ test.describe("AgentMaxxing demo console — mock channel", () => {
     await expect(page.getByText("AgentMaxxing Interactive Demo Console")).toBeVisible();
     await expect(page.getByTestId("execution-log-stream-slot")).toBeVisible();
   });
+
+  test("renders preset switcher, landlock path policy inspector, and attestation bundle export", async ({
+    page,
+  }) => {
+    // Preset switcher rendered and interactive
+    await expect(page.getByTestId("preset-switcher")).toBeVisible();
+    await expect(page.getByTestId("preset-option-amxd-demo-happy-path")).toBeVisible();
+    await expect(page.getByTestId("preset-option-amxd-demo-tamper-breach")).toBeVisible();
+    await expect(page.getByTestId("preset-option-amxd-demo-revocation-race")).toBeVisible();
+
+    // Attestation bundle export rendered
+    await expect(page.getByTestId("attestation-bundle-export")).toBeVisible();
+    await expect(page.getByTestId("attestation-download-btn")).toBeVisible();
+    await expect(page.getByTestId("attestation-copy-btn")).toBeVisible();
+
+    // Toggle attestation JSON statement
+    await page.getByTestId("attestation-preview-toggle").click();
+    await expect(page.getByTestId("attestation-json-preview")).toBeVisible();
+    await page.getByTestId("attestation-preview-toggle").click();
+    await expect(page.getByTestId("attestation-json-preview")).toBeHidden();
+
+    // Advance to Stage 3 to verify Landlock LSM Path Policy Inspector
+    await page.getByTestId("stepper-advance-button").click();
+    await expect(page.getByTestId("stage-panel-host_enrolled")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("stepper-advance-button").click();
+    await expect(page.getByTestId("stage-panel-confinement_streaming")).toBeVisible({ timeout: 15_000 });
+
+    await expect(page.getByTestId("landlock-policy-inspector")).toBeVisible();
+    const inspectorTable = page.getByTestId("landlock-policy-inspector-table");
+    await expect(inspectorTable).toBeVisible();
+    await expect(inspectorTable.getByText("/home/*/.ssh")).toBeVisible();
+    await expect(inspectorTable.getByText("/var/run/docker.sock")).toBeVisible();
+  });
+
+  test("captures verified full-page screenshots of agentmaxxing demo console", async ({
+    page,
+  }) => {
+    const outDir = "/home/andy/.gemini/antigravity-cli/brain/91263899-a979-428c-82e9-14039c9e2517";
+
+    // Hide any fixed bottom right floating badges (theme toggle / demo badge) for clean screenshots
+    await page.addStyleTag({
+      content: '[style*="position: fixed"], [class*="fixed"] { display: none !important; }',
+    });
+
+    // Screenshot 1: Stage 1 overview
+    await expect(page.getByTestId("agentmaxxing-demo-page")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("preset-switcher")).toBeVisible();
+    await expect(page.getByTestId("autoplay-controls")).toBeVisible();
+    await expect(page.getByTestId("attestation-bundle-export")).toBeVisible();
+    await page.screenshot({ path: `${outDir}/agentmaxxing_stage1_overview.png`, fullPage: false });
+
+    // Advance to Stage 2
+    await page.getByTestId("stepper-advance-button").click();
+    await expect(page.getByTestId("stage-panel-host_enrolled")).toBeVisible({ timeout: 15_000 });
+
+    // Advance to Stage 3
+    await page.getByTestId("stepper-advance-button").click();
+    await expect(page.getByTestId("stage-panel-confinement_streaming")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("landlock-policy-inspector")).toBeVisible();
+
+    // Toggle attestation JSON preview open to display full cryptographic evidence
+    await page.getByTestId("attestation-preview-toggle").click();
+    await expect(page.getByTestId("attestation-json-preview")).toBeVisible();
+
+    // Scroll Landlock Policy Inspector into view
+    await page.getByTestId("landlock-policy-inspector").scrollIntoViewIfNeeded();
+
+    // Screenshot 2: Stage 3 with Landlock LSM Path Policy Inspector & Cryptographic Payload
+    await page.screenshot({ path: `${outDir}/agentmaxxing_stage3_landlock.png`, fullPage: false });
+
+    // Scroll Attestation Bundle Export into view
+    await page.getByTestId("attestation-bundle-export").scrollIntoViewIfNeeded();
+
+    // Screenshot 3: Attestation Bundle Export with in-toto Statement v1
+    await page.screenshot({ path: `${outDir}/agentmaxxing_attestation_bundle.png`, fullPage: false });
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

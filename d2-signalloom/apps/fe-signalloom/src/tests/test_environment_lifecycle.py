@@ -28,6 +28,7 @@ from environment_lifecycle import (
     GLOBAL_LIFECYCLE_MANAGER,
     GLOBAL_REAPER_DAEMON,
 )
+from environment_routing import derive_customer_hash
 from main import app
 from conftest import EAP_OPERATOR, EAPClient, eap_bearer
 
@@ -36,14 +37,17 @@ from conftest import EAP_OPERATOR, EAPClient, eap_bearer
 EAP_AUTHENTICATED = True
 client = EAPClient(app)
 
+KUSARI = "kusari"
+KUSARI_HASH = derive_customer_hash(KUSARI)
+
 
 def test_lifecycle_registration_defaults():
     """Verify environment registration sets canonical TTL and 8h ceiling."""
     mgr = LifecycleManager()
-    rec = mgr.register_environment("kurasi")
+    rec = mgr.register_environment(KUSARI)
 
-    assert rec.customer_hash == "6f82ad81"
-    assert rec.company_name == "kurasi"
+    assert rec.customer_hash == KUSARI_HASH
+    assert rec.company_name == KUSARI
     assert rec.state == EnvironmentLifecycleState.PROVISIONING
     assert rec.ttl_remaining_seconds > 0
     # Remaining seconds should be approximately 120 * 60 = 7200
@@ -55,83 +59,83 @@ def test_lifecycle_registration_defaults():
 def test_lifecycle_state_transitions():
     """Verify state transition graph allows valid sequence and rejects invalid jumps."""
     mgr = LifecycleManager()
-    rec = mgr.register_environment("kurasi")
+    rec = mgr.register_environment(KUSARI)
 
     # PROVISIONING -> WARMING
-    w = mgr.transition_state("6f82ad81", EnvironmentLifecycleState.WARMING)
+    w = mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.WARMING)
     assert w.state == EnvironmentLifecycleState.WARMING
 
     # WARMING -> ACTIVE
-    a = mgr.transition_state("6f82ad81", EnvironmentLifecycleState.ACTIVE)
+    a = mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.ACTIVE)
     assert a.state == EnvironmentLifecycleState.ACTIVE
 
     # ACTIVE -> DRAINING
-    d = mgr.transition_state("6f82ad81", EnvironmentLifecycleState.DRAINING, reason="test_reap")
+    d = mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.DRAINING, reason="test_reap")
     assert d.state == EnvironmentLifecycleState.DRAINING
     assert d.grace_period_expires_at is not None
 
     # Invalid jump: DRAINING -> ACTIVE should fail with 400
     with pytest.raises(Exception) as exc:
-        mgr.transition_state("6f82ad81", EnvironmentLifecycleState.ACTIVE)
+        mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.ACTIVE)
     assert "Invalid lifecycle transition" in str(exc.value)
 
     # DRAINING -> TERMINATED
-    t = mgr.transition_state("6f82ad81", EnvironmentLifecycleState.TERMINATED)
+    t = mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.TERMINATED)
     assert t.state == EnvironmentLifecycleState.TERMINATED
 
 
 def test_heartbeat_lease_extension_and_ceiling():
     """Verify heartbeat extends lease time but strictly respects the 8-hour cap."""
     mgr = LifecycleManager()
-    mgr.register_environment("kurasi", ttl_minutes=60)
-    mgr.transition_state("6f82ad81", EnvironmentLifecycleState.ACTIVE)
+    mgr.register_environment(KUSARI, ttl_minutes=60)
+    mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.ACTIVE)
 
     # Extend by 60 minutes
-    resp = mgr.record_heartbeat("6f82ad81", extend_minutes=60)
+    resp = mgr.record_heartbeat(KUSARI_HASH, extend_minutes=60)
     assert resp.extended is True
     assert 7000 <= resp.ttl_remaining_seconds <= 7200
 
     # Attempt massive 1000m extension (should be bounded by max_lifetime_expires_at)
-    resp2 = mgr.record_heartbeat("6f82ad81", extend_minutes=240)
-    rec = mgr.get_lifecycle("6f82ad81")
+    resp2 = mgr.record_heartbeat(KUSARI_HASH, extend_minutes=240)
+    rec = mgr.get_lifecycle(KUSARI_HASH)
     assert rec.expires_at <= rec.max_lifetime_expires_at
 
 
 def test_activity_touch_resets_idle():
     """Verify activity touch updates last_activity_at timestamp."""
     mgr = LifecycleManager()
-    rec = mgr.register_environment("kurasi")
+    rec = mgr.register_environment(KUSARI)
     initial_activity = rec.last_activity_at
 
     # Simulate activity 5 seconds later
-    updated = mgr.record_activity("6f82ad81", source="ingress_test")
+    updated = mgr.record_activity(KUSARI_HASH, source="ingress_test")
     assert updated.last_activity_at >= initial_activity
 
 
 def test_evaluate_reaping_ttl_expiration():
     """Verify reaping pass moves expired environment to DRAINING."""
     mgr = LifecycleManager()
-    rec = mgr.register_environment("kurasi", ttl_minutes=60)
-    mgr.transition_state("6f82ad81", EnvironmentLifecycleState.ACTIVE)
+    rec = mgr.register_environment(KUSARI, ttl_minutes=60)
+    mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.ACTIVE)
 
     # Fast-forward time past expiration
     simulated_future = rec.expires_at + timedelta(seconds=10)
     actions = mgr.evaluate_reaping(now=simulated_future)
 
     assert len(actions) == 1
-    assert actions[0]["customer_hash"] == "6f82ad81"
+    assert actions[0]["customer_hash"] == KUSARI_HASH
     assert actions[0]["action"] == "draining"
     assert actions[0]["reason"] == "ttl_expired"
 
-    updated = mgr.get_lifecycle("6f82ad81")
+    updated = mgr.get_lifecycle(KUSARI_HASH)
     assert updated.state == EnvironmentLifecycleState.DRAINING
 
 
 def test_evaluate_reaping_idle_timeout():
     """Verify reaping pass moves idle environment (30m+) to DRAINING."""
     mgr = LifecycleManager()
-    rec = mgr.register_environment("kurasi", ttl_minutes=240)
-    mgr.transition_state("6f82ad81", EnvironmentLifecycleState.ACTIVE)
+    rec = mgr.register_environment(KUSARI, ttl_minutes=240)
+    mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.ACTIVE)
 
     # Fast-forward time past idle timeout (35 minutes after last activity)
     simulated_future = rec.last_activity_at + timedelta(minutes=35)
@@ -145,10 +149,10 @@ def test_evaluate_reaping_idle_timeout():
 def test_evaluate_reaping_grace_period_to_terminated():
     """Verify draining environment past grace period transitions to TERMINATED."""
     mgr = LifecycleManager()
-    rec = mgr.register_environment("kurasi")
-    mgr.transition_state("6f82ad81", EnvironmentLifecycleState.DRAINING)
+    rec = mgr.register_environment(KUSARI)
+    mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.DRAINING)
 
-    draining_rec = mgr.get_lifecycle("6f82ad81")
+    draining_rec = mgr.get_lifecycle(KUSARI_HASH)
     # Fast forward past grace period
     simulated_future = draining_rec.grace_period_expires_at + timedelta(seconds=10)
     actions = mgr.evaluate_reaping(now=simulated_future)
@@ -157,7 +161,7 @@ def test_evaluate_reaping_grace_period_to_terminated():
     assert actions[0]["action"] == "terminated"
     assert actions[0]["reason"] == "grace_period_expired"
 
-    final_rec = mgr.get_lifecycle("6f82ad81")
+    final_rec = mgr.get_lifecycle(KUSARI_HASH)
     assert final_rec.state == EnvironmentLifecycleState.TERMINATED
 
 
@@ -396,17 +400,17 @@ def test_concurrent_api_requests_and_reaping_pass():
 def test_nanosecond_precision_timestamps_and_audit_schema():
     """Verify transitions record nanosecond timestamps and emit structured audit events."""
     mgr = LifecycleManager()
-    mgr.register_environment("kurasi", customer_hash="6f82ad81", ttl_minutes=120)
-    rec = mgr.transition_state("6f82ad81", EnvironmentLifecycleState.ACTIVE)
+    mgr.register_environment(KUSARI, customer_hash=KUSARI_HASH, ttl_minutes=120)
+    rec = mgr.transition_state(KUSARI_HASH, EnvironmentLifecycleState.ACTIVE)
 
     assert rec.transition_timestamp_ns is not None
     assert rec.transition_timestamp_ns > 0
 
-    events = mgr.get_audit_events("6f82ad81")
+    events = mgr.get_audit_events(KUSARI_HASH)
     assert len(events) >= 2  # registration + transition
     ev = events[-1]
-    assert ev.customer_hash == "6f82ad81"
-    assert ev.company_name == "kurasi"
+    assert ev.customer_hash == KUSARI_HASH
+    assert ev.company_name == KUSARI
     assert ev.current_state == "active"
     assert ev.timestamp_ns > 0
     assert ev.operator_or_system_id == "system:lifecycle-manager"
@@ -489,20 +493,20 @@ def test_api_lifecycle_full_flow():
     # 1. Register
     reg_resp = client.post(
         "/api/v1/eap/lifecycle/register",
-        json={"company_name": "kurasi", "ttl_minutes": 120}
+        json={"company_name": KUSARI, "ttl_minutes": 120}
     )
     assert reg_resp.status_code == 201
     data = reg_resp.json()
-    assert data["customer_hash"] == "6f82ad81"
+    assert data["customer_hash"] == KUSARI_HASH
     assert data["state"] == "provisioning"
 
     # 2. Touch activity
-    act_resp = client.post("/api/v1/eap/lifecycle/environments/6f82ad81/activity")
+    act_resp = client.post(f"/api/v1/eap/lifecycle/environments/{KUSARI_HASH}/activity")
     assert act_resp.status_code == 200
 
     # 3. Heartbeat
     hb_resp = client.post(
-        "/api/v1/eap/lifecycle/environments/6f82ad81/heartbeat",
+        f"/api/v1/eap/lifecycle/environments/{KUSARI_HASH}/heartbeat",
         json={"extend_minutes": 30}
     )
     assert hb_resp.status_code == 200
@@ -510,15 +514,15 @@ def test_api_lifecycle_full_flow():
     assert hb_data["extended"] is True
 
     # 4. Query status
-    get_resp = client.get("/api/v1/eap/lifecycle/environments/6f82ad81")
+    get_resp = client.get(f"/api/v1/eap/lifecycle/environments/{KUSARI_HASH}")
     assert get_resp.status_code == 200
-    assert get_resp.json()["customer_hash"] == "6f82ad81"
+    assert get_resp.json()["customer_hash"] == KUSARI_HASH
 
     # 5. List active
     active_resp = client.get("/api/v1/eap/lifecycle/active")
     assert active_resp.status_code == 200
     hashes = [r["customer_hash"] for r in active_resp.json()]
-    assert "6f82ad81" in hashes
+    assert KUSARI_HASH in hashes
 
     # 6. Manual reap check (process-wide: operator only)
     reap_resp = client.post("/api/v1/eap/lifecycle/reap-now", headers=eap_bearer(EAP_OPERATOR))

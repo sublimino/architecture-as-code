@@ -26,7 +26,7 @@ from eap_tenancy import Tenant, claim_or_403, owned_hashes
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EAP_SALT = "signalloom-eap-salt-2026-q3"
+
 MIN_INITIAL_TTL_MINUTES = 5
 EXPIRY_WARNING_THRESHOLD_MINUTES = 30
 OIDC_CALLBACK_PATH = "/auth/callback"
@@ -45,10 +45,70 @@ EAP_SECURITY_HEADERS: Dict[str, str] = {
 RFC1123_LABEL_REGEX = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 EAP_SUBDOMAIN_REGEX = re.compile(r"^sl-eap-[a-f0-9]{8}$")
 
+_EAP_SALT_CACHE: Optional[str] = None
+_EAP_SALT_LOCK = threading.Lock()
+
+
+def _reset_eap_salt_cache() -> None:
+    """Reset the process-level cached salt (used by tests)."""
+    global _EAP_SALT_CACHE
+    with _EAP_SALT_LOCK:
+        _EAP_SALT_CACHE = None
+
 
 def get_eap_salt() -> str:
-    """Retrieve the configured cryptographic salt from env or default."""
-    return os.getenv("SIGNAL_LOOM_EAP_SALT", DEFAULT_EAP_SALT)
+    """Retrieve the configured cryptographic salt from env or OpenBao.
+
+    Reads SIGNAL_LOOM_EAP_SALT if set, else reads secret/data/signalloom/eap field salt
+    via OpenBao, else raises RuntimeError. Cached per process.
+    """
+    global _EAP_SALT_CACHE
+    if _EAP_SALT_CACHE is not None:
+        return _EAP_SALT_CACHE
+
+    with _EAP_SALT_LOCK:
+        if _EAP_SALT_CACHE is not None:
+            return _EAP_SALT_CACHE
+
+        env_salt = os.getenv("SIGNAL_LOOM_EAP_SALT")
+        if env_salt:
+            _EAP_SALT_CACHE = env_salt
+            return _EAP_SALT_CACHE
+
+        bao_addr = os.getenv("BAO_ADDR")
+        bao_token = os.getenv("BAO_TOKEN")
+        if bao_addr and bao_token:
+            try:
+                import httpx
+                client = httpx.Client(
+                    base_url=bao_addr.rstrip("/"),
+                    headers={"X-Vault-Token": bao_token},
+                    timeout=5.0,
+                )
+                try:
+                    # KV v2 path: secret/data/signalloom/eap
+                    r = client.get("/v1/secret/data/signalloom/eap")
+                    if r.status_code == 200:
+                        data = r.json().get("data", {})
+                        inner_data = data.get("data", data)
+                        if isinstance(inner_data, dict) and "salt" in inner_data:
+                            _EAP_SALT_CACHE = str(inner_data["salt"])
+                            return _EAP_SALT_CACHE
+                    # KV v1 path: secret/signalloom/eap
+                    r_v1 = client.get("/v1/secret/signalloom/eap")
+                    if r_v1.status_code == 200:
+                        data_v1 = r_v1.json().get("data", {})
+                        if isinstance(data_v1, dict) and "salt" in data_v1:
+                            _EAP_SALT_CACHE = str(data_v1["salt"])
+                            return _EAP_SALT_CACHE
+                finally:
+                    client.close()
+            except Exception as e:
+                logger.warning("Failed to retrieve EAP salt from OpenBao: %s", e)
+
+        raise RuntimeError(
+            "EAP salt unavailable: set SIGNAL_LOOM_EAP_SALT or provision secret/signalloom/eap in OpenBao"
+        )
 
 
 def normalize_company_name(company_name: str) -> str:
@@ -68,9 +128,8 @@ def derive_customer_hash(company_name: str, salt: Optional[str] = None) -> str:
     """Derive an 8-character hex hash from a customer company name and cryptographic salt.
 
     Canonical vector:
-        company_name: "kurasi"
-        salt: "signalloom-eap-salt-2026-q3"
-        -> "6f82ad81"
+        company_name: "kusari"
+        salt: from OpenBao or SIGNAL_LOOM_EAP_SALT
     """
     normalized = normalize_company_name(company_name)
     actual_salt = salt if salt is not None else get_eap_salt()
@@ -140,7 +199,7 @@ class ProvisionRequest(BaseModel):
         min_length=2,
         max_length=64,
         description="Target customer company name to normalize and salt-hash",
-        examples=["kurasi"],
+        examples=["kusari"],
     )
     tier: EnvironmentTier = Field(
         default=EnvironmentTier.DEMO,

@@ -75,14 +75,14 @@ SPECS["P0"] = make_spec(
         "tests/test_tenant_isolation.py. Define TenantIsolationConfig Pydantic model with strict validation, "
         "naming helper functions resolving canonical tenant namespaces (eap-<hash>), SPIFFE IDs "
         "(spiffe://osramp.local/ns/eap-<hash>/sa/tenant-app), and OpenBao transit key engine paths. "
-        "Verify deterministic hash derivation for pilot customer kurasi (6f82ad81) and create baseline tests."
+        "Verify deterministic hash derivation for pilot customer kusari (a0314bec) and create baseline tests."
     ),
     approach=[
         "Create d2-signalloom/apps/fe-signalloom/src/tenant_isolation.py with strict Pydantic models.",
         "Implement naming convention helpers: get_tenant_namespace, get_tenant_spiffe_id, get_tenant_transit_key_path.",
         "Implement thread-safe TenantIsolationManager with provision, get, list, and teardown methods.",
         "Create unit test suite in fe-signalloom/src/tests/test_tenant_isolation.py covering naming and manager.",
-        "Verify canonical kurasi mapping: hash 6f82ad81, namespace eap-6f82ad81, SPIFFE ID and key path.",
+        "Verify canonical kusari mapping: hash a0314bec, namespace eap-a0314bec, SPIFFE ID and key path.",
         "Ensure full typing compliance across all new functions using Python type annotations."
     ],
     deliverables=[
@@ -92,7 +92,7 @@ SPECS["P0"] = make_spec(
         "Documentation section in docs/signalloom/slet-p0-baseline.md."
     ],
     tests=[
-        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kurasi -v",
+        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kusari -v",
         "pytest tests/test_tenant_isolation.py -k test_tenant_isolation_manager_lifecycle -v",
         "pytest tests/test_tenant_isolation.py -v"
     ],
@@ -163,7 +163,7 @@ SPECS["P1-1"] = make_spec(
         "Enforce strict label naming conventions: signalloom.io/eap-hash and signalloom.io/customer.",
         "Implement error handling when invalid company names or customer hashes are supplied.",
         "Write unit tests validating manifest dictionary structure, API versions, and label values.",
-        "Verify that pilot customer kurasi generates namespace eap-6f82ad81 with exact label set.",
+        "Verify that pilot customer kusari generates namespace eap-a0314bec with exact label set.",
         "Document namespace provisioning patterns in docs/signalloom/slet-p1-namespace-provisioning.md."
     ],
     deliverables=[
@@ -175,7 +175,7 @@ SPECS["P1-1"] = make_spec(
     ],
     tests=[
         "pytest tests/test_tenant_isolation.py -k test_generate_namespace_manifest_restricted_labels -v",
-        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kurasi -v",
+        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kusari -v",
         "pytest tests/test_tenant_isolation.py -v",
         "pytest tests/test_environment_routing.py -v"
     ],
@@ -342,7 +342,7 @@ SPECS["P2-1"] = make_spec(
         "Configure automated validation ensuring that podSelector is empty ({}) to match all pods in the namespace.",
         "Add diagnostic logging recording NetworkPolicy generation events with customer hash context.",
         "Document default-deny policy architecture in docs/signalloom/slet-p2-default-deny.md.",
-        "Verify that pilot customer kurasi generates NetworkPolicy for namespace eap-6f82ad81 with exact rules.",
+        "Verify that pilot customer kusari generates NetworkPolicy for namespace eap-a0314bec with exact rules.",
         "Author negative test cases asserting that malformed customer hashes raise ValueError during generation.",
         "Ensure full compatibility with Calico, Cilium, and kube-router CNI implementations."
     ],
@@ -400,7 +400,7 @@ SPECS["P2-2"] = make_spec(
         "Add integration tests verifying DNS resolution rules match standard CoreDNS configurations.",
         "Document egress rule hierarchy and security rationale in docs/signalloom/slet-p2-egress-rules.md.",
         "Implement configuration toggle enabling or disabling external internet access per tenant environment.",
-        "Verify that kurasi tenant policy permits DNS and OpenBao while blocking all peer namespaces.",
+        "Verify that kusari tenant policy permits DNS and OpenBao while blocking all peer namespaces.",
         "Author automated linting checks verifying NetworkPolicy port definitions use integer port numbers.",
         "Ensure full compatibility with NetworkPolicy audit logging tools such as Calico Felix or Cilium Hubble."
     ],
@@ -536,7 +536,7 @@ SPECS["P3-1"] = make_spec(
         "Implement mockable SpireClient class executing spire-server entry commands or gRPC calls.",
         "Add entry deletion logic in teardown_tenant_boundary ensuring clean entry pruning on environment exit.",
         "Write unit tests verifying entry payload schema, selector formatting, and SPIFFE URI compliance.",
-        "Verify kurasi vector: hash 6f82ad81 produces spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app.",
+        "Verify kusari vector: hash a0314bec produces spiffe://osramp.local/ns/eap-a0314bec/sa/tenant-app.",
         "Implement idempotent entry registration handling pre-existing entries without crashing.",
         "Add structured telemetry logging for all SPIRE entry creation and deletion events.",
         "Document SPIRE registration workflows in docs/signalloom/slet-p3-spire-registration.md.",
@@ -555,7 +555,7 @@ SPECS["P3-1"] = make_spec(
     ],
     tests=[
         "pytest tests/test_tenant_isolation.py -k test_generate_spire_registration_entry -v",
-        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kurasi -v",
+        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kusari -v",
         "pytest tests/test_tenant_isolation.py -v",
         "pytest tests/test_webhook_triggers.py -v",
         "pytest tests/test_environment_routing.py -v"
@@ -597,7 +597,7 @@ SPECS["P3-2"] = make_spec(
         "Document SPIFFE CSI volume projection in docs/signalloom/slet-p3-volume-projection.md.",
         "Ensure full compatibility with Spire Agent CSI driver running on Kind nodes.",
         "Add security validation verifying that the SPIFFE socket volume cannot be mounted read-write.",
-        "Verify kurasi vector: ServiceAccount generated in eap-6f82ad81 with tenant-app name.",
+        "Verify kusari vector: ServiceAccount generated in eap-a0314bec with tenant-app name.",
         "Author helper functions to inject SPIFFE volume specifications into arbitrary PodSpecs.",
         "Validate that workload containers run as non-root while maintaining socket read permissions.",
         "Ensure all manifests conform to Kubernetes v1 Pod and ServiceAccount schemas."
@@ -612,7 +612,7 @@ SPECS["P3-2"] = make_spec(
         "Errata entry in proposal markdown for SLET-P3-2 with status=pass."
     ],
     tests=[
-        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kurasi -v",
+        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kusari -v",
         "pytest tests/test_tenant_isolation.py -v",
         "pytest tests/test_webhook_triggers.py -v",
         "pytest tests/test_environment_routing.py -v",
@@ -645,7 +645,7 @@ SPECS["P3-GOV"] = make_spec(
     approach=[
         "Review git diff of all Phase 3 commits in fe-signalloom/src/tenant_isolation.py and manifests.",
         "Audit SPIRE entry registration payload schemas against upstream SPIRE server specifications.",
-        "Verify that SVID SAN matches spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app for kurasi.",
+        "Verify that SVID SAN matches spiffe://osramp.local/ns/eap-a0314bec/sa/tenant-app for kusari.",
         "Verify that ServiceAccounts disable default Kubernetes API token automounting.",
         "Confirm that kanban doctor check reports zero board defects or orphaned cards.",
         "Author Phase 3 certification report in docs/signalloom/slet-p3-certification.md.",
@@ -737,7 +737,7 @@ SPECS["P4-1"] = make_spec(
         "Connect revoke_tenant_key to TenantIsolationManager.teardown_tenant_boundary.",
         "Write unit tests in tests/test_tenant_isolation.py validating encryption, decryption, and key shredding.",
         "Assert that decrypting payloads after revoke_tenant_key raises KeyError or DecryptionError.",
-        "Verify kurasi vector: key path transit/keys/eap-6f82ad81 correctly encrypts and decrypts test payloads.",
+        "Verify kusari vector: key path transit/keys/eap-a0314bec correctly encrypts and decrypts test payloads.",
         "Implement thread-safe local key state cache with proper locking primitives.",
         "Add structured audit logging recording every key creation, encryption, and revocation event.",
         "Document OpenBao Transit key lifecycle in docs/signalloom/slet-p4-transit-keys.md.",
@@ -754,7 +754,7 @@ SPECS["P4-1"] = make_spec(
         "Errata entry in proposal markdown for SLET-P4-1 with status=pass."
     ],
     tests=[
-        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kurasi -v",
+        "pytest tests/test_tenant_isolation.py -k test_tenant_naming_conventions_kusari -v",
         "pytest tests/test_tenant_isolation.py -k test_tenant_isolation_manager_lifecycle -v",
         "pytest tests/test_tenant_isolation.py -v",
         "pytest tests/test_webhook_triggers.py -v",
@@ -778,33 +778,33 @@ SPECS["P4-1"] = make_spec(
 SPECS["P4-2"] = make_spec(
     "P4-2", "L", "implementation",
     obj=(
-        "Author comprehensive kurasi tenant end-to-end attestation and isolation acceptance test suite in "
-        "fe-signalloom/src/tests/test_kurasi_tenant_isolation.py. Implement full lifecycle verification: "
-        "(1) Provision tenant boundary for kurasi asserting namespace eap-6f82ad81 is created with restricted PSS labels, "
+        "Author comprehensive kusari tenant end-to-end attestation and isolation acceptance test suite in "
+        "fe-signalloom/src/tests/test_kusari_tenant_isolation.py. Implement full lifecycle verification: "
+        "(1) Provision tenant boundary for kusari asserting namespace eap-a0314bec is created with restricted PSS labels, "
         "(2) Verify NetworkPolicy blocks all peer namespaces and permits only DNS and ingress, (3) Verify SPIFFE ID "
-        "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app is registered, (4) Verify OpenBao transit key encrypts "
+        "spiffe://osramp.local/ns/eap-a0314bec/sa/tenant-app is registered, (4) Verify OpenBao transit key encrypts "
         "and decrypts data, (5) Teardown tenant boundary asserting namespace de-provisioning, SPIRE entry pruning, "
         "and key shredding. Write acceptance report in docs/signalloom/slet-p4-acceptance-report.md."
     ),
     approach=[
-        "Create fe-signalloom/src/tests/test_kurasi_tenant_isolation.py with pytest-asyncio and FastAPI TestClient.",
-        "Stage 1 (Boundary Provisioning): Provision isolation boundary for kurasi; assert hash 6f82ad81 and namespace eap-6f82ad81.",
+        "Create fe-signalloom/src/tests/test_kusari_tenant_isolation.py with pytest-asyncio and FastAPI TestClient.",
+        "Stage 1 (Boundary Provisioning): Provision isolation boundary for kusari; assert hash a0314bec and namespace eap-a0314bec.",
         "Stage 2 (PSS Verification): Verify namespace manifest contains enforce: restricted labels and metadata.",
         "Stage 3 (NetworkPolicy Verification): Assert NetworkPolicy default-deny ingress and egress rules.",
         "Stage 4 (SPIFFE Attestation): Verify SPIRE registration entry with exact selectors and 1h TTL.",
         "Stage 5 (Cryptographic Transit): Encrypt customer payload; assert ciphertext format; verify decryption.",
         "Stage 6 (Teardown & Shredding): Teardown boundary; verify is_active=False; assert key is shredded.",
-        "Stage 7 (Negative Traversal): Assert that cross-tenant access to eap-6f82ad81 is rejected.",
+        "Stage 7 (Negative Traversal): Assert that cross-tenant access to eap-a0314bec is rejected.",
         "Execute test suite across 10 iterations to prove absolute test stability and zero flakiness.",
         "Record memory utilization and execution duration across all test lifecycle stages.",
         "Write acceptance report in docs/signalloom/slet-p4-acceptance-report.md documenting complete execution.",
         "Verify that all test fixtures clean up temporary state leaving zero persistent artifacts.",
-        "Ensure all assertions validate exact deterministic values for customer kurasi.",
+        "Ensure all assertions validate exact deterministic values for customer kusari.",
         "Author automated test summary artifact highlighting security boundary verifications.",
         "Confirm that test suite runs cleanly in standalone and monorepo CI environments."
     ],
     deliverables=[
-        "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kurasi_tenant_isolation.py.",
+        "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kusari_tenant_isolation.py.",
         "Full lifecycle execution transcript capturing manifests, SPIFFE IDs, and ciphertexts.",
         "Negative security testing fixture asserting cross-tenant access rejection.",
         "Permanent key shredding verification test proving data unrecoverability.",
@@ -820,7 +820,7 @@ SPECS["P4-2"] = make_spec(
         "bash scripts/eap/test_emit_eap_webhook.sh"
     ],
     evidence=[
-        "Captured pytest execution log demonstrating 100% pass on kurasi acceptance suite.",
+        "Captured pytest execution log demonstrating 100% pass on kusari acceptance suite.",
         "docs/signalloom/slet-p4-acceptance-report.md documenting complete journey test execution.",
         "Cryptographic proof of permanent key shredding.",
         "Errata block appended for SLET-P4-2 with status=pass."
@@ -839,19 +839,19 @@ SPECS["P4-GOV"] = make_spec(
         "Final Mission Certification: independently certify full tenant isolation, cryptographic identity, "
         "and security boundary release for the SLET engine. Verify that all 17 card specifications have completed "
         "with 100% prompt contract floor compliance. Execute comprehensive test passes across unit, integration, "
-        "shell, and acceptance test suites. Verify that kurasi tenant vector strictly resolves to hash 6f82ad81, "
-        "namespace eap-6f82ad81, and SPIFFE ID spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app. Reconcile "
+        "shell, and acceptance test suites. Verify that kusari tenant vector strictly resolves to hash a0314bec, "
+        "namespace eap-a0314bec, and SPIFFE ID spiffe://osramp.local/ns/eap-a0314bec/sa/tenant-app. Reconcile "
         "all commits into integration branch integration/slet-v0.1.0, author mission complete certification, "
         "and certify readiness for production EAP deployment."
     ),
     approach=[
         "Checkout integration branch integration/slet-v0.1.0 or inspect clean git status.",
         "Execute full test suite in fe-signalloom: unit tests, webhook tests, environment tests, and isolation tests.",
-        "Execute kurasi tenant acceptance suite asserting 100% green status.",
+        "Execute kusari tenant acceptance suite asserting 100% green status.",
         "Execute shell test suites: test_tailscale_eap_env.sh and test_emit_eap_webhook.sh.",
         "Audit docs/ to confirm all required documentation files exist, are well-linked, and contain no broken references.",
         "Run scripts/kanban-check.sh doctor --shortcode SLET to confirm zero unresolved defects or orphaned cards.",
-        "Verify that kurasi canonical hash is strictly 6f82ad81 and namespace is eap-6f82ad81.",
+        "Verify that kusari canonical hash is strictly a0314bec and namespace is eap-a0314bec.",
         "Author final mission certification document in docs/signalloom/slet-mission-complete.md.",
         "Append final Phase 4 Governor errata block to proposal markdown marking SLET mission fully certified.",
         "Verify that all integration branch commits conform to scope-less conventional commit conventions without exceptions.",
@@ -901,7 +901,7 @@ SPECS["P4-GOV"] = make_spec(
     failures=[
         "Declaring mission complete while any acceptance test is mocked rather than fully executed.",
         "Leaving uncommitted temporary files or dirty git worktree state.",
-        "Failing to certify canonical kurasi vector across all operational layers.",
+        "Failing to certify canonical kusari vector across all operational layers.",
         "Merging integration branch with failing unit or acceptance test suites.",
         "Overlooking secret leakage into build logs or container metadata layers."
     ]
@@ -1147,20 +1147,20 @@ ADDITIONS = {
     },
     "P4-2": {
         "approach": [
-            "Execute complete end-to-end kurasi customer journey test validating all seven lifecycle stages.",
-            "Verify that namespace eap-6f82ad81 is created with restricted Pod Security Admission enforcement.",
+            "Execute complete end-to-end kusari customer journey test validating all seven lifecycle stages.",
+            "Verify that namespace eap-a0314bec is created with restricted Pod Security Admission enforcement.",
             "Assert that NetworkPolicy blocks lateral traversal and allows only designated ingress and DNS egress.",
-            "Confirm that SPIFFE ID spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app is registered and attested.",
+            "Confirm that SPIFFE ID spiffe://osramp.local/ns/eap-a0314bec/sa/tenant-app is registered and attested.",
             "Verify that OpenBao Transit key encrypts customer payloads and that data becomes unrecoverable after shredding.",
             "Execute test suite across 10 repeated iterations to verify absolute test stability and zero flakiness.",
             "Record detailed performance metrics capturing execution duration and memory consumption for each stage.",
             "Document acceptance test results in comprehensive report certifying complete isolation readiness.",
-            "Assert that teardown of the kurasi boundary completely deallocates all associated Kubernetes and Vault resources.",
+            "Assert that teardown of the kusari boundary completely deallocates all associated Kubernetes and Vault resources.",
             "Verify that concurrent requests to provision and teardown tenant boundaries do not cause state corruption.",
             "Author automated test execution logs capturing full request and response payloads for audit compliance.",
-            "Confirm that test assertions strictly validate the canonical kurasi salted hash 6f82ad81.",
-            "Execute comprehensive multi-stage attestation verification proving that pilot tenant kurasi maintains zero trust compliance throughout the lifecycle.",
-            "Assert that all generated TLS server certificates and SPIFFE credentials match the kurasi cryptographic fingerprint and domain namespace.",
+            "Confirm that test assertions strictly validate the canonical kusari salted hash a0314bec.",
+            "Execute comprehensive multi-stage attestation verification proving that pilot tenant kusari maintains zero trust compliance throughout the lifecycle.",
+            "Assert that all generated TLS server certificates and SPIFFE credentials match the kusari cryptographic fingerprint and domain namespace.",
             "Implement automated rollback testing verifying that transient infrastructure faults during boundary provisioning trigger clean state deallocation.",
             "Measure memory footprint and CPU utilization during peak cryptographic workloads ensuring tenant runtime efficiency."
         ],
@@ -1269,7 +1269,7 @@ def main():
         ("P3-GOV", "governor", "Certify Phase 3 SPIFFE identity issuance and cryptographic validity", "M", "deep", "Phase governor certification requires deep reasoning and verification across SPIFFE workload identity"),
         ("P4-PRE", "preflight", "Audit OpenBao Transit key derivation, envelope encryption, and leasing", "S", "daily", None),
         ("P4-1", "implementation", "Implement OpenBao Transit key lease manager and revocation logic", "L", "daily", None),
-        ("P4-2", "implementation", "Author comprehensive kurasi tenant end-to-end attestation suite", "L", "daily", None),
+        ("P4-2", "implementation", "Author comprehensive kusari tenant end-to-end attestation suite", "L", "daily", None),
         ("P4-GOV", "governor", "Final Mission Certification: Full tenant isolation & identity release", "L", "deep", "Final mission certification requires comprehensive verification across all isolation layers"),
     ]
 

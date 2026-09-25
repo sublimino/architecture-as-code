@@ -72,7 +72,7 @@ class ExecuteScenarioRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     scenario_type: ScenarioType = Field(default=ScenarioType.BASELINE_AGENT_FLOW)
-    company_name: str = Field(default="kurasi", min_length=1, max_length=64)
+    company_name: str = Field(default="kusari", min_length=1, max_length=64)
     customer_hash: Optional[str] = Field(default=None, pattern=_TENANT_KEY_PATTERN)
 
 

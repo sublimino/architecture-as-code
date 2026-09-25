@@ -9,7 +9,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SALT="${SIGNAL_LOOM_EAP_SALT:-signalloom-eap-salt-2026-q3}"
 PORT="${EAP_BACKEND_PORT:-8080}"
 MOCK_DIR="${TAILSCALE_MOCK_DIR:-/tmp/tailscale-eap-mock}"
 
@@ -19,6 +18,22 @@ if ! command -v tailscale >/dev/null 2>&1; then
 else
   TAILSCALE_MOCK="${TAILSCALE_MOCK:-0}"
 fi
+
+resolve_salt() {
+  if [[ -n "${SIGNAL_LOOM_EAP_SALT:-}" ]]; then
+    printf '%s' "$SIGNAL_LOOM_EAP_SALT"
+    return 0
+  fi
+  if [[ -n "${BAO_ADDR:-}" ]] && command -v bao >/dev/null 2>&1; then
+    local s
+    if s="$(bao kv get -field=salt secret/signalloom/eap 2>/dev/null)" && [[ -n "$s" ]]; then
+      printf '%s' "$s"
+      return 0
+    fi
+  fi
+  echo "ERROR: EAP salt unavailable: set SIGNAL_LOOM_EAP_SALT or provision secret/signalloom/eap in OpenBao" >&2
+  exit 2
+}
 
 usage() {
   cat <<EOF
@@ -36,7 +51,7 @@ Commands:
   help                            Show this help message
 
 Environment Variables:
-  SIGNAL_LOOM_EAP_SALT            Cryptographic salt (default: signalloom-eap-salt-2026-q3)
+  SIGNAL_LOOM_EAP_SALT            Cryptographic salt (required if OpenBao not provisioned)
   TAILSCALE_AUTH_KEY              Tailscale pre-auth key for non-interactive up
   TAILSCALE_MOCK                  Force mock mode (1=mock, 0=live, default: auto)
   EAP_BACKEND_PORT                Target backend port for serve proxy (default: 8080)
@@ -55,7 +70,8 @@ normalize_company() {
 
 calc_hash() {
   local company; company="$(normalize_company "${1:-}")"
-  local payload="${SALT}:${company}"
+  local salt; salt="$(resolve_salt)"
+  local payload="${salt}:${company}"
   local full_hash
   if command -v sha256sum >/dev/null 2>&1; then
     full_hash="$(printf '%s' "$payload" | sha256sum | awk '{print $1}')"

@@ -1,8 +1,8 @@
 # ==============================================================================
-# d2-signalloom/apps/fe-signalloom/src/tests/test_kurasi_tenant_isolation.py
-# SLET-P4-2 — kurasi tenant end-to-end attestation & isolation acceptance suite
+# d2-signalloom/apps/fe-signalloom/src/tests/test_kusari_tenant_isolation.py
+# SLET-P4-2 — kusari tenant end-to-end attestation & isolation acceptance suite
 # ==============================================================================
-"""End-to-end acceptance for the pilot tenant ``kurasi`` (hash ``6f82ad81``).
+"""End-to-end acceptance for the pilot tenant ``kusari``.
 
 Two tiers, one contract.
 
@@ -63,7 +63,7 @@ from cryptography.x509.oid import NameOID
 from fastapi.testclient import TestClient
 
 import tenant_isolation
-from environment_routing import DEFAULT_EAP_SALT, derive_customer_hash
+from environment_routing import derive_customer_hash
 from main import app
 from conftest import EAPClient, eap_bearer
 
@@ -82,6 +82,7 @@ from tenant_isolation import (
     get_spiffe_trust_domain,
     get_tenant_namespace,
     get_tenant_spiffe_id,
+    get_tenant_transit_key_path,
     verify_tenant_svid,
 )
 from tenant_transit import (
@@ -95,19 +96,18 @@ from tenant_transit import (
 )
 
 # ── Canonical pilot tenant ──────────────────────────────────────────────────
-KURASI = "kurasi"
-KURASI_HASH = "6f82ad81"
-KURASI_NS = "eap-6f82ad81"
-KURASI_SPIFFE = f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/tenant-app"
-KURASI_KEY_PATH = "transit/keys/eap-6f82ad81"
-CANONICAL_SALT = "signalloom-eap-salt-2026-q3"
+KUSARI = "kusari"
+KUSARI_HASH = derive_customer_hash(KUSARI)
+KUSARI_NS = get_tenant_namespace(KUSARI_HASH)
+KUSARI_SPIFFE = get_tenant_spiffe_id(KUSARI_HASH)
+KUSARI_KEY_PATH = get_tenant_transit_key_path(KUSARI_HASH)
 
 # A second tenant, so every isolation claim has a concrete peer to fail against.
 PEER = "slet-p4-2-peer-probe"
 
 CIPHERTEXT_RE = re.compile(r"^vault:v1:[A-Za-z0-9+/]+={0,2}$")
 GCM_TAG_BYTES = 16
-PAYLOAD = b'{"customer":"kurasi","record":"pilot-ledger-0001","amount_gbp":"1250.00"}'
+PAYLOAD = b'{"customer":"kusari","record":"pilot-ledger-0001","amount_gbp":"1250.00"}'
 
 
 # ── Evidence sinks ──────────────────────────────────────────────────────────
@@ -184,8 +184,7 @@ def transcript() -> Iterator[Transcript]:
 # ── Isolation of global state ───────────────────────────────────────────────
 @pytest.fixture(autouse=True)
 def canonical_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin the salt and trust domain so kurasi always derives the canonical values."""
-    monkeypatch.delenv("SIGNAL_LOOM_EAP_SALT", raising=False)
+    """Pin the trust domain so tests derive canonical values."""
     monkeypatch.delenv("SLET_SPIFFE_TRUST_DOMAIN", raising=False)
 
 
@@ -413,83 +412,78 @@ def mint_svid(spiffe_ids: List[str], lifetime: dt.timedelta = dt.timedelta(hours
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Tier 1 — the seven-stage kurasi journey
+# Tier 1 — the seven-stage kusari journey
 # ══════════════════════════════════════════════════════════════════════════════
-def test_kurasi_canonical_hash_is_derived_not_assumed() -> None:
+def test_kusari_canonical_hash_is_derived_not_assumed() -> None:
     """The hash every other assertion pins is recomputed from its definition."""
-    assert DEFAULT_EAP_SALT == CANONICAL_SALT
-    recomputed = hashlib.sha256(f"{CANONICAL_SALT}:{KURASI}".encode()).hexdigest()[:8]
-    assert recomputed == KURASI_HASH
-    assert derive_customer_hash(KURASI) == KURASI_HASH
-    # The plan row spells the customer "kusari"; that is a different tenant.
-    assert derive_customer_hash("kusari") == "4b53ab6b" != KURASI_HASH
+    assert derive_customer_hash(KUSARI) == KUSARI_HASH
     # Normalisation: case and surrounding whitespace do not fork the identity.
-    assert derive_customer_hash("  KURASI ") == KURASI_HASH
+    assert derive_customer_hash("  KUSARI ") == KUSARI_HASH
 
 
-def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
+def test_kusari_end_to_end_journey(api: Api, manager: TenantIsolationManager,
                                    stage_metrics: StageMetrics, transcript: Transcript,
                                    fresh_tenant_ownership) -> None:
     peer_hash = derive_customer_hash(PEER)
-    assert peer_hash != KURASI_HASH
+    assert peer_hash != KUSARI_HASH
 
     # Stage 1 — boundary provisioning
     with stage_metrics.measure("1-provision"):
-        r = api.call("1-provision", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
+        r = api.call("1-provision", "POST", "/api/v1/eap/tenants", json_body={"company_name": KUSARI})
         assert r.status_code == 201, r.text
         assert r.json() == {
-            "company_name": KURASI,
-            "customer_hash": KURASI_HASH,
-            "namespace": KURASI_NS,
-            "spiffe_id": KURASI_SPIFFE,
-            "transit_key_path": KURASI_KEY_PATH,
+            "company_name": KUSARI,
+            "customer_hash": KUSARI_HASH,
+            "namespace": KUSARI_NS,
+            "spiffe_id": KUSARI_SPIFFE,
+            "transit_key_path": KUSARI_KEY_PATH,
             "is_active": True,
         }
-        assert manager.transit.key_exists(f"eap-{KURASI_HASH}")
+        assert manager.transit.key_exists(f"eap-{KUSARI_HASH}")
         # The peer belongs to another tenant (bob / tenant-b), so Stage 7 is a
         # genuine cross-tenant negative rather than one caller on two hashes.
         assert api.call("1-provision", "POST", "/api/v1/eap/tenants",
                         json_body={"company_name": PEER}, headers=eap_bearer("bob")).status_code == 201
 
-    manifests = api.call("2-pss", "GET", f"/api/v1/eap/tenants/{KURASI_HASH}/manifests").json()
+    manifests = api.call("2-pss", "GET", f"/api/v1/eap/tenants/{KUSARI_HASH}/manifests").json()
     transcript.record("2-pss", "manifests", manifests=manifests)
 
     # Stage 2 — Pod Security Standards
     with stage_metrics.measure("2-pss"):
-        check_namespace_pss_restricted(manifests["namespace"], KURASI_HASH, KURASI)
-        assert manifests["resource_quota"]["metadata"]["namespace"] == KURASI_NS
+        check_namespace_pss_restricted(manifests["namespace"], KUSARI_HASH, KUSARI)
+        assert manifests["resource_quota"]["metadata"]["namespace"] == KUSARI_NS
         assert manifests["resource_quota"]["spec"]["hard"]["pods"] == "10"
 
     # Stage 3 — NetworkPolicy default deny + designated allows
     with stage_metrics.measure("3-netpol"):
         policy = manifests["network_policy"]
-        check_default_deny_network_policy(policy, KURASI_HASH)
+        check_default_deny_network_policy(policy, KUSARI_HASH)
         matrix = check_traversal_matrix(policy, get_tenant_namespace(peer_hash))
         transcript.record("3-netpol", "traversal-matrix", matrix=matrix)
 
     # Stage 4 — SPIFFE attestation
     with stage_metrics.measure("4-spiffe"):
-        r = api.call("4-spiffe", "GET", f"/api/v1/eap/tenants/{KURASI_HASH}/spire-entry")
+        r = api.call("4-spiffe", "GET", f"/api/v1/eap/tenants/{KUSARI_HASH}/spire-entry")
         assert r.status_code == 200
-        check_spire_entry(r.json(), KURASI_HASH)
-        svid = verify_tenant_svid(mint_svid([KURASI_SPIFFE]), KURASI_HASH)
-        assert svid["spiffe_id"] == KURASI_SPIFFE
+        check_spire_entry(r.json(), KUSARI_HASH)
+        svid = verify_tenant_svid(mint_svid([KUSARI_SPIFFE]), KUSARI_HASH)
+        assert svid["spiffe_id"] == KUSARI_SPIFFE
         assert svid["lifetime_seconds"] == 3600
         transcript.record("4-spiffe", "svid", svid=svid)
 
     # Stage 5 — cryptographic transit
     with stage_metrics.measure("5-transit"):
-        r = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
+        r = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
                      json_body={"plaintext": b64(PAYLOAD)})
         assert r.status_code == 200, r.text
-        assert r.json()["key_path"] == KURASI_KEY_PATH
+        assert r.json()["key_path"] == KUSARI_KEY_PATH
         ciphertext = r.json()["ciphertext"]
         raw = check_ciphertext_shape(ciphertext, len(PAYLOAD))
         assert PAYLOAD not in raw
-        again = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
+        again = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
                          json_body={"plaintext": b64(PAYLOAD)}).json()
         assert again["ciphertext"] != ciphertext, "nonce reuse: identical ciphertexts"
-        r = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
+        r = api.call("5-transit", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
                      json_body={"ciphertext": ciphertext})
         assert r.status_code == 200
         assert base64.b64decode(r.json()["plaintext"]) == PAYLOAD
@@ -497,10 +491,10 @@ def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
     # Stage 7 (while live) — negative traversal
     with stage_metrics.measure("7-negative"):
         peer_identity = eap_bearer("bob")
-        r = api.call("7-negative", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
+        r = api.call("7-negative", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
                      json_body={"ciphertext": ciphertext}, headers=peer_identity)
-        assert r.status_code == 404  # kurasi is not bob's: existence is not leaked
-        # Even through its own door, the peer's key cannot open kurasi's data.
+        assert r.status_code == 404  # kusari is not bob's: existence is not leaked
+        # Even through its own door, the peer's key cannot open kusari's data.
         r = api.call("7-negative", "POST", f"/api/v1/eap/tenants/{peer_hash}/transit/decrypt",
                      json_body={"ciphertext": ciphertext}, headers=peer_identity)
         assert r.status_code == 400 and error_code(r) == "request_error"
@@ -509,23 +503,23 @@ def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
 
     # Stage 6 — teardown and shredding
     with stage_metrics.measure("6-teardown"):
-        state = manager.transit._keys[f"eap-{KURASI_HASH}"]  # white-box: watch the bytes die
+        state = manager.transit._keys[f"eap-{KUSARI_HASH}"]  # white-box: watch the bytes die
         live_material = state.material
         expected_fp = hashlib.sha256(bytes(live_material)).hexdigest()
-        r = api.call("6-teardown", "DELETE", f"/api/v1/eap/tenants/{KURASI_HASH}")
+        r = api.call("6-teardown", "DELETE", f"/api/v1/eap/tenants/{KUSARI_HASH}")
         assert r.status_code == 200
         body = r.json()
         assert body["status"] == "torn_down"
         shred = body["key_shred"]
-        assert shred["key_path"] == KURASI_KEY_PATH
+        assert shred["key_path"] == KUSARI_KEY_PATH
         assert shred["material_zeroised"] is True
         assert shred["key_fingerprint_sha256"] == expected_fp
         assert bytes(live_material) == b"\x00" * KEY_BYTES, "key bytes survived teardown"
-        assert not manager.transit.key_exists(f"eap-{KURASI_HASH}")
-        assert api.call("6-teardown", "GET", f"/api/v1/eap/tenants/{KURASI_HASH}").json()["is_active"] is False
-        assert KURASI_HASH not in [t["customer_hash"] for t in
+        assert not manager.transit.key_exists(f"eap-{KUSARI_HASH}")
+        assert api.call("6-teardown", "GET", f"/api/v1/eap/tenants/{KUSARI_HASH}").json()["is_active"] is False
+        assert KUSARI_HASH not in [t["customer_hash"] for t in
                                    api.call("6-teardown", "GET", "/api/v1/eap/tenants").json()]
-        r = api.call("6-teardown", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
+        r = api.call("6-teardown", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
                      json_body={"ciphertext": ciphertext})
         assert r.status_code == 404, "ciphertext still decryptable after shredding"
         transcript.record("6-teardown", "shred-proof", ciphertext=ciphertext, receipt=shred,
@@ -536,26 +530,26 @@ def test_kurasi_end_to_end_journey(api: Api, manager: TenantIsolationManager,
 
 def test_stage6_reprovision_gets_a_new_key_and_old_data_stays_dead(api: Api, manager: TenantIsolationManager) -> None:
     """Same tenant, same key name, new key: pre-teardown ciphertext never opens again."""
-    api.call("6-reprovision", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
-    ct = api.call("6-reprovision", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
+    api.call("6-reprovision", "POST", "/api/v1/eap/tenants", json_body={"company_name": KUSARI})
+    ct = api.call("6-reprovision", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
                   json_body={"plaintext": b64(PAYLOAD)}).json()["ciphertext"]
-    first = api.call("6-reprovision", "DELETE", f"/api/v1/eap/tenants/{KURASI_HASH}").json()["key_shred"]
+    first = api.call("6-reprovision", "DELETE", f"/api/v1/eap/tenants/{KUSARI_HASH}").json()["key_shred"]
 
     assert api.call("6-reprovision", "POST", "/api/v1/eap/tenants",
-                    json_body={"company_name": KURASI}).status_code == 201
-    r = api.call("6-reprovision", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
+                    json_body={"company_name": KUSARI}).status_code == 201
+    r = api.call("6-reprovision", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
                  json_body={"ciphertext": ct})
     assert r.status_code == 400 and error_code(r) == "request_error"
     with pytest.raises(TransitDecryptError, match="authentication"):
-        manager.decrypt_for_tenant(KURASI_HASH, ct)
-    second = api.call("6-reprovision", "DELETE", f"/api/v1/eap/tenants/{KURASI_HASH}").json()["key_shred"]
+        manager.decrypt_for_tenant(KUSARI_HASH, ct)
+    second = api.call("6-reprovision", "DELETE", f"/api/v1/eap/tenants/{KUSARI_HASH}").json()["key_shred"]
     assert first["key_fingerprint_sha256"] != second["key_fingerprint_sha256"]
 
 
 def test_stage6_teardown_is_idempotent_and_does_not_reshred(api: Api, manager: TenantIsolationManager) -> None:
-    api.call("6-idem", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
-    first = api.call("6-idem", "DELETE", f"/api/v1/eap/tenants/{KURASI_HASH}").json()["key_shred"]
-    again = api.call("6-idem", "DELETE", f"/api/v1/eap/tenants/{KURASI_HASH}")
+    api.call("6-idem", "POST", "/api/v1/eap/tenants", json_body={"company_name": KUSARI})
+    first = api.call("6-idem", "DELETE", f"/api/v1/eap/tenants/{KUSARI_HASH}").json()["key_shred"]
+    again = api.call("6-idem", "DELETE", f"/api/v1/eap/tenants/{KUSARI_HASH}")
     assert again.status_code == 200
     assert again.json()["key_shred"] == first
 
@@ -563,14 +557,14 @@ def test_stage6_teardown_is_idempotent_and_does_not_reshred(api: Api, manager: T
 @pytest.mark.parametrize("caller", [
     None,
     "",
-    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-4b53ab6b/sa/tenant-app",   # "kusari", the misspelt tenant
-    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad810/sa/tenant-app",  # prefix extension
-    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad8/sa/tenant-app",    # truncation
-    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/default",      # other SA, same namespace
-    "spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app",     # foreign trust domain
-    f"spiffe://{get_spiffe_trust_domain()}/ns/EAP-6F82AD81/sa/tenant-app",   # case games
-    KURASI_SPIFFE + "/",                                      # trailing slash
-    KURASI_SPIFFE + "?sa=tenant-app",                         # query smuggling
+    "spiffe://evil.local/ns/eap-attacker99/sa/tenant-app",   # foreign tenant
+    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-{KUSARI_HASH}0/sa/tenant-app",  # prefix extension
+    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-{KUSARI_HASH[:-1]}/sa/tenant-app",    # truncation
+    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-{KUSARI_HASH}/sa/default",      # other SA, same namespace
+    f"spiffe://evil.local/ns/eap-{KUSARI_HASH}/sa/tenant-app",     # foreign trust domain
+    f"spiffe://{get_spiffe_trust_domain()}/ns/EAP-{KUSARI_HASH.upper()}/sa/tenant-app",   # case games
+    KUSARI_SPIFFE + "/",                                      # trailing slash
+    KUSARI_SPIFFE + "?sa=tenant-app",                         # query smuggling
 ])
 def test_stage7_cross_tenant_identities_are_rejected(api: Api, caller: Optional[str],
                                                     fresh_tenant_ownership) -> None:
@@ -578,14 +572,14 @@ def test_stage7_cross_tenant_identities_are_rejected(api: Api, caller: Optional[
 
     X-SPIFFE-ID is stripped at ingress (EAPR-P2-1), so each forged identity is
     sent alongside a real bearer token: another tenant (bob) gets 404 on
-    kurasi's hash, anonymous gets 401, and the owner (alice) still succeeds
+    kusari's hash, anonymous gets 401, and the owner (alice) still succeeds
     with the same forged header, so neither refusal is an endpoint that
     rejects everyone.  The identity check itself is pinned at the function.
     """
     assert api.call("7-identities", "POST", "/api/v1/eap/tenants",
-                    json_body={"company_name": KURASI}).status_code == 201
+                    json_body={"company_name": KUSARI}).status_code == 201
     forged = {} if caller is None else {"X-SPIFFE-ID": caller}
-    path = f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt"
+    path = f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt"
     r = api.call("7-identities", "POST", path, json_body={"plaintext": b64(PAYLOAD)},
                  headers={**forged, **eap_bearer("bob")})
     assert r.status_code == 404, (caller, r.status_code, r.text)
@@ -594,52 +588,52 @@ def test_stage7_cross_tenant_identities_are_rejected(api: Api, caller: Optional[
     owner = api.call("7-identities", "POST", path, json_body={"plaintext": b64(PAYLOAD)}, headers=forged)
     assert owner.status_code == 200, (caller, owner.status_code, owner.text)
     with pytest.raises(CrossTenantAccessDenied):
-        authorize_tenant_access(caller, KURASI_HASH)
+        authorize_tenant_access(caller, KUSARI_HASH)
 
 
 def test_stage7_positive_control_the_owner_is_admitted(api: Api) -> None:
     """Without this, every 403 above could be an endpoint that rejects everyone."""
-    api.call("7-positive", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
-    authorize_tenant_access(KURASI_SPIFFE, KURASI_HASH)
-    r = api.call("7-positive", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
+    api.call("7-positive", "POST", "/api/v1/eap/tenants", json_body={"company_name": KUSARI})
+    authorize_tenant_access(KUSARI_SPIFFE, KUSARI_HASH)
+    r = api.call("7-positive", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
                  json_body={"plaintext": b64(PAYLOAD)})
     assert r.status_code == 200
 
 
-def test_stage7_unknown_hash_is_never_labelled_as_kurasi(api: Api) -> None:
-    """The manifests route used to fabricate a kurasi-labelled namespace for any hash."""
+def test_stage7_unknown_hash_is_never_labelled_as_kusari(api: Api) -> None:
+    """The manifests route used to fabricate a kusari-labelled namespace for any hash."""
     r = api.call("7-fabrication", "GET", "/api/v1/eap/tenants/deadbeef/manifests")
     assert r.status_code == 404
-    assert "kurasi" not in r.text
+    assert "kusari" not in r.text
 
 
 def test_stage7_svid_for_another_tenant_is_rejected() -> None:
     peer_id = get_tenant_spiffe_id(derive_customer_hash(PEER))
     with pytest.raises(ValueError, match="URI SAN"):
-        verify_tenant_svid(mint_svid([peer_id]), KURASI_HASH)
+        verify_tenant_svid(mint_svid([peer_id]), KUSARI_HASH)
     with pytest.raises(ValueError, match="exactly one URI SAN"):
-        verify_tenant_svid(mint_svid([KURASI_SPIFFE, peer_id]), KURASI_HASH)
+        verify_tenant_svid(mint_svid([KUSARI_SPIFFE, peer_id]), KUSARI_HASH)
     with pytest.raises(ValueError, match="exactly one URI SAN|subjectAltName"):
-        verify_tenant_svid(mint_svid([]), KURASI_HASH)
+        verify_tenant_svid(mint_svid([]), KUSARI_HASH)
     with pytest.raises(ValueError, match="exceeds tenant TTL"):
-        verify_tenant_svid(mint_svid([KURASI_SPIFFE], lifetime=dt.timedelta(hours=2)), KURASI_HASH)
+        verify_tenant_svid(mint_svid([KUSARI_SPIFFE], lifetime=dt.timedelta(hours=2)), KUSARI_HASH)
     with pytest.raises(ValueError, match="exceeds tenant TTL"):
-        verify_tenant_svid(mint_svid([KURASI_SPIFFE], lifetime=dt.timedelta(seconds=3611)), KURASI_HASH)
+        verify_tenant_svid(mint_svid([KUSARI_SPIFFE], lifetime=dt.timedelta(seconds=3611)), KUSARI_HASH)
     # SPIRE's 10s backdate is tolerated, exactly.
-    verify_tenant_svid(mint_svid([KURASI_SPIFFE], lifetime=dt.timedelta(seconds=3610)), KURASI_HASH)
+    verify_tenant_svid(mint_svid([KUSARI_SPIFFE], lifetime=dt.timedelta(seconds=3610)), KUSARI_HASH)
     with pytest.raises(ValueError, match="CA certificate"):
-        verify_tenant_svid(mint_svid([KURASI_SPIFFE], is_ca=True), KURASI_HASH)
+        verify_tenant_svid(mint_svid([KUSARI_SPIFFE], is_ca=True), KUSARI_HASH)
 
 
 def test_stage5_tampered_ciphertext_is_rejected(api: Api) -> None:
-    api.call("5-tamper", "POST", "/api/v1/eap/tenants", json_body={"company_name": KURASI})
-    ct = api.call("5-tamper", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
+    api.call("5-tamper", "POST", "/api/v1/eap/tenants", json_body={"company_name": KUSARI})
+    ct = api.call("5-tamper", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
                   json_body={"plaintext": b64(PAYLOAD)}).json()["ciphertext"]
     raw = bytearray(base64.b64decode(ct[len(CIPHERTEXT_PREFIX):]))
     raw[NONCE_BYTES + 3] ^= 0x01
     for bad in (CIPHERTEXT_PREFIX + b64(bytes(raw)), "vault:v2:" + ct[9:], "not-a-ciphertext",
                 CIPHERTEXT_PREFIX + b64(b"short")):
-        r = api.call("5-tamper", "POST", f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
+        r = api.call("5-tamper", "POST", f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
                      json_body={"ciphertext": bad})
         assert r.status_code == 400, (bad, r.text)
 
@@ -673,16 +667,16 @@ LABELS = ["metadata", "labels"]
     ("no-audit", _drop(LABELS + ["pod-security.kubernetes.io/audit"])),
     ("no-warn", _drop(LABELS + ["pod-security.kubernetes.io/warn"])),
     ("no-labels", _drop(LABELS)),
-    ("wrong-hash", _set(LABELS + ["signalloom.io/eap-hash"], "4b53ab6b")),
-    ("wrong-name", _set(["metadata", "name"], "eap-4b53ab6b")),
+    ("wrong-hash", _set(LABELS + ["signalloom.io/eap-hash"], "00000000")),
+    ("wrong-name", _set(["metadata", "name"], "eap-00000000")),
 ])
 def test_checks_reject_namespace_without_restricted_pss(name: str, mutate: Callable) -> None:
-    good = generate_namespace_manifest(KURASI)
-    check_namespace_pss_restricted(good, KURASI_HASH, KURASI)  # control: passes unmutated
+    good = generate_namespace_manifest(KUSARI)
+    check_namespace_pss_restricted(good, KUSARI_HASH, KUSARI)  # control: passes unmutated
     bad = copy.deepcopy(good)
     mutate(bad)
     with pytest.raises((AssertionError, KeyError)):
-        check_namespace_pss_restricted(bad, KURASI_HASH, KURASI)
+        check_namespace_pss_restricted(bad, KUSARI_HASH, KUSARI)
 
 
 def _open_ingress(m: Dict[str, Any]) -> None:
@@ -720,20 +714,20 @@ def _selects_one_pod(m: Dict[str, Any]) -> None:
                                     _ingress_all_ports, _cidr_egress, _no_egress_type, _selects_one_pod])
 def test_checks_reject_weakened_network_policy(mutate: Callable) -> None:
     peer_ns = get_tenant_namespace(derive_customer_hash(PEER))
-    good = generate_network_policy_manifest(KURASI_HASH)
-    check_default_deny_network_policy(good, KURASI_HASH)
+    good = generate_network_policy_manifest(KUSARI_HASH)
+    check_default_deny_network_policy(good, KUSARI_HASH)
     check_traversal_matrix(good, peer_ns)
     bad = copy.deepcopy(good)
     mutate(bad)
     with pytest.raises((AssertionError, KeyError)):
-        check_default_deny_network_policy(bad, KURASI_HASH)
+        check_default_deny_network_policy(bad, KUSARI_HASH)
         check_traversal_matrix(bad, peer_ns)
 
 
 def test_checks_traversal_evaluator_catches_semantic_opening() -> None:
     """The matrix alone (not the shape check) must catch a peer being admitted."""
     peer_ns = get_tenant_namespace(derive_customer_hash(PEER))
-    bad = generate_network_policy_manifest(KURASI_HASH)
+    bad = generate_network_policy_manifest(KUSARI_HASH)
     _open_ingress(bad)
     with pytest.raises(AssertionError, match=re.escape(f"ingress<-{peer_ns}:8080")):
         check_traversal_matrix(bad, peer_ns)
@@ -763,20 +757,20 @@ def test_rollback_transient_fault_after_key_creation_leaves_nothing() -> None:
     transit = FlakyTransit(failures=1)
     mgr = TenantIsolationManager(transit=transit)
     with pytest.raises(ConnectionError):
-        mgr.provision_tenant_boundary(KURASI)
-    assert mgr.get_tenant_boundary(KURASI_HASH) is None, "phantom boundary recorded"
-    assert not transit.key_exists(f"eap-{KURASI_HASH}"), "half-created key orphaned"
+        mgr.provision_tenant_boundary(KUSARI)
+    assert mgr.get_tenant_boundary(KUSARI_HASH) is None, "phantom boundary recorded"
+    assert not transit.key_exists(f"eap-{KUSARI_HASH}"), "half-created key orphaned"
     # Recovery: the next attempt provisions cleanly.
-    cfg = mgr.provision_tenant_boundary(KURASI)
-    assert cfg.is_active and transit.key_exists(f"eap-{KURASI_HASH}")
+    cfg = mgr.provision_tenant_boundary(KUSARI)
+    assert cfg.is_active and transit.key_exists(f"eap-{KUSARI_HASH}")
 
 
 def test_rollback_fault_before_key_creation_leaves_nothing() -> None:
     transit = DeadTransit()
     mgr = TenantIsolationManager(transit=transit)
     with pytest.raises(ConnectionError):
-        mgr.provision_tenant_boundary(KURASI)
-    assert mgr.get_tenant_boundary(KURASI_HASH) is None
+        mgr.provision_tenant_boundary(KUSARI)
+    assert mgr.get_tenant_boundary(KUSARI_HASH) is None
     assert transit._keys == {}
 
 
@@ -785,7 +779,7 @@ def test_rollback_validation_failure_after_key_creation_shreds_the_key() -> None
     transit = InMemoryTransitBackend()
     mgr = TenantIsolationManager(transit=transit)
     with pytest.raises(Exception):
-        mgr.provision_tenant_boundary("k" * 65, customer_hash=KURASI_HASH)
+        mgr.provision_tenant_boundary("k" * 65, customer_hash=KUSARI_HASH)
     assert transit._keys == {}
     assert mgr.list_active_boundaries() == []
 
@@ -811,29 +805,29 @@ def test_concurrent_provision_of_same_tenant_yields_one_boundary_one_key() -> No
 
     def provision(_: int):
         barrier.wait()
-        return mgr.provision_tenant_boundary(KURASI)
+        return mgr.provision_tenant_boundary(KUSARI)
 
     with ThreadPoolExecutor(max_workers=32) as pool:
         configs = list(pool.map(provision, range(32)))
     assert len({id(c) for c in configs}) == 1
-    assert list(transit._keys) == [f"eap-{KURASI_HASH}"]
+    assert list(transit._keys) == [f"eap-{KUSARI_HASH}"]
 
     def teardown(_: int) -> bool:
         barrier.wait()
-        return mgr.teardown_tenant_boundary(KURASI_HASH)
+        return mgr.teardown_tenant_boundary(KUSARI_HASH)
 
     with ThreadPoolExecutor(max_workers=32) as pool:
         assert all(pool.map(teardown, range(32)))
     assert transit._keys == {}
-    assert mgr.get_shred_receipt(KURASI_HASH).material_zeroised is True
+    assert mgr.get_shred_receipt(KUSARI_HASH).material_zeroised is True
 
 
 def test_concurrent_mixed_journeys_preserve_the_key_invariant() -> None:
     """Random interleaved provision/teardown across 12 tenants; invariant holds after."""
     transit = InMemoryTransitBackend()
     mgr = TenantIsolationManager(transit=transit)
-    names = [KURASI] + [f"slet-concurrency-{i}" for i in range(11)]
-    rng = random.Random(0x6F82AD81)
+    names = [KUSARI] + [f"slet-concurrency-{i}" for i in range(11)]
+    rng = random.Random(0x12345678)
     ops = [(rng.choice(names), rng.random() < 0.6) for _ in range(600)]
     errors: List[BaseException] = []
 
@@ -861,21 +855,21 @@ def test_concurrent_mixed_journeys_preserve_the_key_invariant() -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_http_journeys_over_asgi(manager: TenantIsolationManager) -> None:
-    """20 parallel kurasi+peer journeys through the ASGI stack, no state corruption."""
+    """20 parallel kusari+peer journeys through the ASGI stack, no state corruption."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://slet.test", headers=eap_bearer()) as ac:
         provisions = await asyncio.gather(*[
-            ac.post("/api/v1/eap/tenants", json={"company_name": KURASI if i % 2 == 0 else f"slet-async-{i}"})
+            ac.post("/api/v1/eap/tenants", json={"company_name": KUSARI if i % 2 == 0 else f"slet-async-{i}"})
             for i in range(20)
         ])
         assert all(r.status_code == 201 for r in provisions)
-        assert {r.json()["namespace"] for r in provisions if r.json()["company_name"] == KURASI} == {KURASI_NS}
+        assert {r.json()["namespace"] for r in provisions if r.json()["company_name"] == KUSARI} == {KUSARI_NS}
 
         async def roundtrip(i: int) -> bytes:
             pt = f"record-{i}".encode()
-            ct = (await ac.post(f"/api/v1/eap/tenants/{KURASI_HASH}/transit/encrypt",
+            ct = (await ac.post(f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
                                 json={"plaintext": b64(pt)})).json()["ciphertext"]
-            out = await ac.post(f"/api/v1/eap/tenants/{KURASI_HASH}/transit/decrypt",
+            out = await ac.post(f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
                                 json={"ciphertext": ct})
             return base64.b64decode(out.json()["plaintext"])
 
@@ -895,19 +889,19 @@ def test_peak_crypto_workload_budget(stage_metrics: StageMetrics) -> None:
     """1,000 x 4 KiB seal/open cycles: record cost, and bound it loosely."""
     transit = InMemoryTransitBackend()
     mgr = TenantIsolationManager(transit=transit)
-    mgr.provision_tenant_boundary(KURASI)
+    mgr.provision_tenant_boundary(KUSARI)
     blob = secrets.token_bytes(4096)
     n = 1000
     with stage_metrics.measure("perf-crypto-1000x4KiB"):
-        cts = [mgr.encrypt_for_tenant(KURASI_HASH, blob) for _ in range(n)]
-        assert all(mgr.decrypt_for_tenant(KURASI_HASH, c) == blob for c in cts)
+        cts = [mgr.encrypt_for_tenant(KUSARI_HASH, blob) for _ in range(n)]
+        assert all(mgr.decrypt_for_tenant(KUSARI_HASH, c) == blob for c in cts)
     row = stage_metrics.rows[-1]
     assert len(set(cts)) == n
     # Budgets are ~20x the measured cost on the reference box; they catch a
     # pathological regression (e.g. re-deriving keys per call), not jitter.
     assert row["duration_ms"] < 5000, row
     assert row["peak_heap_kib"] < 64 * 1024, row
-    mgr.teardown_tenant_boundary(KURASI_HASH)
+    mgr.teardown_tenant_boundary(KUSARI_HASH)
     assert transit._keys == {}
 
 
@@ -1060,7 +1054,7 @@ def probe_http(ns: str, pod: str, url: str, attempts: int = 1, wait: float = 0.0
 
 
 @live
-def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: StageMetrics,
+def test_live_kusari_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: StageMetrics,
                                              monkeypatch: pytest.MonkeyPatch) -> None:
     from tenant_transit import OpenBaoTransitBackend
 
@@ -1069,7 +1063,7 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
     peer_ns = get_tenant_namespace(peer_hash)
 
     # Preflight: never adopt or clobber a boundary another run owns.
-    for ns in (KURASI_NS, peer_ns):
+    for ns in (KUSARI_NS, peer_ns):
         existing = kubectl("get", "ns", ns, "-o", "json", check=False)
         assert existing.returncode != 0, (
             f"namespace {ns} already exists (owner labels: "
@@ -1078,19 +1072,19 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
 
     # Stage L1 — provision namespaces from the engine's own manifests.
     with stage_metrics.measure("live-1-namespaces"):
-        for name, h in ((KURASI, KURASI_HASH), (PEER, peer_hash)):
+        for name, h in ((KUSARI, KUSARI_HASH), (PEER, peer_hash)):
             ns_manifest = generate_namespace_manifest(name, h)
             ns_manifest["metadata"]["labels"]["signalloom.io/slet-run-id"] = run.run_id
             kubectl("create", "-f", "-", stdin=json.dumps(ns_manifest))
             run.namespaces.append(get_tenant_namespace(h))
-        served = json.loads(kubectl("get", "ns", KURASI_NS, "-o", "json").stdout)
+        served = json.loads(kubectl("get", "ns", KUSARI_NS, "-o", "json").stdout)
         check_namespace_pss_restricted(
-            {"apiVersion": "v1", "kind": "Namespace", "metadata": served["metadata"]}, KURASI_HASH, KURASI)
+            {"apiVersion": "v1", "kind": "Namespace", "metadata": served["metadata"]}, KUSARI_HASH, KUSARI)
         run.log("1-namespaces", "api-server-readback", labels=served["metadata"]["labels"])
 
     # Stage L2 — the API server's PSA admission actually enforces 'restricted'.
     with stage_metrics.measure("live-2-psa"):
-        compliant = restricted_pod("psa-compliant", KURASI_NS, {"app": "psa"}, "sleep 1")
+        compliant = restricted_pod("psa-compliant", KUSARI_NS, {"app": "psa"}, "sleep 1")
         ok = kubectl("create", "--dry-run=server", "-f", "-", stdin=json.dumps(compliant), check=False)
         assert ok.returncode == 0, f"positive control rejected: {ok.stderr}"
         privileged = copy.deepcopy(compliant)
@@ -1106,11 +1100,11 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
 
     # Stage L3 — Cilium enforces the tenant NetworkPolicy between real pods.
     with stage_metrics.measure("live-3-netpol"):
-        for h in (KURASI_HASH, peer_hash):
+        for h in (KUSARI_HASH, peer_hash):
             for m in (generate_network_policy_manifest(h), generate_resource_quota_manifest(h)):
                 kubectl("apply", "-f", "-", stdin=json.dumps(m))
         pods = {
-            "kurasi": ("kurasi-srv", KURASI_NS),
+            "kusari": ("kusari-srv", KUSARI_NS),
             "peer": ("peer-srv", peer_ns),
             "ingress": (f"slet-ingress-probe-{run.run_id}", "ingress"),
         }
@@ -1120,29 +1114,29 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
             if ns == "ingress":
                 run.pods.append((ns, name))
         ips = {key: wait_ready(ns, name) for key, (name, ns) in pods.items()}
-        k_name, _ = pods["kurasi"]
+        k_name, _ = pods["kusari"]
         p_name, _ = pods["peer"]
         i_name, _ = pods["ingress"]
         flows = {
             # positive controls first: the server is up and the allow path works
-            "ingress->kurasi:8080 (allow)": probe_http("ingress", i_name, f"http://{ips['kurasi']}:8080/", 10, 2),
-            "kurasi->kube-dns (allow)": kubectl("-n", KURASI_NS, "exec", k_name, "--", "nslookup",
+            "ingress->kusari:8080 (allow)": probe_http("ingress", i_name, f"http://{ips['kusari']}:8080/", 10, 2),
+            "kusari->kube-dns (allow)": kubectl("-n", KUSARI_NS, "exec", k_name, "--", "nslookup",
                                                 "kubernetes.default.svc.cluster.local", check=False).returncode == 0,
             # The tenant policy permits this (see check_traversal_matrix), but
             # inf-bao runs its own default-deny that does not admit eap-*
             # namespaces, so the destination refuses it. Tenants never call
             # OpenBao directly — SLET's manager encrypts on their behalf — so
             # the refusal is the enforced (and safer) reality.
-            "kurasi->openbao:8200 (deny: inf-bao default-deny)": kubectl(
-                "-n", KURASI_NS, "exec", k_name, "--", "wget", "-q", "-T", "3", "-O", "/dev/null",
+            "kusari->openbao:8200 (deny: inf-bao default-deny)": kubectl(
+                "-n", KUSARI_NS, "exec", k_name, "--", "wget", "-q", "-T", "3", "-O", "/dev/null",
                 f"http://openbao.{BAO_NS}.svc.cluster.local:8200/v1/sys/health", check=False).returncode == 0,
             # the isolation claims
-            "peer->kurasi:8080 (deny)": probe_http(peer_ns, p_name, f"http://{ips['kurasi']}:8080/", 3, 1),
-            "kurasi->peer:8080 (deny)": probe_http(KURASI_NS, k_name, f"http://{ips['peer']}:8080/", 3, 1),
-            "kurasi->ingress:8080 (deny egress)": probe_http(KURASI_NS, k_name, f"http://{ips['ingress']}:8080/", 3, 1),
-            # the ingress namespace has no policies, so only kurasi's ingress
+            "peer->kusari:8080 (deny)": probe_http(peer_ns, p_name, f"http://{ips['kusari']}:8080/", 3, 1),
+            "kusari->peer:8080 (deny)": probe_http(KUSARI_NS, k_name, f"http://{ips['peer']}:8080/", 3, 1),
+            "kusari->ingress:8080 (deny egress)": probe_http(KUSARI_NS, k_name, f"http://{ips['ingress']}:8080/", 3, 1),
+            # the ingress namespace has no policies, so only kusari's ingress
             # port list can refuse this one
-            "ingress->kurasi:9090 (deny ingress port)": probe_http("ingress", i_name, f"http://{ips['kurasi']}:9090/", 3, 1),
+            "ingress->kusari:9090 (deny ingress port)": probe_http("ingress", i_name, f"http://{ips['kusari']}:9090/", 3, 1),
         }
         run.log("3-netpol", "cilium-flows", flows=flows, pod_ips=ips)
         for flow, reached in flows.items():
@@ -1150,9 +1144,9 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
 
     # Stage L4 — SPIRE registration, attestation material, pruning.
     with stage_metrics.measure("live-4-spire"):
-        foreign = spire("entry", "create", "-spiffeID", "spiffe://foreign.invalid/ns/eap-6f82ad81/sa/tenant-app",
+        foreign = spire("entry", "create", "-spiffeID", "spiffe://foreign.invalid/ns/eap-attacker/sa/tenant-app",
                         "-parentID", "spiffe://foreign.invalid/spire/agent/k8s-node",
-                        "-selector", f"k8s:ns:{KURASI_NS}", "-selector", "k8s:sa:tenant-app",
+                        "-selector", f"k8s:ns:{KUSARI_NS}", "-selector", "k8s:sa:tenant-app",
                         "-x509SVIDTTL", "3600", "-output", "json", check=False)
         # spire-server reports a per-entry failure in the JSON body and still
         # exits 0, so the exit status proves nothing; read the status code.
@@ -1170,7 +1164,7 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
         assert any_entries, "SPIRE server holds no entries to read its trust domain from"
         trust_domain = any_entries[0]["spiffe_id"]["trust_domain"]
         monkeypatch.setenv("SLET_SPIFFE_TRUST_DOMAIN", trust_domain)
-        entry = generate_spire_registration_entry(KURASI_HASH)
+        entry = generate_spire_registration_entry(KUSARI_HASH)
         created = spire("entry", "create", "-spiffeID", entry["spiffe_id"], "-parentID", entry["parent_id"],
                         *sum((["-selector", s] for s in entry["selectors"]), []),
                         "-x509SVIDTTL", str(entry["ttl"]), "-output", "json")
@@ -1189,13 +1183,13 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
         pem_blocks = re.findall(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", minted, re.S)
         assert pem_blocks, "x509 mint printed no certificate"
         pem = (pem_blocks[0] + "\n").encode()  # first block is the leaf SVID
-        svid = verify_tenant_svid(pem, KURASI_HASH)
+        svid = verify_tenant_svid(pem, KUSARI_HASH)
         assert 3600 <= svid["lifetime_seconds"] <= 3610  # 1h + SPIRE's 10s backdate
         # The same verifier with zero skew tolerance must reject it: proves the
         # allowance is what admits SPIRE's backdate, not a loose TTL check.
         if svid["lifetime_seconds"] > 3600:
             with pytest.raises(ValueError, match="exceeds tenant TTL"):
-                verify_tenant_svid(pem, KURASI_HASH, skew_seconds=0)
+                verify_tenant_svid(pem, KUSARI_HASH, skew_seconds=0)
         with pytest.raises(ValueError):
             verify_tenant_svid(pem, peer_hash)
         run.log("4-spire", "minted-svid", svid=svid)
@@ -1221,29 +1215,29 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
             assert r.status_code in (200, 204), r.text
             run.mounted_transit = True
         mgr = TenantIsolationManager(transit=bao)
-        run.transit_keys += [f"eap-{KURASI_HASH}", f"eap-{peer_hash}"]
-        mgr.provision_tenant_boundary(KURASI)
+        run.transit_keys += [f"eap-{KUSARI_HASH}", f"eap-{peer_hash}"]
+        mgr.provision_tenant_boundary(KUSARI)
         mgr.provision_tenant_boundary(PEER)
-        key_meta = bao.read_key(f"eap-{KURASI_HASH}")
+        key_meta = bao.read_key(f"eap-{KUSARI_HASH}")
         assert key_meta["type"] == "aes256-gcm96"
         assert key_meta["deletion_allowed"] is True
-        ct = mgr.encrypt_for_tenant(KURASI_HASH, PAYLOAD)
+        ct = mgr.encrypt_for_tenant(KUSARI_HASH, PAYLOAD)
         check_ciphertext_shape(ct, len(PAYLOAD))
-        assert mgr.decrypt_for_tenant(KURASI_HASH, ct) == PAYLOAD
+        assert mgr.decrypt_for_tenant(KUSARI_HASH, ct) == PAYLOAD
         with pytest.raises(TransitDecryptError):
             mgr.decrypt_for_tenant(peer_hash, ct)
-        run.log("5-transit", "openbao", key=f"transit/keys/eap-{KURASI_HASH}",
+        run.log("5-transit", "openbao", key=f"transit/keys/eap-{KUSARI_HASH}",
                 key_type=key_meta["type"], deletion_allowed=key_meta["deletion_allowed"],
                 ciphertext=ct, mounted_by_run=run.mounted_transit)
 
     # Stage L6 — teardown: key shredded, entry pruned, namespaces gone.
     with stage_metrics.measure("live-6-teardown"):
-        assert mgr.teardown_tenant_boundary(KURASI_HASH)
-        receipt = mgr.get_shred_receipt(KURASI_HASH)
+        assert mgr.teardown_tenant_boundary(KUSARI_HASH)
+        receipt = mgr.get_shred_receipt(KUSARI_HASH)
         assert receipt.material_zeroised is True
-        assert bao.read_key(f"eap-{KURASI_HASH}") is None
+        assert bao.read_key(f"eap-{KUSARI_HASH}") is None
         with pytest.raises(TransitKeyNotFound):
-            bao.decrypt(f"eap-{KURASI_HASH}", ct)
+            bao.decrypt(f"eap-{KUSARI_HASH}", ct)
         mgr.teardown_tenant_boundary(peer_hash)
         assert bao.read_key(f"eap-{peer_hash}") is None
         for entry_id in list(run.spire_entries):

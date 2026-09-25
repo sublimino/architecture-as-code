@@ -23,11 +23,12 @@ from fastapi.testclient import TestClient
 
 from api_compat import settings
 from db.connection import set_pool_for_testing
+from environment_routing import derive_customer_hash
 from main import app
 from tenant_isolation import get_spiffe_trust_domain
 
-CUSTOMER_HASH = "6f82ad81"
-COMPANY_NAME = "kurasi"
+COMPANY_NAME = "kusari"
+CUSTOMER_HASH = derive_customer_hash(COMPANY_NAME)
 SLET_SPIFFE_TRUST_DOMAIN = get_spiffe_trust_domain()
 TENANT_SPIFFE_ID = f"spiffe://{SLET_SPIFFE_TRUST_DOMAIN}/ns/eap-{CUSTOMER_HASH}/sa/tenant-app"
 
@@ -81,6 +82,7 @@ BODIES: Dict[Tuple[str, str], Dict[str, Any]] = {
     ("POST", "/api/v1/eap/lifecycle/reaper/pause"): {},
     ("POST", "/api/v1/eap/lifecycle/reaper/resume"): {},
     ("POST", "/api/v1/eap/lifecycle/reaper/dlq/clear"): {},
+
 }
 
 

@@ -337,7 +337,7 @@ SPECS["P2-1"] = make_spec(
         "headers. Build POST /api/v1/webhooks/generic accepting generic CI/CD triggers with X-SignalLoom-Signature and "
         "X-SignalLoom-Timestamp headers. Enforce fail-closed cryptographic signature verification returning HTTP 401 on "
         "any verification failure. Parse payload bodies into typed Pydantic models, extract normalized customer identity "
-        "(e.g. kurasi -> 6f82ad81), compute internal mesh URL (https://sl-eap-6f82ad81.tailscale) and MagicDNS FQDN, "
+        "(e.g. kusari -> a0314bec), compute internal mesh URL (https://sl-eap-a0314bec.tailscale) and MagicDNS FQDN, "
         "and return structured WebhookTriggerResponse with HTTP 200 OK. Wire router into main.py via install_webhook_triggers_api "
         "and write exhaustive FastAPI TestClient test suites."
     ),
@@ -353,14 +353,14 @@ SPECS["P2-1"] = make_spec(
         "Implement install_webhook_triggers_api(app: FastAPI) helper mounting router.",
         "Update main.py to call install_webhook_triggers_api during startup.",
         "Write comprehensive TestClient tests in tests/test_webhook_triggers.py covering GitHub and generic endpoints.",
-        "Test canonical kurasi vector verification in webhook responses.",
+        "Test canonical kusari vector verification in webhook responses.",
         "Document OpenAPI endpoints, curl request examples, and signature computation in docs/signalloom/slte-p2-api-endpoints.md."
     ],
     deliverables=[
         "FastAPI webhook router in fe-signalloom/src/webhook_triggers.py implementing /github and /generic.",
         "Router installation helper install_webhook_triggers_api wired into fe-signalloom/src/main.py.",
         "Comprehensive API test suite in fe-signalloom/src/tests/test_webhook_triggers.py with 100% endpoint coverage.",
-        "Canonical kurasi webhook verification test asserting hash 6f82ad81 and mesh URL in response.",
+        "Canonical kusari webhook verification test asserting hash a0314bec and mesh URL in response.",
         "Error handling test cases covering 400 Bad Request and 401 Unauthorized status codes.",
         "docs/signalloom/slte-p2-api-endpoints.md detailing OpenAPI schemas and HMAC header examples.",
         "Append-only errata entry for SLTE-P2-1 in proposal markdown."
@@ -374,7 +374,7 @@ SPECS["P2-1"] = make_spec(
     ],
     evidence=[
         "Captured pytest execution log demonstrating 100% pass across webhook trigger endpoints.",
-        "HTTP response transcript proving GitHub webhook triggers environment provisioning for kurasi.",
+        "HTTP response transcript proving GitHub webhook triggers environment provisioning for kusari.",
         "docs/signalloom/slte-p2-api-endpoints.md with complete OpenAPI specification extracts.",
         "Errata block appended for SLTE-P2-1 with status=pass."
     ],
@@ -445,7 +445,7 @@ SPECS["P2-GOV"] = make_spec(
         "Phase 2 Governor Certification: independently verify all REST API endpoints for webhook triggers, "
         "event dispatching, and environment lifecycle integration. Audit OpenAPI schema generation, verify HTTP status "
         "code contracts (200 OK, 400 Bad Request, 401 Unauthorized), test concurrent webhook requests for thread safety, and "
-        "confirm that the kurasi canonical vector provisions and tears down flawlessly via webhook triggers. Reconcile all "
+        "confirm that the kusari canonical vector provisions and tears down flawlessly via webhook triggers. Reconcile all "
         "Phase 2 code into the integration branch, run the full test suite, author certification documentation, and certify "
         "readiness for Phase 3 Ingress and CLI emitter automation."
     ),
@@ -454,7 +454,7 @@ SPECS["P2-GOV"] = make_spec(
         "Execute full test suite across fe-signalloom ensuring 100% pass with zero regressions.",
         "Run concurrent webhook stress test issuing 50 simulated parallel requests to verify registry thread safety.",
         "Audit OpenAPI schema generated at /openapi.json ensuring accurate type definitions and status codes.",
-        "Verify that kurasi canonical vector correctly yields https://sl-eap-6f82ad81.tailscale via webhook call.",
+        "Verify that kusari canonical vector correctly yields https://sl-eap-a0314bec.tailscale via webhook call.",
         "Check kanban board health with kanban-check doctor ensuring zero anomalies.",
         "Author Phase 2 certification document in docs/signalloom/slte-p2-certification.md.",
         "Append qualified Phase 2 completion errata block to proposal markdown."
@@ -591,7 +591,7 @@ SPECS["P3-2"] = make_spec(
         "Implement tamper subcommand introducing intentional single-bit errors into signature for security testing.",
         "Support DRY_RUN=1 mode printing curl command and signature headers without sending HTTP request.",
         "Create test suite scripts/eap/test_emit_eap_webhook.sh testing all CLI commands.",
-        "Verify kurasi vector: emitting webhook for kurasi asserts response contains hash 6f82ad81 and mesh URL.",
+        "Verify kusari vector: emitting webhook for kusari asserts response contains hash a0314bec and mesh URL.",
         "Document CLI emitter usage, flags, and CI/CD integration patterns in docs/signalloom/slte-p3-emitter-cli.md."
     ],
     deliverables=[
@@ -609,7 +609,7 @@ SPECS["P3-2"] = make_spec(
     ],
     evidence=[
         "Captured test output showing 100% pass across CLI webhook emitter assertions.",
-        "Execution trace of emit-eap-webhook.sh github-pr kurasi 42 opened returning HTTP 200.",
+        "Execution trace of emit-eap-webhook.sh github-pr kusari 42 opened returning HTTP 200.",
         "docs/signalloom/slte-p3-emitter-cli.md with complete CLI documentation.",
         "Errata block appended for SLTE-P3-2 with status=pass."
     ],
@@ -669,20 +669,20 @@ SPECS["P3-GOV"] = make_spec(
 SPECS["P4-PRE"] = make_spec(
     "P4-PRE", "S", "preflight",
     obj=(
-        "Audit customer kurasi external trigger integration and GitHub Actions pipeline workflow definitions. "
+        "Audit customer kusari external trigger integration and GitHub Actions pipeline workflow definitions. "
         "Verify how external PR events will be simulated and validated in acceptance tests, check secret injection "
         "mechanisms for customer webhook tokens, and verify teardown triggers upon PR merge or closure before building "
         "the automated PR preview lifecycle engine."
     ),
     approach=[
-        "Review kurasi GitHub Actions workflow template and webhook delivery payloads.",
+        "Review kusari GitHub Actions workflow template and webhook delivery payloads.",
         "Verify secret delivery mechanisms ensuring webhook secret is accessible to CI runner.",
         "Audit PR lifecycle state machine: opened -> preview online; sync -> preview updated; closed -> preview deleted.",
         "Verify cleanup guarantees ensuring orphaned PR previews are garbage collected after 24 hours.",
         "Draft preflight audit report in docs/signalloom/slte-p4-preflight.md with customer integration blueprint."
     ],
     deliverables=[
-        "docs/signalloom/slte-p4-preflight.md detailing customer kurasi webhook integration blueprint.",
+        "docs/signalloom/slte-p4-preflight.md detailing customer kusari webhook integration blueprint.",
         "GitHub Actions workflow template for external PR preview triggers.",
         "Lifecycle state transition audit verifying clean teardown on PR close.",
         "Errata block appended for SLTE-P4-PRE in proposal markdown."
@@ -719,7 +719,7 @@ SPECS["P4-1"] = make_spec(
     approach=[
         "Create scripts/eap/eap-pr-preview-controller.sh with commands: on-pr-open, on-pr-sync, on-pr-close.",
         "Implement fe-signalloom/src/pr_preview_manager.py with PRPreviewManager class.",
-        "In on-pr-open, derive customer hash (e.g. kurasi -> 6f82ad81) and format preview hostname sl-eap-6f82ad81-pr$PR.",
+        "In on-pr-open, derive customer hash (e.g. kusari -> a0314bec) and format preview hostname sl-eap-a0314bec-pr$PR.",
         "Call environment provisioning API to reserve preview environment with 120-minute lease.",
         "Generate PR comment payload with Markdown table containing preview URLs, credentials, and TTL expiration countdown.",
         "In on-pr-sync, extend TTL and signal deployment orchestrator to refresh preview container images.",
@@ -745,7 +745,7 @@ SPECS["P4-1"] = make_spec(
     ],
     evidence=[
         "Captured pytest execution log demonstrating 100% pass across PR preview controller test suite.",
-        "Rendered PR comment transcript showing formatted Markdown preview URLs for kurasi PR #42.",
+        "Rendered PR comment transcript showing formatted Markdown preview URLs for kusari PR #42.",
         "docs/signalloom/slte-p4-pr-controller.md with complete sequence diagrams.",
         "Errata block appended for SLTE-P4-1 with status=pass."
     ],
@@ -760,19 +760,19 @@ SPECS["P4-1"] = make_spec(
 SPECS["P4-2"] = make_spec(
     "P4-2", "L", "implementation",
     obj=(
-        "Build comprehensive end-to-end acceptance test suite for kurasi webhook trigger lifecycle in "
-        "fe-signalloom/src/tests/test_kurasi_webhook_lifecycle.py. Simulate complete customer journey: external CI/CD runner "
+        "Build comprehensive end-to-end acceptance test suite for kusari webhook trigger lifecycle in "
+        "fe-signalloom/src/tests/test_kusari_webhook_lifecycle.py. Simulate complete customer journey: external CI/CD runner "
         "emits signed GitHub webhook for PR #42 opened -> webhook router verifies HMAC-SHA256 signature -> environment engine "
-        "provisions sl-eap-6f82ad81 -> router responds with 200 OK and mesh URL https://sl-eap-6f82ad81.tailscale -> external "
+        "provisions sl-eap-a0314bec -> router responds with 200 OK and mesh URL https://sl-eap-a0314bec.tailscale -> external "
         "probe verifies environment is live and reachable -> CI runner emits PR synchronized event extending TTL -> CI runner "
         "emits PR closed event triggering immediate teardown -> post-teardown probe confirms environment is terminated and "
         "resources are clean. Verify 100% test stability across multiple consecutive test runs."
     ),
     approach=[
-        "Create fe-signalloom/src/tests/test_kurasi_webhook_lifecycle.py with pytest-asyncio and FastAPI TestClient.",
-        "Implement test_kurasi_webhook_end_to_end_journey executing sequential lifecycle stages.",
-        "Stage 1 (Webhook Ingestion): Emit signed GitHub pull_request.opened event for repo 'kurasi-app'.",
-        "Assert Stage 1: HTTP 200 OK, action_taken=='provisioned', customer_hash=='6f82ad81', hostname=='sl-eap-6f82ad81'.",
+        "Create fe-signalloom/src/tests/test_kusari_webhook_lifecycle.py with pytest-asyncio and FastAPI TestClient.",
+        "Implement test_kusari_webhook_end_to_end_journey executing sequential lifecycle stages.",
+        "Stage 1 (Webhook Ingestion): Emit signed GitHub pull_request.opened event for repo 'kusari-app'.",
+        "Assert Stage 1: HTTP 200 OK, action_taken=='provisioned', customer_hash=='a0314bec', hostname=='sl-eap-a0314bec'.",
         "Stage 2 (Status Probe): GET /api/v1/environments/{id} asserting state is READY and TTL remaining > 0.",
         "Stage 3 (PR Sync): Emit signed pull_request.synchronize event; assert HTTP 200 OK and action_taken=='extended_ttl'.",
         "Stage 4 (PR Closed): Emit signed pull_request.closed event; assert HTTP 200 OK and action_taken=='torn_down'.",
@@ -782,7 +782,7 @@ SPECS["P4-2"] = make_spec(
         "Write acceptance report in docs/signalloom/slte-p4-acceptance-report.md documenting complete lifecycle run."
     ],
     deliverables=[
-        "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kurasi_webhook_lifecycle.py.",
+        "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kusari_webhook_lifecycle.py.",
         "Full lifecycle execution transcript capturing request and response bodies for every step.",
         "Negative security testing fixture asserting fail-closed behavior on tampered signatures.",
         "Idempotent teardown and resource cleanup verification test.",
@@ -790,21 +790,21 @@ SPECS["P4-2"] = make_spec(
         "Append-only errata entry for SLTE-P4-2 in proposal markdown."
     ],
     tests=[
-        "pytest tests/test_kurasi_webhook_lifecycle.py -v",
+        "pytest tests/test_kusari_webhook_lifecycle.py -v",
         "pytest tests/test_webhook_triggers.py -v",
         "pytest tests/test_environment_routing.py -v",
         "pytest tests/ -v"
     ],
     evidence=[
-        "Captured pytest execution log demonstrating 100% pass on kurasi webhook acceptance suite.",
-        "Full JSON trace of kurasi webhook-triggered environment lifecycle states.",
+        "Captured pytest execution log demonstrating 100% pass on kusari webhook acceptance suite.",
+        "Full JSON trace of kusari webhook-triggered environment lifecycle states.",
         "docs/signalloom/slte-p4-acceptance-report.md with complete test output citations.",
         "Errata block appended for SLTE-P4-2 with status=pass."
     ],
     failures=[
         "Flaky async test timing during webhook event processing assertions.",
         "Failing to clean up temporary test database entries leaving stale state between test runs.",
-        "Failing to assert exact match on canonical hash 6f82ad81 in webhook responses."
+        "Failing to assert exact match on canonical hash a0314bec in webhook responses."
     ]
 )
 
@@ -813,7 +813,7 @@ SPECS["P4-GOV"] = make_spec(
     "P4-GOV", "L", "governor",
     obj=(
         "Final Mission Certification for SLTE: execute comprehensive independent verification of the entire external "
-        "webhook ingestion and trigger engine, HMAC-SHA256 signature verifiers, replay attack defense, and customer 'kurasi' "
+        "webhook ingestion and trigger engine, HMAC-SHA256 signature verifiers, replay attack defense, and customer 'kusari' "
         "lifecycle automation. Audit code quality, test coverage, documentation completeness, API wire contracts, and "
         "architectural compliance across the entire monorepo. Confirm that 100% of tests pass across all Python, shell, and "
         "acceptance suites with zero regressions. Verify that the kanban board doctor check passes with zero defects. "
@@ -823,11 +823,11 @@ SPECS["P4-GOV"] = make_spec(
     approach=[
         "Checkout integration branch integration/slte-v0.1.0 or inspect clean git status.",
         "Execute full test suite in fe-signalloom: unit tests, webhook tests, environment tests, and acceptance tests.",
-        "Execute kurasi webhook acceptance suite in test_kurasi_webhook_lifecycle.py asserting 100% green status.",
+        "Execute kusari webhook acceptance suite in test_kusari_webhook_lifecycle.py asserting 100% green status.",
         "Execute shell test suites: test_emit_eap_webhook.sh and test_tailscale_eap_env.sh.",
         "Audit docs/ to confirm all required documentation files exist, are well-linked, and contain no broken references.",
         "Run scripts/kanban-check.sh doctor --shortcode SLTE to confirm zero unresolved defects or orphaned cards.",
-        "Verify that kurasi canonical hash is strictly 6f82ad81 and mesh URL is https://sl-eap-6f82ad81.tailscale.",
+        "Verify that kusari canonical hash is strictly a0314bec and mesh URL is https://sl-eap-a0314bec.tailscale.",
         "Author final mission certification document in docs/signalloom/slte-mission-complete.md.",
         "Append final Phase 4 Governor errata block to proposal markdown marking SLTE mission fully certified."
     ],
@@ -841,7 +841,7 @@ SPECS["P4-GOV"] = make_spec(
         "docs/signalloom/slte-architecture-summary.md summarizing the new webhook trigger capabilities."
     ],
     tests=[
-        "pytest tests/test_kurasi_webhook_lifecycle.py -v",
+        "pytest tests/test_kusari_webhook_lifecycle.py -v",
         "pytest tests/test_webhook_triggers.py tests/test_environment_routing.py -v",
         "bash scripts/eap/test_tailscale_eap_env.sh",
         "~/.claude/skills/ajm-auto-kanban/Tools/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTE"
@@ -855,7 +855,7 @@ SPECS["P4-GOV"] = make_spec(
     failures=[
         "Declaring mission complete while any acceptance test is mocked rather than fully executed.",
         "Leaving uncommitted temporary files or dirty git worktree state.",
-        "Failing to certify canonical kurasi vector across all operational layers.",
+        "Failing to certify canonical kusari vector across all operational layers.",
         "Overlooking broken links or incomplete documentation in docs/signalloom/."
     ]
 )

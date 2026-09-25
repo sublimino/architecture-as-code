@@ -21,9 +21,13 @@ not opt in.
 """
 from __future__ import annotations
 
+import os
 import time
 from types import SimpleNamespace
 from typing import Any
+
+# Ensure test salt is present during pytest test collection / module imports
+os.environ.setdefault("SIGNAL_LOOM_EAP_SALT", "test-eap-salt-2026")
 
 import jwt
 import pytest
@@ -166,3 +170,13 @@ def eap_jwt_env(monkeypatch: pytest.MonkeyPatch):
     """Explicit form of the same settings, for tests in modules that did not opt in."""
     configure_eap_jwt(monkeypatch)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _eap_test_salt(monkeypatch: pytest.MonkeyPatch):
+    """Provide a default test salt in the environment for offline hermetic test runs."""
+    import os
+    if "SIGNAL_LOOM_EAP_SALT" not in os.environ:
+        monkeypatch.setenv("SIGNAL_LOOM_EAP_SALT", "test-eap-salt-2026")
+    yield
+

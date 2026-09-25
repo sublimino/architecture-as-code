@@ -540,6 +540,76 @@ describe('ConfinementTelemetryPanel (Stage 3: Confinement & Telemetry)', () => {
       expect(mockTestIds).toEqual(liveTestIds)
     })
   })
+
+  describe('Design System Tokens & Log Stream Integration', () => {
+    it('uses design system tokens on root container and child sections', () => {
+      render(
+        <ConfinementTelemetryPanel
+          bridge={mockBridge}
+          preset={HAPPY_PATH_PRESET}
+          pollIntervalMs={0}
+        />,
+      )
+      const panel = screen.getByTestId('confinement-telemetry-panel')
+      expect(panel.style.backgroundColor).toBe('var(--surface)')
+      expect(panel.style.border).toBe('1px solid var(--border)')
+      expect(screen.getByTestId('hash-table-container').style.backgroundColor).toBe('var(--bg)')
+    })
+
+    it('hooks into log stream when telemetry is polled', async () => {
+      const appendStageLogSpy = vi.fn()
+      const appendErrorSpy = vi.fn()
+      const mockLogStream = {
+        log: '',
+        lines: [],
+        isStreaming: false,
+        lineCount: 0,
+        status: 'idle',
+        statusTone: 'var(--muted)',
+        appendLog: vi.fn(),
+        appendLine: vi.fn(),
+        appendStageLog: appendStageLogSpy,
+        streamStage: vi.fn(),
+        appendError: appendErrorSpy,
+        clear: vi.fn(),
+        setStatus: vi.fn(),
+        flush: vi.fn(),
+      }
+
+      render(
+        <ConfinementTelemetryPanel
+          bridge={mockBridge}
+          preset={HAPPY_PATH_PRESET}
+          pollIntervalMs={0}
+          logStream={mockLogStream as any}
+        />,
+      )
+
+      await waitFor(() => {
+        expect(appendStageLogSpy).toHaveBeenCalledWith(
+          'confinement_streaming',
+          expect.objectContaining({
+            processComm: 'nono',
+            cpuTicks: 1420,
+            rssBytes: 48234496,
+          }),
+        )
+      })
+    })
+
+    it('renders the log stream container inside the panel', async () => {
+      render(
+        <ConfinementTelemetryPanel
+          bridge={mockBridge}
+          preset={HAPPY_PATH_PRESET}
+          pollIntervalMs={0}
+        />,
+      )
+
+      expect(screen.getByTestId('confinement-log-stream-container')).toBeInTheDocument()
+      expect(screen.getByTestId('agentmaxxing-log-stream')).toBeInTheDocument()
+    })
+  })
 })
 
 function extractTestIds(container: HTMLElement): string[] {

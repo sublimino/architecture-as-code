@@ -4,7 +4,7 @@
 #
 # Provides deterministic salted customer hashing, Tailscale mesh provisioning,
 # Serve/Funnel automation, and idempotent teardown. Supports TAILSCALE_MOCK=1
-# for offline development and containerized CI environments.
+# as an explicit test seam for offline development and containerized CI.
 # ==============================================================================
 set -euo pipefail
 
@@ -12,12 +12,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${EAP_BACKEND_PORT:-8080}"
 MOCK_DIR="${TAILSCALE_MOCK_DIR:-/tmp/tailscale-eap-mock}"
 
-# Auto-detect mock mode if tailscale CLI binary is missing
-if ! command -v tailscale >/dev/null 2>&1; then
-  TAILSCALE_MOCK=1
-else
-  TAILSCALE_MOCK="${TAILSCALE_MOCK:-0}"
-fi
+# Explicit test seam: TAILSCALE_MOCK=1 enables offline filesystem mock.
+# Never auto-detect mock mode when tailscale is missing; missing binary in live mode is fatal exit 3.
+TAILSCALE_MOCK="${TAILSCALE_MOCK:-0}"
+
+ensure_tailscale() {
+  if [[ "$TAILSCALE_MOCK" != "1" ]]; then
+    if ! command -v tailscale >/dev/null 2>&1; then
+      echo "tailscale binary not found" >&2
+      exit 3
+    fi
+  fi
+}
 
 resolve_salt() {
   if [[ -n "${SIGNAL_LOOM_EAP_SALT:-}" ]]; then
@@ -44,16 +50,17 @@ Commands:
   urls <company-name>             Print internal mesh and MagicDNS URLs for company
   provision <company-name>        Provision and join Tailscale mesh node (sl-eap-HASH)
   serve <company-name> [port]     Configure Tailscale Serve proxying 443 to backend port
+  serve --hash <hash> [port]      Configure Tailscale Serve addressing by hash
   funnel <company-name>           Enable Tailscale Funnel for public UAT (*.ts.net)
   status [company-name]           Display current node status and routing details
-  teardown <company-name>         Reset proxy and log out Tailscale node idempotently
+  teardown <company-name>         Reset proxy and tear down Tailscale node idempotently
   teardown --hash <hash>          Same, addressing the node by customer hash
   help                            Show this help message
 
 Environment Variables:
   SIGNAL_LOOM_EAP_SALT            Cryptographic salt (required if OpenBao not provisioned)
   TAILSCALE_AUTH_KEY              Tailscale pre-auth key for non-interactive up
-  TAILSCALE_MOCK                  Force mock mode (1=mock, 0=live, default: auto)
+  TAILSCALE_MOCK                  Force mock mode (1=mock, 0=live, default: 0)
   EAP_BACKEND_PORT                Target backend port for serve proxy (default: 8080)
 EOF
 }
@@ -61,16 +68,28 @@ EOF
 normalize_company() {
   local name="${1:-}"
   if [[ -z "$name" ]]; then
-    echo "ERROR: Company name cannot be empty" >&2
     return 1
   fi
-  # Lowercase and trim whitespace
-  printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | xargs
+  # Lowercase and trim leading/trailing whitespace without choking on quotes
+  printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
 calc_hash() {
-  local company; company="$(normalize_company "${1:-}")"
+  local raw="${1:-}"
+  local company
+  if ! company="$(normalize_company "$raw" 2>/dev/null)" || [[ -z "$company" ]]; then
+    echo "ERROR: Company name cannot be empty" >&2
+    exit 2
+  fi
+  if [[ ! "$company" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; then
+    echo "ERROR: Invalid company name '$company' (must match ^[a-z0-9][a-z0-9-]{0,62}$)" >&2
+    exit 2
+  fi
   local salt; salt="$(resolve_salt)"
+  if [[ -z "$salt" ]]; then
+    echo "ERROR: Salt cannot be empty" >&2
+    exit 2
+  fi
   local payload="${salt}:${company}"
   local full_hash
   if command -v sha256sum >/dev/null 2>&1; then
@@ -78,16 +97,21 @@ calc_hash() {
   elif command -v shasum >/dev/null 2>&1; then
     full_hash="$(printf '%s' "$payload" | shasum -a 256 | awk '{print $1}')"
   else
-    python3 -c "import hashlib, sys; print(hashlib.sha256(b'$payload').hexdigest())"
+    full_hash="$(printf '%s' "$payload" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
   fi
-  printf '%s' "${full_hash:0:8}"
+  local short_hash="${full_hash:0:8}"
+  if [[ ! "$short_hash" =~ ^[0-9a-f]{8}$ ]]; then
+    echo "ERROR: Failed to compute valid 8-char hex hash, got '$short_hash'" >&2
+    exit 2
+  fi
+  printf '%s' "$short_hash"
 }
 
 cmd_hash() {
   local company="${1:-}"
   if [[ -z "$company" ]]; then
-    echo "Usage: $(basename "$0") hash <company-name>" >&2
-    exit 1
+    echo "ERROR: Company name cannot be empty" >&2
+    exit 2
   fi
   calc_hash "$company"
   echo ""
@@ -96,8 +120,8 @@ cmd_hash() {
 cmd_urls() {
   local company="${1:-}"
   if [[ -z "$company" ]]; then
-    echo "Usage: $(basename "$0") urls <company-name>" >&2
-    exit 1
+    echo "ERROR: Company name cannot be empty" >&2
+    exit 2
   fi
   local h; h="$(calc_hash "$company")"
   local host="sl-eap-${h}"
@@ -114,12 +138,26 @@ EOF
 
 cmd_provision() {
   local company="${1:-}"
-  if [[ -z "$company" ]]; then
-    echo "Usage: $(basename "$0") provision <company-name>" >&2
-    exit 1
+  local h
+  if [[ "$company" == "--hash" ]]; then
+    h="${2:-}"
+    if [[ ! "$h" =~ ^[0-9a-f]{8}$ ]]; then
+      echo "ERROR: --hash requires an 8-char lowercase hex hash, got '$h'" >&2
+      exit 2
+    fi
+    company="hash:${h}"
+  elif [[ "$company" =~ ^hash:([0-9a-f]{8})$ ]]; then
+    h="${BASH_REMATCH[1]}"
+  else
+    if [[ -z "$company" ]]; then
+      echo "ERROR: Company name cannot be empty" >&2
+      exit 2
+    fi
+    h="$(calc_hash "$company")"
   fi
-  local h; h="$(calc_hash "$company")"
   local host="sl-eap-${h}"
+
+  ensure_tailscale
 
   echo "==> Provisioning EAP Tailscale node for '$company' (hostname: $host)..."
 
@@ -157,12 +195,28 @@ EOF
 cmd_serve() {
   local company="${1:-}"
   local target_port="${2:-$PORT}"
-  if [[ -z "$company" ]]; then
-    echo "Usage: $(basename "$0") serve <company-name> [port]" >&2
-    exit 1
+  local h
+  if [[ "$company" == "--hash" ]]; then
+    h="${2:-}"
+    if [[ ! "$h" =~ ^[0-9a-f]{8}$ ]]; then
+      echo "ERROR: --hash requires an 8-char lowercase hex hash, got '$h'" >&2
+      exit 2
+    fi
+    target_port="${3:-$PORT}"
+    company="hash:${h}"
+  elif [[ "$company" =~ ^hash:([0-9a-f]{8})$ ]]; then
+    h="${BASH_REMATCH[1]}"
+    target_port="${2:-$PORT}"
+  else
+    if [[ -z "$company" ]]; then
+      echo "ERROR: Company name cannot be empty" >&2
+      exit 2
+    fi
+    h="$(calc_hash "$company")"
   fi
-  local h; h="$(calc_hash "$company")"
   local host="sl-eap-${h}"
+
+  ensure_tailscale
 
   echo "==> Configuring Tailscale Serve proxy for '$host' -> 127.0.0.1:$target_port..."
 
@@ -188,12 +242,26 @@ EOF
 
 cmd_funnel() {
   local company="${1:-}"
-  if [[ -z "$company" ]]; then
-    echo "Usage: $(basename "$0") funnel <company-name>" >&2
-    exit 1
+  local h
+  if [[ "$company" == "--hash" ]]; then
+    h="${2:-}"
+    if [[ ! "$h" =~ ^[0-9a-f]{8}$ ]]; then
+      echo "ERROR: --hash requires an 8-char lowercase hex hash, got '$h'" >&2
+      exit 2
+    fi
+    company="hash:${h}"
+  elif [[ "$company" =~ ^hash:([0-9a-f]{8})$ ]]; then
+    h="${BASH_REMATCH[1]}"
+  else
+    if [[ -z "$company" ]]; then
+      echo "ERROR: Company name cannot be empty" >&2
+      exit 2
+    fi
+    h="$(calc_hash "$company")"
   fi
-  local h; h="$(calc_hash "$company")"
   local host="sl-eap-${h}"
+
+  ensure_tailscale
 
   echo "==> Enabling Tailscale Funnel for '$host'..."
 
@@ -218,8 +286,20 @@ EOF
 
 cmd_status() {
   local company="${1:-}"
+  ensure_tailscale
   if [[ -n "$company" ]]; then
-    local h; h="$(calc_hash "$company")"
+    local h
+    if [[ "$company" == "--hash" ]]; then
+      h="${2:-}"
+      if [[ ! "$h" =~ ^[0-9a-f]{8}$ ]]; then
+        echo "ERROR: --hash requires an 8-char lowercase hex hash, got '$h'" >&2
+        exit 2
+      fi
+    elif [[ "$company" =~ ^hash:([0-9a-f]{8})$ ]]; then
+      h="${BASH_REMATCH[1]}"
+    else
+      h="$(calc_hash "$company")"
+    fi
     local host="sl-eap-${h}"
     if [[ "$TAILSCALE_MOCK" == "1" ]]; then
       if [[ -f "$MOCK_DIR/$host/state.json" ]]; then
@@ -243,10 +323,6 @@ cmd_status() {
 cmd_teardown() {
   local company="${1:-}"
   local h
-  # `teardown --hash <8-hex>` addresses the node by its customer hash directly.
-  # The lifecycle reaper holds the hash, and re-deriving it from the company
-  # name here would silently target a different node if SIGNAL_LOOM_EAP_SALT
-  # differs between the caller and this script.
   if [[ "$company" == "--hash" ]]; then
     h="${2:-}"
     if [[ ! "$h" =~ ^[0-9a-f]{8}$ ]]; then
@@ -254,13 +330,18 @@ cmd_teardown() {
       exit 2
     fi
     company="hash:${h}"
+  elif [[ "$company" =~ ^hash:([0-9a-f]{8})$ ]]; then
+    h="${BASH_REMATCH[1]}"
+    company="hash:${h}"
   elif [[ -z "$company" ]]; then
-    echo "Usage: $(basename "$0") teardown <company-name> | teardown --hash <customer-hash>" >&2
-    exit 1
+    echo "ERROR: Company name cannot be empty" >&2
+    exit 2
   else
     h="$(calc_hash "$company")"
   fi
   local host="sl-eap-${h}"
+
+  ensure_tailscale
 
   echo "==> Tearing down EAP Tailscale node for '$company' ($host)..."
 
@@ -273,8 +354,8 @@ cmd_teardown() {
   # Reset serve and funnel if active
   tailscale serve reset 2>/dev/null || true
   tailscale funnel reset 2>/dev/null || true
-  # Logout if logged in
-  tailscale logout 2>/dev/null || true
+  # Bring node down
+  tailscale down 2>/dev/null || true
   echo "    Teardown complete for '$host'."
 }
 

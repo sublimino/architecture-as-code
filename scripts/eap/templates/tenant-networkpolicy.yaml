@@ -115,3 +115,14 @@ spec:
       ports:
         - protocol: TCP
           port: 8200
+    # Allow SPIRE server registration and bundle validation in inf-bao
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: spire-server
+      ports:
+        - protocol: TCP
+          port: 8081

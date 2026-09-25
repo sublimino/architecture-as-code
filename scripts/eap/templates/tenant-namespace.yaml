@@ -9,6 +9,7 @@ metadata:
     signalloom.io/eap-hash: "${EAP_HASH}"
     signalloom.io/customer: "${EAP_CUSTOMER}"
     signalloom.io/environment-type: "${EAP_ENV_TYPE:-demo}"
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted

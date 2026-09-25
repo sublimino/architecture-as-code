@@ -79,6 +79,7 @@ from tenant_isolation import (
     generate_network_policy_manifest,
     generate_resource_quota_manifest,
     generate_spire_registration_entry,
+    get_spiffe_trust_domain,
     get_tenant_namespace,
     get_tenant_spiffe_id,
     verify_tenant_svid,
@@ -97,7 +98,7 @@ from tenant_transit import (
 KURASI = "kurasi"
 KURASI_HASH = "6f82ad81"
 KURASI_NS = "eap-6f82ad81"
-KURASI_SPIFFE = "spiffe://osramp.local/ns/eap-6f82ad81/sa/tenant-app"
+KURASI_SPIFFE = f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/tenant-app"
 KURASI_KEY_PATH = "transit/keys/eap-6f82ad81"
 CANONICAL_SALT = "signalloom-eap-salt-2026-q3"
 
@@ -363,7 +364,8 @@ def check_traversal_matrix(policy: Dict[str, Any], peer_ns: str) -> Dict[str, bo
     }
     expected_allowed = {
         "ingress<-ingress:8080", "ingress<-fe-signalloom:8080",
-        "egress->kube-dns:53/UDP", "egress->kube-dns:53/TCP", "egress->inf-bao:8200",
+        "egress->kube-dns:53/UDP", "egress->kube-dns:53/TCP",
+        "egress->inf-bao:8200", "egress->inf-bao:8081",
     }
     for flow, allowed in matrix.items():
         assert allowed == (flow in expected_allowed), f"flow {flow}: allowed={allowed}"
@@ -373,7 +375,7 @@ def check_traversal_matrix(policy: Dict[str, Any], peer_ns: str) -> Dict[str, bo
 def check_spire_entry(entry: Dict[str, Any], customer_hash: str) -> None:
     ns = get_tenant_namespace(customer_hash)
     assert entry["spiffe_id"] == get_tenant_spiffe_id(customer_hash)
-    assert entry["parent_id"] == "spiffe://osramp.local/spire/agent/k8s-node"
+    assert entry["parent_id"] == f"spiffe://{get_spiffe_trust_domain()}/spire/agent/k8s-node"
     assert sorted(entry["selectors"]) == sorted([f"k8s:ns:{ns}", "k8s:sa:tenant-app"])
     assert entry["ttl"] == 3600
     assert entry["admin"] is False
@@ -561,12 +563,12 @@ def test_stage6_teardown_is_idempotent_and_does_not_reshred(api: Api, manager: T
 @pytest.mark.parametrize("caller", [
     None,
     "",
-    "spiffe://osramp.local/ns/eap-4b53ab6b/sa/tenant-app",   # "kusari", the misspelt tenant
-    "spiffe://osramp.local/ns/eap-6f82ad810/sa/tenant-app",  # prefix extension
-    "spiffe://osramp.local/ns/eap-6f82ad8/sa/tenant-app",    # truncation
-    "spiffe://osramp.local/ns/eap-6f82ad81/sa/default",      # other SA, same namespace
+    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-4b53ab6b/sa/tenant-app",   # "kusari", the misspelt tenant
+    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad810/sa/tenant-app",  # prefix extension
+    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad8/sa/tenant-app",    # truncation
+    f"spiffe://{get_spiffe_trust_domain()}/ns/eap-6f82ad81/sa/default",      # other SA, same namespace
     "spiffe://evil.local/ns/eap-6f82ad81/sa/tenant-app",     # foreign trust domain
-    "spiffe://osramp.local/ns/EAP-6F82AD81/sa/tenant-app",   # case games
+    f"spiffe://{get_spiffe_trust_domain()}/ns/EAP-6F82AD81/sa/tenant-app",   # case games
     KURASI_SPIFFE + "/",                                      # trailing slash
     KURASI_SPIFFE + "?sa=tenant-app",                         # query smuggling
 ])
@@ -1148,8 +1150,8 @@ def test_live_kurasi_journey_on_kind_cluster(live_run: LiveRun, stage_metrics: S
 
     # Stage L4 — SPIRE registration, attestation material, pruning.
     with stage_metrics.measure("live-4-spire"):
-        foreign = spire("entry", "create", "-spiffeID", KURASI_SPIFFE,
-                        "-parentID", "spiffe://osramp.local/spire/agent/k8s-node",
+        foreign = spire("entry", "create", "-spiffeID", "spiffe://foreign.invalid/ns/eap-6f82ad81/sa/tenant-app",
+                        "-parentID", "spiffe://foreign.invalid/spire/agent/k8s-node",
                         "-selector", f"k8s:ns:{KURASI_NS}", "-selector", "k8s:sa:tenant-app",
                         "-x509SVIDTTL", "3600", "-output", "json", check=False)
         # spire-server reports a per-entry failure in the JSON body and still

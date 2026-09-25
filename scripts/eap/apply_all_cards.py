@@ -9,7 +9,7 @@ CARDS = [
     ("P1-PRE", "preflight", "Audit customer hashing salt, DNS constraints, and Tailscale MagicDNS contracts", "S", "daily", None),
     ("P1-1", "implementation", "Build cryptographic salt hashing and sl-eap-HASH.tailscale URL generator", "M", "daily", None),
     ("P1-2", "implementation", "Define environment provisioning data models, schema validations, and state machines", "M", "daily", None),
-    ("P1-GOV", "governor", "Certify Phase 1 hashing vectors (kurasi check) and domain contracts", "M", "deep", "Phase governor certification requires deep reasoning and verification across hashing vectors"),
+    ("P1-GOV", "governor", "Certify Phase 1 hashing vectors (kusari check) and domain contracts", "M", "deep", "Phase governor certification requires deep reasoning and verification across hashing vectors"),
     ("P2-PRE", "preflight", "Audit FastAPI router seams and Dex OIDC origin lease hooks", "S", "daily", None),
     ("P2-1", "implementation", "Implement /api/v1/environments/provision and /resolve-domain endpoints", "L", "daily", None),
     ("P2-2", "implementation", "Implement environment lifecycle endpoints: list, get, extend TTL, and teardown", "L", "daily", None),
@@ -20,8 +20,8 @@ CARDS = [
     ("P3-GOV", "governor", "Certify Phase 3 dynamic mesh routing, Dex callback stability, and network isolation", "M", "deep", "Phase governor certification requires deep reasoning and verification across network mesh boundaries"),
     ("P4-PRE", "preflight", "Audit tenant namespace templates, ResourceSets, and teardown cleanup guards", "S", "daily", None),
     ("P4-1", "implementation", "Implement on-demand demo/UAT namespace bootstrapper and teardown garbage collector", "L", "daily", None),
-    ("P4-2", "implementation", "Build comprehensive acceptance tests for kurasi EAP environment lifecycle", "L", "daily", None),
-    ("P4-GOV", "governor", "Final mission certification: end-to-end kurasi EAP environment spin-up and teardown", "L", "deep", "Final mission certification requires comprehensive verification across all system components"),
+    ("P4-2", "implementation", "Build comprehensive acceptance tests for kusari EAP environment lifecycle", "L", "daily", None),
+    ("P4-GOV", "governor", "Final mission certification: end-to-end kusari EAP environment spin-up and teardown", "L", "deep", "Final mission certification requires comprehensive verification across all system components"),
 ]
 
 REPO = "/home/andy/src/cp/osramp-demo"

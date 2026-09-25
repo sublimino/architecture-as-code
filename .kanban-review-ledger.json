@@ -152,7 +152,7 @@
     "reviewed_at": "2026-09-15T06:21:11.474963Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50\u00b5s), and defined forensic ledger schema and Go types"
+    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
   },
   "80803": {
     "task_id": "80803",
@@ -2293,7 +2293,7 @@
     "reviewed_at": "2026-09-14T20:35:04Z",
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
-    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc §7.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   },
   "302f6": {
     "task_id": "302f6",
@@ -2983,5 +2983,13 @@
     "summary": "Adversarial Council Review APPROVED across 4 lenses: all Phase 2 implementation branches merged cleanly, 0 of 34 EAP operations reachable anonymously, fe-signalloom pytest suite green, make test-all-offline verified, tag integration/eapr-v0.1.0-p2 created at commit 1e3f4893.",
     "next_step": "Advance db6b2 to done and auto-start EAPR-P3-PRE (6f8d4).",
     "reason": "Adversarial Council Review APPROVED across 4 lenses: IdentityHeaderStripMiddleware verified, 0 of 34 routes reachable anonymously, full fe-signalloom suite green, audit provenance registered (_audit_eap_decision), test/eap-pr-workflow.bats 14/14 passed, DOC-2 table completeness resolved, commit 1e3f4893 tagged as integration/eapr-v0.1.0-p2"
+  },
+  "6f8d4": {
+    "task_id": "6f8d4",
+    "reviewed_at": "2026-09-25T00:40:33.484Z",
+    "reviewer": "Council of Agents (antigravity/kpai/opencode)",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Adversarial council review complete: all 4 lenses verified. Live identity plane, PSS constraints, constants, SLED defects, and SLTE surfaces pinned with committed evidence. Doctor 100% healthy, blocking_drift=false."
   }
 }

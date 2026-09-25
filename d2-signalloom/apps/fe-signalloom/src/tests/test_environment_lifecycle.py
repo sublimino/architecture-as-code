@@ -257,19 +257,21 @@ def test_evaluate_reaping_exception_isolation_and_dlq():
 
     mgr.transition_state = faulty_transition
 
-    # Cycle 1
+    # Cycle 1 - isolated and enqueued to DLQ
     actions1 = mgr.evaluate_reaping(now=now)
     assert len(actions1) == 3
     assert mgr.get_lifecycle("aaaaaaaa").state == EnvironmentLifecycleState.DRAINING
     assert mgr.get_lifecycle("cccccccc").state == EnvironmentLifecycleState.DRAINING
     assert mgr.get_lifecycle("bbbbbbbb").state == EnvironmentLifecycleState.ACTIVE
-    assert mgr.dlq.count() == 0  # not enqueued yet (failures = 1)
+    assert mgr.dlq.count() == 1
+    assert mgr.dlq.get("bbbbbbbb").failure_count == 1
 
     # Cycle 2
     actions2 = mgr.evaluate_reaping(now=now)
-    assert mgr.dlq.count() == 0  # failures = 2
+    assert mgr.dlq.count() == 1
+    assert mgr.dlq.get("bbbbbbbb").failure_count == 2
 
-    # Cycle 3 - should route to DeadLetterQueue
+    # Cycle 3 - should still be in DeadLetterQueue with incremented failures
     actions3 = mgr.evaluate_reaping(now=now)
     assert mgr.dlq.count() == 1
     dlq_entry = mgr.dlq.get("bbbbbbbb")
@@ -566,4 +568,5 @@ def test_api_reaper_admin_and_diagnostic_endpoints():
     # 7. Metrics (process-wide: operator only)
     metrics_resp = client.get("/api/v1/eap/lifecycle/metrics", headers=operator)
     assert metrics_resp.status_code == 200
-    assert "signalloom_eap_reaper_cycles_total" in metrics_resp.json()
+    assert "# TYPE signalloom_eap_reaper_cycles counter" in metrics_resp.text
+    assert metrics_resp.text.rstrip().endswith("# EOF")

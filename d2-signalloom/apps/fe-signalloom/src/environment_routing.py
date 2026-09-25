@@ -20,14 +20,13 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import api_compat
+from eap_contract import MAX_INITIAL_TTL_MINUTES, MAX_LIFETIME_HOURS
 import eap_tenancy
 from eap_tenancy import Tenant, claim_or_403, owned_hashes
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_EAP_SALT = "signalloom-eap-salt-2026-q3"
-MAX_LIFETIME_HOURS = 72
-MAX_INITIAL_TTL_MINUTES = 1440  # 24 hours
 MIN_INITIAL_TTL_MINUTES = 5
 EXPIRY_WARNING_THRESHOLD_MINUTES = 30
 OIDC_CALLBACK_PATH = "/auth/callback"
@@ -408,7 +407,7 @@ class EnvironmentRegistry:
             max_ceiling = rec.created_at + timedelta(hours=MAX_LIFETIME_HOURS)
             if new_expires > max_ceiling:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=(
                         f"Requested extension exceeds maximum lifetime ceiling of {MAX_LIFETIME_HOURS} hours "
                         f"from initial creation (cap: {max_ceiling.isoformat()})."

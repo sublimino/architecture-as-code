@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import logging
+import resource
 import threading
 import time
 import tracemalloc
@@ -205,8 +206,6 @@ async def test_base_exception_other_than_cancel_is_not_swallowed_silently():
 
 
 @pytest.mark.anyio
-@pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D5: get_status()/`/reaper/status` reports "
-                   "is_running=True from a flag, not from task liveness, after the loop task has died")
 async def test_status_reports_dead_reaper_task_as_not_running():
     daemon = _fatal_daemon()
     daemon.start()
@@ -235,20 +234,15 @@ def test_per_environment_failure_is_isolated_and_dead_lettered():
     assert mgr.dlq.contains("00000003")
 
 
-@pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D4: code outside the per-record try "
-                   "(priority sort key) aborts the whole pass, so one malformed record starves the fleet "
-                   "and never reaches the DLQ")
 def test_malformed_record_does_not_starve_the_fleet():
     mgr = LifecycleManager()
     _fleet(mgr, n=10, expired_every=1)
     bad = mgr._records["00000004"]
     mgr._records["00000004"] = bad.model_construct(**{**bad.__dict__, "expires_at": None})
-    try:
-        mgr.evaluate_reaping()
-    except Exception:
-        pass
+    mgr.evaluate_reaping()
     drained = sum(r.state == EnvironmentLifecycleState.DRAINING for r in mgr._records.values())
     assert drained == 9
+    assert mgr.dlq.contains("00000004")
 
 
 # ------------------------------------------------ cancellation and leakage
@@ -375,8 +369,6 @@ def test_threaded_heartbeats_racing_reaper_passes_preserve_invariants():
 
 
 @pytest.mark.anyio
-@pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D3: evaluate_reaping runs on the event loop and "
-                   "blocks in threading.RLock.acquire(timeout=5) while a threadpool caller holds the lock")
 async def test_contended_manager_lock_does_not_stall_the_event_loop():
     mgr = LifecycleManager()
     _fleet(mgr, n=10)
@@ -400,8 +392,6 @@ async def test_contended_manager_lock_does_not_stall_the_event_loop():
     assert lag < 0.05
 
 
-@pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D1: /metrics returns a JSON dict, not "
-                   "OpenMetrics/Prometheus text exposition (no # TYPE, no histogram, no labels)")
 def test_metrics_endpoint_is_openmetrics_exposition(monkeypatch):
     mgr = LifecycleManager()
     app = _app(mgr, ReaperDaemon(lifecycle_manager=mgr), monkeypatch)
@@ -412,14 +402,22 @@ def test_metrics_endpoint_is_openmetrics_exposition(monkeypatch):
     assert r.text.rstrip().endswith("# EOF")
 
 
-def test_metrics_payload_shape_as_delivered(monkeypatch):
-    """Records what P2-1 actually ships so the D1 finding is anchored to evidence."""
+def test_openmetrics_strict_parser_and_missing_eof_negative(monkeypatch):
+    """D1 strict parser verification and missing # EOF negative test."""
+    from prometheus_client.openmetrics.parser import text_string_to_metric_families
     mgr = LifecycleManager()
     app = _app(mgr, ReaperDaemon(lifecycle_manager=mgr), monkeypatch)
     r = EAPClient(app, EAP_OPERATOR).get("/api/v1/eap/lifecycle/metrics")
-    print(f"\nCERT metrics content-type={r.headers.get('content-type')} keys={sorted(r.json())}")
-    assert r.headers["content-type"].startswith("application/json")
-    assert isinstance(r.json()["signalloom_eap_reaper_duration_seconds"], float)
+    families = list(text_string_to_metric_families(r.text))
+    names = {f.name for f in families}
+    assert "signalloom_eap_reaper_cycles" in names
+    assert "signalloom_eap_reaper_duration_seconds" in names
+    assert "signalloom_eap_dlq_total" in names
+
+    # Negative control: missing # EOF is rejected by strict OpenMetrics parser
+    text_without_eof = r.text.replace("# EOF\n", "").replace("# EOF", "")
+    with pytest.raises(Exception):
+        list(text_string_to_metric_families(text_without_eof))
 
 
 def _vmrss_bytes() -> int:
@@ -430,15 +428,16 @@ def _vmrss_bytes() -> int:
     return 0
 
 
-@pytest.mark.xfail(strict=True, reason="SLED-P2-GOV D2: MemoryWatchdog reads ru_maxrss (peak, "
-                   "monotonic) not current RSS, so it cannot observe a leak receding or bounded memory")
 def test_memory_watchdog_reports_current_not_peak_rss():
     w = el.MemoryWatchdog()
-    blob = bytearray(300 * 1024 * 1024)
+    blob = bytearray(64 * 1024 * 1024)
     blob[::4096] = b"x" * len(blob[::4096])
+    high_rss = w.get_rss_bytes()
+    peak_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
     del blob
     gc.collect()
-    current = _vmrss_bytes()
-    reported = w.get_rss_bytes()
-    print(f"\nCERT vmrss_mb={current / 2**20:.1f} watchdog_mb={reported / 2**20:.1f}")
-    assert abs(reported - current) < 64 * 1024 * 1024
+    low_rss = w.get_rss_bytes()
+    peak_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+    print(f"\nCERT vmrss_high_mb={high_rss / 2**20:.1f} vmrss_low_mb={low_rss / 2**20:.1f} peak_before_mb={peak_before / 2**20:.1f} peak_after_mb={peak_after / 2**20:.1f}")
+    assert low_rss < high_rss, f"VmRSS did not drop: high={high_rss}, low={low_rss}"
+    assert peak_after >= peak_before, "ru_maxrss peak must never decrease"

@@ -88,6 +88,28 @@ assert_eq "Mock directory removed" "$([[ -d "$TEST_MOCK_DIR/sl-eap-6f82ad81" ]] 
 teardown_again="$("$BIN" teardown kurasi)"
 assert_contains "Repeated teardown is idempotent" "$teardown_again" "cleared cleanly"
 
+# 9. Test teardown addressed by customer hash (SLED-P3-1 Stage 2 contract)
+"$BIN" provision kurasi >/dev/null
+"$BIN" serve kurasi >/dev/null
+"$BIN" funnel kurasi >/dev/null
+assert_eq "Serve+funnel mock files exist before hash teardown" \
+  "$([[ -f "$TEST_MOCK_DIR/sl-eap-6f82ad81/serve.json" && -f "$TEST_MOCK_DIR/sl-eap-6f82ad81/funnel.json" ]] && echo yes)" "yes"
+hash_out="$("$BIN" teardown --hash 6f82ad81)"
+assert_contains "Hash teardown names the node" "$hash_out" "sl-eap-6f82ad81"
+assert_eq "Hash teardown purges serve/funnel state" \
+  "$([[ -d "$TEST_MOCK_DIR/sl-eap-6f82ad81" ]] && echo yes || echo no)" "no"
+hash_again="$("$BIN" teardown --hash 6f82ad81)"
+assert_contains "Repeated hash teardown is idempotent" "$hash_again" "cleared cleanly"
+assert_eq "Status reports node gone after eviction" \
+  "$("$BIN" status kurasi | grep -c NotProvisioned)" "1"
+
+# 10. Malformed hash is rejected with exit 2, never mapped to a node
+set +e
+bad_out="$("$BIN" teardown --hash 'ZZ;rm' 2>&1)"; bad_rc=$?
+set -e
+assert_eq "Malformed hash exits 2" "$bad_rc" "2"
+assert_contains "Malformed hash error is explicit" "$bad_out" "8-char lowercase hex"
+
 echo ""
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 if [[ "$FAILED" -gt 0 ]]; then

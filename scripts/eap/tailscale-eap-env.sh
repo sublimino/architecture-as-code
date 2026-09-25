@@ -32,6 +32,7 @@ Commands:
   funnel <company-name>           Enable Tailscale Funnel for public UAT (*.ts.net)
   status [company-name]           Display current node status and routing details
   teardown <company-name>         Reset proxy and log out Tailscale node idempotently
+  teardown --hash <hash>          Same, addressing the node by customer hash
   help                            Show this help message
 
 Environment Variables:
@@ -225,11 +226,24 @@ cmd_status() {
 
 cmd_teardown() {
   local company="${1:-}"
-  if [[ -z "$company" ]]; then
-    echo "Usage: $(basename "$0") teardown <company-name>" >&2
+  local h
+  # `teardown --hash <8-hex>` addresses the node by its customer hash directly.
+  # The lifecycle reaper holds the hash, and re-deriving it from the company
+  # name here would silently target a different node if SIGNAL_LOOM_EAP_SALT
+  # differs between the caller and this script.
+  if [[ "$company" == "--hash" ]]; then
+    h="${2:-}"
+    if [[ ! "$h" =~ ^[0-9a-f]{8}$ ]]; then
+      echo "ERROR: --hash requires an 8-char lowercase hex customer hash, got '${h}'" >&2
+      exit 2
+    fi
+    company="hash:${h}"
+  elif [[ -z "$company" ]]; then
+    echo "Usage: $(basename "$0") teardown <company-name> | teardown --hash <customer-hash>" >&2
     exit 1
+  else
+    h="$(calc_hash "$company")"
   fi
-  local h; h="$(calc_hash "$company")"
   local host="sl-eap-${h}"
 
   echo "==> Tearing down EAP Tailscale node for '$company' ($host)..."

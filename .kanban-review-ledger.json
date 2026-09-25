@@ -1,4 +1,19 @@
 {
+  "11867": {
+    "task_id": "11867",
+    "reviewed_at": "2026-09-25T04:59:30.890Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "18050": {
+    "task_id": "18050",
+    "reviewed_at": "2026-09-15T13:49:12Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLCD-P6-GOV final mission governor certified delivery: full mission test surface verified green, all 6 phases audited, commits df3d6ef1, b5d7c12c, b1c336b0 integrated"
+  },
   "21309": {
     "task_id": "21309",
     "reviewed_at": "2026-09-01T23:56:59Z",
@@ -27,6 +42,14 @@
     "verdict": "APPROVED",
     "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
   },
+  "29492": {
+    "task_id": "29492",
+    "reviewed_at": "2026-09-25T04:59:44.562Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
   "36157": {
     "task_id": "36157",
     "reviewed_at": "2026-09-05T15:35:26Z",
@@ -34,12 +57,28 @@
     "verdict": "APPROVED",
     "reason": "K8s audit receiver and impersonation pipeline verified green"
   },
+  "40335": {
+    "task_id": "40335",
+    "reviewed_at": "2026-09-25T04:59:49.542Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
   "40398": {
     "task_id": "40398",
     "reviewed_at": "2026-08-29T23:34:18Z",
     "reviewer": "antigravity",
     "verdict": "APPROVED",
     "reason": "[P0] Harness Smoke Test: Kind cluster readiness and test runner certified via .kagent-preflight-proof.json"
+  },
+  "42412": {
+    "task_id": "42412",
+    "reviewed_at": "2026-09-25T04:59:53.275Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
   },
   "43271": {
     "task_id": "43271",
@@ -54,6 +93,21 @@
     "reviewer": "antigravity",
     "verdict": "pass",
     "reason": "Temporal edge invalidation, StunEventListener, DelegationReaper sweeper with panic recovery, POST /api/v1/delegations/revoke, and HTTP 403 Forbidden with REVOKED badge (<12ms latency) verified with 100% passing tests (18/18 packages)"
+  },
+  "50129": {
+    "task_id": "50129",
+    "reviewed_at": "2026-09-15T12:46:43Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLCD-P6-1 verified: 5 mission-wide test suites consolidated (+2,066 lines); 10/10 slcd-ci-parity.bats pass; 17 prohibited procfs deny-list pinned; dynamic path contracts preserved"
+  },
+  "51104": {
+    "task_id": "51104",
+    "reviewed_at": "2026-09-25T05:00:06.384Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
   },
   "55793": {
     "task_id": "55793",
@@ -75,6 +129,13 @@
     "reviewer": "supervisor",
     "verdict": "pass",
     "reason": "AMXO-P3-GOV: Phase 3 Governor certified; reconciled migrations 040 and 041, least privilege credential scope verified, 149/149 host and isolation tests green, proof recorded in docs/signalloom/amxo-p3-gov-proof.md"
+  },
+  "57887": {
+    "task_id": "57887",
+    "reviewed_at": "2026-09-15T13:22:07Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "reason": "SLCD-P6-4 verified: Makefile demo-signalloom-coding-agent-topology target and aggregator wired; SPEC-REGISTRY.tsv updated; 7/7 acceptance-spec-coverage.bats pass"
   },
   "58461": {
     "task_id": "58461",
@@ -118,6 +179,14 @@
     "verdict": "pass",
     "reason": "Council approval: location /v1/ reverse proxy in nginx.conf verified with header forwarding and passthrough URI."
   },
+  "65481": {
+    "task_id": "65481",
+    "reviewed_at": "2026-09-25T05:00:09.009Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
   "67394": {
     "task_id": "67394",
     "reviewed_at": "2026-09-13T19:03:29.441Z",
@@ -126,12 +195,28 @@
     "model": "antigravity-gemini-3.8-flash",
     "reason": "AMXO-P5-1 verified: Verify finalized sessions and reject invalid audit chains; contiguous sequence enforcement, terminal finalization markers, Go VerifyFinalizedSession (25/25 pass), Pytest /sessions/finalized and require_finalized contract suite (29/29 pass), proof in docs/signalloom/amxo-p5-1-evidence.md (commit 6245b7fc)"
   },
+  "67879": {
+    "task_id": "67879",
+    "reviewed_at": "2026-09-25T04:59:37.269Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
   "68175": {
     "task_id": "68175",
     "reviewed_at": "2026-09-15T06:21:11.474963Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50\u00b5s), and defined forensic ledger schema and Go types"
+    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
+  },
+  "79978": {
+    "task_id": "79978",
+    "reviewed_at": "2026-09-25T04:58:39.710Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
   },
   "80803": {
     "task_id": "80803",
@@ -146,6 +231,14 @@
     "reviewer": "Council of Agents (Antigravity, KPAI, CPAI)",
     "verdict": "APPROVED",
     "reason": "SLDP-P1-3 certified: Independent segment and checkpoint chain verifier (store/verify/verify.go), CLI (cmd/segment-verify), 17 tamper tests (store/segment_verifier_test.go), Makefile targets, milestone sizing (M1-M4: 75.25-102.25 days), and PASS proof verified green; commit c3c36f96 verified"
+  },
+  "82535": {
+    "task_id": "82535",
+    "reviewed_at": "2026-09-25T04:59:52.028Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
   },
   "85138": {
     "task_id": "85138",
@@ -167,6 +260,14 @@
     "reviewer": "Council of Agents",
     "verdict": "APPROVED",
     "reason": "Retention controller delivered across 35 sinks with 74 tests and 15 mutation kills"
+  },
+  "90790": {
+    "task_id": "90790",
+    "reviewed_at": "2026-09-25T04:59:48.317Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
   },
   "97551": {
     "task_id": "97551",
@@ -2272,7 +2373,7 @@
     "reviewed_at": "2026-09-14T20:35:04Z",
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
-    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc §7.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   },
   "302f6": {
     "task_id": "302f6",
@@ -2848,13 +2949,6 @@
     "verdict": "APPROVED",
     "reason": "SLCD-P6-2 verified: complete docs suite (architecture, zero-payload, runbook, ranges, lawful basis); clean astro build (28 pages); 13/13 docs render tests pass"
   },
-  "50129": {
-    "task_id": "50129",
-    "reviewed_at": "2026-09-15T12:46:43Z",
-    "reviewer": "Council of Agents",
-    "verdict": "APPROVED",
-    "reason": "SLCD-P6-1 verified: 5 mission-wide test suites consolidated (+2,066 lines); 10/10 slcd-ci-parity.bats pass; 17 prohibited procfs deny-list pinned; dynamic path contracts preserved"
-  },
   "4d5c9": {
     "task_id": "4d5c9",
     "reviewed_at": "2026-09-15T13:10:52Z",
@@ -2862,18 +2956,604 @@
     "verdict": "APPROVED",
     "reason": "SLCD-P6-3 verified: 8 Playwright acceptance tests in coding-agent-topology.spec.ts pass in 3.3s; 8/8 mutations killed; cluster-free harness; SPEC-REGISTRY coverage 7/7 pass"
   },
-  "57887": {
-    "task_id": "57887",
-    "reviewed_at": "2026-09-15T13:22:07Z",
-    "reviewer": "Council of Agents",
-    "verdict": "APPROVED",
-    "reason": "SLCD-P6-4 verified: Makefile demo-signalloom-coding-agent-topology target and aggregator wired; SPEC-REGISTRY.tsv updated; 7/7 acceptance-spec-coverage.bats pass"
+  "1a298": {
+    "task_id": "1a298",
+    "reviewed_at": "2026-09-25T04:58:33.495Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
   },
-  "18050": {
-    "task_id": "18050",
-    "reviewed_at": "2026-09-15T13:49:12Z",
-    "reviewer": "Council of Agents",
+  "0cfeb": {
+    "task_id": "0cfeb",
+    "reviewed_at": "2026-09-25T04:58:52.496Z",
+    "reviewer": "Andrew Martin",
     "verdict": "APPROVED",
-    "reason": "SLCD-P6-GOV final mission governor certified delivery: full mission test surface verified green, all 6 phases audited, commits df3d6ef1, b5d7c12c, b1c336b0 integrated"
+    "model": null,
+    "reason": "Verified execution proof run-0cfeb-1790128209424-507df159-8078-4991-845e-e7eff1d89878 and reachable commit dcf737f1dd on integration/slea-v0.1.0"
+  },
+  "b3697": {
+    "task_id": "b3697",
+    "reviewed_at": "2026-09-25T04:58:34.735Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "dbbca": {
+    "task_id": "dbbca",
+    "reviewed_at": "2026-09-25T04:58:36.130Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "e4237": {
+    "task_id": "e4237",
+    "reviewed_at": "2026-09-25T04:58:37.349Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "b1033": {
+    "task_id": "b1033",
+    "reviewed_at": "2026-09-25T04:58:38.510Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "c1df3": {
+    "task_id": "c1df3",
+    "reviewed_at": "2026-09-25T04:58:40.948Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "6275e": {
+    "task_id": "6275e",
+    "reviewed_at": "2026-09-25T04:58:42.122Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "e09f6": {
+    "task_id": "e09f6",
+    "reviewed_at": "2026-09-25T04:58:43.408Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "eb9e1": {
+    "task_id": "eb9e1",
+    "reviewed_at": "2026-09-25T04:58:44.559Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "d7d8f": {
+    "task_id": "d7d8f",
+    "reviewed_at": "2026-09-25T04:58:46.180Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "bacb6": {
+    "task_id": "bacb6",
+    "reviewed_at": "2026-09-25T04:58:47.450Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "d9e40": {
+    "task_id": "d9e40",
+    "reviewed_at": "2026-09-25T04:58:48.788Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "61c74": {
+    "task_id": "61c74",
+    "reviewed_at": "2026-09-25T04:58:50.022Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "619fd": {
+    "task_id": "619fd",
+    "reviewed_at": "2026-09-25T04:58:51.172Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "2e010": {
+    "task_id": "2e010",
+    "reviewed_at": "2026-09-25T04:58:53.705Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "33ea0": {
+    "task_id": "33ea0",
+    "reviewed_at": "2026-09-25T04:58:54.831Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "5dbbc": {
+    "task_id": "5dbbc",
+    "reviewed_at": "2026-09-25T04:58:56.161Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "acf26": {
+    "task_id": "acf26",
+    "reviewed_at": "2026-09-25T04:58:57.303Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "f95e2": {
+    "task_id": "f95e2",
+    "reviewed_at": "2026-09-25T04:58:58.453Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "d7bb0": {
+    "task_id": "d7bb0",
+    "reviewed_at": "2026-09-25T04:58:59.734Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "f7a57": {
+    "task_id": "f7a57",
+    "reviewed_at": "2026-09-25T04:59:00.954Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "cbc9c": {
+    "task_id": "cbc9c",
+    "reviewed_at": "2026-09-25T04:59:02.204Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "13dab": {
+    "task_id": "13dab",
+    "reviewed_at": "2026-09-25T04:59:03.854Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "d553f": {
+    "task_id": "d553f",
+    "reviewed_at": "2026-09-25T04:59:05.094Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "94f4d": {
+    "task_id": "94f4d",
+    "reviewed_at": "2026-09-25T04:59:06.371Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "38b7c": {
+    "task_id": "38b7c",
+    "reviewed_at": "2026-09-25T04:59:07.521Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "e53ce": {
+    "task_id": "e53ce",
+    "reviewed_at": "2026-09-25T04:59:08.777Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "a4c07": {
+    "task_id": "a4c07",
+    "reviewed_at": "2026-09-25T04:59:10.080Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "cdf93": {
+    "task_id": "cdf93",
+    "reviewed_at": "2026-09-25T04:59:11.275Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "0fff3": {
+    "task_id": "0fff3",
+    "reviewed_at": "2026-09-25T04:59:12.486Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "50b23": {
+    "task_id": "50b23",
+    "reviewed_at": "2026-09-25T04:59:13.743Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Verified execution proof run-50b23-1790129797685-a33efeab-dd7b-4a11-a7ff-83ecfd049459 and reachable commit 423b6467ef on integration/slte-v0.1.0"
+  },
+  "4f911": {
+    "task_id": "4f911",
+    "reviewed_at": "2026-09-25T04:59:14.945Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "6ab28": {
+    "task_id": "6ab28",
+    "reviewed_at": "2026-09-25T04:59:16.114Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "8b59c": {
+    "task_id": "8b59c",
+    "reviewed_at": "2026-09-25T04:59:17.508Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "5377e": {
+    "task_id": "5377e",
+    "reviewed_at": "2026-09-25T04:59:18.895Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "a4105": {
+    "task_id": "a4105",
+    "reviewed_at": "2026-09-25T04:59:20.797Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "05bc0": {
+    "task_id": "05bc0",
+    "reviewed_at": "2026-09-25T04:59:21.960Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "bd794": {
+    "task_id": "bd794",
+    "reviewed_at": "2026-09-25T04:59:23.307Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "f3580": {
+    "task_id": "f3580",
+    "reviewed_at": "2026-09-25T04:59:24.531Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "b21df": {
+    "task_id": "b21df",
+    "reviewed_at": "2026-09-25T04:59:25.987Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "31b19": {
+    "task_id": "31b19",
+    "reviewed_at": "2026-09-25T04:59:27.299Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "2e629": {
+    "task_id": "2e629",
+    "reviewed_at": "2026-09-25T04:59:28.575Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "0ed34": {
+    "task_id": "0ed34",
+    "reviewed_at": "2026-09-25T04:59:29.728Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "1ad84": {
+    "task_id": "1ad84",
+    "reviewed_at": "2026-09-25T04:59:32.114Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "e28a8": {
+    "task_id": "e28a8",
+    "reviewed_at": "2026-09-25T04:59:33.269Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "3352c": {
+    "task_id": "3352c",
+    "reviewed_at": "2026-09-25T04:59:34.416Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "390f7": {
+    "task_id": "390f7",
+    "reviewed_at": "2026-09-25T04:59:36.067Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Verified execution proof run-390f7-1790128211657-8aebec82-d279-4b44-9ebb-9d6a532649ee and reachable commit 5ee1de357e on integration/slet-v0.1.0"
+  },
+  "a80fa": {
+    "task_id": "a80fa",
+    "reviewed_at": "2026-09-25T04:59:38.407Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "71e41": {
+    "task_id": "71e41",
+    "reviewed_at": "2026-09-25T04:59:39.675Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "6d3b8": {
+    "task_id": "6d3b8",
+    "reviewed_at": "2026-09-25T04:59:40.921Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "ce0a6": {
+    "task_id": "ce0a6",
+    "reviewed_at": "2026-09-25T04:59:42.065Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "1189e": {
+    "task_id": "1189e",
+    "reviewed_at": "2026-09-25T04:59:43.407Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "6be73": {
+    "task_id": "6be73",
+    "reviewed_at": "2026-09-25T04:59:46.008Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Verified execution proof run-6be73-1790128204982-023639b7-d277-4f3d-8ad3-f71a496520c6 and reachable commit 600e51346c on integration/sled-v0.1.0"
+  },
+  "d20eb": {
+    "task_id": "d20eb",
+    "reviewed_at": "2026-09-25T04:59:47.186Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "0ef4c": {
+    "task_id": "0ef4c",
+    "reviewed_at": "2026-09-25T04:59:50.861Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "b305d": {
+    "task_id": "b305d",
+    "reviewed_at": "2026-09-25T04:59:54.432Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "e4c60": {
+    "task_id": "e4c60",
+    "reviewed_at": "2026-09-25T04:59:55.976Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "d52ff": {
+    "task_id": "d52ff",
+    "reviewed_at": "2026-09-25T04:59:57.168Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "a8610": {
+    "task_id": "a8610",
+    "reviewed_at": "2026-09-25T04:59:58.404Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "0aa3a": {
+    "task_id": "0aa3a",
+    "reviewed_at": "2026-09-25T04:59:59.670Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "4dd28": {
+    "task_id": "4dd28",
+    "reviewed_at": "2026-09-25T05:00:00.954Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "3a86e": {
+    "task_id": "3a86e",
+    "reviewed_at": "2026-09-25T05:00:02.159Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "45aa8": {
+    "task_id": "45aa8",
+    "reviewed_at": "2026-09-25T05:00:03.777Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "ea80f": {
+    "task_id": "ea80f",
+    "reviewed_at": "2026-09-25T05:00:05.099Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "77d79": {
+    "task_id": "77d79",
+    "reviewed_at": "2026-09-25T05:00:07.670Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "d16f3": {
+    "task_id": "d16f3",
+    "reviewed_at": "2026-09-25T05:00:11.182Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "c347a": {
+    "task_id": "c347a",
+    "reviewed_at": "2026-09-25T05:00:12.443Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "de3b9": {
+    "task_id": "de3b9",
+    "reviewed_at": "2026-09-25T05:00:13.735Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "081b4": {
+    "task_id": "081b4",
+    "reviewed_at": "2026-09-25T05:00:15.259Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "5f58f": {
+    "task_id": "5f58f",
+    "reviewed_at": "2026-09-25T05:00:16.471Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "b1a17": {
+    "task_id": "b1a17",
+    "reviewed_at": "2026-09-25T05:00:17.869Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "eb830": {
+    "task_id": "eb830",
+    "reviewed_at": "2026-09-25T05:00:19.082Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
+  },
+  "8f0d8": {
+    "task_id": "8f0d8",
+    "reviewed_at": "2026-09-25T05:00:21.036Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Verified execution proof run-8f0d8-1790128213538-8fdabd9d-1dfb-43ee-bf9c-bbab2d61b6fe and reachable commit ec4d655953 on integration/sles-v0.1.0"
+  },
+  "8cfbb": {
+    "task_id": "8cfbb",
+    "reviewed_at": "2026-09-25T05:00:22.290Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "WITHDRAWN",
+    "model": null,
+    "reason": "2026-09-19 Council/QA-Suite row had no task_runs join"
   }
 }

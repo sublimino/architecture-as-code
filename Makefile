@@ -542,7 +542,7 @@ test-eap-offline: ## Run the EAP gate: four EAP pytest files + test_audit_proven
 	@# Both stages always run so one invocation reports the WHOLE red set (P2
 	@# measures its delta against it); the exit status is the first stage that failed.
 	@status=0; \
-	(cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_tenant_isolation.py tests/test_scenario_seeding.py tests/test_environment_routing.py tests/test_environment_lifecycle.py tests/test_audit_provenance.py -q) || status=$$?; \
+	(cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_tenant_isolation.py tests/test_scenario_seeding.py tests/test_environment_routing.py tests/test_environment_lifecycle.py tests/test_audit_provenance.py tests/test_eap_adversarial.py -q) || status=$$?; \
 	bats d2-signalloom/test/authz-suite-liveness.bats d2-signalloom/test/api-route-liveness.bats d2-signalloom/test/eap-ingress-reconcile.bats || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	bash scripts/eap/test_tailscale_eap_env.sh || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	exit $$status

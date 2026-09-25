@@ -613,6 +613,20 @@ class LifecycleManager:
                     GLOBAL_SCENARIO_MANAGER.expunge(h)
                 except Exception as exc:
                     logger.warning("Expunging scenario data failed for %s: %s", h, exc)
+                try:
+                    import host_enrollment
+                    reap_principal = api_compat.Principal(
+                        tenant=h,
+                        subject="system:reaper-daemon",
+                        email="system@reaper.internal",
+                    )
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(host_enrollment.revoke_all_agents_for_tenant(h, reap_principal, "environment_reaped"))
+                    except RuntimeError:
+                        asyncio.run(host_enrollment.revoke_all_agents_for_tenant(h, reap_principal, "environment_reaped"))
+                except Exception as exc:
+                    logger.warning("Revoking agents for reaped environment %s failed: %s", h, exc)
             logger.info("Transitioned %s: %s -> %s (reason: %s)", h, rec.state.value, new_state.value, reason)
             return updated
 

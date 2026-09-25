@@ -809,12 +809,6 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
     ("environment_routing.py", "resolve_domain"): (
         "Resolves ingress domain mappings for evaluation environment mesh routing."
     ),
-    ("webhook_triggers.py", "generic_webhook_receiver"): (
-        "Ingests incoming external generic webhook trigger payloads with HMAC signature verification."
-    ),
-    ("webhook_triggers.py", "github_webhook_receiver"): (
-        "Ingests incoming GitHub Actions deployment trigger webhooks with cryptographic validation."
-    ),
     ("environment_teardown.py", "api_network_teardown"): (
         "Multi-stage network teardown pipeline emits structured audit events via build_audit_event "
         "and the dedicated audit_logger stream for each individual stage transition."

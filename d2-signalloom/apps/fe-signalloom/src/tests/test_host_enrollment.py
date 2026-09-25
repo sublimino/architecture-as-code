@@ -42,7 +42,10 @@ FIXTURES = ROOT / "signal-ingest/collectors/agentnono/fixtures/contracts"
 
 
 def load_fixture(name: str) -> dict[str, Any]:
-    return json.loads((FIXTURES / name).read_text())
+    data = json.loads((FIXTURES / name).read_text())
+    if "valid" in name and isinstance(data, dict):
+        data.pop("credential_reference", None)
+    return data
 
 
 @pytest.fixture(autouse=True)
@@ -58,19 +61,20 @@ def clean_state():
 
 
 @pytest.fixture
-def client() -> TestClient:
-    app = FastAPI()
-    api_compat.install_compatibility_api(app)
-    return TestClient(app)
-
-
-@pytest.fixture
 def operator_principal() -> api_compat.Principal:
     return api_compat.Principal(
         tenant="tenant-a",
         subject="operator-alice",
         email="alice@agentmaxxing.example",
     )
+
+
+@pytest.fixture
+def client(operator_principal: api_compat.Principal) -> TestClient:
+    app = FastAPI()
+    api_compat.install_compatibility_api(app)
+    app.dependency_overrides[api_compat.authenticated_principal] = lambda: operator_principal
+    return TestClient(app)
 
 
 def test_sha256_token_hashing_and_entropy():
@@ -139,7 +143,7 @@ def test_host_enrollment_happy_path(client: TestClient, operator_principal: api_
 
 
 def test_single_use_consumption_and_replay_rejection(client: TestClient, operator_principal: api_compat.Principal):
-    """Assert token is single-use and subsequent replays are rejected with conflict/unauthenticated."""
+    """Assert token is single-use and subsequent replays with different nonces are rejected."""
     agent_id = "agentmaxxing-linux-001"
     host_id = "amx-host-001"
 
@@ -160,11 +164,13 @@ def test_single_use_consumption_and_replay_rejection(client: TestClient, operato
     )
     assert resp1.status_code == 201
 
-    # Second redemption with SAME token: 409 Conflict / 401 Unauthenticated
+    # Second redemption with SAME token but DIFFERENT nonce: 409 Conflict / 401 Unauthenticated
+    payload2 = dict(payload)
+    payload2["client_nonce"] = "nonce-different-replay-99999"
     resp2 = client.post(
         "/v1/external-agents/enroll",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=payload,
+        json=payload2,
     )
     assert resp2.status_code in (401, 409), f"Replay should fail, got {resp2.status_code}: {resp2.text}"
     err_data = resp2.json()
@@ -172,7 +178,7 @@ def test_single_use_consumption_and_replay_rejection(client: TestClient, operato
 
 
 def test_concurrent_redemption(client: TestClient, operator_principal: api_compat.Principal):
-    """Assert parallel concurrent redemption requests with the same token result in EXACTLY 1 winner."""
+    """Assert parallel concurrent redemption requests with the same token and distinct nonces result in EXACTLY 1 winner."""
     agent_id = "agentmaxxing-linux-001"
     host_id = "amx-host-001"
 
@@ -187,16 +193,18 @@ def test_concurrent_redemption(client: TestClient, operator_principal: api_compa
     num_threads = 12
     results: list[int] = []
 
-    def make_request():
+    def make_request(idx: int):
+        p = dict(payload)
+        p["client_nonce"] = f"nonce-thread-{idx:04d}-unique"
         resp = client.post(
             "/v1/external-agents/enroll",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json=payload,
+            json=p,
         )
         return resp.status_code
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-        futures = [executor.submit(make_request) for _ in range(num_threads)]
+        futures = [executor.submit(make_request, i) for i in range(num_threads)]
         for f in concurrent.futures.as_completed(futures):
             results.append(f.result())
 
@@ -448,3 +456,270 @@ def test_operator_token_issuance_and_rotation_endpoints(client: TestClient):
         json=payload,
     )
     assert resp_new.status_code == 201
+
+
+def test_registration_full_lifecycle_and_revocation(client: TestClient):
+    """Step 13: Full registration lifecycle with server-minted SPIFFE ID, audit, and revocation."""
+    admin_principal = api_compat.Principal(
+        tenant="tenant-a",
+        subject="operator-alice",
+        email="alice@signalloom.test",
+    )
+    client.app.dependency_overrides[api_compat.authenticated_principal] = lambda: admin_principal
+
+    agent_id = "agent-lifecycle-001"
+    host_id = "host-lifecycle-001"
+
+    # 1. Pre-register
+    asyncio.run(register_external_agent_handler(
+        ExternalAgentRegistrationRequest(
+            agent_id=agent_id,
+            host_id=host_id,
+            host_os="linux",
+            runtime_profile="nono-0.73.0-standard",
+            allocated_token_budget=100000,
+        ),
+        admin_principal,
+    ))
+
+    # 2. Issue token
+    resp_token = client.post(f"/v1/external-agents/registrations/{agent_id}/token", json={"ttl_seconds": 3600})
+    assert resp_token.status_code == 200
+    token = resp_token.json()["enrollment_token"]
+
+    # 3. Exchange by sensor
+    payload = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "host_id": host_id,
+        "key_id": "key-lifecycle-001",
+        "key_algorithm": "Ed25519",
+        "public_key": "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE",
+        "client_nonce": "nonce-lifecycle-001-random1234",
+        "credential_kind": "existing-mtls-identity",
+        "credential_scope": "audit-upload-only",
+        "credential_bootstrap": "pre-provisioned-out-of-band",
+    }
+    resp_enroll = client.post(
+        "/v1/external-agents/enroll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    assert resp_enroll.status_code == 201, f"Enroll failed: {resp_enroll.text}"
+    enroll_data = resp_enroll.json()
+
+    # Verify server-issued SPIFFE ID under signalloom.demo
+    spiffe_id = enroll_data["credential_reference"]
+    assert spiffe_id.startswith("spiffe://signalloom.demo/ns/eap-")
+    assert spiffe_id.endswith(f"/sa/agent-{agent_id}")
+    assert enroll_data["svid_path"] == "jwt-svid-fetch"
+
+    # Verify audit event with spiffe_id
+    audit_events = api_compat._AUDIT_EVENTS.get("tenant-a", [])
+    claimed_events = [e for e in audit_events if e["event_type"] == "external_agent.claimed"]
+    assert len(claimed_events) >= 1
+    assert claimed_events[-1]["detail"]["spiffe_id"] == spiffe_id
+
+    # 4. Revoke
+    resp_revoke = client.post(f"/v1/external-agents/registrations/{agent_id}/revoke")
+    assert resp_revoke.status_code == 200
+    revoke_data = resp_revoke.json()
+    assert revoke_data["revocation_state"] == "revocation-accepted"
+    assert revoke_data["credential_reference"] == spiffe_id
+
+    # Verify revoke audit event
+    revoke_events = [e for e in audit_events if e["event_type"] == "external_agent.revoked"]
+    assert len(revoke_events) >= 1
+    assert revoke_events[-1]["detail"]["spiffe_id"] == spiffe_id
+
+    # 5. Subsequent exchange attempt returns 403
+    resp_subsequent = client.post(
+        "/v1/external-agents/enroll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    assert resp_subsequent.status_code == 403
+
+
+def test_registration_cross_tenant_negative_403(client: TestClient):
+    """Step 13 negative: Token for tenant A used to register into tenant B returns 403."""
+    admin_principal = api_compat.Principal(
+        tenant="tenant-a",
+        subject="operator-alice",
+        email="alice@signalloom.test",
+    )
+    client.app.dependency_overrides[api_compat.authenticated_principal] = lambda: admin_principal
+
+    agent_id = "agent-xtenant-002"
+    host_id = "host-xtenant-002"
+
+    asyncio.run(register_external_agent_handler(
+        ExternalAgentRegistrationRequest(agent_id=agent_id, host_id=host_id),
+        admin_principal,
+    ))
+    resp_token = client.post(f"/v1/external-agents/registrations/{agent_id}/token", json={"ttl_seconds": 3600})
+    token = resp_token.json()["enrollment_token"]
+
+    payload = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "host_id": host_id,
+        "key_id": "key-xtenant-002",
+        "key_algorithm": "Ed25519",
+        "public_key": "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE",
+        "client_nonce": "nonce-xtenant-002-unique7890",
+        "credential_kind": "existing-mtls-identity",
+        "credential_scope": "audit-upload-only",
+        "credential_bootstrap": "pre-provisioned-out-of-band",
+        "tenant_id": "tenant-b",
+    }
+    resp = client.post(
+        "/v1/external-agents/enroll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    assert resp.status_code == 403
+    assert "tenant mismatch" in resp.json()["message"].lower()
+
+    # Verify audit rejection
+    audit_events = api_compat._AUDIT_EVENTS.get("tenant-a", [])
+    xtenant_events = [e for e in audit_events if e["event_type"] == "external_agent.cross_tenant_rejected"]
+    assert len(xtenant_events) >= 1
+
+
+def test_registration_idempotency_with_same_nonce(client: TestClient):
+    """Step 13: Replay with the same nonce is idempotent and creates no second SPIRE entry."""
+    admin_principal = api_compat.Principal(
+        tenant="tenant-a",
+        subject="operator-alice",
+        email="alice@signalloom.test",
+    )
+    client.app.dependency_overrides[api_compat.authenticated_principal] = lambda: admin_principal
+
+    agent_id = "agent-idemp-003"
+    host_id = "host-idemp-003"
+
+    asyncio.run(register_external_agent_handler(
+        ExternalAgentRegistrationRequest(agent_id=agent_id, host_id=host_id),
+        admin_principal,
+    ))
+    resp_token = client.post(f"/v1/external-agents/registrations/{agent_id}/token", json={"ttl_seconds": 3600})
+    token = resp_token.json()["enrollment_token"]
+
+    fixed_nonce = "nonce-idemp-003-static5678"
+    payload = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "host_id": host_id,
+        "key_id": "key-idemp-003",
+        "key_algorithm": "Ed25519",
+        "public_key": "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE",
+        "client_nonce": fixed_nonce,
+        "credential_kind": "existing-mtls-identity",
+        "credential_scope": "audit-upload-only",
+        "credential_bootstrap": "pre-provisioned-out-of-band",
+    }
+
+    # First attempt: 201 Created
+    resp1 = client.post(
+        "/v1/external-agents/enroll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    assert resp1.status_code == 201
+    spiffe1 = resp1.json()["credential_reference"]
+
+    # Second attempt with same nonce: 201 Created with idempotent result
+    resp2 = client.post(
+        "/v1/external-agents/enroll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    assert resp2.status_code == 201
+    assert resp2.json()["credential_reference"] == spiffe1
+
+
+def test_registration_expired_timestamp_negative_401(client: TestClient):
+    """Step 13 negative: Timestamp 301 s old returns 401."""
+    from datetime import datetime, timedelta, timezone
+
+    admin_principal = api_compat.Principal(
+        tenant="tenant-a",
+        subject="operator-alice",
+        email="alice@signalloom.test",
+    )
+    client.app.dependency_overrides[api_compat.authenticated_principal] = lambda: admin_principal
+
+    agent_id = "agent-ts-004"
+    host_id = "host-ts-004"
+
+    asyncio.run(register_external_agent_handler(
+        ExternalAgentRegistrationRequest(agent_id=agent_id, host_id=host_id),
+        admin_principal,
+    ))
+    resp_token = client.post(f"/v1/external-agents/registrations/{agent_id}/token", json={"ttl_seconds": 3600})
+    token = resp_token.json()["enrollment_token"]
+
+    old_ts = (datetime.now(timezone.utc) - timedelta(seconds=305)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "host_id": host_id,
+        "key_id": "key-ts-004",
+        "key_algorithm": "Ed25519",
+        "public_key": "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE",
+        "client_nonce": "nonce-ts-004-unique4321",
+        "credential_kind": "existing-mtls-identity",
+        "credential_scope": "audit-upload-only",
+        "credential_bootstrap": "pre-provisioned-out-of-band",
+        "timestamp": old_ts,
+    }
+    resp = client.post(
+        "/v1/external-agents/enroll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    assert resp.status_code == 401
+    assert "300-second validity window" in resp.json()["message"]
+
+
+def test_registration_client_supplied_credential_reference_negative_422(client: TestClient):
+    """Step 13 negative: Body with credential_reference returns 422."""
+    admin_principal = api_compat.Principal(
+        tenant="tenant-a",
+        subject="operator-alice",
+        email="alice@signalloom.test",
+    )
+    client.app.dependency_overrides[api_compat.authenticated_principal] = lambda: admin_principal
+
+    agent_id = "agent-credref-005"
+    host_id = "host-credref-005"
+
+    asyncio.run(register_external_agent_handler(
+        ExternalAgentRegistrationRequest(agent_id=agent_id, host_id=host_id),
+        admin_principal,
+    ))
+    resp_token = client.post(f"/v1/external-agents/registrations/{agent_id}/token", json={"ttl_seconds": 3600})
+    token = resp_token.json()["enrollment_token"]
+
+    payload = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "host_id": host_id,
+        "key_id": "key-credref-005",
+        "key_algorithm": "Ed25519",
+        "public_key": "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE",
+        "client_nonce": "nonce-credref-005-unique9999",
+        "credential_kind": "existing-mtls-identity",
+        "credential_scope": "audit-upload-only",
+        "credential_bootstrap": "pre-provisioned-out-of-band",
+        "credential_reference": "spiffe://signalloom.demo/ns/eap-tenant-a/sa/agent-injected",
+    }
+    resp = client.post(
+        "/v1/external-agents/enroll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    assert resp.status_code == 422
+    assert "credential_reference is server-issued" in resp.json()["message"]
+

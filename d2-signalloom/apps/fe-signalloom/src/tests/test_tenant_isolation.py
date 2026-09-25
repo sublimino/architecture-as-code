@@ -1852,7 +1852,6 @@ EAP_MODULES: frozenset[str] = frozenset({
     "scenario_seeding",
     "environment_routing",
     "environment_lifecycle",
-    "webhook_triggers",
     "environment_teardown",
 })
 
@@ -2025,8 +2024,8 @@ def test_every_eap_route_carries_the_mount_level_auth_dependency():
     ``tenant: Tenant`` pulls ``authenticated_principal`` in through its own
     parameter, so removing ``dependencies=[...]`` from four of the five
     ``include_router`` calls leaves every anonymous probe green (measured:
-    34/34 still passed with the tenant_isolation, scenario_seeding,
-    environment_routing and webhook_triggers mounts stripped).  The property
+    32/32 still passed with the tenant_isolation, scenario_seeding,
+    and environment_routing mounts stripped).  The property
     the card actually requires -- a route added to one of these routers is
     denied by default with no per-handler opt-in -- is structural, so it is
     asserted structurally: ``include_router(dependencies=...)`` lands in

@@ -1,0 +1,91 @@
+==================== DOCTOR: SLEA ====================
+DOCTOR CONTEXT: board=/home/andy/.cline/kanban/workspaces/osramp-demo shortID=SLEA
+
+[0;31m━━━ [doctor] 3 EXCEPTION(S) RAISED ━━━[0m
+
+[0;31m[!][0m PRINCIPAL CHECKOUT DIRTY (DOC-3) — 1 untracked or modified deliverable file(s) in principal checkout root:
+      -  M docs/signalloom/eapr-governor-log.md
+
+[0;31m[!][0m ORPHAN WORKTREE(S) (DOC-5) — 1 worktree(s) not attached to any active card:
+      - /tmp/eapr-p4-3-slte
+
+[0;31m[!][0m DANGLING / UNREFERENCED COMMITS (DOC-7) — 2 unreferenced commit(s) created within active card/process timeframe risk permanent loss on git gc:
+      - c673c979 (2026-09-25 06:54:30 +0100, Andrew Martin): Merge branch 'integration/eapr-v0.1.0' into HEAD [SHA: c673c9792c392a7c2a9e81de24f39dd44153aaa3]
+      - 77417072 (2026-09-25 06:33:36 +0100, Andrew Martin): WIP on (no branch): b2ea8832 merge: integration/eapr-v0.1.0 into /tmp/recert-SLEA [SHA: 7741707236e19e10b708d424e8a5a5f246c3941a]
+      Fix / Rescue: git -C "/home/andy/src/cp/osramp-demo" branch rescue-<short-sha> <sha>
+
+[0;31mDoctor Status: UNHEALTHY (3 exception(s) require remediation)[0m
+
+==================== DOCTOR: SLET ====================
+DOCTOR CONTEXT: board=/home/andy/.cline/kanban/workspaces/osramp-demo shortID=SLET
+
+[0;31m━━━ [doctor] 3 EXCEPTION(S) RAISED ━━━[0m
+
+[0;31m[!][0m PRINCIPAL CHECKOUT DIRTY (DOC-3) — 1 untracked or modified deliverable file(s) in principal checkout root:
+      -  M docs/signalloom/eapr-governor-log.md
+
+[0;31m[!][0m ORPHAN WORKTREE(S) (DOC-5) — 1 worktree(s) not attached to any active card:
+      - /tmp/eapr-p4-3-slte
+
+[0;31m[!][0m DANGLING / UNREFERENCED COMMITS (DOC-7) — 1 unreferenced commit(s) created within active card/process timeframe risk permanent loss on git gc:
+      - c673c979 (2026-09-25 06:54:30 +0100, Andrew Martin): Merge branch 'integration/eapr-v0.1.0' into HEAD [SHA: c673c9792c392a7c2a9e81de24f39dd44153aaa3]
+      Fix / Rescue: git -C "/home/andy/src/cp/osramp-demo" branch rescue-<short-sha> <sha>
+
+[0;31mDoctor Status: UNHEALTHY (3 exception(s) require remediation)[0m
+
+==================== DOCTOR: SLES ====================
+DOCTOR CONTEXT: board=/home/andy/.cline/kanban/workspaces/osramp-demo shortID=SLES
+
+[0;31m━━━ [doctor] 3 EXCEPTION(S) RAISED ━━━[0m
+
+[0;31m[!][0m PRINCIPAL CHECKOUT DIRTY (DOC-3) — 1 untracked or modified deliverable file(s) in principal checkout root:
+      -  M docs/signalloom/eapr-governor-log.md
+
+[0;31m[!][0m ORPHAN WORKTREE(S) (DOC-5) — 1 worktree(s) not attached to any active card:
+      - /tmp/eapr-p4-3-slte
+
+[0;31m[!][0m DANGLING / UNREFERENCED COMMITS (DOC-7) — 1 unreferenced commit(s) created within active card/process timeframe risk permanent loss on git gc:
+      - c673c979 (2026-09-25 06:54:30 +0100, Andrew Martin): Merge branch 'integration/eapr-v0.1.0' into HEAD [SHA: c673c9792c392a7c2a9e81de24f39dd44153aaa3]
+      Fix / Rescue: git -C "/home/andy/src/cp/osramp-demo" branch rescue-<short-sha> <sha>
+
+[0;31mDoctor Status: UNHEALTHY (3 exception(s) require remediation)[0m
+
+==================== DOCTOR: SLED ====================
+DOCTOR CONTEXT: board=/home/andy/.cline/kanban/workspaces/osramp-demo shortID=SLED
+
+[0;31m━━━ [doctor] 4 EXCEPTION(S) RAISED ━━━[0m
+
+[0;31m[!][0m PRINCIPAL CHECKOUT DIRTY (DOC-3) — 1 untracked or modified deliverable file(s) in principal checkout root:
+      -  M docs/signalloom/eapr-governor-log.md
+
+[0;31m[!][0m ORPHAN WORKTREE(S) (DOC-5) — 1 worktree(s) not attached to any active card:
+      - /tmp/eapr-p4-3-slte
+
+[0;31m[!][0m STATE OSCILLATION DETECTED (DOC-6):
+FAIL: 1 task(s) exhibited state oscillation / flapping (>1 entry into same state):
+  ✗ Task 90790      | SLED-P2-GOV: Certify Phase 2 background task stability and resource isolation | Oscillation: running: 2x, failed: 2x (5 transitions)
+    Flow: running(startTaskSession) -> failed(hook.to_failed) -> running(startTaskSession) -> awaiting_review(process.exit) -> failed(reconcile_startup)
+
+[0;31m[!][0m DANGLING / UNREFERENCED COMMITS (DOC-7) — 1 unreferenced commit(s) created within active card/process timeframe risk permanent loss on git gc:
+      - c673c979 (2026-09-25 06:54:30 +0100, Andrew Martin): Merge branch 'integration/eapr-v0.1.0' into HEAD [SHA: c673c9792c392a7c2a9e81de24f39dd44153aaa3]
+      Fix / Rescue: git -C "/home/andy/src/cp/osramp-demo" branch rescue-<short-sha> <sha>
+
+[0;31mDoctor Status: UNHEALTHY (4 exception(s) require remediation)[0m
+
+==================== DOCTOR: SLTE ====================
+DOCTOR CONTEXT: board=/home/andy/.cline/kanban/workspaces/osramp-demo shortID=SLTE
+
+[0;31m━━━ [doctor] 3 EXCEPTION(S) RAISED ━━━[0m
+
+[0;31m[!][0m PRINCIPAL CHECKOUT DIRTY (DOC-3) — 1 untracked or modified deliverable file(s) in principal checkout root:
+      -  M docs/signalloom/eapr-governor-log.md
+
+[0;31m[!][0m ORPHAN WORKTREE(S) (DOC-5) — 1 worktree(s) not attached to any active card:
+      - /tmp/eapr-p4-3-slte
+
+[0;31m[!][0m DANGLING / UNREFERENCED COMMITS (DOC-7) — 1 unreferenced commit(s) created within active card/process timeframe risk permanent loss on git gc:
+      - c673c979 (2026-09-25 06:54:30 +0100, Andrew Martin): Merge branch 'integration/eapr-v0.1.0' into HEAD [SHA: c673c9792c392a7c2a9e81de24f39dd44153aaa3]
+      Fix / Rescue: git -C "/home/andy/src/cp/osramp-demo" branch rescue-<short-sha> <sha>
+
+[0;31mDoctor Status: UNHEALTHY (3 exception(s) require remediation)[0m
+

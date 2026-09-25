@@ -130,7 +130,7 @@ def test_provision_request_validation():
 
 
 def test_registry_lifecycle_and_max_ceiling():
-    """Verify EnvironmentRegistry state management and 72-hour lifetime ceiling."""
+    """Verify EnvironmentRegistry state management and 8-hour lifetime ceiling."""
     reg = EnvironmentRegistry()
     req = ProvisionRequest(company_name="acme-corp", ttl_minutes=60)
     rec = reg.create(req)
@@ -147,9 +147,9 @@ def test_registry_lifecycle_and_max_ceiling():
     extended = reg.extend_ttl(rec.id, additional_minutes=120)
     assert extended.expires_at > rec.created_at + timedelta(minutes=60)
 
-    # Extend beyond 72 hour ceiling fails
+    # Extend beyond 8 hour ceiling fails
     with pytest.raises(Exception) as exc:
-        reg.extend_ttl(rec.id, additional_minutes=72 * 60 + 100)
+        reg.extend_ttl(rec.id, additional_minutes=8 * 60 + 100)
     assert "exceeds maximum lifetime ceiling" in str(exc.value)
 
     # Teardown

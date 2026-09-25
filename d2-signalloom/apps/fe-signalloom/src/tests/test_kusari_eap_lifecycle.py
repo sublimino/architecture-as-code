@@ -383,7 +383,7 @@ def _header_cases(client: TestClient) -> Dict[str, Any]:
     eid = env["id"]
     cases = {
         "provision-201": _provision(client, company="header-corp"),
-        "provision-409": _provision(client),
+        "provision-200": _provision(client),
         "provision-422": client.post(f"{BASE}/provision", json={"company_name": "x"}),
         "resolve-200": client.post(f"{BASE}/resolve-domain", json={"company_name": COMPANY}),
         "resolve-400": client.post(f"{BASE}/resolve-domain", json={}),
@@ -465,7 +465,7 @@ def test_kusari_concurrent_provision_race(client):
     with ThreadPoolExecutor(max_workers=12) as pool:
         results = list(pool.map(attempt, companies))
     kusari = [code for c, code, _ in results if c == COMPANY]
-    assert sorted(kusari) == [201] + [409] * 5
+    assert sorted(kusari) == [200] * 5 + [201]
     others = {c: h for c, code, h in results if c != COMPANY and code == 201}
     assert len(others) == 6 and HASH not in others.values()
     assert len(set(others.values())) == 6

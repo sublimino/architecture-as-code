@@ -6,7 +6,6 @@ import {
   type StageExecutionStatus,
   type StageId,
 } from './types'
-import { colors } from '../../styles/tokens'
 
 export interface StepperHeaderProps {
   readonly currentStage: StageId
@@ -49,7 +48,6 @@ function StatusIcon({ status, stepNumber }: { status: StageExecutionStatus; step
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="animate-spin"
       >
         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
       </svg>
@@ -114,9 +112,27 @@ export const StepperHeader: React.FC<StepperHeaderProps> = ({
     <nav
       aria-label="AgentMaxxing Demo Stages"
       data-testid="stepper-header"
-      className={`w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg p-4 sm:p-5 ${className}`}
+      className={`card ${className}`.trim()}
+      style={{
+        padding: '16px 20px',
+        marginBottom: 16,
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+      }}
     >
-      <ol className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 md:gap-2">
+      <ol
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          listStyle: 'none',
+          padding: 0,
+          margin: 0,
+          flexWrap: 'wrap',
+        }}
+      >
         {STAGE_IDS.map((stageId, index) => {
           const meta = STAGE_METADATA[stageId]
           const status = stageStatuses[stageId] ?? 'idle'
@@ -125,48 +141,49 @@ export const StepperHeader: React.FC<StepperHeaderProps> = ({
           const isSelectable = !disabled && !inFlight && (isPassed || index <= currentStageIdx + 1)
 
           // Tone configuration based on status
-          let badgeBg = 'bg-[var(--surface2)]'
-          let badgeBorder = 'border-[var(--border)]'
-          let badgeText = 'text-[var(--muted)]'
-          let titleText = 'text-[var(--dim)]'
+          let badgeBg = 'var(--surface2)'
+          let badgeBorder = 'var(--border)'
+          let badgeText = 'var(--muted)'
+          let titleColor = 'var(--muted)'
           let statusLabel = 'Pending'
 
           if (status === 'confirmed') {
-            badgeBg = 'bg-[var(--teal)]/15'
-            badgeBorder = 'border-[var(--teal)]'
-            badgeText = 'text-[var(--teal)]'
-            titleText = isCurrent ? 'text-[var(--text)] font-semibold' : 'text-[var(--text)]'
+            badgeBg = 'rgba(16, 185, 129, 0.15)'
+            badgeBorder = 'var(--teal)'
+            badgeText = 'var(--teal)'
+            titleColor = isCurrent ? 'var(--text)' : 'var(--text)'
             statusLabel = 'Confirmed'
           } else if (status === 'in_flight') {
-            badgeBg = 'bg-[var(--cyan)]/20'
-            badgeBorder = 'border-[var(--cyan)]'
-            badgeText = 'text-[var(--cyan)]'
-            titleText = 'text-[var(--cyan)] font-semibold'
+            badgeBg = 'rgba(6, 182, 212, 0.20)'
+            badgeBorder = 'var(--cyan)'
+            badgeText = 'var(--cyan)'
+            titleColor = 'var(--cyan)'
             statusLabel = 'In Flight'
           } else if (status === 'failed') {
-            badgeBg = 'bg-[var(--error)]/20'
-            badgeBorder = 'border-[var(--error)]'
-            badgeText = 'text-[var(--error)]'
-            titleText = 'text-[var(--error)] font-semibold'
+            badgeBg = 'rgba(220, 38, 38, 0.20)'
+            badgeBorder = 'var(--error)'
+            badgeText = 'var(--error)'
+            titleColor = 'var(--error)'
             statusLabel = 'Failed'
           } else if (isCurrent) {
-            badgeBg = 'bg-[var(--cyan)]/10'
-            badgeBorder = 'border-[var(--cyan)]'
-            badgeText = 'text-[var(--cyan)]'
-            titleText = 'text-[var(--text)] font-semibold'
+            badgeBg = 'rgba(6, 182, 212, 0.12)'
+            badgeBorder = 'var(--cyan)'
+            badgeText = 'var(--cyan)'
+            titleColor = 'var(--text)'
             statusLabel = 'Active'
           }
-
-          const focusRingClass = isCurrent
-            ? 'ring-2 ring-[var(--cyan)] ring-offset-2 ring-offset-[var(--bg)] border-[var(--cyan)] shadow-[0_0_12px_rgba(6,182,212,0.25)]'
-            : 'border-[var(--border)]'
 
           return (
             <React.Fragment key={stageId}>
               <li
                 data-testid={`stage-indicator-${stageId}`}
                 data-stage-id={stageId}
-                className="flex-1 flex items-center min-w-0"
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  minWidth: 160,
+                }}
               >
                 <button
                   type="button"
@@ -178,35 +195,82 @@ export const StepperHeader: React.FC<StepperHeaderProps> = ({
                   disabled={!isSelectable}
                   onClick={() => isSelectable && onSelectStage?.(stageId)}
                   onKeyDown={(e) => handleKeyDown(e, stageId)}
-                  className={`w-full text-left flex items-center gap-3 p-2.5 rounded-md transition-all duration-200 ${focusRingClass} ${
-                    isSelectable
-                      ? 'cursor-pointer hover:bg-[var(--surface2)]'
-                      : 'cursor-not-allowed opacity-75'
-                  }`}
                   style={{
-                    backgroundColor: isCurrent ? 'var(--surface2)' : undefined,
+                    width: '100%',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '10px 12px',
+                    borderRadius: 6,
+                    border: isCurrent ? '1px solid var(--cyan)' : '1px solid var(--border)',
+                    background: isCurrent ? 'var(--surface2)' : 'transparent',
+                    boxShadow: isCurrent ? '0 0 12px rgba(6, 182, 212, 0.25)' : 'none',
+                    cursor: isSelectable ? 'pointer' : 'not-allowed',
+                    opacity: isSelectable ? 1 : 0.65,
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   <div
                     data-testid={`stage-step-${meta.stepNumber}`}
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-mono font-bold border transition-colors ${badgeBg} ${badgeBorder} ${badgeText}`}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      fontWeight: 700,
+                      flexShrink: 0,
+                      background: badgeBg,
+                      border: `1px solid ${badgeBorder}`,
+                      color: badgeText,
+                      transition: 'all 0.15s ease',
+                    }}
                   >
                     <StatusIcon status={status} stepNumber={meta.stepNumber} />
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)]">
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          color: 'var(--muted)',
+                        }}
+                      >
                         Stage {meta.stepNumber}
                       </span>
                       <span
                         data-testid={`stage-status-${stageId}`}
-                        className={`text-[10px] font-mono px-1.5 py-0.2 rounded border uppercase tracking-wider ${badgeBg} ${badgeBorder} ${badgeText}`}
+                        className="tag"
+                        style={{
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          padding: '1px 6px',
+                          background: badgeBg,
+                          border: `1px solid ${badgeBorder}`,
+                          color: badgeText,
+                        }}
                       >
                         {status}
                       </span>
                     </div>
-                    <div className={`text-xs sm:text-sm truncate font-medium ${titleText}`}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: isCurrent ? 600 : 500,
+                        color: titleColor,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
                       {meta.shortTitle}
                     </div>
                   </div>
@@ -216,14 +280,18 @@ export const StepperHeader: React.FC<StepperHeaderProps> = ({
               {index < STAGE_IDS.length - 1 && (
                 <div
                   aria-hidden="true"
-                  className="hidden md:block w-4 lg:w-6 h-0.5 mx-0.5 bg-[var(--border)] transition-colors self-center"
                   style={{
+                    width: 16,
+                    height: 2,
+                    margin: '0 4px',
                     backgroundColor:
                       index < currentStageIdx
-                        ? colors.tealLoom
+                        ? 'var(--teal)'
                         : index === currentStageIdx && inFlight
-                          ? colors.cyanLoom
+                          ? 'var(--cyan)'
                           : 'var(--border)',
+                    flexShrink: 0,
+                    alignSelf: 'center',
                   }}
                 />
               )}

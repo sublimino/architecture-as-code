@@ -60,7 +60,58 @@ import type { CurrencyCode } from '../money/currency'
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 
+export type UnauthorizedHandler = (error: unknown) => void
+
+let unauthorizedHandler: UnauthorizedHandler | null = null
+let lastReauthTime = 0
+export const REAUTH_THROTTLE_MS = 5000
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler
+}
+
+export function getUnauthorizedHandler(): UnauthorizedHandler | null {
+  return unauthorizedHandler
+}
+
+export function resetReauthThrottle(): void {
+  lastReauthTime = 0
+}
+
 const http = axios.create({ baseURL: BASE })
+
+if (http.interceptors?.response?.use) {
+  http.interceptors.response.use(
+    (res) => res,
+    (err) => {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        const now = Date.now()
+        if (now - lastReauthTime > REAUTH_THROTTLE_MS) {
+          lastReauthTime = now
+          if (unauthorizedHandler) {
+            try {
+              unauthorizedHandler(err)
+            } catch (handlerErr) {
+              console.error('[client] unauthorizedHandler failed:', handlerErr)
+            }
+          } else if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('signalloom:unauthorized', { detail: { error: err } }))
+            const path = window.location.pathname
+            if (
+              !path.startsWith('/callback') &&
+              !path.startsWith('/redeem-invite') &&
+              !path.startsWith('/signup')
+            ) {
+              window.localStorage.setItem('signalloom-return-to', `${path}${window.location.search}`)
+              window.location.reload()
+            }
+          }
+        }
+      }
+      return Promise.reject(err)
+    },
+  )
+}
 
 // How long a demo fixture pretends to be on the network. Named because the
 // cancellation path below has to clear this timer rather than let it fire.

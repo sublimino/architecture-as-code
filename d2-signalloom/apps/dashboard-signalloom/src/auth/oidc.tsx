@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import axios, { type AxiosInstance } from 'axios'
 import { AuthProvider, useAuth, hasAuthParams } from 'react-oidc-context'
 import { WebStorageStateStore } from 'oidc-client-ts'
+import { setUnauthorizedHandler } from '../api/client'
 
 interface Props {
   children: ReactNode
@@ -13,7 +14,7 @@ interface Props {
 // explicitly (instead of relying on discovery) so signinRedirect builds the
 // authorization URL synchronously — discovery-on-load was intermittently hanging.
 const AUTHORITY = `${window.location.origin}/dex`
-const oidcConfig = {
+export const oidcConfig = {
   authority: AUTHORITY,
   metadata: {
     issuer: AUTHORITY,
@@ -26,6 +27,7 @@ const oidcConfig = {
   },
   client_id: 'signalloom-dashboard',
   redirect_uri: `${window.location.origin}/callback`,
+  silent_redirect_uri: `${window.location.origin}/callback`,
   post_logout_redirect_uri: `${window.location.origin}/`,
   response_type: 'code',
   scope: 'openid profile email groups audience:server:client_id:signalloom-api',
@@ -35,12 +37,7 @@ const oidcConfig = {
   // to another origin.
   userStore: new WebStorageStateStore({ store: window.localStorage }),
   stateStore: new WebStorageStateStore({ store: window.localStorage }),
-  // Force Dex to re-authenticate rather than silently reusing its own server
-  // side session cookie. Without this, clearing the client store still bounced
-  // straight back through /dex/auth with a fresh token and no prompt, because
-  // Dex remembered the browser independently of the SPA.
-  extraQueryParams: { prompt: 'login' },
-  automaticSilentRenew: false,
+  automaticSilentRenew: true,
   onSigninCallback: () => {
     const returnTo = window.localStorage.getItem('signalloom-return-to') ?? '/agents'
     window.localStorage.removeItem('signalloom-return-to')
@@ -62,6 +59,42 @@ export function isPublicRoute(pathname: string): boolean {
 function AutoSignIn({ children }: Props) {
   const auth = useAuth()
   const triggered = useRef(false)
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      if (isPublicRoute(window.location.pathname)) {
+        return
+      }
+
+      if (typeof auth?.signinSilent === 'function') {
+        auth
+          .signinSilent()
+          .catch(() => {
+            window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
+            if (typeof auth?.signinRedirect === 'function') {
+              auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {
+                window.location.reload()
+              })
+            } else {
+              window.location.reload()
+            }
+          })
+      } else if (typeof auth?.signinRedirect === 'function') {
+        window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
+        auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {
+          window.location.reload()
+        })
+      } else {
+        window.location.reload()
+      }
+    }
+
+    setUnauthorizedHandler(handleUnauthorized)
+    return () => {
+      setUnauthorizedHandler(null)
+    }
+  }, [auth])
+
   useEffect(() => {
     if (isPublicRoute(window.location.pathname)) {
       return
@@ -77,7 +110,7 @@ function AutoSignIn({ children }: Props) {
     ) {
       triggered.current = true
       window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
-      auth.signinRedirect().catch((e) => console.error('[oidc-signin-error]', e))
+      auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch((e) => console.error('[oidc-signin-error]', e))
     }
   }, [auth?.isAuthenticated, auth?.activeNavigator, auth?.isLoading, auth.error, auth])
   return <>{children}</>
@@ -100,12 +133,39 @@ export function useAuth0() {
   // in useCallback/useEffect deps, so an unstable ref causes an infinite refetch
   // loop. Keep these referentially stable to preserve the original behaviour.
   const token = auth?.user?.access_token ?? auth?.user?.id_token ?? ''
-  const getAccessTokenSilently = useCallback(async () => token, [token])
+  const getAccessTokenSilently = useCallback(async (): Promise<string> => {
+    const user = auth?.user
+    const isExpired = Boolean(user?.expired || (user?.expires_at ? (user.expires_at - Date.now() / 1000) < 30 : false))
+
+    if (isExpired && typeof auth?.signinSilent === 'function') {
+      try {
+        const renewed = await auth.signinSilent()
+        const renewedToken = renewed?.access_token ?? renewed?.id_token
+        if (renewedToken) {
+          return renewedToken
+        }
+      } catch (err) {
+        console.warn('[oidc] getAccessTokenSilently silent renewal failed:', err)
+      }
+    }
+
+    if (token && !user?.expired) {
+      return token
+    }
+
+    if (user?.expired && typeof auth?.signinRedirect === 'function') {
+      window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
+      auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {})
+      throw new Error('Token expired: re-authenticating')
+    }
+
+    return token
+  }, [auth, token])
   // Accept (and ignore) the Auth0-style options arg the call sites still pass.
   const loginWithRedirect = useCallback(
     (opts?: unknown): void => {
       void opts
-      signinRedirect()
+      signinRedirect({ extraQueryParams: { prompt: 'login' } })
     },
     [signinRedirect],
   )

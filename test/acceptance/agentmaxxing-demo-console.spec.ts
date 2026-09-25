@@ -561,6 +561,45 @@ test.describe("AgentMaxxing demo console — mock channel", () => {
       await expect(page.getByTestId("stage-panel-operator_init")).toBeVisible();
     });
   });
+
+  test("renders Signal Loom design system StatCards and progressive log stream with StreamingLogBlock", async ({
+    page,
+  }) => {
+    // StatCards row
+    await expect(page.getByText("Stage Progress")).toBeVisible();
+    await expect(page.getByText("01 / 05 Confirmed")).toBeVisible();
+    await expect(page.getByText("Execution State")).toBeVisible();
+    await expect(page.getByTestId("stage-progression-controller").getByText("Active", { exact: true })).toBeVisible();
+    await expect(page.getByText("Channel & Preset")).toBeVisible();
+    await expect(page.getByText("Invariant Status")).toBeVisible();
+    await expect(page.getByText("Zero Customer Payload", { exact: true })).toBeVisible();
+
+    // Execution Log Stream slot and controls
+    await expect(page.getByTestId("execution-log-stream-slot")).toBeVisible();
+    await expect(page.getByTestId("agentmaxxing-log-stream")).toBeVisible();
+    await expect(page.getByTestId("log-stream-status-indicator")).toBeVisible();
+    await expect(page.getByTestId("log-stream-clear-btn")).toBeVisible();
+    await expect(page.getByTestId("log-stream-copy-btn")).toBeVisible();
+
+    // Stepping to Stage 2 updates log stream and advances state
+    await page.getByTestId("stepper-advance-button").click();
+    await expect(page.getByTestId("stage-panel-host_enrolled")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("stage-payload-preview-host_enrolled")).toBeVisible({ timeout: 15_000 });
+
+    // Stepping to Stage 3 mounts ConfinementTelemetryPanel (B5 resolved)
+    await page.getByTestId("stepper-advance-button").click();
+    await expect(page.getByTestId("stage-panel-confinement_streaming")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("stage-payload-preview-confinement_streaming")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("sub-path /demos/agentmaxxing/goal resolves cleanly to demo page without 404 or redirect", async ({
+    page,
+  }) => {
+    await page.goto(`${config.base}/demos/agentmaxxing/goal`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("agentmaxxing-demo-page")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("AgentMaxxing Interactive Demo Console")).toBeVisible();
+    await expect(page.getByTestId("execution-log-stream-slot")).toBeVisible();
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

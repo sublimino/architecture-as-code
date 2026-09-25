@@ -1853,6 +1853,7 @@ EAP_MODULES: frozenset[str] = frozenset({
     "environment_routing",
     "environment_lifecycle",
     "webhook_triggers",
+    "environment_teardown",
 })
 
 

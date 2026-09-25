@@ -3015,5 +3015,21 @@
     "verdict": "APPROVED",
     "model": null,
     "reason": "Adversarial Council Review APPROVED across 4 lenses: D13 UI notifications delivered (useTenantWarnings.ts, NotificationBell.tsx, deep linking), 7 unit tests passed, cross-tenant isolation verified, tenant-warnings.spec.ts wired into SPEC-REGISTRY.tsv and playwright config, commit 1f2a5cf0"
+  },
+  "6e4be": {
+    "task_id": "6e4be",
+    "reviewed_at": "2026-09-25T01:14:56.549Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: D5 canonical tenant vector migration to kusari delivered (routing, seeding, isolation, 10 scripts), DEFAULT_EAP_SALT eliminated and OpenBao lookup with SIGNAL_LOOM_EAP_SALT fallback added, seed-eap-salt.sh created, test_tenant_vector.py (4/4 pass), make test-eap-offline 234 pytest + 10 bats pass, commit d3cbeb2b"
+  },
+  "1803c": {
+    "task_id": "1803c",
+    "reviewed_at": "2026-09-25T01:15:29.409Z",
+    "reviewer": "Council of Agents",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Adversarial Council Review APPROVED across 4 lenses: D10 SLTE re-scope delivered, webhook routers deleted (webhook_triggers.py 305 lines), DEFAULT_WEBHOOK_SECRET removed, server-minted SPIFFE IDs enforced in host_enrollment.py, test_host_enrollment.py (+305 lines), eap_registration_test.go (+250 lines), commit e53d177b"
   }
 }

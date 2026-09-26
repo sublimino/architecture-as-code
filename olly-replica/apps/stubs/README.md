@@ -16,10 +16,10 @@ ship in the `olly/stubs` image (persisted in the in-cluster Zot registry as
   (the replica declines everything so the Olly branch always exercises) and
   published to the IO-Declined topic. *Writing*: it consumes the
   `event_response` topic and is **the only component that writes to
-  ServiceNow**. Every payload is validated against
-  `contracts/rca-enrichment.v1.schema.json` first (a spoofed or malformed
-  payload is dropped and counted, never written), then the ticket is
-  updated: the in-memory store (HTTP `GET /incidents/{correlation-id}`) is
+  ServiceNow**. It checks every payload against
+  `contracts/rca-enrichment.v1.schema.json` first. A spoofed or malformed
+  payload is dropped and counted, never written. Then it updates the
+  ticket: the in-memory store (HTTP `GET /incidents/{correlation-id}`) is
   the stand-in and the test suite's assertion surface. Once the ServiceNow
   PDI is provisioned, put its credentials in a local `.env` (gitignored) and
   let make create the secret, no code or manifest change:
@@ -29,4 +29,6 @@ ship in the `olly/stubs` image (persisted in the in-cluster Zot registry as
   make olly-pdi-secret    # creates the servicenow-pdi secret, restarts the stub
   ```
 
-Olly Sentinel never holds the write path; that separation is deliberate.
+  Run both commands from the repository root. The `.env.example` is the one at the root, not in this directory. `make olly-pdi-secret` loads the `.env` at the root of the main checkout through `scripts/lib/env-file.sh`, so a linked worktree also reads that file.
+
+Olly Sentinel never holds the write path. That separation is deliberate.

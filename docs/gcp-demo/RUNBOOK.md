@@ -19,7 +19,7 @@ Select one of two secure access paths:
 Use Tailscale as your default access path.
 Use IAP when users cannot join the tailnet (for example, client laptops or external auditors).
 
-Set `ENV` to the target environment key (`demo-1`, `demo-2`, or `ci-1`).
+Set `ENV` to the target environment key (`demo-1`, `demo-2`, `ci-1`, or `ci-2`).
 The scripts validate input against `^(demo|ci)-[1-9][0-9]*$`.
 
 ---
@@ -109,8 +109,8 @@ rather than replacing it:
 ```
 
 **The demo node is ephemeral.** It is removed from the tailnet when it goes
-down rather than shown as offline, so *an absent node is the expected look of a
-suspended demo VM* — not evidence that any of the above is wrong.
+down rather than shown as offline. So *an absent node is the expected look of a
+suspended demo VM*. It is not evidence that any of the above is wrong.
 
 On the operator's own machine you need a `tailscale` client, logged into the
 same tailnet, brought up **with MagicDNS accepted**:
@@ -135,13 +135,13 @@ The auth key lives in Secret Manager, and **neither the secret nor its IAM polic
 is declared by any Terraform root.** Two different reasons:
 
 * **The secret** is out of band because a `google_secret_manager_secret_version`
-  resource carries its payload in `secret_data`, so declaring one writes the key
+  resource carries its payload in `secret_data`. Declaring one writes the key
   into Terraform state in plain text.
 * **Its IAM** is out of band because declaring it would require the deploy
-  identity to hold `secretmanager.secrets.setIamPolicy` on the secret — and an
+  identity to hold `secretmanager.secrets.setIamPolicy` on the secret. An
   identity that can set a secret's policy can grant itself read of that secret.
   That account applies the estate unattended, from CI. This is the same split the
-  state bucket already uses: creation and IAM are lifecycle, lifecycle belongs to
+  state bucket already uses. Creation and IAM are lifecycle. Lifecycle belongs to
   the one-time privileged step, and what the deploy identity does is *populate*.
 
 The commands are in
@@ -153,13 +153,13 @@ The shape of the result, which is the part worth remembering:
 | `sl-rt-<env>` — the VM's own runtime account | `roles/secretmanager.secretAccessor` | **Yes.** This is the read that happens at boot. |
 | `sl-tf-deploy` — what `terraform apply` runs as | `roles/secretmanager.viewer` | **No.** Metadata only. |
 
-`viewer` exists solely so `modules/compute`'s `data` lookup resolves, which is
-what makes a missing secret fail at **plan** rather than leaving a VM that boots,
+`viewer` exists solely so `modules/compute`'s `data` lookup resolves. That is
+what makes a missing secret fail at **plan**, rather than leaving a VM that boots,
 looks healthy and silently never joins the tailnet.
 
 If you skip the deploy grant, the symptom is a plan error naming the secret. If
-you skip the runtime grant, there is no error anywhere — the VM comes up, the
-node never appears, and `make gcp-tf-ts-up` reports "no node named `sl-<env>` in
+you skip the runtime grant, there is no error anywhere. The VM comes up, and the
+node never appears. `make gcp-tf-ts-up` reports "no node named `sl-<env>` in
 this tailnet", which reads as a tailnet policy problem. Check this table first.
 
 ---
@@ -171,15 +171,15 @@ make gcp-tf-bootstrap
 ```
 
 This is **plan-only** by design. Applying it creates the bucket every other
-root's state lives in — the one action in the estate with no state to roll back
-from — so it is not reachable by a one-word target typed absentmindedly. Review
+root's state lives in. That is the one action in the estate with no state to roll
+back from. So it is not reachable by a one-word target typed absentmindedly. Review
 the plan, then apply it by hand:
 
 ```bash
 terraform -chdir=terraform/bootstrap apply bootstrap.tfplan
 ```
 
-Record the bucket name; everything below wants it.
+Record the bucket name. Everything below wants it.
 
 ```bash
 export TF_STATE_BUCKET=<the bucket you just created>
@@ -210,8 +210,8 @@ make gcp-tf-up ENV=demo-1
 
 That runs, in order: `init` + `plan` → render and summarise the saved plan →
 `apply` **that exact plan file** → write the hand-off. It refuses to apply a
-plan this invocation did not create, because a bare `terraform apply` re-plans
-at apply time, so what you read and what Terraform executes are two different
+plan this invocation did not create. A bare `terraform apply` re-plans
+at apply time, so what you read and what Terraform runs are two different
 plans.
 
 If you want the steps individually — to review a plan properly, or to re-run one
@@ -260,7 +260,7 @@ What happens, in order:
 4. Collect the report directory back into `demo-reports/`.
 5. Decide PASS / FAIL / ABORTED / STALE and exit accordingly.
 
-Expect this to take a while. The fence is 90 minutes; raise it with
+Expect this to take a while. The fence is 90 minutes. Raise it with
 `GCP_TF_DEMO_TIMEOUT_MINUTES=<n>`.
 
 ### What is delivered, and why it cannot contain a secret
@@ -270,8 +270,8 @@ The payload is `git archive HEAD` — **tracked files only**.
 That is a guarantee by construction, not by maintenance. Every piece of secret
 material in this repo is gitignored (the tfvars, the hand-offs,
 `deploy/gcp/deploy-sa`, `.keys/`), so none of it *can* ride along. The
-alternative — a `tar` of the working tree with an `--exclude` list — is a
-guarantee only for as long as somebody keeps that list correct, and an
+alternative is a `tar` of the working tree with an `--exclude` list. That is a
+guarantee only for as long as somebody keeps that list correct. An
 `--exclude` that silently matches nothing looks exactly like one that works.
 
 It is also dramatically smaller. Measured on this repo: a working-tree tar is
@@ -279,13 +279,13 @@ It is also dramatically smaller. Measured on this repo: a working-tree tar is
 trees survived the excludes. `git archive` is **35MB / ~2576 files**.
 
 The driver still inspects the built artefact and refuses to send it if anything
-excluded is present. If that fires, something is *tracked* that must not be —
-fix `.gitignore` and untrack it; do not paper over it with an archive exclusion.
+excluded is present. If that fires, something is *tracked* that must not be.
+Fix `.gitignore` and untrack it. Do not paper over it with an archive exclusion.
 
 **The cost: uncommitted work is not delivered.** `HEAD` is what ships. A run
-against a dirty tree would test `HEAD` while you read your edits on disk, and
-stamp the report with `HEAD`'s commit — a verdict that is accurate about a tree
-nobody is looking at. So a dirty tree is refused:
+against a dirty tree would test `HEAD` while you read your edits on disk. It
+would stamp the report with `HEAD`'s commit, a verdict that is accurate about a
+tree nobody is looking at. So a dirty tree is refused:
 
 ```
 demo-up: REFUSING to deliver — the working tree has uncommitted changes.
@@ -297,18 +297,18 @@ proceeds and tells you plainly that your changes are not in the run.
 `git archive` ships no `.git`, and Kustomize needs one as a security boundary
 for relative path traversal (`../base/` is rejected without it). The **driver**
 `git init`s a throwaway snapshot repo on the VM immediately after unpacking —
-this is not left to the pipeline. It is a marker, not history: its SHA is
-meaningless, which is why the report is stamped with the commit from **your**
-checkout and why a report stamped with anything else is `STALE`.
+this is not left to the pipeline. It is a marker, not history. Its SHA is
+meaningless. That is why the report is stamped with the commit from **your**
+checkout, and why a report stamped with anything else is `STALE`.
 
 ### Delivery is verified, not assumed
 
 After the transfer the driver reads the payload's size back off the VM and
 compares it. This is not padding. `gcloud compute ssh --command '…' < file`
-**does not forward stdin**: the command exits 0 and the file lands at **zero
-bytes**, and everything downstream reports success against an empty file —
+**does not forward stdin**. The command exits 0 and the file lands at **zero
+bytes**. Everything downstream reports success against an empty file:
 `chmod` works, a launch reports launched, and the log is empty. Nothing anywhere
-goes red. An exit status describes the command; only the artefact describes the
+goes red. An exit status describes the command. Only the artefact describes the
 artefact.
 
 To re-run just the tests against a cluster that is already standing:
@@ -326,10 +326,26 @@ make gcp-tf-ts-up ENV=demo-1
 ```
 
 That is the whole thing. It prints a URL like
-`https://sl-demo-1.<your-tailnet>.ts.net`, and the URL is clickable from any
-device already on the tailnet — including a phone — with **no hosts file, no
+`https://sl-demo-1.<your-tailnet>.ts.net`. The URL is clickable from any
+device already on the tailnet, including a phone. There is **no hosts file, no
 certificate warning and no terminal held open**. Nothing has to keep running:
 close the laptop and the demo stays up.
+
+The flowchart shows the path from a browser to the dashboard on both access paths.
+
+```mermaid
+flowchart LR
+  B[Browser] -->|Tailscale| TS["tailscale serve :443<br/>on the VM"]
+  B -->|IAP| IAP["IAP tunnel to the<br/>internal IP:app_port"]
+  TS --> PF["127.0.0.1:app_port<br/>signalloom-dashboard-pf.service"]
+  IAP --> PF
+  PF --> N["svc/dashboard-signalloom:8080<br/>nginx in fe-signalloom"]
+  N --> R["/api, /dex, /afm, ..."]
+```
+
+The unit and the service names are in
+[`scripts/gcp-tf/demo-up.sh`](../../scripts/gcp-tf/demo-up.sh) and
+[`d2-signalloom/apps/fe-signalloom/base/dashboard-service.yaml`](../../d2-signalloom/apps/fe-signalloom/base/dashboard-service.yaml).
 
 Before it prints anything it does four checks, in this order and deliberately:
 
@@ -337,8 +353,8 @@ Before it prints anything it does four checks, in this order and deliberately:
 2. **Is this environment's node in the tailnet, and is it online?** Local — it
    asks this machine's `tailscaled`, not the cloud. So a suspended VM is
    reported in milliseconds rather than after a minute of `gcloud`.
-3. **Does the node's MagicDNS name resolve *on this machine*?** This is the
-   about *this machine's* resolver, not about the estate: the health probe
+3. **Does the node's MagicDNS name resolve *on this machine*?** This is
+   about *this machine's* resolver, not about the estate. The health probe
    below proves the *dashboard* answers, not that a *browser here* can reach it.
    Without this check the target would print "verified before you clicked" and
    then hand over a URL that fails on the click. (The IAP path once had a
@@ -347,41 +363,19 @@ Before it prints anything it does four checks, in this order and deliberately:
 4. **Does `/readyz` return a real HTTP 200 at that URL?** Only then is anything
    clickable printed.
 
-### What it does on the VM, and why none of it is a manual step
-
-`tailscale serve` terminates TLS on the node itself, with a real,
-publicly-trusted certificate for its MagicDNS name, and proxies to a backend we
-name — `http://127.0.0.1:<app_port>`, the VM-side forward to the dashboard's
-nginx. So the browser gets HTTPS without anyone installing a certificate, and
-nothing has to hold a tunnel open.
-
-It used to do more than that. The forward targeted the in-cluster Envoy Gateway,
-which routes by **SNI** on `dashboard.osramp.acme.local`, so `serve` had to dial
-its backend *by that name* and `gcp-tf-ts-up` wrote `127.0.0.1
-dashboard.osramp.acme.local` into the VM's `/etc/hosts` to make that possible. A
-request with any other name in the handshake was closed during TLS and presented
-as `UNEXPECTED_EOF_WHILE_READING`, which reads as a broken tunnel. The forward
-now targets `dashboard-signalloom:8080` — nginx, path routing, no TLS — so there
-is no name to match and the VM's `/etc/hosts` is left alone.
-
-The measurement behind that, because "routes by SNI" understates it. Envoy also
-matches the request's `:authority` against its listener hostname
-(`*.osramp.acme.local`). Holding SNI constant and varying only the Host header:
-
-```
-Host: dashboard.osramp.acme.local  ->  200 OK
-Host: <node>.<tailnet>.ts.net      ->  404 Not Found
-```
-
-So even with the alias in place and the handshake succeeding, a MagicDNS name
-got a 404 from a perfectly healthy Gateway — which reads as a broken
-application, not as a name mismatch. Serving nginx removes the Host-header 404,
-the SNI discipline and the `/etc/hosts` alias together.
-
 ### What runs on the VM, and why none of it is a manual step
 
+`tailscale serve` terminates TLS on the node itself, with a real,
+publicly-trusted certificate for its MagicDNS name. It proxies to a backend we
+name: `http://127.0.0.1:<app_port>`, the VM-side forward to the dashboard's
+nginx. So the browser gets HTTPS without anyone installing a certificate, and
+nothing has to hold a tunnel open. The forward targets `dashboard-signalloom:8080`:
+nginx, path routing, no TLS. So there is no name to match, and the VM's
+`/etc/hosts` is left alone. The earlier Envoy-based forward is in
+[History](#history).
+
 Everything below is performed by the target. **There is no reason to SSH to the
-box**, and that is the property this path is for — each was once a hand step in
+box**, and that is the property this path is for. Each was once a hand step in
 a runbook, and none of them survived a `terraform destroy`.
 
 | On the VM | What it is |
@@ -391,7 +385,7 @@ a runbook, and none of them survived a `terraform destroy`.
 | The Dex origin | Claimed through `scripts/lib/dex-origin.sh apply tailscale <url>`, so the login works at the new origin. |
 
 **Why a unit and not a bare `kubectl port-forward`.** A port-forward is not a
-durable tunnel: it dies on apiserver resets and on pod restarts, it exits
+durable tunnel. It dies on apiserver resets and on pod restarts, it exits
 **zero** when it does, and it says nothing. That is how a demo that worked at
 21:00 is dead at 09:00 with no error anywhere. `Restart=always` covers that —
 `on-failure` would not, because a lost pod is a clean exit — and enablement
@@ -400,16 +394,16 @@ roll, which routinely exceeds its default of five restarts in ten seconds.
 
 It is one unit for all access methods, not one per method, because the forward
 is the single entry point every method already shares. It binds `0.0.0.0` for
-the IAP path's sake — that tunnel arrives at the instance's internal IP, so a
+the IAP path's sake. That tunnel arrives at the instance's internal IP, so a
 loopback bind presents to it as `4003: failed to connect to backend`. The
 Tailscale path dials `127.0.0.1`, which a wildcard bind serves.
 
 ### The origin changes, and Dex has exactly one issuer
 
 A browser at `https://sl-demo-1.<tailnet>.ts.net` is at a **different origin**
-from the IAP path's `http://localhost:8080`, and Dex pins its OIDC issuer
+from the IAP path's `http://localhost:8080`. Dex pins its OIDC issuer
 and callback client to one origin at a time. Left alone the dashboard would load
-and the login would bounce — which presents as a *broken application*, not as an
+and the login would bounce. That presents as a *broken application*, not as an
 origin mismatch.
 
 So `gcp-tf-ts-up` claims the origin through the shared Dex origin mechanism
@@ -427,9 +421,9 @@ naming the holder. In practice the other holder is an ngrok tunnel from
 make gcp-tf-ts-status ENV=demo-1
 ```
 
-Read-only. Reports the node, its MagicDNS name, its tailnet IP, whether it is
-online, whether *this machine* resolves it, who currently holds the Dex origin,
-and whether `/readyz` answers.
+Read-only. Reports the node, its MagicDNS name, its tailnet IP, and whether it is
+online. It also reports whether *this machine* resolves it, who currently holds
+the Dex origin, and whether `/readyz` answers.
 
 It reports the forward as **two separate facts**, and they disagree exactly when
 it matters:
@@ -439,9 +433,9 @@ forward:   signalloom-dashboard-pf.service is active
 backend:   LISTENING on 127.0.0.1:8080 (fe-signalloom/dashboard-signalloom)
 ```
 
-`active` with nothing listening is the signature of a `Restart=always` loop —
-systemd reports the unit healthy the moment the process forks, several seconds
-before `kubectl` has an apiserver connection, and forever if it never gets one.
+`active` with nothing listening is the signature of a `Restart=always` loop.
+systemd reports the unit healthy the moment the process forks. That is several
+seconds before `kubectl` has an apiserver connection, and forever if it never gets one.
 A single merged "is it up" line would report that state as green.
 
 ---
@@ -455,7 +449,7 @@ make gcp-tf-funnel-down ENV=demo-1     # OFF
 
 **Read this paragraph before running it.** Funnel is the only thing in this
 entire estate that creates a listener the public internet can reach. Everything
-else is closed by construction: the VM has no external IP, IAP requires a Google
+else is closed by construction. The VM has no external IP, IAP requires a Google
 identity holding `roles/iap.tunnelResourceAccessor`, and Tailscale requires
 membership of this tailnet. Funnel routes the node's MagicDNS name through
 Tailscale's edge, under a valid public certificate, to anyone who has the URL.
@@ -471,7 +465,7 @@ demo ends.
 Funnel serves the *same URL* as `gcp-tf-ts-up` — `serve` and `funnel` publish
 the same name with the same certificate, and funnel only adds public
 reachability. That is why `funnel-up` does not re-patch Dex (the origin is
-identical) and why `funnel-down` leaves the tailnet demo standing: after
+identical). It is also why `funnel-down` leaves the tailnet demo standing. After
 switching the public listener off, the demo is still live for the tailnet at the
 same address.
 
@@ -480,7 +474,7 @@ same address.
 ## Step 6b — Connect (IAP, the fallback)
 
 Use this when you cannot join the tailnet. It is fully supported and fully
-tested; it is second because of the hosts file and the foreground tunnel, not
+tested. It is second because of the hosts file and the foreground tunnel, not
 because it is less reliable.
 
 ```bash
@@ -489,9 +483,9 @@ make gcp-tf-connect ENV=demo-1     # tunnel only — proves the port binds, noth
 ```
 
 `gcp-tf-public` is the one to use. `gcp-tf-connect` proves the local port
-*binds*, which is not the same as a demo that works: gcloud binds locally before
-it has proven anything about the far side, and the VM-side `kubectl
-port-forward` is the piece that actually dies.
+*binds*, which is not the same as a demo that works. gcloud binds locally before
+it has proven anything about the far side. The VM-side `kubectl port-forward`
+is the piece that actually dies.
 
 Both open `gcloud compute start-iap-tunnel <instance> 8080
 --local-host-port=localhost:8080` in the **foreground** and print everything you
@@ -509,8 +503,7 @@ password: demo-user
 ```
 
 That is the whole list. There is no `/etc/hosts` line and no certificate warning
-— see [What changed, and why there is less to
-do](#what-changed-and-why-there-is-less-to-do) below.
+— see [How the IAP path works](#how-the-iap-path-works) below.
 
 ### Confirm the tunnel before opening a browser
 
@@ -519,7 +512,7 @@ curl http://localhost:8080/readyz
 ```
 
 A 200 means the estate is up. A hang means the tunnel is not bound. A connection
-that 404s means the tunnel is fine and the estate is not — which is a completely
+that 404s means the tunnel is fine and the estate is not. That is a completely
 different problem and a completely different fix.
 
 ### The port is not pinned
@@ -530,37 +523,27 @@ If 8080 is taken on your machine — and it very often is — move the local end
 GCP_TF_DEMO_LOCAL_PORT=18080 make gcp-tf-connect ENV=demo-1
 ```
 
-Dex's issuer and callback follow the origin, so the URL simply becomes
+Dex's issuer and callback follow the origin, so the URL becomes
 <http://localhost:18080>. The remote end stays on the estate's `app_port`, which
 is what the IAP firewall rule is derived from.
 
-### What changed, and why there is less to do
+### How the IAP path works
 
-This path used to tunnel to the in-cluster **Envoy Gateway**, and everything
-awkward about it descended from that one choice:
-
-* the tunnel was pinned to **30754**, because Dex's callback was pinned to it;
-* you had to add `127.0.0.1 dashboard.osramp.acme.local` to `/etc/hosts`,
-  because Envoy routes by **SNI**;
-* the certificate was self-signed, because it was Envoy's;
-* browsing any other hostname 404'd, because Envoy matches the request's
-  `:authority` against `*.osramp.acme.local`.
-
-The tunnel now reaches `dashboard-signalloom:8080` — the dashboard's **nginx**,
-which serves the app and proxies `/dex/`, `/api/`, `/afm/`, `/demo/`, `/fleet/`
+The tunnel now reaches `dashboard-signalloom:8080`, the dashboard's **nginx**.
+It serves the app and proxies `/dex/`, `/api/`, `/afm/`, `/demo/`, `/fleet/`
 and `/supercred-api/` on the same origin. It routes by path, terminates no TLS
-and inspects no hostname, so all four of those disappear together.
-`scripts/public-tunnel.sh` (ngrok) has always worked this way; every access
+and inspects no hostname. The four Envoy problems in [History](#history) disappear together.
+`scripts/public-tunnel.sh` (ngrok) has always worked this way. Every access
 method now does.
 
 **Envoy is still deployed and still the Gateway API ingress.** It is part of what
 the product demonstrates and the VM-side pipeline still exercises the estate
-through it. It is simply no longer what a human browses through.
+through it. It is no longer what a human browses through.
 
-Because IAP now publishes an origin of its own rather than serving at the one
-the manifests default to, it claims that origin through the same lease every
-other method uses — so `gcp-tf-connect` and `gcp-tf-public` will **refuse** while
-an ngrok or Tailscale demo is live, and name it. `make gcp-tf-public-down`
+IAP now publishes an origin of its own rather than serving at the one the
+manifests default to. So it claims that origin through the same lease every
+other method uses. `gcp-tf-connect` and `gcp-tf-public` will therefore **refuse**
+while an ngrok or Tailscale demo is live, and name it. `make gcp-tf-public-down`
 releases the lease when IAP is what holds it, and deliberately leaves it alone
 when it is not.
 
@@ -614,8 +597,8 @@ The four verdicts are not interchangeable and the exit codes carry them.
 
 **`ABORTED` is worse than `FAIL`, not better.** It means the pipeline never
 reached the test stages, so nothing was measured. A missing summary is never
-read as a pass — that exact ambiguity was read as a pass twice in one day on
-2026-08-13, which is why this table exists and why the classifier has four
+read as a pass. That exact ambiguity was read as a pass twice in one day on
+2026-08-13. That is why this table exists and why the classifier has four
 answers rather than two.
 
 The verdict is always on disk at `demo-reports/summary.json`, stamped with the
@@ -625,7 +608,7 @@ is what a pass looks like *and* what a manual cleanup looks like.
 ### `certificate signed by unknown authority` — SPIRE agent after a server restart
 
 **Symptom.** `make demo-bao-up` refuses with *"SPIRE agent is holding a stale
-trust bundle"*, or the lane looks healthy but no workload can get an SVID and
+trust bundle"*. Or the lane looks healthy but no workload can get an SVID, and
 `kubectl -n inf-bao logs -l app.kubernetes.io/name=spire-agent` shows a
 crash-loop on:
 
@@ -645,7 +628,7 @@ reloads the same stale bundle. Join tokens are single-use, so each crash-loop
 restart burns one and the symptom drifts into token errors that point away from
 the cause.
 
-**Recovery.** Step 3 is the one the tooling cannot do for you — it needs node
+**Recovery.** Step 3 is the one the tooling cannot do for you. It needs node
 access, which is why `bao-up` refuses and prints this rather than half-doing it.
 
 ```bash
@@ -665,7 +648,7 @@ make demo-bao-up    # fresh join token, re-register the identity, re-sync OpenBa
 **Then check OpenBao.** A new CA means new JWT signing keys, so OpenBao's
 `jwt_validation_pubkeys` snapshot is stale too and every SPIFFE login fails with
 `no known key successfully validated the token signature`. `demo-bao-up`
-re-syncs it; confirm with `bats test/spire-openbao-trust-drift.bats`, which is
+re-syncs it. Confirm with `bats test/spire-openbao-trust-drift.bats`, which is
 also pipeline stage 6e.
 
 Root cause and the open design decision (PVC for the server, versus wiping the
@@ -674,7 +657,7 @@ agent on server restart): `d2-agent-trust/AGENTS.md` → Pitfalls.
 ### Tailscale path — the five things that go wrong
 
 Every row below is a state `gcp-tf-ts-up` and `gcp-tf-funnel-up` distinguish and
-report separately, because the fixes have nothing to do with each other and a
+report separately. The fixes have nothing to do with each other. A
 single "Tailscale is not working" message sends the reader to the admin console
 for a missing package.
 
@@ -706,13 +689,13 @@ gcloud compute ssh <instance> --zone=<zone> --project=<project> \
 ### `demo-up: no hand-off for ENV=demo-1`
 
 You have not run `make gcp-tf-handoff ENV=demo-1`, or you are in a different
-checkout from the one that produced it (it is untracked, so it does not travel).
+checkout from the one that produced it. It is untracked, so it does not travel.
 Regenerate it. Do not hand-write one.
 
 ### `agent refused operation`, or an IAP SSH that "times out"
 
 A populated `ssh-agent` breaks IAP SSH. This reads as a VM provisioning fault
-and is a purely local one — on 2026-08-03 it cost ten minutes pointed at a VM
+and is a purely local one. On 2026-08-03 it cost ten minutes pointed at a VM
 that had finished provisioning in 124 seconds.
 
 `demo-up.sh` empties `SSH_AUTH_SOCK` on every path, so if you see this it came
@@ -727,8 +710,8 @@ SSH_AUTH_SOCK= gcloud compute ssh ...
 You are reaching the cloud as yourself instead of as the operator SA. The fix is
 **not** to grant yourself the role — you cannot. The operator is external to the
 owning organisation, and `gcloud organizations list` returns zero items for
-them, so there is no org-level policy they can edit. Use the impersonation path;
-that is what it is for. An org admin granting the role is an optional
+them, so there is no org-level policy they can edit. Use the impersonation path.
+That is what it is for. An org admin granting the role is an optional
 convenience, never a prerequisite.
 
 ### `4033: 'not authorized'` when opening the tunnel
@@ -757,7 +740,8 @@ Two causes wearing one error, indistinguishable from the client:
 2. **A firewall rule does not permit it.** The IAP source range is
    `35.235.240.0/20`. A rule set that opens `tcp:22` from that range and opens
    `app_port` only to Google's load-balancer health-check ranges produces
-   exactly this, because there is no load balancer in front of this environment.
+   exactly this. The reason is that there is no load balancer in front of this
+   environment.
 
 ```bash
 gcloud compute firewall-rules list --project=<project> \
@@ -778,13 +762,13 @@ fresh VM while the daemon is up and healthy. The message names the wrong cause:
 
 The transfer reported success and the bytes did not arrive, or arrived
 truncated. Do **not** read the run that would have followed as a result about
-your code — nothing, or only part of it, was delivered. Retry; if it repeats,
+your code — nothing, or only part of it, was delivered. Retry. If it repeats,
 the tunnel or the VM's disk is the place to look, not the pipeline.
 
 ### `gcloud is not authenticated, so <instance>'s state is UNKNOWN`
 
 An unreadable state is **not** an absent VM. Do not re-apply Terraform on this
-basis; you would be building a duplicate estate. Run `gcloud auth login`.
+basis. You would be building a duplicate estate. Run `gcloud auth login`.
 
 ### `REFUSING to open the tunnel on port <n>`
 
@@ -809,15 +793,15 @@ before you do anything else.
 ## Why impersonation, and why it is not the usual reason
 
 Everywhere else in this estate impersonation exists because the human's own
-principal is `roles/editor`, which can create a VPC and a VM and cannot create
-the IAM-shaped resources — so a direct apply gets a long way in and then dies,
-leaving a half-built estate and inviting the wrong fix.
+principal is `roles/editor`. That role can create a VPC and a VM, and cannot
+create the IAM-shaped resources. So a direct apply gets a long way in and then
+dies, leaving a half-built estate and inviting the wrong fix.
 
 For the **demo driver** the reason is different. The operator is EXTERNAL to the
 owning organisation, so `gcloud compute ssh` requires
 `roles/compute.osLoginExternalUser` — a role an external principal cannot grant
 itself. The error names an OS Login permission, so the diagnosis it invites is
-"grant that role", which is not an action you have the authority to take. An
+"grant that role". That is not an action you have the authority to take. An
 org-internal service account is not subject to the rule at all, so every gcloud
 call the driver makes carries `--impersonate-service-account`.
 
@@ -832,13 +816,13 @@ halves of one thing. The interface, so neither can drift silently:
 
 **Invocation** — `bash scripts/gcp-tf/demo-pipeline.sh`, with the working
 directory set to `SL_DEMO_WORK_DIR`, under `bash -l`. It runs as the **OS Login
-user** unless `GCP_TF_DEMO_REMOTE_USER` names a service account to drop to;
-`sudo -u` naming an account that does not exist fails with a message about sudo,
-which reads as a privilege problem rather than a wrong assumption.
+user** unless `GCP_TF_DEMO_REMOTE_USER` names a service account to drop to.
+`sudo -u` naming an account that does not exist fails with a message about sudo.
+That reads as a privilege problem rather than a wrong assumption.
 
 **What the driver has already done before the pipeline starts** — so chunk C
-does not repeat it: the checkout is unpacked at `SL_DEMO_WORK_DIR`, owned by the
-invoking user, and a throwaway `git init` + snapshot commit exists there for
+does not repeat it. The checkout is unpacked at `SL_DEMO_WORK_DIR`, owned by the
+invoking user. A throwaway `git init` + snapshot commit exists there for
 Kustomize's path-traversal boundary. The pipeline does **not** need to create
 one. It **does** need to mint its own signing material: `.keys/` is gitignored
 and therefore not in the payload, by construction.
@@ -865,8 +849,8 @@ and therefore not in the payload, by construction.
 ```
 
 `outcome` is one of `PASS`, `FAIL`, `ABORTED`. `commit` **must** be the
-`SL_DEMO_SOURCE_COMMIT` it was handed — the VM's own git SHA belongs to a
-throwaway snapshot repo and stamping that instead makes every run read as
+`SL_DEMO_SOURCE_COMMIT` it was handed. The VM's own git SHA belongs to a
+throwaway snapshot repo, and stamping that instead makes every run read as
 `STALE`.
 
 **Exit status** — 0 for pass, non-zero otherwise. A zero exit with no summary is
@@ -876,7 +860,7 @@ treated as `ABORTED`, never as a pass.
 
 ## Environment overrides
 
-Every external dependency of the driver is injectable, which is what makes
+Every external dependency of the driver is injectable. That is what makes
 `test/terraform-demo-driver.bats` able to exercise the whole control flow
 against stubs with no cloud access.
 
@@ -921,3 +905,45 @@ Tailscale path:
 | [`../../terraform/notes/README.md`](../../terraform/notes/README.md) | the build-notes index; most of the series is historical |
 | `test/terraform-demo-driver.bats` | what the IAP lane is actually proven to do |
 | `test/terraform-tailscale-access.bats` | what the Tailscale lane is actually proven to do |
+
+---
+
+## History
+
+### 2026-08-20: every access method moved from Envoy to the dashboard nginx
+
+Commit `dc7a913f` routed the Tailscale and IAP paths to `dashboard-signalloom:8080`.
+The notes below describe the state before that change.
+
+**The Tailscale forward.** The forward targeted the in-cluster Envoy Gateway,
+which routes by **SNI** on `dashboard.osramp.acme.local`. So `serve` had to dial
+its backend *by that name*, and `gcp-tf-ts-up` wrote
+`127.0.0.1 dashboard.osramp.acme.local` into the VM's `/etc/hosts` to make that possible. A
+request with any other name in the handshake was closed during TLS and presented
+as `UNEXPECTED_EOF_WHILE_READING`, which reads as a broken tunnel. The forward
+now targets `dashboard-signalloom:8080`: nginx, path routing, no TLS. So there
+is no name to match, and the VM's `/etc/hosts` is left alone.
+
+The measurement behind that, because "routes by SNI" understates it. Envoy also
+matches the request's `:authority` against its listener hostname
+(`*.osramp.acme.local`). Holding SNI constant and varying only the Host header:
+
+```
+Host: dashboard.osramp.acme.local  ->  200 OK
+Host: <node>.<tailnet>.ts.net      ->  404 Not Found
+```
+
+So even with the alias in place and the handshake succeeding, a MagicDNS name
+got a 404 from a perfectly healthy Gateway. That reads as a broken
+application, not as a name mismatch. Serving nginx removes the Host-header 404,
+the SNI discipline and the `/etc/hosts` alias together.
+
+**The IAP tunnel.** This path tunnelled to the in-cluster **Envoy Gateway**. Everything
+awkward about it descended from that one choice:
+
+* the tunnel was pinned to **30754**, because Dex's callback was pinned to it.
+* you had to add `127.0.0.1 dashboard.osramp.acme.local` to `/etc/hosts`,
+  because Envoy routes by **SNI**.
+* the certificate was self-signed, because it was Envoy's.
+* browsing any other hostname 404'd, because Envoy matches the request's
+  `:authority` against `*.osramp.acme.local`.

@@ -1,44 +1,68 @@
-# AGENTS.md — d2-osramp-apps (OSRAMP Application Slice)
+# AGENTS.md — d2-osramp-apps (OSRAMP application slice)
 
-This slice provides the application tenant for the Acme Co. OSRAMP demonstration.
-It manages namespace-scoped application delivery. Flux reconciles these resources
-using namespace-admin privileges.
+This slice is the application tenant of the Acme Co. OSRAMP demonstration. Flux
+reconciles it into the `frontend` and `backend` namespaces. The human guide is
+[`README.md`](README.md).
+
+CAUTION: On the local fleet, the `apps` tenant is disabled. Re-enable it in
+[`../d2-osramp-fleet/tenants/local/kustomization.yaml`](../d2-osramp-fleet/tenants/local/kustomization.yaml)
+before you run `make demo-osramp-up`. The script
+[`../scripts/osramp-up.sh`](../scripts/osramp-up.sh) patches the ResourceSet
+`apps`, which the local fleet does not create.
 
 ## Stack
 
 | Component | Technology | Path |
 |---|---|---|
-| Archiver | Go service | `apps/archiver/` |
-| Listener | Go service | `apps/listener/` |
-| Processor | Go service (Witness attestation signer) | `apps/processor/` |
-| HelmReleases | Flux HelmRelease manifests | `components/` |
-| Update policies | Flux ImageUpdateAutomation | `update-policies/` |
-| Tests | BATS test suites | `test/` |
+| Archiver | Go service | [`apps/archiver/`](apps/archiver/) |
+| Listener | Go service | [`apps/listener/`](apps/listener/) |
+| Processor | Go service (Witness attestation signer) | [`apps/processor/`](apps/processor/) |
+| Components | Kustomize manifests. `frontend` holds three Deployments. `backend` holds PostgreSQL, a NATS HelmRelease, Archivista, and MinIO. | [`components/`](components/) |
+| Image policies | Flux `ImageRepository` and `ImagePolicy` objects | [`update-policies/`](update-policies/) |
+| Tests | BATS suites | [`test/`](test/) |
+
+The `ImageUpdateAutomation` that uses the image policies is in
+[`../d2-osramp-fleet/clusters/update/`](../d2-osramp-fleet/clusters/update/).
 
 ## Lifecycle
 
 ```bash
-make demo-osramp-up          # Deploy OSRAMP frontend and backend
-make demo-osramp-test         # Run manifest checks and BATS acceptance tests
-make demo-osramp-down         # Remove OSRAMP while keeping foundation
+make demo-osramp-up           # Deploy the OSRAMP frontend and backend
+make demo-osramp-test         # Run the manifest checks and the BATS acceptance tests
+make demo-osramp-down         # Remove OSRAMP. The foundation stays.
 ```
 
 ## Testing
 
 ```bash
-make demo-osramp-test-config  # Check manifests without a running cluster
-make demo-osramp-test         # Run full acceptance tests against running cluster
-bats test/osramp.bats         # Run BATS tests directly
+make demo-osramp-test-config        # Check the manifests without a running slice
+make demo-osramp-test               # Run the full acceptance tests on a running cluster
+bats d2-osramp-apps/test/osramp.bats  # Run the BATS suite directly
 ```
 
-## Resource Scope
+## Namespaces
 
-This slice contains namespace-scoped resources only (HelmRepositories, HelmReleases,
-and ConfigMaps). It does not contain cluster-scoped definitions (CRDs, ClusterRoles,
-or Namespaces). Cluster-scoped resources belong in `d2-infra/`.
+| Namespace | Contents | Path |
+|---|---|---|
+| `frontend` | Deployments `osramp-archiver`, `osramp-multipurpose`, `osramp-purl`, and the Secret `signing-key` | [`components/frontend/base/`](components/frontend/base/) |
+| `backend` | PostgreSQL Pod, NATS HelmRelease, Archivista Deployment, MinIO Deployment | [`components/backend/base/`](components/backend/base/) |
 
-## Common Pitfalls
+## Resource scope
 
-- License is Apache 2.0.
-- The processor service signs attestations with the key created by `make workload-key`.
-- Image update policies trigger on registry push events. Be aware during local development.
+Flux applies this slice as the namespace admin. The scope is in
+[`README.md`](README.md#scope-and-access-control).
+
+CAUTION: `components/backend/base/` contains `minio-operator.yaml` and
+`minio-tenant.yaml`. These files define Namespaces, CRDs, a ClusterRole, and a
+ClusterRoleBinding. No `kustomization.yaml` includes them, so Flux does not
+apply them. Do not add them to the backend kustomization. The tenant identity
+cannot apply them, and the reconciliation then fails.
+
+## Pitfalls
+
+- The licence is the GNU Affero General Public License, version 3 ([`LICENSE`](LICENSE)).
+- The processor signs attestations with an ed25519 key. `make workload-key` at
+  the repository root makes it. The slice target `make -C d2-osramp-apps signing-key`
+  makes the Secret `signing-key` in `frontend` directly with `kubectl`.
+- No active release uses the three image policies. They target podinfo, redis
+  and memcached. The backend kustomization comments out redis and memcached.

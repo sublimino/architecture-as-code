@@ -1,10 +1,41 @@
 # AGENTS.md — d2-agent-trust
 
-This slice demonstrates a contract-first SPIFFE Agent Trust Hierarchy.
-It reuses existing infrastructure from `d2-signalloom/infra/inf-bao`.
-It consumes the SPIRE Workload API and the OpenBao JWT authentication backend.
+This slice demonstrates a contract-first SPIFFE agent trust hierarchy. It reuses
+the infrastructure in [`../d2-signalloom/infra/inf-bao/`](../d2-signalloom/infra/inf-bao/). It uses the SPIRE
+Workload API and the OpenBao JWT authentication backend. The human guide is
+[`README.md`](README.md), which also holds the truthfulness matrix.
 
-## Commands
+## Stack
+
+| Path | Contents |
+|---|---|
+| [`a2a/`](a2a/) | The A2A JWT verifier service |
+| [`adapters/`](adapters/) | The SPIRE Workload API adapter |
+| [`contracts/`](contracts/) | Topology, SPIRE registration, external enrolment, and OpenBao role contracts |
+| [`manifests/`](manifests/) | Boundaries, NetworkPolicies, topology probes, and probe RBAC |
+| [`policies/`](policies/) | The agent identity state protection policy |
+| [`test/test_contracts.py`](test/test_contracts.py) | Contract and A2A unit tests (`make -C d2-agent-trust test`) |
+| [`../scripts/agent-trust-local.sh`](../scripts/agent-trust-local.sh) | The `up`, `down`, and `network-test` lifecycle |
+| [`../d2-osramp-fleet/tenants/base/agent-trust.yaml`](../d2-osramp-fleet/tenants/base/agent-trust.yaml) | The `agent-trust` ResourceSet, its inputs, and its RBAC |
+
+NOTE: A NetworkPolicy controls L3 and L4 reachability only. The receiving
+service enforces the application-level authorisation.
+
+## Namespaces
+
+The lifecycle script owns these six namespaces. The ResourceSet creates them,
+and `down` deletes them.
+
+| Namespace | Boundary | Workloads |
+|---|---|---|
+| `agent-trust-platform` | platform | The `agent-trust` Flux Kustomization |
+| `agent-trust-tenant-acme-control` | tenant control for `acme` | NetworkPolicies and RBAC only |
+| `agent-trust-tenant-northstar-control` | tenant control for `northstar` | NetworkPolicies and RBAC only |
+| `agent-trust-acme-payments` | project | `agent-trust-planner` and `agent-trust-triage` |
+| `agent-trust-acme-risk` | project | `agent-trust-risk-reader` |
+| `agent-trust-northstar-investigations` | project | `agent-trust-investigator` |
+
+## Lifecycle
 
 ```bash
 make -C d2-agent-trust test       # Run contracts and A2A verifier tests
@@ -16,45 +47,47 @@ make demo-agent-trust-down        # Remove the six Agent Trust namespaces
 make -C d2-agent-trust render     # Test manifest rendering
 ```
 
-## Truthfulness Matrix
+The fleet ships the ResourceSet with declared inputs and no disable annotation.
+`up` refreshes the fleet and suspends the `flux-system` and `tenants`
+Kustomizations. It waits for OpenBao and SPIRE, creates the A2A keys, and
+removes the disable annotation from the ResourceSet. It then waits for the
+ResourceSet, restarts the planner and triage deployments when the keys are new,
+and wires the identity plane. A failed `up` resumes the two Kustomizations.
 
-| Area | State | Evidence |
-|---|---|---|
-| A2A JWT signature, replay, and receiver policy | Authentic unit implementation | Tests in `a2a/service.py` |
-| SPIRE Workload API token issuance | Authentic runtime adapter | Tested using mounted SPIRE socket |
-| Kubernetes boundary manifests | Authentic GitOps runtime | Signed OCI artifact and Flux readiness |
-| OpenBao role configuration | Authentic local lifecycle | Five-minute temporary roles via `agent-trust-local.sh` |
-| SPIFFE and OpenBao A2A request flow | Authentic runtime | Planner gets JWT-SVID; triage checks via OpenBao |
-| Cloud provider enrollment (Lambda, Cloud Run) | Modeled contract | `contracts/external-enrollment.v1.json` |
+The ResourceSet uses its own ServiceAccount, `agent-trust-flux`. In each of the
+six `agent-trust-*` namespaces, a RoleBinding gives it these resources:
+ConfigMaps, Pods, Secrets, ServiceAccounts, Services, Deployments,
+ReplicaSets, NetworkPolicies, Roles, RoleBindings, and CronJobs.
 
-Note: NetworkPolicy controls L3 and L4 network reachability only.
-The receiving application service enforces application-level authorization.
+CAUTION: The ClusterRole `agent-trust-flux-namespaces` also lets
+`agent-trust-flux` get, list, watch, and create any Namespace in the cluster.
+Only update, patch, and delete are limited to the six namespaces. Do not give
+this ServiceAccount to another workload. The definition is in
+[`../d2-osramp-fleet/tenants/base/agent-trust.yaml`](../d2-osramp-fleet/tenants/base/agent-trust.yaml).
 
-## Lifecycle and Rollback
-
-The command `demo-agent-trust-up` confirms readiness of `signalloom-infra`,
-`inf-bao`, OpenBao, and SPIRE. It then activates its ResourceSet.
-
-The ResourceSet uses a dedicated `agent-trust-flux` service account.
-RoleBindings permit only ConfigMaps, Secrets, ServiceAccounts, Services,
-Deployments, and NetworkPolicies in owned namespaces.
-
-The command `demo-agent-trust-down` sets `inputs: []`, waits for Flux,
-and removes the six `agent-trust-*` namespaces. It does not modify `inf-bao`,
+`demo-agent-trust-down` removes the SPIRE entries and OpenBao roles. It
+disables the ResourceSet with the annotation
+`fluxcd.controlplane.io/reconcile: disabled`. Then it deletes the six
+namespaces and resumes the two Kustomizations. It does not modify `inf-bao`,
 OpenBao, SPIRE, or Signal Loom ResourceSets.
 
-Dataplane probes test network enforcement at runtime. A present CNI plugin
-does not prove policy enforcement. The Kind test cluster verifies:
+## Testing
+
+`make -C d2-agent-trust test` runs the contract and A2A unit tests offline.
+`make demo-agent-trust-network-test` runs the dataplane probes against the
+Kind cluster. A present CNI plugin does not prove policy enforcement, so the
+probes test each path at runtime:
+
 - Planner connects to triage.
 - Denied triage paths fail.
 - Permitted OpenBao paths succeed.
 - Denied paths to OpenBao fail.
 - Arbitrary egress traffic is blocked.
 
-## Common Pitfalls
+## Pitfalls
 
 Every entry here records a defect found on 2026-08-12.
-In this slice, you must verify that policy denials operate correctly.
+In this slice, you must check that policy denials operate correctly.
 
 ### `nc` Cannot Distinguish Firewalls from Typos
 
@@ -91,7 +124,7 @@ Follow this manual recovery sequence:
 4. Quarantine `/var/lib/spire-agent/data` on the host node.
 5. Set permissions on the quarantined directory to mode `0700`.
 6. Resume the child configuration and run `make demo-bao-up`.
-7. Verify agent attestation before you unpause the parent ResourceSet.
+7. Check agent attestation before you unpause the parent ResourceSet.
 
 ### Read Probe Output from Termination Logs
 

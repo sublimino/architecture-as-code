@@ -2,7 +2,7 @@
 
 Each directory below holds one `main.tf.fixture` with exactly **one** invariant
 broken. `test/terraform-operator-access.bats` asserts that the corresponding
-guard **fails** on the broken copy — which is the only thing that proves the
+guard **fails** on the broken copy. That is the only thing that proves the
 guard is capable of failing at all.
 
 The `.fixture` suffix keeps them out of `terraform fmt -recursive`, `terraform
@@ -22,8 +22,8 @@ a grep, not configuration.
 | `overreaching-custom-role/` | extra permissions inside the custom role, role COUNT unchanged | `lifecycle_role_mutating_permissions` |
 
 `clean/` carries a **well-formed** `google_project_iam_custom_role` as well as the
-two predefined grants. That is deliberate: `lifecycle_role_mutating_permissions`
-must stay silent on a legitimate suspend/resume role, and a guard that fired on
+two predefined grants. That is deliberate. `lifecycle_role_mutating_permissions`
+must stay silent on a legitimate suspend/resume role. A guard that fired on
 every custom role would satisfy the `overreaching-custom-role/` mutation check
 while being useless on the real module.
 
@@ -31,14 +31,14 @@ while being useless on the real module.
 exactly one custom role, so the budget in
 `terraform/modules/operator-identity/tests/operator_identity.tftest.hcl` still
 reads three project roles and four total. Only the permission list inside the
-role changed — which is why that suite pins the permission list by exact count
+role changed. That is why that suite pins the permission list by exact count
 and exact membership as well.
 
 `clean/` and `org-iam-commented/` are as important as the broken ones. A guard
 that fires on everything satisfies every mutation check above while being
-useless on the real tree, and a guard that cannot tell a declaration from a
+useless on the real tree. A guard that cannot tell a declaration from a
 comment forbidding it gets deleted the first time it cries wolf.
 
 These are written by hand. There is no `GENERATE.sh` here because none of them
-is a mutation of a specific real file — each is the smallest possible HCL that
+is a mutation of a specific real file. Each is the smallest possible HCL that
 expresses one defect.

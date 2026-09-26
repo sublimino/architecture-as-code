@@ -2,7 +2,7 @@
 
 This design model was reconstructed from the production dashboard route table,
 sidebar, unit tests, and root Playwright acceptance suites on 2026-08-11. The
-demo changes information hierarchy and presentation; it does not redefine the
+demo changes information hierarchy and presentation. It does not redefine the
 production route contracts.
 
 ## Decision model
@@ -102,23 +102,24 @@ port-forwards for `make acceptance-test`.
 
 ### Do not trust a green run blindly
 
-- BATS and Playwright guards can report tests as skipped; inspect output for
+- BATS and Playwright guards can report tests as skipped. Inspect output for
   `skip` before treating green as evidence.
 - Most acceptance helpers default to fixture/demo data. Live SuperCred tests
   explicitly disable demo mode.
-- OIDC tokens are stored in `sessionStorage`; Playwright `storageState` alone
+- OIDC tokens are stored in `sessionStorage`. Playwright `storageState` alone
   does not restore them. `fixtures.ts` replays `.auth-session.json` before boot.
 - Sidebar badge counts alter accessible names. Production helpers navigate by
   route `href`, not fragile exact text.
 - The onboarding overlay can cover a healthy sidebar. Helpers seed
   `sl_onboarding_skipped` where onboarding is outside the test's purpose.
 - Current `playwright.config.ts` project patterns do not include every
-  `supercred-*.spec.ts`; invoke an omitted spec explicitly when validating it.
+  `supercred-*.spec.ts`. Invoke an omitted spec explicitly when checking it.
 
 ## Beautiful UI influence
 
 The demo uses the patterns visible at <https://www.beautifului.dev/> as design
-inspiration: crafted primitives, compact live-status chips, expandable context,
-filterable records, restrained motion, and polished loading feedback. It does
+inspiration. Those patterns are: crafted primitives, compact live-status chips,
+expandable context, filterable records, restrained motion, and polished loading
+feedback. It does
 not copy source code or depend on the site. Signal Loom's evidence/provenance
 requirements remain the stronger design constraint.

@@ -13,3 +13,15 @@ To run:
 cd ../..
 make acceptance-test
 ```
+
+[`SPEC-REGISTRY.tsv`](SPEC-REGISTRY.tsv) records where each spec runs. Add a row
+for each new spec. [`test/acceptance-spec-coverage.bats`](../acceptance-spec-coverage.bats)
+fails CI when the registry and the Playwright config do not agree.
+
+To run one Playwright project, give its name to the runner script. The project
+names are the `name` fields in [`playwright.config.ts`](playwright.config.ts).
+
+```bash
+cd ../..
+scripts/acceptance-test.sh --project <name>
+```

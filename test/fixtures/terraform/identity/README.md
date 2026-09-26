@@ -6,7 +6,7 @@ runs against the real tree, and asserts it FAILS here. Without that, a guard
 that greps for a forbidden construct is indistinguishable from a guard whose
 `find` matched no files at all.
 
-`clean/` is the control: the same guards must PASS against it, which proves the
+`clean/` is the control: the same guards must PASS against it. That proves the
 mutation failures come from the injected defect and not from the fixture
 mechanism itself.
 

@@ -1,7 +1,7 @@
 # Signal Loom D2: Isometric System Map
 
 Interactive isometric visualisation of the Signal Loom D2 platform architecture.
-Each building's shape communicates its infrastructure role; coloured paths trace
+Each building's shape communicates its infrastructure role. Coloured paths trace
 real control, data, identity, and GitOps flows between services.
 
 ## Viewing
@@ -17,7 +17,6 @@ python3 -m http.server 8901 --bind 0.0.0.0 -d docs/system-map
 Or with any static file server:
 
 ```bash
-npx serve docs/system-map -p 8901
 bunx serve docs/system-map -p 8901
 ```
 
@@ -53,6 +52,16 @@ controls.
 The map is a single self-contained HTML file (`index.html`) with no external
 dependencies. All rendering is done via Canvas API with inline JavaScript.
 
+NOTE: The map was last updated on 2026-08-15. Its namespace labels predate
+the current names. The applications run in `fe-signalloom`, OpenBao runs in
+`inf-bao`, and Zot runs in `registry`. The map labels them `signalloom`,
+`openbao-system`, and `zot-system`. The map shows no port for Dex. The Dex
+Service listens on port 5556. The deployed application `signal-ingest` is
+not on the map. Three more application directories are not on the map:
+`swarm-governor`, `prod-deploy-gate`, and `workspace-connector`. Those three
+have source and a Dockerfile but no Kubernetes manifest. The list of
+applications is in [`d2-signalloom/apps/`](../../d2-signalloom/apps/).
+
 ### When to update
 
 Update the map when:
@@ -63,7 +72,7 @@ Update the map when:
 
 ### How to update
 
-The map data lives in two arrays near the top of the `<script>` block:
+The map data lives in three arrays near the top of the `<script>` block:
 
 **`BUILDINGS`**: one entry per service:
 ```js
@@ -97,7 +106,7 @@ The map data lives in two arrays near the top of the `<script>` block:
 
 Choose the shape that communicates the service's architectural role:
 
-- **gateway**: entry points, load balancers, ingress controllers
+- **gate**: entry points, load balancers, ingress controllers
 - **tower**: stateless request-serving services, APIs, UIs
 - **compound**: services with multiple internal layers (API + workers)
 - **warehouse**: batch processing, pipeline stages, policy evaluation

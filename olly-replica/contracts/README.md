@@ -2,7 +2,7 @@
 
 Versioned JSON Schemas for every payload that crosses a boundary in the Olly
 Sentinel replica (design doc §1.3 and §5). The stubs, the
-MCP server, the agent, and the eval harness all import these; drift between
+MCP server, the agent, and the eval harness all import these. Drift between
 a producer and a consumer fails CI rather than surfacing at demo time.
 
 | Schema | Boundary it pins |

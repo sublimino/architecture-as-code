@@ -81,20 +81,23 @@ Demo user: `demo-user@signalloom.local` / `demo-user` via Dex password grant.
 
 ## Database
 
-**PostgreSQL** at `database_url` (config.py). Schema: `db/migrations/004_agent_governance_schema.sql`
+**PostgreSQL** at `database_url` ([`src/config.py`](src/config.py)). Schema:
+[`src/db/migrations/004_agent_governance_schema.sql`](src/db/migrations/004_agent_governance_schema.sql)
 (13 tables, idempotent). Key tables: `agent_registry`, `governance_frameworks`,
 `governance_controls`, `agent_compliance_results`, `agent_violations`, `audit_events`,
 `nhi_scans`, `nhi_discovered_accounts`, `tenant_settings`, `tenant_api_keys`,
 `consent_events`, `support_requests`, `lifecycle_transitions`.
 
-**Migrations run at startup.** `db/migrate.py` applies every `db/migrations/*.sql`
-in version order before the pool is handed out, recording each in
-`schema_migrations` so it runs once, and serialising concurrent replicas behind a
-`pg_advisory_lock`. A failing migration aborts startup rather than serving against
-a half-migrated schema. The generated bootstrap SQL still seeds fresh clusters via
-`/docker-entrypoint-initdb.d`, but that path only fires on an empty data
-directory, so the runner is what keeps an *existing* database current. Every
-migration must therefore stay idempotent; `tests/test_migrations.py` enforces it.
+**Migrations run at startup.** [`src/db/migrate.py`](src/db/migrate.py) applies
+each `src/db/migrations/*.sql` file in version order before it gives out the
+pool. It records each file in `schema_migrations`, so each file runs once. A
+`pg_advisory_lock` serialises concurrent replicas. A failed migration stops the
+startup, so the API never serves a half-migrated schema. The bootstrap SQL still
+seeds a new cluster through `/docker-entrypoint-initdb.d`. That path runs only on
+an empty data directory. The runner keeps an *existing* database current.
+
+Every migration must stay idempotent.
+[`src/tests/test_migrations.py`](src/tests/test_migrations.py) enforces this.
 
 **Graceful fallback:** if `database_url` is empty, all endpoints return in-memory
 fixtures. The demo-toggle (client-side) uses these fixtures independently.
@@ -137,9 +140,9 @@ make demo-signalloom-agents-list           # List current agents
 `GET /api/rbac/clusters` and `GET /api/rbac/clusters/{id}/correlated`
 (`rbac_correlation.py`) back the dashboard's RBAC Explorer. They call the
 KubeSec-AFM platform (`afm-platform.fe-k8s-afm.svc.cluster.local:8000`)
-server-side and join its four separate endpoints (RBAC, escalation analysis,
-conformance, shared-role findings) into one response, instead of the
-frontend fetching all four and stitching them together in the browser.
+server-side. They join its four separate endpoints (RBAC, escalation analysis,
+conformance, shared-role findings) into one response. The frontend does not
+get all four and stitch them together in the browser.
 
 **Fails closed, not open**: unlike `/api/health/crypto`, an unreachable or
 malformed AFM response here returns `503`, not an empty-but-200 payload. A
@@ -157,9 +160,10 @@ make demo-signalloom-api-test TIER=integration  # Tier-1 + tier-2 (needs Postgre
 make demo-signalloom-api-test TIER=e2e     # All three tiers (needs full cluster)
 ```
 
-- **Tier 1**: hermetic contract tests (35/35). FastAPI TestClient, fixture fallback.
-  Validates response shapes against `tests/contract.py` (36 Pydantic models matching
-  the dashboard's `types/api.ts`).
+- **Tier 1**: hermetic contract tests. FastAPI TestClient, fixture fallback.
+  Checks response shapes against [`src/tests/contract.py`](src/tests/contract.py).
+  Its Pydantic models match the dashboard's
+  [`src/types/api.ts`](../dashboard-signalloom/src/types/api.ts).
 - **Tier 2**: integration tests. Live Postgres (needs `DATABASE_URL`). Writes and reads
   real data. Validates round-trip contract fidelity.
 - **Tier 3**: end-to-end. Real Dex token through the dashboard's nginx proxy (needs
@@ -195,10 +199,8 @@ cat src/db/data-mock.sql | kubectl -n inf-signalloom exec -i deploy/postgresql -
 | `src/db/migrate.py` | Startup migration runner (`schema_migrations` ledger) |
 | `src/db/data-reset.sql` | Truncate all tables |
 | `src/db/data-mock.sql` | 72 rows of realistic demo data |
-| `src/tests/contract.py` | 36 consumer contract models |
-| `src/tests/test_contract_tier1.py` | Hermetic contract tests (35/35) |
+| `src/tests/contract.py` | Consumer contract models |
+| `src/tests/test_contract_tier1.py` | Hermetic contract tests |
 | `base/deployment.yaml` | K8s Deployment (env: JWT, DB, OIDC) |
-| `base/agents-namespace.yaml` | Agent inventory namespace |
-| `base/agents-rbac.yaml` | RBAC for agent + crypto discovery |
-| `base/agents-baseline.yaml` | Flux-managed baseline agent (Sir Lancelot) |
+| [`d2-osramp-fleet/tenants/local/signalloom.yaml`](../../../d2-osramp-fleet/tenants/local/signalloom.yaml) | Agent inventory namespace, discovery RBAC, and the Flux-managed baseline agent (Sir Lancelot). The fleet owns these, not this directory. |
 | `Dockerfile` | Python 3.12 + uvicorn |

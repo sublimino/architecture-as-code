@@ -1,8 +1,8 @@
 # `modules/edge` — the Signal Loom public security boundary
 
-Replaces the ngrok tunnel with a global external Application Load Balancer: TLS 1.2 floor,
-Google-managed certificate, a redirect-only port 80 listener, and a Cloud Armor policy whose
-**default action is `deny(403)`**.
+Replaces the ngrok tunnel with a global external Application Load Balancer. It has a TLS 1.2
+floor, a Google-managed certificate, and a redirect-only port 80 listener. It also has a Cloud
+Armor policy whose **default action is `deny(403)`**.
 
 ---
 
@@ -21,7 +21,7 @@ variable that defaults to the weaker posture is how the weaker posture reaches p
 
 An allowlist answers *where a request came from*. IAP answers *who made it*. Those are different
 questions, and only the second one is access control. IAP issues a signed assertion after a real
-Google sign-in; an allowlist grants a shared network the right to be anyone.
+Google sign-in. An allowlist grants a shared network the right to be anyone.
 
 ### `allAuthenticatedUsers` is not a restriction
 
@@ -41,22 +41,22 @@ the *original client IP*:
 > — [Integrate with other Google products](https://cloud.google.com/armor/docs/integrating-cloud-armor)
 
 IAP is an inline check at the same Google front end, not an upstream proxy with its own source
-addresses. So in `iap` mode Cloud Armor must admit the clients IAP is going to authenticate; a
-policy that admitted only "Google's IAP range" would return `403` to every real browser and the
+addresses. So in `iap` mode Cloud Armor must admit the clients IAP is going to authenticate. A
+policy that admitted only "Google's IAP range" would return `403` to every real browser. The
 sign-in page would never appear. (`35.235.240.0/20` is the IAP **TCP-forwarding** range, which
 governs the VPC firewall for SSH tunnelling — it carries no web traffic through this load
 balancer.)
 
 The wildcard allow rule in `iap` mode therefore widens **exposure**, not **authorisation**.
-Everything behind it still has to pass IAP. The Cloud Armor default `deny(403)`, the
-preconfigured WAF denies, adaptive protection, and rate limiting are retained in every mode — a
+Everything behind it still has to pass IAP. Every mode retains the Cloud Armor default
+`deny(403)`, the preconfigured WAF denies, adaptive protection, and rate limiting. A
 resource precondition makes a wildcard allow unrepresentable while IAP is off.
 
 ### OAuth client
 
 `iap_oauth2_client_id` and `iap_oauth2_client_secret` are empty by default, which selects the
-**IAP-managed OAuth client**: no brand or client to provision by hand, and no client secret in
-tfvars or in state. Set both only when an externally-managed client is genuinely required.
+**IAP-managed OAuth client**. That means no brand or client to provision by hand, and no client
+secret in tfvars or in state. Set both only when an externally-managed client is genuinely required.
 
 ---
 
@@ -77,8 +77,8 @@ source IP is not a principal:
 - Cloud NAT and corporate proxy pools are reassigned. The range you allowlisted in March belongs
   to a different set of people by September.
 - An SSRF or an open redirect inside an allowlisted network turns any internal service into a
-  proxy for an external attacker, from an address the edge trusts.
-- Allowlists rot upward. Nobody has ever removed a CIDR in a hurry; ranges get widened during an
+  proxy for an external attacker. That proxy sends from an address the edge trusts.
+- Allowlists rot upward. Nobody has ever removed a CIDR in a hurry. Ranges get widened during an
   incident and are not narrowed afterwards.
 
 `scripts/gcp-tf/edge-probe-positive.sh` exists precisely to catch the moment this stops being
@@ -97,7 +97,7 @@ signature, every control in this module is bypassed by a header.
 Two things follow, and both are required — neither is sufficient alone.
 
 **1. The edge strips them.** The HTTPS URL map removes the headers below on every request, before
-the backend sees it, so a forged client header can never be mistaken for one asserted by an
+the backend sees it. So a forged client header can never be mistaken for one asserted by an
 authenticating proxy:
 
 ```hcl
@@ -118,8 +118,8 @@ path_matcher {
 }
 ```
 
-If a trusted proxy genuinely needs to assert identity to the backend, override rather than strip —
-the edge sets the value unconditionally, so a client-supplied one is discarded whatever it said:
+If a trusted proxy genuinely needs to assert identity to the backend, override rather than strip.
+The edge sets the value unconditionally, so a client-supplied one is discarded whatever it said:
 
 ```hcl
 header_action {
@@ -134,10 +134,10 @@ header_action {
 `X-Forwarded-For` is deliberately **not** stripped. The load balancer owns that header, and Cloud
 Armor source matching and logging depend on it. A tftest asserts it stays.
 
-**2. The backend still verifies.** Stripping at the edge closes the forgery path; it does not
+**2. The backend still verifies.** Stripping at the edge closes the forgery path. It does not
 create an identity. The application validates its own OIDC token on every request. A backend that
 trusts a header because "the load balancer strips forgeries" is one URL-map edit away from being
-open, and that edit will not look dangerous in review.
+open. That edit will not look dangerous in review.
 
 ---
 
@@ -167,7 +167,7 @@ open, and that edit will not look dangerous in review.
 
 WAF rules sit *above* the allow rules on purpose: an allowlisted source is still not trusted to
 send SQL injection. The plain-allow band at 1000 is unreachable while the rate-limited rules
-exist, and that is deliberate — the source ranges are identical, so deleting a rate-limit rule
+exist, and that is deliberate. The source ranges are identical, so deleting a rate-limit rule
 degrades to "allowed but unthrottled" rather than "denied". It can never widen exposure.
 
 Every rule sets `preview = false`. A rule in preview logs its verdict and enforces nothing, which
@@ -176,8 +176,8 @@ produces reassuring logs from an open edge.
 ### The 10-CIDR limit
 
 Cloud Armor caps a single rule's `src_ip_ranges` at 10 CIDRs. This module **chunks** the
-allowlist across as many rules as it takes; it never truncates. Truncation would be silent and
-asymmetric — the 11th CIDR simply stops working, the operator sees a 403, and the obvious
+allowlist across as many rules as it takes. It never truncates. Truncation would be silent and
+asymmetric. The 11th CIDR stops working, the operator sees a 403, and the obvious
 diagnosis ("the allowlist is wrong") is exactly the wrong one.
 
 `tests/allowlist_chunking.tftest.hcl` supplies 25 CIDRs and asserts the union across the evaluated
@@ -194,11 +194,11 @@ IPv4 and IPv6 chunks share one priority index, so the two families cannot collid
 maps, both proxies, both forwarding rules, the global address, and the DNS record. There is no
 state in which a forwarding rule exists without the certificate that terminates its TLS.
 
-The Cloud Armor policy and the backend service survive by design: the default deny is the control
-that must exist even when nothing is exposed, so that attaching a frontend later cannot
+The Cloud Armor policy and the backend service survive by design. The default deny is the control
+that must exist even when nothing is exposed. Then attaching a frontend later cannot
 accidentally expose an unprotected backend.
 
-`var.dns_managed_zone == ""` disables only the DNS record; the load balancer stays intact.
+`var.dns_managed_zone == ""` disables only the DNS record. The load balancer stays intact.
 
 An **empty allowlist is legal and is the safe state**: no allow rules are generated and the
 default deny is the only rule. An empty list never means "allow everything".
@@ -225,9 +225,9 @@ default deny is the only rule. An empty list never means "allow everything".
 | `allowed_ipv6` | list(string) | `[]` | never `::/0`; validated |
 | `rate_limit_threshold_per_minute` | number | `600` | finite and positive; no "unlimited" |
 | `enable_cdn` | bool | `false` | a cache in front of an authenticated app is a disclosure risk |
-| `rate_limit_ban_duration_sec` | number | `600` | additive to CONTRACT §4 — see `NOTES.md` |
-| `health_check_path` | string | `"/healthz"` | additive to CONTRACT §4 — see `NOTES.md` |
-| `backend_port_name` | string | `"http"` | additive to CONTRACT §4 — see `NOTES.md` |
+| `rate_limit_ban_duration_sec` | number | `600` | additive to CONTRACT §4 — see the [F4 build note](../../notes/f4-edge.md#contract-objections-and-integration-risks) |
+| `health_check_path` | string | `"/healthz"` | additive to CONTRACT §4 — see the [F4 build note](../../notes/f4-edge.md#contract-objections-and-integration-risks) |
+| `backend_port_name` | string | `"http"` | additive to CONTRACT §4 — see the [F4 build note](../../notes/f4-edge.md#contract-objections-and-integration-risks) |
 
 ## Outputs
 
@@ -289,14 +289,16 @@ module "edge" {
 
 ```bash
 terraform -chdir=terraform/modules/edge init -backend=false
-terraform -chdir=terraform/modules/edge test      # 28 runs, offline, mocked providers
+terraform -chdir=terraform/modules/edge test      # 59 run blocks, offline, mocked providers
 bats test/terraform-edge-security.bats            # scripts, absence properties, mutation checks
 ```
 
+The six files under `tests/` hold 59 `run` blocks. Count them with `rg -c '^\s*run "' tests/*.tftest.hcl`.
+
 `terraform test` is the primary surface — it asserts on evaluated plan attributes, not on HCL
 text. The bats file covers what a plan cannot see: shell behaviour, whole-tree absence, and proof
-that the tftest suite can go red (four mutation fixtures under
-`test/fixtures/terraform/edge/`, each paired with a baseline-green run).
+that the tftest suite can go red. That proof is four mutation fixtures under
+`test/fixtures/terraform/edge/`, each paired with a baseline-green run.
 
 ### Probe scripts
 

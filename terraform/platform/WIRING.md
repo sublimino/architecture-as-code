@@ -1,15 +1,12 @@
 # Wiring the platform root at integration
 
-This root is complete and validates on its own, but one of its two module calls
-is **commented out**: `modules/identity` is built by chunk F5 on branch
-`feat/gcp-tf-identity-ci` and does not exist in the F6 worktree. Terraform
-resolves `source = "../modules/identity"` at `init` time, so an uncommented call
-to a missing directory fails `terraform init` outright — not at plan, not with a
-warning. That is why it ships commented rather than "wired but untested".
+This page records the wiring state of the platform root. The state changed after the first draft.
 
-`modules/observability` is **already live** — it is owned by this chunk, it
-exists here, and the tftest suite in `tests/` asserts on its evaluated output.
-Nothing needs uncommenting for observability.
+`modules/identity` is tracked in this tree and its call is **live**. `main.tf` declares the five wiring variables and the `module "identity"` block. `outputs.tf` re-exports `runtime_service_account_emails`, `ci_plan_service_account_email`, and `ci_apply_service_account_email` from the live module. Steps 1 to 3 below are done. Two items remain commented out. The `WIRING BLOCK` in `outputs.tf` is a duplicate of the live outputs, except `workload_identity_provider_name`, which has no live output. The `wif_provider_carries_a_non_empty_attribute_condition` run block in `tests/platform_wiring.tftest.hcl` is still commented (step 4).
+
+`modules/observability` is **dormant**. `main.tf` keeps the `module "observability"` call commented out, with its variables and outputs. The module, its variables, and its tftest suite remain on disk. To restore it, uncomment those blocks.
+
+The steps below record the original procedure. Use them as the reference for each block.
 
 ## What to uncomment, in order
 
@@ -97,14 +94,15 @@ not through a module call.** That changes the ordering from a preference into a
 hard gate, and it is worth being precise about why.
 
 Identity used to be instantiated in the environments root. An adversarial review
-found that to be a reversibility hole: a project-level singleton declared in an
+found that to be a reversibility hole. A project-level singleton declared in an
 environment's root is stored in an *environment's* state file, and
 `make gcp-tf-destroy ENV=demo-1` destroys everything in that state. The destroy
 guard refuses `platform` and `bootstrap` **by path**, so it would have permitted
-exactly that destroy — taking the workload identity pool, both CI service
-accounts and every `google_project_iam_member` with it, after which CI could no
-longer authenticate at all and recovery needed bootstrap-level credentials. So
-the singletons live here, per CONTRACT §5b, and environments reads them:
+exactly that destroy. That destroy would take the workload identity pool, both
+CI service accounts and every `google_project_iam_member` with it. After that,
+CI could no longer authenticate at all and recovery needed bootstrap-level
+credentials. So the singletons live here, per CONTRACT §5b, and environments
+reads them:
 
 ```hcl
 data "terraform_remote_state" "platform" {
@@ -118,17 +116,17 @@ data "terraform_remote_state" "platform" {
 
 The consequence for sequencing: a `terraform_remote_state` data source reads a
 state object that must **already exist**. Planning `demo-1` before this root has
-been *applied* — not planned, applied — fails on a missing remote state, and the
+been *applied* — not planned, applied — fails on a missing remote state. The
 error names a missing output rather than a missing step. There is no plan-time
-stand-in, so this cannot be worked around by validating harder.
+stand-in, so this cannot be worked around by checking harder.
 
 Two practical consequences:
 
 1. **Apply this root before the first environment plan.**
-   `terraform/RUNBOOK.md` step 5 is that apply; step 6 is the environment.
+   `terraform/RUNBOOK.md` step 5 is that apply. Step 6 is the environment.
 2. **`environment_keys` here must be a superset of every environment key that
    will ever be planned.** A runtime service account must exist for *every*
-   environment, not only the one being applied — that is precisely why these are
+   environment, not only the one being applied. That is precisely why these are
    singletons and not per-environment resources. Adding `demo-2` therefore means
    re-applying this root with `environment_keys = ["demo-1", "demo-2"]` first,
    and only then planning `demo-2`.

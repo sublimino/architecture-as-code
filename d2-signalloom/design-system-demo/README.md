@@ -59,7 +59,7 @@ bunx playwright show-trace test-results/<test>/trace.zip
 
 - The default navigation exposes Overview, Estate, and Assurance.
 - **Superadmin** reveals Trust fabric and Permissions immediately.
-- Superadmin is visibility-only, matching the current production behavior; it
+- Superadmin is visibility-only, matching the current production behaviour. It
   is not an authorization boundary.
 - Theme and Superadmin preferences persist in localStorage.
 - The trust map supports pointer pan, wheel/pinch zoom, explicit controls,

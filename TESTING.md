@@ -215,6 +215,14 @@ Run these suites from the repository root.
 | Agent discovery RBAC drift | `bats d2-signalloom/test/agent-discovery-rbac.bats` | Not needed |
 | SuperCred image build guard (mock docker and kind) | `make demo-signalloom-supercred-images-test` | Not needed |
 | SuperCred proxy unit suite | `make -C d2-signalloom/apps/fake-integration-proxy test` | Not needed |
+| AgentMaxxing acceptance journey | `make demo-agentmaxxing-acceptance-test` | Not needed |
+| AgentMaxxing lifecycle contracts | `make demo-agentmaxxing-contract-test` | Not needed |
+| AgentMaxxing host sensor & confinement | `make demo-agentmaxxing-host-test` | Not needed |
+| AgentMaxxing audit session ingest | `make demo-agentmaxxing-ingest-test` | Not needed |
+| AgentMaxxing UI & console tests | `make demo-agentmaxxing-ui-test` | Not needed |
+| AgentMaxxing docs & diagram audit | `make demo-agentmaxxing-docs-test` | Not needed |
+| Weave and Signal Fusion suites | `make test-dashboard-weave` | Not needed |
+| Signal Loom API contracts | `make demo-signalloom-api-test` | Not needed |
 
 NOTE: `make fx` is not a check. It writes `risk/fx/*.json` from `rates.yaml`.
 It also writes the dashboard copy with bun. After you run it, `git diff` shows

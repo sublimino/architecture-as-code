@@ -34,9 +34,43 @@ cluster, or deploy workloads.
 
 ## Architecture
 
-For a visual overview of the services, their dependencies, and data flows,
-see the [interactive isometric system map](../docs/system-map/). The service
-topology diagram is in [`AGENTS.md`](AGENTS.md#platform-architecture).
+The diagram shows how the user interfaces connect to the governance control plane, the host sensor, and the identity layer.
+
+```mermaid
+flowchart TB
+  subgraph UI["User interfaces"]
+    SPA["dashboard-signalloom<br/>(React 18 SPA)"]
+    DOCS["docs-signalloom<br/>(Astro Starlight at /docs)"]
+    AMXD["AgentMaxxing demo console<br/>(route /demos/agentmaxxing)"]
+  end
+
+  subgraph CONTROL["Governance and control plane"]
+    API["fe-signalloom (FastAPI)"]
+    FM["fleet-manager (Go controller)"]
+    INGEST["signal-ingest"]
+  end
+
+  subgraph ENFORCE["Host sensors and enforcement"]
+    SENSOR["agentmaxxing-host-sensor<br/>(procfs + netlink)"]
+    SENTINEL["stun-sentinel<br/>(eBPF tc drop)"]
+  end
+
+  subgraph IDENTITY["Identity and storage"]
+    BAO["OpenBao (secrets & JWT)"]
+    SPIRE["SPIRE (workload identity)"]
+    PG["PostgreSQL (audit store)"]
+    PE["policy-engine (CEL + FAIR)"]
+  end
+
+  UI --> CONTROL
+  CONTROL --> ENFORCE
+  CONTROL --> IDENTITY
+  ENFORCE --> INGEST
+```
+
+The service topology details are in [`AGENTS.md`](AGENTS.md#platform-architecture).
+The interactive system map is in [`../docs/system-map/`](../docs/system-map/). Serve
+it from the repository root:
 
 ```bash
 python3 -m http.server 8901 -d docs/system-map   # from repo root

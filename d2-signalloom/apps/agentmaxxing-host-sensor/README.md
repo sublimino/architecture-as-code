@@ -13,6 +13,24 @@ This component protects external AgentMaxxing Linux agents. It provides:
 
 ## 1. Confinement Architecture
 
+The diagram shows the four isolation layers that protect the partner host from untrusted agent operations.
+
+```mermaid
+flowchart TB
+  AGENT["External Agent Executable<br/>(untrusted process)"]
+  GATE["1 · Binary Digest Gate<br/>(scripts/digest_gate.sh: SHA-256 + kernel check)"]
+  SYSTEMD["2 · Systemd Unit Hardening<br/>(NoNewPrivileges, ProtectSystem, cgroups v2)"]
+  NONO["3 · Nono Confinement Profile<br/>(Landlock LSM filesystem + network egress allowlist)"]
+  ESCAPE["4 · Anti-Escape & TOCTOU Hasher<br/>(openat2 beneath, statm/cpu telemetry)"]
+  INGEST["Signal Ingest Gateway<br/>(signal-ingest.signalloom.controlplane.io)"]
+
+  AGENT --> GATE
+  GATE --> SYSTEMD
+  SYSTEMD --> NONO
+  NONO --> ESCAPE
+  ESCAPE --> INGEST
+```
+
 The external AgentMaxxing Linux agent executes directly on partner Linux host infrastructure under multi-layered isolation:
 
 1. **Systemd Unit Hardening (`agentmaxxing-agent.service`)**:

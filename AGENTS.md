@@ -82,7 +82,9 @@ Each slice owns its namespaces, images, tests, and lifecycle.
 
 The Signal Loom documentation service ([`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/))
 and the AgentMaxxing console (the dashboard route `/demos/agentmaxxing`) deploy
-with `make demo-signalloom-up`.
+with `make demo-signalloom-up`. The AgentMaxxing console demonstrates five-stage
+deterministic agent containment with progressive log streaming and Landlock LSM policy
+checks.
 
 One optional service deploys outside the Signal Loom target:
 
@@ -187,7 +189,11 @@ give false answers.
 | `make test` | End-to-end BATS tests of `d2-osramp-apps` on a running cluster |
 | `make acceptance-test` | Playwright tests of each project that is not gated. A spec marked `unwired` never runs. |
 | `make demo-signalloom-api-test` | FastAPI contract tests. For integration tests, set `TIER=integration` and `DATABASE_URL`. |
-| `make demo-agentmaxxing-acceptance-test` | AgentMaxxing acceptance tests |
+| `make demo-agentmaxxing-acceptance-test` | AgentMaxxing acceptance test journey |
+| `make demo-agentmaxxing-host-test` | AgentMaxxing host sensor and Landlock confinement tests |
+| `make demo-agentmaxxing-contract-test` | AgentMaxxing operator lifecycle contract tests |
+| `make demo-agentmaxxing-ui-test` | AgentMaxxing timeline vitest and acceptance suite |
+| `make test-dashboard-weave` | Weave, Signal Fusion, and weaveApi vitest suites |
 | `make demo-signalloom-coding-agent-topology` | A Playwright test of the coding-agent topology view. It needs no cluster. |
 | `make attested-test` | The OSRAMP BATS suite under `witness run`. It needs a cluster. `ATTESTED_TEST_SOURCE=segments` runs the FrostDB proof. |
 | `make docs-lint` | Documentation links, paths, make targets, diagrams, index, and style rules. No cluster. |

@@ -675,6 +675,12 @@ test.describe("AgentMaxxing demo console — mock channel", () => {
 
     // Screenshot 3: Attestation Bundle Export with in-toto Statement v1
     await page.screenshot({ path: `${outDir}/agentmaxxing_attestation_bundle.png`, fullPage: false });
+
+    // Scroll Log Stream into view to capture restyled toolbar
+    await page.getByTestId("execution-log-stream-slot").getByTestId("agentmaxxing-log-stream").scrollIntoViewIfNeeded();
+
+    // Screenshot 4: Execution Log Stream Toolbar with proper badges and buttons
+    await page.screenshot({ path: `${outDir}/agentmaxxing_log_stream_toolbar.png`, fullPage: false });
   });
 });
 

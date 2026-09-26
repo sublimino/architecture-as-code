@@ -531,10 +531,17 @@ export function AgentMaxxingLogStream({
   return (
     <div
       data-testid={testId}
-      className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 flex flex-col gap-3 shadow-sm ${className}`}
+      className={`card ${className}`}
       style={{
         backgroundColor: 'var(--surface)',
         borderColor: 'var(--border)',
+        borderWidth: 1,
+        borderStyle: 'solid',
+        borderRadius: 8,
+        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
         color: 'var(--text)',
         ...style,
       }}
@@ -542,31 +549,64 @@ export function AgentMaxxingLogStream({
       {/* Header Controls Bar */}
       <div
         data-testid={`${testId}-toolbar`}
-        className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-3"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          borderBottom: '1px solid var(--border)',
+          paddingBottom: 12,
+        }}
       >
-        <div className="flex items-center gap-2.5">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span
             data-testid="log-stream-status-indicator"
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono font-medium"
+            className="tag"
             style={{
-              backgroundColor: isStreaming ? 'rgba(6, 182, 212, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '3px 8px',
+              borderRadius: 4,
+              fontSize: 11,
+              fontFamily: 'monospace',
+              fontWeight: 600,
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+              backgroundColor: isStreaming ? 'rgba(6, 182, 212, 0.15)' : 'rgba(148, 163, 184, 0.12)',
               color: isStreaming ? 'var(--cyan)' : 'var(--muted)',
               border: `1px solid ${isStreaming ? 'var(--cyan)' : 'var(--border)'}`,
             }}
           >
             <span
-              className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-[var(--cyan)] animate-pulse' : 'bg-[var(--muted)]'}`}
               style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
                 backgroundColor: isStreaming ? 'var(--cyan)' : 'var(--muted)',
+                display: 'inline-block',
               }}
             />
-            {isStreaming ? 'STREAMING' : displayStatus.toUpperCase()}
+            <span>{isStreaming ? 'STREAMING' : displayStatus.toUpperCase()}</span>
           </span>
 
           {stage && (
             <span
               data-testid={`${testId}-stage-badge`}
-              className="text-xs font-mono px-2 py-0.5 rounded bg-[var(--surface2)] text-[var(--cyan)] border border-[var(--border)]"
+              className="tag"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                fontSize: 11,
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                padding: '3px 8px',
+                borderRadius: 4,
+                background: 'var(--surface2)',
+                color: 'var(--cyan)',
+                border: '1px solid var(--border)',
+              }}
             >
               STAGE 0{stageMeta?.stepNumber ?? ''}
             </span>
@@ -574,20 +614,31 @@ export function AgentMaxxingLogStream({
 
           <span
             data-testid="log-stream-line-count"
-            className="text-xs font-mono text-[var(--muted)]"
+            style={{
+              fontSize: 11,
+              fontFamily: 'monospace',
+              color: 'var(--muted)',
+              marginLeft: 2,
+            }}
           >
             {lineCount} {lineCount === 1 ? 'line' : 'lines'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             type="button"
             data-testid="log-stream-clear-btn"
             onClick={handleClear}
-            className="px-2.5 py-1 rounded text-xs font-mono text-[var(--muted)] hover:text-[var(--text)] bg-[var(--surface2)] hover:bg-[var(--border)] border border-[var(--border)] transition-colors cursor-pointer"
+            className="btn btn-secondary"
             style={{
-              backgroundColor: 'var(--surface2)',
+              padding: '4px 10px',
+              fontSize: 11,
+              fontFamily: 'monospace',
+              fontWeight: 500,
+              borderRadius: 4,
+              cursor: 'pointer',
+              background: 'var(--surface2)',
               color: 'var(--muted)',
               border: '1px solid var(--border)',
             }}
@@ -598,9 +649,15 @@ export function AgentMaxxingLogStream({
             type="button"
             data-testid="log-stream-copy-btn"
             onClick={handleCopy}
-            className="px-2.5 py-1 rounded text-xs font-mono text-[var(--muted)] hover:text-[var(--text)] bg-[var(--surface2)] hover:bg-[var(--border)] border border-[var(--border)] transition-colors cursor-pointer"
+            className="btn btn-secondary"
             style={{
-              backgroundColor: 'var(--surface2)',
+              padding: '4px 10px',
+              fontSize: 11,
+              fontFamily: 'monospace',
+              fontWeight: 500,
+              borderRadius: 4,
+              cursor: 'pointer',
+              background: 'var(--surface2)',
               color: 'var(--muted)',
               border: '1px solid var(--border)',
             }}

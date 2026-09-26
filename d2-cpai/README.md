@@ -11,8 +11,25 @@ The `cpai-images` target in the root [`Makefile`](../Makefile) builds it, pushes
 it to the in-cluster Zot registry, and signs it with cosign. The image build is
 the only step that reads outside this repository.
 
-The request path from an OpenAI client to Vertex AI is drawn in
-[`AGENTS.md`](AGENTS.md#architecture).
+The diagram shows the request path from an OpenAI client through the runtime pod to Google Cloud Vertex AI.
+
+```mermaid
+flowchart LR
+  CLIENT["OpenAI Client<br/>(curl / aichat / SDK)"]
+  PORT["Service port 8080<br/>(local port 18080)"]
+  subgraph POD["cpai-runtime pod (namespace: cpai)"]
+    API["cpai api"]
+    OC["private OpenCode<br/>(CPAI_BIN=opencode)"]
+  end
+  VERTEX["Google Cloud Vertex AI<br/>(default test model: gemini-2.5-flash)"]
+
+  CLIENT -- "OpenAI /v1/chat/completions" --> PORT
+  PORT --> API
+  API --> OC
+  OC -- "ADC credentials<br/>(cpai-gcp-adc secret)" --> VERTEX
+```
+
+The full component architecture is in [`AGENTS.md`](AGENTS.md#architecture).
 
 ## What you get
 

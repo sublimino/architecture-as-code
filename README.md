@@ -403,6 +403,36 @@ agent gives a structured recommendation: a dependency update or a VEX proposal.
 A change needs human approval. Witness attests each action into Archivista.
 [`agent/GUARDRAILS.md`](agent/GUARDRAILS.md) describes the safety boundaries.
 
+### The AgentMaxxing containment demo
+
+The AgentMaxxing console demonstrates five-stage deterministic agent containment
+at the dashboard route `/demos/agentmaxxing`. It verifies that an external coding
+agent operates within strict kernel-level boundaries.
+
+```bash
+# Deploy Signal Loom and the AgentMaxxing console
+make demo-signalloom-up
+
+# Run the AgentMaxxing test suites
+make demo-agentmaxxing-contract-test   # Operator lifecycle contracts
+make demo-agentmaxxing-host-test       # Linux host sensor and Landlock confinement
+make demo-agentmaxxing-ui-test         # Timeline tests and Playwright acceptance
+make demo-agentmaxxing-acceptance-test # End-to-end local journey
+```
+
+The console executes five sequential stages:
+
+1. `operator_init`: A dual-lock asynchronous gate checks OIDC tokens and mints credentials.
+2. `host_enrolled`: The host sensor creates Landlock LSM rules and checks file hashes.
+3. `confinement_streaming`: Streams progressive telemetry and verifies that zero customer payload bytes leave the host.
+4. `adversarial_tamper`: Injects a simulated file tamper and triggers an anti-tamper quarantine.
+5. `revocation_denied`: The operator revokes credentials and verifies that the agent receives 403 Forbidden responses.
+
+The architecture and contracts are in
+[`d2-signalloom/apps/agentmaxxing-host-sensor/README.md`](d2-signalloom/apps/agentmaxxing-host-sensor/README.md)
+and
+[`d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md`](d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md).
+
 ### The Olly Sentinel replica (`olly-replica` tenant)
 
 The repository holds an internal replica of an AI SRE pipeline, Olly Sentinel.

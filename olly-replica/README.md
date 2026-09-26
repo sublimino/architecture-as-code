@@ -148,6 +148,28 @@ The full statements and their threat-model rows live in
 
 ## The enrichment loop
 
+The diagram shows how an incident event moves from the Redpanda event bus through Olly Sentinel and the MCP gateway to ServiceNow.
+
+```mermaid
+flowchart LR
+  REDPANDA["Redpanda Event Bus<br/>(topic: netcool.io.events)"]
+  SENTINEL["olly/sentinel<br/>(ADK Agent pipeline)"]
+  MCP["olly/elk-mcp<br/>(MCP Gateway: 7 tools)"]
+  ELK["Elasticsearch<br/>(seeded logs & traces)"]
+  PROM["Prometheus<br/>(tenant metrics)"]
+  RESP["topic: event_response"]
+  MAPPING["olly/stubs<br/>(IO Mapping Service)"]
+  SN["ServiceNow ticket<br/>(or in-memory store)"]
+
+  REDPANDA --> SENTINEL
+  SENTINEL --> MCP
+  MCP --> ELK
+  MCP --> PROM
+  SENTINEL --> RESP
+  RESP --> MAPPING
+  MAPPING --> SN
+```
+
 One Go module ([apps/](apps/)) builds several images from a single context so
 the contracts bake into each at `/contracts`. The in-build unit tests
 round-trip the Go payload shapes through the schemas, so an image with drifted

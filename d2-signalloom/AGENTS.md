@@ -132,7 +132,7 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/discovery` | Discovery | Discovered cloud accounts and identity providers |
 | `/discovery/accounts/:accountId` | Account Detail | Workloads discovered within a single cloud account |
 | `/topology` | Agent Trust Topology | SPIFFE trust domain relationships and network graphs |
-| `/activity` | The Weave | Live message bus and inter-agent transaction stream |
+| `/activity`, `/weave` | The Weave | Live message bus and inter-agent transaction stream |
 | `/risk` | FAIR Risk Exposure | Quantitative financial loss exposure model |
 | `/policies` | Compliance Policies | Policy enforcement engine and rule evaluation |
 | `/compliance` | Compliance Overview | Multi-framework regulatory compliance posture |
@@ -241,6 +241,11 @@ Run each command from the repository root.
 | `cd d2-signalloom/apps/dashboard-signalloom && bun run typecheck` | Run TypeScript typecheck | ~2s |
 | `cd d2-signalloom/apps/dashboard-signalloom && bun run lint` | Run ESLint | ~2s |
 | `scripts/acceptance-test.sh --project smoke` | Run browser smoke tests. The script starts the port-forwards that the specs need. | ~7s |
+| `make test-dashboard-weave` | Run Weave, Signal Fusion, and weaveApi vitest suites | ~2s |
+| `make demo-agentmaxxing-contract-test` | Run operator lifecycle contracts | ~2s |
+| `make demo-agentmaxxing-host-test` | Run host sensor and Landlock confinement tests | ~4s |
+| `make demo-agentmaxxing-ingest-test` | Run audit session ingest and deduplication tests | ~3s |
+| `make demo-agentmaxxing-ui-test` | Run timeline vitest and console acceptance suite | ~10s |
 | `make demo-agentmaxxing-acceptance-test` | Run AgentMaxxing acceptance test suite | ~15s |
 | `make demo-signalloom-coding-agent-topology` | Validate coding agent detective telemetry | ~5s |
 | `make demo-agentmaxxing-docs-test` | Run documentation render check with Playwright | ~5s |

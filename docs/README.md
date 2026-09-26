@@ -1,210 +1,252 @@
 # Documentation index
 
-This page is the entry point for all repository documentation. Read this document first.
-It describes the platform, explains how to run the services, and shows how to debug failures.
+This page is the entry point for all repository documentation. It lists every
+top-level document in `docs/`, each subdirectory, and each record at the
+repository root, and it tells you when to read them.
 
-Two files sit at the repository root:
+Two files at the repository root start the path:
 
-| File | Audience | Read it for |
+| File | Reader | Read it for |
 | :--- | :--- | :--- |
-| [`../README.md`](../README.md) | Human, new to OSRAMP | Platform overview and verification goals |
-| [`../AGENTS.md`](../AGENTS.md) | Agent or engineer needing commands | Slice architecture, lifecycle targets, and shared pitfalls |
+| [`../README.md`](../README.md) | A person new to OSRAMP | Platform overview, demos, and the local quickstart |
+| [`../AGENTS.md`](../AGENTS.md) | An agent or an engineer who needs commands | Slices, lifecycle targets, and shared pitfalls |
 
 ## Glossary
 
-Use these defined terms. Do not use synonyms. Rule 1.11 of STE-Code forbids multiple names for one item.
+Use these terms. Do not use synonyms for them. The rules are in
+[`documentation-style.md`](documentation-style.md).
 
 | Term | Meaning |
 | :--- | :--- |
 | **slice** | One D2 delivery boundary, such as `d2-signalloom/`. A slice owns its namespaces, images, tests, and lifecycle. |
-| **foundation** | The shared platform substrate: Kind cluster, Zot registry, signing keys, and Flux. `make up` creates it. |
-| **lane** | One GCP environment: `demo-1`, `demo-2`, `ci-1`, or `ci-2`. Each lane contains one VM, one tailnet node, and one hand-off file. |
-| **estate** | The software stack deployed to a lane VM. `make gcp-tf-demo-up` builds it. The lane is the infrastructure; the estate is the workload. |
-| **hand-off file** | `deploy/gcp/<lane>.handoff.json`. Terraform writes this file. Later commands read the lane identity from it. |
-| **surface** | One of two communication paths: VM-local surface or Tailscale tailnet surface. A lane can pass on one and fail on the other. |
+| **foundation** | The shared platform: Kind cluster, Zot registry, signing keys, and Flux. `make up` creates it. |
+| **lane** | One GCP environment: `demo-1`, `demo-2`, `ci-1`, or `ci-2`. Each lane has one VM, one tailnet node, and one hand-off file. |
+| **estate** | The software stack on a lane VM. `make gcp-tf-demo-up` builds it. The lane is the infrastructure. The estate is the workload. |
+| **hand-off file** | `deploy/gcp/<lane>.handoff.json`. Terraform writes it. Later commands read the lane identity from it. |
+| **surface** | One of two access paths to a lane: the VM-local surface or the tailnet surface. A lane can pass on one and fail on the other. |
+| **mission** | One Signal Loom delivery programme with a shortcode, such as SLER. Its records in [`signalloom/`](signalloom/) use the shortcode as a file prefix. |
+| **living document** | A document that must match the current tree. Correct it when the tree changes. |
+| **decision record** | A dated proposal, report, audit, or proof. It records a past state. Do not correct it to match the current tree. |
 
 ## How the documentation fits together
 
+The diagram shows the reading order. Start at the root files. Then go to the
+task that you must do. The sections below contain the same documents as links.
+
 ```mermaid
 flowchart TB
-  START(["You are here<br/>docs/README.md"])
+  START(["docs/README.md"])
 
   subgraph learn["1 · Learn what this is"]
-    RM["../README.md<br/>OSRAMP & Signal Loom overview"]
-    AG["../AGENTS.md<br/>Slices, lifecycle targets, pitfalls"]
-    MAP["system-map/<br/>Isometric service topology"]
+    RM["../README.md"]
+    AG["../AGENTS.md"]
+    MAP["system-map/"]
   end
 
-  subgraph govern["2 · Agent Governance Suite"]
-    SL_ON["signalloom/slon-*<br/>Agent Onboarding & Ingestion"]
-    SL_ER["signalloom/sler-*<br/>Multi-Plane Containment"]
-    SL_CD["signalloom/slcd-*<br/>Detective Telemetry & Sensors"]
-    SL_DP["signalloom/sldp-*<br/>Cryptographic Retention & Erasure"]
-    SL_AM["signalloom/amxo-*<br/>AgentMaxxing Interactive Console"]
+  subgraph run["2 · Run it"]
+    TEST["../TESTING.md"]
+    BACK["deploying-a-backend-service.md"]
+    RB["gcp-demo/RUNBOOK.md"]
+    OPS["gcp-demo/OPERATIONS.md"]
   end
 
-  subgraph runlocal["3 · Run it locally"]
-    TEST["../TESTING.md<br/>Test suites and execution"]
-    HV["../HUMAN_VALIDATION.md<br/>Human review evidence"]
-    BACK["deploying-a-backend-service.md<br/>Four-layer deployment guide"]
+  subgraph debug["3 · Debug it"]
+    CD["cluster-debugging.md"]
+    RW["resilient-waits.md"]
+    INC["gcp-demo/INCIDENTS-2026-08.md"]
   end
 
-  subgraph rungcp["4 · Run it on GCP"]
-    RB["gcp-demo/RUNBOOK.md<br/>Zero to a browser, step by step"]
-    OPS["gcp-demo/OPERATIONS.md<br/>Four lanes, tooling, and traps"]
-    DEP["../deploy/gcp/README.md<br/>Inputs and lane hand-off"]
-    TF["../terraform/README.md<br/>Terraform roots & contract"]
+  subgraph ref["4 · Reference"]
+    STYLE["documentation-style.md"]
   end
 
-  subgraph debug["5 · Debug it"]
-    CD["cluster-debugging.md<br/>Field notes and misleading probes"]
-    RW["resilient-waits.md<br/>The wait library"]
-    INC["gcp-demo/INCIDENTS-2026-08.md<br/>Five incident post-mortems"]
+  subgraph rec["5 · Decision records"]
+    PROP["Proposals"]
+    MIS["signalloom/ mission records"]
+    REP["Reports and audits"]
+    ARCH["Architecture references and plans"]
   end
 
-  START --> learn --> govern
-  learn --> runlocal
-  learn --> rungcp
-  govern --> runlocal
-  runlocal --> debug
-  rungcp --> debug
-  RB --> OPS
-  OPS --> INC
+  START --> learn --> run --> debug
+  learn --> ref
+  ref --> rec
+  PROP --> MIS
 
   classDef entry fill:#fff3e0,stroke:#e65100,color:#e65100;
-  classDef suite fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c;
+  classDef record fill:#eceff1,stroke:#546e7a,color:#263238;
   class START entry;
-  class SL_ON,SL_ER,SL_CD,SL_DP,SL_AM suite;
+  class PROP,MIS,REP record;
 ```
 
-## 1 · Learn What This Is
+## 1 · Learn what this is
 
 | Document | What it covers |
 | :--- | :--- |
-| [`../README.md`](../README.md) | OSRAMP, the four-level maturity model, team ownership, ingestion flow, and demo commands |
-| [`../AGENTS.md`](../AGENTS.md) | Shared foundation, eight slices, lifecycle targets, and recurring pitfalls |
-| [`system-map/`](system-map/) | Interactive isometric map of platform services and communication paths |
-| [`../terraform/CONTRACT.md`](../terraform/CONTRACT.md) | Invariants and contracts between Terraform roots |
+| [`system-map/`](system-map/) | Interactive map of the core services and their communication paths |
+| [`osramp-component-flows.html`](osramp-component-flows.html) | Interactive flow map of the OSRAMP components, derived from the code in 2026-09. It loads its libraries from the internet. |
 
-## 2 · Run the Platform
+## 2 · Run the platform
 
-Start locally. The local workflow requires Docker.
+Start locally. The local workflow needs Docker.
 
 | Document | What it covers |
 | :--- | :--- |
-| [`../README.md#getting-started`](../README.md#getting-started) | Local quickstart: run `./scripts/setup.sh`, then run a `demo-*-up` target |
-| [`../TESTING.md`](../TESTING.md) | Test suites and execution instructions |
-| [`../HUMAN_VALIDATION.md`](../HUMAN_VALIDATION.md) | Human verification logs from browser reviews |
-| [`deploying-a-backend-service.md`](deploying-a-backend-service.md) | Deployment checklist: four separate layers that can each break page routing |
+| [`../README.md#getting-started`](../README.md#getting-started) | Local quickstart: run `./scripts/setup.sh`, then a `demo-*-up` target |
+| [`../TESTING.md`](../TESTING.md) | Test suites, where each suite runs, and how to run it |
+| [`../HUMAN_VALIDATION.md`](../HUMAN_VALIDATION.md) | Manual browser checks and their evidence |
+| [`deploying-a-backend-service.md`](deploying-a-backend-service.md) | Checklist for the four layers that can each break a page |
+| [`kagent-d5.md`](kagent-d5.md) | The Kagent agent framework demo (D5) |
 
-Deploy to GCP after local testing. The GCP workflow incurs costs and requires cloud credentials.
-
-| Document | What it covers |
-| :--- | :--- |
-| [`gcp-demo/RUNBOOK.md`](gcp-demo/RUNBOOK.md) | Operator runbook from empty cloud project to dashboard in browser |
-| [`gcp-demo/OPERATIONS.md`](gcp-demo/OPERATIONS.md) | Four deployment lanes, health tools, and diagnostic traps |
-| [`../deploy/gcp/README.md`](../deploy/gcp/README.md) | Project inputs, service account roles, and hand-off contracts |
-| [`../terraform/README.md`](../terraform/README.md) | Architecture rationale for three separate Terraform roots |
-| [`../terraform/RUNBOOK.md`](../terraform/RUNBOOK.md) | Step-by-step Terraform execution for `demo-1` |
-| [`../scripts/ci/README.md`](../scripts/ci/README.md) | Legacy GCP CI runner pipeline on `signalloom-ci` |
-
-## 3 · Debug the System
+Deploy to GCP after the local tests pass. The GCP workflow costs money and needs cloud credentials.
 
 | Document | What it covers |
 | :--- | :--- |
-| [`cluster-debugging.md`](cluster-debugging.md) | Field debugging notes for local stack. Section 8 details misleading probes. |
-| [`resilient-waits.md`](resilient-waits.md) | Wait helpers in `scripts/lib/wait.sh` and pitfalls of bare `sleep` commands |
-| [`gcp-demo/OPERATIONS.md#traps`](gcp-demo/OPERATIONS.md#traps) | Commands that return incorrect status codes |
-| [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | Post-mortem reports and diagnostic measurements for five August 2026 incidents |
-| [`local-lifecycle-errata.md`](local-lifecycle-errata.md) | Errata and fixes for local lifecycle scripts |
+| [`gcp-demo/RUNBOOK.md`](gcp-demo/RUNBOOK.md) | Operator steps from an empty cloud project to the dashboard in a browser |
+| [`gcp-demo/OPERATIONS.md`](gcp-demo/OPERATIONS.md) | The four lanes, health tools, and operational pitfalls |
+| [`../deploy/gcp/README.md`](../deploy/gcp/README.md) | Project inputs, service account roles, and the hand-off file |
+| [`../terraform/README.md`](../terraform/README.md) | Why the estate uses three Terraform roots |
+| [`../terraform/CONTRACT.md`](../terraform/CONTRACT.md) | Invariants between the Terraform roots |
+| [`../terraform/RUNBOOK.md`](../terraform/RUNBOOK.md) | Terraform steps for `demo-1`. The file says that most steps were never run. Use `gcp-demo/RUNBOOK.md` first. |
+| [`../scripts/ci/README.md`](../scripts/ci/README.md) | The older CI pipeline on the `signalloom-ci` VMs |
 
-## Reference and History
+## 3 · Debug the system
 
-These documents record engineering decisions, verification proofs, and Governor certifications.
-The directory [`signalloom/`](signalloom/) contains 356 design and architecture records across six delivery missions:
-
-### 1. Agent Onboarding & Ingestion (SLON)
-
-| Document | Purpose |
+| Document | What it covers |
 | :--- | :--- |
-| [`signalloom/slon-p1-preflight-proof.md`](signalloom/slon-p1-preflight-proof.md) | Phase 1 preflight verification proof |
-| [`signalloom/slon-p1-governor-report.md`](signalloom/slon-p1-governor-report.md) | Phase 1 Governor certification report |
-| [`signalloom/slon-p1-technical-design.md`](signalloom/slon-p1-technical-design.md) | Phase 1 technical design and workload architecture |
-| [`signalloom/slon-p2-preflight-proof.md`](signalloom/slon-p2-preflight-proof.md) | Phase 2 preflight verification proof |
-| [`signalloom/slon-p2-1-evidence.md`](signalloom/slon-p2-1-evidence.md) | Phase 2-1 dual agent deployment evidence |
-| [`signalloom/slon-p2-2-evidence.md`](signalloom/slon-p2-2-evidence.md) | Phase 2-2 dynamic Nono capability and signed audit evidence |
-| [`signalloom/slon-p2-3-evidence.md`](signalloom/slon-p2-3-evidence.md) | Phase 2-3 dual agent claim evidence |
-| [`signalloom/slon-p2-3-comparative-telemetry-architecture.md`](signalloom/slon-p2-3-comparative-telemetry-architecture.md) | Comparative telemetry architecture |
-| [`signalloom/slon-p3-preflight-proof.md`](signalloom/slon-p3-preflight-proof.md) | Phase 3 preflight verification proof |
-| [`signalloom/slon-p3-docs-portal-provenance.md`](signalloom/slon-p3-docs-portal-provenance.md) | Documentation portal provenance and gap analysis |
-| [`signalloom/slon-p3-1-evidence.md`](signalloom/slon-p3-1-evidence.md) | Documentation portal deployment evidence |
+| [`cluster-debugging.md`](cluster-debugging.md) | Field notes for the local stack. Section 8 lists probes that give false answers. |
+| [`resilient-waits.md`](resilient-waits.md) | The wait helpers in `scripts/lib/wait.sh` and why a bare `sleep` fails |
+| [`gcp-demo/OPERATIONS.md#operational-pitfalls`](gcp-demo/OPERATIONS.md#operational-pitfalls) | Commands that report an incorrect status |
+| [`FAQ.md`](FAQ.md) | Answers on the audit trail, the FX rates, and the staleness guard |
 
-### 2. Signal Fusion & Agent Swarms (SFAS & SFDP)
+## 4 · Reference
 
-| Document | Purpose |
+This is a living document. It describes the current rules.
+
+| Document | What it covers |
 | :--- | :--- |
-| [`signalloom/sfas-final-programme-certification.md`](signalloom/sfas-final-programme-certification.md) | Signal fusion final programme certification |
-| [`signalloom/sfas-governor-log.md`](signalloom/sfas-governor-log.md) | Multi-agent coordination and governor execution log |
-| [`signalloom/sfdp-p1-preflight-proof.md`](signalloom/sfdp-p1-preflight-proof.md) | Signal fusion data plane preflight proof |
-| [`signalloom/sfdp-p2-4-runtime-evidence.md`](signalloom/sfdp-p2-4-runtime-evidence.md) | Data plane runtime telemetry evidence |
+| [`documentation-style.md`](documentation-style.md) | The writing rules for this repository and the `make docs-lint` check |
 
-### 3. Data Protection & Cryptographic Retention (SLDP)
+## 5 · Decision records
 
-| Document | Purpose |
+Decision records are dated. They show the state at the time of writing. The
+current tree can be different. Do not use a decision record as a runbook.
+
+### Proposals
+
+The status column comes from the evidence in [`signalloom/`](signalloom/). A
+status without a linked record is "No completion record".
+
+| Proposal | Mission | Status and evidence |
+| :--- | :--- | :--- |
+| [First User and Agent Onboarding](Proposal%20—%20Signal%20Loom%20First%20User%20and%20Agent%20Onboarding%20%282026-Q3%29.md) | SLON | Delivered: [final mission report](signalloom/slon-final-mission-report.md) |
+| [Enforcement and Response](Proposal%20—%20Signal%20Loom%20Enforcement%20and%20Response%20%282026-Q3%29.md) | SLER | Delivered: [Governor delivery report](signalloom/sler-p6-gov-delivery-report.md) |
+| [Coding Agent & Harness Detective Telemetry](Proposal%20—%20Signal%20Loom%20Coding%20Agent%20&%20Harness%20Detective%20Telemetry%20%282026-Q3%29.md) | SLCD | Delivered: [mission certification](signalloom/slcd-mission-certification.md) |
+| [Production and Data-Protection Hardening](Proposal%20—%20Signal%20Loom%20Production%20and%20Data-Protection%20Hardening%20%282026-Q3%29.md) | SLDP | Delivered: [mission certification](signalloom/sldp-mission-certification.md) |
+| [AgentMaxxing User and External Agent Onboarding](Proposal%20—%20AgentMaxxing%20Signal%20Loom%20User%20and%20External%20Agent%20Onboarding%20%282026-Q3%29.md) | AMXO | Phase 6 proved: [Governor proof](signalloom/amxo-p6-gov-proof.md) |
+| [AgentMaxxing Interactive Demo Console](Proposal%20—%20Signal%20Loom%20AgentMaxxing%20Interactive%20Demo%20Console%20%282026-Q3%29.md) | AMXD | No completion record. Baseline: [`amxd-p0-baseline.md`](amxd-p0-baseline.md) |
+| [Signal Fusion Actor-Resolution Spine V2](Proposal%20—%20Signal%20Fusion%20Actor-Resolution%20Spine%20V2%20%282026-Q3%29.md) | SFAS | Delivered: [programme certification](signalloom/sfas-final-programme-certification.md) |
+| [Signal Fusion Actor-Resolution Spine (V1)](Proposal%20—%20Signal%20Fusion%20Actor-Resolution%20Spine%20%282026-Q3%29.md) | SFDP | Delivered: [production certification](signalloom/sfdp-p3-1-production-certification.md). V2 supersedes it. |
+| [Signal Fusion Agents Page Operational Redesign](../PROPOSAL_AGENTS_PAGE_REDESIGN.md) | SFAGENTS | Draft, awaiting sign-off. Preflight: [`sfagents-p3-preflight-proof.md`](signalloom/sfagents-p3-preflight-proof.md) |
+| [Exhaustive System Security and Vulnerability Audit](Proposal%20—%20Exhaustive%20System%20Security%20and%20Vulnerability%20Audit%20%282026-Q3%29.md) | — | No completion record |
+| [First User and Privileged-User Onboarding (precursor)](FIRST-USER-ONBOARDING-PROPOSAL.md) | — | Evidence analysis. SLON and AMXO build on it. |
+| [SuperCredential Multi-Agent Evolution](multi-agent-supercred-proposal.md) | — | No completion record |
+| [Agent trust project proposal](agent-trust-project-proposal.md) | — | Delivered: [completion audit](agent-trust-completion-audit.md) and [adversarial review](agent-trust-adversarial-review.md) |
+| [Next-Phase Proposals — Adversarial Critique](Signal%20Loom%20—%20Next-Phase%20Proposals%20—%20Adversarial%20Critique%20%282026-Q3%29.md) | — | Critique of the SLER, SLCD, and AMXD proposals |
+
+### Mission records
+
+The directory [`signalloom/`](signalloom/) holds the phase proofs, evidence, and
+certifications of each mission. The file prefix is the mission shortcode.
+
+| Mission | Start with |
 | :--- | :--- |
-| [`signalloom/sldp-mission-certification.md`](signalloom/sldp-mission-certification.md) | Data protection mission certification |
-| [`signalloom/sldp-downstream-contract.md`](signalloom/sldp-downstream-contract.md) | Cryptographic data erasure and downstream contract |
-| [`signalloom/sldp-p0-boundary-map.md`](signalloom/sldp-p0-boundary-map.md) | Data boundary and tombstone isolation map |
+| SLON — First User and Agent Onboarding | [`slon-final-mission-report.md`](signalloom/slon-final-mission-report.md), [`slon-p1-technical-design.md`](signalloom/slon-p1-technical-design.md), [`slon-p3-docs-portal-provenance.md`](signalloom/slon-p3-docs-portal-provenance.md) |
+| SLER — Enforcement and Response | [`sler-p6-gov-delivery-report.md`](signalloom/sler-p6-gov-delivery-report.md), [`sler-p1-2-schema.md`](signalloom/sler-p1-2-schema.md), [`sler-p6-3-proof.md`](signalloom/sler-p6-3-proof.md), [`sler-p5-2-denial-matrix.json`](signalloom/sler-p5-2-denial-matrix.json) |
+| SLCD — Coding Agent Detective Telemetry | [`slcd-mission-certification.md`](signalloom/slcd-mission-certification.md), [`slcd-p0-baseline.md`](signalloom/slcd-p0-baseline.md), [`slcd-p1-5-lawful-basis.md`](signalloom/slcd-p1-5-lawful-basis.md) |
+| SLDP — Data Protection | [`sldp-mission-certification.md`](signalloom/sldp-mission-certification.md), [`sldp-downstream-contract.md`](signalloom/sldp-downstream-contract.md), [`sldp-p0-boundary-map.md`](signalloom/sldp-p0-boundary-map.md) |
+| SFAS — Signal Fusion Actor-Resolution Spine | [`sfas-final-programme-certification.md`](signalloom/sfas-final-programme-certification.md), [`sfas-governor-log.md`](signalloom/sfas-governor-log.md) |
+| SFDP — Deterministic actor-resolution engine (Signal Fusion V1) | [`sfdp-p3-1-production-certification.md`](signalloom/sfdp-p3-1-production-certification.md), [`sfdp-p1-preflight-proof.md`](signalloom/sfdp-p1-preflight-proof.md), [`sfdp-p2-4-runtime-evidence.md`](signalloom/sfdp-p2-4-runtime-evidence.md) |
+| SFAGENTS — Signal Fusion agents page redesign | [`sfagents-p3-preflight-proof.md`](signalloom/sfagents-p3-preflight-proof.md) |
+| AMXO — AgentMaxxing Onboarding | [`amxo-p6-gov-proof.md`](signalloom/amxo-p6-gov-proof.md), [`amxo-governor-log.md`](signalloom/amxo-governor-log.md), [`amxo-p1-1-proof.md`](signalloom/amxo-p1-1-proof.md) |
+| CRKC — Runtime Confinement, Live FAIR Risk, and Kernel Containment | [`crkc-final-mission-certification.md`](signalloom/crkc-final-mission-certification.md) |
 
-### 4. Enforcement & Response (SLER)
+### Reports, audits, and baselines
 
-| Document | Purpose |
+| Document | What it records |
 | :--- | :--- |
-| [`signalloom/sler-p6-gov-delivery-report.md`](signalloom/sler-p6-gov-delivery-report.md) | Multi-plane containment Governor delivery report |
-| [`signalloom/sler-p1-2-schema.md`](signalloom/sler-p1-2-schema.md) | Multi-plane containment decision schema |
-| [`signalloom/sler-p6-3-proof.md`](signalloom/sler-p6-3-proof.md) | Multi-plane containment end-to-end acceptance proof |
-| [`signalloom/sler-p5-2-denial-matrix.json`](signalloom/sler-p5-2-denial-matrix.json) | Machine-readable multi-plane denial matrix |
+| [Signal Loom CEO Delivery Report, week of 2026-09-08](Signal%20Loom%20—%20CEO%20Delivery%20Report%20—%20Week%20of%202026-09-08.md) | Delivery status for one week |
+| [`amxd-p0-baseline.md`](amxd-p0-baseline.md) | AMXD mission baseline, with machine baselines in [`amxd-p0-baseline/`](amxd-p0-baseline/) |
+| [`ktest-p2-preflight.md`](ktest-p2-preflight.md) | KTEST phase 2 preflight |
+| [`kpai-harness-verification.md`](kpai-harness-verification.md) | KPAI runtime harness verification |
+| [`COLLABORATOR-REVIEW.md`](COLLABORATOR-REVIEW.md) | Review of the KPAI and Antigravity collaborators |
+| [`DOCUMENTATION-AUDIT.md`](DOCUMENTATION-AUDIT.md) | Documentation audit of 2026-09-10 |
+| [`DOCUMENTATION-DELIVERY-CHECKLIST.md`](DOCUMENTATION-DELIVERY-CHECKLIST.md) | Sign-off sheet for that audit |
+| [`workspace-agentic-identity-streaming.md`](workspace-agentic-identity-streaming.md) | Research on Google Workspace agentic identity streaming |
+| [`appraisal/APPRAISAL.md`](appraisal/APPRAISAL.md) | Mid-2026 platform appraisal, with [API contract gaps](appraisal/api-contract-gap.md) and [mock fidelity](appraisal/mocks-proxy-fidelity.md) |
+| [`appraisal/auth-gateway-runbook.md`](appraisal/auth-gateway-runbook.md) | Auth and gateway appraisal of 2026-07. Superseded on 2026-08-14 and kept as a record of the migration path |
+| [`appraisal/WALKING-DEMO-RUNBOOK.md`](appraisal/WALKING-DEMO-RUNBOOK.md) | Walking-demo script of 2026-07-28, partly superseded on 2026-08-14 |
+| [`plans/d2-bao-integration.md`](plans/d2-bao-integration.md) | Plan for the OpenBao integration |
+| [`gcp-demo/INCIDENTS-2026-08.md`](gcp-demo/INCIDENTS-2026-08.md) | GCP incidents of August 2026 |
+| [`local-lifecycle-errata.md`](local-lifecycle-errata.md) | A dated correction (2026-07-27): `make up` creates only the foundation, not the demos |
 
-### 5. AgentMaxxing Interactive Demo Console (AMXD)
+### Architecture references and plans
 
-| Document | Purpose |
+These documents are dated. Each one has a status, open decisions, or action
+items of its date. The lint checks their links and leaves their prose as the
+author wrote it.
+
+| Document | What it records |
 | :--- | :--- |
-| [`signalloom/amxo-p6-gov-proof.md`](signalloom/amxo-p6-gov-proof.md) | AgentMaxxing final Governor delivery proof |
-| [`signalloom/amxo-governor-log.md`](signalloom/amxo-governor-log.md) | AgentMaxxing supervisor ledger and card history |
-| [`signalloom/amxo-p1-1-proof.md`](signalloom/amxo-p1-1-proof.md) | Interactive console execution proof |
+| [`Signal Fusion — Architecture and GDPR Reference.md`](Signal%20Fusion%20—%20Architecture%20and%20GDPR%20Reference.md) | Signal Fusion architecture and its GDPR position, with the as-built maturity matrix of 2026-09-14 |
+| [`Signal Loom Workstation Sensor — ….md`](Signal%20Loom%20Workstation%20Sensor%20—%20Architecture,%20Verification,%20and%20Distribution%20Strategy.md) | The workstation sensor: architecture, verification, and distribution, with test counts of 2026-09-14 |
+| [`appendix-credential-architecture.md`](appendix-credential-architecture.md) | Credential architecture of the Signal Loom agent swarm (appendix of 2026-08-28) |
+| [`appendix-ebpf-kernel-enforcement.md`](appendix-ebpf-kernel-enforcement.md) | eBPF and kernel-level containment of AI agents (appendix of 2026-08-28) |
+| [`policy-as-versioned-code/`](policy-as-versioned-code/) | Policy as versioned code: [integration](policy-as-versioned-code/INTEGRATION.md) and the [worktree merge plan](policy-as-versioned-code/WORKTREE-INTEGRATION.md) |
+| [`../terraform/notes/README.md`](../terraform/notes/README.md) | Index of the Terraform design notes |
 
-### 6. Coding Agent & Harness Detective Telemetry (SLCD)
+### Records at the repository root
 
-| Document | Purpose |
+These files sit next to `README.md` because active work references them by
+that path. They are decision records, and `make docs-lint` checks that each
+one is linked here.
+
+| Document | What it records |
 | :--- | :--- |
-| [`signalloom/slcd-mission-certification.md`](signalloom/slcd-mission-certification.md) | Detective telemetry mission certification |
-| [`signalloom/slcd-p1-5-lawful-basis.md`](signalloom/slcd-p1-5-lawful-basis.md) | GDPR Article 6(1)(f) and employee privacy assessment |
-| [`signalloom/slcd-p0-baseline.md`](signalloom/slcd-p0-baseline.md) | Host sensor architecture and baseline telemetry |
+| [`../PROPOSAL_AGENTS_PAGE_REDESIGN.md`](../PROPOSAL_AGENTS_PAGE_REDESIGN.md) | SFAGENTS mission proposal: the Signal Fusion agents page redesign and evidence dossier (2026-09-06) |
+| [`../CODEBASE-REVIEW-2026-09-05.md`](../CODEBASE-REVIEW-2026-09-05.md) | Codebase review of the signal-loop and bootstrap refactor branch (2026-09-05) |
+| [`../DEPLOYMENT-SCOPE.md`](../DEPLOYMENT-SCOPE.md) | Discussion draft of the release qualification and production deployment scope (2026-09-05) |
+| [`../PREFLIGHT-REPORT.md`](../PREFLIGHT-REPORT.md) | Agentic preflight score of the repository (2026-07-29) |
+| [`../PLAN-CI-FIXES.md`](../PLAN-CI-FIXES.md) | Analysis of five CI failures and the local fix plan (2026-07-31) |
+| [`../ISA.md`](../ISA.md) | Ideal State Artifact of the 2026-09 documentation overhaul |
 
-### Platform Architecture & Historical Notes
+`MEMORY/WORK/` at the repository root holds session records. They are decision
+records, not descriptions of the current tree.
 
-| Document | Purpose |
-| :--- | :--- |
-| [`../terraform/notes/README.md`](../terraform/notes/README.md) | Index of historical Terraform notes (chunks F1 to K) |
-| [`policy-as-versioned-code/`](policy-as-versioned-code/) | Policy as versioned code design notes |
-| [`appraisal/`](appraisal/) | Mid-2026 platform appraisal |
-| [`agent-trust-project-proposal.md`](agent-trust-project-proposal.md) | Agent trust project proposal |
-| [`agent-trust-completion-audit.md`](agent-trust-completion-audit.md) | Agent trust project completion audit |
-| [`FAQ.md`](FAQ.md) | Frequently asked questions |
+`breach-cost-talk/` holds the source media of one conference talk. Start with
+[`breach-cost-talk/TALK.md`](breach-cost-talk/TALK.md).
 
-Note: `MEMORY/WORK/` contains historical session records.
-These files document previous work sessions and do not describe current repository state.
+## Layout decision (2026-09-24)
 
-## Writing Conventions
+The top of `docs/` and the repository root hold living documents and decision
+records side by side. This index and the lint tiers in
+[`documentation-style.md`](documentation-style.md#what-make-docs-lint-checks)
+divide them. The files stay where they are, because active work references
+them by path. The referrers are kanban card specs, integration branches in
+other worktrees, ISA files, and the `RECORDS` pattern in the lint.
 
-Documentation in this repository follows STE-Code, an adaptation of ASD-STE100 for software documentation.
-Apply these primary rules to all documentation updates:
+Move the records into `proposals/` and `reports/` only when this probe prints
+nothing for each file you move. It searches every branch, the scripts, the
+tests, the lint, and the kanban card specs:
 
-1. Use one term for each item. Do not use synonyms.
-2. Keep instruction sentences to 20 words or fewer.
-3. Write instructions in the imperative mood.
-4. Put conditions before instructions.
-5. Use `WARNING` for risks of data loss or security exposure.
-   Use `CAUTION` for risks of incorrect operation.
-6. State the specific cause with every warning or caution.
-7. Use British English (en_GB) spelling per project directive.
+```bash
+name='PROPOSAL_AGENTS_PAGE_REDESIGN.md'
+git grep -l -F "$name" $(git for-each-ref --format='%(refname)' refs/heads refs/remotes)
+git grep -l -F "$name" -- Makefile scripts test .github
+grep -rlF "$name" ~/.cline/kanban/card-specs
+```
+
+The branch search is advisory. Its result depends on the branches in the clone
+that runs it. The tracked-path searches are reproducible.
+
+Do the move as one change. Update every link the probe found, then run
+`make docs-lint` and `make docs-lint-test`.

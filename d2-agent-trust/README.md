@@ -5,13 +5,8 @@
 `northstar`), two Acme projects (`payments`, `risk`), and a deterministic
 planner-to-triage A2A call.
 
-```bash
-make -C d2-agent-trust test
-make demo-agent-trust-up
-make demo-agent-trust-test-config
-make demo-agent-trust-test
-make demo-agent-trust-down
-```
+The `make` targets, the namespaces, and the `up` and `down` steps are in
+[`AGENTS.md`](AGENTS.md#lifecycle).
 
 ## Security boundaries
 
@@ -20,7 +15,7 @@ make demo-agent-trust-down
   identity or authorization.
 * **Identity:** exact Kubernetes selectors map service accounts to the
   versioned SPIFFE grammar. `adapters/spire_workload_api.py` is the authentic
-  runtime boundary; tests use labeled local RSA fixtures because they cannot
+  runtime boundary. Tests use labeled local RSA fixtures because they cannot
   run a SPIRE Workload API.
 * **Authorization:** triage independently verifies issuer, audience, SPIFFE
   subject, tenant/project, action/resource, `nbf`/`exp`, signature, and `jti`
@@ -28,18 +23,39 @@ make demo-agent-trust-down
 
 ## Integration seam
 
-`signalloom-spire-proof call-a2a` fetches the planner's JWT-SVID from the
+The diagram shows the planner-to-triage call and the two boundaries that admit
+it: the NetworkPolicy path and the OpenBao role check.
+
+```mermaid
+sequenceDiagram
+  participant P as planner pod
+  participant S as SPIRE Workload API
+  participant T as triage receiver
+  participant B as OpenBao (TCP/8200)
+  P->>S: get JWT-SVID
+  P->>T: A2A request + signed authorization context
+  T->>B: submit bearer credential to exact-subject role
+  B-->>T: role decision
+  T-->>P: allow or deny by receiver-owned rule
+```
+
+- Workload API adapter: [`adapters/spire_workload_api.py`](adapters/spire_workload_api.py)
+- Receiver: [`a2a/service.py`](a2a/service.py)
+- OpenBao role intent: [`contracts/openbao-role-intent.sh`](contracts/openbao-role-intent.sh)
+- NetworkPolicies: [`manifests/boundaries.yaml`](manifests/boundaries.yaml)
+
+`signalloom-spire-proof call-a2a` gets the planner's JWT-SVID from the
 mounted Workload API socket. The deployed triage receiver submits that bearer
 credential to an exact-subject OpenBao role before applying its receiver-owned
 action/resource rule. Each request carries an Ed25519-signed authorization
-context binding the JWT, body, timestamp, nonce, and receiver-instance
-challenge; the bounded nonce cache rejects in-process replay while the
-receiver-instance binding rejects captured requests after restart.
-`make demo-agent-trust-network-test` executes this flow
+context. The context binds the JWT, body, timestamp, nonce, and
+receiver-instance challenge. The bounded nonce cache rejects in-process replay.
+The receiver-instance binding rejects captured requests after restart.
+`make demo-agent-trust-network-test` runs this flow
 over the planner-to-triage NetworkPolicy path. The richer Python
 `a2a/service.py` additionally tests signed authorization context, bounded replay
 protection, and mutation denials. `contracts/openbao-role-intent.sh` remains the
-reviewable intent; the lifecycle applies equivalent five-minute roles through
+reviewable intent. The lifecycle applies equivalent five-minute roles through
 the existing local-demo OpenBao administration path and removes them on down.
 
 External cloud contracts are deliberately **modeled**, carry no cloud
@@ -48,12 +64,14 @@ trust bundle, de-enrollment, assurance, and production gap.
 
 ## GitOps lifecycle and evidence
 
-The Fleet supplies an opt-in `agent-trust` ResourceSet whose inputs default to
-`[]`. It depends on Signal Loom infrastructure and the ready
-`inf-bao/infra-configs` Kustomization, consumes a signed OCI artifact at
+The fleet ships the `agent-trust` ResourceSet with declared inputs and no
+disable annotation
+([`agent-trust.yaml`](../d2-osramp-fleet/tenants/base/agent-trust.yaml)).
+It depends on Signal Loom infrastructure and the ready
+`inf-bao/infra-configs` Kustomization. It consumes a signed OCI artifact at
 `signalloom/agent-trust`, and verifies the same digest/tag signer convention as
 the Signal Loom siblings. Its dedicated `agent-trust-flux` service account is
-bound only in the six owned namespaces; it does not broaden the `inf-bao` Flux
+bound only in the six owned namespaces. It does not broaden the `inf-bao` Flux
 identity. Namespace creation uses a narrowly-scoped ClusterRole because
 Kubernetes RBAC cannot resourceName-limit `create`.
 
@@ -66,18 +84,11 @@ Kubernetes RBAC cannot resourceName-limit `create`.
 | OpenBao destination ingress | authentic GitOps policy after activation | ResourceSet-owned exact ingress selectors |
 | Cloud enrollment | modeled | `contracts/external-enrollment.v1.json` |
 
-`make demo-agent-trust-up` builds the bounded SPIRE helper, publishes only the fleet and Agent Trust artifacts,
-reconciles `flux-system/flux-system`, waits for the ResourceSet to exist, then
-waits for the prerequisite and exact six namespaces,
-four deployments, and triage Service. It registers four exact SPIFFE entries
-and applies two five-minute OpenBao JWT roles. `make demo-agent-trust-down` removes
-those entries and roles, then patches the
-ResourceSet to `inputs: []`, waits for Flux pruning, deletes only the six owned
-namespaces if they remain, and verifies absence. It never deletes `inf-bao`.
-To prevent the parent Fleet's five-minute reconciliation from reverting
-imperatively activated ResourceSet inputs, `up` suspends the root
-`flux-system` Kustomization after refreshing it and records ownership of that
-suspension. Failure and `down` resume it; a pre-existing suspension is preserved.
+The `up` and `down` steps are described once, in
+[`AGENTS.md`](AGENTS.md#lifecycle). In short, `up` suspends the `flux-system`
+and `tenants` Kustomizations during identity wiring. `down` and a failed `up`
+resume them. `down` sets the disable annotation, deletes the six namespaces,
+and checks that they are absent. It never deletes `inf-bao`.
 
 The ResourceSet owns an additive `inf-bao` OpenBao ingress policy: only pods
 labelled planner or triage from the Acme Payments namespace labels can reach
@@ -86,8 +97,35 @@ same-namespace rule.
 
 Runtime network evidence requires a present CNI daemonset and NetworkPolicy
 API, then proves capability through the allow/deny dataplane probes. No CNI
-implementation is trusted by name alone. On the observed cluster,
-`kindnetd:v20260528-9350166c` passed every stated planner/triage/OpenBao/egress
-probe; that is verified cluster evidence, not a generic compatibility claim.
-Absent prerequisites fail clearly as `UNVERIFIED`, never skip, and this slice
-neither installs nor replaces a CNI.
+implementation is trusted by name alone. The probes are the evidence, not the
+CNI version. Absent prerequisites fail clearly as `UNVERIFIED`, never skip, and
+this slice neither installs nor replaces a CNI.
+
+The diagram shows the six probes that `make demo-agent-trust-network-test`
+runs across the three project namespaces.
+
+```mermaid
+flowchart LR
+  subgraph PAY["agent-trust-acme-payments"]
+    PL["planner"]
+    TR["triage :8080"]
+  end
+  subgraph RISK["agent-trust-acme-risk"]
+    RR["risk-reader"]
+  end
+  subgraph NS["agent-trust-northstar-investigations"]
+    IN["investigator"]
+  end
+  BAO["openbao.inf-bao :8200"]
+  EXT["1.1.1.1:443"]
+  PL -- allow --> TR
+  PL -- allow --> BAO
+  TR -- allow --> BAO
+  RR -. deny .-> TR
+  IN -. deny .-> TR
+  RR -. deny .-> BAO
+  PL -. deny .-> EXT
+```
+
+- Probe script: [`../scripts/agent-trust-local.sh`](../scripts/agent-trust-local.sh)
+- NetworkPolicies: [`manifests/boundaries.yaml`](manifests/boundaries.yaml)

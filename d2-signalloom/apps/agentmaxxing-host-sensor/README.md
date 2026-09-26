@@ -1,6 +1,13 @@
 # AgentMaxxing Linux Host Sensor & Confinement (`agentmaxxing-host-sensor`)
 
-This component provides defense-in-depth Linux host confinement, fail-closed nono 0.73.0 profiles, hardened systemd services, bounded allowlisted process telemetry collection, descriptor-relative artifact anti-escape validation, and rate-limited TOCTOU artifact hashing for external AgentMaxxing Linux agents.
+This component protects external AgentMaxxing Linux agents. It provides:
+
+- defense-in-depth Linux host confinement
+- fail-closed nono 0.73.0 profiles
+- hardened systemd services
+- bounded allowlisted process telemetry collection
+- descriptor-relative artifact anti-escape validation
+- rate-limited TOCTOU artifact hashing
 
 ---
 

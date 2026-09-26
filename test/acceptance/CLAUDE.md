@@ -1,106 +1,60 @@
+# Agent guidance — browser acceptance suite
 
-Default to using Bun instead of Node.js.
+This directory is a Playwright suite. It drives Google Chrome against the
+dashboard in a running cluster. It is not a `bun test` suite. Bun is only the
+package manager and the `bunx` launcher. The canonical guide is
+[`TESTING.md`](../../TESTING.md#browser-acceptance-tests).
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+## Configuration
 
-## APIs
+[`playwright.config.ts`](playwright.config.ts) defines the projects. Each
+project claims its specs with `testMatch`.
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+- The `setup` project runs [`auth.setup.ts`](auth.setup.ts). It logs in through
+  Dex. It writes `test-results/.auth-state.json` and `test-results/.auth-session.json`.
+- A project that needs a logged-in session sets `.auth-state.json` as
+  `storageState` and declares `dependencies: ["setup"]`.
+- The dashboard keeps its token in sessionStorage, which `storageState` does
+  not hold. A spec that needs the session imports `test` from
+  [`fixtures.ts`](fixtures.ts), which restores `.auth-session.json`.
+- The shared `use.launchOptions` maps `dashboard.osramp.acme.local` to the
+  Gateway address. Playwright merges `use` shallowly.
 
-## Testing
+CAUTION: Do not add a project-level `launchOptions` without its
+`--host-resolver-rules` argument. Every spec in that project then fails with
+`net::ERR_NAME_NOT_RESOLVED`.
 
-Use `bun test` to run tests.
+## Add a spec
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+1. Add the spec file to this directory.
+2. Add the file to the `testMatch` of a project in `playwright.config.ts`.
+3. Add a row for the spec to [`SPEC-REGISTRY.tsv`](SPEC-REGISTRY.tsv).
+4. Run `bats test/acceptance-spec-coverage.bats` from the repository root.
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+NOTE: Playwright does not warn about a spec that no project claims. It reports
+a smaller total. [`test/acceptance-spec-coverage.bats`](../acceptance-spec-coverage.bats)
+compares the registry with the config, the Makefile, and the CI pipeline. CI
+stage 1c runs it. The header of `SPEC-REGISTRY.tsv` defines the columns.
+
+## Run the suite
+
+Run the suite from the repository root. A cluster must be running.
+
+```bash
+make acceptance-test
+scripts/acceptance-test.sh --project <name>
 ```
 
-## Frontend
+[`scripts/acceptance-test.sh`](../../scripts/acceptance-test.sh) runs the
+cluster doctor and starts the port-forwards. It forwards the Envoy Gateway to
+local port 30754, because Dex pins its callback to that port. It then passes
+its arguments to `bunx playwright test`. Use the script. Without its
+port-forwards, the specs fail on connection errors, not on assertions.
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+## Write assertions
 
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
-
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+- Use web-first assertions, such as `await expect(locator).toBeVisible()`.
+  They retry until the timeout.
+- Do not add `page.waitForTimeout`. A fixed sleep is slow when the page is
+  fast and flaky when the page is slow.
+- Put shared helpers in [`helpers.ts`](helpers.ts).

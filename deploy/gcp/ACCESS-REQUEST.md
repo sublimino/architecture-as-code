@@ -14,10 +14,10 @@ Ask 2 removes the need to come back to you again.
 
 > **What changed since the first version of this document.** It originally said
 > an **organization administrator** had to grant
-> `roles/compute.osLoginExternalUser`, because Andy's Google account is external
-> to the organization that owns this project and OS Login refuses to configure
-> POSIX account data for an external identity without it. That was correct, and
-> it was also a dead end: `gcloud organizations list` returns zero items for
+> `roles/compute.osLoginExternalUser`. The reason: Andy's Google account is external
+> to the organization that owns this project. Without that role, OS Login refuses to
+> configure POSIX account data for an external identity. That was correct, and
+> it was also a dead end. `gcloud organizations list` returns zero items for
 > Andy, so he cannot grant it and cannot reach anyone who can without waiting.
 >
 > **That ask is no longer on the critical path.** A service account created
@@ -26,7 +26,7 @@ Ask 2 removes the need to come back to you again.
 > and OS Login works. Measured on 2026-08-18: impersonating
 > `sl-tf-deploy@sl-port-over-sandbox.iam.gserviceaccount.com` made the
 > `osLoginExternalUser` error disappear entirely and moved the failure to the
-> IAP layer (`4033: 'not authorized'`) — which is a **project**-scoped grant, and
+> IAP layer (`4033: 'not authorized'`). That is a **project**-scoped grant, and
 > therefore yours to make.
 >
 > The organization command is still listed below, clearly marked **optional**.
@@ -38,14 +38,14 @@ Ask 2 removes the need to come back to you again.
 ## Ask 1 — let Andy reach the demo VM (3 project-scoped commands)
 
 A hardened VM is already deployed: `sl-demo-1-vm` in `us-east4-a`. It has **no
-external IP and no public endpoint** — the only way in is Google's
+external IP and no public endpoint**. The only way in is Google's
 Identity-Aware Proxy, which authenticates the user before any packet reaches the
 instance. Andy cannot currently use it because `roles/editor` does not include
 IAP tunnel access.
 
 The grants below go to a **dedicated operator service account**, not to Andy
 directly. That is what removes the organization dependency, and it is also the
-smaller grant: the account can open a tunnel and log in, and can do nothing else
+smaller grant. The account can open a tunnel and log in, and can do nothing else
 in the project.
 
 ```bash
@@ -94,7 +94,7 @@ is fully attributable: Cloud Audit Logs record Andy's own address in
 `serviceAccountDelegationInfo`.
 
 This is the same set Terraform declares in
-`terraform/modules/operator-identity/`, so running the commands by hand now and
+`terraform/modules/operator-identity/`. So running the commands by hand now and
 letting Terraform manage it later converge on the same three roles.
 
 ### Optional — direct SSH as Andy, no impersonation flag
@@ -144,7 +144,7 @@ account is more than was asked for.
 ## Ask 2 — let Terraform finish and tear down the estate
 
 Optional, and strictly larger. Skip it if you would rather keep IAM changes with
-yourself; the consequence is that the parts of the estate that create identities
+yourself. The consequence is that the parts of the estate that create identities
 stay unbuilt, and every future teardown/rebuild needs you.
 
 The estate declares 34 distinct resource types. Under `roles/editor` the apply
@@ -162,7 +162,7 @@ are the four denials observed:
 
 This is the smaller long-term grant. You run one bootstrap, and a **dedicated,
 least-privilege service account** does every future apply and destroy. Andy never
-holds project IAM rights himself; he impersonates the account, and every action
+holds project IAM rights himself. He impersonates the account, and every action
 is attributable to him.
 
 ```bash
@@ -252,7 +252,7 @@ gcloud compute ssh sl-demo-1-vm --zone us-east4-a \
   --impersonate-service-account=sl-operator@sl-port-over-sandbox.iam.gserviceaccount.com
 ```
 
-The `--impersonate-service-account` flag is the whole trick: the tunnel and the
+The `--impersonate-service-account` flag is the whole trick. The tunnel and the
 OS Login both happen as the in-project operator account, which the
 external-organization rule does not apply to. Without the optional organization
 grant, that flag is required on every invocation — which is a mild inconvenience

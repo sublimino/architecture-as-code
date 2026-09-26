@@ -2,7 +2,7 @@
 
 Keyless CI authentication for GitHub Actions, plus the service accounts the
 runtimes and CI assume. No `google_service_account_key` resource exists in this
-tree and none ever should: a JSON key is a bearer credential with no expiry that
+tree and none ever should. A JSON key is a bearer credential with no expiry that
 lives wherever it was pasted.
 
 ## Inputs
@@ -15,7 +15,7 @@ lives wherever it was pasted.
 | `github_owner_id` | string | — | **Immutable numeric** owner id. See below. |
 | `github_repository` | string | — | `owner/repo`. |
 | `github_allowed_ref` | string | — | e.g. `refs/heads/main`. |
-| `state_bucket_name` | string | `""` | `""` disables the state-bucket binding. Addition to the frozen §4 interface — see `NOTES.md`. |
+| `state_bucket_name` | string | `""` | `""` disables the state-bucket binding. Addition to the frozen §4 interface — see the [F5 build note](../../notes/f-identity-ci.md#contract-objections). |
 | `runtime_roles` | list(string) | IAP + OS Login + telemetry | Validated against owner/editor/storage.admin/osAdminLogin. |
 | `ci_plan_roles` | list(string) | read-only set | Validated; must not intersect `ci_apply_roles`. |
 | `ci_apply_roles` | list(string) | write set | Validated. |
@@ -27,8 +27,8 @@ lives wherever it was pasted.
 
 `runtime_service_account_emails`, `workload_identity_provider_name`,
 `ci_plan_service_account_email`, `ci_apply_service_account_email`, plus
-`workload_identity_plan_principal`, `workload_identity_apply_principal` and `attribute_condition` — the last two exist so
-callers and tests can assert on the two values that decide whether this module
+`workload_identity_plan_principal`, `workload_identity_apply_principal` and `attribute_condition`. The last two exist so
+callers and tests can assert on them. Those two values decide whether this module
 is a security control or a hole.
 
 ## Why the owner id is numeric, and not the org name
@@ -40,8 +40,8 @@ nothing about *who* is calling. The only thing separating "our CI can deploy" fr
 
 It is tempting to write that condition against `assertion.repository_owner` — the
 readable org name. Do not. When an organisation is renamed, GitHub releases the
-old name for immediate re-registration by anybody. A condition pinned to the
-string name is then satisfied by a stranger's repository, and the binding that
+old name for immediate re-registration by anybody. A stranger's repository then
+satisfies a condition pinned to the string name. The binding that
 looked correct at review time silently starts trusting them. `repository_owner_id`
 is a numeric id that GitHub never reissues.
 
@@ -49,21 +49,21 @@ The same argument applies to `repository_id` versus `repository`. This module
 pins `repository_owner_id` (numeric) and additionally the repository path and the
 ref, because defence in depth here costs one line each.
 
-The variable carries a validation rejecting any non-numeric value, so pasting the
+The variable carries a validation rejecting any non-numeric value. So pasting the
 org name in that slot fails the plan rather than producing a plausible-looking
 condition that trusts a renameable name.
 
 ## The WIF claim-negative test
 
 Everything above is an argument. This is the check that turns it into evidence.
-It proves a token minted by the **wrong repository** is refused, which is the
-property the whole module exists to provide, and which no `terraform plan` can
-demonstrate.
+It proves a token minted by the **wrong repository** is refused. That is the
+property the whole module exists to provide, and no `terraform plan` can
+demonstrate it.
 
 Run it **after** the first real apply, from a scratch repository under an
 organisation that is not `github_owner_id`.
 
-1. Create a throwaway repo, e.g. `some-other-org/wif-probe`, and add a workflow:
+1. Create a throwaway repo, for example `some-other-org/wif-probe`, and add a workflow:
 
    ```yaml
    name: wif-probe
@@ -97,7 +97,7 @@ organisation that is not `github_owner_id`.
    the probe repository satisfies.
 
 4. Repeat from the real repository on a ref **other** than `github_allowed_ref`
-   (e.g. a branch). It must also be refused — that proves the ref pin, not just
+   (for example a branch). It must also be refused — that proves the ref pin, not just
    the repository pin, is live.
 
 5. Repeat from the real repository on `github_allowed_ref`. It must succeed.
@@ -117,12 +117,16 @@ whenever `attribute_condition`, `github_owner_id`, or the allowed ref changes.
 
 ## What is tested automatically
 
-`tests/identity.tftest.hcl` — 24 runs, mocked providers, `command = plan` only.
-Asserts the *evaluated* configuration: issuer URI exact, `attribute_condition`
-non-empty, non-tautological and pinning `repository_owner_id`, the WIF member
-attribute-scoped rather than pool-wide, one runtime SA per environment key with
-the key embedded, plan and apply principals sharing no role, and
-`roles/storage.objectAdmin` — never `roles/storage.admin` — on the state bucket.
+`tests/identity.tftest.hcl` — 27 `run` blocks, mocked providers, `command = plan` only. Count them with `rg -c '^\s*run "' tests/identity.tftest.hcl`.
+Asserts the *evaluated* configuration:
+
+- issuer URI exact.
+- `attribute_condition` non-empty, non-tautological and pinning `repository_owner_id`.
+- the WIF member attribute-scoped rather than pool-wide.
+- one runtime SA per environment key with the key embedded.
+- plan and apply principals sharing no role.
+- `roles/storage.objectAdmin` — never `roles/storage.admin` — on the state bucket.
+
 Every `expect_failures` run is paired with a positive run proving the corrected
 input passes.
 

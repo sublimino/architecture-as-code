@@ -13,12 +13,17 @@ npm run check
 npm run build
 ```
 
+NOTE: The directory has two lockfiles, [`bun.lock`](bun.lock) and
+[`package-lock.json`](package-lock.json). The [`Dockerfile`](Dockerfile) runs
+`npm ci`, so `package-lock.json` controls the image build.
+
 The production build uses `/docs` as its Astro base path. The nginx image serves
 the generated site at `/docs/` and exposes `/readyz` for Kubernetes probes.
 
 ## Source relationship
 
-- Reference implementation: `/home/andy/src/cp/native-cloud`
+- Reference implementation: the `native-cloud` repository, checked out next to
+  this repository (`../native-cloud` from the repository root)
 - Shared framework: Astro Starlight
 - Adapted design cue: the orange accent palette
 

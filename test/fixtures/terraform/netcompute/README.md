@@ -6,8 +6,8 @@ Deliberately broken Terraform, plus one deliberately clean control. These exist 
 **Nothing here is ever applied, validated, or formatted as part of the real tree.** These
 files live outside `terraform/`, so `terraform fmt -recursive -check terraform/` and every
 scanner scoped to `terraform/` ignore them by construction. Do not move them under
-`terraform/` — a fixture carrying a real `access_config` would then be caught by the guard it
-exists to test, and the suite would fail for the wrong reason.
+`terraform/`. A fixture carrying a real `access_config` would then be caught by the guard it
+exists to test. The suite would fail for the wrong reason.
 
 | File | Carries | Proves |
 |---|---|---|
@@ -16,7 +16,7 @@ exists to test, and the suite would fail for the wrong reason.
 | `clean-control.tf` | Neither | Both scanners return clean — they are not always-fail |
 
 The clean control is the one people forget. A guard that always fires is exactly as useless
-as one that never does, and without a negative control you cannot tell the two apart from a
+as one that never does. Without a negative control you cannot tell the two apart from a
 red test run.
 
 ## Do not "fix" these files
@@ -31,6 +31,6 @@ the mutation check.
 The bats file also runs two mutations generated at test time by copying the live
 `terraform/modules/*/main.tf` into `BATS_TEST_TMPDIR` and breaking the copy. Those can never
 go stale, because they derive from whatever the module says today. These committed fixtures
-are the chunk contract's explicit requirement and cover the case where the live modules are
-restructured enough that the generated mutation's `sed` no longer matches — at which point
+are the chunk contract's explicit requirement. They cover the case where the live modules are
+restructured enough that the generated mutation's `sed` no longer matches. At that point
 the generated test's positive control fails loudly, and these still hold the line.

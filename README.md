@@ -10,6 +10,7 @@ source tools. It also runs on GCP in four independent lanes.
 > **Start here:** [`docs/README.md`](docs/README.md) is the documentation index.
 > It tells you which document answers which question.
 > Agents and engineers who need commands start with [`AGENTS.md`](AGENTS.md).
+> Developers and designers read [`DESIGN.md`](DESIGN.md) for the platform design system.
 
 ## The problem
 

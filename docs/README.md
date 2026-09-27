@@ -4,12 +4,13 @@ This page is the entry point for all repository documentation. It lists every
 top-level document in `docs/`, each subdirectory, and each record at the
 repository root, and it tells you when to read them.
 
-Two files at the repository root start the path:
+Three files at the repository root start the path:
 
 | File | Reader | Read it for |
 | :--- | :--- | :--- |
 | [`../README.md`](../README.md) | A person new to OSRAMP | Platform overview, demos, and the local quickstart |
 | [`../AGENTS.md`](../AGENTS.md) | An agent or an engineer who needs commands | Slices, lifecycle targets, and shared pitfalls |
+| [`../DESIGN.md`](../DESIGN.md) | A developer or UI engineer | Platform design system, colour palette, and interface principles |
 
 ## Glossary
 
@@ -58,6 +59,7 @@ flowchart TB
 
   subgraph ref["4 · Reference"]
     STYLE["documentation-style.md"]
+    DES["DESIGN.md"]
   end
 
   subgraph rec["5 · Decision records"]
@@ -122,11 +124,12 @@ Deploy to GCP after the local tests pass. The GCP workflow costs money and needs
 
 ## 4 · Reference
 
-This is a living document. It describes the current rules.
+These are living documents. They describe the current rules.
 
 | Document | What it covers |
 | :--- | :--- |
 | [`documentation-style.md`](documentation-style.md) | The writing rules for this repository and the `make docs-lint` check |
+| [`DESIGN.md`](DESIGN.md) | Visual design, information architecture, Starlight theming, and diagram standards |
 
 ## 5 · Decision records
 

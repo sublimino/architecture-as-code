@@ -52,3 +52,13 @@ setup() {
   [ -n "$body" ]
   ! echo "$body" | grep -q 'limit_req'
 }
+
+@test "security headers are repeated in content-serving locations (nginx add_header inheritance)" {
+  # nginx drops server-level add_header in any location with its own add_header.
+  # The SPA doc (= /index.html, reached via try_files) and /assets/ both set
+  # Cache-Control, so the security headers MUST be repeated there or they never
+  # reach the browser. Assert X-Frame-Options appears at least 3x (server +
+  # index.html + assets).
+  run grep -cE 'add_header +X-Frame-Options' "$CONF"
+  [ "$output" -ge 3 ]
+}

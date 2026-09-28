@@ -1531,6 +1531,31 @@ def authenticated_tenant(
     return principal.tenant
 
 
+def resolve_eap_principal(
+    authorization: str | None = None,
+    fallback_tenant: str = "system",
+    fallback_subject: str = "system:eap-daemon",
+) -> Principal:
+    """Resolve caller principal if Bearer token is provided; otherwise return an attributed system principal."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            claims = validate_jwt(token)
+            sub = claims.get("sub", fallback_subject)
+            tenant = settings.api_subject_tenants.get(sub, fallback_tenant)
+            email = claims.get("email")
+            if not isinstance(email, str) or not email.strip():
+                email = None
+            return Principal(tenant=tenant or fallback_tenant, subject=sub, email=email)
+        except Exception:
+            pass
+    return Principal(
+        tenant=fallback_tenant,
+        subject=fallback_subject,
+        email=f"{fallback_subject}@signalloom.local",
+    )
+
+
 # ---------------------------------------------------------------------------
 # asyncpg connection pool (lazy-init, fail-closed on audited writes)
 # ---------------------------------------------------------------------------

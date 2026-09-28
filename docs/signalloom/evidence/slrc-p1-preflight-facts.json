@@ -1,0 +1,208 @@
+{
+  "artifact": "slrc-p1-preflight-facts",
+  "phase": "P1",
+  "card": "SLRC-P1-PRE",
+  "title": "Audit teardown adapters and evidence validator review fixes",
+  "generated": "2026-09-28T05:05:31+01:00",
+  "role_boundary": "audit only; no production adapter or verifier code modified",
+  "repository": {
+    "worktree": "/home/andy/.cline/worktrees/4c7dc/osramp-demo",
+    "base_ref": "refs/heads/integration/slrc-v0.1.0",
+    "base_commit_sha": "fa816317dd96c0eae73133adad09d2916f6252e3",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean_at_start": true
+  },
+  "source_findings_list": {
+    "prompt_txt_found": false,
+    "note": "prompt.txt is referenced by card specs P1-PRE/P1-GOV but exists nowhere on disk, and the proposal never enumerates the 4 critical / 4 high findings. The severity ledger below is derived from the integration code plus the preserved regression tests; it is this card's classification, not a transcription."
+  },
+  "preserved_worktrees": {
+    "adapters": {
+      "path": "/home/andy/src/.worktrees/osramp-demo/sled-remediation-adapters-20260927",
+      "head": "1327d2dd354bc76ad237a6d6835ee8de69ed2619",
+      "tree_identical_to_integration_commit": "981229c2",
+      "status_porcelain": [
+        " M d2-signalloom/apps/fe-signalloom/src/tests/test_environment_teardown_contract.py",
+        "?? d2-signalloom/apps/fe-signalloom/src/tests/test_environment_teardown_review_regressions.py"
+      ],
+      "contract_diff": "+1 assertion: signature(StageExecutor.verify) == ['self','stage','request'] (line 45)",
+      "review_regressions_file_lines": 189,
+      "review_regressions_tests": 13
+    },
+    "evidence": {
+      "path": "/home/andy/src/.worktrees/osramp-demo/sled-remediation-evidence-20260927",
+      "head": "637a3662b633c02e03de99634c0bbae588728a7c",
+      "tree_identical_to_integration_commit": "48f9bb20",
+      "status_porcelain": [" M scripts/eap/tests/test_verify_teardown_evidence.py"],
+      "diff_stat": "168 insertions, 8 deletions",
+      "tests_before": 31,
+      "tests_after": 48,
+      "tests_added": 17
+    },
+    "mutation_policy": "Both worktrees were read only. Tests ran from copies under /tmp/slrc-p1pre.Mm1Y with PYTHONDONTWRITEBYTECODE=1 and -p no:cacheprovider; git status of both was byte-identical before and after."
+  },
+  "baseline_tests_integration": {
+    "test_environment_teardown_contract.py": {"passed": 4, "failed": 0},
+    "scripts/eap/tests/test_verify_teardown_evidence.py": {"passed": 31, "failed": 0},
+    "adapters_plus_lifecycle_suites": {"passed": 37, "skipped": 2, "failed": 0}
+  },
+  "preserved_tests_against_integration_code": {
+    "adapters_dir": {"failed": 14, "passed": 3, "note": "13/13 review regressions fail plus the added contract assertion; this proves every adapter finding is live"},
+    "evidence_suite": {"failed": 42, "passed": 10, "note": "failures dominated by 'unexpected-field': the preserved tests change the manifest schema, not only the reader"}
+  },
+  "adapter_findings": {
+    "file": "d2-signalloom/apps/fe-signalloom/src/environment_teardown_adapters.py",
+    "critical": [
+      {
+        "id": "C1",
+        "title": "Kubernetes namespace lookup failure (incl. 403 Forbidden) reported as absence",
+        "lines": "426-433",
+        "signature": "namespace_exists returns result.returncode == 0; any non-zero exit (Forbidden, auth, API down) => False => NAMESPACE stage believes namespace deleted",
+        "regression_tests": ["test_namespace_forbidden_is_not_misreported_as_absent", "test_namespace_absence_requires_valid_empty_ignore_not_found_response"],
+        "required_behaviour": "kubectl get namespace <ns> --ignore-not-found -o name: empty stdout + rc 0 => absent; 'namespace/<ns>' => present; non-zero => raise (message must contain 'namespace_lookup_failed'; SP-P1 names the type TeardownAuthorizationError for 403)"
+      },
+      {
+        "id": "C2",
+        "title": "Tailscale inventory fail-open on missing 'devices' collection",
+        "lines": "242-244",
+        "signature": "self._request(...).get('devices', []) => {} yields [] => MeshAdapter reports 'tenant Tailscale nodes absent by API' success",
+        "regression_tests": ["test_tailscale_missing_devices_collection_is_rejected"],
+        "required_behaviour": "missing or non-list 'devices' raises 'invalid_tailscale_inventory'"
+      },
+      {
+        "id": "C3",
+        "title": "SPIRE inventory fail-open on missing 'entries' collection",
+        "lines": "366-375",
+        "signature": "payload.get('entries', []) => '{}' yields [] => SPIRE entries considered removed",
+        "regression_tests": ["test_spire_missing_entries_collection_is_rejected"],
+        "required_behaviour": "missing or non-list 'entries' raises 'invalid_spire_inventory'"
+      },
+      {
+        "id": "C4",
+        "title": "Mesh deletion by hostname alone, without ownership attribution",
+        "lines": "196-221",
+        "signature": "_tenant_nodes matches hostname prefix sl-eap-<hash> and delete_node is called on every match; an unowned or workstation device with a colliding name is deleted",
+        "regression_tests": ["test_mesh_refuses_same_name_device_without_authoritative_ownership", "test_mesh_refuses_unowned_same_name_collision"],
+        "required_behaviour": "MeshAdapter(client, ownership=...) ; no ownership record => fail 'ownership_inventory_missing' ; matched device id not in owned device_ids => fail 'mesh_ownership_collision' ; zero deletes in both cases"
+      }
+    ],
+    "high": [
+      {
+        "id": "H1",
+        "title": "SPIFFE matcher is a substring test across trust domains",
+        "lines": "267-270",
+        "signature": "marker '/ns/eap-<hash>/' in str(spiffe_id) matches spiffe://evil/... and spiffe://signalloom.demo/x/ns/...; object-form spiffe_id only matches by accident of str(dict)",
+        "regression_tests": ["test_spiffe_matcher_accepts_object_form_and_rejects_substring_collision"],
+        "required_behaviour": "parse both string and {trust_domain,path} forms; exact trust domain signalloom.demo and path prefix /ns/eap-<hash>/"
+      },
+      {
+        "id": "H2",
+        "title": "OpenBao client accepts plaintext HTTP for the X-Vault-Token",
+        "lines": "303-307",
+        "signature": "OpenBaoHTTPClient('http://openbao', ...) constructs without error",
+        "regression_tests": ["test_openbao_requires_https"],
+        "required_behaviour": "ValueError matching 'HTTPS' unless scheme is https; SP-P1 additionally requires post-shred GET 404 to confirm, and 403/500 to fail the stage with a distinct detail (no preserved test covers this: P1-1 must add one)"
+      },
+      {
+        "id": "H3",
+        "title": "Unbounded HTTP transport: slow-drip body and redirect-following with secret headers",
+        "lines": "232-240, 309-323",
+        "signature": "urllib.request.urlopen timeout is per-socket-operation, so a 1-byte drip never trips it; response.read() is unbounded; default opener follows 3xx",
+        "regression_tests": ["test_bounded_http_transport_stops_slow_drip_body", "test_redirect_is_rejected_before_secret_header_can_be_forwarded"],
+        "required_behaviour": "new adapters.BoundedHTTPTransport(allow_http_loopback=, max_body_bytes=) with request(method,url,headers,body,timeout); total-deadline 'http_deadline_exceeded' (<1s for 0.2s budget); 3xx => 'http_redirect_rejected'"
+      },
+      {
+        "id": "H4",
+        "title": "Raw provider exception text copied into StageResult detail",
+        "lines": "120-122",
+        "signature": "except Exception as error: StageResult(stage, False, str(error)) persists e.g. 'X-Vault-Token=...' into evidence/audit",
+        "regression_tests": ["test_raw_provider_exception_is_sanitized"],
+        "required_behaviour": "detail == 'provider_failed' for execute and verify"
+      }
+    ],
+    "additional_medium": [
+      {
+        "id": "M1",
+        "title": "PV observation reported as storage erasure proof",
+        "lines": "435-452",
+        "signature": "storage_absence_proof returns verified: not retained, so no PVs means verified=True",
+        "regression_tests": ["test_kubernetes_pv_observation_never_claims_storage_erasure"],
+        "required_behaviour": "verified False, blocker 'durable_storage_erasure_unproved'"
+      },
+      {
+        "id": "M2",
+        "title": "No read-only verify() in the stage executor contract",
+        "lines": "environment_teardown_contract.py:40-41; adapters 92-140",
+        "signature": "StageExecutor/ConfiguredTeardownExecutor/FailClosedExecutor expose execute only; verification re-runs mutation",
+        "regression_tests": ["test_verify_is_read_only_and_fail_closed_executor_supports_it", "test_stage_executor_signature_is_synchronous_and_exact (+1 assertion)"],
+        "required_behaviour": "verify(self, stage, request) on protocol and both executors; verify never calls execute; FailClosedExecutor.verify fails"
+      }
+    ],
+    "regression_catalog_complete": "13 review-regression tests + 1 contract assertion map 1:1 onto C1-C4, H1-H4, M1-M2; none is unmapped"
+  },
+  "evidence_verifier_finding": {
+    "id": "V1",
+    "file": "scripts/eap/verify_teardown_evidence.py",
+    "lines": "277-285",
+    "defect": "Size check and read are two separate path resolutions: args.manifest.stat().st_size (follows symlinks) then args.manifest.read_text() (re-opens by path, unbounded).",
+    "exploits": [
+      "TOCTOU: file replaced or grown between stat and read => unbounded read, memory exhaustion",
+      "symlink followed at both calls => verifier reads an arbitrary target the operator did not name",
+      "FIFO: st_size 0 passes the check, read_text blocks forever (hang, no exit code)",
+      "character device such as /dev/zero: st_size 0 passes, read_text unbounded"
+    ],
+    "stat_vs_descriptor_comparison": {
+      "current_stat_then_read_text": "two lookups, follows symlinks, trusts st_size as a proxy for bytes read, blocks on FIFOs, no file-type check",
+      "required_descriptor_safe": "os.lstat(path) -> os.open(path, O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC) -> os.fstat(fd): require S_ISREG and (st_dev, st_ino) equal to the lstat result -> os.read(fd) in a loop until MAX+1 bytes -> reject if more than MAX -> close in finally"
+    },
+    "preserved_test_contract": {
+      "helper": "module-level _read_manifest(path); module must import os as an attribute (tests patch validator.os.lstat)",
+      "error_codes": {
+        "manifest-path-raced": "lstat vs fstat (dev, ino) mismatch",
+        "manifest-not-regular": "FIFO (must not block, 2s timeout) and /dev/null",
+        "manifest-too-large": "size > ceiling",
+        "manifest-unavailable": "OSError",
+        "symlink": "(unresolved: expected code sits beyond the excerpt read; P1-2 must pin it from the test body)"
+      },
+      "value_error_and_recursion": "huge integer ValueError and deep nesting RecursionError must map to malformed-json, not a traceback"
+    },
+    "ceiling_conflict": {
+      "sp_p1_mandate_bytes": 524288,
+      "code_constant_bytes": 1048576,
+      "preserved_test_probe_bytes": 1048577,
+      "resolution": "P1-2 sets MAX_MANIFEST_BYTES = 524288 per SP-P1 and adds boundary tests at 524288 (accept) and 524289 (reject); the preserved 1 MiB+1 test stays valid but is not a boundary test"
+    }
+  },
+  "spec_tightening": [
+    {
+      "card": "SLRC-P1-2",
+      "issue": "Row says 'integrate 31 test assertions'; the preserved suite has 48 tests (31 existing + 17 new), and 42 of them fail against current code",
+      "issue_detail": "The preserved tests also change the manifest schema: fixture attribution (fixture_id, tenant_kind, tenant_id, resource_id, expected_resource_ids, expected_preinventory, sentinel_fixture), freshness window, run-duration bound and strict RFC 3339. New codes: fixture-attribution-mismatch, sentinel-attribution-mismatch, non-synthetic-sentinel, preinventory-mismatch, stale-observation, run-duration-exceeded.",
+      "recommendation": "P1-2 scope = descriptor-safe reader AND manifest schema v2; size M still plausible, but the Governor should accept the scope widening explicitly"
+    },
+    {
+      "card": "SLRC-P1-1",
+      "issue": "SP-P1 names fixture prefix sled-cert-*, but the code and the preserved tests key Tailscale nodes on hostname sl-eap-<hash> plus an ownership inventory {device_ids, tag}",
+      "recommendation": "Implement the ownership-inventory model the tests pin (detail codes ownership_inventory_missing / mesh_ownership_collision). Treat sled-cert-<run-id> as the P4 fixture attribution that populates the ownership inventory, not as a second hostname matcher. The Governor must confirm."
+    },
+    {
+      "card": "SLRC-P1-1",
+      "issue": "SP-P1 names TeardownAuthorizationError; the test matches only the message 'namespace_lookup_failed'",
+      "recommendation": "raise TeardownAuthorizationError('namespace_lookup_failed: forbidden') for 403 and a generic lookup error with the same prefix otherwise, which satisfies both"
+    },
+    {
+      "card": "SLRC-P1-1",
+      "issue": "SP-P1 OpenBao clause (post-shred 404 confirmation; 403/500 fail the stage) has no preserved test; current key_exists/secret_exists treat 403 as 'still exists', which fails closed but with a misleading detail. delete_tenant_material raises on 404 from the config POST, so a retry after a partial shred is non-idempotent.",
+      "recommendation": "P1-1 adds tests: verify 403 => stage fail detail 'openbao_authorization_failed'; 500 => fail; retry after key already gone => success"
+    }
+  ],
+  "collisions": {
+    "board": "P1-PRE in_progress; P1-1, P1-2 backlog, both depend on P1-PRE; no sibling running in P1",
+    "shared_files": "P1-1 owns environment_teardown_adapters.py + contract + tests; P1-2 owns verify_teardown_evidence.py + its tests; disjoint"
+  },
+  "readiness": {
+    "P1-1": "ready, subject to the Governor accepting the tightened spec above",
+    "P1-2": "ready with scope widening flagged (schema v2 + reader); not blocked",
+    "blocking_defects": []
+  }
+}

@@ -1,11 +1,11 @@
 # kusari-agent (stub)
 
-A stub Signal Loom swarm agent standing in for the Kusari pilot workload. It exists so a "Kusari agent" can be discovered, claimed and observed in the local `fe-signalloom-agents` namespace before any real Kusari software (Inspector, Waybill, GUAC) is integrated.
+A stub Signal Loom swarm agent standing in for the Kusari pilot workload. It allows discovering, claiming, and observing a "Kusari agent" in `fe-signalloom-agents` before integrating real Kusari software (Inspector, Waybill, GUAC).
 
 It does two things:
 
-1. Serves a quote on `GET /quote`, fetched from ZenQuotes with the same endpoint and key handling as the PAI status line, echoing back an `input` query parameter.
-2. On every 5th request it writes `/tmp/hostile-test.txt` inside the container. That is a deliberate, known-hostile action for exercising runtime monitoring. It is never advertised in the `/quote` response; ground truth lives only in the structured stdout log and `/stats`.
+1. Serves a quote on `GET /quote`, fetched from ZenQuotes using the PAI status line endpoint, echoing back an `input` query parameter.
+2. Writes `/tmp/hostile-test.txt` inside the container on every fifth request. That intentional action exercises runtime monitoring. It is never advertised in the `/quote` response. Ground truth lives only in the structured stdout log and `/stats`.
 
 ## Endpoints
 
@@ -29,7 +29,7 @@ Non-GET requests to `/quote` return 405 and do not count towards the hostile cad
 | `HOSTILE_EVERY` | `5` | Write the hostile file on every Nth request. `0` disables. Deterministic, not random, so 5 requests always yield exactly one write. |
 | `HOSTILE_PATH` | `/tmp/hostile-test.txt` | Must be on a writable mount; the container root filesystem is read-only, `/tmp` is an emptyDir. |
 
-Upstream responses whose author is `zenquotes.io` are the keyless rate-limit reply and are treated as failures, exactly as the status line discards them. Egress from `fe-signalloom-agents` is default-deny, so in-cluster you will normally see `source: fallback`. That is expected and the demo still works. The first request after start (or after a cooldown expires) can take up to `QUOTE_TIMEOUT` while the dial is dropped; the rest answer instantly. Transport errors are logged without the request URL so a keyed upstream never leaks the key.
+Upstream responses whose author is `zenquotes.io` are the keyless rate-limit reply and are treated as failures, exactly as the status line discards them. Egress from `fe-signalloom-agents` is default-deny, so in-cluster you will normally see `source: fallback`. That is expected and the demo still works. The first request after start (or after a cooldown expires) can take up to `QUOTE_TIMEOUT` while the dial is dropped. The rest answer instantly. Transport errors are logged without the request URL so a keyed upstream never leaks the key.
 
 ## Structured log
 
@@ -61,11 +61,15 @@ kustomize build d2-signalloom/infra/agent-swarm/kusari-agent | kubectl apply -f 
 kubectl -n fe-signalloom-agents rollout status deploy/agent-kusari
 ```
 
-The ServiceAccount `kusari-agent` ships in this agent's own directory (`infra/agent-swarm/kusari-agent/service-account.yaml`) rather than the shared `rbac.yaml`, and is registered by the SPIRE swarm entries Job, so discovery shows the pod with SPIFFE ID `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kusari-agent`.
+The ServiceAccount `kusari-agent` ships in this agent's directory (`infra/agent-swarm/kusari-agent/service-account.yaml`) rather than `rbac.yaml`.
+The SPIRE swarm entries Job registers it, giving the pod SPIFFE ID `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kusari-agent`.
 
 ## Claim it in Signal Loom
 
-Follow Test 1.1 of the SLOA onboarding runbook: open the Agents view, find the amber "Unclaimed Workload" row for `agent-kusari`, click Claim, confirm the pre-populated SPIFFE ID, and claim it under the `kusari` tenant. The dossier should then show an audit trail for the claim.
+Follow Test 1.1 of the SLOA onboarding runbook.
+Open the Agents view, find the amber "Unclaimed Workload" row for `agent-kusari`, and click Claim.
+Confirm the SPIFFE ID and claim it under the `kusari` tenant.
+The dossier then shows an audit trail for the claim.
 
 ## Verify the hostile write
 
@@ -85,4 +89,8 @@ For a detector (Falco, Tetragon, the eBPF sentinel), the signature is: process `
 
 ## What this is not
 
-No SPIRE SVID fetch inside the container (discovery derives identity from the ServiceAccount, as the other fleet agents prove), no Kusari Inspector, Waybill or GUAC calls, and no changes to the certified SuperCred `fleet-agents` set. Replace this stub with the real pilot workload once the Kusari payload contract is agreed.
+No SPIRE SVID fetch occurs inside the container.
+Discovery derives identity from the ServiceAccount.
+No Kusari Inspector, Waybill, or GUAC calls exist.
+The certified SuperCred `fleet-agents` set remains unchanged.
+Replace this stub once the Kusari payload contract is agreed.

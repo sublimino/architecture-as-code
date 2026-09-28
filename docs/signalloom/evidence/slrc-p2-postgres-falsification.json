@@ -1,0 +1,60 @@
+{
+  "artifact": "slrc-p2-postgres-falsification",
+  "phase": "P2",
+  "card": "SLRC-P2-2",
+  "generated": "2026-09-28T06:13:21+01:00",
+  "purpose": "Proves the tests in slrc-p2-postgres-evidence.json can fail: each store/manager invariant was broken in turn and the wrapper re-run against a fresh card-owned postgres:16-alpine container. Mutated files were restored from HEAD after every run (git show HEAD:<path> > <path>); none of them is modified by this card.",
+  "tests_commit": "1ad2e7ff311ce8b266e697e4bd3750b0652d7f4e",
+  "mutants": [
+    {
+      "id": "M1",
+      "file": "environment_lifecycle_store.py",
+      "mutation": "claim_due availability predicate `AND (claim_owner IS NULL OR claim_expires_at <= $1)` replaced by `AND TRUE`",
+      "result": "4 failed, 5 passed; wrapper exit 1",
+      "killed_by": [
+        "test_concurrent_claims_admit_one_winner_per_record_across_real_connections",
+        "test_concurrent_claims_throughput_under_pool_load",
+        "test_restart_recovery_resumes_crashed_process_from_durable_checkpoint[0]",
+        "test_restart_recovery_resumes_crashed_process_from_durable_checkpoint[2]"
+      ],
+      "survived_in": [
+        "test_two_actual_connections_collide_on_one_claim (pre-existing: two connections under SKIP LOCKED do not expose a missing availability predicate)"
+      ]
+    },
+    {
+      "id": "M2",
+      "file": "environment_lifecycle_store.py",
+      "mutation": "_finish_claim runs its UPDATE and outbox INSERT without connection.transaction()",
+      "result": "1 failed, 8 passed; wrapper exit 1",
+      "killed_by": ["test_transactional_outbox_rolls_back_terminal_state_when_outbox_insert_fails"]
+    },
+    {
+      "id": "M3",
+      "file": "environment_lifecycle_store.py",
+      "mutation": "_finish_claim WHERE clause drops `claim_owner=$2`",
+      "result": "1 failed, 8 passed; wrapper exit 1",
+      "killed_by": ["test_transactional_outbox_emits_one_terminal_event_when_stale_worker_completes_after_takeover"]
+    },
+    {
+      "id": "M4",
+      "file": "environment_lifecycle.py",
+      "mutation": "_execute_teardown_claim no longer skips stages already in teardown_stages_completed",
+      "result": "1 failed, 8 passed; wrapper exit 1",
+      "killed_by": ["test_restart_recovery_resumes_crashed_process_from_durable_checkpoint[2]"]
+    }
+  ],
+  "harness_defect_found_by_mutation": "Under M1 the first throughput worker loop never terminated (claim_due re-granted held claims forever). The loop is now bounded at rows+1 claims so a broken store fails instead of hanging.",
+  "wrapper_gates": [
+    {"id": "G1", "injection": "DATABASE_URL=postgresql://<user>:<password>@10.9.9.9:5432/db", "result": "refused before connecting, exit 1"},
+    {"id": "G2", "injection": "-k no_such_test (zero collected, pytest exit 5)", "result": "gate tests_collected_nonzero=false, exit 1"},
+    {"id": "G3", "injection": "synthetic junit with one skipped case", "result": "gate zero_skipped=false, exit 1"}
+  ],
+  "merge_preview_with_p2_1": {
+    "p2_1_commit": "5cdbc8dad0e19c38904c341e38bb14044610172e",
+    "method": "git archive of 5cdbc8da into /tmp; this card's appended test block concatenated after P2-1's version of the integration file; wrapper run unchanged. No worktree or ref was modified.",
+    "migrations_applied": 29,
+    "result": "10 passed, 0 skipped, 0 failed, including P2-1's test_postgres_rejects_expired_and_stale_fenced_claim_mutations",
+    "expected_merge_conflict": "both cards append to the end of test_environment_lifecycle_store_integration.py; resolve by keeping P2-1's block then P2-2's block"
+  },
+  "container_hygiene": "every run used label slrc-card=P2-2 on 127.0.0.1 with an ephemeral port and a random password; `docker ps -aq --filter label=slrc-card=P2-2` returned 0 after each run. Foreign containers sldp-p41-pg and anvil-p41-pg were not touched."
+}

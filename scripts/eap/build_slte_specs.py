@@ -13,6 +13,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# EAPR-P1-3: shared card contract — filename-collision refusal and the D1
+# Authorization wire spec carried into every generated card.
+_cc_spec = importlib.util.spec_from_file_location(
+    "_card_contract", str(Path(__file__).resolve().parent / "_card_contract.py"))
+cc = importlib.util.module_from_spec(_cc_spec)
+_cc_spec.loader.exec_module(cc)
+
 # Load prompt-contract
 pc_spec = importlib.util.spec_from_file_location(
     "prompt_contract",
@@ -31,7 +38,7 @@ PROPOSAL_PATH = Path(
 CONTRACT_SHA = hashlib.sha256(PROPOSAL_PATH.read_bytes()).hexdigest()
 
 # Load base specs
-base_spec = importlib.util.spec_from_file_location("base", "scripts/eap/generate_and_apply_slte.py")
+base_spec = importlib.util.spec_from_file_location("base", str(Path(__file__).resolve().parent / "generate_and_apply_slte.py"))
 base = importlib.util.module_from_spec(base_spec)
 base_spec.loader.exec_module(base)
 
@@ -66,7 +73,7 @@ ADDITIONS = {
         "approach": [
             "Configure Pydantic model_config = ConfigDict(str_strip_whitespace=True, extra='forbid') on all webhook models.",
             "Enforce regex validation on company_name to prevent shell injection when passed to automation scripts.",
-            "Implement customer name extraction heuristics handling repositories named kurasi, kurasi-web, and kurasi-backend.",
+            "Implement customer name extraction heuristics handling repositories named kusari, kusari-web, and kusari-backend.",
             "Ensure that action fields strictly reject unknown verbs and return HTTP 422 Unprocessable Entity.",
             "Add ISO 8601 UTC timestamp serialization checks to WebhookTriggerResponse payloads."
         ],
@@ -108,7 +115,7 @@ ADDITIONS = {
             "Handle database connection failures or registry lock contention with HTTP 503 Service Unavailable.",
             "Implement comprehensive request ID tracing propagating X-Request-ID and X-GitHub-Delivery into response metadata.",
             "Verify that generic webhook endpoint returns HTTP 401 when timestamp differs from server time by >300 seconds.",
-            "Add integration test verifying that valid kurasi webhook returns customer_hash 6f82ad81 and mesh URL.",
+            "Add integration test verifying that valid kusari webhook returns customer_hash a0314bec and mesh URL.",
             "Validate that invalid JSON syntax returns HTTP 400 Bad Request with descriptive error details.",
             "Implement granular HTTP error response formatting complying with Signal Loom API standards including error codes, human messages, and correlation identifiers.",
             "Add endpoint metrics instrumentation recording request counts, processing latency histograms, and signature validation failure counters.",
@@ -267,7 +274,7 @@ ADDITIONS = {
             "Implement tamper subcommand introducing intentional single-bit errors into signature for security testing.",
             "Support DRY_RUN=1 mode printing curl command and signature headers without sending HTTP request.",
             "Create test suite scripts/eap/test_emit_eap_webhook.sh testing all CLI commands.",
-            "Verify kurasi vector: emitting webhook for kurasi asserts response contains hash 6f82ad81 and mesh URL.",
+            "Verify kusari vector: emitting webhook for kusari asserts response contains hash a0314bec and mesh URL.",
             "Document CLI emitter usage, flags, and CI/CD integration patterns in docs/signalloom/slte-p3-emitter-cli.md.",
             "Implement support for custom environment variables enabling overriding webhook receiver URLs and HMAC secrets.",
             "Add colorful terminal output with emojis and status badges for improved interactive developer experience.",
@@ -300,9 +307,9 @@ ADDITIONS = {
         ],
         "tests": [
             "bash scripts/eap/emit-eap-webhook.sh --help",
-            "bash scripts/eap/emit-eap-webhook.sh github-pr --company kurasi --pr 42 --action opened --dry-run",
-            "bash scripts/eap/emit-eap-webhook.sh generic --company kurasi --action provision --ttl 60 --dry-run",
-            "bash scripts/eap/emit-eap-webhook.sh tamper --company kurasi --pr 42 --action opened --dry-run",
+            "bash scripts/eap/emit-eap-webhook.sh github-pr --company kusari --pr 42 --action opened --dry-run",
+            "bash scripts/eap/emit-eap-webhook.sh generic --company kusari --action provision --ttl 60 --dry-run",
+            "bash scripts/eap/emit-eap-webhook.sh tamper --company kusari --pr 42 --action opened --dry-run",
             "bash scripts/eap/test_emit_eap_webhook.sh"
         ],
         "failureModes": [
@@ -350,7 +357,7 @@ ADDITIONS = {
         "approach": [
             "Create scripts/eap/eap-pr-preview-controller.sh with commands: on-pr-open, on-pr-sync, on-pr-close.",
             "Implement fe-signalloom/src/pr_preview_manager.py with PRPreviewManager class.",
-            "In on-pr-open, derive customer hash (e.g. kurasi -> 6f82ad81) and format preview hostname sl-eap-6f82ad81-pr$PR.",
+            "In on-pr-open, derive customer hash (e.g. kusari -> a0314bec) and format preview hostname sl-eap-a0314bec-pr$PR.",
             "Call environment provisioning API to reserve preview environment with 120-minute lease.",
             "Generate PR comment payload with Markdown table containing preview URLs, credentials, and TTL expiration countdown.",
             "In on-pr-sync, extend TTL and signal deployment orchestrator to refresh preview container images.",
@@ -404,10 +411,10 @@ ADDITIONS = {
     },
     "P4-2": {
         "approach": [
-            "Create fe-signalloom/src/tests/test_kurasi_webhook_lifecycle.py with pytest-asyncio and FastAPI TestClient.",
-            "Implement test_kurasi_webhook_end_to_end_journey executing sequential lifecycle stages.",
-            "Stage 1 (Webhook Ingestion): Emit signed GitHub pull_request.opened event for repo 'kurasi-app'.",
-            "Assert Stage 1: HTTP 200 OK, action_taken=='provisioned', customer_hash=='6f82ad81', hostname=='sl-eap-6f82ad81'.",
+            "Create fe-signalloom/src/tests/test_kusari_webhook_lifecycle.py with pytest-asyncio and FastAPI TestClient.",
+            "Implement test_kusari_webhook_end_to_end_journey executing sequential lifecycle stages.",
+            "Stage 1 (Webhook Ingestion): Emit signed GitHub pull_request.opened event for repo 'kusari-app'.",
+            "Assert Stage 1: HTTP 200 OK, action_taken=='provisioned', customer_hash=='a0314bec', hostname=='sl-eap-a0314bec'.",
             "Stage 2 (Status Probe): GET /api/v1/environments/{id} asserting state is READY and TTL remaining > 0.",
             "Stage 3 (PR Sync): Emit signed pull_request.synchronize event; assert HTTP 200 OK and action_taken=='extended_ttl'.",
             "Stage 4 (PR Closed): Emit signed pull_request.closed event; assert HTTP 200 OK and action_taken=='torn_down'.",
@@ -418,8 +425,8 @@ ADDITIONS = {
             "Implement automated metrics validation asserting that webhook latency histograms record appropriate timings during the test run.",
             "Verify that all test database entries and temporary environment registrations are completely purged upon test completion.",
             "Add continuous execution loop testing 20 sequential lifecycle runs to detect subtle memory leaks or race conditions.",
-            "Assert that environment URLs and MagicDNS hostnames strictly conform to sl-eap-6f82ad81 throughout the entire lifecycle.",
-            "Verify that concurrently arriving webhook events for the kurasi tenant are queued and executed without state corruption.",
+            "Assert that environment URLs and MagicDNS hostnames strictly conform to sl-eap-a0314bec throughout the entire lifecycle.",
+            "Verify that concurrently arriving webhook events for the kusari tenant are queued and executed without state corruption.",
             "Confirm that network connection drops during webhook processing do not leave half-initialized environments.",
             "Document acceptance test harness setup and execution instructions in test runbook.",
             "Execute adversarial timing stress tests measuring signature verification latency under artificial network jitter.",
@@ -430,28 +437,28 @@ ADDITIONS = {
             "Implement test fixtures providing synthetic GitHub webhook event payloads for various pull request actions."
         ],
         "deliverables": [
-            "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kurasi_webhook_lifecycle.py.",
+            "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kusari_webhook_lifecycle.py.",
             "Full lifecycle execution transcript capturing request and response bodies for every step.",
             "Negative security testing fixture asserting fail-closed behavior on tampered signatures.",
             "Idempotent teardown and resource cleanup verification test.",
             "docs/signalloom/slte-p4-acceptance-report.md detailing test results and verification logs.",
             "Automated test run artifact recording memory utilization and execution duration across all test stages.",
-            "Cryptographic assertion fixture confirming strict matching of salted hash 6f82ad81.",
+            "Cryptographic assertion fixture confirming strict matching of salted hash a0314bec.",
             "Concurrency test harness evaluating parallel lifecycle execution under load.",
             "Test runbook detailing acceptance test execution procedures for CI environments.",
             "Adversarial timing jitter analysis report verifying constant-time execution."
         ],
         "tests": [
-            "pytest tests/test_kurasi_webhook_lifecycle.py -v",
-            "pytest tests/test_kurasi_webhook_lifecycle.py -k test_kurasi_webhook_end_to_end_journey -v",
-            "pytest tests/test_kurasi_webhook_lifecycle.py -k test_tampered_signature_rejection -v",
-            "pytest tests/test_kurasi_webhook_lifecycle.py -k test_idempotent_pr_sync -v",
-            "pytest tests/test_kurasi_webhook_lifecycle.py -k test_graceful_teardown_verification -v"
+            "pytest tests/test_kusari_webhook_lifecycle.py -v",
+            "pytest tests/test_kusari_webhook_lifecycle.py -k test_kusari_webhook_end_to_end_journey -v",
+            "pytest tests/test_kusari_webhook_lifecycle.py -k test_tampered_signature_rejection -v",
+            "pytest tests/test_kusari_webhook_lifecycle.py -k test_idempotent_pr_sync -v",
+            "pytest tests/test_kusari_webhook_lifecycle.py -k test_graceful_teardown_verification -v"
         ],
         "failureModes": [
             "Flaky async test timing during webhook event processing assertions.",
             "Failing to clean up temporary test database entries leaving stale state between test runs.",
-            "Asserting against variable hostname formats rather than strict deterministic kurasi hash.",
+            "Asserting against variable hostname formats rather than strict deterministic kusari hash.",
             "Masking genuine server errors through over-broad exception handlers in the test client."
         ]
     },
@@ -459,11 +466,11 @@ ADDITIONS = {
         "approach": [
             "Checkout integration branch integration/slte-v0.1.0 or inspect clean git status.",
             "Execute full test suite in fe-signalloom: unit tests, webhook tests, environment tests, and acceptance tests.",
-            "Execute kurasi webhook acceptance suite asserting 100% green status.",
+            "Execute kusari webhook acceptance suite asserting 100% green status.",
             "Execute shell test suites: test_tailscale_eap_env.sh and related automation scripts.",
             "Audit docs/ to confirm all required documentation files exist, are well-linked, and contain no broken references.",
             "Run scripts/kanban-check.sh doctor --shortcode SLTE to confirm zero unresolved defects or orphaned cards.",
-            "Verify that kurasi canonical hash is strictly 6f82ad81 and mesh URL is https://sl-eap-6f82ad81.tailscale.",
+            "Verify that kusari canonical hash is strictly a0314bec and mesh URL is https://sl-eap-a0314bec.tailscale.",
             "Author final mission certification document in docs/signalloom/slte-mission-complete.md.",
             "Append final Phase 4 Governor errata block to proposal markdown marking SLTE mission fully certified.",
             "Verify that all integration branch commits conform to scope-less conventional commit conventions without exceptions.",
@@ -499,7 +506,7 @@ ADDITIONS = {
         "failureModes": [
             "Declaring mission complete while any acceptance test is mocked rather than fully executed.",
             "Leaving uncommitted temporary files or dirty git worktree state.",
-            "Failing to certify canonical kurasi vector across all operational layers.",
+            "Failing to certify canonical kusari vector across all operational layers.",
             "Merging integration branch with failing unit or acceptance test suites.",
             "Overlooking secret leakage into build logs or container metadata layers."
         ]
@@ -508,6 +515,12 @@ ADDITIONS = {
 }
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Build and optionally apply SLTE card specifications")
+    parser.add_argument("--export", type=str, default=None, help="Export all generated cards to JSON file")
+    parser.add_argument("--no-apply", action="store_true", help="Do not apply cards to Kanban board")
+    args, _ = parser.parse_known_args()
+
     print("Enriching, validating, and generating SLTE card specifications...\n")
     all_ok = True
     processed_specs = {}
@@ -563,6 +576,7 @@ def main():
         processed_specs[lid] = spec
 
         # Write out to card-specs/SLTE/<ID>.v1.json
+        spec = cc.apply_card_contract(spec, repo_root=cc.REPO_ROOT)
         spec_payload = {
             "specCacheVersion": 1,
             "shortcode": "SLTE",
@@ -580,6 +594,23 @@ def main():
 
     print(f"\nSUCCESS: All {len(processed_specs)} SLTE card specifications generated and 100% compliant with SPEC_FLOORS!")
 
+    if args.export:
+        export_p = Path(args.export)
+        export_p.parent.mkdir(parents=True, exist_ok=True)
+        export_payload = {
+            "shortcode": "SLTE",
+            "proposalContractSha256": CONTRACT_SHA,
+            "cachedAt": "2026-09-25T00:00:00Z",
+            "cardCount": len(processed_specs),
+            "cards": processed_specs,
+        }
+        export_p.write_text(json.dumps(export_payload, indent=2), encoding="utf-8")
+        print(f"Staged all {len(processed_specs)} SLTE cards to {args.export}")
+
+    if args.no_apply or args.export:
+        print("\nSkipping application to Kanban board (--no-apply or --export set). Staged for human.")
+        return
+
     # Now apply cards to Kanban board
     print("\nApplying all 17 SLTE cards to Kanban board...")
     cards_meta = [
@@ -596,9 +627,9 @@ def main():
         ("P3-1", "implementation", "Author Envoy Ingress HTTPRoute for public webhook receivers", "L", "daily", None),
         ("P3-2", "implementation", "Build synthetic webhook emitter script (scripts/eap/emit-eap-webhook.sh)", "L", "daily", None),
         ("P3-GOV", "governor", "Certify Phase 3 ingress routes, signature enforcement, and emitter CLI", "M", "deep", "Phase governor certification requires deep reasoning and verification across ingress routing"),
-        ("P4-PRE", "preflight", "Audit kurasi external trigger integration and GitHub Actions pipeline", "S", "daily", None),
+        ("P4-PRE", "preflight", "Audit kusari external trigger integration and GitHub Actions pipeline", "S", "daily", None),
         ("P4-1", "implementation", "Build PR lifecycle automation: create preview on open, teardown on merge", "L", "daily", None),
-        ("P4-2", "implementation", "Build comprehensive acceptance tests for kurasi webhook trigger lifecycle", "L", "daily", None),
+        ("P4-2", "implementation", "Build comprehensive acceptance tests for kusari webhook trigger lifecycle", "L", "daily", None),
         ("P4-GOV", "governor", "Final mission certification: end-to-end webhook-triggered EAP lifecycles", "L", "deep", "Final mission certification requires comprehensive verification across all system components"),
     ]
 

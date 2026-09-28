@@ -12,6 +12,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# EAPR-P1-3: shared card contract — filename-collision refusal and the D1
+# Authorization wire spec carried into every generated card.
+_cc_spec = importlib.util.spec_from_file_location(
+    "_card_contract", str(Path(__file__).resolve().parent / "_card_contract.py"))
+cc = importlib.util.module_from_spec(_cc_spec)
+_cc_spec.loader.exec_module(cc)
+
 # Load prompt-contract
 pc_spec = importlib.util.spec_from_file_location(
     "prompt_contract",
@@ -27,6 +34,11 @@ PROPOSAL_PATH = Path(
     "/home/andy/Documents/Obsidian/v1/2. Areas/CEO/Innovation Proposals/"
     "Proposal — SLED Signal Loom EAP Lifecycle, Heartbeat & Auto-Reaping Daemon (2026-Q3).md"
 )
+if not PROPOSAL_PATH.exists():
+    PROPOSAL_PATH = Path(
+        "/home/andy/src/cp/osramp-demo/docs/"
+        "Proposal — Signal Loom EAP Lifecycle, Heartbeat & Auto-Reaping Daemon (2026-Q3).md"
+    )
 CONTRACT_SHA = hashlib.sha256(PROPOSAL_PATH.read_bytes()).hexdigest()
 
 COMMON_OUT_OF_SCOPE = [
@@ -723,14 +735,14 @@ SPECS["P4-1"] = make_spec(
 SPECS["P4-2"] = make_spec(
     "P4-2", "L", "implementation",
     obj=(
-        "Author comprehensive end-to-end kurasi customer lifecycle attestation integration suite simulating the "
-        "complete lifecycle journey from provisioning to automatic reaping. Verify deterministic salted hash 6f82ad81, "
+        "Author comprehensive end-to-end kusari customer lifecycle attestation integration suite simulating the "
+        "complete lifecycle journey from provisioning to automatic reaping. Verify deterministic salted hash a0314bec, "
         "heartbeat lease renewal, idle activity detection, automated reaping transition to DRAINING, grace period settlement, "
         "4-stage teardown execution, and audit log emission across 10 repeated iterations with zero flakiness."
     ),
     approach=[
         "Author comprehensive end-to-end test journey in tests/test_environment_lifecycle.py.",
-        "Simulate pilot customer kurasi registration, verifying initial state PROVISIONING and 120m TTL.",
+        "Simulate pilot customer kusari registration, verifying initial state PROVISIONING and 120m TTL.",
         "Simulate transition to ACTIVE and verify heartbeat lease renewal extends expiration up to 8h ceiling.",
         "Simulate 35 minutes of inactivity and verify evaluate_reaping transitions state to DRAINING.",
         "Simulate grace period expiration (300 seconds) and verify transition to TERMINATED.",
@@ -741,12 +753,12 @@ SPECS["P4-2"] = make_spec(
         "Assert that total memory footprint during lifecycle simulation remains under 50 MB.",
         "Document end-to-end attestation results in comprehensive evaluation report.",
         "Verify that concurrent execution of multiple customer journeys does not cause state corruption.",
-        "Ensure all assertions strictly validate canonical kurasi salted hash 6f82ad81.",
+        "Ensure all assertions strictly validate canonical kusari salted hash a0314bec.",
         "Author diagnostic verification script for continuous integration pipeline execution.",
         "Confirm that all generated test artifacts adhere to monorepo testing standards."
     ],
     deliverables=[
-        "End-to-end kurasi customer journey integration test suite.",
+        "End-to-end kusari customer journey integration test suite.",
         "Multi-stage lifecycle timing and memory benchmark report.",
         "Attestation certificate certifying 100% lifecycle compliance.",
         "Concurrency resilience test fixture evaluating parallel tenant lifecycles.",
@@ -760,14 +772,14 @@ SPECS["P4-2"] = make_spec(
         "bash scripts/eap/test_tailscale_eap_env.sh"
     ],
     evidence=[
-        "Captured pytest execution log proving 100% pass on 10 repeated iterations of kurasi lifecycle test.",
+        "Captured pytest execution log proving 100% pass on 10 repeated iterations of kusari lifecycle test.",
         "Lifecycle execution timing benchmark artifact confirming sub-second transition latencies.",
         "Errata entry in proposal markdown for SLED-P4-2 with status=pass."
     ],
     failures=[
         "Intermittent test failures caused by timing race conditions or non-deterministic clock checks.",
         "Allowing state leaks between test runs causing subsequent test executions to fail.",
-        "Failing to assert that the canonical salted hash strictly matches 6f82ad81."
+        "Failing to assert that the canonical salted hash strictly matches a0314bec."
     ]
 )
 
@@ -786,7 +798,7 @@ SPECS["P4-GOV"] = make_spec(
         "Review end-to-end test execution transcripts proving complete defense-in-depth across all lifecycle stages.",
         "Verify that cryptographic key shredding, SPIRE pruning, Tailscale eviction, and route unbinding are 100% reliable.",
         "Audit codebase against monorepo coding standards (Python type annotations, clean docstrings, zero warnings).",
-        "Confirm that pilot customer kurasi can seamlessly evaluate the Signal Loom platform with zero state leakage.",
+        "Confirm that pilot customer kusari can seamlessly evaluate the Signal Loom platform with zero state leakage.",
         "Author final mission certification sign-off document in docs/signalloom/sled-mission-certification.md.",
         "Verify that all proposal errata blocks have been updated with status=pass and completion evidence.",
         "Conduct final security code review confirming zero hardcoded credentials or secret leaks in source code.",
@@ -1079,7 +1091,7 @@ ADDITIONS = {
     },
     "P4-2": {
         "approach": [
-            "Initialize end-to-end simulation by provisioning pilot customer kurasi with salted customer hash 6f82ad81.",
+            "Initialize end-to-end simulation by provisioning pilot customer kusari with salted customer hash a0314bec.",
             "Assert that initial environment state is PROVISIONING with lease expiration set exactly 120 minutes in the future.",
             "Advance environment to ACTIVE and assert that Gateway API ingress routes and Tailscale mesh URLs become reachable.",
             "Execute heartbeat request with sixty-minute extension parameter and assert that expires_at timestamp extends accordingly.",
@@ -1094,12 +1106,12 @@ ADDITIONS = {
             "Assert that all emitted audit events contain matching customer_hash, company_name, and causal timestamp ordering.",
             "Repeat complete end-to-end journey across ten sequential iterations asserting zero state leaks or flaky failures.",
             "Measure execution duration of each lifecycle transition and assert that total teardown time is under fifteen seconds.",
-            "Document end-to-end kurasi attestation findings in formal verification report certifying production readiness.",
+            "Document end-to-end kusari attestation findings in formal verification report certifying production readiness.",
             "Author diagnostic script verifying that network sockets are cleanly released after test suite execution completes.",
             "Assert that re-running the test suite against a freshly provisioned cluster executes with identical pass metrics."
         ],
         "deliverables": [
-            "End-to-end kurasi customer lifecycle simulation test suite.",
+            "End-to-end kusari customer lifecycle simulation test suite.",
             "Stage transition duration and latency benchmark report.",
             "Audit event causal ordering validation test fixture.",
             "Production readiness attestation certificate for pilot tenant.",
@@ -1115,7 +1127,7 @@ ADDITIONS = {
             "Conduct comprehensive security review confirming zero plaintext credentials or long-lived tokens exist in the codebase.",
             "Verify that OpenBao transit key shredding and SPIRE workload identity pruning guarantee complete unrecoverability of credentials.",
             "Audit network security posture confirming that Gateway API routes and Tailscale mesh nodes are cleanly deregistered.",
-            "Confirm that pilot customer kurasi can safely evaluate the platform within bounded leases and zero state persistence.",
+            "Confirm that pilot customer kusari can safely evaluate the platform within bounded leases and zero state persistence.",
             "Verify that Prometheus operational metrics and health probes provide complete observability into background daemon health.",
             "Audit git commit history confirming that all changes use scope-less conventional commits and unsigned commit policies.",
             "Verify that all proposal markdown errata entries are updated with status=pass and objective completion evidence.",
@@ -1188,6 +1200,7 @@ def main():
             print(f"[{status}] {lid} ({band} {role}): {m['words']}w, {m['lines']}l, {m['deliverables']}d, {m['tests']}t, {m['distinctLineRatio']}r")
 
         # Write out to card-specs/SLED/<ID>.v1.json
+        spec = cc.apply_card_contract(spec, repo_root=cc.REPO_ROOT)
         spec_payload = {
             "specCacheVersion": 1,
             "shortcode": "SLED",
@@ -1223,7 +1236,7 @@ def main():
         ("P3-GOV", "governor", "Certify Phase 3 complete multi-stage resource cleanup hygiene", "M", "deep", "Phase governor certification requires deep reasoning and verification across resource cleanup hygiene"),
         ("P4-PRE", "preflight", "Audit external webhook notification payloads and delivery retry", "S", "daily", None),
         ("P4-1", "implementation", "Implement outbound webhook dispatch and structured audit emission", "L", "daily", None),
-        ("P4-2", "implementation", "Author comprehensive kurasi lifecycle attestation integration suite", "L", "daily", None),
+        ("P4-2", "implementation", "Author comprehensive kusari lifecycle attestation integration suite", "L", "daily", None),
         ("P4-GOV", "governor", "Final Mission Certification: Full lifecycle & auto-reaping release", "L", "deep", "Final mission certification requires comprehensive verification across all lifecycle and auto-reaping layers"),
     ]
 

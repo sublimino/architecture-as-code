@@ -1,0 +1,168 @@
+{
+  "card": "EAPR-P4-3",
+  "title": "Redefine governor chain and re-certify five EAP boards on evidence",
+  "scaffold_template_commit": "6baa7ff5773de1dc42cf1cfc3c729d91fe691205",
+  "satisfiable_criterion": "A phase governor P<N>-GOV may certify only when every predecessor governor in pass state at HEAD with session evidence; that is, each P<k>-GOV, k<N, of the same shortcode reads status=pass in the proposal at HEAD, has a corroborating task_runs row with exit_code 0 and outputLinesTotal > 0, and has a human reviewer entry in task_run_reviews. A missing or failed predecessor yields SKIP, never N/A.",
+  "tag_only_sunset": "2026-10-07",
+  "sunset_sentence": "From 2026-10-07 advancement on a proposal machine tag alone is refused; done cards whose only evidence is a tag are re-verdicted or withdrawn under D12.",
+  "branch_tips": {
+    "integration/slea-v0.1.0": {
+      "initial": "18c9456d81703e1b78be4d8eb363fe9a5ef2898b",
+      "final": "dfc7e73fb6eb2fc37c527a419c1eecbd9933d50b",
+      "verdict": "P1-P3 Corroborated Pass, P4-GOV Fail"
+    },
+    "integration/slet-v0.1.0": {
+      "initial": "7e837f94ec6efbe04936353982dfb6088fa63286",
+      "final": "9e11502211a261b48167fa69517648cfdab7e71c",
+      "verdict": "P1-P3 Corroborated Pass, P4-GOV Fail"
+    },
+    "integration/sles-v0.1.0": {
+      "initial": "f1b6780e702e761431469649f2e40fef9d868f0b",
+      "final": "f96e00394ddaa1c01bc33db1853729d41dafef5d",
+      "verdict": "P1-P3 Corroborated Pass, P4-GOV Fail"
+    },
+    "integration/sled-v0.1.0": {
+      "initial": "aac53d634fdf75b5c9a502acd2b5be48198ec6fe",
+      "final": "fdded427bb05ac8fd5b88c97af06e8d856422c8c",
+      "verdict": "P1-P4 Corroborated Pass"
+    },
+    "integration/slte-v0.1.0": {
+      "initial": "377058754c9b119d107d6403fb6f02f7227c6fd9",
+      "final": "b6bb5827b252bf1799f9c29bd6e92fd5cfaedb45",
+      "verdict": "P1-P4 Corroborated Pass"
+    }
+  },
+  "governor_runs": {
+    "SLEA": {
+      "P1-GOV": {
+        "task_id": "b1033",
+        "run_id": "run_slea_p1_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P2-GOV": {
+        "task_id": "e09f6",
+        "run_id": "run_slea_p2_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P3-GOV": {
+        "task_id": "d9e40",
+        "run_id": "run_slea_p3_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P4-GOV": {
+        "task_id": "cc2a3",
+        "run_id": "run_slea_p4_gov_001",
+        "verdict": "REJECTED",
+        "exit_code": 1
+      }
+    },
+    "SLET": {
+      "P1-GOV": {
+        "task_id": "05bc0",
+        "run_id": "run_slet_p1_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P2-GOV": {
+        "task_id": "31b19",
+        "run_id": "run_slet_p2_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P3-GOV": {
+        "task_id": "1ad84",
+        "run_id": "run_slet_p3_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P4-GOV": {
+        "task_id": "7744e",
+        "run_id": "run_slet_p4_gov_001",
+        "verdict": "REJECTED",
+        "exit_code": 1
+      }
+    },
+    "SLES": {
+      "P1-GOV": {
+        "task_id": "ea80f",
+        "run_id": "run_sles_p1_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P2-GOV": {
+        "task_id": "d16f3",
+        "run_id": "run_sles_p2_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P3-GOV": {
+        "task_id": "5f58f",
+        "run_id": "run_sles_p3_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P4-GOV": {
+        "task_id": "ade77",
+        "run_id": "run_sles_p4_gov_001",
+        "verdict": "REJECTED",
+        "exit_code": 1
+      }
+    },
+    "SLED": {
+      "P1-GOV": {
+        "task_id": "1189e",
+        "run_id": "run_sled_p1_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P2-GOV": {
+        "task_id": "90790",
+        "run_id": "run_sled_p2_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P3-GOV": {
+        "task_id": "42412",
+        "run_id": "run_sled_p3_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P4-GOV": {
+        "task_id": "255ff",
+        "run_id": "run_sled_p4_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      }
+    },
+    "SLTE": {
+      "P1-GOV": {
+        "task_id": "d7bb0",
+        "run_id": "run_slte_p1_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P2-GOV": {
+        "task_id": "d553f",
+        "run_id": "run_slte_p2_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P3-GOV": {
+        "task_id": "a4c07",
+        "run_id": "run_slte_p3_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      },
+      "P4-GOV": {
+        "task_id": "81c14",
+        "run_id": "run_slte_p4_gov_001",
+        "verdict": "APPROVED",
+        "exit_code": 0
+      }
+    }
+  },
+  "zero_output_governor_rows_count": 0
+}

@@ -14,6 +14,13 @@ import json
 import os
 from pathlib import Path
 
+# EAPR-P1-3: shared card contract — filename-collision refusal and the D1
+# Authorization wire spec carried into every generated card.
+_cc_spec = importlib.util.spec_from_file_location(
+    "_card_contract", str(Path(__file__).resolve().parent / "_card_contract.py"))
+cc = importlib.util.module_from_spec(_cc_spec)
+_cc_spec.loader.exec_module(cc)
+
 # Load prompt-contract spec_metrics
 pc_spec = importlib.util.spec_from_file_location(
     "prompt_contract",
@@ -113,34 +120,34 @@ RAW_SPECS["P1-PRE"] = make_spec(
     obj=(
         "Audit customer hashing salt, DNS label constraints, and Tailscale MagicDNS contracts. "
         "Verify RFC 1123 compliance for generated sl-eap-HASH subdomains, confirm the canonical test vector "
-        "for initial customer 'kurasi', and verify that the proposed cryptographic salt structure prevents "
+        "for initial customer 'kusari', and verify that the proposed cryptographic salt structure prevents "
         "both rainbow table inversion and domain collisions."
     ),
     approach=[
-        "Verify salt derivation contract using default salt 'signalloom-eap-salt-2026-q3' or SIGNAL_LOOM_EAP_SALT.",
-        "Calculate SHA-256('signalloom-eap-salt-2026-q3:kurasi') and confirm truncated 8-character hex prefix '6f82ad81'.",
-        "Validate hostname 'sl-eap-6f82ad81' against RFC 1123 label constraints (lowercase alphanumeric and hyphens, <= 63 chars).",
+        "Verify salt derivation contract using default salt 'test-eap-salt-2026' or SIGNAL_LOOM_EAP_SALT.",
+        "Calculate SHA-256('test-eap-salt-2026:kusari') and confirm truncated 8-character hex prefix 'a0314bec'.",
+        "Validate hostname 'sl-eap-a0314bec' against RFC 1123 label constraints (lowercase alphanumeric and hyphens, <= 63 chars).",
         "Inspect Tailscale Serve and Funnel domain structures ensuring compatibility with *.tailscale and *.ts.net.",
         "Document salt audit findings and canonical hash vector in docs/signalloom/slea-p1-preflight.md."
     ],
     deliverables=[
         "docs/signalloom/slea-p1-preflight.md with cryptographic hash audit and RFC 1123 regex specifications.",
-        "Python script or verification snippet confirming 'kurasi' yields '6f82ad81' under canonical salt.",
+        "Python script or verification snippet confirming 'kusari' yields 'a0314bec' under canonical salt.",
         "Regex validation specification for sl-eap-HASH hostname formats.",
         "Errata block for SLEA-P1-PRE appended to proposal."
     ],
     tests=[
-        "python3 -c \"import hashlib; assert hashlib.sha256(b'signalloom-eap-salt-2026-q3:kurasi').hexdigest()[:8] == '6f82ad81'\"",
+        "python3 -c \"import hashlib; assert hashlib.sha256(b'test-eap-salt-2026:kusari').hexdigest()[:8] == 'a0314bec'\"",
         "test -f docs/signalloom/slea-p1-preflight.md",
         "git status --porcelain"
     ],
     evidence=[
         "docs/signalloom/slea-p1-preflight.md recording verification steps and hash outputs.",
-        "Captured test output showing successful assertion of canonical kurasi vector.",
+        "Captured test output showing successful assertion of canonical kusari vector.",
         "Errata block appended for SLEA-P1-PRE with status=pass."
     ],
     failures=[
-        "Using case-sensitive customer names leading to hash mismatch ('Kurasi' vs 'kurasi'); must lowercase and strip.",
+        "Using case-sensitive customer names leading to hash mismatch ('Kusari' vs 'kusari'); must lowercase and strip.",
         "Omitting salt delimiter leading to collision vulnerabilities (e.g. 'salt' + 'name' vs 'salt:name').",
         "Generating hostname longer than 63 characters violating DNS RFC 1123."
     ]
@@ -157,31 +164,31 @@ RAW_SPECS["P1-1"] = make_spec(
         "(https://sl-eap-{hash}.tailscale) and external MagicDNS FQDN (https://sl-eap-{hash}.ts.net). "
         "Implement validate_environment_subdomain ensuring strict adherence to RFC 1123 DNS standards. "
         "Write comprehensive unit tests in fe-signalloom/src/tests/test_environment_routing.py covering "
-        "the canonical 'kurasi' vector, case normalization, whitespace stripping, and collision resistance."
+        "the canonical 'kusari' vector, case normalization, whitespace stripping, and collision resistance."
     ),
     approach=[
         "Create d2-signalloom/apps/fe-signalloom/src/environment_routing.py if not already present.",
-        "Implement DEFAULT_EAP_SALT = 'signalloom-eap-salt-2026-q3' with os.getenv('SIGNAL_LOOM_EAP_SALT') override.",
+        "Implement DEFAULT_EAP_SALT = 'test-eap-salt-2026' with os.getenv('SIGNAL_LOOM_EAP_SALT') override.",
         "Define derive_customer_hash(company_name: str, salt: str | None = None) -> str with lowercasing and strip.",
         "Enforce format f'{salt}:{normalized_company}' before computing SHA-256 digest and truncating to 8 hex chars.",
         "Implement build_environment_urls(hash_val: str) -> dict[str, str] returning internal_mesh and external_fqdn.",
         "Implement validate_environment_subdomain(subdomain: str) -> bool matching ^sl-eap-[a-f0-9]{8}$.",
         "Implement resolve_company_to_urls(company_name: str, salt: str | None = None) -> dict[str, str] helper.",
-        "Add unit tests in tests/test_environment_routing.py verifying that 'kurasi' strictly resolves to '6f82ad81'.",
+        "Add unit tests in tests/test_environment_routing.py verifying that 'kusari' strictly resolves to 'a0314bec'.",
         "Add unit tests testing edge cases: company names with uppercase letters, leading/trailing whitespace, and symbols.",
         "Add collision resistance tests hashing 1,000 synthetic company names ensuring zero 8-char collisions in test suite.",
         "Document hashing algorithm and cryptographic rationale in docs/signalloom/slea-p1-hashing-engine.md."
     ],
     deliverables=[
         "d2-signalloom/apps/fe-signalloom/src/environment_routing.py with derive_customer_hash and URL generators.",
-        "fe-signalloom/src/tests/test_environment_routing.py with unit tests for canonical kurasi vector and normalization.",
+        "fe-signalloom/src/tests/test_environment_routing.py with unit tests for canonical kusari vector and normalization.",
         "Collision resistance test suite verifying uniqueness across sample enterprise customer rosters.",
         "RFC 1123 hostname validation function and corresponding negative test cases.",
         "docs/signalloom/slea-p1-hashing-engine.md documenting the cryptographic hashing and URL generation specifications.",
         "Append-only errata entry for SLEA-P1-1 in proposal markdown."
     ],
     tests=[
-        "pytest tests/test_environment_routing.py -k test_derive_customer_hash_kurasi -v",
+        "pytest tests/test_environment_routing.py -k test_derive_customer_hash_kusari -v",
         "pytest tests/test_environment_routing.py -k test_build_environment_urls -v",
         "pytest tests/test_environment_routing.py -k test_validate_environment_subdomain -v",
         "pytest tests/test_environment_routing.py -k test_hash_collision_resistance -v",
@@ -189,12 +196,12 @@ RAW_SPECS["P1-1"] = make_spec(
     ],
     evidence=[
         "Captured pytest execution log demonstrating 100% pass on hashing and URL generator tests.",
-        "Assertion output showing kurasi yields exactly 6f82ad81 and https://sl-eap-6f82ad81.tailscale.",
+        "Assertion output showing kusari yields exactly a0314bec and https://sl-eap-a0314bec.tailscale.",
         "docs/signalloom/slea-p1-hashing-engine.md with complete function signatures and docstrings.",
         "Errata block appended for SLEA-P1-1 with status=pass."
     ],
     failures=[
-        "Modifying company name casing without normalization, causing different URLs for Kurasi vs kurasi.",
+        "Modifying company name casing without normalization, causing different URLs for Kusari vs kusari.",
         "Truncating hash to fewer than 8 characters increasing collision probability in multi-tenant fleets.",
         "Using non-hex characters or uppercase letters in URL hostnames violating RFC 1123.",
         "Hardcoding the salt string directly in call sites rather than using centralized constant and env var fallback.",
@@ -260,7 +267,7 @@ RAW_SPECS["P1-2"] = make_spec(
 RAW_SPECS["P1-GOV"] = make_spec(
     "P1-GOV", "M", "governor",
     obj=(
-        "Phase 1 Governor Certification: independently verify customer hashing contracts, canonical kurasi "
+        "Phase 1 Governor Certification: independently verify customer hashing contracts, canonical kusari "
         "vector, domain generation rules, and data model validations. Audit the integration of environment_routing.py, "
         "confirm that 100 random company test vectors produce zero domain collisions, verify RFC 1123 compliance, "
         "and certify that Phase 1 deliverables meet all architectural standards. Reconcile all Phase 1 commits, "
@@ -268,8 +275,8 @@ RAW_SPECS["P1-GOV"] = make_spec(
     ),
     approach=[
         "Checkout dedicated Governor worktree or review integration branch integration/slea-v0.1.0.",
-        "Execute automated kurasi verification check asserting exact match with 6f82ad81 and https://sl-eap-6f82ad81.tailscale.",
-        "Run collision simulation against 1,000 enterprise company names with salt signalloom-eap-salt-2026-q3.",
+        "Execute automated kusari verification check asserting exact match with a0314bec and https://sl-eap-a0314bec.tailscale.",
+        "Run collision simulation against 1,000 enterprise company names with salt test-eap-salt-2026.",
         "Review Pydantic schemas in environment_routing.py for input sanitization and security boundaries.",
         "Confirm that zero uncommitted files or linting violations exist across the codebase.",
         "Run kanban-check doctor to assert graph integrity and verify zero orphaned or degraded cards.",
@@ -278,13 +285,13 @@ RAW_SPECS["P1-GOV"] = make_spec(
     ],
     deliverables=[
         "docs/signalloom/slea-p1-certification.md certifying Phase 1 hashing and data model completion.",
-        "Automated governor verification script validating kurasi canonical vector and RFC 1123 compliance.",
+        "Automated governor verification script validating kusari canonical vector and RFC 1123 compliance.",
         "Clean doctor check report from kanban-check confirming zero board defects.",
         "Updated integration branch merging SLEA-P1-1 and SLEA-P1-2 commits.",
         "Phase 1 Governor errata block appended to proposal markdown with status=pass."
     ],
     tests=[
-        "python3 -c \"from environment_routing import derive_customer_hash, build_environment_urls; assert derive_customer_hash('kurasi') == '6f82ad81'\"",
+        "python3 -c \"from environment_routing import derive_customer_hash, build_environment_urls; assert derive_customer_hash('kusari') == 'a0314bec'\"",
         "pytest tests/test_environment_routing.py tests/test_environment_models.py -v",
         "~/.claude/skills/ajm-auto-kanban/Tools/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLEA"
     ],
@@ -295,8 +302,8 @@ RAW_SPECS["P1-GOV"] = make_spec(
         "Errata block appended for SLEA-P1-GOV with status=pass."
     ],
     failures=[
-        "Certifying Phase 1 while canonical vector kurasi yields any value other than 6f82ad81.",
-        "Overlooking case sensitivity bugs where Kurasi and kurasi generate divergent hashes.",
+        "Certifying Phase 1 while canonical vector kusari yields any value other than a0314bec.",
+        "Overlooking case sensitivity bugs where Kusari and kusari generate divergent hashes.",
         "Allowing dirty working tree or unmerged branch artifacts into the integration baseline.",
         "Failing to document cryptographic parameters in the certification report."
     ]
@@ -347,7 +354,7 @@ RAW_SPECS["P2-1"] = make_spec(
     obj=(
         "Implement the core environment provisioning and domain resolution REST endpoints in "
         "d2-signalloom/apps/fe-signalloom/src/environment_routing.py. Build POST /api/v1/environments/provision "
-        "which accepts a ProvisionRequest, validates input, derives customer hash (e.g. 6f82ad81 for kurasi), "
+        "which accepts a ProvisionRequest, validates input, derives customer hash (e.g. a0314bec for kusari), "
         "computes internal mesh and external FQDN URLs, initializes environment state to PROVISIONING, registers the "
         "environment in the thread-safe registry, and returns HTTP 201 Created with EnvironmentResponse. "
         "Build POST /api/v1/environments/resolve-domain which accepts a DomainResolutionRequest (by company_name "
@@ -368,7 +375,7 @@ RAW_SPECS["P2-1"] = make_spec(
         "Implement install_environment_routing_api(app: FastAPI) -> None function to mount the router.",
         "Update fe-signalloom/src/main.py to call install_environment_routing_api during application initialization.",
         "Write comprehensive FastAPI TestClient test suite in fe-signalloom/src/tests/test_environment_api.py.",
-        "Test POST /provision with canonical 'kurasi' vector asserting 201 Created, hash '6f82ad81', and URL 'https://sl-eap-6f82ad81.tailscale'.",
+        "Test POST /provision with canonical 'kusari' vector asserting 201 Created, hash 'a0314bec', and URL 'https://sl-eap-a0314bec.tailscale'.",
         "Test duplicate provisioning attempts asserting 409 Conflict.",
         "Test malformed company names and negative TTL values asserting appropriate 400/422 status codes.",
         "Document API contract, request/response examples, and OpenAPI schemas in docs/signalloom/slea-p2-api-endpoints.md."
@@ -377,13 +384,13 @@ RAW_SPECS["P2-1"] = make_spec(
         "FastAPI router in fe-signalloom/src/environment_routing.py implementing /provision and /resolve-domain.",
         "Router installation helper install_environment_routing_api wired into fe-signalloom/src/main.py.",
         "Comprehensive API test suite in fe-signalloom/src/tests/test_environment_api.py with 100% endpoint coverage.",
-        "Kurasi verification API test asserting exact 201 Created response with hash 6f82ad81 and mesh URL.",
+        "Kusari verification API test asserting exact 201 Created response with hash a0314bec and mesh URL.",
         "Error handling test cases covering 400, 409, and 422 HTTP status codes.",
         "docs/signalloom/slea-p2-api-endpoints.md detailing OpenAPI schemas and curl request examples.",
         "Append-only errata entry for SLEA-P2-1 in proposal markdown."
     ],
     tests=[
-        "pytest tests/test_environment_api.py -k test_provision_kurasi_success -v",
+        "pytest tests/test_environment_api.py -k test_provision_kusari_success -v",
         "pytest tests/test_environment_api.py -k test_provision_duplicate_conflict -v",
         "pytest tests/test_environment_api.py -k test_resolve_domain_by_name -v",
         "pytest tests/test_environment_api.py -k test_resolve_domain_by_hash -v",
@@ -392,7 +399,7 @@ RAW_SPECS["P2-1"] = make_spec(
     ],
     evidence=[
         "Captured pytest execution log demonstrating 100% pass on /provision and /resolve-domain endpoints.",
-        "HTTP response transcript proving kurasi provisions to sl-eap-6f82ad81 with HTTP 201.",
+        "HTTP response transcript proving kusari provisions to sl-eap-a0314bec with HTTP 201.",
         "docs/signalloom/slea-p2-api-endpoints.md with complete OpenAPI specification extracts.",
         "Errata block appended for SLEA-P2-1 with status=pass."
     ],
@@ -452,7 +459,7 @@ RAW_SPECS["P2-2"] = make_spec(
     ],
     evidence=[
         "Captured pytest execution log demonstrating 100% pass across all lifecycle endpoints.",
-        "Execution trace showing successful extension of kurasi environment TTL followed by clean teardown.",
+        "Execution trace showing successful extension of kusari environment TTL followed by clean teardown.",
         "docs/signalloom/slea-p2-lifecycle-api.md with complete API documentation.",
         "Errata block appended for SLEA-P2-2 with status=pass."
     ],
@@ -472,7 +479,7 @@ RAW_SPECS["P2-GOV"] = make_spec(
         "Phase 2 Governor Certification: independently verify all REST API endpoints for on-demand environment "
         "provisioning, domain resolution, and lifecycle management. Audit OpenAPI schema generation, verify HTTP status "
         "code contracts (200, 201, 400, 404, 409, 422), test concurrent provisioning requests for thread safety, and "
-        "confirm that the kurasi canonical vector provisions and resolves flawlessly. Reconcile all Phase 2 code into the "
+        "confirm that the kusari canonical vector provisions and resolves flawlessly. Reconcile all Phase 2 code into the "
         "integration branch, run the full test suite, author certification documentation, and certify readiness for "
         "Phase 3 Tailscale and Envoy Ingress automation."
     ),
@@ -481,7 +488,7 @@ RAW_SPECS["P2-GOV"] = make_spec(
         "Execute full test suite across fe-signalloom ensuring 100% pass with zero regressions.",
         "Run concurrent provisioning stress test issuing 50 simulated parallel requests to verify registry thread safety.",
         "Audit OpenAPI schema generated at /openapi.json ensuring accurate type definitions and status codes.",
-        "Verify that kurasi canonical vector correctly yields https://sl-eap-6f82ad81.tailscale via API call.",
+        "Verify that kusari canonical vector correctly yields https://sl-eap-a0314bec.tailscale via API call.",
         "Check kanban board health with kanban-check doctor ensuring zero anomalies.",
         "Author Phase 2 certification document in docs/signalloom/slea-p2-certification.md.",
         "Append qualified Phase 2 completion errata block to proposal markdown."
@@ -576,19 +583,19 @@ RAW_SPECS["P3-1"] = make_spec(
         "In status, parse and display JSON status including IPv4, IPv6, MagicDNS FQDN, and serve backends.",
         "In teardown, execute tailscale serve reset, tailscale funnel reset, and tailscale logout idempotently.",
         "Create scripts/eap/test_tailscale_eap_env.sh testing all subcommands under TAILSCALE_MOCK=1.",
-        "Verify kurasi vector: 'tailscale-eap-env.sh hash kurasi' prints '6f82ad81' and hostname 'sl-eap-6f82ad81'.",
+        "Verify kusari vector: 'tailscale-eap-env.sh hash kusari' prints 'a0314bec' and hostname 'sl-eap-a0314bec'.",
         "Document script CLI syntax, environment variables, and mock harness in docs/signalloom/slea-p3-tailscale-script.md."
     ],
     deliverables=[
         "Production-grade CLI automation script in scripts/eap/tailscale-eap-env.sh with complete subcommand suite.",
         "TAILSCALE_MOCK=1 mock engine enabling deterministic local and CI verification without root privileges.",
         "Comprehensive shell test suite in scripts/eap/test_tailscale_eap_env.sh verifying all CLI subcommands.",
-        "Kurasi hash verification check in test script asserting 6f82ad81 output.",
+        "Kusari hash verification check in test script asserting a0314bec output.",
         "docs/signalloom/slea-p3-tailscale-script.md detailing CLI usage, environment variables, and operational runbooks.",
         "Append-only errata entry for SLEA-P3-1 in proposal markdown."
     ],
     tests=[
-        "bash scripts/eap/test_tailscale_eap_env.sh -k test_hash_kurasi",
+        "bash scripts/eap/test_tailscale_eap_env.sh -k test_hash_kusari",
         "bash scripts/eap/test_tailscale_eap_env.sh -k test_mock_provision",
         "bash scripts/eap/test_tailscale_eap_env.sh -k test_mock_serve",
         "bash scripts/eap/test_tailscale_eap_env.sh -k test_mock_status",
@@ -597,7 +604,7 @@ RAW_SPECS["P3-1"] = make_spec(
     ],
     evidence=[
         "Captured test output showing 100% pass across all shell test suite assertions.",
-        "Execution trace of tailscale-eap-env.sh hash kurasi outputting 6f82ad81.",
+        "Execution trace of tailscale-eap-env.sh hash kusari outputting a0314bec.",
         "docs/signalloom/slea-p3-tailscale-script.md with complete CLI documentation.",
         "Errata block appended for SLEA-P3-1 with status=pass."
     ],
@@ -639,13 +646,13 @@ RAW_SPECS["P3-2"] = make_spec(
         "d2-infra/components/ingress/eap-httproute-template.yaml defining multi-tenant HTTPRoute rules.",
         "scripts/eap/reconcile-eap-ingress.sh automation script for dynamic route and Dex origin reconciliation.",
         "scripts/eap/test_reconcile_eap_ingress.sh testing manifest rendering and idempotency.",
-        "Rendered HTTPRoute manifest fixture for customer 'kurasi' (sl-eap-6f82ad81).",
+        "Rendered HTTPRoute manifest fixture for customer 'kusari' (sl-eap-a0314bec).",
         "Dex OIDC callback origin leasing integration helper.",
         "docs/signalloom/slea-p3-ingress-routing.md documenting routing topology and security boundaries.",
         "Append-only errata entry for SLEA-P3-2 in proposal markdown."
     ],
     tests=[
-        "bash scripts/eap/test_reconcile_eap_ingress.sh -k test_render_kurasi_route",
+        "bash scripts/eap/test_reconcile_eap_ingress.sh -k test_render_kusari_route",
         "bash scripts/eap/test_reconcile_eap_ingress.sh -k test_apply_route_mock",
         "bash scripts/eap/test_reconcile_eap_ingress.sh -k test_delete_route_mock",
         "bash scripts/eap/test_reconcile_eap_ingress.sh -k test_dex_origin_lease",
@@ -653,7 +660,7 @@ RAW_SPECS["P3-2"] = make_spec(
     ],
     evidence=[
         "Captured test output showing 100% pass across ingress reconciliation test cases.",
-        "Rendered YAML manifest proving valid Envoy HTTPRoute configuration for sl-eap-6f82ad81.",
+        "Rendered YAML manifest proving valid Envoy HTTPRoute configuration for sl-eap-a0314bec.",
         "docs/signalloom/slea-p3-ingress-routing.md with complete routing architecture diagrams.",
         "Errata block appended for SLEA-P3-2 with status=pass."
     ],
@@ -672,15 +679,15 @@ RAW_SPECS["P3-GOV"] = make_spec(
     obj=(
         "Phase 3 Governor Certification: independently verify Tailscale EAP automation scripts, Envoy Ingress HTTPRoute "
         "templates, and Dex dynamic redirect origin reconciliation. Audit script error handling under failure conditions "
-        "(daemon offline, network unreachable, invalid auth keys), verify that kurasi environment routing manifests render "
-        "with correct hostnames (sl-eap-6f82ad81), and test teardown cleanup to ensure zero orphaned routes or leaked nodes. "
+        "(daemon offline, network unreachable, invalid auth keys), verify that kusari environment routing manifests render "
+        "with correct hostnames (sl-eap-a0314bec), and test teardown cleanup to ensure zero orphaned routes or leaked nodes. "
         "Reconcile Phase 3 deliverables into the integration branch, run all shell and Python test suites, author certification "
         "documentation, and certify readiness for Phase 4 end-to-end acceptance testing."
     ),
     approach=[
         "Review git diff of all Phase 3 scripts, manifests, and documentation.",
         "Execute scripts/eap/test_tailscale_eap_env.sh and scripts/eap/test_reconcile_eap_ingress.sh in full.",
-        "Execute kurasi routing dry-run asserting that rendered HTTPRoute exactly matches sl-eap-6f82ad81.",
+        "Execute kusari routing dry-run asserting that rendered HTTPRoute exactly matches sl-eap-a0314bec.",
         "Audit shell scripts for safe error handling, quoting, and absence of hardcoded secrets.",
         "Verify kanban board doctor status ensuring zero graph anomalies or orphaned cards.",
         "Author Phase 3 certification report in docs/signalloom/slea-p3-certification.md.",
@@ -688,7 +695,7 @@ RAW_SPECS["P3-GOV"] = make_spec(
     ],
     deliverables=[
         "docs/signalloom/slea-p3-certification.md certifying Phase 3 Tailscale and Envoy Ingress automation.",
-        "Automated governor verification script executing end-to-end dry-run for kurasi routing.",
+        "Automated governor verification script executing end-to-end dry-run for kusari routing.",
         "Captured test output demonstrating 100% pass across all Phase 3 test suites.",
         "Clean kanban-check doctor verification report.",
         "Phase 3 Governor errata block appended to proposal markdown with status=pass."
@@ -717,7 +724,7 @@ RAW_SPECS["P4-PRE"] = make_spec(
     "P4-PRE", "S", "preflight",
     obj=(
         "Audit tenant namespace templates, Flux ResourceSets, and teardown cleanup guards for on-demand EAP environments. "
-        "Verify how tenant namespaces (e.g. eap-6f82ad81) are isolated using Kubernetes NetworkPolicies, verify resource "
+        "Verify how tenant namespaces (e.g. eap-a0314bec) are isolated using Kubernetes NetworkPolicies, verify resource "
         "quotas preventing CPU/memory exhaustion, and check teardown garbage collection rules to guarantee complete removal "
         "of all ephemeral resources upon environment expiration."
     ),
@@ -813,21 +820,21 @@ RAW_SPECS["P4-1"] = make_spec(
 RAW_SPECS["P4-2"] = make_spec(
     "P4-2", "L", "implementation",
     obj=(
-        "Build comprehensive end-to-end acceptance test suite for customer 'kurasi' EAP environment lifecycle in "
-        "fe-signalloom/src/tests/test_kurasi_eap_lifecycle.py. Validate the entire customer journey from initial "
+        "Build comprehensive end-to-end acceptance test suite for customer 'kusari' EAP environment lifecycle in "
+        "fe-signalloom/src/tests/test_kusari_eap_lifecycle.py. Validate the entire customer journey from initial "
         "provisioning to domain resolution, health probing, TTL extension, and automated teardown. Assert that the "
-        "initial provisioning request for company 'kurasi' yields HTTP 201 Created, hash '6f82ad81', internal mesh "
-        "URL 'https://sl-eap-6f82ad81.tailscale', and external MagicDNS FQDN 'https://sl-eap-6f82ad81.ts.net'. Assert that "
+        "initial provisioning request for company 'kusari' yields HTTP 201 Created, hash 'a0314bec', internal mesh "
+        "URL 'https://sl-eap-a0314bec.tailscale', and external MagicDNS FQDN 'https://sl-eap-a0314bec.ts.net'. Assert that "
         "resolving domain by company name or hash returns identical URLs. Test TTL extension by adding 120 minutes, "
         "verifying updated expires_at. Test teardown request asserting state progression to TERMINATED. Verify complete "
         "idempotency, clean state reset, and zero orphaned test artifacts."
     ),
     approach=[
-        "Create fe-signalloom/src/tests/test_kurasi_eap_lifecycle.py with pytest-asyncio and FastAPI TestClient.",
-        "Implement test_kurasi_full_lifecycle executing sequential steps: provision -> resolve -> probe -> extend -> teardown.",
-        "Step 1 (Provision): POST /api/v1/environments/provision with company_name='kurasi', ttl_minutes=180.",
-        "Verify Step 1: HTTP 201 Created, customer_hash=='6f82ad81', internal_mesh_url=='https://sl-eap-6f82ad81.tailscale'.",
-        "Step 2 (Resolve Domain): POST /api/v1/environments/resolve-domain with company_name='kurasi'.",
+        "Create fe-signalloom/src/tests/test_kusari_eap_lifecycle.py with pytest-asyncio and FastAPI TestClient.",
+        "Implement test_kusari_full_lifecycle executing sequential steps: provision -> resolve -> probe -> extend -> teardown.",
+        "Step 1 (Provision): POST /api/v1/environments/provision with company_name='kusari', ttl_minutes=180.",
+        "Verify Step 1: HTTP 201 Created, customer_hash=='a0314bec', internal_mesh_url=='https://sl-eap-a0314bec.tailscale'.",
+        "Step 2 (Resolve Domain): POST /api/v1/environments/resolve-domain with company_name='kusari'.",
         "Verify Step 2: HTTP 200 OK, identical URLs returned matching Step 1.",
         "Step 3 (Get Status): GET /api/v1/environments/{id} asserting state is PROVISIONING or READY.",
         "Step 4 (Extend TTL): POST /api/v1/environments/{id}/extend with additional_minutes=120.",
@@ -838,24 +845,24 @@ RAW_SPECS["P4-2"] = make_spec(
         "Write acceptance report in docs/signalloom/slea-p4-acceptance-report.md documenting complete lifecycle run."
     ],
     deliverables=[
-        "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kurasi_eap_lifecycle.py.",
-        "Automated kurasi canonical verification fixture asserting hash 6f82ad81 across all layers.",
+        "End-to-end acceptance test suite in fe-signalloom/src/tests/test_kusari_eap_lifecycle.py.",
+        "Automated kusari canonical verification fixture asserting hash a0314bec across all layers.",
         "Complete lifecycle execution transcript capturing request and response bodies for every step.",
         "Idempotent teardown and cleanup verification test.",
         "docs/signalloom/slea-p4-acceptance-report.md detailing test results and verification logs.",
         "Append-only errata entry for SLEA-P4-2 in proposal markdown."
     ],
     tests=[
-        "pytest tests/test_kurasi_eap_lifecycle.py -k test_kurasi_full_lifecycle -v",
-        "pytest tests/test_kurasi_eap_lifecycle.py -k test_kurasi_canonical_hash_strict -v",
-        "pytest tests/test_kurasi_eap_lifecycle.py -k test_kurasi_extend_and_teardown -v",
-        "pytest tests/test_kurasi_eap_lifecycle.py -k test_kurasi_teardown_idempotency -v",
-        "pytest tests/test_kurasi_eap_lifecycle.py -v",
+        "pytest tests/test_kusari_eap_lifecycle.py -k test_kusari_full_lifecycle -v",
+        "pytest tests/test_kusari_eap_lifecycle.py -k test_kusari_canonical_hash_strict -v",
+        "pytest tests/test_kusari_eap_lifecycle.py -k test_kusari_extend_and_teardown -v",
+        "pytest tests/test_kusari_eap_lifecycle.py -k test_kusari_teardown_idempotency -v",
+        "pytest tests/test_kusari_eap_lifecycle.py -v",
         "pytest tests/ -v"
     ],
     evidence=[
-        "Captured pytest execution log demonstrating 100% pass on kurasi end-to-end acceptance suite.",
-        "Full JSON trace of kurasi environment lifecycle states from provision to termination.",
+        "Captured pytest execution log demonstrating 100% pass on kusari end-to-end acceptance suite.",
+        "Full JSON trace of kusari environment lifecycle states from provision to termination.",
         "docs/signalloom/slea-p4-acceptance-report.md with complete test output citations.",
         "Errata block appended for SLEA-P4-2 with status=pass."
     ],
@@ -863,7 +870,7 @@ RAW_SPECS["P4-2"] = make_spec(
         "Flaky async test timing during TTL countdown or expiration assertions.",
         "Failing to clean up temporary test database entries leaving stale state between test runs.",
         "Asserting non-deterministic timestamps rather than relative deltas.",
-        "Failing to assert exact match on canonical hash 6f82ad81.",
+        "Failing to assert exact match on canonical hash a0314bec.",
         "Leaving mock files in /tmp after acceptance test execution."
     ]
 )
@@ -873,7 +880,7 @@ RAW_SPECS["P4-GOV"] = make_spec(
     "P4-GOV", "L", "governor",
     obj=(
         "Final Mission Certification for SLEA: execute comprehensive independent verification of the entire on-demand "
-        "EAP environment routing, Tailscale provisioning engine, and customer 'kurasi' lifecycle. Audit code quality, test "
+        "EAP environment routing, Tailscale provisioning engine, and customer 'kusari' lifecycle. Audit code quality, test "
         "coverage, documentation completeness, API wire contracts, and architectural compliance across the entire monorepo. "
         "Confirm that 100% of tests pass across all Python, shell, and acceptance suites with zero regressions. Verify that "
         "the kanban board doctor check passes with zero defects. Author the final mission certification report in "
@@ -883,11 +890,11 @@ RAW_SPECS["P4-GOV"] = make_spec(
     approach=[
         "Checkout integration branch integration/slea-v0.1.0 or inspect clean git status.",
         "Execute the entire test suite in fe-signalloom: unit tests, API tests, lifecycle tests, and reconciler tests.",
-        "Execute kurasi acceptance suite in test_kurasi_eap_lifecycle.py asserting 100% green status.",
+        "Execute kusari acceptance suite in test_kusari_eap_lifecycle.py asserting 100% green status.",
         "Execute shell test suites: test_tailscale_eap_env.sh and test_reconcile_eap_ingress.sh.",
         "Audit docs/ to confirm all required documentation files exist, are well-linked, and contain no broken references.",
         "Run scripts/kanban-check.sh doctor --shortcode SLEA to confirm zero unresolved defects or orphaned cards.",
-        "Verify that kurasi canonical hash is strictly 6f82ad81 and mesh URL is https://sl-eap-6f82ad81.tailscale.",
+        "Verify that kusari canonical hash is strictly a0314bec and mesh URL is https://sl-eap-a0314bec.tailscale.",
         "Author final mission certification document in docs/signalloom/slea-mission-complete.md.",
         "Append final Phase 4 Governor errata block to proposal markdown marking SLEA mission fully certified."
     ],
@@ -901,7 +908,7 @@ RAW_SPECS["P4-GOV"] = make_spec(
         "docs/signalloom/slea-architecture-summary.md summarizing the new EAP provisioning capabilities."
     ],
     tests=[
-        "pytest tests/test_kurasi_eap_lifecycle.py -v",
+        "pytest tests/test_kusari_eap_lifecycle.py -v",
         "pytest tests/test_environment_routing.py tests/test_environment_api.py -v",
         "bash scripts/eap/test_tailscale_eap_env.sh",
         "bash scripts/eap/test_reconcile_eap_ingress.sh",
@@ -916,7 +923,7 @@ RAW_SPECS["P4-GOV"] = make_spec(
     failures=[
         "Declaring mission complete while any acceptance test is mocked rather than fully executed.",
         "Leaving uncommitted temporary files or dirty git worktree state.",
-        "Failing to certify canonical kurasi vector across all operational layers.",
+        "Failing to certify canonical kusari vector across all operational layers.",
         "Overlooking broken links or incomplete documentation in docs/signalloom/."
     ]
 )
@@ -967,6 +974,7 @@ def main():
             print(f"[{status}] {lid} ({band} {role}): {m['words']}w, {m['lines']}l, {m['deliverables']}d, {m['tests']}t, {m['distinctLineRatio']}r")
 
         # Write to disk
+        card_spec = cc.apply_card_contract(card_spec, repo_root=cc.REPO_ROOT)
         spec_payload = {
             "specCacheVersion": 1,
             "shortcode": "SLEA",

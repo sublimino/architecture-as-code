@@ -50,6 +50,7 @@ import {
   useDismissable,
   useReturnFocus,
 } from './primitives'
+import { NotificationBell } from '../NotificationBell'
 
 /** Shared by every panel that hangs off a header: same elevation, same edge. */
 const panelStyle: React.CSSProperties = {
@@ -270,6 +271,7 @@ export function CommandBarHeader() {
           <UnreadPill count={unread} testId="dsh-command-unread-count" />
           unread
         </button>
+        <NotificationBell />
         <Avatar initial={OPERATOR.initial} size={24} />
       </div>
     </HeaderFrame>
@@ -388,6 +390,7 @@ export function ContextBarHeader() {
             <ChevronIcon open={expanded} />
           </button>
 
+          <NotificationBell />
           <a className="dsh-link" href="/audit" data-testid="dsh-context-elsewhere" style={{ fontSize: 11, color: 'var(--muted)' }}>
             {elsewhere} elsewhere
           </a>
@@ -596,6 +599,7 @@ export function OperationsHeader() {
           )}
         </div>
 
+        <NotificationBell />
         <Avatar initial={OPERATOR.initial} size={26} />
       </div>
     </HeaderFrame>
@@ -661,6 +665,7 @@ export function QuietHeader({ alerts }: { alerts: HeaderAlert[] }) {
           </span>
         )}
 
+        <NotificationBell />
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
           <Avatar initial={OPERATOR.initial} size={24} />
           <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{OPERATOR.name}</span>
@@ -784,6 +789,7 @@ export function SituationHeader() {
           <div data-testid="dsh-situation-rest" style={{ ...headerRowStyle, height: 38 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Agent Posture</span>
             <span style={{ flex: 1 }} />
+            <NotificationBell />
             <SeverityTag severity="info" />
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>All clear</span>
           </div>

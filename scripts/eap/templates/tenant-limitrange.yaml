@@ -1,0 +1,25 @@
+# FLUX ENVSUBST: NO — Dynamic script or EAP reconciler renders variables at runtime.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: tenant-limits
+  namespace: ${EAP_NAMESPACE}
+  labels:
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.io/eap-hash: "${EAP_HASH}"
+    signalloom.io/customer: "${EAP_CUSTOMER}"
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "2"
+        memory: 2Gi
+      min:
+        cpu: 10m
+        memory: 32Mi

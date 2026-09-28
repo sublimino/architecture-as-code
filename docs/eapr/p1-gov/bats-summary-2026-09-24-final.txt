@@ -1,0 +1,22 @@
+EAPR-P1-GOV fifteen-suite BATS certification run
+Captured: 2026-09-24 12:24:00-05:00
+
+SUMMARY expected=380 executed=380 passed=380 failed=0 skipped=0 runner_rc=0
+
+Per-suite bats --count:
+4 ajm-auto-kanban-capacity.bats
+36 ajm-auto-kanban-contract.bats
+3 ajm-auto-kanban-helper-capacity.bats
+24 ajm-auto-kanban-mission-key.bats
+44 ajm-auto-kanban-state.bats
+7 ajm-auto-kanban-subscription-balancing.bats
+50 ajm-cline-kanban-mutation-gates.bats
+26 ajm-cline-kanban-prompt-contracts.bats
+51 ajm-cline-kanban-prompt-cron.bats
+87 ajm-cline-kanban-proposal-to-card.bats
+10 ajm-cline-kanban-shortcode.bats
+2 ajm-cline-kanban-state-oscillation.bats
+15 ajm-cline-kanban-trash-residue.bats
+9 kanban-check-prompt.bats
+12 kanban-max-arg-strlen.bats
+TOTAL 380

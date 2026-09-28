@@ -12,6 +12,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# EAPR-P1-3: shared card contract — filename-collision refusal and the D1
+# Authorization wire spec carried into every generated card.
+_cc_spec = importlib.util.spec_from_file_location(
+    "_card_contract", str(Path(__file__).resolve().parent / "_card_contract.py"))
+cc = importlib.util.module_from_spec(_cc_spec)
+_cc_spec.loader.exec_module(cc)
+
 # Load prompt-contract
 pc_spec = importlib.util.spec_from_file_location(
     "prompt_contract",
@@ -146,8 +153,8 @@ SPECS["P1-1"] = make_spec(
     obj=(
         "Implement baseline coding agent telemetry event generator in fe-signalloom/src/scenario_seeding.py. "
         "Author generate_baseline_agent_events function producing realistic coding agent workflow events "
-        "(planning, code synthesis, test execution) tagged with canonical tenant metadata (customer_hash: 6f82ad81, "
-        "namespace: eap-6f82ad81, SPIFFE workload ID). Ensure each event includes realistic token metrics, "
+        "(planning, code synthesis, test execution) tagged with canonical tenant metadata (customer_hash: a0314bec, "
+        "namespace: eap-a0314bec, SPIFFE workload ID). Ensure each event includes realistic token metrics, "
         "model identifiers (claude-3-7-sonnet, gemini-2.5-pro), and author unit tests validating schema conformance."
     ),
     approach=[
@@ -171,7 +178,7 @@ SPECS["P1-1"] = make_spec(
         "pytest tests/test_scenario_seeding.py -k test_baseline_agent_events_generation -v",
         "pytest tests/test_scenario_seeding.py -k test_scenario_manager_execution_and_storage -v",
         "pytest tests/test_scenario_seeding.py -v",
-        "python3 -c \"from scenario_seeding import generate_baseline_agent_events; print(len(generate_baseline_agent_events('kurasi', '6f82ad81')))\""
+        "python3 -c \"from scenario_seeding import generate_baseline_agent_events; print(len(generate_baseline_agent_events('kusari', 'a0314bec')))\""
     ],
     evidence=[
         "Captured pytest execution log confirming 100% pass on baseline event generation tests.",
@@ -343,7 +350,7 @@ SPECS["P2-1"] = make_spec(
         "pytest tests/test_scenario_seeding.py -k test_scenario_manager_execution_and_storage -v",
         "pytest tests/test_scenario_seeding.py -k test_api_execute_scenario_endpoint -v",
         "pytest tests/test_scenario_seeding.py -v",
-        "python3 -c \"from scenario_seeding import generate_prompt_injection_intercept_events; print(len(generate_prompt_injection_intercept_events('kurasi', '6f82ad81')))\""
+        "python3 -c \"from scenario_seeding import generate_prompt_injection_intercept_events; print(len(generate_prompt_injection_intercept_events('kusari', 'a0314bec')))\""
     ],
     evidence=[
         "Captured pytest execution log proving 100% pass on prompt injection scenario tests.",
@@ -391,7 +398,7 @@ SPECS["P2-2"] = make_spec(
         "pytest tests/test_scenario_seeding.py -k test_scenario_manager_execution_and_storage -v",
         "pytest tests/test_scenario_seeding.py -k test_api_execute_scenario_endpoint -v",
         "pytest tests/test_scenario_seeding.py -v",
-        "python3 -c \"from scenario_seeding import generate_lateral_traversal_blocked_events; print(len(generate_lateral_traversal_blocked_events('kurasi', '6f82ad81')))\""
+        "python3 -c \"from scenario_seeding import generate_lateral_traversal_blocked_events; print(len(generate_lateral_traversal_blocked_events('kusari', 'a0314bec')))\""
     ],
     evidence=[
         "Captured pytest execution log proving 100% pass on lateral traversal scenario tests.",
@@ -623,7 +630,7 @@ SPECS["P3-GOV"] = make_spec(
 SPECS["P4-PRE"] = make_spec(
     "P4-PRE", "S", "preflight",
     obj=(
-        "Audit end-to-end kurasi demonstration workflows, UI visual integration, and cryptographic compliance proofs. "
+        "Audit end-to-end kusari demonstration workflows, UI visual integration, and cryptographic compliance proofs. "
         "Review discovery portal frontend rendering requirements for seeded audit trails, evaluate visual badges "
         "for policy verdicts (ALLOW in green, INTERCEPT in amber, BLOCK in red), establish verification procedures "
         "for OpenBao transit cryptographic signatures and SPIFFE identities, and design comprehensive evaluation test "
@@ -633,12 +640,12 @@ SPECS["P4-PRE"] = make_spec(
         "Audit frontend dashboard audit trail visual components in fe-signalloom discovery portal.",
         "Establish UI verdict rendering requirements: color codes, risk score badges, and remediation modals.",
         "Review OpenBao transit signing verification procedures for compliance proof audit events.",
-        "Design full end-to-end kurasi evaluation test journey covering all 4 scenario archetypes.",
+        "Design full end-to-end kusari evaluation test journey covering all 4 scenario archetypes.",
         "Draft preflight audit documentation in docs/signalloom/sles-p4-preflight.md with technical findings."
     ],
     deliverables=[
         "docs/signalloom/sles-p4-preflight.md detailing UI integration specifications and audit test designs.",
-        "Kurasi evaluation journey execution matrix covering all scenario types.",
+        "Kusari evaluation journey execution matrix covering all scenario types.",
         "Cryptographic attestation and transit signature verification checklist.",
         "Errata entry in proposal markdown for SLES-P4-PRE with status=pass."
     ],
@@ -661,42 +668,42 @@ SPECS["P4-PRE"] = make_spec(
 SPECS["P4-1"] = make_spec(
     "P4-1", "L", "implementation",
     obj=(
-        "Author kurasi comprehensive scenario evaluation integration suite in fe-signalloom/src/tests/test_scenario_seeding.py. "
-        "Execute complete evaluation sequence for pilot customer kurasi (customer_hash: 6f82ad81, namespace: eap-6f82ad81): "
+        "Author kusari comprehensive scenario evaluation integration suite in fe-signalloom/src/tests/test_scenario_seeding.py. "
+        "Execute complete evaluation sequence for pilot customer kusari (customer_hash: a0314bec, namespace: eap-a0314bec): "
         "1. Execute baseline coding agent flow and verify multi-plane event ingestion; 2. Execute prompt injection scenario "
         "and verify guardrail interception and session quarantine; 3. Execute lateral traversal scenario and verify network "
         "policy blocking; 4. Execute compliance proof scenario and verify OpenBao transit signature attachment. "
         "Assert that all events are correctly queryable via the events API and adhere to prompt contract specifications."
     ),
     approach=[
-        "Implement test_kurasi_full_scenario_evaluation_journey in test_scenario_seeding.py.",
-        "Execute BASELINE_AGENT_FLOW scenario for kurasi and verify 3 generated events across control, data, and policy planes.",
-        "Execute PROMPT_INJECTION_INTERCEPT scenario for kurasi and verify guardrail interception and quarantine events.",
-        "Execute LATERAL_TRAVERSAL_BLOCKED scenario for kurasi and verify KubeSec-AFM network policy block event.",
-        "Execute COMPLIANCE_PROOF scenario for kurasi and verify OpenBao transit signature and SPIFFE identity details.",
-        "Query GET /api/v1/eap/scenarios/events/6f82ad81 and assert that all 9 cumulative events are returned in sequence.",
-        "Verify that each event carries canonical kurasi attributes (customer_hash: 6f82ad81, namespace: eap-6f82ad81).",
+        "Implement test_kusari_full_scenario_evaluation_journey in test_scenario_seeding.py.",
+        "Execute BASELINE_AGENT_FLOW scenario for kusari and verify 3 generated events across control, data, and policy planes.",
+        "Execute PROMPT_INJECTION_INTERCEPT scenario for kusari and verify guardrail interception and quarantine events.",
+        "Execute LATERAL_TRAVERSAL_BLOCKED scenario for kusari and verify KubeSec-AFM network policy block event.",
+        "Execute COMPLIANCE_PROOF scenario for kusari and verify OpenBao transit signature and SPIFFE identity details.",
+        "Query GET /api/v1/eap/scenarios/events/a0314bec and assert that all 9 cumulative events are returned in sequence.",
+        "Verify that each event carries canonical kusari attributes (customer_hash: a0314bec, namespace: eap-a0314bec).",
         "Assert that risk score distributions correctly reflect the combination of benign and adversarial actions.",
         "Verify execution duration metrics and ensure complete test suite passes with zero failures."
     ],
     deliverables=[
-        "Comprehensive kurasi evaluation integration test suite in test_scenario_seeding.py.",
+        "Comprehensive kusari evaluation integration test suite in test_scenario_seeding.py.",
         "Multi-scenario execution test validating all 4 canonical scenario types.",
-        "Cumulative event aggregation verification test for customer_hash 6f82ad81.",
+        "Cumulative event aggregation verification test for customer_hash a0314bec.",
         "Cryptographic compliance signature validation assertions.",
-        "Technical demonstration runbook in docs/signalloom/kurasi-scenario-runbook.md.",
-        "Execution transcript artifact documenting full kurasi evaluation journey."
+        "Technical demonstration runbook in docs/signalloom/kusari-scenario-runbook.md.",
+        "Execution transcript artifact documenting full kusari evaluation journey."
     ],
     tests=[
         "pytest tests/test_scenario_seeding.py -k test_compliance_proof_events -v",
         "pytest tests/test_scenario_seeding.py -k test_api_get_customer_events_endpoint -v",
         "pytest tests/test_scenario_seeding.py -k test_baseline_agent_events_generation -v",
         "pytest tests/test_scenario_seeding.py -v",
-        "python3 -c \"from scenario_seeding import GLOBAL_SCENARIO_MANAGER; print('Kurasi scenario harness active')\""
+        "python3 -c \"from scenario_seeding import GLOBAL_SCENARIO_MANAGER; print('Kusari scenario harness active')\""
     ],
     evidence=[
-        "Captured pytest execution log proving 100% pass on comprehensive kurasi scenario suite.",
-        "Cumulative event stream JSON output proving complete 4-scenario execution for kurasi.",
+        "Captured pytest execution log proving 100% pass on comprehensive kusari scenario suite.",
+        "Cumulative event stream JSON output proving complete 4-scenario execution for kusari.",
         "Errata entry in proposal markdown for SLES-P4-1 with status=pass."
     ],
     failures=[
@@ -712,7 +719,7 @@ SPECS["P4-2"] = make_spec(
     obj=(
         "Author multi-tenant concurrency and scenario stress testing suite in fe-signalloom/src/tests/test_scenario_seeding.py. "
         "Simulate high-concurrency evaluation scenarios executing across multiple distinct customer environments "
-        "(kurasi: 6f82ad81, acme: a1b2c3d4, globex: e5f6a7b8) simultaneously. Assert strict tenant event isolation "
+        "(kusari: a0314bec, acme: a1b2c3d4, globex: e5f6a7b8) simultaneously. Assert strict tenant event isolation "
         "preventing cross-tenant event contamination, verify thread safety of ScenarioManager under multi-threaded "
         "execution load, validate sub-millisecond event query latencies, and confirm zero state corruption under stress."
     ),
@@ -770,7 +777,7 @@ SPECS["P4-GOV"] = make_spec(
         "Audit multi-plane event schemas ensuring 100% compliance with Signal Loom governance requirements.",
         "Verify that adversarial security scenarios accurately demonstrate real-time interception and blocking.",
         "Confirm that interactive API endpoints and live streaming mechanisms operate with sub-second latency.",
-        "Review kurasi evaluation test results proving seamless telemetry generation for pilot tenant 6f82ad81.",
+        "Review kusari evaluation test results proving seamless telemetry generation for pilot tenant a0314bec.",
         "Verify that multi-tenant isolation guarantees prevent any cross-customer event visibility.",
         "Confirm that all proposal errata entries are updated with status=pass and supporting evidence.",
         "Author Final Mission Certification document in docs/signalloom/sles-mission-certification.md.",
@@ -828,7 +835,7 @@ ADDITIONS = {
             "Verify that automatic seeding populates the customer event index immediately upon environment readiness.",
             "Implement idempotent seeding guards preventing duplicate scenario runs on repeated WARMING events.",
             "Author unit tests validating that environment registration seamlessly triggers background scenario generation.",
-            "Add integration tests verifying that kurasi evaluation environments immediately present 3 baseline events.",
+            "Add integration tests verifying that kusari evaluation environments immediately present 3 baseline events.",
             "Configure structured logging recording scenario dispatch latency and execution result identifiers.",
             "Document lifecycle event hook architecture and tuning guidelines in technical operations manuals.",
             "Implement background metric emission recording automatic scenario seeding counts across environments.",
@@ -1097,34 +1104,34 @@ ADDITIONS = {
     },
     "P4-1": {
         "approach": [
-            "Implement comprehensive end-to-end evaluation journey for pilot enterprise customer kurasi.",
+            "Implement comprehensive end-to-end evaluation journey for pilot enterprise customer kusari.",
             "Execute baseline coding agent flow and verify control, data, and policy plane telemetry.",
             "Execute prompt injection jailbreak scenario and verify guardrail interception and quarantine.",
             "Execute lateral traversal scenario and verify KubeSec-AFM network policy block event.",
             "Execute compliance attestation proof scenario and verify OpenBao transit cryptographic signature.",
             "Query customer event index and assert that all cumulative events are retrieved in chronological order.",
-            "Verify that all events carry canonical kurasi tags: customer_hash 6f82ad81, namespace eap-6f82ad81.",
+            "Verify that all events carry canonical kusari tags: customer_hash a0314bec, namespace eap-a0314bec.",
             "Verify that risk score progression matches expected threat severity across benign and adversarial flows.",
-            "Author unit tests in test_scenario_seeding.py asserting 100% pass on kurasi evaluation journey.",
+            "Author unit tests in test_scenario_seeding.py asserting 100% pass on kusari evaluation journey.",
             "Document demonstration execution sequence in technical runbook for sales engineering teams.",
             "Verify that scenario execution metrics demonstrate sub-second latency across all 4 scenarios.",
             "Confirm that generated audit trail provides a compelling, verifiable demonstration experience.",
             "Verify that OpenBao transit signatures validate against tenant public key credentials.",
-            "Assert that SPIFFE workload identities strictly resolve to eap-6f82ad81 tenant service accounts.",
+            "Assert that SPIFFE workload identities strictly resolve to eap-a0314bec tenant service accounts.",
             "Author contract test asserting that cumulative event count across all 4 scenarios equals 9.",
             "Verify that telemetry event ordering reflects causal execution dependencies without inversion.",
-            "Validate that the entire kurasi evaluation journey runs autonomously within five seconds.",
-            "Verify that kurasi tenant resources are completely isolated from all other cluster workloads.",
-            "Assert that all generated audit records for kurasi match the expected compliance schemas.",
+            "Validate that the entire kusari evaluation journey runs autonomously within five seconds.",
+            "Verify that kusari tenant resources are completely isolated from all other cluster workloads.",
+            "Assert that all generated audit records for kusari match the expected compliance schemas.",
             "Conduct end-to-end validation proving that evaluator experience is seamless from initial navigation.",
-            "Verify that evaluator dashboard metrics display real-time event counts for pilot customer kurasi.",
+            "Verify that evaluator dashboard metrics display real-time event counts for pilot customer kusari.",
             "Ensure that policy intercept events render in prominent amber and block events in bold red styling."
         ],
         "deliverables": [
             "OpenBao transit cryptographic signature verification test fixture.",
             "SPIFFE workload identity resolution and validation test.",
             "Cumulative event count and causal ordering assertion test.",
-            "Automated kurasi demonstration execution timing report."
+            "Automated kusari demonstration execution timing report."
         ],
         "failureModes": [
             "Allowing event timestamps to emit out of chronological sequence across multi-scenario runs.",
@@ -1134,10 +1141,10 @@ ADDITIONS = {
     "P4-2": {
         "approach": [
             "Construct multi-tenant concurrency test simulating simultaneous evaluations across distinct customers.",
-            "Define three evaluation tenants: kurasi (6f82ad81), acme (a1b2c3d4), and globex (e5f6a7b8).",
+            "Define three evaluation tenants: kusari (a0314bec), acme (a1b2c3d4), and globex (e5f6a7b8).",
             "Dispatch concurrent scenario execution requests across threads using ThreadPoolExecutor.",
-            "Assert that query results for kurasi contain zero events belonging to acme or globex tenants.",
-            "Assert that query results for acme contain zero events belonging to kurasi or globex tenants.",
+            "Assert that query results for kusari contain zero events belonging to acme or globex tenants.",
+            "Assert that query results for acme contain zero events belonging to kusari or globex tenants.",
             "Verify that global scenario history records all executed scenario results without record loss.",
             "Measure execution latency across 50 simulated scenario executions asserting sub-50ms execution durations.",
             "Verify zero thread deadlocks or lock contention bottlenecks during concurrent writes and reads.",
@@ -1181,7 +1188,7 @@ ADDITIONS = {
             "Audit multi-plane event schemas ensuring 100% compliance with Signal Loom governance requirements.",
             "Verify that adversarial security scenarios accurately demonstrate real-time interception and blocking.",
             "Confirm that interactive API endpoints and live streaming mechanisms operate with sub-second latency.",
-            "Review kurasi evaluation test results proving seamless telemetry generation for pilot tenant 6f82ad81.",
+            "Review kusari evaluation test results proving seamless telemetry generation for pilot tenant a0314bec.",
             "Verify that multi-tenant isolation guarantees prevent any cross-customer event visibility.",
             "Confirm that all proposal errata entries are updated with status=pass and objective evidence.",
             "Author Final Mission Certification document in docs/signalloom/sles-mission-certification.md.",
@@ -1196,14 +1203,14 @@ ADDITIONS = {
             "Review OpenAPI documentation ensuring all endpoints carry complete request and response models.",
             "Verify that Bun is used exclusively for any JavaScript tooling across the entire monorepo.",
             "Conduct architectural defense-in-depth review of tenant isolation and cryptographic attestation.",
-            "Confirm that pilot customer kurasi can immediately evaluate Signal Loom capabilities on demand.",
+            "Confirm that pilot customer kusari can immediately evaluate Signal Loom capabilities on demand.",
             "Issue executive briefing certifying production readiness of the SLES engine v0.1.0 release.",
             "Verify that all 17 card specifications satisfy every prompt contract floor requirement.",
             "Audit code quality across all Python modules ensuring high test coverage and zero lint errors.",
             "Confirm that no sensitive keys or secrets are committed to the git repository.",
             "Verify that all temporary files and test artifacts are properly cleaned up after execution.",
             "Conduct comprehensive review of multi-plane audit event schemas and compliance proof bindings.",
-            "Verify that pilot customer kurasi can immediately evaluate Signal Loom capabilities on demand.",
+            "Verify that pilot customer kusari can immediately evaluate Signal Loom capabilities on demand.",
             "Author executive summary briefing documenting production readiness of the SLES engine release.",
             "Verify that all generated JSON specifications validate against prompt contract schema version 1.",
             "Ensure that monorepo CI pipelines execute the SLES test suite as part of pull request validation."
@@ -1278,6 +1285,7 @@ def main():
             print(f"[{status}] {lid} ({band} {role}): {m['words']}w, {m['lines']}l, {m['deliverables']}d, {m['tests']}t, {m['distinctLineRatio']}r")
 
         # Write out to card-specs/SLES/<ID>.v1.json
+        spec = cc.apply_card_contract(spec, repo_root=cc.REPO_ROOT)
         spec_payload = {
             "specCacheVersion": 1,
             "shortcode": "SLES",
@@ -1311,8 +1319,8 @@ def main():
         ("P3-1", "implementation", "Author interactive scenario execution API and execution runner", "L", "daily", None),
         ("P3-2", "implementation", "Implement real-time Server-Sent Events streaming for dashboard UI", "L", "daily", None),
         ("P3-GOV", "governor", "Certify Phase 3 API responsiveness, SSE streaming, and concurrency", "M", "deep", "Phase governor certification requires deep reasoning and verification across API responsiveness"),
-        ("P4-PRE", "preflight", "Audit end-to-end kurasi scenario demonstration and UI integration", "S", "daily", None),
-        ("P4-1", "implementation", "Author kurasi comprehensive scenario evaluation integration suite", "L", "daily", None),
+        ("P4-PRE", "preflight", "Audit end-to-end kusari scenario demonstration and UI integration", "S", "daily", None),
+        ("P4-1", "implementation", "Author kusari comprehensive scenario evaluation integration suite", "L", "daily", None),
         ("P4-2", "implementation", "Author multi-tenant concurrency and scenario stress testing suite", "L", "daily", None),
         ("P4-GOV", "governor", "Final Mission Certification: Full scenario & audit seeding release", "L", "deep", "Final mission certification requires comprehensive verification across all scenario and audit seeding layers"),
     ]

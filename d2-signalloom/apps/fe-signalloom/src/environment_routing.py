@@ -16,23 +16,99 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+import api_compat
+from eap_contract import MAX_INITIAL_TTL_MINUTES, MAX_LIFETIME_HOURS
+import eap_tenancy
+from eap_tenancy import Tenant, claim_or_403, owned_hashes
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EAP_SALT = "signalloom-eap-salt-2026-q3"
-MAX_LIFETIME_HOURS = 72
-MAX_INITIAL_TTL_MINUTES = 1440  # 24 hours
+
 MIN_INITIAL_TTL_MINUTES = 5
+EXPIRY_WARNING_THRESHOLD_MINUTES = 30
+OIDC_CALLBACK_PATH = "/auth/callback"
+
+# Applied to every response under the environments API prefix, errors included.
+# Scoped to the prefix rather than the whole app because the strict CSP would
+# break the FastAPI /docs page, which loads its assets from a CDN.
+EAP_SECURITY_HEADERS: Dict[str, str] = {
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 RFC1123_LABEL_REGEX = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 EAP_SUBDOMAIN_REGEX = re.compile(r"^sl-eap-[a-f0-9]{8}$")
 
+_EAP_SALT_CACHE: Optional[str] = None
+_EAP_SALT_LOCK = threading.Lock()
+
+
+def _reset_eap_salt_cache() -> None:
+    """Reset the process-level cached salt (used by tests)."""
+    global _EAP_SALT_CACHE
+    with _EAP_SALT_LOCK:
+        _EAP_SALT_CACHE = None
+
 
 def get_eap_salt() -> str:
-    """Retrieve the configured cryptographic salt from env or default."""
-    return os.getenv("SIGNAL_LOOM_EAP_SALT", DEFAULT_EAP_SALT)
+    """Retrieve the configured cryptographic salt from env or OpenBao.
+
+    Reads SIGNAL_LOOM_EAP_SALT if set, else reads secret/data/signalloom/eap field salt
+    via OpenBao, else raises RuntimeError. Cached per process.
+    """
+    global _EAP_SALT_CACHE
+    if _EAP_SALT_CACHE is not None:
+        return _EAP_SALT_CACHE
+
+    with _EAP_SALT_LOCK:
+        if _EAP_SALT_CACHE is not None:
+            return _EAP_SALT_CACHE
+
+        env_salt = os.getenv("SIGNAL_LOOM_EAP_SALT")
+        if env_salt:
+            _EAP_SALT_CACHE = env_salt
+            return _EAP_SALT_CACHE
+
+        bao_addr = os.getenv("BAO_ADDR")
+        bao_token = os.getenv("BAO_TOKEN")
+        if bao_addr and bao_token:
+            try:
+                import httpx
+                client = httpx.Client(
+                    base_url=bao_addr.rstrip("/"),
+                    headers={"X-Vault-Token": bao_token},
+                    timeout=5.0,
+                )
+                try:
+                    # KV v2 path: secret/data/signalloom/eap
+                    r = client.get("/v1/secret/data/signalloom/eap")
+                    if r.status_code == 200:
+                        data = r.json().get("data", {})
+                        inner_data = data.get("data", data)
+                        if isinstance(inner_data, dict) and "salt" in inner_data:
+                            _EAP_SALT_CACHE = str(inner_data["salt"])
+                            return _EAP_SALT_CACHE
+                    # KV v1 path: secret/signalloom/eap
+                    r_v1 = client.get("/v1/secret/signalloom/eap")
+                    if r_v1.status_code == 200:
+                        data_v1 = r_v1.json().get("data", {})
+                        if isinstance(data_v1, dict) and "salt" in data_v1:
+                            _EAP_SALT_CACHE = str(data_v1["salt"])
+                            return _EAP_SALT_CACHE
+                finally:
+                    client.close()
+            except Exception as e:
+                logger.warning("Failed to retrieve EAP salt from OpenBao: %s", e)
+
+        raise RuntimeError(
+            "EAP salt unavailable: set SIGNAL_LOOM_EAP_SALT or provision secret/signalloom/eap in OpenBao"
+        )
 
 
 def normalize_company_name(company_name: str) -> str:
@@ -52,9 +128,8 @@ def derive_customer_hash(company_name: str, salt: Optional[str] = None) -> str:
     """Derive an 8-character hex hash from a customer company name and cryptographic salt.
 
     Canonical vector:
-        company_name: "kurasi"
-        salt: "signalloom-eap-salt-2026-q3"
-        -> "6f82ad81"
+        company_name: "kusari"
+        salt: from OpenBao or SIGNAL_LOOM_EAP_SALT
     """
     normalized = normalize_company_name(company_name)
     actual_salt = salt if salt is not None else get_eap_salt()
@@ -79,10 +154,12 @@ def build_environment_urls(customer_hash: str) -> Dict[str, str]:
     if not validate_environment_subdomain(hostname):
         raise ValueError(f"Invalid customer hash for subdomain generation: {customer_hash}")
 
+    internal_mesh_url = f"https://{hostname}.tailscale"
     return {
         "hostname": hostname,
-        "internal_mesh_url": f"https://{hostname}.tailscale",
+        "internal_mesh_url": internal_mesh_url,
         "external_fqdn": f"https://{hostname}.ts.net",
+        "oidc_redirect_uri": f"{internal_mesh_url}{OIDC_CALLBACK_PATH}",
     }
 
 
@@ -101,10 +178,12 @@ def resolve_company_to_urls(company_name: str, salt: Optional[str] = None) -> Di
 class EnvironmentState(str, Enum):
     PENDING = "pending"
     PROVISIONING = "provisioning"
+    ACTIVE = "active"
     READY = "ready"
     DEGRADED = "degraded"
     EXPIRING = "expiring"
     TEARING_DOWN = "tearing_down"
+    TEARDOWN_FAILED = "teardown_failed"
     TERMINATED = "terminated"
 
 
@@ -122,7 +201,7 @@ class ProvisionRequest(BaseModel):
         min_length=2,
         max_length=64,
         description="Target customer company name to normalize and salt-hash",
-        examples=["kurasi"],
+        examples=["kusari"],
     )
     tier: EnvironmentTier = Field(
         default=EnvironmentTier.DEMO,
@@ -149,7 +228,6 @@ class ProvisionRequest(BaseModel):
         clean = normalize_company_name(v)
         # Check that normalized name doesn't contain forbidden chars
         if not re.match(r"^[a-z0-9][a-z0-9 ._-]*[a-z0-9]$", clean) and len(clean) > 1:
-            # allow single char if within length constraints, but min_length=2
             raise ValueError("Company name contains invalid characters.")
         return clean
 
@@ -163,13 +241,17 @@ class EnvironmentResponse(BaseModel):
     hostname: str
     internal_mesh_url: str
     external_fqdn: str
+    oidc_redirect_uri: str
     tier: EnvironmentTier
     state: EnvironmentState
     created_at: datetime
     expires_at: datetime
     ttl_remaining_seconds: int
+    expiry_warning: bool
     metadata: Dict[str, Any]
     enable_funnel: bool
+    last_heartbeat_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class DomainResolutionRequest(BaseModel):
@@ -194,6 +276,7 @@ class DomainResolutionResponse(BaseModel):
     hostname: str
     internal_mesh_url: str
     external_fqdn: str
+    oidc_redirect_uri: str
     is_active: bool
     environment_id: Optional[str] = None
 
@@ -230,7 +313,7 @@ class EnvironmentRecord:
         expires_at: datetime,
         metadata: Dict[str, Any],
         enable_funnel: bool = False,
-        state: EnvironmentState = EnvironmentState.PROVISIONING,
+        state: EnvironmentState = EnvironmentState.READY,
     ):
         self.id = record_id
         self.company_name = company_name
@@ -239,8 +322,10 @@ class EnvironmentRecord:
         self.hostname = urls["hostname"]
         self.internal_mesh_url = urls["internal_mesh_url"]
         self.external_fqdn = urls["external_fqdn"]
+        self.oidc_redirect_uri = urls["oidc_redirect_uri"]
         self.tier = tier
         self.created_at = created_at
+        self.last_heartbeat_at = created_at
         self.expires_at = expires_at
         self.metadata = metadata
         self.enable_funnel = enable_funnel
@@ -248,6 +333,34 @@ class EnvironmentRecord:
         self.version = 1
         self.teardown_reason: Optional[str] = None
         self.updated_at = created_at
+        self.events: List[Dict[str, Any]] = []
+        self.record_event("provisioned", {"expires_at": expires_at.isoformat()})
+
+    def heartbeat(self) -> None:
+        """Record a heartbeat timestamp on the environment record."""
+        now = datetime.now(timezone.utc)
+        self.last_heartbeat_at = now
+        self.updated_at = now
+        self.version += 1
+        self.record_event("heartbeat", {"at": now.isoformat()})
+
+    def record_event(self, event: str, detail: Optional[Dict[str, Any]] = None) -> None:
+        """Append a lifecycle event; callers hold the registry lock."""
+        self.events.append(
+            {
+                "seq": len(self.events) + 1,
+                "event": event,
+                "state": self.state.value,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "detail": detail or {},
+            }
+        )
+
+    @property
+    def expiry_warning(self) -> bool:
+        if self.state == EnvironmentState.TERMINATED:
+            return False
+        return self.ttl_remaining_seconds < EXPIRY_WARNING_THRESHOLD_MINUTES * 60
 
     @property
     def ttl_remaining_seconds(self) -> int:
@@ -267,13 +380,17 @@ class EnvironmentRecord:
             hostname=self.hostname,
             internal_mesh_url=self.internal_mesh_url,
             external_fqdn=self.external_fqdn,
+            oidc_redirect_uri=self.oidc_redirect_uri,
             tier=self.tier,
             state=self.state,
             created_at=self.created_at,
             expires_at=self.expires_at,
             ttl_remaining_seconds=self.ttl_remaining_seconds,
+            expiry_warning=self.expiry_warning,
             metadata=self.metadata,
             enable_funnel=self.enable_funnel,
+            last_heartbeat_at=self.last_heartbeat_at,
+            updated_at=self.updated_at,
         )
 
 
@@ -285,20 +402,33 @@ class EnvironmentRegistry:
         self._records: Dict[str, EnvironmentRecord] = {}  # by id
         self._by_hash: Dict[str, str] = {}  # hash -> id
 
-    def create(self, req: ProvisionRequest) -> EnvironmentRecord:
+    def provision(self, req: ProvisionRequest) -> tuple[EnvironmentRecord, bool]:
+        """Provision an environment or return existing active record idempotently.
+
+        Returns (record, is_created).
+        If an active record exists for the customer hash:
+          - If company_name matches, refreshes heartbeat and returns (existing_record, False).
+          - If company_name differs, raises 409 Conflict.
+        If no active record exists, creates a new record and returns (new_record, True).
+        """
         with self._lock:
-            c_hash = derive_customer_hash(req.company_name)
+            norm_name = normalize_company_name(req.company_name)
+            c_hash = derive_customer_hash(norm_name)
             existing_id = self._by_hash.get(c_hash)
             if existing_id:
                 rec = self._records.get(existing_id)
-                if rec and rec.state not in (EnvironmentState.TERMINATED,):
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=(
-                            f"An active environment already exists for customer '{req.company_name}' "
-                            f"(hash: {c_hash}, id: {rec.id}, state: {rec.state.value})."
-                        ),
-                    )
+                if rec and rec.state not in (EnvironmentState.TERMINATED, EnvironmentState.TEARDOWN_FAILED):
+                    if normalize_company_name(rec.company_name) != norm_name:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=(
+                                f"An active environment already exists for hash '{c_hash}' with conflicting "
+                                f"company name '{rec.company_name}' (requested: '{req.company_name}')."
+                            ),
+                        )
+                    rec.heartbeat()
+                    logger.info("Idempotent re-provision for EAP environment: id=%s, hash=%s", rec.id, c_hash)
+                    return rec, False
 
             now = datetime.now(timezone.utc)
             expires = now + timedelta(minutes=req.ttl_minutes)
@@ -306,19 +436,23 @@ class EnvironmentRegistry:
 
             record = EnvironmentRecord(
                 record_id=rec_id,
-                company_name=req.company_name,
+                company_name=norm_name,
                 customer_hash=c_hash,
                 tier=req.tier,
                 created_at=now,
                 expires_at=expires,
                 metadata=dict(req.metadata),
                 enable_funnel=req.enable_funnel,
-                state=EnvironmentState.READY,  # Immediately ready for demo routing
+                state=EnvironmentState.READY,
             )
             self._records[rec_id] = record
             self._by_hash[c_hash] = rec_id
             logger.info("Created EAP environment: id=%s, hash=%s, company=%s", rec_id, c_hash, req.company_name)
-            return record
+            return record, True
+
+    def create(self, req: ProvisionRequest) -> EnvironmentRecord:
+        rec, _ = self.provision(req)
+        return rec
 
     def get(self, record_id: str) -> Optional[EnvironmentRecord]:
         with self._lock:
@@ -341,7 +475,6 @@ class EnvironmentRegistry:
             items = list(self._records.values())
             if state is not None:
                 items = [r for r in items if r.state == state]
-            # sort by created_at descending
             items.sort(key=lambda r: r.created_at, reverse=True)
             return items[offset : offset + limit]
 
@@ -355,7 +488,7 @@ class EnvironmentRegistry:
                 )
             if rec.state == EnvironmentState.TERMINATED:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_410_GONE,
                     detail="Cannot extend TTL of a terminated environment.",
                 )
 
@@ -363,20 +496,36 @@ class EnvironmentRegistry:
             max_ceiling = rec.created_at + timedelta(hours=MAX_LIFETIME_HOURS)
             if new_expires > max_ceiling:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=(
                         f"Requested extension exceeds maximum lifetime ceiling of {MAX_LIFETIME_HOURS} hours "
                         f"from initial creation (cap: {max_ceiling.isoformat()})."
                     ),
                 )
 
+            previous_expires = rec.expires_at
             rec.expires_at = new_expires
             rec.version += 1
             rec.updated_at = datetime.now(timezone.utc)
+            rec.record_event(
+                "ttl_extended",
+                {
+                    "additional_minutes": additional_minutes,
+                    "previous_expires_at": previous_expires.isoformat(),
+                    "expires_at": new_expires.isoformat(),
+                },
+            )
             logger.info("Extended EAP environment: id=%s to %s", record_id, new_expires.isoformat())
             return rec
 
-    def teardown(self, record_id: str, reason: Optional[str] = None, force: bool = False) -> EnvironmentRecord:
+    def teardown(
+        self,
+        record_id: str,
+        reason: Optional[str] = None,
+        force: bool = False,
+        recorder: Optional[Any] = None,
+        stage_kwargs: Optional[Dict[Any, Dict[str, Any]]] = None,
+    ) -> EnvironmentRecord:
         with self._lock:
             rec = self._records.get(record_id)
             if not rec:
@@ -387,10 +536,55 @@ class EnvironmentRegistry:
             if rec.state == EnvironmentState.TERMINATED:
                 return rec  # Idempotent return
 
-            rec.state = EnvironmentState.TERMINATED
             rec.teardown_reason = reason or "De-provisioned via API request"
+            rec.state = EnvironmentState.TEARING_DOWN
+            rec.record_event("teardown_requested", {"reason": rec.teardown_reason, "force": force})
+
+        # Run ordered 5-stage teardown pipeline outside lock to prevent deadlock
+        from environment_teardown import STAGE_ORDER, run_ordered_teardown
+
+        report = run_ordered_teardown(
+            rec.customer_hash,
+            company_name=rec.company_name,
+            stages=STAGE_ORDER,
+            trigger_reason=rec.teardown_reason,
+            actor="system:environment-routing",
+            recorder=recorder,
+            stage_kwargs=stage_kwargs,
+            force=force,
+        )
+
+        with self._lock:
+            if not report.ok:
+                rec.state = EnvironmentState.TEARDOWN_FAILED
+                rec.record_event(
+                    "teardown_failed",
+                    {
+                        "stages_completed": report.stages_completed,
+                        "results": [r.to_dict() for r in report.results],
+                    },
+                )
+                logger.error(
+                    "Teardown failed for environment %s (hash: %s): %s",
+                    record_id,
+                    rec.customer_hash,
+                    report.stages_completed,
+                )
+                last_err = report.results[-1].detail if report.results else "unknown stage failure"
+                last_stg = report.results[-1].stage.value if report.results else "unknown"
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Teardown failed at stage {last_stg}: {last_err}",
+                )
+
+            # In-memory flip to TERMINATED happens only after all stages succeed
+            rec.state = EnvironmentState.TERMINATED
             rec.version += 1
             rec.updated_at = datetime.now(timezone.utc)
+            rec.record_event(
+                "terminated",
+                {"reason": rec.teardown_reason, "stages_completed": report.stages_completed},
+            )
             logger.info("Torn down EAP environment: id=%s (reason: %s)", record_id, rec.teardown_reason)
             return rec
 
@@ -403,6 +597,7 @@ GLOBAL_ENVIRONMENT_REGISTRY = EnvironmentRegistry()
 
 
 router = APIRouter(prefix="/api/v1/environments", tags=["environments"])
+from eap_audit import _audit_eap_decision
 
 
 @router.post(
@@ -411,10 +606,43 @@ router = APIRouter(prefix="/api/v1/environments", tags=["environments"])
     status_code=status.HTTP_201_CREATED,
     summary="Provision an on-demand EAP environment",
 )
-async def provision_environment(req: ProvisionRequest) -> EnvironmentResponse:
-    """Provision a new EAP demo/UAT environment with salted domain derivation."""
-    rec = GLOBAL_ENVIRONMENT_REGISTRY.create(req)
+async def provision_environment(
+    req: ProvisionRequest,
+    tenant: Tenant,
+    response: Response,
+) -> EnvironmentResponse:
+    """Provision a new EAP demo/UAT environment with salted domain derivation.
+
+    The hash is derived server-side from the company name and bound to the
+    caller's tenant before anything is created (EAPR-P2-1).
+    A repeat provision for an existing active tenant is idempotent, returning 200 OK
+    with the existing record and a refreshed heartbeat.
+    """
+    claim_or_403(derive_customer_hash(req.company_name), tenant)
+    rec, is_created = GLOBAL_ENVIRONMENT_REGISTRY.provision(req)
+    if not is_created:
+        response.status_code = status.HTTP_200_OK
+
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="environment.provision",
+        target=rec.customer_hash,
+        verdict="allow",
+        detail={"environment_id": rec.id, "company_name": rec.company_name, "is_created": is_created},
+    )
     return rec.to_response()
+
+
+def _owned_environment_or_404(environment_id: str, tenant: str) -> "EnvironmentRecord":
+    """An environment the caller does not own is indistinguishable from one that does not exist."""
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
+    if not rec or rec.customer_hash not in owned_hashes(tenant):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Environment with ID '{environment_id}' not found.",
+        )
+    return rec
 
 
 @router.post(
@@ -423,8 +651,12 @@ async def provision_environment(req: ProvisionRequest) -> EnvironmentResponse:
     status_code=status.HTTP_200_OK,
     summary="Resolve company name or customer hash to Tailscale EAP domains",
 )
-async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionResponse:
-    """Resolve a company name or customer hash to sl-eap-HASH domain names and active status."""
+async def resolve_domain(req: DomainResolutionRequest, tenant: Tenant) -> DomainResolutionResponse:
+    """Resolve a company name or customer hash to sl-eap-HASH domain names and active status.
+
+    Domain synthesis is pure arithmetic; the registry lookup (active flag,
+    environment id, company name) is answered only for the caller's own hashes.
+    """
     if not req.company_name and not req.customer_hash:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -433,12 +665,18 @@ async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionRespon
 
     if req.customer_hash:
         c_hash = req.customer_hash.lower()
-        rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash)
-        c_name = rec.company_name if rec else None
+        c_name = None
     else:
         c_name = normalize_company_name(req.company_name)  # type: ignore[arg-type]
         c_hash = derive_customer_hash(c_name)
-        rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash)
+    # A hash another tenant owns is not resolvable: this route would otherwise
+    # be a company-name -> hash -> is_active oracle across tenants.
+    owner = eap_tenancy.GLOBAL_TENANT_OWNERSHIP.owner_of(c_hash)
+    if owner is not None and owner != tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash(c_hash) if owner == tenant else None
+    if req.customer_hash:
+        c_name = rec.company_name if rec else None
 
     urls = build_environment_urls(c_hash)
     is_active = bool(rec and rec.state not in (EnvironmentState.TERMINATED,))
@@ -449,6 +687,7 @@ async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionRespon
         hostname=urls["hostname"],
         internal_mesh_url=urls["internal_mesh_url"],
         external_fqdn=urls["external_fqdn"],
+        oidc_redirect_uri=urls["oidc_redirect_uri"],
         is_active=is_active,
         environment_id=rec.id if rec else None,
     )
@@ -461,13 +700,18 @@ async def resolve_domain(req: DomainResolutionRequest) -> DomainResolutionRespon
     summary="List all EAP environments",
 )
 async def list_environments(
+    tenant: Tenant,
     state: Optional[EnvironmentState] = None,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> List[EnvironmentResponse]:
-    """List all registered EAP environments with optional state filter and pagination."""
-    records = GLOBAL_ENVIRONMENT_REGISTRY.list(state=state, limit=limit, offset=offset)
-    return [r.to_response() for r in records]
+    """List the caller's EAP environments with optional state filter and pagination."""
+    mine = owned_hashes(tenant)
+    records = [
+        r for r in GLOBAL_ENVIRONMENT_REGISTRY.list(state=state, limit=10_000, offset=0)
+        if r.customer_hash in mine
+    ]
+    return [r.to_response() for r in records[offset : offset + limit]]
 
 
 @router.get(
@@ -476,15 +720,9 @@ async def list_environments(
     status_code=status.HTTP_200_OK,
     summary="Get EAP environment details",
 )
-async def get_environment(environment_id: str) -> EnvironmentResponse:
+async def get_environment(environment_id: str, tenant: Tenant) -> EnvironmentResponse:
     """Retrieve detailed real-time status and TTL metrics for an EAP environment."""
-    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
-    if not rec:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Environment with ID '{environment_id}' not found.",
-        )
-    return rec.to_response()
+    return _owned_environment_or_404(environment_id, tenant).to_response()
 
 
 @router.post(
@@ -493,9 +731,18 @@ async def get_environment(environment_id: str) -> EnvironmentResponse:
     status_code=status.HTTP_200_OK,
     summary="Extend EAP environment TTL",
 )
-async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest) -> EnvironmentResponse:
-    """Extend an environment's active lease up to the 72-hour maximum lifetime ceiling."""
+async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest, tenant: Tenant) -> EnvironmentResponse:
+    """Extend an environment's active lease up to the 8-hour maximum lifetime ceiling."""
+    _owned_environment_or_404(environment_id, tenant)
     rec = GLOBAL_ENVIRONMENT_REGISTRY.extend_ttl(environment_id, req.additional_minutes)
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="environment.extend",
+        target=rec.customer_hash,
+        verdict="allow",
+        detail={"environment_id": rec.id, "additional_minutes": req.additional_minutes},
+    )
     return rec.to_response()
 
 
@@ -505,16 +752,89 @@ async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest) -> 
     status_code=status.HTTP_200_OK,
     summary="Teardown an EAP environment",
 )
-async def teardown_environment(environment_id: str, req: Optional[TeardownRequest] = None) -> EnvironmentResponse:
+async def teardown_environment(
+    environment_id: str, tenant: Tenant, req: Optional[TeardownRequest] = None
+) -> EnvironmentResponse:
     """Initiate orderly de-provisioning and state termination for an environment."""
+    _owned_environment_or_404(environment_id, tenant)
     reason = req.reason if req else "API teardown request"
     force = req.force if req else False
     rec = GLOBAL_ENVIRONMENT_REGISTRY.teardown(environment_id, reason=reason, force=force)
+    await _audit_eap_decision(
+        conn=None,
+        principal=None,
+        action="environment.teardown",
+        target=rec.customer_hash,
+        verdict="allow",
+        detail={"environment_id": rec.id, "reason": reason},
+    )
     return rec.to_response()
 
 
+@router.get(
+    "/{environment_id}/probe",
+    status_code=status.HTTP_200_OK,
+    summary="Health-probe an EAP environment",
+)
+async def probe_environment(environment_id: str, tenant: Tenant) -> Dict[str, Any]:
+    """Report routability: 200 when serving, 503 while tearing down, 410 once terminated."""
+    rec = _owned_environment_or_404(environment_id, tenant)
+    if rec.state == EnvironmentState.TERMINATED:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Environment '{environment_id}' has been terminated.",
+        )
+    if rec.state in (EnvironmentState.TEARING_DOWN, EnvironmentState.TEARDOWN_FAILED):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Environment '{environment_id}' is tearing down; retry is not expected to succeed.",
+        )
+    return {
+        "environment_id": rec.id,
+        "hostname": rec.hostname,
+        "internal_mesh_url": rec.internal_mesh_url,
+        "state": rec.state.value,
+        "reachable": True,
+        "ttl_remaining_seconds": rec.ttl_remaining_seconds,
+        "expiry_warning": rec.expiry_warning,
+    }
+
+
+@router.websocket("/{environment_id}/telemetry")
+async def stream_environment_telemetry(websocket: WebSocket, environment_id: str, tenant: Tenant) -> None:
+    """Stream the environment's lifecycle events as JSON frames, then close normally.
+
+    Unknown environments, and environments the caller's tenant does not own,
+    are refused with close code 4404 before accept.
+    """
+    rec = GLOBAL_ENVIRONMENT_REGISTRY.get(environment_id)
+    if not rec or rec.customer_hash not in owned_hashes(tenant):
+        await websocket.close(code=4404)
+        return
+    await websocket.accept()
+    with GLOBAL_ENVIRONMENT_REGISTRY._lock:
+        events = [dict(e) for e in rec.events]
+    for event in events:
+        await websocket.send_json({"environment_id": rec.id, **event})
+    await websocket.send_json({"environment_id": rec.id, "event": "stream_end", "count": len(events)})
+    await websocket.close(code=1000)
+
+
 def install_environment_routing_api(app: FastAPI) -> None:
-    """Install environment routing router and registry on the FastAPI application."""
-    app.include_router(router)
+    """Install environment routing router and registry on the FastAPI application.
+
+    The authentication dependency is attached at the mount (EAPR-P2-1, SP-5) so a
+    route added to this router is denied by default rather than opt-in.
+    """
+    app.include_router(router, dependencies=[Depends(api_compat.authenticated_principal)])
+
+    @app.middleware("http")
+    async def eap_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(router.prefix):
+            for name, value in EAP_SECURITY_HEADERS.items():
+                response.headers[name] = value
+        return response
+
     app.state.environment_registry = GLOBAL_ENVIRONMENT_REGISTRY
     logger.info("Installed Signal Loom on-demand environment routing API at /api/v1/environments")

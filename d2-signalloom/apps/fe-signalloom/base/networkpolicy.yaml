@@ -80,6 +80,16 @@ spec:
       ports:
         - protocol: TCP
           port: 8200
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: spire-server
+      ports:
+        - protocol: TCP
+          port: 8081
     # rbac_correlation.py calls AFM_BASE_URL (afm-platform.fe-k8s-afm) server-side
     # to build /api/rbac/clusters/{id}/correlated. This is the API pod's egress
     # half; afm-platform itself has no ingress NetworkPolicy of its own (see

@@ -51,9 +51,19 @@ setup() {
 	# registered only in the demo pipeline read as unrun — the same
 	# omits-by-default failure this file exists to end, one level up, and it would
 	# have pushed the next person to edit a frozen file to satisfy a guard.
+	#
+	# .github/workflows/signalloom-eap-pr.yaml is the third runner: the
+	# runner-hosted pull_request lane (EAPR-P2-3). It runs its own structural
+	# guard, test/eap-pr-workflow.bats, so that suite is owned by the workflow
+	# it guards -- the same ownership shape as gcp-tf-validate and the
+	# terraform-*.bats suites -- and is registered in neither shell pipeline.
+	# vm-pipeline.sh is frozen and the dual-lane guard would flag a suite named
+	# in demo-pipeline.sh alone, so the workflow is listed here as a runner
+	# rather than the suite being excluded as "run by nothing".
 	pipelines=(
 		"$repo_root/scripts/ci/vm-pipeline.sh"
 		"$repo_root/scripts/gcp-tf/demo-pipeline.sh"
+		"$repo_root/.github/workflows/signalloom-eap-pr.yaml"
 	)
 	pipeline="${pipelines[0]}"
 }
@@ -662,10 +672,12 @@ test-count-floor.bats"
 	[ "$(ls "$repo_root"/test/*.bats 2>/dev/null | wc -l)" -gt 0 ]
 
 	if [ -n "$unrun" ]; then
-		echo "Repo-root bats suite(s) that scripts/ci/vm-pipeline.sh never runs:"
+		echo "Repo-root bats suite(s) that no runner (vm-pipeline.sh, demo-pipeline.sh,"
+		echo "signalloom-eap-pr.yaml) ever runs:"
 		echo "  $unrun"
 		echo ""
-		echo "Add them to a run_stage in vm-pipeline.sh. A suite nothing invokes"
+		echo "Add them to a run_stage in a pipeline, or to a runner-hosted workflow"
+		echo "listed in pipelines=() above. A suite nothing invokes"
 		echo "is a suite that provides no regression protection, however green it"
 		echo "is when run by hand."
 		false

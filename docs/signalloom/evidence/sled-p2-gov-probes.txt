@@ -1,0 +1,63 @@
+# SLED-P2-GOV probe transcript
+# tree: integration/sled-v0.1.0 @ 3b2be825205e11fb7b290f8ec608a01eee4822b4 (+ uncommitted cert suite, committed alongside this file)
+# cmd: (cd d2-signalloom/apps/fe-signalloom/src && UV_CACHE_DIR=... uv run --python 3.12 --with pytest --with pytest-asyncio --with-requirements requirements.txt python -m pytest tests/test_sled_p2_certification.py tests/test_environment_lifecycle.py -v -s)
+
+CERT pass_duration_ms=[10.504, 1.964, 1.199] max_loop_lag_ms=2.29
+PASSED
+CERT 1000_queries+20_manual_reaps elapsed_s=0.182 codes={200} cycles=21
+PASSED
+tests/test_sled_p2_certification.py::test_manual_and_scheduled_passes_never_overlap PASSED
+CERT injected_faults=25 survived=True successful_cycles_after=5
+PASSED
+tests/test_sled_p2_certification.py::test_base_exception_other_than_cancel_is_not_swallowed_silently PASSED
+tests/test_sled_p2_certification.py::test_status_reports_dead_reaper_task_as_not_running XFAIL
+tests/test_sled_p2_certification.py::test_per_environment_failure_is_isolated_and_dead_lettered PASSED
+tests/test_sled_p2_certification.py::test_malformed_record_does_not_starve_the_fleet XFAIL
+CERT start_stop_cycles=50 leaked_tasks=0 worst_stop_ms=0.02
+PASSED
+tests/test_sled_p2_certification.py::test_stop_while_manual_pass_in_flight_does_not_deadlock PASSED
+CERT passes=3000 fleet=200 traced_heap_growth_bytes=218974 audit_log=500
+PASSED
+CERT watchdog_rss_mb=129.61 bound_mb=50.0 alerts_per_3_checks=3
+PASSED
+tests/test_sled_p2_certification.py::test_threaded_heartbeats_racing_reaper_passes_preserve_invariants PASSED
+CERT contended_lock_loop_lag_ms=389.9
+XFAIL
+tests/test_sled_p2_certification.py::test_metrics_endpoint_is_openmetrics_exposition XFAIL
+CERT metrics content-type=application/json keys=['signalloom_eap_active_environments', 'signalloom_eap_dlq_total', 'signalloom_eap_reaped_total', 'signalloom_eap_reaper_cycles_total', 'signalloom_eap_reaper_duration_seconds']
+PASSED
+CERT vmrss_mb=131.8 watchdog_mb=430.8
+XFAIL
+tests/test_environment_lifecycle.py::test_lifecycle_registration_defaults PASSED
+tests/test_environment_lifecycle.py::test_lifecycle_state_transitions PASSED
+tests/test_environment_lifecycle.py::test_heartbeat_lease_extension_and_ceiling PASSED
+tests/test_environment_lifecycle.py::test_activity_touch_resets_idle PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_ttl_expiration PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_idle_timeout PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_grace_period_to_terminated PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_empty_registry PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_fully_active_fleet PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_large_fleet_sub_millisecond_benchmark PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_priority_queue_ordering PASSED
+tests/test_environment_lifecycle.py::test_evaluate_reaping_exception_isolation_and_dlq PASSED
+tests/test_environment_lifecycle.py::test_adaptive_polling_interval_scheduler PASSED
+tests/test_environment_lifecycle.py::test_memory_watchdog_rss_monitoring PASSED
+tests/test_environment_lifecycle.py::test_administrative_pause_and_resume_controls PASSED
+tests/test_environment_lifecycle.py::test_reaper_daemon_start_stop_graceful_cancellation[asyncio] PASSED
+tests/test_environment_lifecycle.py::test_concurrent_api_requests_and_reaping_pass PASSED
+tests/test_environment_lifecycle.py::test_nanosecond_precision_timestamps_and_audit_schema PASSED
+tests/test_environment_lifecycle.py::test_mass_reaping_alert_notification_dispatch PASSED
+tests/test_environment_lifecycle.py::test_lock_timeout_handling PASSED
+tests/test_environment_lifecycle.py::test_rapid_clock_skew_resilience PASSED
+tests/test_environment_lifecycle.py::test_api_lifecycle_full_flow PASSED
+tests/test_environment_lifecycle.py::test_api_reaper_admin_and_diagnostic_endpoints PASSED
+=================== 35 passed, 5 xfailed, 1 warning in 9.11s ===================
+
+# full suite: python -m pytest tests -q  (rc=0)
+1417 passed, 83 skipped, 5 xfailed, 3 warnings in 224.08s (0:03:44)
+
+# heap plateau probe (logging disabled, 200-env fleet, traced bytes vs 50-pass warm-up)
+passes=5000 growth=378882
+passes=10000 growth=713224
+passes=20000 growth=1080452
+passes=30000 growth=1169412

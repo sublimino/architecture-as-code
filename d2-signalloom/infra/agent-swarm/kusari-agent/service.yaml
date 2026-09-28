@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kusari-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kusari-agent
+    app.kubernetes.io/part-of: signalloom-swarm
+    signalloom.ai/agent: "true"
+spec:
+  selector:
+    app.kubernetes.io/name: kusari-agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

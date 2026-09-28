@@ -491,7 +491,6 @@ spec:
           signalloom.ai/agent: "true"
           signalloom.ai/agent-name: "agent-cardvault"
       spec:
-        suspend: true
         dependsOn: [{name: agent-swarm-base}]
         serviceAccountName: agent-swarm-flux
         interval: 30m

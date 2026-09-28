@@ -167,8 +167,7 @@ spec:
         - protocol: TCP
           port: 8200
 ---
-# Egress to fe-signalloom: Signal Loom claim API via
-# fake-integration-proxy (8080) and dashboard (3000/5173).
+# Egress to fe-signalloom: Signal Loom API (8000), dashboard (8080/3000/5173).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -187,11 +186,34 @@ spec:
               kubernetes.io/metadata.name: fe-signalloom
       ports:
         - protocol: TCP
+          port: 8000
+        - protocol: TCP
           port: 8080
         - protocol: TCP
           port: 3000
         - protocol: TCP
           port: 5173
+---
+# Egress to inf-signalloom: cardvault service (8080) and fake-integration-proxy (8080).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-inf-signalloom-egress
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/agent: "true"
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+      ports:
+        - protocol: TCP
+          port: 8080
 ---
 # Egress to signal-ingest in fe-signalloom for observation
 # posting (workspace-connector pattern, port 8082).

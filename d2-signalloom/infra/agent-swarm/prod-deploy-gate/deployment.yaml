@@ -5,6 +5,7 @@ metadata:
   namespace: fe-signalloom-agents
   labels:
     signalloom.ai/agent: "true"
+    signalloom.ai/framework: "custom"
     signalloom.ai/role: "gate"
     signalloom.ai/harness: "go-gate"
     signalloom.ai/model: "deterministic"
@@ -20,6 +21,7 @@ spec:
       labels:
         app: prod-deploy-gate
         signalloom.ai/agent: "true"
+        signalloom.ai/framework: "custom"
         signalloom.ai/role: "gate"
         signalloom.ai/harness: "go-gate"
         signalloom.ai/model: "deterministic"
@@ -28,6 +30,10 @@ spec:
     spec:
       serviceAccountName: prod-deploy-gate
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
       containers:
         - name: prod-deploy-gate
           image: prod-deploy-gate:latest

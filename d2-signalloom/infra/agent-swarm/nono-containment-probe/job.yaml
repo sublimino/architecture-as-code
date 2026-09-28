@@ -7,6 +7,7 @@ metadata:
   labels:
     app.kubernetes.io/name: nono-containment-probe
     signalloom.ai/agent: "true"
+    signalloom.ai/framework: "custom"
     signalloom.ai/role: "probe"
     signalloom.ai/harness: "go-nono"
     signalloom.ai/model: "deterministic"
@@ -19,6 +20,7 @@ spec:
       labels:
         app.kubernetes.io/name: nono-containment-probe
         signalloom.ai/agent: "true"
+        signalloom.ai/framework: "custom"
         signalloom.ai/role: "probe"
         signalloom.ai/harness: "go-nono"
         signalloom.ai/model: "deterministic"
@@ -27,6 +29,10 @@ spec:
     spec:
       serviceAccountName: nono-containment-probe
       restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
       containers:
         - name: probe
           image: nono-containment-probe:latest

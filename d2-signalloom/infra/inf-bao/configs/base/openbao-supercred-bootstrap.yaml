@@ -49,12 +49,16 @@ spec:
               bao policy write signalloom-cardvault-agent /tmp/policy.hcl
 
               # --- JWT auth role: bound to the agent's SPIFFE identity ---
-              bao write auth/jwt/role/signalloom-cardvault-agent \
-                role_type=jwt \
-                bound_audiences=openbao \
-                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent \
-                user_claim=sub \
-                policies=signalloom-cardvault-agent
+              bao write auth/jwt/role/signalloom-cardvault-agent - <<'ROLE'
+              {
+                "role_type": "jwt",
+                "bound_audiences": ["openbao"],
+                "bound_claims": {"sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*cardvault*"},
+                "user_claim": "sub",
+                "policies": ["signalloom-cardvault-agent"]
+              }
+              ROLE
+
 
               # --- Seed the credential the agent will retrieve ---
               bao kv put kv/signalloom/cardvault-agent \

@@ -8,3 +8,5 @@ resources:
   # Shared prerequisite for every Agent CR in this namespace — without it they
   # do not compile. Listed after namespace.yaml because it lives in it.
   - remotemcpserver.yaml
+  - openbao-agent-sidecar.yaml
+

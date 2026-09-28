@@ -2908,6 +2908,7 @@ swarm-infra-up: ## Apply Knative + agent namespace + RBAC for the agent swarm.
 	@echo "--- Applying Knative Serving CRDs ---"
 	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-crds.yaml" 2>/dev/null || \
 		echo "WARNING: Knative Serving CRDs not available — skipping (install manually)"
+	kubectl patch crd services.serving.knative.dev configurations.serving.knative.dev --type=json -p '[{"op": "add", "path": "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/template/properties/spec/properties/volumes/items/properties/csi", "value": {"type": "object", "x-kubernetes-preserve-unknown-fields": true}}]' 2>/dev/null || true
 	@echo "--- Applying Knative Serving core ---"
 	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-core.yaml" 2>/dev/null || \
 		echo "WARNING: Knative Serving core not available — skipping"

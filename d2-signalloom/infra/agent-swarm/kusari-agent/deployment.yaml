@@ -13,6 +13,7 @@ metadata:
     app.kubernetes.io/part-of: signalloom-swarm
     signalloom.ai/agent: "true"
     signalloom.ai/agent-name: kusari-agent
+    signalloom.ai/framework: "custom"
     signalloom.ai/role: "supply-chain"
     signalloom.ai/harness: "go-http"
     signalloom.ai/model: "deterministic"
@@ -34,6 +35,7 @@ spec:
         app.kubernetes.io/part-of: signalloom-swarm
         signalloom.ai/agent: "true"
         signalloom.ai/agent-name: kusari-agent
+        signalloom.ai/framework: "custom"
         signalloom.ai/role: "supply-chain"
         signalloom.ai/harness: "go-http"
         signalloom.ai/model: "deterministic"

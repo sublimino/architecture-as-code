@@ -5,6 +5,7 @@ metadata:
   namespace: fe-signalloom-agents
   labels:
     signalloom.ai/agent: "true"
+    signalloom.ai/framework: "custom"
     signalloom.ai/role: "governor"
     signalloom.ai/harness: "go-a2a"
     signalloom.ai/model: "claude-sonnet-4"
@@ -20,6 +21,7 @@ spec:
       labels:
         app: swarm-governor
         signalloom.ai/agent: "true"
+        signalloom.ai/framework: "custom"
         signalloom.ai/role: "governor"
         signalloom.ai/harness: "go-a2a"
         signalloom.ai/model: "claude-sonnet-4"
@@ -28,6 +30,10 @@ spec:
     spec:
       serviceAccountName: swarm-governor
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
       containers:
         - name: swarm-governor
           image: swarm-governor:latest

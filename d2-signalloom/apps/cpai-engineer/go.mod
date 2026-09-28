@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/cpai-engineer
 
-go 1.24
+go 1.27.0
 
 require (
 	github.com/google/uuid v1.6.0

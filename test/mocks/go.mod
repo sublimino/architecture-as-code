@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/test/mocks
 
-go 1.24.1
+go 1.27.0
 
 // Standalone module, following the d2-signalloom/test/dex-templates pattern.
 // It is deliberately NOT part of the signal-ingest module: a `package main`

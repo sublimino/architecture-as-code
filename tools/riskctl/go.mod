@@ -1,6 +1,6 @@
 module github.com/acme-co/osramp/tools/riskctl
 
-go 1.24
+go 1.27.0
 
 require (
 	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine v0.0.0

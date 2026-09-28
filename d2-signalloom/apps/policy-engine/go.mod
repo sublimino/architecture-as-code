@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine
 
-go 1.24
+go 1.27.0
 
 require (
 	github.com/google/cel-go v0.30.0

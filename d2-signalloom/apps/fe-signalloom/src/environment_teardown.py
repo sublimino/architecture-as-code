@@ -109,6 +109,18 @@ NETWORK_STAGE_ORDER: List[TeardownStage] = [
     TeardownStage.EVICT_TAILSCALE,
 ]
 
+# Stages that shell out to kubectl and therefore require a reachable cluster.
+# force=True on run_ordered_teardown() bypasses exactly these (see
+# TeardownRequest.force: "Force termination bypassing connection draining" —
+# drain_routes IS the connection draining stage; delete_namespace is the other
+# kubectl-dependent stage and force is meaningless if it still hard-fails
+# there). SHRED_OPENBAO, REVOKE_SVID and EVICT_TAILSCALE never touch a
+# cluster directly (EVICT_TAILSCALE already defaults to mock mode via
+# tailscale_mode()), so they are unaffected by force and still run for real.
+CLUSTER_DEPENDENT_STAGES: frozenset = frozenset(
+    {TeardownStage.DRAIN_ROUTES, TeardownStage.DELETE_NAMESPACE}
+)
+
 
 class StageOutcome(str, enum.Enum):
     COMPLETED = "completed"            # resources existed and were removed
@@ -546,6 +558,7 @@ def run_ordered_teardown(
     failure_tracker: Optional[FailureTracker] = None,
     recorder: Optional[Any] = None,
     stage_kwargs: Optional[Dict[TeardownStage, Dict[str, Any]]] = None,
+    force: bool = False,
 ) -> TeardownReport:
     """Run teardown stages in exact order, fail-forward.
 
@@ -558,6 +571,16 @@ def run_ordered_teardown(
 
     Failure in stage k immediately stops stages k+1.. and if a manager is provided,
     leaves the LifecycleRecord in TEARDOWN_FAILED (never ACTIVE).
+
+    force=True skips the stages in CLUSTER_DEPENDENT_STAGES (drain_routes,
+    delete_namespace) instead of invoking kubectl, recording them as
+    ALREADY_ABSENT. This is the documented contract of TeardownRequest.force
+    ("Force termination bypassing connection draining") extended to the one
+    other kubectl-dependent stage, so a forced teardown never hard-fails
+    solely because no cluster is reachable from wherever the caller runs
+    (local dev, offline tests, or a deployment with no attached cluster).
+    Tenant/security state (OpenBao shredding, SPIRE SVID revocation) is never
+    skipped by force.
     """
     h = validate_customer_hash(customer_hash)
     sink = audit_sink or _log_sink
@@ -607,7 +630,11 @@ def run_ordered_teardown(
         if fn is None:
             fn = lambda customer_h, **kw: StageResult(stage, customer_h, StageOutcome.COMPLETED, f"{stage.value} completed", 1)
 
-        res = fn(h, **kwargs.get(stage, {}))
+        if force and stage in CLUSTER_DEPENDENT_STAGES:
+            res = StageResult(stage, h, StageOutcome.ALREADY_ABSENT,
+                              f"{stage.value} skipped: force=True bypasses cluster-dependent stages", 0)
+        else:
+            res = fn(h, **kwargs.get(stage, {}))
         results.append(res)
         sink(build_audit_event(res, company_name=company, lifecycle_state=state,
                                trigger_reason=trigger_reason, actor=actor))

@@ -551,6 +551,7 @@ class EnvironmentRegistry:
             actor="system:environment-routing",
             recorder=recorder,
             stage_kwargs=stage_kwargs,
+            force=force,
         )
 
         with self._lock:

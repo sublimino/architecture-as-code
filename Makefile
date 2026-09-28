@@ -533,7 +533,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	@echo "=== [Offline] All offline test suites passed successfully! ==="
 
 
-test-eap-offline: ## Run the EAP gate: four EAP pytest files + test_audit_provenance.py (SP-1 runner), then authz-suite-liveness and api-route-liveness bats. Red by design until P2-1/P2-2.
+test-eap-offline: ## Run the EAP gate: four EAP pytest files + test_audit_provenance.py (SP-1 runner), then authz-suite-liveness and api-route-liveness bats. Green as of the SLSEC integration of P2-1/P2-2 (EAP routers behind authenticated_principal).
 	@# EAPR-P1-3. One command every EAP card and governor cites (SP-2). Kept FLAT:
 	@# no recursive make line, so `make -n test-eap-offline` prints rather than
 	@# executes, and no trailing tail/echo, so the first non-zero status propagates.

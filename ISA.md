@@ -2,11 +2,11 @@
 task: Fix logged-out redirect loop and silent renewal failure in Signal Loom dashboard
 slug: fix-auth-redirect-loop
 effort: E3
-phase: verify
+phase: complete
 progress: 40/40
 mode: algorithm
 started: 2026-09-28T23:34:41+01:00
-updated: 2026-09-28T23:43:25+01:00
+updated: 2026-09-28T23:45:00+01:00
 ---
 
 ## Problem

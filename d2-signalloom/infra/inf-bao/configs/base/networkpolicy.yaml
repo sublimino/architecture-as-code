@@ -44,6 +44,16 @@ spec:
       ports:
         - protocol: TCP
           port: 8200
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom-agents
+          podSelector:
+            matchLabels:
+              signalloom.ai/agent: "true"
+      ports:
+        - protocol: TCP
+          port: 8200
     # EAP: tenant workloads need OpenBao and SPIRE server access
     - from:
         - namespaceSelector:

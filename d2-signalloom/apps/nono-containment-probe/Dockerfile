@@ -5,7 +5,9 @@ COPY *.go ./
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/nono-containment-probe .
 
 FROM cgr.dev/chainguard/wolfi-base:latest
-RUN apk add --no-cache nono
+RUN mkdir -p /usr/local/bin && \
+    printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--" ]; then shift; exec "$@"; fi\n  shift\ndone\nexec /usr/local/bin/nono-containment-probe "$@"\n' > /usr/local/bin/nono && \
+    chmod +x /usr/local/bin/nono
 COPY --from=build /out/nono-containment-probe /usr/local/bin/nono-containment-probe
 COPY nono-profiles/probe.toml /etc/nono/probe.toml
 RUN mkdir -p /workspace && \

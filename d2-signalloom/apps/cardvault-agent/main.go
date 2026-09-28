@@ -68,6 +68,13 @@ func entry(args []string, stdout, stderr io.Writer) int {
 	claimURL := fs.String("claim-url", envOr("CLAIM_URL", "http://fe-signalloom.inf-signalloom.svc.cluster.local:3000"), "Signal Loom claim API base URL")
 	socket := fs.String("socket", "/run/spire/sockets/agent.sock", "SPIRE agent socket path")
 	audience := fs.String("audience", "openbao", "JWT-SVID audience")
+	var defaultInterval time.Duration
+	if v := os.Getenv("INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			defaultInterval = d
+		}
+	}
+	interval := fs.Duration("interval", defaultInterval, "interval between runs (0 runs once and exits)")
 
 	if err := fs.Parse(args); err != nil {
 		return 64
@@ -87,6 +94,12 @@ func entry(args []string, stdout, stderr io.Writer) int {
 
 	switch *mode {
 	case "run":
+		if *interval > 0 {
+			for {
+				app.runDemo(stdout, stderr)
+				app.pause(*interval)
+			}
+		}
 		return app.runDemo(stdout, stderr)
 	case "status":
 		return app.runStatus(stdout)

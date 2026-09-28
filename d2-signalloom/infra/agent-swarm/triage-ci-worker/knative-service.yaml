@@ -5,6 +5,7 @@ metadata:
   namespace: fe-signalloom-agents
   labels:
     signalloom.ai/agent: "true"
+    signalloom.ai/framework: custom
     signalloom.ai/role: triage
     signalloom.ai/harness: go-worker
     signalloom.ai/model: deterministic
@@ -18,6 +19,7 @@ spec:
         autoscaling.knative.dev/max-scale: "3"
       labels:
         signalloom.ai/agent: "true"
+        signalloom.ai/framework: custom
         signalloom.ai/role: triage
         signalloom.ai/state: active
     spec:
@@ -91,6 +93,7 @@ spec:
               mountPath: /home/openbao
           securityContext:
             runAsNonRoot: true
+            runAsUser: 100
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:

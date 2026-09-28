@@ -177,12 +177,7 @@ function sleep(ms: number): Promise<void> {
 async function main(): Promise<void> {
   console.log(`zulip-chat-agent starting — stream=${ZULIP_STREAM} bot=${BOT_NAME}`);
 
-  const queue = await client.registerEventQueue(["message"]);
-  console.log(`Event queue registered: ${queue.queue_id}`);
-
-  let lastEventId = queue.last_event_id;
   let running = true;
-
   const shutdown = () => {
     console.log("Shutting down...");
     running = false;
@@ -190,6 +185,20 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  let queue: { queue_id: string; last_event_id: number } | null = null;
+  while (running && !queue) {
+    try {
+      queue = await client.registerEventQueue(["message"]);
+      console.log(`Event queue registered: ${queue.queue_id}`);
+    } catch (err) {
+      console.error("Initial connection to Zulip failed, retrying in 10s:", err);
+      await sleep(10000);
+    }
+  }
+
+  if (!running || !queue) return;
+  let lastEventId = queue.last_event_id;
 
   while (running) {
     try {

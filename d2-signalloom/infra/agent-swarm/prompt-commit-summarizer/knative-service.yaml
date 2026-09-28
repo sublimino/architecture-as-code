@@ -5,6 +5,7 @@ metadata:
   namespace: fe-signalloom-agents
   labels:
     signalloom.ai/agent: "true"
+    signalloom.ai/framework: custom
     signalloom.ai/role: summarizer
     signalloom.ai/harness: go-static
     signalloom.ai/model: gemini-2.5-flash
@@ -18,6 +19,7 @@ spec:
         autoscaling.knative.dev/max-scale: "5"
       labels:
         signalloom.ai/agent: "true"
+        signalloom.ai/framework: custom
         signalloom.ai/role: summarizer
         signalloom.ai/state: active
     spec:
@@ -89,6 +91,7 @@ spec:
               mountPath: /home/openbao
           securityContext:
             runAsNonRoot: true
+            runAsUser: 100
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:

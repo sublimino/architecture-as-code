@@ -4,6 +4,9 @@ import { AuthProvider, useAuth, hasAuthParams } from 'react-oidc-context'
 import { WebStorageStateStore } from 'oidc-client-ts'
 import { setUnauthorizedHandler } from '../api/client'
 
+export { hasAuthParams }
+export const LOGGED_OUT_KEY = 'signalloom:logged-out'
+
 interface Props {
   children: ReactNode
 }
@@ -37,8 +40,11 @@ export const oidcConfig = {
   // to another origin.
   userStore: new WebStorageStateStore({ store: window.localStorage }),
   stateStore: new WebStorageStateStore({ store: window.localStorage }),
-  automaticSilentRenew: true,
+  automaticSilentRenew: false,
   onSigninCallback: () => {
+    try {
+      sessionStorage.removeItem(LOGGED_OUT_KEY)
+    } catch {}
     const returnTo = window.localStorage.getItem('signalloom-return-to') ?? '/agents'
     window.localStorage.removeItem('signalloom-return-to')
     window.history.replaceState({}, document.title, returnTo)
@@ -49,7 +55,7 @@ export const oidcConfig = {
 // the documented react-oidc-context SPA pattern — the library does not redirect
 // on its own, and relying on a route guard fails when a loading gate keeps the
 // guard unmounted. Mounted alongside the app so it always runs.
-const PUBLIC_PATHS = ['/redeem-invite', '/signup']
+const PUBLIC_PATHS = ['/redeem-invite', '/signup', '/login', '/callback']
 
 export function isPublicRoute(pathname: string): boolean {
   const clean = pathname.split('?')[0].split('#')[0].replace(/\/+$/, '') || '/'
@@ -65,27 +71,19 @@ function AutoSignIn({ children }: Props) {
       if (isPublicRoute(window.location.pathname)) {
         return
       }
+      try {
+        if (sessionStorage.getItem(LOGGED_OUT_KEY) === 'true') {
+          return
+        }
+      } catch {}
 
-      if (typeof auth?.signinSilent === 'function') {
-        auth
-          .signinSilent()
-          .catch(() => {
-            window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
-            if (typeof auth?.signinRedirect === 'function') {
-              auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {
-                window.location.reload()
-              })
-            } else {
-              window.location.reload()
-            }
-          })
-      } else if (typeof auth?.signinRedirect === 'function') {
+      if (typeof auth?.signinRedirect === 'function') {
         window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
         auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {
-          window.location.reload()
+          window.location.href = '/login'
         })
       } else {
-        window.location.reload()
+        window.location.href = '/login'
       }
     }
 
@@ -99,6 +97,11 @@ function AutoSignIn({ children }: Props) {
     if (isPublicRoute(window.location.pathname)) {
       return
     }
+    try {
+      if (sessionStorage.getItem(LOGGED_OUT_KEY) === 'true') {
+        return
+      }
+    } catch {}
 
     if (
       !triggered.current &&
@@ -106,13 +109,13 @@ function AutoSignIn({ children }: Props) {
       !auth?.isAuthenticated &&
       !auth?.activeNavigator &&
       !auth?.isLoading &&
-      !auth.error
+      !auth?.error
     ) {
       triggered.current = true
       window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
       auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch((e) => console.error('[oidc-signin-error]', e))
     }
-  }, [auth?.isAuthenticated, auth?.activeNavigator, auth?.isLoading, auth.error, auth])
+  }, [auth?.isAuthenticated, auth?.activeNavigator, auth?.isLoading, auth?.error, auth])
   return <>{children}</>
 }
 
@@ -137,25 +140,20 @@ export function useAuth0() {
     const user = auth?.user
     const isExpired = Boolean(user?.expired || (user?.expires_at ? (user.expires_at - Date.now() / 1000) < 30 : false))
 
-    if (isExpired && typeof auth?.signinSilent === 'function') {
-      try {
-        const renewed = await auth.signinSilent()
-        const renewedToken = renewed?.access_token ?? renewed?.id_token
-        if (renewedToken) {
-          return renewedToken
-        }
-      } catch (err) {
-        console.warn('[oidc] getAccessTokenSilently silent renewal failed:', err)
-      }
-    }
-
-    if (token && !user?.expired) {
+    if (token && !isExpired) {
       return token
     }
 
-    if (user?.expired && typeof auth?.signinRedirect === 'function') {
-      window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
-      auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {})
+    if (isExpired && typeof auth?.signinRedirect === 'function') {
+      let isLoggedOut = false
+      try {
+        isLoggedOut = sessionStorage.getItem(LOGGED_OUT_KEY) === 'true'
+      } catch {}
+
+      if (!isPublicRoute(window.location.pathname) && !isLoggedOut) {
+        window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
+        auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {})
+      }
       throw new Error('Token expired: re-authenticating')
     }
 
@@ -165,6 +163,9 @@ export function useAuth0() {
   const loginWithRedirect = useCallback(
     (opts?: unknown): void => {
       void opts
+      try {
+        sessionStorage.removeItem(LOGGED_OUT_KEY)
+      } catch {}
       signinRedirect({ extraQueryParams: { prompt: 'login' } })
     },
     [signinRedirect],
@@ -173,8 +174,11 @@ export function useAuth0() {
   const logout = useCallback(
     (opts?: unknown): void => {
       void opts
+      try {
+        sessionStorage.setItem(LOGGED_OUT_KEY, 'true')
+      } catch {}
       removeUser().then(() => {
-        window.location.href = '/'
+        window.location.href = '/login'
       })
     },
     [removeUser],

@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { oidcConfig } from './oidc'
 
 describe('OIDC silent renewal and token configuration', () => {
-  it('enables automatic silent renew in oidcConfig', () => {
-    expect(oidcConfig.automaticSilentRenew).toBe(true)
+  it('disables automatic silent renew in oidcConfig to prevent redirect loops with Dex', () => {
+    expect(oidcConfig.automaticSilentRenew).toBe(false)
   })
 
   it('configures silent_redirect_uri matching the callback endpoint', () => {

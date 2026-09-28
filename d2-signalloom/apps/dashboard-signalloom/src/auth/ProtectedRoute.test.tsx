@@ -4,12 +4,17 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import ProtectedRoute from './ProtectedRoute'
 import { AppContext } from '../App'
 
+const mockLoginWithRedirect = vi.fn()
+let mockAuthState = {
+  isAuthenticated: true,
+  isLoading: false,
+  loginWithRedirect: mockLoginWithRedirect,
+}
+
 vi.mock('./oidc', () => ({
-  useAuth0: () => ({
-    isAuthenticated: true,
-    isLoading: false,
-    loginWithRedirect: vi.fn(),
-  }),
+  useAuth0: () => mockAuthState,
+  hasAuthParams: () => false,
+  LOGGED_OUT_KEY: 'signalloom:logged-out',
 }))
 
 function renderWithGate(needsOnboarding: boolean | null, initialPath: string, exempt?: boolean) {
@@ -119,5 +124,49 @@ describe('ProtectedRoute onboarding gate', () => {
     let capturedState: unknown = null
     renderWithStateCapture('/agents', (s) => { capturedState = s })
     expect(capturedState).toEqual({ returnTo: '/agents' })
+  })
+
+  it('redirects to /login when user is marked as logged out', () => {
+    sessionStorage.setItem('signalloom:logged-out', 'true')
+    try {
+      render(
+        <MemoryRouter initialEntries={['/agents']}>
+          <AppContext.Provider
+            value={{
+              failingControls: 0,
+              setFailingControls: () => undefined,
+              helpOpen: false,
+              setHelpOpen: () => undefined,
+              apiKeyReveal: null,
+              setApiKeyReveal: () => undefined,
+              cookieSettingsOpen: false,
+              setCookieSettingsOpen: () => undefined,
+              connectedProviderCount: 0,
+              totalProviderCount: 5,
+              needsOnboarding: false,
+              refreshOnboardingState: () => Promise.resolve(),
+              superadmin: false,
+              setSuperadmin: () => undefined,
+            }}
+          >
+            <Routes>
+              <Route
+                path="/agents"
+                element={
+                  <ProtectedRoute>
+                    <div>Agents page</div>
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/login" element={<div>Login page</div>} />
+            </Routes>
+          </AppContext.Provider>
+        </MemoryRouter>,
+      )
+      expect(screen.getByText('Login page')).toBeInTheDocument()
+      expect(screen.queryByText('Agents page')).not.toBeInTheDocument()
+    } finally {
+      sessionStorage.removeItem('signalloom:logged-out')
+    }
   })
 })

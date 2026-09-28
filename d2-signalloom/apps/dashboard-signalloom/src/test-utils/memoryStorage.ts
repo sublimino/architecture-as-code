@@ -39,15 +39,24 @@ class MemoryStorage implements Storage {
 
 export function installMemoryStorage(): Storage {
   const storage = new MemoryStorage()
+  const sessionStorageInstance = new MemoryStorage()
   const descriptor: PropertyDescriptor = {
     value: storage,
     writable: true,
     configurable: true,
     enumerable: true,
   }
+  const sessionDescriptor: PropertyDescriptor = {
+    value: sessionStorageInstance,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  }
   Object.defineProperty(globalThis, 'localStorage', descriptor)
+  Object.defineProperty(globalThis, 'sessionStorage', sessionDescriptor)
   if (typeof window !== 'undefined' && (window as unknown) !== (globalThis as unknown)) {
     Object.defineProperty(window, 'localStorage', descriptor)
+    Object.defineProperty(window, 'sessionStorage', sessionDescriptor)
   }
   return storage
 }

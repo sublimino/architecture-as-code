@@ -55,6 +55,8 @@ const SignalStorePage = lazy(() => import('./pages/SignalStorePage'))
 const FeedsExplorerPage = lazy(() => import('./pages/FeedsExplorerPage'))
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
 const DesignSystemHeadersPage = lazy(() => import('./pages/DesignSystemHeadersPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const CallbackPage = lazy(() => import('./pages/CallbackPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -153,6 +155,8 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/onboarding': 'Setup',
   '/help/connectors/:provider': 'Connector Help',
   '/redeem-invite': 'Invite',
+  '/login': 'Login',
+  '/callback': 'Sign In',
 }
 
 /**
@@ -391,6 +395,8 @@ export default function App() {
                 duration of the chunk fetch. */}
             <Suspense fallback={<AppLoader label={routeLoadingLabel(location.pathname)} minHeight="60vh" testId="route-loading" />}>
               <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/callback" element={<CallbackPage />} />
                 <Route path="/redeem-invite" element={<ProtectedRoute><RedeemInvitePage /></ProtectedRoute>} />
                 <Route path="/signup" element={<Navigate to="/redeem-invite" replace />} />
 

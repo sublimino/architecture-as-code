@@ -3119,5 +3119,13 @@
     "verdict": "PASS",
     "model": null,
     "reason": "SLRC-P1-2 descriptor-safe bounded evidence reader verified: TOCTOU eliminated, 512 KiB ceiling enforced, 76/76 tests pass, committed as 1dd019aa"
+  },
+  "24d0d": {
+    "task_id": "24d0d",
+    "reviewed_at": "2026-09-28T04:33:36.789Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "SLRC-P1-GOV Phase 1 certified: 141 tests pass, commit 2fffed59, tag integration/slrc-v0.1.0-p1"
   }
 }

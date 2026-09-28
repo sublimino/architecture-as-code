@@ -3191,5 +3191,13 @@
     "verdict": "PASS",
     "model": null,
     "reason": "SLRC-P3-GOV Phase 3 certified: zero-failure audit provenance suite (27/27 pass), commit bb9b17cf, tag integration/slrc-v0.1.0-p3"
+  },
+  "1aeec": {
+    "task_id": "1aeec",
+    "reviewed_at": "2026-09-28T07:11:13.512Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "SLRC-P4-1 end-to-end teardown and failure recovery certified: all 8 destructive postconditions proven, mid-stage checkpoint resumption verified, descriptor-safe evidence verified, commit 57b5c0cf"
   }
 }

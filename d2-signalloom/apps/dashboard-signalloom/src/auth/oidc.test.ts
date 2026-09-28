@@ -8,6 +8,10 @@ describe('isPublicRoute', () => {
     expect(isPublicRoute('/redeem-invite/123')).toBe(true)
     expect(isPublicRoute('/signup')).toBe(true)
     expect(isPublicRoute('/signup/')).toBe(true)
+    expect(isPublicRoute('/login')).toBe(true)
+    expect(isPublicRoute('/login/')).toBe(true)
+    expect(isPublicRoute('/callback')).toBe(true)
+    expect(isPublicRoute('/callback?code=abc&state=123')).toBe(true)
   })
 
   it('rejects protected routes as non-public', () => {

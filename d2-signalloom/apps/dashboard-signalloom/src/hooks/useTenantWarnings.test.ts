@@ -217,10 +217,8 @@ describe('useTenantWarnings hook', () => {
 
     await waitFor(() => {
       expect(hookB.current.tenantId).toBe(tenantB)
+      expect(hookB.current.unreadCount).toBe(1)
     })
-
-    // Tenant B should still have unread count = 1 because storage keys are scoped
-    expect(hookB.current.unreadCount).toBe(1)
     expect(hookB.current.unreadWarnings[0].id).toBe('ev-shared-1')
 
     const keyA = getTenantWarningsStorageKey(tenantA)

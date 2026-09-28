@@ -9,7 +9,7 @@
 # the namespace, shared RBAC, and NetworkPolicies. Each agent subdirectory
 # owns its own workload manifests.
 #
-# Agent inventory (10):
+# Agent inventory (13):
 #   Tier 1  prompt-commit-summarizer   KnativeService
 #   Tier 2  triage-ci-worker           KnativeService
 #   Tier 3  zulip-chat-agent           Deployment
@@ -20,6 +20,9 @@
 #   Tier 6  agent-cardvault            Deployment overlay
 #   Tier 7  nono-containment-probe     Job + PVC
 #   Tier 8  signalloom-stun-sentinel   DaemonSet
+#   Demo    agent-nono-evidenced       Deployment (Nono Landlock + SPIFFE evidence)
+#   Demo    agent-standard-baseline    Deployment (standard baseline container)
+#   Tier 9  kusari-agent               Deployment + Service (stub Kusari pilot)
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -657,6 +660,45 @@ spec:
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./agent-standard-baseline
+        prune: true
+        ignore:
+          - target:
+              kind: Pod
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+          - target:
+              kind: Deployment
+            paths:
+              - /metadata/labels/signalloom.io~1stunned
+              - /metadata/labels/signalloom.io~1containment-mode
+              - /metadata/annotations/signalloom.io~1stun-reason
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
+
+    # 13. kusari-agent (Tier 9 — Deployment + Service, stub Kusari pilot)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-kusari-agent
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "kusari-agent"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./kusari-agent
         prune: true
         ignore:
           - target:

@@ -2962,7 +2962,7 @@ swarm-prompt-triage-images: swarm-prompt-summarizer-image swarm-triage-worker-im
 # ── Agent Swarm — Flux Deploy/Remove ────────────────────────────────
 
 .PHONY: swarm-deploy
-swarm-deploy: ## Deploy all 10 swarm agents via Flux reconciliation.
+swarm-deploy: ## Deploy all 11 swarm agents via Flux reconciliation.
 	scripts/swarm-deploy.sh deploy
 
 .PHONY: swarm-deploy-%

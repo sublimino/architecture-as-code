@@ -16,7 +16,7 @@ NAMESPACE="fe-signalloom-agents"
 RESOURCESET_NAME="agent-swarm"
 RESOURCESET_NS="flux-system"
 
-# All 10 agent Kustomization names (as declared in the ResourceSet).
+# All 11 agent Kustomization names (as declared in the ResourceSet).
 AGENTS=(
   agent-prompt-commit-summarizer
   agent-triage-ci-worker
@@ -28,6 +28,7 @@ AGENTS=(
   agent-cardvault
   agent-nono-containment-probe
   agent-signalloom-stun-sentinel
+  agent-kusari-agent
 )
 
 # ── helpers ───────────────────────────────────────────────────────────

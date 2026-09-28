@@ -87,6 +87,7 @@ deploy_fleet() {
     agent-cardvault
     nono-containment-probe
     signalloom-stun-sentinel
+    kusari-agent
   )
 
   for agent in "${agents[@]}"; do

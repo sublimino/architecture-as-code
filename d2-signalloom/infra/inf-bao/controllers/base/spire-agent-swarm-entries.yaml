@@ -87,6 +87,7 @@ data:
       kagent-chaos-prober
       agent-nono-evidenced
       agent-standard-baseline
+      kusari-agent
     )
 
     # One derivation of the server call, so nothing below can disagree about

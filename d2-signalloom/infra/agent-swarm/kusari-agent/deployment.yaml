@@ -1,0 +1,93 @@
+---
+# kusari-agent (Tier 9) — stub Kusari pilot workload. Serves quotes on :8080 and
+# writes /tmp/hostile-test.txt on every 5th request as a known-hostile action for
+# runtime monitoring. See apps/kusari-agent/README.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-kusari
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kusari-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom-swarm
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: kusari-agent
+    signalloom.ai/role: "supply-chain"
+    signalloom.ai/harness: "go-http"
+    signalloom.ai/model: "deterministic"
+    signalloom.ai/tenant: "kusari"
+    signalloom.ai/project: "kusari-pilot"
+  annotations:
+    signalloom.ai/agent-display-name: "Kusari Agent (stub)"
+    signalloom.ai/description: "Stub Kusari pilot agent: quote API plus a deliberate hostile file write every 5th request for monitoring validation."
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kusari-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kusari-agent
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: signalloom-swarm
+        signalloom.ai/agent: "true"
+        signalloom.ai/agent-name: kusari-agent
+        signalloom.ai/role: "supply-chain"
+        signalloom.ai/harness: "go-http"
+        signalloom.ai/model: "deterministic"
+        signalloom.ai/tenant: "kusari"
+        signalloom.ai/project: "kusari-pilot"
+    spec:
+      serviceAccountName: kusari-agent
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: kusari-agent:latest
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: HOSTILE_EVERY
+              value: "5"
+            - name: HOSTILE_PATH
+              value: "/tmp/hostile-test.txt"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tmp
+          emptyDir: {}

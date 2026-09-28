@@ -221,7 +221,7 @@ swarm-interactive-images: swarm-zulip-image swarm-governor-image swarm-deploy-ga
 # Agent Swarm — Security, Identity & Containment Validation Fleet
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: swarm-nono-probe-image swarm-stun-sentinel-image swarm-security-images swarm-test
+.PHONY: swarm-nono-probe-image swarm-stun-sentinel-image swarm-kusari-image swarm-security-images swarm-test
 
 swarm-nono-probe-image: ## Build nono-containment-probe image
 	docker build -t nono-containment-probe:latest apps/nono-containment-probe/
@@ -229,9 +229,13 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 swarm-stun-sentinel-image: ## Build signalloom-stun-sentinel DaemonSet image
 	docker build -t stun-sentinel:latest apps/signalloom-stun-sentinel/
 
-swarm-security-images: swarm-nono-probe-image swarm-stun-sentinel-image ## Build all security fleet images
+swarm-kusari-image: ## Build kusari-agent stub image (Tier 9 Kusari pilot stand-in)
+	docker build -t kusari-agent:latest apps/kusari-agent/
+
+swarm-security-images: swarm-nono-probe-image swarm-stun-sentinel-image swarm-kusari-image ## Build all security fleet images
 
 swarm-test: ## Run unit tests for all swarm agents
 	cd apps/cardvault-agent && go test ./...
 	cd apps/nono-containment-probe && go test ./...
 	cd apps/signalloom-stun-sentinel && go test ./...
+	cd apps/kusari-agent && go test ./...

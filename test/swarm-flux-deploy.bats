@@ -90,6 +90,11 @@ SCRIPT="$REPO_ROOT/scripts/swarm-deploy.sh"
   grep -q 'path: ./signalloom-stun-sentinel' "$RS_FILE"
 }
 
+@test "ResourceSet contains kusari-agent Kustomization (Tier 9 stub)" {
+  grep -q 'name: agent-kusari-agent' "$RS_FILE"
+  grep -q 'path: ./kusari-agent' "$RS_FILE"
+}
+
 @test "ResourceSet has exactly 10 per-agent Kustomizations (plus base)" {
   local path_count
   path_count="$(grep -c 'path: \.' "$RS_FILE")"

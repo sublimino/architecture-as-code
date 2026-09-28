@@ -3151,5 +3151,13 @@
     "verdict": "PASS",
     "model": null,
     "reason": "SLRC-P2-2 verified: live PostgreSQL collision, 1179 claims/s, restart recovery, transactional outbox atomicity, 4 killed mutants, 9/9 integration tests pass, committed as d83cc85e"
+  },
+  "a9364": {
+    "task_id": "a9364",
+    "reviewed_at": "2026-09-28T05:31:29.041Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "SLRC-P2-GOV Phase 2 certified: reconciled lifecycle persistence and live PostgreSQL integration suites, 40 tests pass (10/10 Postgres integration zero skips), commit 8fce7bbe, tag integration/slrc-v0.1.0-p2"
   }
 }

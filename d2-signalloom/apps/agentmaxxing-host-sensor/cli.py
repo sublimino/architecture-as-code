@@ -130,6 +130,65 @@ def cmd_hash_relative(args: argparse.Namespace) -> int:
     return 0 if result.observation_state == "observed" else 1
 
 
+def cmd_enroll(args: argparse.Namespace) -> int:
+    """Execute host sensor agent enrollment against Signal Loom registration API."""
+    import secrets
+    import urllib.error
+    import urllib.request
+
+    client_nonce = args.client_nonce or secrets.token_urlsafe(24)
+    public_key = args.public_key or "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE"
+
+    payload: dict[str, Any] = {
+        "schema_version": "1.0.0",
+        "agent_id": args.agent_id,
+        "host_id": args.host_id,
+        "key_id": args.key_id,
+        "key_algorithm": "Ed25519",
+        "public_key": public_key,
+        "client_nonce": client_nonce,
+        "credential_kind": "existing-mtls-identity",
+        "credential_scope": "audit-upload-only",
+        "credential_bootstrap": "pre-provisioned-out-of-band",
+    }
+    if args.tenant_id:
+        payload["tenant_id"] = args.tenant_id
+
+    endpoint_url = f"{args.base_url.rstrip('/')}{args.enroll_path}"
+    req = urllib.request.Request(
+        endpoint_url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {args.token}",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=args.timeout) as resp:
+            resp_bytes = resp.read()
+            data = json.loads(resp_bytes.decode("utf-8")) if resp_bytes else {}
+
+            if args.state_file:
+                state_path = Path(args.state_file)
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+            print(json.dumps(data, indent=2 if args.pretty else None, sort_keys=True))
+            return 0
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        sys.stderr.write(f"Enrollment failed (HTTP {exc.code}): {err_body}\n")
+        return 1
+    except urllib.error.URLError as exc:
+        sys.stderr.write(f"Enrollment failed (Network error): {exc.reason}\n")
+        return 1
+    except Exception as exc:
+        sys.stderr.write(f"Enrollment error: {exc}\n")
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -199,6 +258,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max bytes permitted per 60s window",
     )
     p_hash.set_defaults(func=cmd_hash_relative)
+
+    # Enroll
+    p_enroll = subparsers.add_parser(
+        "enroll",
+        help="Enroll host sensor agent using an operator-issued token to receive server-minted SPIFFE ID and SVID",
+    )
+    p_enroll.add_argument("--token", type=str, required=True, help="Operator-issued enrollment token")
+    p_enroll.add_argument("--base-url", type=str, default="http://localhost:8080", help="Signal Loom base URL")
+    p_enroll.add_argument("--enroll-path", type=str, default="/api/v1/external-agents/enroll", help="Enrollment endpoint path")
+    p_enroll.add_argument("--agent-id", type=str, default="agentmaxxing-linux-001", help="Agent identifier")
+    p_enroll.add_argument("--host-id", type=str, default="amx-host-001", help="Host identifier")
+    p_enroll.add_argument("--key-id", type=str, default="key-agentmaxxing-001", help="Agent signing key identifier")
+    p_enroll.add_argument("--public-key", type=str, default=None, help="Base64url Ed25519 public key")
+    p_enroll.add_argument("--client-nonce", type=str, default=None, help="Client nonce for idempotency")
+    p_enroll.add_argument("--tenant-id", type=str, default=None, help="Tenant identifier")
+    p_enroll.add_argument("--state-file", type=str, default=None, help="Path to persist enrollment state JSON")
+    p_enroll.add_argument("--timeout", type=float, default=10.0, help="Request timeout in seconds")
+    p_enroll.add_argument("--pretty", action="store_true", help="Pretty print JSON output")
+    p_enroll.set_defaults(func=cmd_enroll)
 
     return parser
 

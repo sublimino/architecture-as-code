@@ -230,7 +230,6 @@ def step_2_host_enrollment(client: TestClient, enrollment_token: str) -> Enrollm
         "credential_kind": "existing-mtls-identity",
         "credential_scope": "audit-upload-only",
         "credential_bootstrap": "pre-provisioned-out-of-band",
-        "credential_reference": f"spiffe://signalloom.demo/ns/agents/sa/{AGENT_ID}",
     }
     enroll_resp = client.post(
         "/v1/external-agents/enroll",
@@ -244,10 +243,11 @@ def step_2_host_enrollment(client: TestClient, enrollment_token: str) -> Enrollm
     assert enroll_result.tenant_id == TENANT_ID
 
     # Atomic Single-Use Check: Replaying the token must fail with 409 Conflict
+    dup_payload = dict(host_enroll_payload, client_nonce="bm9uY2UtMDAwMDAwMDAwMDAy")
     dup_enroll_resp = client.post(
         "/v1/external-agents/enroll",
         headers={"Authorization": f"Bearer {enrollment_token}"},
-        json=host_enroll_payload,
+        json=dup_payload,
     )
     assert dup_enroll_resp.status_code == 409, "Second enrollment token redemption must be rejected"
     return enroll_result

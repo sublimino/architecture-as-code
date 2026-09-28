@@ -123,7 +123,7 @@ DASHBOARD_SRC = (
     SRC_DIR.parent.parent / "dashboard-signalloom" / "src"
 )
 
-AUDIT_WRITERS = ("_audit_log", "_record_memory_audit")
+AUDIT_WRITERS = ("_audit_log", "_record_memory_audit", "_audit_eap_decision")
 
 # Receivers whose results are the *server's own observation* of state, and whose
 # arguments therefore do not contaminate what comes back. A row read with
@@ -230,6 +230,8 @@ def _argument_named(call: ast.Call, parameter: str, order: list[str]) -> ast.exp
     for keyword in call.keywords:
         if keyword.arg == parameter:
             return keyword.value
+    if parameter not in order:
+        return None
     index = order.index(parameter)
     return call.args[index] if len(call.args) > index else None
 
@@ -250,6 +252,9 @@ def test_the_writer_signatures_are_the_ones_this_file_assumes() -> None:
         "authorizing_principal_id", "executing_actor_id", "spiffe_id",
         "attribution_rationale", "evidence_ref", "kernel_telemetry_ref",
     ], f"_record_memory_audit's signature moved: {parameters.get('_record_memory_audit')}"
+    assert parameters.get("_audit_eap_decision") == [
+        "conn", "principal", "action", "target", "verdict", "detail",
+    ], f"_audit_eap_decision's signature moved: {parameters.get('_audit_eap_decision')}"
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +515,46 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
         "A compliance scan record that cites an unverified policy version is a "
         "regulatory artefact asserting something the system never checked."
     ),
+    # ---- EAP Routers (EAPR-P2-2 audit decisions) --------------------------
+    ("environment_lifecycle.py", "api_register_lifecycle", "detail", "company_name"): (
+        "EAP registration parameter recorded in audit detail as context for lifecycle creation."
+    ),
+    ("environment_lifecycle.py", "api_register_lifecycle", "detail", "ttl_minutes"): (
+        "EAP registration parameter recorded in audit detail as context for lifecycle creation."
+    ),
+    ("environment_lifecycle.py", "api_heartbeat", "detail", "extend_minutes"): (
+        "EAP heartbeat extension parameter recorded in audit detail."
+    ),
+    ("environment_routing.py", "provision_environment", "detail", "company_name"): (
+        "EAP provisioning parameter recorded in audit detail."
+    ),
+    ("environment_routing.py", "provision_environment", "detail", "id"): (
+        "EAP provisioning target ID recorded in audit detail."
+    ),
+    ("environment_routing.py", "extend_environment_ttl", "detail", "additional_minutes"): (
+        "EAP TTL extension parameter recorded in audit detail."
+    ),
+    ("environment_routing.py", "teardown_environment", "detail", "force"): (
+        "EAP teardown parameter recorded in audit detail."
+    ),
+    ("environment_routing.py", "teardown_environment", "detail", "reason"): (
+        "EAP teardown justification recorded in audit detail."
+    ),
+    ("scenario_seeding.py", "api_execute_scenario", "detail", "company_name"): (
+        "EAP scenario execution parameter recorded in audit detail."
+    ),
+    ("scenario_seeding.py", "api_execute_scenario", "detail", "customer_hash"): (
+        "EAP scenario execution parameter recorded in audit detail."
+    ),
+    ("scenario_seeding.py", "api_execute_scenario", "detail", "scenario_type"): (
+        "EAP scenario execution parameter recorded in audit detail."
+    ),
+    ("tenant_isolation.py", "api_provision_tenant", "detail", "company_name"): (
+        "EAP tenant provisioning parameter recorded in audit detail."
+    ),
+    ("tenant_isolation.py", "api_provision_tenant", "detail", "customer_hash"): (
+        "EAP tenant provisioning parameter recorded in audit detail."
+    ),
 }
 
 
@@ -760,6 +805,13 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
     ("coding_agent_telemetry.py", "evaluate_coding_agent_ordering"): (
         "Stateless causal ordering and lamport clock evaluation probe for coding agent events; "
         "computes causal dependency validation without mutating persistent tenant audit state."
+    ),
+    ("environment_routing.py", "resolve_domain"): (
+        "Resolves ingress domain mappings for evaluation environment mesh routing."
+    ),
+    ("environment_teardown.py", "api_network_teardown"): (
+        "Multi-stage network teardown pipeline emits structured audit events via build_audit_event "
+        "and the dedicated audit_logger stream for each individual stage transition."
     ),
 }
 
@@ -1127,6 +1179,59 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
         "exists precisely because it carries kubectl and the repo scripts, "
         "which the API pod does not. So the actor stays where it is and only "
         "the storage moves. Structural, not convenient."
+    ),
+    ("environment_lifecycle.py", "api_register_lifecycle"): (
+        "LEGITIMATE. EAP lifecycle state is maintained by GLOBAL_LIFECYCLE_MANAGER "
+        "in-memory state engine and auto-seeding scenario manager; audit event is recorded durably."
+    ),
+    ("environment_lifecycle.py", "api_heartbeat"): (
+        "LEGITIMATE. EAP environment heartbeat updates in-memory lifecycle state engine; "
+        "audit event is recorded durably."
+    ),
+    ("environment_lifecycle.py", "api_record_activity"): (
+        "LEGITIMATE. EAP environment activity updates in-memory lifecycle state engine; "
+        "audit event is recorded durably."
+    ),
+    ("environment_lifecycle.py", "api_trigger_reaping_pass"): (
+        "LEGITIMATE. Reaping pass evaluates in-memory lifecycle states and expunges expired data; "
+        "audit event is recorded durably."
+    ),
+    ("environment_lifecycle.py", "api_pause_reaper"): (
+        "LEGITIMATE. Reaping control pauses in-memory background worker; audit event is recorded durably."
+    ),
+    ("environment_lifecycle.py", "api_resume_reaper"): (
+        "LEGITIMATE. Reaping control resumes in-memory background worker; audit event is recorded durably."
+    ),
+    ("environment_lifecycle.py", "api_clear_dlq"): (
+        "LEGITIMATE. Reaping DLQ clearance clears in-memory DLQ store; audit event is recorded durably."
+    ),
+    ("environment_routing.py", "provision_environment"): (
+        "LEGITIMATE. Environment provisioning dispatches to cluster orchestrator/memory state; "
+        "audit event is recorded durably."
+    ),
+    ("environment_routing.py", "extend_environment_ttl"): (
+        "LEGITIMATE. Environment TTL extension updates in-memory routing lease; audit event is recorded durably."
+    ),
+    ("environment_routing.py", "teardown_environment"): (
+        "LEGITIMATE. Environment teardown purges in-memory routing/cluster allocations; audit event is recorded durably."
+    ),
+    ("scenario_seeding.py", "api_execute_scenario"): (
+        "LEGITIMATE. Scenario execution seeds synthetic multiplane telemetry into GLOBAL_SCENARIO_MANAGER; "
+        "audit event is recorded durably."
+    ),
+    ("tenant_isolation.py", "api_provision_tenant"): (
+        "LEGITIMATE. Tenant isolation boundary provisions OpenBao transit key and in-memory tenant state; "
+        "audit event is recorded durably."
+    ),
+    ("tenant_isolation.py", "api_teardown_tenant"): (
+        "LEGITIMATE. Tenant isolation boundary deletes OpenBao transit key and in-memory tenant state; "
+        "audit event is recorded durably."
+    ),
+    ("tenant_isolation.py", "api_tenant_encrypt"): (
+        "LEGITIMATE. OpenBao transit encrypt transforms payload with tenant key; audit event is recorded durably."
+    ),
+    ("tenant_isolation.py", "api_tenant_decrypt"): (
+        "LEGITIMATE. OpenBao transit decrypt recovers payload with tenant key; audit event is recorded durably."
     ),
 }
 

@@ -1,0 +1,34 @@
+120c120
+< | `SLED-P2-PRE` | Preflight | S | Audit background scheduler models and async event-loop safety | Review FastAPI lifespan tasks, cancellation tokens, interval tuning |  | $0.00 | N/A — no session | N/A | kpai://open?id=29492&dir=/home/andy/.cline/worktrees/29492/osramp-demo&host=fortuna&model=claude-3-7-sonnet |
+---
+> | `SLED-P2-PRE` | Preflight | S | Audit background scheduler models and async event-loop safety | Review FastAPI lifespan tasks, cancellation tokens, interval tuning |  | $0.00 | in 278; out 161.6k; cache 19.5M | 9m32s | kpai://open?id=7aeefa5f-4b95-458e-9067-50a3e2df0404&dir=/home/andy/.cline/worktrees/bb360/osramp-demo&host=fortuna&model=claude-opus-5-5 |
+127c127
+< | `SLED-P3-GOV` | Governor | M | Certify Phase 3 complete multi-stage resource cleanup hygiene | Verify zero orphaned namespaces, routes, keys, or mesh slots | fail — not certified; evidence commit 6f0b1523a461d887a63847ab1e04aa228d04ccdc; see SLED-P3-GOV errata | $0.00 | N/A — subscription | 46m33s | cpai://open?id=42412&dir=/home/andy/.cline/worktrees/42412/osramp-demo&host=fortuna&model=coding_medium |
+---
+> | `SLED-P3-GOV` | Governor | M | Certify Phase 3 complete multi-stage resource cleanup hygiene | Verify zero orphaned namespaces, routes, keys, or mesh slots | fail — not certified; evidence commit 6f0b1523a461d887a63847ab1e04aa228d04ccdc; see SLED-P3-GOV errata | $0.00 | N/A — subscription | 46m33s | cpai://open?id=ses_f33c437dcfferYeQmDR4dbKXKp&dir=/home/andy/.cline/worktrees/42412/osramp-demo&host=fortuna&model=gpt-6-astra |
+131c131
+< | `SLED-P4-GOV` | Governor | L | Final Mission Certification: Full lifecycle & auto-reaping release | Verify 100% floor compliance, security certification sign-off | pass — certified at aac53d634fdf75b5c9a502acd2b5be48198ec6fe (see Errata — SLED-P4-GOV) | $0.00 | N/A — no session | N/A | cpai://open?id=a8610&dir=/home/andy/.cline/worktrees/a8610/osramp-demo&host=fortuna&model=coding_medium |
+---
+> | `SLED-P4-GOV` | Governor | L | Final Mission Certification: Full lifecycle & auto-reaping release | Verify 100% floor compliance, security certification sign-off | pass — certified at aac53d634fdf75b5c9a502acd2b5be48198ec6fe (see Errata — SLED-P4-GOV) | $0.00 | 0k | 16m47s | agy://open?id=ses_f473f8ff9ffeO13HqzwzOxYYVe&dir=/home/andy/.cline/worktrees/255ff/osramp-demo&host=fortuna&model=gpt-6-astra |
+317c317
+< | SLED-P2-PRE | $0.00 | N/A — no session | N/A | kpai://open?id=29492&dir=/home/andy/.cline/worktrees/29492/osramp-demo&host=fortuna&model=claude-3-7-sonnet |
+---
+> | SLED-P2-PRE | $0.00 | in 278; out 161.6k; cache 19.5M | 9m32s | kpai://open?id=7aeefa5f-4b95-458e-9067-50a3e2df0404&dir=/home/andy/.cline/worktrees/bb360/osramp-demo&host=fortuna&model=claude-opus-5-5 |
+359c359
+< | SLED-P3-GOV | $0.00 | N/A — subscription | 46m33s | cpai://open?id=42412&dir=/home/andy/.cline/worktrees/42412/osramp-demo&host=fortuna&model=coding_medium |
+---
+> | SLED-P3-GOV | $0.00 | N/A — subscription | 46m33s | cpai://open?id=ses_f33c437dcfferYeQmDR4dbKXKp&dir=/home/andy/.cline/worktrees/42412/osramp-demo&host=fortuna&model=gpt-6-astra |
+405c405
+< | SLED-P4-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=a8610&dir=/home/andy/.cline/worktrees/a8610/osramp-demo&host=fortuna&model=coding_medium |
+---
+> | SLED-P4-GOV | $0.00 | 0k | 16m47s | agy://open?id=ses_f473f8ff9ffeO13HqzwzOxYYVe&dir=/home/andy/.cline/worktrees/255ff/osramp-demo&host=fortuna&model=gpt-6-astra |
+418a419,427
+> 
+> **Spend and token use:**
+> | Task | Est. Cost | Tokens | Elapsed | AI URI |
+> | :--- | :-------- | :----- | :------ | :----- |
+> | SLED-P4-PRE | $0.00 | N/A — no session | N/A | kpai://open?id=b305d&dir=/home/andy/.cline/worktrees/b305d/osramp-demo&host=fortuna&model=claude-3-7-sonnet |
+> | SLED-P4-1 | $0.00 | N/A — no session | N/A | cpai://open?id=e4c60&dir=/home/andy/.cline/worktrees/e4c60/osramp-demo&host=fortuna&model=coding_medium |
+> | SLED-P4-2 | $0.00 | N/A — no session | N/A | agy://open?id=d52ff&dir=/home/andy/.cline/worktrees/d52ff/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+> | SLED-P4-GOV | $0.00 | 0k | 16m47s | agy://open?id=ses_f473f8ff9ffeO13HqzwzOxYYVe&dir=/home/andy/.cline/worktrees/255ff/osramp-demo&host=fortuna&model=gpt-6-astra |
+> 

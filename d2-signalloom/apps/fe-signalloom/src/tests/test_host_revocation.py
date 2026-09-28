@@ -140,6 +140,14 @@ def test_host_revocation_lifecycle(client: TestClient) -> None:
     assert reg_resp.status_code == 201, reg_resp.text
     assert reg_resp.json()["enrollment_status"] == "pending"
 
+    tok_resp = client.post(
+        f"/api/v1/external-agents/registrations/{reg_payload['agent_id']}/token",
+        headers=headers,
+        json={"ttl_seconds": 3600},
+    )
+    assert tok_resp.status_code == 200, tok_resp.text
+    enroll_token = tok_resp.json()["enrollment_token"]
+
     # 2. Enroll the host
     enroll_payload = {
         "schema_version": "1.0.0",
@@ -152,9 +160,8 @@ def test_host_revocation_lifecycle(client: TestClient) -> None:
         "credential_kind": "existing-mtls-identity",
         "credential_scope": "audit-upload-only",
         "credential_bootstrap": "pre-provisioned-out-of-band",
-        "credential_reference": "spiffe://signalloom.demo/platform/signalloom/tenant/tenant-host-a/agent/agent-host-rev-01",
     }
-    enroll_resp = client.post("/v1/external-agents/enroll", json=enroll_payload, headers=headers)
+    enroll_resp = client.post("/v1/external-agents/enroll", json=enroll_payload, headers={"Authorization": f"Bearer {enroll_token}"})
     assert enroll_resp.status_code == 201, enroll_resp.text
     assert enroll_resp.json()["enrollment_state"] == "enrolled"
 
@@ -258,6 +265,9 @@ def test_host_revocation_sibling_agent_isolation(client: TestClient) -> None:
         headers=headers,
     )
 
+    tok_a = client.post("/api/v1/external-agents/registrations/agent-sibling-a/token", headers=headers, json={"ttl_seconds": 3600}).json()["enrollment_token"]
+    tok_b = client.post("/api/v1/external-agents/registrations/agent-sibling-b/token", headers=headers, json={"ttl_seconds": 3600}).json()["enrollment_token"]
+
     # Enroll both
     client.post(
         "/v1/external-agents/enroll",
@@ -272,9 +282,8 @@ def test_host_revocation_sibling_agent_isolation(client: TestClient) -> None:
             "credential_kind": "existing-mtls-identity",
             "credential_scope": "audit-upload-only",
             "credential_bootstrap": "pre-provisioned-out-of-band",
-            "credential_reference": "spiffe://signalloom.demo/platform/signalloom/tenant/tenant-host-a/agent/agent-sibling-a",
         },
-        headers=headers,
+        headers={"Authorization": f"Bearer {tok_a}"},
     )
     client.post(
         "/v1/external-agents/enroll",
@@ -289,9 +298,8 @@ def test_host_revocation_sibling_agent_isolation(client: TestClient) -> None:
             "credential_kind": "existing-mtls-identity",
             "credential_scope": "audit-upload-only",
             "credential_bootstrap": "pre-provisioned-out-of-band",
-            "credential_reference": "spiffe://signalloom.demo/platform/signalloom/tenant/tenant-host-a/agent/agent-sibling-b",
         },
-        headers=headers,
+        headers={"Authorization": f"Bearer {tok_b}"},
     )
 
     # 2. Revoke Host A
@@ -334,6 +342,7 @@ def test_post_revocation_denial_evidence_uploads(client: TestClient) -> None:
         json={"agent_id": "agent-upload-denial-01", "host_id": "host-denial-01", "allocated_token_budget": 100000},
         headers=headers,
     )
+    tok_denial = client.post("/api/v1/external-agents/registrations/agent-upload-denial-01/token", headers=headers, json={"ttl_seconds": 3600}).json()["enrollment_token"]
     client.post(
         "/v1/external-agents/enroll",
         json={
@@ -347,9 +356,8 @@ def test_post_revocation_denial_evidence_uploads(client: TestClient) -> None:
             "credential_kind": "existing-mtls-identity",
             "credential_scope": "audit-upload-only",
             "credential_bootstrap": "pre-provisioned-out-of-band",
-            "credential_reference": "spiffe://signalloom.demo/platform/signalloom/tenant/tenant-host-a/agent/agent-upload-denial-01",
         },
-        headers=headers,
+        headers={"Authorization": f"Bearer {tok_denial}"},
     )
 
     # Upload before revocation: succeeds (202 Accepted)
@@ -474,7 +482,6 @@ def test_post_revocation_re_enrollment_and_claim_denial(client: TestClient) -> N
             "credential_kind": "existing-mtls-identity",
             "credential_scope": "audit-upload-only",
             "credential_bootstrap": "pre-provisioned-out-of-band",
-            "credential_reference": f"spiffe://signalloom.demo/platform/signalloom/tenant/{TENANT_A}/agent/{agent_id}",
         },
         headers=headers,
     )

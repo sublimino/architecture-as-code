@@ -1,0 +1,429 @@
+{
+  "repo": "/home/andy/src/cp/osramp-demo",
+  "estimate_note": "opencode list-price estimate from token counts \u2014 NOT actual provider billing",
+  "total_cost": 0.0,
+  "tasks": [
+    {
+      "slug": "SLEA-P4-PRE",
+      "id": "61c74",
+      "column": "done",
+      "title": "SLEA-P4-PRE: Audit tenant namespace templates, ResourceSets, and teardown cleanu\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "agy://open?id=61c74&dir=/home/andy/.cline/worktrees/61c74/osramp-demo&host=fortuna&model=gemini-3.7-flash",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P4-2",
+      "id": "0cfeb",
+      "column": "done",
+      "title": "SLEA-P4-2: Build comprehensive acceptance tests for kurasi EAP environment lifec\u2026",
+      "cost": 0.0,
+      "msgs": 83,
+      "elapsed_s": 693,
+      "session_id": "5eae9cb6-22e1-4fdb-a36f-4ce2c0738df6",
+      "sessions": [
+        "5eae9cb6-22e1-4fdb-a36f-4ce2c0738df6"
+      ],
+      "uri": "kpai://open?id=5eae9cb6-22e1-4fdb-a36f-4ce2c0738df6&dir=/home/andy/.cline/worktrees/0cfeb/osramp-demo&host=fortuna&model=claude-opus-5-5",
+      "tokens": {
+        "input": 166,
+        "output": 109990,
+        "reasoning": 0,
+        "cache_read": 11947307,
+        "cache_write": 452236
+      },
+      "models": [
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLEA-P4-GOV",
+      "id": "cc2a3",
+      "column": "done",
+      "title": "SLEA-P4-GOV: Final mission certification: end-to-end kurasi EAP environment spin\u2026",
+      "cost": 0.0,
+      "msgs": 1,
+      "elapsed_s": 0,
+      "session_id": "ses_f473ff640ffeCO320oSdwOJnL9",
+      "sessions": [
+        "ses_f473ff640ffeCO320oSdwOJnL9"
+      ],
+      "uri": "kpai://open?id=ses_f473ff640ffeCO320oSdwOJnL9&dir=/home/andy/.cline/worktrees/cc2a3/osramp-demo&host=fortuna&model=gpt-6-astra",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [
+        "gpt-6-astra"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLEA-P4-1",
+      "id": "619fd",
+      "column": "archived",
+      "title": "SLEA-P4-1: Implement on-demand demo/UAT namespace bootstrapper and teardown garb\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=619fd&dir=/home/andy/.cline/worktrees/619fd/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P3-GOV",
+      "id": "d9e40",
+      "column": "archived",
+      "title": "SLEA-P3-GOV: Certify Phase 3 dynamic mesh routing, Dex callback stability, and n\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=d9e40&dir=/home/andy/.cline/worktrees/d9e40/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P3-2",
+      "id": "bacb6",
+      "column": "archived",
+      "title": "SLEA-P3-2: Implement multi-tenant Envoy Ingress HTTPRoute and Dex redirect origi\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=bacb6&dir=/home/andy/.cline/worktrees/bacb6/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P3-1",
+      "id": "d7d8f",
+      "column": "archived",
+      "title": "SLEA-P3-1: Build Tailscale EAP dynamic routing script (scripts/eap/tailscale-eap\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=d7d8f&dir=/home/andy/.cline/worktrees/d7d8f/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P3-PRE",
+      "id": "eb9e1",
+      "column": "archived",
+      "title": "SLEA-P3-PRE: Audit Tailscale Serve/Funnel automation script and Envoy Gateway AP\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=eb9e1&dir=/home/andy/.cline/worktrees/eb9e1/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P2-GOV",
+      "id": "e09f6",
+      "column": "archived",
+      "title": "SLEA-P2-GOV: Certify Phase 2 REST API contracts, error boundaries, and TTL expir\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=e09f6&dir=/home/andy/.cline/worktrees/e09f6/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P2-2",
+      "id": "6275e",
+      "column": "archived",
+      "title": "SLEA-P2-2: Implement environment lifecycle endpoints: list, get, extend TTL, and\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=6275e&dir=/home/andy/.cline/worktrees/6275e/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P2-1",
+      "id": "c1df3",
+      "column": "archived",
+      "title": "SLEA-P2-1: Implement /api/v1/environments/provision and /resolve-domain endpoint\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=c1df3&dir=/home/andy/.cline/worktrees/c1df3/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P2-PRE",
+      "id": "79978",
+      "column": "archived",
+      "title": "SLEA-P2-PRE: Audit FastAPI router seams and Dex OIDC origin lease hooks",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=79978&dir=/home/andy/.cline/worktrees/79978/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P1-GOV",
+      "id": "b1033",
+      "column": "archived",
+      "title": "SLEA-P1-GOV: Certify Phase 1 hashing vectors (kurasi check) and domain contracts",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=b1033&dir=/home/andy/.cline/worktrees/b1033/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P1-2",
+      "id": "e4237",
+      "column": "archived",
+      "title": "SLEA-P1-2: Define environment provisioning data models, schema validations, and\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=e4237&dir=/home/andy/.cline/worktrees/e4237/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P1-1",
+      "id": "dbbca",
+      "column": "archived",
+      "title": "SLEA-P1-1: Build cryptographic salt hashing and sl-eap-HASH.tailscale URL genera\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=dbbca&dir=/home/andy/.cline/worktrees/dbbca/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P1-PRE",
+      "id": "b3697",
+      "column": "archived",
+      "title": "SLEA-P1-PRE: Audit customer hashing salt, DNS constraints, and Tailscale MagicDN\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=b3697&dir=/home/andy/.cline/worktrees/b3697/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P0",
+      "id": "1a298",
+      "column": "archived",
+      "title": "SLEA-P0: Establish environment routing baseline, Tailscale CLI fixtures, and tes\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=1a298&dir=/home/andy/.cline/worktrees/1a298/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLEA-P4-GOV",
+      "id": "2e010",
+      "column": "archived",
+      "title": "SLEA-P4-GOV: Final mission certification: end-to-end kurasi EAP environment spin\u2026",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=2e010&dir=/home/andy/.cline/worktrees/2e010/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    }
+  ],
+  "by_model": [
+    {
+      "model": "claude-opus-5-5",
+      "cost": 0.0,
+      "msgs": 82,
+      "tokens": {
+        "input": 164,
+        "output": 109890,
+        "cache_read": 11943440,
+        "cache_write": 443359
+      }
+    },
+    {
+      "model": "claude-sonnet-5",
+      "cost": 0.0,
+      "msgs": 1,
+      "tokens": {
+        "input": 2,
+        "output": 100,
+        "cache_read": 3867,
+        "cache_write": 8877
+      }
+    },
+    {
+      "model": "gpt-6-astra",
+      "cost": 0.0,
+      "msgs": 1,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      }
+    }
+  ]
+}

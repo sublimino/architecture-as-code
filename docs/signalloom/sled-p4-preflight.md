@@ -337,7 +337,7 @@ To prevent internal network mapping by external actors, payloads undergo strict 
   1. Secret in request configuration / OpenBao transit mount (`/v1/secret/data/eap/webhooks/{customer_hash}`).
   2. Environment variable: `SIGNAL_LOOM_WEBHOOK_SECRET` (fallback for test/dev).
 - **Log Masking**: All application loggers, audit streams, and HTTP error tracebacks must scrub webhook secrets:
-  - URLs: `https://user:secret@domain.com/hook` -> `https://domain.com/hook`
+  - URLs: `https://<user>:<secret>@domain.com/hook` -> `https://domain.com/hook`
   - Headers: `X-SignalLoom-Signature: sha256=***MASKED***`
   - Secrets: Never printed to stdout/stderr or exported in diagnostics.
 

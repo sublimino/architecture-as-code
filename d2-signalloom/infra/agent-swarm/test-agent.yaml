@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: test-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/agent: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-agent-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: test-agent
+    signalloom.ai/agent: "true"
+data:
+  entrypoint.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    trap 'echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [test-agent] Shutting down"; exit 0' SIGTERM SIGINT SIGHUP
+
+    AGENT_ID="${AGENT_ID:-test-agent}"
+    AGENT_NAME="${AGENT_NAME:-Test Agent (Sovereign Infra)}"
+    WORKLOAD_PROFILE="${WORKLOAD_PROFILE:-standard-baseline}"
+    SPIFFE_SOCKET="${SPIFFE_SOCKET:-/run/spire/sockets/agent.sock}"
+    SPIFFE_ID="${SPIFFE_ID:-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/test-agent}"
+    HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL:-10}"
+
+    if [ -S "$SPIFFE_SOCKET" ]; then
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [SPIFFE] Workload API socket verified at ${SPIFFE_SOCKET}"
+    else
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [SPIFFE] WARNING: Workload API socket missing at ${SPIFFE_SOCKET}"
+    fi
+
+    SEQ=0
+    SESSION_ID="audit-sess-${AGENT_ID}-$(date +%s)"
+    while true; do
+      SEQ=$((SEQ + 1))
+      NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      echo "{\"timestamp\":\"${NOW}\",\"agent_id\":\"${AGENT_ID}\",\"name\":\"${AGENT_NAME}\",\"profile\":\"${WORKLOAD_PROFILE}\",\"spiffe_id\":\"${SPIFFE_ID}\",\"status\":\"healthy\",\"lifecycle_state\":\"active\",\"heartbeat_seq\":${SEQ},\"audit_session_id\":\"${SESSION_ID}\"}"
+      sleep "${HEARTBEAT_INTERVAL}" &
+      wait $!
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/instance: test-agent
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: test-agent
+    signalloom.ai/agent-type: test
+    signalloom.ai/framework: custom
+    signalloom.ai/model: claude-sonnet-4
+    signalloom.ai/state: "active"
+    signalloom.io/agent: test
+    signalloom.io/workload-profile: standard-baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: test-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signalloom-agent
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: signalloom
+        app.kubernetes.io/instance: test-agent
+        signalloom.ai/agent: "true"
+        signalloom.ai/agent-name: test-agent
+        signalloom.ai/agent-type: test
+        signalloom.ai/framework: custom
+        signalloom.ai/model: claude-sonnet-4
+        signalloom.ai/state: "active"
+        signalloom.io/agent: test
+        signalloom.io/workload-profile: standard-baseline
+      annotations:
+        signalloom.ai/agent-display-name: "Test Agent (Sovereign Infra)"
+        signalloom.ai/description: "Test agent running in sovereign fe-signalloom-agents infrastructure."
+        signalloom.ai/model-full: "anthropic/claude-sonnet-4"
+        spiffe.io/spiffe-id: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/test-agent"
+        signalloom.io/workload-profile: "standard-baseline"
+    spec:
+      serviceAccountName: test-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: docker.io/bitnamilegacy/kubectl:1.31
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/scripts/entrypoint.sh"]
+          env:
+            - name: AGENT_ID
+              value: "test-agent"
+            - name: AGENT_NAME
+              value: "Test Agent (Sovereign Infra)"
+            - name: WORKLOAD_PROFILE
+              value: "standard-baseline"
+            - name: SPIFFE_ID
+              value: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/test-agent"
+            - name: SPIFFE_SOCKET
+              value: "/run/spire/sockets/agent.sock"
+            - name: HEARTBEAT_INTERVAL
+              value: "10"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: entrypoint-script
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: spiffe-workload-api
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
+        - name: entrypoint-script
+          configMap:
+            name: test-agent-config
+            defaultMode: 0755
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}

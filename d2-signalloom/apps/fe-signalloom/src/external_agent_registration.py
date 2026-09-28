@@ -163,10 +163,20 @@ async def _audit_log_external_agent(
     detail: dict[str, Any],
 ) -> None:
     actor_str = principal.email or principal.subject or "operator@signalloom.test"
-    agent_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{agent_id}")
+    clean_detail = dict(detail)
+    clean_detail.setdefault("agent_ref", agent_id)
+    agent_uuid = None
 
     if conn is not None:
         try:
+            candidate_uuid = api_compat._try_uuid(agent_id)
+            if candidate_uuid is not None:
+                exists = await conn.fetchval(
+                    "SELECT 1 FROM public.agent_registry WHERE id = $1", candidate_uuid
+                )
+                if exists:
+                    agent_uuid = candidate_uuid
+
             await conn.execute(
                 """INSERT INTO public.audit_events (
                     id, tenant_id, event_type, agent_id, agent_name, actor,
@@ -181,7 +191,7 @@ async def _audit_log_external_agent(
                 actor_str,
                 api_compat.settings.api_jwt_issuer,
                 principal.subject,
-                json.dumps(detail, default=str),
+                json.dumps(clean_detail, default=str),
             )
             return
         except Exception as exc:
@@ -191,10 +201,10 @@ async def _audit_log_external_agent(
     api_compat._record_memory_audit(
         tenant_id=tenant_id,
         event_type=event_type,
-        agent_id=str(agent_uuid),
+        agent_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{agent_id}")),
         agent_name=agent_id,
         actor=actor_str,
-        detail=detail,
+        detail=clean_detail,
     )
 
 
@@ -653,7 +663,7 @@ async def claim_external_agent_handler(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'External Linux Workload', 83, 'anthropic', $6,
+                    'Custom', 83, 'anthropic', $6,
                     NOW(), NOW(), NOW()
                 ) ON CONFLICT (tenant_id, name) DO UPDATE SET
                     lifecycle_state = 'active',

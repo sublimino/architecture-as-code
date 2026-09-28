@@ -1,0 +1,191 @@
+{
+  "artifact": "slrc-p0-baseline",
+  "phase": "P0",
+  "card": "SLRC-P0",
+  "title": "Harness smoke test",
+  "generated": "2026-09-28T04:56:15+01:00",
+  "repository": {
+    "identity": "osramp-demo",
+    "worktree": "/home/andy/src/.worktrees/e35d3/osramp-demo",
+    "base_ref": "refs/heads/integration/slrc-v0.1.0",
+    "base_commit_sha": "0a9bde8a4f03a66ec249ffa8661a52556c001c8c",
+    "base_commit_short": "0a9bde8a",
+    "base_commit_subject": "fix(signalloom): defer initial lifecycle reconciliation",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean": true,
+    "uncommitted_modifications": 0,
+    "git_signing_policy": "unsigned (no-gpg-sign)"
+  },
+  "environment": {
+    "python": {
+      "version": "3.14.4",
+      "path": "/home/linuxbrew/.linuxbrew/bin/python3",
+      "fastapi_available": true,
+      "asyncpg_available": true,
+      "pytest_available": true
+    },
+    "pytest": {
+      "version": "pytest-9.1.1",
+      "path": "/home/linuxbrew/.linuxbrew/bin/pytest"
+    },
+    "git": {
+      "version": "2.54.0",
+      "path": "/home/linuxbrew/.linuxbrew/bin/git"
+    },
+    "jq": {
+      "version": "1.8.1",
+      "path": "/home/linuxbrew/.linuxbrew/bin/jq"
+    },
+    "systemd_run": {
+      "path": "/usr/bin/systemd-run"
+    },
+    "kanban_check_self_test": "PASS",
+    "kanban_doctor_status": "ALL CHECKS HEALTHY (zero exceptions)"
+  },
+  "test_metrics": {
+    "summary": {
+      "total_baseline_unit_tests": 72,
+      "total_passed": 72,
+      "total_skipped": 2,
+      "total_failed": 0,
+      "execution_duration_seconds": 1.88,
+      "sla_duration_seconds": 2.0
+    },
+    "suites": [
+      {
+        "suite": "fe-signalloom lifecycle",
+        "command": "pytest d2-signalloom/apps/fe-signalloom/src/tests/test_environment_lifecycle*.py -v",
+        "passed": 19,
+        "skipped": 2,
+        "failed": 0,
+        "duration_seconds": 1.03,
+        "skipped_tests": [
+          {
+            "nodeid": "d2-signalloom/apps/fe-signalloom/src/tests/test_environment_lifecycle_store_integration.py::test_two_actual_connections_collide_on_one_claim",
+            "reason": "requires isolated PostgreSQL DATABASE_URL (scheduled for verification in SLRC-P2-2)"
+          },
+          {
+            "nodeid": "d2-signalloom/apps/fe-signalloom/src/tests/test_environment_lifecycle_store_integration.py::test_new_connection_recovers_record_and_expired_claim",
+            "reason": "requires isolated PostgreSQL DATABASE_URL (scheduled for verification in SLRC-P2-2)"
+          }
+        ]
+      },
+      {
+        "suite": "fe-signalloom teardown & contracts",
+        "command": "pytest d2-signalloom/apps/fe-signalloom/src/tests/test_environment_teardown*.py -v",
+        "passed": 22,
+        "skipped": 0,
+        "failed": 0,
+        "duration_seconds": 0.38
+      },
+      {
+        "suite": "scripts/eap evidence verifier",
+        "command": "pytest scripts/eap/tests/test_verify_teardown_evidence.py -v",
+        "passed": 31,
+        "skipped": 0,
+        "failed": 0,
+        "duration_seconds": 0.47
+      }
+    ],
+    "known_failing_governance_suite": {
+      "suite": "fe-signalloom audit provenance",
+      "command": "pytest d2-signalloom/apps/fe-signalloom/src/tests/test_audit_provenance.py -v",
+      "passed": 15,
+      "skipped": 0,
+      "failed": 1,
+      "failing_test": "test_every_mutating_route_makes_an_audit_decision",
+      "failing_mutating_routes_count": 13,
+      "unannotated_mutating_routes": [
+        {
+          "module": "environment_lifecycle.py",
+          "handler": "api_heartbeat",
+          "method": "POST",
+          "path": "/environments/{customer_hash}/heartbeat"
+        },
+        {
+          "module": "environment_lifecycle.py",
+          "handler": "api_record_activity",
+          "method": "POST",
+          "path": "/environments/{customer_hash}/activity"
+        },
+        {
+          "module": "environment_lifecycle.py",
+          "handler": "api_register_lifecycle",
+          "method": "POST",
+          "path": "/register"
+        },
+        {
+          "module": "environment_lifecycle.py",
+          "handler": "api_trigger_reaping_pass",
+          "method": "POST",
+          "path": "/reap-now"
+        },
+        {
+          "module": "environment_routing.py",
+          "handler": "extend_environment_ttl",
+          "method": "POST",
+          "path": "/{environment_id}/extend"
+        },
+        {
+          "module": "environment_routing.py",
+          "handler": "provision_environment",
+          "method": "POST",
+          "path": "/provision"
+        },
+        {
+          "module": "environment_routing.py",
+          "handler": "resolve_domain",
+          "method": "POST",
+          "path": "/resolve-domain"
+        },
+        {
+          "module": "environment_routing.py",
+          "handler": "teardown_environment",
+          "method": "POST",
+          "path": "/{environment_id}/teardown"
+        },
+        {
+          "module": "scenario_seeding.py",
+          "handler": "api_execute_scenario",
+          "method": "POST",
+          "path": "/execute"
+        },
+        {
+          "module": "tenant_isolation.py",
+          "handler": "api_provision_tenant",
+          "method": "POST",
+          "path": ""
+        },
+        {
+          "module": "tenant_isolation.py",
+          "handler": "api_teardown_tenant",
+          "method": "DELETE",
+          "path": "/{customer_hash}"
+        },
+        {
+          "module": "webhook_triggers.py",
+          "handler": "generic_webhook_receiver",
+          "method": "POST",
+          "path": "/generic"
+        },
+        {
+          "module": "webhook_triggers.py",
+          "handler": "github_webhook_receiver",
+          "method": "POST",
+          "path": "/github"
+        }
+      ]
+    }
+  },
+  "invariants_verified": {
+    "git_merge_base_is_ancestor": true,
+    "working_tree_clean_before_run": true,
+    "required_dependencies_present": true,
+    "kanban_helper_self_test_passed": true,
+    "baseline_lifecycle_unit_tests_pass": true,
+    "baseline_teardown_unit_tests_pass": true,
+    "baseline_evidence_verifier_tests_pass": true,
+    "baseline_72_tests_pass_under_2s": true,
+    "audit_provenance_failure_mode_isolated": true
+  }
+}

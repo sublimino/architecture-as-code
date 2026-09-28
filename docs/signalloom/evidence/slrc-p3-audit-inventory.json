@@ -1,0 +1,338 @@
+{
+  "schema": "slrc-p3-audit-inventory/v1",
+  "card": "SLRC-P3-PRE",
+  "generated_at": "2026-09-28 06:39:28+01:00",
+  "base": {
+    "integration_ref": "refs/heads/integration/slrc-v0.1.0",
+    "integration_sha": "8fce7bbe5f37763b21d418c4da74eb36ef868ac1",
+    "inventoried_head": "8fce7bbe5f37763b21d418c4da74eb36ef868ac1"
+  },
+  "baseline": {
+    "target_test": "d2-signalloom/apps/fe-signalloom/src/tests/test_audit_provenance.py::test_every_mutating_route_makes_an_audit_decision",
+    "target_file_result": "1 failed, 15 passed",
+    "full_offline_suite_result": "1 failed, 1464 passed, 93 skipped (fe-signalloom src/tests, 226s)",
+    "only_failure_is_target": true,
+    "assertion": "AssertionError: 13 mutating route(s) neither write an audit event nor declare why they should not",
+    "runner": "UV_CACHE_DIR=/home/andy/src/.worktrees/.uvcache uv run --python 3.12 --with pytest --with pytest-asyncio --with-requirements requirements.txt python -m pytest tests/test_audit_provenance.py -v  (cwd d2-signalloom/apps/fe-signalloom/src)",
+    "live_app": {
+      "total_routes": 194,
+      "mutating_routes": 96,
+      "all_13_resolved_in_app_routes": true
+    }
+  },
+  "test_contract": {
+    "summary": "There is no AuditDecision decorator and no AUDIT_RECORD_* constant anywhere in the tree. The test's real contract: a mutating handler (post/put/patch/delete decorator) passes if it reaches an audit writer within 4 call hops, or if (module, handler) is a key in NOT_AUDIT_WORTHY or AUDIT_DECISION_OWED in test_audit_provenance.py.",
+    "audit_writers": ["_audit_log", "_record_memory_audit"],
+    "detection": "_reaches_an_audit_writer(): name-based AST call walk, depth <= 4, over every source module",
+    "declaration_maps": {
+      "NOT_AUDIT_WORTHY": "test_audit_provenance.py:718 - deliberate no-audit, one signed reason per route",
+      "AUDIT_DECISION_OWED": "test_audit_provenance.py:771 - ruled audit-worthy, write not yet landed",
+      "RECORDS_A_NON_DATABASE_ACTION": "test_audit_provenance.py:1089 - required for any audit write whose action is not a DB write on the same connection",
+      "KNOWN_VOLATILE_AUDIT_SITES": "test_audit_provenance.py:954 - any NEW _record_memory_audit call site fails the suite"
+    },
+    "coupled_guards": [
+      "test_audit_event_types.py::test_no_audit_call_site_hardcodes_its_actor - actor must come from a Principal, never a literal or module constant",
+      "test_audit_event_types.py emitted-subset-of-permitted - every event_type literal must be in the CHECK constraint of CONSTRAINT_MIGRATION",
+      "test_audit_provenance.py::test_no_client_supplied_field_reaches_an_audit_write - request-body fields may not reach an audit write unless persisted or listed in ACCEPTED_CLIENT_SUPPLIED_FIELDS",
+      "test_audit_provenance.py::test_an_audit_write_shares_the_connection_of_the_write_it_records",
+      "test_audit_provenance.py::test_the_not_audit_worthy_list_has_no_stale_entries"
+    ]
+  },
+  "decision_vocabulary": {
+    "AUDIT_WRITE": "Handler must reach _audit_log (api_compat.py:1751) with a Principal-derived actor and a new constraint-permitted event_type.",
+    "NOT_AUDIT_WORTHY": "Add exactly one keyed entry to NOT_AUDIT_WORTHY with a reason that is true of this tree."
+  },
+  "audit_decorator_catalog": {
+    "note": "Card language says 'decorator'; the tree has none, and adding one would not satisfy the AST guard, which detects calls, not decorators. The catalogue therefore specifies the required _audit_log call parameters.",
+    "writer": "api_compat._audit_log(executor, tenant_id, event_type, agent_id, agent_name, actor, detail)",
+    "caller_actor": "Principal.email or Principal.subject from a FastAPI dependency (require_superadmin / authenticated_principal). Never a literal, never a module constant, never a request field.",
+    "tenant_id": "The environment's customer_hash (8 lowercase hex), which is the tenant key these EAP modules already use. audit_events.tenant_id is TEXT NOT NULL.",
+    "action_event_type": "One of the new_event_types below; each must be added to a NEW migration 045 that drop-and-recreates audit_events_event_type_check with the full 040 vocabulary (50 values) plus these, and CONSTRAINT_MIGRATION in test_audit_event_types.py must be repointed to 045.",
+    "executor": "PostgreSQL-backed routes: the same connection/transaction as the state write (thread it through LifecycleManager). In-memory routes: the api_compat pool, plus a RECORDS_A_NON_DATABASE_ACTION entry stating ordering (audit first, act second).",
+    "detail": "Server-observed values only (record id, resulting expires_at, extended flag, actions_count). Webhook payload fields are HMAC-attested client claims and need ACCEPTED_CLIENT_SUPPLIED_FIELDS entries if they reach detail.",
+    "new_event_types": [
+      "eap_environment.registered",
+      "eap_environment.lease_extended",
+      "eap_environment.reaping_triggered",
+      "eap_environment.provisioned",
+      "eap_environment.ttl_extended",
+      "eap_environment.teardown_requested",
+      "eap_environment.webhook_triggered",
+      "eap_scenario.executed",
+      "eap_tenant.isolation_provisioned",
+      "eap_tenant.isolation_torn_down"
+    ]
+  },
+  "routes": [
+    {
+      "id": 1,
+      "module": "environment_lifecycle.py",
+      "handler": "api_register_lifecycle",
+      "method": "POST",
+      "path": "/api/v1/eap/lifecycle/register",
+      "decorator_line": 572,
+      "def_line": 573,
+      "auth_dependency": "require_superadmin",
+      "backing_store": "PostgreSQL eap_environment_lifecycle (migration 043/044) via LifecycleManager.register_environment (environment_lifecycle.py:182)",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.registered",
+      "actor_source": "_admin Principal",
+      "executor": "lifecycle store transaction connection",
+      "rationale": "Creates a durable, leased customer environment. Operator-initiated creation of a customer resource is core regulated evidence.",
+      "prerequisites": ["thread actor + executor into LifecycleManager.register_environment so the audit row shares the insert's transaction"]
+    },
+    {
+      "id": 2,
+      "module": "environment_lifecycle.py",
+      "handler": "api_heartbeat",
+      "method": "POST",
+      "path": "/api/v1/eap/lifecycle/environments/{customer_hash}/heartbeat",
+      "decorator_line": 582,
+      "def_line": 583,
+      "auth_dependency": null,
+      "backing_store": "PostgreSQL via LifecycleManager.record_heartbeat (environment_lifecycle.py:231)",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.lease_extended",
+      "actor_source": "requires an auth dependency; none exists today",
+      "executor": "lifecycle store transaction connection",
+      "rationale": "Every heartbeat moves expires_at forward (line 239-241: extend_minutes or 60, capped at max_lifetime_expires_at), which defers teardown. Write the event only when HeartbeatResponse.extended is true, so pure keep-alives that change nothing stay silent.",
+      "prerequisites": ["add an auth dependency so an honest actor exists", "thread actor + executor into record_heartbeat"],
+      "findings": ["unauthenticated caller can hold any environment alive up to its max lifetime", "extend_minutes=0 extends by 60 minutes because of `extend_minutes or 60`"]
+    },
+    {
+      "id": 3,
+      "module": "environment_lifecycle.py",
+      "handler": "api_record_activity",
+      "method": "POST",
+      "path": "/api/v1/eap/lifecycle/environments/{customer_hash}/activity",
+      "decorator_line": 587,
+      "def_line": 588,
+      "auth_dependency": null,
+      "backing_store": "PostgreSQL via LifecycleManager.record_activity (environment_lifecycle.py:268)",
+      "decision": "NOT_AUDIT_WORTHY",
+      "event_type": null,
+      "not_audit_worthy_reason": "Updates last_activity_at only (line 275). Resets the idle timer, cannot move expires_at or max_lifetime_expires_at, so it cannot extend an environment's hard lease. It is a traffic touch at request frequency; lease extension is audited on the heartbeat route.",
+      "rationale": "High-frequency, bounded, no lease change.",
+      "findings": ["unauthenticated; any caller can defer idle reaping up to the lease boundary"]
+    },
+    {
+      "id": 4,
+      "module": "environment_lifecycle.py",
+      "handler": "api_trigger_reaping_pass",
+      "method": "POST",
+      "path": "/api/v1/eap/lifecycle/reap-now",
+      "decorator_line": 605,
+      "def_line": 606,
+      "auth_dependency": "require_superadmin",
+      "backing_store": "PostgreSQL via LifecycleManager.run_reconciliation_pass (environment_lifecycle.py:318)",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.reaping_triggered",
+      "actor_source": "_admin Principal",
+      "executor": "api_compat pool, audit before the pass; RECORDS_A_NON_DATABASE_ACTION entry (the handler triggers transitions but performs no write on its own connection)",
+      "rationale": "Operator-triggered destructive pass that can drain and terminate customer environments. The trigger itself needs attribution; per-transition events are a separate concern.",
+      "prerequisites": ["RECORDS_A_NON_DATABASE_ACTION entry"],
+      "tenant_note": "Platform-scoped action with no single customer_hash; P3-1 must choose a platform tenant key and record it in errata."
+    },
+    {
+      "id": 5,
+      "module": "environment_routing.py",
+      "handler": "provision_environment",
+      "method": "POST",
+      "path": "/api/v1/environments/provision",
+      "decorator_line": 408,
+      "def_line": 414,
+      "auth_dependency": null,
+      "backing_store": "in-memory EnvironmentRegistry (environment_routing.py:280, GLOBAL_ENVIRONMENT_REGISTRY line 399)",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.provisioned",
+      "actor_source": "requires an auth dependency; none exists today",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Creates a customer environment and its routing.",
+      "prerequisites": ["add an auth dependency", "pool access from environment_routing.py", "RECORDS_A_NON_DATABASE_ACTION entry"]
+    },
+    {
+      "id": 6,
+      "module": "environment_routing.py",
+      "handler": "resolve_domain",
+      "method": "POST",
+      "path": "/api/v1/environments/resolve-domain",
+      "decorator_line": 420,
+      "def_line": 426,
+      "auth_dependency": null,
+      "backing_store": "read-only: GLOBAL_ENVIRONMENT_REGISTRY.get_by_hash, derive_customer_hash, build_environment_urls",
+      "decision": "NOT_AUDIT_WORTHY",
+      "event_type": null,
+      "not_audit_worthy_reason": "Pure lookup. POST carries a request body; the handler calls only get_by_hash, normalize_company_name, derive_customer_hash and build_environment_urls and mutates no state.",
+      "rationale": "Mutating verb, non-mutating semantics (AST-verified call set)."
+    },
+    {
+      "id": 7,
+      "module": "environment_routing.py",
+      "handler": "extend_environment_ttl",
+      "method": "POST",
+      "path": "/api/v1/environments/{environment_id}/extend",
+      "decorator_line": 490,
+      "def_line": 496,
+      "auth_dependency": null,
+      "backing_store": "in-memory EnvironmentRegistry.extend_ttl",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.ttl_extended",
+      "actor_source": "requires an auth dependency; none exists today",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Defers teardown of a customer environment.",
+      "prerequisites": ["add an auth dependency", "RECORDS_A_NON_DATABASE_ACTION entry"]
+    },
+    {
+      "id": 8,
+      "module": "environment_routing.py",
+      "handler": "teardown_environment",
+      "method": "POST",
+      "path": "/api/v1/environments/{environment_id}/teardown",
+      "decorator_line": 502,
+      "def_line": 508,
+      "auth_dependency": null,
+      "backing_store": "in-memory EnvironmentRegistry.teardown",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.teardown_requested",
+      "actor_source": "requires an auth dependency; none exists today",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Destroys a customer environment.",
+      "prerequisites": ["add an auth dependency", "RECORDS_A_NON_DATABASE_ACTION entry"]
+    },
+    {
+      "id": 9,
+      "module": "scenario_seeding.py",
+      "handler": "api_execute_scenario",
+      "method": "POST",
+      "path": "/api/v1/eap/scenarios/execute",
+      "decorator_line": 302,
+      "def_line": 303,
+      "auth_dependency": null,
+      "backing_store": "in-memory ScenarioManager (scenario_seeding.py:228; stores SyntheticAuditEvent lists)",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_scenario.executed",
+      "actor_source": "requires an auth dependency; none exists today",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Injects synthetic evidence into a customer environment. Who seeded fabricated evidence, and when, is exactly what separates it from real evidence.",
+      "prerequisites": ["add an auth dependency", "RECORDS_A_NON_DATABASE_ACTION entry"]
+    },
+    {
+      "id": 10,
+      "module": "tenant_isolation.py",
+      "handler": "api_provision_tenant",
+      "method": "POST",
+      "path": "/api/v1/eap/tenants",
+      "decorator_line": 269,
+      "def_line": 270,
+      "auth_dependency": null,
+      "backing_store": "in-memory TenantIsolationManager (tenant_isolation.py:202)",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_tenant.isolation_provisioned",
+      "actor_source": "requires an auth dependency; none exists today",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Creates the namespace and SPIFFE/OpenBao isolation boundary for a tenant.",
+      "prerequisites": ["add an auth dependency", "RECORDS_A_NON_DATABASE_ACTION entry"]
+    },
+    {
+      "id": 11,
+      "module": "tenant_isolation.py",
+      "handler": "api_teardown_tenant",
+      "method": "DELETE",
+      "path": "/api/v1/eap/tenants/{customer_hash}",
+      "decorator_line": 296,
+      "def_line": 297,
+      "auth_dependency": null,
+      "backing_store": "in-memory TenantIsolationManager.teardown_tenant_boundary",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_tenant.isolation_torn_down",
+      "actor_source": "requires an auth dependency; none exists today",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Removes a tenant's isolation boundary and cryptographic assets.",
+      "prerequisites": ["add an auth dependency", "RECORDS_A_NON_DATABASE_ACTION entry"]
+    },
+    {
+      "id": 12,
+      "module": "webhook_triggers.py",
+      "handler": "github_webhook_receiver",
+      "method": "POST",
+      "path": "/api/v1/webhooks/github",
+      "decorator_line": 104,
+      "def_line": 110,
+      "auth_dependency": "HMAC X-Hub-Signature-256 via verify_github_signature (no Principal)",
+      "backing_store": "in-memory EnvironmentRegistry create / extend_ttl / teardown",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.webhook_triggered",
+      "actor_source": "verified webhook integration identity (the signing secret's source), not a payload field",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Creates, extends and destroys customer environments on an external trigger. The trigger path is the one most in need of attribution.",
+      "prerequisites": ["define a non-literal, verified webhook actor that test_no_audit_call_site_hardcodes_its_actor accepts, or a machine Principal", "ACCEPTED_CLIENT_SUPPLIED_FIELDS entries for any payload field in detail (repo, PR number, delivery id)", "RECORDS_A_NON_DATABASE_ACTION entry"]
+    },
+    {
+      "id": 13,
+      "module": "webhook_triggers.py",
+      "handler": "generic_webhook_receiver",
+      "method": "POST",
+      "path": "/api/v1/webhooks/generic",
+      "decorator_line": 209,
+      "def_line": 215,
+      "auth_dependency": "HMAC X-SignalLoom-Signature + timestamp via verify_generic_signature (no Principal)",
+      "backing_store": "in-memory EnvironmentRegistry create / teardown",
+      "decision": "AUDIT_WRITE",
+      "event_type": "eap_environment.webhook_triggered",
+      "actor_source": "verified webhook integration identity, not a payload field",
+      "executor": "api_compat pool, audit first; RECORDS_A_NON_DATABASE_ACTION entry",
+      "rationale": "Same as the GitHub receiver.",
+      "prerequisites": ["same as route 12"]
+    }
+  ],
+  "tally": {
+    "routes": 13,
+    "AUDIT_WRITE": 11,
+    "NOT_AUDIT_WORTHY": 2,
+    "AUDIT_DECISION_OWED": 0,
+    "broad_or_wildcard_exemptions": 0,
+    "routes_without_any_auth_dependency": 9,
+    "routes_with_hmac_only": 2,
+    "routes_with_require_superadmin": 2
+  },
+  "remediation_rules_for_p3_1": [
+    "No wildcard, prefix, module-level or pattern exemption. Each NOT_AUDIT_WORTHY key is one (module, handler) tuple with a reason true of this tree.",
+    "Do not weaken or repoint any detection in test_audit_provenance.py. The only allowed test edits are the two NOT_AUDIT_WORTHY entries, the RECORDS_A_NON_DATABASE_ACTION / ACCEPTED_CLIENT_SUPPLIED_FIELDS entries named above, and repointing CONSTRAINT_MIGRATION to the new last migration, which the comment in test_audit_event_types.py itself requires.",
+    "No new _record_memory_audit call sites (KNOWN_VOLATILE_AUDIT_SITES guard).",
+    "Migration 045 must carry the full 040 vocabulary (50) plus the new types. 040, not 038, is the last migration that recreates audit_events_event_type_check today.",
+    "Done means test_audit_provenance.py and test_audit_event_types.py both fully green, and the full offline suite back to 0 failed."
+  ],
+  "collisions_and_findings": [
+    {
+      "id": "F1-EAPR-COLLISION",
+      "severity": "high",
+      "summary": "EAPR-P2-1 (c7a7084cd574c54f969016562d491c4f6b9d510d, contained in integration/eapr-v0.1.0 e3f516b1fdde94978187bd864af9dcd94205461a) is NOT an ancestor of this base and edits all five modules plus test_audit_provenance.py (+72 lines). It adds NOT_AUDIT_WORTHY entries for all 13 of these routes.",
+      "consequence": "When the two integrations meet, those entries will either textually conflict with P3-1's changes or, if they merge cleanly, sit beside P3-1's audit writes and fail test_the_not_audit_worthy_list_has_no_stale_entries. Several of the EAPR reasons are false against this tree: 'in-memory lifecycle state' (it is PostgreSQL here), and 'emit structured ReaperAuditEvent' (ReaperAuditEvent does not occur anywhere in this tree). EAPR-P2-1 also adds authenticated_principal to these routers, which is the actor source P3-1 needs."
+    },
+    {
+      "id": "F2-UNAUTHENTICATED-MUTATIONS",
+      "severity": "high",
+      "summary": "9 of 13 routes have no auth dependency (live app.routes dependant check). Anyone who can reach the API can provision or tear down environments and tenant isolation boundaries, and seed synthetic evidence."
+    },
+    {
+      "id": "F3-CONSTRAINT-MIGRATION-STALE",
+      "severity": "medium",
+      "summary": "test_audit_event_types.CONSTRAINT_MIGRATION points at 038 (43 types), but 039 (48) and 040 (50) both recreate audit_events_event_type_check later. It stays green only because host_enrollment and external_agent_registration emit through private writers the extractor does not read."
+    },
+    {
+      "id": "F4-DUPLICATE-DICT-KEYS",
+      "severity": "low",
+      "summary": "AUDIT_DECISION_OWED declares ('signal_fusion.py','promote_actor') twice (the later value silently wins), and run_correlation / seed_collectors appear in both NOT_AUDIT_WORTHY and AUDIT_DECISION_OWED with contradictory rulings."
+    },
+    {
+      "id": "F5-HEARTBEAT-ZERO",
+      "severity": "low",
+      "summary": "record_heartbeat uses `extend_minutes or 60`, so extend_minutes=0 extends the lease by 60 minutes."
+    },
+    {
+      "id": "F6-CARD-PREMISE",
+      "severity": "info",
+      "summary": "The card names main.py, api_compat.py and host_enrollment.py as route homes and AUDIT_RECORD_* classifications. The real homes are environment_lifecycle.py, environment_routing.py, scenario_seeding.py, tenant_isolation.py and webhook_triggers.py, and no AuditDecision type exists."
+    }
+  ]
+}

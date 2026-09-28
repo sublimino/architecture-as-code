@@ -1,0 +1,110 @@
+{
+  "artifact": "slrc-p4-preflight-facts",
+  "phase": "P4",
+  "card": "SLRC-P4-PRE",
+  "generated": "2026-09-28T07:45:39+01:00",
+  "role_boundary": "read-only verification; no cluster, OpenBao, SPIRE, Tailscale or application source mutated",
+  "verdict": {
+    "status": "pass",
+    "proceed": "yes-conditional",
+    "blocking_drift": true,
+    "summary": "Cluster healthy and isolation boundaries hold. P4-1 must satisfy three fixture preconditions (transit mount, disposable tailnet credential, sled-cert attribution mapping) before any destructive stage runs."
+  },
+  "repository": {
+    "worktree": "/home/andy/.cline/worktrees/71511/osramp-demo",
+    "worktree_realpath": "/home/andy/src/.worktrees/71511/osramp-demo",
+    "base_ref": "refs/heads/integration/slrc-v0.1.0",
+    "base_ref_sha": "bb9b17cf96e6145538aaa07571351e398610e086",
+    "head_sha_at_start": "bb9b17cf96e6145538aaa07571351e398610e086",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean_at_start": true
+  },
+  "baseline_tests": {
+    "fe_signalloom_offline_pytest": {"command": "uv run ... python -m pytest tests -q (d2-signalloom/apps/fe-signalloom/src)", "passed": 1465, "skipped": 93, "failed": 0, "exit_code": 0},
+    "scripts_eap_pytest": {"command": "uv run ... python -m pytest scripts/eap/tests -q", "passed": 76, "subtests_passed": 1907, "failed": 0, "exit_code": 0},
+    "make_test": "not run: live-cluster e2e bats suite, out of pre-flight scope (same ruling as P3-PRE deviation 6)"
+  },
+  "cluster": {
+    "kube_context": "kind-osramp",
+    "kind_clusters": ["osramp", "osramp-scaffold"],
+    "control_plane": "https://127.0.0.1:34777",
+    "cluster_info_exit_code": 0,
+    "server_version": "v1.36.1",
+    "nodes": [{"name": "osramp-control-plane", "status": "Ready", "role": "control-plane"}],
+    "pods_not_running_or_completed": [
+      {"namespace": "fe-signalloom-agents", "pod": "cpai-engineer-0", "state": "ContainerCreating", "age": "12d", "impact_on_p4": "none (not a teardown dependency)"}
+    ],
+    "inf_bao_pods": {
+      "openbao": "Running 1/1",
+      "spire-server": "Running 2/2",
+      "spire-agent": "Running 1/1",
+      "spiffe-csi-driver": "Running 2/2",
+      "bootstrap_jobs": "Completed"
+    }
+  },
+  "fixture_isolation": {
+    "required_prefix": "sled-cert-<run-id>",
+    "namespaces_matching_sled_cert": 0,
+    "k8s_resources_matching_sled_cert_all_ns": 0,
+    "spire_entries_matching_sled_cert": 0,
+    "tailnet_peers_matching_sled_cert": 0,
+    "residual_fixtures_from_prior_runs": "none",
+    "code_references_to_sled_cert": 0,
+    "adapter_naming_contract": {
+      "namespace": "eap-<customer_hash>",
+      "route_hostname": "sl-eap-<customer_hash>.*",
+      "tailscale_hostname": "sl-eap-<customer_hash>",
+      "spiffe_path_prefix": "/ns/eap-<customer_hash>/",
+      "transit_key": "transit/keys/eap-<customer_hash>",
+      "customer_hash_regex": "^[0-9a-f]{8}$"
+    },
+    "attribution_conflict": "Adapters cannot address a resource named sled-cert-*; customer_hash is forced to 8 lowercase hex. The sled-cert-<run-id> attribution must therefore be carried as a label/tag plus a run manifest mapping run-id to a freshly minted hash, not as the resource name.",
+    "live_tenant_hashes_forbidden_for_fixture": ["6f82ad81", "a0314bec"],
+    "live_tenants": [
+      {"namespace": "eap-6f82ad81", "labels": {"signalloom.io/customer": "kurasi", "app.kubernetes.io/managed-by": "signalloom-eap"}, "classification": "non-fixture customer tenant; must not be targeted"},
+      {"spire_only": "/ns/eap-a0314bec/sa/tenant-app", "namespace_exists": false, "classification": "orphan SPIRE entry from an earlier run; not sled-cert attributed; must not be deleted by P4-1"}
+    ]
+  },
+  "mesh_safety_boundary": {
+    "tailscale_binary": "/usr/bin/tailscale",
+    "status_exit_code": 0,
+    "self_hostname": "fortuna",
+    "workstation_hostname": "fortuna",
+    "backend_state": "NeedsLogin",
+    "self_node_id": "",
+    "peer_count": 0,
+    "workstation_excluded": "fortuna does not match ^sl-eap-[0-9a-f]{8}$ nor sled-cert-*; MeshAdapter additionally requires the device id to be in the ownership inventory (else mesh_ownership_collision)",
+    "adapter_plane": "TailscaleAdminAPIClient (HTTPS admin API), not the local tailscaled",
+    "tailscale_api_credential_present_in_env": false,
+    "p4_1_requirement": "A disposable tailnet (or tag-scoped API key) plus an ownership inventory {hash: {device_ids, tag}} is required for live mesh eviction; without it the mesh stage fails closed with ownership_inventory_missing."
+  },
+  "openbao": {
+    "version": "2.1.1",
+    "initialized": true,
+    "sealed": false,
+    "storage_type": "inmem",
+    "listener": "http://127.0.0.1:8200 in-pod (dev mode)",
+    "mounts": ["cubbyhole/", "identity/", "kv/", "secret/", "sys/"],
+    "transit_mounted": false,
+    "adapter_transit_path": "/v1/transit/keys/eap-<hash>",
+    "adapter_requires_https_or_loopback": true,
+    "p4_1_requirement": "Enable transit at transit/ as a fixture step immediately before the run (inmem storage loses it on any pod restart); reach OpenBao via port-forward on 127.0.0.1 with allow_http_loopback."
+  },
+  "spire": {
+    "namespace": "inf-bao",
+    "entries_inspectable": true,
+    "entry_count": 38,
+    "trust_domain": "signalloom.demo",
+    "eap_entries": ["/ns/eap-6f82ad81/sa/tenant-app", "/ns/eap-a0314bec/sa/tenant-app"]
+  },
+  "readiness_for_p4_1": {
+    "kind_cluster_healthy": true,
+    "no_residual_fixtures": true,
+    "workstation_node_identified_and_excluded": true,
+    "openbao_unsealed": true,
+    "openbao_transit_ready": false,
+    "spire_inspectable": true,
+    "tailnet_fixture_credential_available": false,
+    "sled_cert_attribution_mechanism_defined": false
+  }
+}

@@ -1,0 +1,494 @@
+{
+  "artifact": "slrc-p2-postgres-evidence",
+  "phase": "P2",
+  "card": "SLRC-P2-2",
+  "generated": "2026-09-28T08:24:09+01:00",
+  "status": "pass",
+  "gate": {
+    "tests_collected_nonzero": true,
+    "zero_skipped": true,
+    "zero_failures": true,
+    "zero_errors": true,
+    "pytest_exit_zero": true,
+    "migration_probe_ok": true,
+    "all_scenarios_reported": true
+  },
+  "repository": {
+    "head": "57b5c0cfc470a498bdfdfc103010ed16defd45ea",
+    "worktree_dirty": false
+  },
+  "environment": {
+    "python": "3.12.8",
+    "database_source": "card-owned-container",
+    "database_image": "postgres:16-alpine",
+    "database_container": "slrc-p22-pg-3769510-3004",
+    "database_url_redacted": "postgresql://slrc:***@127.0.0.1:32977/slrc"
+  },
+  "command": "bash scripts/eap/run-postgres-lifecycle-test.sh",
+  "migration": {
+    "server_version": "16.14",
+    "scratch_database": "slrc_p22_migration_b482401a31f8",
+    "scratch_database_dropped": true,
+    "public_tables_before": 0,
+    "migrations_available": 30,
+    "first_apply_count": 30,
+    "first_apply_seconds": 1.807,
+    "first_apply_includes_043": true,
+    "first_apply_last": "045_eap_audit_event_types.sql",
+    "second_apply": [],
+    "second_apply_is_noop": true,
+    "043_recorded_in_schema_migrations": true,
+    "lifecycle_table_column_counts": {
+      "eap_environment_lifecycle": 20,
+      "eap_lifecycle_outbox": 6
+    },
+    "lifecycle_constraints": [
+      "eap_environment_lifecycle_check",
+      "eap_environment_lifecycle_customer_hash_check",
+      "eap_environment_lifecycle_pkey",
+      "eap_environment_lifecycle_retry_count_check",
+      "eap_environment_lifecycle_state_check",
+      "eap_environment_lifecycle_version_check",
+      "eap_lifecycle_outbox_customer_hash_fkey",
+      "eap_lifecycle_outbox_pkey"
+    ],
+    "ok": true
+  },
+  "pytest": {
+    "exit_status": 0,
+    "tests": 10,
+    "passed": 10,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0,
+    "cases": [
+      {
+        "name": "test_two_actual_connections_collide_on_one_claim",
+        "outcome": "passed",
+        "seconds": 2.112,
+        "detail": ""
+      },
+      {
+        "name": "test_new_connection_recovers_record_and_expired_claim",
+        "outcome": "passed",
+        "seconds": 2.025,
+        "detail": ""
+      },
+      {
+        "name": "test_postgres_rejects_expired_and_stale_fenced_claim_mutations",
+        "outcome": "passed",
+        "seconds": 4.333,
+        "detail": ""
+      },
+      {
+        "name": "test_concurrent_claims_admit_one_winner_per_record_across_real_connections",
+        "outcome": "passed",
+        "seconds": 2.396,
+        "detail": ""
+      },
+      {
+        "name": "test_concurrent_claims_throughput_under_pool_load",
+        "outcome": "passed",
+        "seconds": 3.173,
+        "detail": ""
+      },
+      {
+        "name": "test_restart_recovery_resumes_crashed_process_from_durable_checkpoint[0]",
+        "outcome": "passed",
+        "seconds": 2.574,
+        "detail": ""
+      },
+      {
+        "name": "test_restart_recovery_resumes_crashed_process_from_durable_checkpoint[2]",
+        "outcome": "passed",
+        "seconds": 2.722,
+        "detail": ""
+      },
+      {
+        "name": "test_transactional_outbox_emits_one_terminal_event_when_two_managers_race",
+        "outcome": "passed",
+        "seconds": 2.364,
+        "detail": ""
+      },
+      {
+        "name": "test_transactional_outbox_emits_one_terminal_event_when_stale_worker_completes_after_takeover",
+        "outcome": "passed",
+        "seconds": 2.215,
+        "detail": ""
+      },
+      {
+        "name": "test_transactional_outbox_rolls_back_terminal_state_when_outbox_insert_fails",
+        "outcome": "passed",
+        "seconds": 2.19,
+        "detail": ""
+      }
+    ],
+    "log_tail": [
+      "============================= test session starts ==============================",
+      "platform linux -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- /tmp/uv-cache/archive-v0/AjYVVW-ROMgSuqx3A_TGK/bin/python3",
+      "rootdir: /home/andy/src/.worktrees/be7a2/osramp-demo/d2-signalloom/apps/fe-signalloom/src",
+      "configfile: pytest.ini",
+      "plugins: asyncio-1.4.0, anyio-4.15.1",
+      "asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function",
+      "collecting ... collected 10 items",
+      "",
+      "tests/test_environment_lifecycle_store_integration.py::test_two_actual_connections_collide_on_one_claim PASSED [ 10%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_new_connection_recovers_record_and_expired_claim PASSED [ 20%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_postgres_rejects_expired_and_stale_fenced_claim_mutations PASSED [ 30%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_concurrent_claims_admit_one_winner_per_record_across_real_connections PASSED [ 40%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_concurrent_claims_throughput_under_pool_load PASSED [ 50%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_restart_recovery_resumes_crashed_process_from_durable_checkpoint[0] PASSED [ 60%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_restart_recovery_resumes_crashed_process_from_durable_checkpoint[2] PASSED [ 70%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_transactional_outbox_emits_one_terminal_event_when_two_managers_race PASSED [ 80%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_transactional_outbox_emits_one_terminal_event_when_stale_worker_completes_after_takeover PASSED [ 90%]",
+      "tests/test_environment_lifecycle_store_integration.py::test_transactional_outbox_rolls_back_terminal_state_when_outbox_insert_fails PASSED [100%]",
+      "",
+      "------------- generated xml file: /tmp/slrc-p2-2.kU44Yg/junit.xml --------------",
+      "============================= 10 passed in 26.63s =============================="
+    ]
+  },
+  "scenarios": {
+    "concurrent_claims_one_winner": [
+      {
+        "workers": 8,
+        "rounds": 25,
+        "backend_pids": [
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110
+        ],
+        "winners": [
+          {
+            "round": 0,
+            "customer_hash": "00000000",
+            "worker": "worker-5",
+            "backend_pid": 108,
+            "teardown_id": "4d70f885-a7ef-4ebc-91a8-81d1cfefb22a"
+          },
+          {
+            "round": 1,
+            "customer_hash": "00000001",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "f34eb096-43cc-4ee8-8880-c6c8a47e05c8"
+          },
+          {
+            "round": 2,
+            "customer_hash": "00000002",
+            "worker": "worker-4",
+            "backend_pid": 107,
+            "teardown_id": "35461ad3-8289-4548-b54b-d00d5b93a0a5"
+          },
+          {
+            "round": 3,
+            "customer_hash": "00000003",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "95567b24-b487-4858-9cca-89a843638383"
+          },
+          {
+            "round": 4,
+            "customer_hash": "00000004",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "f86f241e-1d4c-433f-8617-e6d8969636e2"
+          },
+          {
+            "round": 5,
+            "customer_hash": "00000005",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "5a6f908d-4d37-48cd-9025-c0a6b01caeab"
+          },
+          {
+            "round": 6,
+            "customer_hash": "00000006",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "2fdc131f-3fdd-4224-ac8b-e4f7d5a25574"
+          },
+          {
+            "round": 7,
+            "customer_hash": "00000007",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "ffd011ad-a563-45a2-a573-ef46d2f10137"
+          },
+          {
+            "round": 8,
+            "customer_hash": "00000008",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "ad7b04ce-e9c1-419c-8974-47e688b8e940"
+          },
+          {
+            "round": 9,
+            "customer_hash": "00000009",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "14a486bd-fafd-44f6-9fec-1fefc2b16c1f"
+          },
+          {
+            "round": 10,
+            "customer_hash": "0000000a",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "b1a12f43-b42f-4d3e-9efb-a56af32c4710"
+          },
+          {
+            "round": 11,
+            "customer_hash": "0000000b",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "64f17593-49b5-471f-9167-182b5db9c45f"
+          },
+          {
+            "round": 12,
+            "customer_hash": "0000000c",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "0fe487b6-c07e-4299-be0c-6e43bdc8db84"
+          },
+          {
+            "round": 13,
+            "customer_hash": "0000000d",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "a7013b85-b51d-410a-a2ec-bded1c00bf91"
+          },
+          {
+            "round": 14,
+            "customer_hash": "0000000e",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "4cb29256-766b-4a70-aaab-a254b31e0da3"
+          },
+          {
+            "round": 15,
+            "customer_hash": "0000000f",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "52d96fbf-1c46-4cd7-8aeb-6d466fa95b69"
+          },
+          {
+            "round": 16,
+            "customer_hash": "00000010",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "239fa9a5-afdb-4821-92e9-38175b0c6dab"
+          },
+          {
+            "round": 17,
+            "customer_hash": "00000011",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "7d4bf6f1-8b13-478b-943b-b7b40d78cbed"
+          },
+          {
+            "round": 18,
+            "customer_hash": "00000012",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "cdeb5c5a-3d2f-4d5b-8094-a459d30f7897"
+          },
+          {
+            "round": 19,
+            "customer_hash": "00000013",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "93dc1116-fe00-45f6-8b6a-2091047d217c"
+          },
+          {
+            "round": 20,
+            "customer_hash": "00000014",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "d628c226-7c68-4e6a-8f80-3334bfaeaa26"
+          },
+          {
+            "round": 21,
+            "customer_hash": "00000015",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "d6f8ef13-5908-4c05-b96b-1f48c99f4c84"
+          },
+          {
+            "round": 22,
+            "customer_hash": "00000016",
+            "worker": "worker-0",
+            "backend_pid": 103,
+            "teardown_id": "17aa20f3-a893-43b3-af9d-3871bde28eb6"
+          },
+          {
+            "round": 23,
+            "customer_hash": "00000017",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "c82e4807-a245-4a21-a7f0-2f0d9c8f23d6"
+          },
+          {
+            "round": 24,
+            "customer_hash": "00000018",
+            "worker": "worker-1",
+            "backend_pid": 104,
+            "teardown_id": "3a76a2b9-60a3-433b-85ff-0450ca73b244"
+          }
+        ],
+        "distinct_winning_backends": 4
+      }
+    ],
+    "concurrent_claims_throughput": [
+      {
+        "rows": 200,
+        "pool_size": 8,
+        "async_workers": 16,
+        "elapsed_seconds": 0.1787,
+        "claims_per_second": 1119.3,
+        "claim_calls": 216,
+        "latency_ms": {
+          "p50": 12.861,
+          "p95": 26.068,
+          "p99": 37.004,
+          "max": 37.587,
+          "mean": 13.11
+        },
+        "lock_timeout_ms": 2000,
+        "lock_errors": 0,
+        "duplicate_claims": 0,
+        "claims_per_worker": {
+          "load-15": 14,
+          "load-5": 12,
+          "load-1": 13,
+          "load-13": 11,
+          "load-12": 11,
+          "load-6": 12,
+          "load-8": 12,
+          "load-10": 12,
+          "load-14": 11,
+          "load-11": 13,
+          "load-7": 11,
+          "load-9": 13,
+          "load-4": 14,
+          "load-0": 14,
+          "load-3": 14,
+          "load-2": 13
+        },
+        "other_backends_in_db": 8,
+        "pool_idle_after": 8,
+        "pool_size_after": 8
+      }
+    ],
+    "restart_recovery": [
+      {
+        "crash_at_stage_index": 0,
+        "child_pid": 3773645,
+        "child_exit_code": 137,
+        "crashed_in_stage": "route",
+        "teardown_id": "e2436659-06f5-411e-9cf8-1ac870a8c3ce",
+        "orphan_stages": [],
+        "orphan_claim_owner": "worker-crashed",
+        "lease_expiry": "2026-09-28 07:24:24.492652+00:00",
+        "takeover_before_expiry": [],
+        "resumed_stage_calls": [
+          "route",
+          "mesh",
+          "key_spire",
+          "namespace_storage"
+        ],
+        "final_state": "terminated",
+        "stage_completed_events": {
+          "key_spire": 1,
+          "mesh": 1,
+          "namespace_storage": 1,
+          "route": 1
+        },
+        "outbox_event_counts": {
+          "eap.teardown.claim_taken_over": 1,
+          "eap.teardown.completed": 1,
+          "eap.teardown.stage_completed": 4
+        }
+      },
+      {
+        "crash_at_stage_index": 2,
+        "child_pid": 3774057,
+        "child_exit_code": 137,
+        "crashed_in_stage": "key_spire",
+        "teardown_id": "5609d29c-1470-4b36-b3e3-cf143b3d6484",
+        "orphan_stages": [
+          "route",
+          "mesh"
+        ],
+        "orphan_claim_owner": "worker-crashed",
+        "lease_expiry": "2026-09-28 07:24:27.203779+00:00",
+        "takeover_before_expiry": [],
+        "resumed_stage_calls": [
+          "key_spire",
+          "namespace_storage"
+        ],
+        "final_state": "terminated",
+        "stage_completed_events": {
+          "key_spire": 1,
+          "mesh": 1,
+          "namespace_storage": 1,
+          "route": 1
+        },
+        "outbox_event_counts": {
+          "eap.teardown.claim_taken_over": 1,
+          "eap.teardown.completed": 1,
+          "eap.teardown.stage_completed": 4
+        }
+      }
+    ],
+    "outbox_two_managers_race": [
+      {
+        "teardown_id": "89538ec4-4c86-4032-b816-bf6c01906f61",
+        "outcomes": [
+          [
+            {
+              "customer_hash": "6f82ad81",
+              "action": "terminated",
+              "reason": "teardown_completed",
+              "current_state": "terminated"
+            }
+          ],
+          []
+        ],
+        "outbox_event_counts": {
+          "eap.teardown.completed": 1,
+          "eap.teardown.stage_completed": 4
+        },
+        "terminal_event": {
+          "event_id": "889727b0-2df1-4416-b08e-386015d36f54",
+          "occurred_at": "2026-09-28 07:24:05.128634+00:00",
+          "xmin": "1779"
+        },
+        "executor_calls": 4
+      }
+    ],
+    "outbox_stale_worker_after_takeover": [
+      {
+        "teardown_id": "3689687e-06eb-4ec9-b947-91cf91b6f759",
+        "stale_worker_error": "claim owner or teardown id does not match",
+        "winner": "worker-new",
+        "replay_refused": true,
+        "terminal_events": 1
+      }
+    ],
+    "outbox_rollback_on_insert_failure": [
+      {
+        "teardown_id": "f10c52c3-b297-480e-80a3-ac447f470c55",
+        "injected_fault": "duplicate outbox event_id (primary key violation)",
+        "state_after_fault": "draining",
+        "version_before": 6,
+        "version_after": 6,
+        "retry_state": "terminated",
+        "terminal_events": 1
+      }
+    ]
+  }
+}

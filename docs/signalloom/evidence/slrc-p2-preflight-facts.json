@@ -1,0 +1,213 @@
+{
+  "artifact": "slrc-p2-preflight-facts",
+  "phase": "P2",
+  "card": "SLRC-P2-PRE",
+  "generated": "2026-09-28T05:39:26+01:00",
+  "role_boundary": "audit only; no lifecycle store, service, migration or test file modified; preserved worktree read-only",
+  "repository": {
+    "worktree": "/home/andy/.cline/worktrees/47fb7/osramp-demo",
+    "base_ref": "refs/heads/integration/slrc-v0.1.0",
+    "base_commit_sha": "2fffed59dd26232356204a463f27daedfd18149a",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean_at_start": true,
+    "audited_files": [
+      "d2-signalloom/apps/fe-signalloom/src/environment_lifecycle.py",
+      "d2-signalloom/apps/fe-signalloom/src/environment_lifecycle_store.py",
+      "d2-signalloom/apps/fe-signalloom/src/db/migrations/043_eap_environment_lifecycle.sql"
+    ]
+  },
+  "preserved_worktree": {
+    "path": "/home/andy/src/.worktrees/osramp-demo/sled-remediation-lifecycle-reviewfix-20260927",
+    "branch": "remediation/sled-lifecycle-reviewfix-20260927",
+    "head_sha": "0a9bde8a4f03a66ec249ffa8661a52556c001c8c",
+    "head_is_ancestor_of_integration": true,
+    "lifecycle_files_identical_to_integration": "git diff 0a9bde8a 2fffed59 is empty for environment_lifecycle.py, environment_lifecycle_store.py, migration 043 and the three committed lifecycle test files; the uncommitted test files are the whole P2 delta",
+    "status_porcelain": [
+      " M d2-signalloom/apps/fe-signalloom/src/tests/test_environment_lifecycle.py",
+      " M d2-signalloom/apps/fe-signalloom/src/tests/test_environment_lifecycle_store.py",
+      " M d2-signalloom/apps/fe-signalloom/src/tests/test_environment_lifecycle_store_integration.py",
+      "?? d2-signalloom/apps/fe-signalloom/src/tests/test_environment_lifecycle_api.py"
+    ],
+    "diffstat": "3 files changed, 183 insertions(+), 7 deletions(-) plus untracked api test (37 lines)",
+    "sha256": {
+      "test_environment_lifecycle.py": "79a154a2c0d138751214366a212e602718bdb3c9c1a668552ec843ca8920dd1b",
+      "test_environment_lifecycle_store.py": "9192d17bfcab555b42f3c1d95cdba9dc827a9c9a96490d30b5b324a4c8b70051",
+      "test_environment_lifecycle_store_integration.py": "9641faa85baa95e2f65c1f1e21872d51ed5c20cc015318f7f8cc8ad19f3e61f4",
+      "test_environment_lifecycle_api.py": "22c4d6234f5214498369a6ee67ace5a1bd4f8164ae654243f62334054c671231"
+    },
+    "not_modified": "tests were run from a /tmp copy of src with the four preserved files overlaid; the preserved worktree was never written",
+    "files_corrupted": false
+  },
+  "baseline_tests_integration": {
+    "command": "UV_CACHE_DIR=/home/andy/src/.worktrees/.uvcache uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_environment_lifecycle.py tests/test_environment_lifecycle_store.py tests/test_environment_lifecycle_store_integration.py -v -p no:cacheprovider",
+    "run_mode": "serial (no -n), plugin autoload enabled so pytest-asyncio loads",
+    "population": "3 committed lifecycle files, 21 tests",
+    "exit_code": 0,
+    "passed": 19,
+    "failed": 0,
+    "skipped": 2,
+    "skip_reasons": {
+      "test_two_actual_connections_collide_on_one_claim": "DATABASE_URL unset (DSN-gated; not a pass)",
+      "test_new_connection_recovers_record_and_expired_claim": "DATABASE_URL unset (DSN-gated; not a pass)"
+    },
+    "make_test": "`make test` is the end-to-end bats suite against a running cluster (Makefile:461); not a baseline for this audit card and not run; no make test-unit / test-docker / lint target covers fe-signalloom lifecycle"
+  },
+  "preserved_tests_against_integration_code": {
+    "population": "4 preserved files (3 modified + 1 untracked), 31 tests",
+    "exit_code": 1,
+    "passed": 15,
+    "failed": 13,
+    "skipped": 3,
+    "skip_reason": "all 3 integration tests skip: DATABASE_URL unset",
+    "failure_classification": {
+      "expected_failing_first_spec": {
+        "test_missing_verify_contract_fails_closed_before_execution": "no verify() contract check; teardown ran to 'terminated' instead of 'teardown_failed' reason verification_unavailable",
+        "test_hung_provider_is_terminated_at_hard_stage_deadline": "asyncio.to_thread cannot kill a hung provider; pass took ~30s against a <1s bound (reason stage_timeout expected)",
+        "test_concurrent_heartbeat_conflict_retries_instead_of_raising": "ValueError 'lifecycle record changed concurrently' escapes record_heartbeat",
+        "test_one_reaping_conflict_does_not_starve_later_rows": "ValueError from one row aborts evaluate_reaping for all later rows",
+        "test_two_workers_cannot_claim_same_environment": "InMemoryLifecycleStore has no clock= kwarg",
+        "test_restart_recovery_reads_durable_record_and_expired_claim": "InMemoryLifecycleStore has no clock= kwarg",
+        "test_stage_completion_is_monotonic_and_idempotent": "InMemoryLifecycleStore has no clock= kwarg",
+        "test_completion_requires_every_checkpoint_and_matching_claim": "InMemoryLifecycleStore has no clock= kwarg",
+        "test_expired_claim_cannot_checkpoint_fail_or_complete": "no clock= kwarg; no claim_fencing_token; no lease-expiry check",
+        "test_takeover_increments_fence_and_writes_audit_event": "no clock= kwarg; no fence; no eap.teardown.claim_taken_over outbox event",
+        "test_lifecycle_mutations_require_authentication": "POST /register returned 201, expected 401",
+        "test_lifecycle_mutations_require_superadmin": "POST /register returned 201 for ordinary principal, expected 403"
+      },
+      "fixture_defect_in_preserved_test": {
+        "test_terminal_record_is_a_noop_and_never_calls_executor_again": "asserts 4 executor calls, observed 0. The preserved RecordingExecutor now drains multiprocessing.Queue with .empty(), which Python documents as unreliable (feeder-thread latency). P2-1 must replace the empty() drain with a deterministic one (counted get(timeout=...) or a Manager list) or this test is flaky once the process executor exists"
+      },
+      "schema_dependency_on_P2_1": {
+        "test_postgres_rejects_expired_and_stale_fenced_claim_mutations": "skipped here; requires claim_fencing_token column, fencing arguments and 'expired'/'fencing' errors that only P2-1 introduces",
+        "test_new_connection_recovers_record_and_expired_claim": "preserved version adds claim_fencing_token assertion; same P2-1 dependency"
+      }
+    },
+    "interface_changes_implied_by_preserved_tests": [
+      "InMemoryLifecycleStore(clock=callable) and store-side lease checks against that clock",
+      "LifecycleRow.claim_fencing_token: int, incremented on every claim/takeover",
+      "checkpoint_stage/fail_claim/complete_claim gain a fencing_token positional argument after teardown_id",
+      "ValueError messages containing 'expired' (lease elapsed) and 'fencing' (stale token)",
+      "outbox event on takeover: event_type eap.teardown.claim_taken_over with operator_or_system_id and previous_claim_owner",
+      "StageExecutor gains verify(stage, request); a missing verify fails closed as 'verification_unavailable' before any execute",
+      "hard stage deadline that terminates a hung provider (reason 'stage_timeout'); the multiprocessing spawn Queue in RecordingExecutor signals a process-based, killable executor, so executors and requests must be picklable",
+      "optimistic-lock conflict on heartbeat is retried; a conflict on one row in evaluate_reaping is skipped, not raised",
+      "lifecycle mutations (register, reap-now) require authenticated_principal (401) and superadmin (403); GET /active stays public per the preserved test"
+    ]
+  },
+  "persistence_findings": {
+    "L1_fencing_owner_equality_only": {
+      "severity": "high",
+      "where": "environment_lifecycle_store.py:304-364",
+      "fact": "checkpoint_stage and _finish_claim authorise by claim_owner = worker_id AND teardown_id only. Neither checks claim_expires_at > now, so a worker whose lease has expired but not yet been taken over can still write. claim_due keeps teardown_id through COALESCE(teardown_id, $4) (line 296), so teardown_id is not a fence either",
+      "note": "reusing teardown_id is deliberate and must stay: it is the provider idempotency key, so a takeover re-drives the same teardown. Do not rotate it. The fence must be a separate monotonic claim_fencing_token",
+      "restart_interaction": "worker_id defaults to f'reaper-{uuid4()}' per process (environment_lifecycle.py:168), so today a restarted process cannot match its old incarnation's claim. Owner-equality becomes unsafe the moment anyone configures a stable worker_id (hostname or pod name). The fencing token closes that for any worker_id scheme"
+    },
+    "L2_zombie_stage_after_takeover": {
+      "severity": "high",
+      "where": "environment_lifecycle.py:320-354",
+      "fact": "a stage runs in asyncio.to_thread and cannot be cancelled. If the lease expires mid-stage, a second worker claims and re-runs the same destructive stage concurrently. The zombie's later checkpoint raises ValueError outside the try block (line 346), which aborts the pass with only a log line. Adapters therefore must be idempotent (P1 guarantees partly), and P2-1's killable executor plus fencing are the fix",
+      "thread_pool_exhaustion": "each hung to_thread holds a default-executor worker (min(32, cpu+4)), starving every other to_thread caller in the process"
+    },
+    "L3_optimistic_conflict_surfaces_as_500": {
+      "severity": "medium",
+      "where": "environment_lifecycle_store.py:277-278; environment_lifecycle.py:224-263",
+      "fact": "replace() raises bare ValueError on a version mismatch. record_heartbeat/record_activity do not catch it, so a concurrent reaper claim (which bumps version) turns a heartbeat into HTTP 500",
+      "falsifiable_requirement": "P2-1: retry once on conflict (preserved test); if the retry also conflicts, return 409 Conflict, never 500"
+    },
+    "L4_reaping_pass_aborts_on_one_conflict": {
+      "severity": "medium",
+      "where": "environment_lifecycle.py:278-283",
+      "fact": "`except ValueError: raise` means that when two replicas evaluate the same expiring row, the loser aborts evaluate_reaping before claim_due runs, so no teardown is claimed that tick on that replica",
+      "falsifiable_requirement": "per-row isolation: a conflict on one row is skipped and later rows still transition (preserved test)"
+    },
+    "L5_lifecycle_router_has_no_in_process_auth": {
+      "severity": "high",
+      "where": "environment_lifecycle.py:473-518; main.py has no add_middleware and include_router passes no dependencies",
+      "fact": "register, heartbeat, activity and reap-now accept anonymous callers in-process. The deployed ingress/tailnet topology was not probed (P4 scope), so 'public on the network' is unverified",
+      "spec_conflict": "preserved test_public_lifecycle_reads_remain_public pins GET /active as public. /active returns every tenant's customer_hash and company_name, which contradicts tenant isolation. Needs a principal decision before P2-1 integrates that test; otherwise the test enforces the leak",
+      "coverage_gap": "the preserved API tests cover register and reap-now only. P2-1 must decide and test the auth for heartbeat and activity (mutating POSTs)"
+    },
+    "L6_no_row_level_security": {
+      "severity": "medium",
+      "where": "043_eap_environment_lifecycle.sql",
+      "fact": "pg_class shows relrowsecurity=false and relforcerowsecurity=false for eap_environment_lifecycle and eap_lifecycle_outbox",
+      "warning": "if RLS is added later, the cross-tenant claim_due/list_active scans return zero rows silently on a pooled connection with no tenant claim set. The reaper then needs an explicit bypass role or SECURITY DEFINER path. Not a P2 deliverable; recorded so no P2 card adds FORCE RLS casually"
+    },
+    "L7_restart_recovery_latency": {
+      "severity": "low",
+      "where": "environment_lifecycle.py:170-171, 415-437",
+      "fact": "recovery happens through lease expiry plus the next reaper tick (the first tick waits interval_seconds after start, per commit 0a9bde8a). The durable prefix in teardown_stages_completed resumes from the earliest uncompleted stage (lines 312-314). Worst-case recovery latency = claim_ttl_seconds (>= stage_timeout_seconds * (len(ORDERED_STAGES)+1)) + interval_seconds",
+      "sp_p2_divergence": "SP-P2 says 'query PostgreSQL for incomplete checkpoints upon startup'. With more than one replica, a starting process cannot know a peer is dead, so startup must not steal unexpired claims. Lease expiry is the only safe signal. Recommend the Governor read SP-P2 as 'startup schedules a pass that resumes expired claims', with a test bounding the latency"
+    },
+    "L8_clock_source": {
+      "severity": "low",
+      "where": "environment_lifecycle_store.py:282-301; ReaperDaemon.clock",
+      "fact": "lease comparisons use the caller's Python `now` ($1), not the database now(). With several replicas, clock skew between them skews lease expiry. The optimistic lock uses an integer version (no timestamp round-trip, so no microsecond/nanosecond divergence)",
+      "recommendation": "P2-1 may keep app-clock injection for tests, but the Postgres store should compare against the DB clock (or document the skew bound)"
+    },
+    "L9_checkpoint_on_missing_row": {
+      "severity": "low",
+      "where": "environment_lifecycle_store.py:308-311",
+      "fact": "if the row is absent, _validate_checkpoint receives None and raises AttributeError, not ValueError"
+    },
+    "outbox_atomicity": {
+      "verdict": "holds for every mutating path",
+      "fact": "create (insert branch only), replace, checkpoint_stage and _finish_claim write the outbox row inside the same connection.transaction() as the state change; a duplicate event_id rolls back both. claim_due writes no outbox event today, and P2-1's takeover event adds one",
+      "p2_2_note": "the 'outbox emits 1 event' assertion must be scoped per transition, because P2-1 adds claim_taken_over events on takeover"
+    },
+    "claim_exclusivity": {
+      "verdict": "holds at the SQL level",
+      "fact": "claim_due uses a CTE with FOR UPDATE SKIP LOCKED LIMIT 1 and an UPDATE ... FROM candidate in one transaction (lines 286-299). On PostgreSQL 16.14, EXPLAIN shows a LockRows node. Proving it with two live connections is P2-2's deliverable"
+    }
+  },
+  "migration_043": {
+    "applied_on": "PostgreSQL 16.14 (postgres:16-alpine), full chain via db.migrate.apply_migrations",
+    "syntax_valid": true,
+    "reapply_idempotent": true,
+    "tables": ["eap_environment_lifecycle", "eap_lifecycle_outbox"],
+    "lifecycle_columns": 19,
+    "constraints": [
+      "PRIMARY KEY (customer_hash)",
+      "CHECK customer_hash ~ '^[0-9a-f]{8}$'",
+      "CHECK state IN (provisioning, warming, active, draining, teardown_failed, terminated)",
+      "CHECK retry_count >= 0",
+      "CHECK version > 0",
+      "CHECK (claim_owner IS NULL) = (claim_expires_at IS NULL)",
+      "outbox FOREIGN KEY (customer_hash) -> eap_environment_lifecycle",
+      "outbox PRIMARY KEY (event_id)"
+    ],
+    "indexes": [
+      "idx_eap_lifecycle_reaper_due (state, next_retry_at, grace_period_expires_at) WHERE state IN (draining, teardown_failed)",
+      "idx_eap_lifecycle_outbox_unpublished (occurred_at) WHERE published_at IS NULL"
+    ],
+    "has_claim_fencing_token": false,
+    "gaps": [
+      "no claim_fencing_token column (required by the preserved tests)",
+      "no index on eap_lifecycle_outbox(customer_hash) for the foreign key",
+      "no RLS (see L6)"
+    ],
+    "p2_1_migration_rule": "db/migrate.py records applied filenames in public.schema_migrations, so an in-place edit of 043 silently no-ops on any database that already recorded it. P2-1 must add a new file. 044 is free on every local branch (checked with git ls-tree across refs/heads)"
+  },
+  "postgres_harness": {
+    "asyncpg": {"uv_env": "0.29.0", "system_python3": "0.31.0"},
+    "pytest_asyncio": "1.4.0",
+    "docker": "/usr/bin/docker; image postgres:16-alpine present locally (sha256:fff3594bf464...)",
+    "kind": "/usr/local/bin/kind present (not needed)",
+    "probe": "started card-owned container slrc-p2pre-pg-1842200 (label slrc-card=P2-PRE) on 127.0.0.1:53739; pg_isready 'accepting connections'; asyncpg connected with timeout=5; created scratch database slrc_p2pre_mig and applied all migrations twice; container removed with docker rm -f (label filter count 0 afterwards)",
+    "foreign_containers_untouched": "sldp-p41-pg and anvil-p41-pg belong to other cards and were not used",
+    "connect_timeout_trap": "asyncpg 0.29 forwards unknown DSN query parameters as server settings: a DSN containing ?connect_timeout=5 fails with asyncpg.exceptions.UndefinedObjectError: unrecognized configuration parameter \"connect_timeout\". Use asyncpg's timeout= kwarg. db/connection.py:29 builds the pool from DATABASE_URL; no Python DSN in the repo sets connect_timeout",
+    "integration_fixture": "tests/test_environment_lifecycle_store_integration.py reads DATABASE_URL, skips without it, and CREATEs a per-test database, so the role needs CREATEDB. Run serially: parallel DSN-gated packages race one database",
+    "recipe_for_P2_2": "docker run -d --rm --name slrc-p22-pg-$$ --label slrc-card=P2-2 -e POSTGRES_USER=slrc -e POSTGRES_PASSWORD=<local> -e POSTGRES_DB=slrc -p 127.0.0.1:<free-port>:5432 postgres:16-alpine; poll pg_isready; DATABASE_URL=postgresql://slrc:<local>@127.0.0.1:<port>/slrc (no connect_timeout query parameter); teardown via trap docker rm -f"
+  },
+  "collisions": {
+    "board": "P2-PRE in_progress; P2-1, P2-2 backlog and both depend only on P2-PRE, so they run in parallel",
+    "shared_file": "both P2-1 ('integrate ... updated unit suites') and P2-2 ('run test_environment_lifecycle_store_integration.py without skips') own test_environment_lifecycle_store_integration.py",
+    "blocking_order": "the preserved integration file includes test_postgres_rejects_expired_and_stale_fenced_claim_mutations and a fencing assertion that cannot pass until P2-1 lands its schema and signatures, so a parallel P2-2 cannot reach zero-failure on the preserved file",
+    "recommended_resolution": "keep the cards parallel by file ownership: P2-1 owns the preserved integration file plus migration 044 and must make the fenced test pass when DATABASE_URL is set. P2-2 owns the harness (fixture, container recipe, make target) and the committed-at-base tests (two-connection collision, restart recovery, one outbox event per transition). P2-GOV runs the union with zero skips after merging. The alternative, a P2-1 -> P2-2 dependency, serialises the phase"
+  },
+  "readiness": {
+    "P2-1": "ready once the Governor or principal decides the GET /active spec conflict (L5). Spec tightened: migration 044, fencing token, lease-expiry and fence checks in both stores, process-based killable executor with verify(), heartbeat retry then 409, per-row reaping isolation, auth for register/reap-now plus a decision for heartbeat/activity, deterministic RecordingExecutor drain",
+    "P2-2": "ready; isolated PostgreSQL is available (docker plus postgres:16-alpine proven), with the collision caveat above",
+    "blocking_defects": []
+  }
+}

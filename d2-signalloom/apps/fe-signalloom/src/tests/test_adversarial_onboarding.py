@@ -825,6 +825,16 @@ def test_a_valid_token_is_accepted(client):
 GUARDED_PREFIXES = ("/api/onboarding", "/api/audit", "/api/agents", "/api/v1/agents")
 
 
+def _iter_routes(application):
+    for r in application.routes:
+        if hasattr(r, "path") and hasattr(r, "endpoint"):
+            yield r
+        elif hasattr(r, "original_router"):
+            for sub_r in r.original_router.routes:
+                if hasattr(sub_r, "path") and hasattr(sub_r, "endpoint"):
+                    yield sub_r
+
+
 def test_no_route_accepts_a_caller_supplied_tenant(client):
     """ISC-14: there is no tenant parameter to tamper with, on any guarded route.
 
@@ -836,7 +846,7 @@ def test_no_route_accepts_a_caller_supplied_tenant(client):
     """
     offenders = []
     inspected = 0
-    for route in app.routes:
+    for route in _iter_routes(app):
         path = getattr(route, "path", "")
         endpoint = getattr(route, "endpoint", None)
         if not path.startswith(GUARDED_PREFIXES) or endpoint is None:
@@ -912,7 +922,7 @@ def test_every_tenant_named_body_field_is_proven_overwritten():
     # allowlist stops meaning anything.  The route table says which models are
     # actually parsed from a request.
     body_models: set[type] = set()
-    for route in app.routes:
+    for route in _iter_routes(app):
         endpoint = getattr(route, "endpoint", None)
         if endpoint is None or not getattr(route, "path", "").startswith(GUARDED_PREFIXES):
             continue

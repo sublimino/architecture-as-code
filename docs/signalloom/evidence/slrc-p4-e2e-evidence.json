@@ -1,0 +1,174 @@
+{
+  "schema_version": "sled-teardown-evidence/v1",
+  "run_id": "sled-cert-b3727754",
+  "target_commit": "1e4fd4540ea9143d2641b4c6758bd2aaecd06be3",
+  "started_at": "2026-09-28T07:01:42Z",
+  "finished_at": "2026-09-28T07:01:50Z",
+  "fixture": {
+    "kind": "synthetic",
+    "tenant_kind": "synthetic",
+    "fixture_id": "sled-cert-b3727754",
+    "tenant_id": "tenant-b3727754",
+    "expected_preinventory": {
+      "drain_routes": [
+        "expected-drain_routes"
+      ],
+      "openbao": [
+        "expected-openbao"
+      ],
+      "spire_svid": [
+        "expected-spire_svid"
+      ],
+      "tailscale": [
+        "expected-tailscale"
+      ],
+      "namespace": [
+        "expected-namespace"
+      ]
+    }
+  },
+  "sentinel_fixture": {
+    "kind": "synthetic",
+    "tenant_kind": "synthetic",
+    "fixture_id": "sentinel-fixture-b3727754",
+    "tenant_id": "sentinel-tenant-b3727754",
+    "expected_resource_ids": [
+      "expected-sentinel-namespace"
+    ]
+  },
+  "before": {
+    "observed_at": "2026-09-28T07:01:43Z",
+    "planes": {
+      "drain_routes": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": [
+          {
+            "resource_id": "expected-drain_routes",
+            "resource_type": "drain_routes",
+            "tenant_id": "tenant-b3727754",
+            "fixture_id": "sled-cert-b3727754"
+          }
+        ]
+      },
+      "openbao": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": [
+          {
+            "resource_id": "expected-openbao",
+            "resource_type": "openbao",
+            "tenant_id": "tenant-b3727754",
+            "fixture_id": "sled-cert-b3727754"
+          }
+        ]
+      },
+      "spire_svid": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": [
+          {
+            "resource_id": "expected-spire_svid",
+            "resource_type": "spire_svid",
+            "tenant_id": "tenant-b3727754",
+            "fixture_id": "sled-cert-b3727754"
+          }
+        ]
+      },
+      "tailscale": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": [
+          {
+            "resource_id": "expected-tailscale",
+            "resource_type": "tailscale",
+            "tenant_id": "tenant-b3727754",
+            "fixture_id": "sled-cert-b3727754"
+          }
+        ]
+      },
+      "namespace": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": [
+          {
+            "resource_id": "expected-namespace",
+            "resource_type": "namespace",
+            "tenant_id": "tenant-b3727754",
+            "fixture_id": "sled-cert-b3727754"
+          }
+        ]
+      }
+    },
+    "sentinel": {
+      "available": true,
+      "permitted": true,
+      "succeeded": true,
+      "resources": [
+        {
+          "resource_id": "expected-sentinel-namespace",
+          "resource_type": "namespace",
+          "tenant_id": "sentinel-tenant-b3727754",
+          "fixture_id": "sentinel-fixture-b3727754"
+        }
+      ]
+    }
+  },
+  "after": {
+    "observed_at": "2026-09-28T07:01:49Z",
+    "planes": {
+      "drain_routes": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": []
+      },
+      "openbao": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": []
+      },
+      "spire_svid": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": []
+      },
+      "tailscale": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": []
+      },
+      "namespace": {
+        "available": true,
+        "permitted": true,
+        "succeeded": true,
+        "resources": []
+      }
+    },
+    "sentinel": {
+      "available": true,
+      "permitted": true,
+      "succeeded": true,
+      "resources": [
+        {
+          "resource_id": "expected-sentinel-namespace",
+          "resource_type": "namespace",
+          "tenant_id": "sentinel-tenant-b3727754",
+          "fixture_id": "sentinel-fixture-b3727754"
+        }
+      ]
+    }
+  },
+  "unverified_claims": {
+    "cryptographic_backup_erasure": "UNVERIFIED",
+    "kernel_payload_sanitisation": "UNVERIFIED"
+  }
+}

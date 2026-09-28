@@ -47,6 +47,13 @@ from conftest import EAPClient
 # (see tests/conftest.py).
 EAP_AUTHENTICATED = True
 
+# This suite drives the real 5-stage teardown pipeline end-to-end, including
+# the two kubectl-dependent stages (drain_routes, delete_namespace). Offline
+# sandboxes have no reachable cluster, so tests/conftest.py stubs exactly the
+# kubectl subprocess boundary when no cluster is reachable; on cluster-equipped
+# CI this is a no-op and the stages run for real. See conftest.py for detail.
+MOCK_KUBECTL_TEARDOWN_IF_NO_CLUSTER = True
+
 COMPANY = "kusari"
 HASH = derive_customer_hash(COMPANY)
 HOSTNAME = f"sl-eap-{HASH}"

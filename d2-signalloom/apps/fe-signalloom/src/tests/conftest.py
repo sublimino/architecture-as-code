@@ -1,6 +1,6 @@
 """Suite-wide fixtures (introduced by EAPR-P2-1).
 
-Two things live here, and only two:
+Three things live here, and only three:
 
 1. ``EAPClient`` + ``eap_bearer`` — a *real-token* client for the EAP suites.
    The five EAP routers are mounted behind ``api_compat.authenticated_principal``
@@ -14,6 +14,11 @@ Two things live here, and only two:
 
 2. ``fresh_tenant_ownership`` — an explicit (not autouse) empty
    ``customer_hash -> tenant`` ownership map for tests that seed two tenants.
+
+3. ``_eap_teardown_no_cluster_kubectl_stub`` — stubs the kubectl subprocess
+   boundary used by the two cluster-dependent teardown stages (drain_routes,
+   delete_namespace) when no cluster is reachable, for modules that opt in
+   via ``MOCK_KUBECTL_TEARDOWN_IF_NO_CLUSTER = True``. See its docstring.
 
 Nothing else is autouse.  In particular no fixture here sets ``DATABASE_URL``,
 touches ``api_compat._get_pool`` or changes ``settings`` for modules that did
@@ -178,5 +183,87 @@ def _eap_test_salt(monkeypatch: pytest.MonkeyPatch):
     import os
     if "SIGNAL_LOOM_EAP_SALT" not in os.environ:
         monkeypatch.setenv("SIGNAL_LOOM_EAP_SALT", "test-eap-salt-2026")
+    yield
+
+
+def _kubeconfig_readable() -> bool:
+    """True if kubectl has at least one usable (existing + actually openable) kubeconfig entry.
+
+    Mirrors kubectl's own resolution order (``$KUBECONFIG``, colon-separated,
+    falling back to ``~/.kube/config``) rather than shelling out and parsing
+    its stderr text. This is the exact condition behind the sandbox failure
+    these fixtures work around: ``error loading config file ".../config":
+    ... permission denied``.
+
+    Deliberately does NOT use ``os.access()``: under this sandbox's Landlock
+    policy, ``os.path.isfile()`` and ``os.access(path, os.R_OK)`` both report
+    the file as present and readable while the actual ``open()`` syscall
+    kubectl (and Python) issue gets ``EACCES`` -- the access-check family only
+    consults permission bits, not the sandbox's runtime deny list. Only a real
+    open proves anything.
+    """
+    kubeconfig = os.environ.get("KUBECONFIG") or os.path.join(os.path.expanduser("~"), ".kube", "config")
+    for path in kubeconfig.split(os.pathsep):
+        if not path:
+            continue
+        try:
+            with open(path, "rb"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+@pytest.fixture(autouse=True)
+def _eap_teardown_no_cluster_kubectl_stub(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Stub the kubectl subprocess boundary for cluster-dependent teardown
+    stages when no cluster is reachable (e.g. this sandbox's kubeconfig is
+    unreadable), so the real 5-stage teardown pipeline can still be exercised
+    end-to-end offline.
+
+    Opt in via ``MOCK_KUBECTL_TEARDOWN_IF_NO_CLUSTER = True`` at module scope
+    (same pattern as ``EAP_AUTHENTICATED`` above) — only the two acceptance
+    suites that drive the real teardown pipeline set this flag, so no other
+    suite's behaviour changes.
+
+    This patches exactly one function, ``environment_teardown.run_bounded``
+    — the bounded-subprocess helper every teardown stage shells out
+    through — and only short-circuits calls whose argv[0] basename is
+    ``kubectl``. Concretely that is Stage 1 (drain_routes: ``kubectl get
+    httproute`` / ``kubectl delete httproute``) and Stage 5
+    (delete_namespace: ``kubectl delete namespace``); both only need "no
+    routes found" / "rc=0" to behave as a no-op success, so returning an
+    empty JSON object with returncode 0 is enough for both. Stage 4
+    (evict_tailscale) also calls ``run_bounded``, but its argv[0] is
+    ``bash`` (it runs ``tailscale-eap-env.sh``, already offline-safe via its
+    own mock mode), so it always falls through to the real implementation
+    unchanged. Stages 2 and 3 (shred_openbao, revoke_svid) never call
+    ``run_bounded`` at all — they take an injectable ``client`` — so a
+    failure injected there (e.g. ``test_teardown_stage_failure_sets_teardown_failed``)
+    is completely unaffected by this stub and still fails for its own reason.
+
+    If a real, readable kubeconfig is present (e.g. on cluster-equipped CI),
+    this fixture is a no-op and the stages run for real, unchanged.
+    """
+    if not getattr(request.module, "MOCK_KUBECTL_TEARDOWN_IF_NO_CLUSTER", False):
+        yield
+        return
+    if _kubeconfig_readable():
+        yield
+        return
+
+    import environment_teardown
+
+    real_run_bounded = environment_teardown.run_bounded
+
+    def _stub_run_bounded(argv, deadline, env=None):
+        exe = os.path.basename(argv[0]) if argv else ""
+        if exe != "kubectl":
+            return real_run_bounded(argv, deadline, env=env)
+        # Both callers here only need rc=0; `kubectl get httproute -o json`
+        # additionally needs its stdout to parse as "zero routes".
+        return environment_teardown._Completed(0, "{}", "")
+
+    monkeypatch.setattr(environment_teardown, "run_bounded", _stub_run_bounded)
     yield
 

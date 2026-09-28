@@ -465,7 +465,7 @@ test: ## Run the end-to-end bats suite against the running cluster.
 	# wrapper fails a run in which nothing actually executed.
 	./scripts/assert-bats-ran-something.sh $(MAKE) -C d2-osramp-apps test
 
-.PHONY: test-all test-all-estate test-all-offline test-all-cluster test-all-browser
+.PHONY: test-all test-all-estate test-all-offline test-all-cluster test-all-browser test-eap-offline
 
 test-all-estate: test-all-offline test-all-cluster test-all-browser ## Run every single test across the entire estate (offline, cluster, and browser).
 	@echo "=== COMPLETE: All estate test suites (offline, cluster, browser) passed successfully! ==="
@@ -531,6 +531,24 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	./scripts/signalloom-api-test.sh integration
 	bats test/test-count-floor.bats
 	@echo "=== [Offline] All offline test suites passed successfully! ==="
+
+
+test-eap-offline: ## Run the EAP gate: four EAP pytest files + test_audit_provenance.py (SP-1 runner), then authz-suite-liveness and api-route-liveness bats. Red by design until P2-1/P2-2.
+	@# EAPR-P1-3. One command every EAP card and governor cites (SP-2). Kept FLAT:
+	@# no recursive make line, so `make -n test-eap-offline` prints rather than
+	@# executes, and no trailing tail/echo, so the first non-zero status propagates.
+	@# The five pytest files and both bats suites are unconditional — a red
+	@# test_audit_provenance.py is the first card on every board, never an exemption.
+	@# Both stages always run so one invocation reports the WHOLE red set (P2
+	@# measures its delta against it); the exit status is the first stage that failed.
+	@status=0; \
+	(cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests/test_tenant_isolation.py tests/test_scenario_seeding.py tests/test_environment_routing.py tests/test_environment_lifecycle.py tests/test_audit_provenance.py tests/test_eap_adversarial.py -q) || status=$$?; \
+	bats d2-signalloom/test/authz-suite-liveness.bats d2-signalloom/test/api-route-liveness.bats d2-signalloom/test/eap-ingress-reconcile.bats || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+	bash scripts/eap/test_tailscale_eap_env.sh || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+	exit $$status
+	@# EAPR-P3-1 uncomments the next line once d2-signalloom/test/eap-netpol.bats exists,
+	@# appending it to the bats line above so its status joins the same chain.
+	@# bats d2-signalloom/test/eap-netpol.bats
 
 test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	@echo "=== [Cluster] Live Kind Cluster Slices & Runtime Tests ==="

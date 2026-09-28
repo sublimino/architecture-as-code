@@ -1,0 +1,11 @@
+1..10
+ok 1 flags and positional forms resolve prompts and cached versions
+ok 2 logical and numeric identifiers resolve their cache identities
+ok 3 workspace completion handles separated and attached aliases
+ok 4 ID completion filters fzf and returns only the selected ID
+ok 5 fzf cancellation leaves completion empty
+ok 6 missing fzf leaves ID completion empty
+ok 7 invalid prompt requests fail clearly
+ok 8 malformed boards return a nonzero diagnostic
+ok 9 missing cache warns without hiding the prompt
+ok 10 governor card prompt contains satisfiable predecessor evidence criterion

@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { useAppContext } from '../App'
 import HelpModal from './HelpModal'
+import NotificationBell from './NotificationBell'
 
 const NAV_LINKS = [
   { to: '/agents', label: 'Agents' },
@@ -86,6 +87,7 @@ export default function TopNav() {
 
         {/* Right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <NotificationBell />
           <button
             className="btn btn-secondary"
             onClick={() => setHelpOpen(true)}

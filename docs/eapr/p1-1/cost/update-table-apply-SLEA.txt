@@ -1,0 +1,23 @@
+
+### Spend and Token Use Table
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P0 | $0.00 | N/A — no session | N/A | cpai://open?id=1a298&dir=/home/andy/.cline/worktrees/1a298/osramp-demo&host=fortuna&model=coding_medium |
+| P1-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=b3697&dir=/home/andy/.cline/worktrees/b3697/osramp-demo&host=fortuna&model=coding_medium |
+| P1-1 | $0.00 | N/A — no session | N/A | cpai://open?id=dbbca&dir=/home/andy/.cline/worktrees/dbbca/osramp-demo&host=fortuna&model=coding_medium |
+| P1-2 | $0.00 | N/A — no session | N/A | cpai://open?id=e4237&dir=/home/andy/.cline/worktrees/e4237/osramp-demo&host=fortuna&model=coding_medium |
+| P1-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=b1033&dir=/home/andy/.cline/worktrees/b1033/osramp-demo&host=fortuna&model=coding_medium |
+| P2-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=79978&dir=/home/andy/.cline/worktrees/79978/osramp-demo&host=fortuna&model=coding_medium |
+| P2-1 | $0.00 | N/A — no session | N/A | cpai://open?id=c1df3&dir=/home/andy/.cline/worktrees/c1df3/osramp-demo&host=fortuna&model=coding_medium |
+| P2-2 | $0.00 | N/A — no session | N/A | cpai://open?id=6275e&dir=/home/andy/.cline/worktrees/6275e/osramp-demo&host=fortuna&model=coding_medium |
+| P2-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=e09f6&dir=/home/andy/.cline/worktrees/e09f6/osramp-demo&host=fortuna&model=coding_medium |
+| P3-PRE | $0.00 | N/A — no session | N/A | cpai://open?id=eb9e1&dir=/home/andy/.cline/worktrees/eb9e1/osramp-demo&host=fortuna&model=coding_medium |
+| P3-1 | $0.00 | N/A — no session | N/A | cpai://open?id=d7d8f&dir=/home/andy/.cline/worktrees/d7d8f/osramp-demo&host=fortuna&model=coding_medium |
+| P3-2 | $0.00 | N/A — no session | N/A | cpai://open?id=bacb6&dir=/home/andy/.cline/worktrees/bacb6/osramp-demo&host=fortuna&model=coding_medium |
+| P3-GOV | $0.00 | N/A — no session | N/A | cpai://open?id=d9e40&dir=/home/andy/.cline/worktrees/d9e40/osramp-demo&host=fortuna&model=coding_medium |
+| P4-PRE | $0.00 | N/A — no session | N/A | agy://open?id=61c74&dir=/home/andy/.cline/worktrees/61c74/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P4-1 | $0.00 | N/A — no session | N/A | cpai://open?id=619fd&dir=/home/andy/.cline/worktrees/619fd/osramp-demo&host=fortuna&model=coding_medium |
+| P4-2 | $0.00 | in 166; out 110.0k; cache 11.9M | 11m33s | kpai://open?id=5eae9cb6-22e1-4fdb-a36f-4ce2c0738df6&dir=/home/andy/.cline/worktrees/0cfeb/osramp-demo&host=fortuna&model=claude-opus-5-5 |
+| P4-GOV | $0.00 | 0k | N/A | kpai://open?id=ses_f473ff640ffeCO320oSdwOJnL9&dir=/home/andy/.cline/worktrees/cc2a3/osramp-demo&host=fortuna&model=gpt-6-astra |
+
+APPLIED: Updated 1 row(s) and 1 Governor spend table(s) in /tmp/p11/prop2/SLEA.new.md

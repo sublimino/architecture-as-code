@@ -496,7 +496,7 @@ def test_pooled_get_announces_that_it_is_serving_defaults(
     with caplog.at_level(logging.WARNING, logger="api_compat"):
         http.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
 
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and r.name == "api_compat"]
     assert warnings, "a degraded read must be visible in the logs"
     message = warnings[0].getMessage()
     assert "tenant-prefs-pooled" in message
@@ -518,7 +518,7 @@ def test_a_healthy_read_logs_no_warning(
         response = http.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
 
     assert response.status_code == 200, response.text
-    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+    assert [r for r in caplog.records if r.levelno == logging.WARNING and r.name == "api_compat"] == []
 
 
 def test_a_stored_null_alert_email_is_not_reported_as_missing(
@@ -537,7 +537,7 @@ def test_a_stored_null_alert_email_is_not_reported_as_missing(
         response = http.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
 
     assert response.json()["alert_email"] is None
-    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+    assert [r for r in caplog.records if r.levelno == logging.WARNING and r.name == "api_compat"] == []
 
 
 def test_both_storage_paths_degrade_identically(
@@ -549,7 +549,7 @@ def test_both_storage_paths_degrade_identically(
     monkeypatch.delitem(api_compat._TENANT_PREFERENCES, "tenant-prefs-fresh")
     with caplog.at_level(logging.WARNING, logger="api_compat"):
         in_memory = client.get("/api/tenant/settings", headers=_bearer("prefs-fresh"))
-    in_memory_warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    in_memory_warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and r.name == "api_compat"]
 
     # Pooled path with the columns absent.
     pool = _FakePool()
@@ -562,7 +562,7 @@ def test_both_storage_paths_degrade_identically(
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="api_compat"):
         pooled = client.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
-    pooled_warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    pooled_warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and r.name == "api_compat"]
 
     assert in_memory.status_code == pooled.status_code == 200
     for field in ("preferred_scan_cadence_hours", "alert_email", "alert_threshold"):

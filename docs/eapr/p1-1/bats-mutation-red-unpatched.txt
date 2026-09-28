@@ -1,0 +1,6 @@
+1..3
+ok 1 MAX_ARG_STRLEN: cost ignores COST_BOARD_CARDS env and reads only COST_BOARD_CARDS_FILE
+not ok 2 MAX_ARG_STRLEN: cost ingestion has exactly one board-cards transport (no COST_BOARD_CARDS env branch)
+# (in test file kanban-max-arg-strlen.bats, line 443)
+#   `[ "$output" = "0" ]' failed
+ok 3 MAX_ARG_STRLEN: a 200 KiB COST_BOARD_CARDS in the environment kills exec of kanban-check.sh itself (E2BIG)

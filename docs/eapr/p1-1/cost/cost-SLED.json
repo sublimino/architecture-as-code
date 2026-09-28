@@ -1,0 +1,526 @@
+{
+  "repo": "/home/andy/src/cp/osramp-demo",
+  "estimate_note": "opencode list-price estimate from token counts \u2014 NOT actual provider billing",
+  "total_cost": 0.0,
+  "tasks": [
+    {
+      "slug": "SLED-P2-2",
+      "id": "d20eb",
+      "column": "done",
+      "title": "SLED-P2-2: Implement reaper telemetry, Prometheus metrics, and health probes",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=d20eb&dir=/home/andy/.cline/worktrees/d20eb/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P2-PRE",
+      "id": "bb360",
+      "column": "done",
+      "title": "SLED-P2-PRE: Audit background scheduler models and async event-loop safety",
+      "cost": 0.0,
+      "msgs": 126,
+      "elapsed_s": 572,
+      "session_id": "7aeefa5f-4b95-458e-9067-50a3e2df0404",
+      "sessions": [
+        "7aeefa5f-4b95-458e-9067-50a3e2df0404"
+      ],
+      "uri": "kpai://open?id=7aeefa5f-4b95-458e-9067-50a3e2df0404&dir=/home/andy/.cline/worktrees/bb360/osramp-demo&host=fortuna&model=claude-opus-5-5",
+      "tokens": {
+        "input": 278,
+        "output": 161573,
+        "reasoning": 0,
+        "cache_read": 19489216,
+        "cache_write": 482534
+      },
+      "models": [
+        "claude-haiku-4-5-20251001",
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLED-P2-1",
+      "id": "6be73",
+      "column": "done",
+      "title": "SLED-P2-1: Author asynchronous ReaperDaemon background reconciliation loop",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 163,
+      "session_id": "",
+      "sessions": [],
+      "uri": "agy://open?id=6be73&dir=/home/andy/.cline/worktrees/6be73/osramp-demo&host=fortuna&model=gemini-3.7-flash",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P3-PRE",
+      "id": "40335",
+      "column": "done",
+      "title": "SLED-P3-PRE: Audit multi-stage deallocation ordering and failure recovery",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "agy://open?id=40335&dir=/home/andy/.cline/worktrees/40335/osramp-demo&host=fortuna&model=gemini-3.7-flash",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P3-1",
+      "id": "0ef4c",
+      "column": "done",
+      "title": "SLED-P3-1: Author Stage 1-2 ingress route unbinding and Tailscale teardown",
+      "cost": 0.0,
+      "msgs": 79,
+      "elapsed_s": 510,
+      "session_id": "0a8fb54a-0aba-40f3-8e0f-7e1a427dd36c",
+      "sessions": [
+        "0a8fb54a-0aba-40f3-8e0f-7e1a427dd36c"
+      ],
+      "uri": "kpai://open?id=0a8fb54a-0aba-40f3-8e0f-7e1a427dd36c&dir=/home/andy/.cline/worktrees/0ef4c/osramp-demo&host=fortuna&model=claude-opus-5-5",
+      "tokens": {
+        "input": 158,
+        "output": 143287,
+        "reasoning": 0,
+        "cache_read": 11505115,
+        "cache_write": 480860
+      },
+      "models": [
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLED-P4-PRE",
+      "id": "f9d55",
+      "column": "done",
+      "title": "SLED-P4-PRE: Audit external webhook notification payloads and delivery retry",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "agy://open?id=f9d55&dir=/home/andy/.cline/worktrees/f9d55/osramp-demo&host=fortuna&model=gemini-3.7-flash",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P4-2",
+      "id": "d52ff",
+      "column": "done",
+      "title": "SLED-P4-2: Author comprehensive kurasi lifecycle attestation integration suite",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "agy://open?id=d52ff&dir=/home/andy/.cline/worktrees/d52ff/osramp-demo&host=fortuna&model=gemini-3.7-flash",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P2-GOV",
+      "id": "90790",
+      "column": "done",
+      "title": "SLED-P2-GOV: Certify Phase 2 background task stability and resource isolation",
+      "cost": 0.0,
+      "msgs": 103,
+      "elapsed_s": 774,
+      "session_id": "eb1c2d08-4e57-489a-b115-7998f62dfbe6",
+      "sessions": [
+        "eb1c2d08-4e57-489a-b115-7998f62dfbe6"
+      ],
+      "uri": "kpai://open?id=eb1c2d08-4e57-489a-b115-7998f62dfbe6&dir=/home/andy/.cline/worktrees/90790/osramp-demo&host=fortuna&model=claude-opus-5-5",
+      "tokens": {
+        "input": 206,
+        "output": 123427,
+        "reasoning": 0,
+        "cache_read": 18175163,
+        "cache_write": 524347
+      },
+      "models": [
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLED-P3-GOV",
+      "id": "42412",
+      "column": "done",
+      "title": "SLED-P3-GOV: Certify Phase 3 complete multi-stage resource cleanup hygiene",
+      "cost": 0.0,
+      "msgs": 88,
+      "elapsed_s": 1434,
+      "session_id": "ses_f33c437dcfferYeQmDR4dbKXKp",
+      "sessions": [
+        "ses_f33c437dcfferYeQmDR4dbKXKp",
+        "ses_f33c05952ffeTfKgF2DmtQS7Hn",
+        "ses_f33b686fdffeNRRCTutKgCbhPb"
+      ],
+      "uri": "cpai://open?id=ses_f33c437dcfferYeQmDR4dbKXKp&dir=/home/andy/.cline/worktrees/42412/osramp-demo&host=fortuna&model=gpt-6-astra",
+      "tokens": {
+        "input": 7112692,
+        "output": 28749,
+        "reasoning": 3162,
+        "cache_read": 3255936,
+        "cache_write": 0
+      },
+      "models": [
+        "gpt-6-astra"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLED-P4-GOV",
+      "id": "255ff",
+      "column": "done",
+      "title": "SLED-P4-GOV: Final Mission Certification: Full lifecycle & auto-reaping release",
+      "cost": 0.0,
+      "msgs": 1,
+      "elapsed_s": 1007,
+      "session_id": "ses_f473f8ff9ffeO13HqzwzOxYYVe",
+      "sessions": [
+        "ses_f473f8ff9ffeO13HqzwzOxYYVe"
+      ],
+      "uri": "agy://open?id=ses_f473f8ff9ffeO13HqzwzOxYYVe&dir=/home/andy/.cline/worktrees/255ff/osramp-demo&host=fortuna&model=gpt-6-astra",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [
+        "gpt-6-astra"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLED-P4-1",
+      "id": "e4c60",
+      "column": "archived",
+      "title": "SLED-P4-1: Implement outbound webhook dispatch and structured audit emission",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=e4c60&dir=/home/andy/.cline/worktrees/e4c60/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P3-2",
+      "id": "82535",
+      "column": "archived",
+      "title": "SLED-P3-2: Author Stage 3-4 cryptographic shredding and namespace deletion",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=82535&dir=/home/andy/.cline/worktrees/82535/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P1-GOV",
+      "id": "1189e",
+      "column": "archived",
+      "title": "SLED-P1-GOV: Certify Phase 1 lease duration safety and heartbeat resilience",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=1189e&dir=/home/andy/.cline/worktrees/1189e/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P1-2",
+      "id": "ce0a6",
+      "column": "archived",
+      "title": "SLED-P1-2: Implement idle activity detection and traffic monitoring counters",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=ce0a6&dir=/home/andy/.cline/worktrees/ce0a6/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P1-1",
+      "id": "6d3b8",
+      "column": "archived",
+      "title": "SLED-P1-1: Implement heartbeat protocol and lease renewal API endpoints",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=6d3b8&dir=/home/andy/.cline/worktrees/6d3b8/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P1-PRE",
+      "id": "71e41",
+      "column": "archived",
+      "title": "SLED-P1-PRE: Audit lease duration standards, timer precision, and idle semantics",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=71e41&dir=/home/andy/.cline/worktrees/71e41/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P0",
+      "id": "a80fa",
+      "column": "archived",
+      "title": "SLED-P0: Establish lifecycle baseline, data models, and test harness",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=a80fa&dir=/home/andy/.cline/worktrees/a80fa/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P4-PRE",
+      "id": "b36cb",
+      "column": "archived",
+      "title": "SLED-P4-PRE: Audit external webhook notification payloads and delivery retry",
+      "cost": 0.0,
+      "msgs": 84,
+      "elapsed_s": 388,
+      "session_id": "f055ef04-e1bd-48be-9dac-ed135f4ca179",
+      "sessions": [
+        "f055ef04-e1bd-48be-9dac-ed135f4ca179"
+      ],
+      "uri": "kpai://open?id=f055ef04-e1bd-48be-9dac-ed135f4ca179&dir=/home/andy/.cline/worktrees/b36cb/osramp-demo&host=fortuna&model=claude-opus-5-5",
+      "tokens": {
+        "input": 184,
+        "output": 109902,
+        "reasoning": 0,
+        "cache_read": 11140096,
+        "cache_write": 495986
+      },
+      "models": [
+        "claude-haiku-4-5-20251001",
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "has_session": true
+    },
+    {
+      "slug": "SLED-P4-PRE",
+      "id": "b305d",
+      "column": "archived",
+      "title": "SLED-P4-PRE: Audit external webhook notification payloads and delivery retry",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "kpai://open?id=b305d&dir=/home/andy/.cline/worktrees/b305d/osramp-demo&host=fortuna&model=claude-3-7-sonnet",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P2-PRE",
+      "id": "29492",
+      "column": "archived",
+      "title": "SLED-P2-PRE: Audit background scheduler models and async event-loop safety",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 0,
+      "session_id": "",
+      "sessions": [],
+      "uri": "kpai://open?id=29492&dir=/home/andy/.cline/worktrees/29492/osramp-demo&host=fortuna&model=claude-3-7-sonnet",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    },
+    {
+      "slug": "SLED-P4-GOV",
+      "id": "a8610",
+      "column": "archived",
+      "title": "SLED-P4-GOV: Final Mission Certification: Full lifecycle & auto-reaping release",
+      "cost": 0.0,
+      "msgs": 0,
+      "elapsed_s": 1007,
+      "session_id": "",
+      "sessions": [],
+      "uri": "cpai://open?id=a8610&dir=/home/andy/.cline/worktrees/a8610/osramp-demo&host=fortuna&model=coding_medium",
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache_read": 0,
+        "cache_write": 0
+      },
+      "models": [],
+      "has_session": false
+    }
+  ],
+  "by_model": [
+    {
+      "model": "claude-sonnet-5",
+      "cost": 0.0,
+      "msgs": 5,
+      "tokens": {
+        "input": 10,
+        "output": 1616,
+        "cache_read": 19335,
+        "cache_write": 44207
+      }
+    },
+    {
+      "model": "claude-opus-5-5",
+      "cost": 0.0,
+      "msgs": 383,
+      "tokens": {
+        "input": 776,
+        "output": 532327,
+        "cache_read": 60290255,
+        "cache_write": 1908246
+      }
+    },
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "cost": 0.0,
+      "msgs": 4,
+      "tokens": {
+        "input": 40,
+        "output": 4246,
+        "cache_read": 0,
+        "cache_write": 31274
+      }
+    },
+    {
+      "model": "gpt-6-astra",
+      "cost": 0.0,
+      "msgs": 89,
+      "tokens": {
+        "input": 7112692,
+        "output": 28749,
+        "cache_read": 3255936,
+        "cache_write": 0
+      }
+    }
+  ]
+}

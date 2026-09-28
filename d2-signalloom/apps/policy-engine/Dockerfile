@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 # Copy the whole module, not a named file list. This was `COPY go.mod main.go ./`,
 # which broke the moment the module grew beyond one file: compliance.go went

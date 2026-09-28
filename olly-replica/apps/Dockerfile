@@ -5,7 +5,7 @@
 # build, so an image with drifted contracts cannot exist.
 #
 #   docker build -f apps/Dockerfile --build-arg APP=elk-search-mcp -t olly-elk-mcp:dev .
-FROM golang:1.25-alpine AS builder
+FROM golang:1.27-alpine AS builder
 ARG APP
 WORKDIR /src
 COPY apps/go.mod apps/go.sum ./apps/

@@ -1,6 +1,6 @@
 module github.com/acme-co/osramp/apps/listener
 
-go 1.25.0
+go 1.27.0
 
 require github.com/nats-io/nats.go v1.45.0
 

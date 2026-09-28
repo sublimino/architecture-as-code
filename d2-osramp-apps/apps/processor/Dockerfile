@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.27-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum processor.go ./
 RUN go mod download && CGO_ENABLED=0 go build -o processor-service .

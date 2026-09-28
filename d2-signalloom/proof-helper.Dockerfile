@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS helper
+FROM golang:1.27-alpine AS helper
 WORKDIR /src
 COPY proof-helper/go.mod proof-helper/main.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/signalloom-spire-proof .

@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/cmd/policy-compiler
 
-go 1.24
+go 1.27.0
 
 require github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/policy v0.0.0
 

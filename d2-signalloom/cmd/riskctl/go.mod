@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/cmd/riskctl
 
-go 1.24
+go 1.27.0
 
 require (
 	github.com/acme-co/osramp/tools/riskctl v0.0.0

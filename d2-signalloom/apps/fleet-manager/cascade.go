@@ -496,8 +496,10 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 
 		// Planes in contract order: freeze, the credential planes (bao, spire),
 		// then gitops, which step 4 appends.
-		result.Planes = append(result.Planes, o.freezePlaneResult(ctx, namespace, id, outcome.StateWrite, writeLatency))
-		result.Planes = append(result.Planes, credPlanes...)
+		result.Planes = append(result.Planes, withAgentID(o.freezePlaneResult(ctx, namespace, id, outcome.StateWrite, writeLatency), id))
+		for _, cp := range credPlanes {
+			result.Planes = append(result.Planes, withAgentID(cp, id))
+		}
 
 		// ToState is what the agent is, not what we asked it to be. Only a
 		// successful label write moves it.
@@ -525,7 +527,7 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 			if pr.Outcome != OutcomeContained {
 				slog.Warn("gitops plane did not fully suspend reconciliation", "agent", id, "outcome", pr.Outcome, "error", pr.Error)
 			}
-			result.Planes = append(result.Planes, pr)
+			result.Planes = append(result.Planes, withAgentID(pr, id))
 			gitops = &pr
 		}
 
@@ -697,7 +699,7 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 			if pr.Outcome != OutcomeContained {
 				slog.Warn("gitops plane did not fully resume reconciliation", "agent", id, "outcome", pr.Outcome, "error", pr.Error)
 			}
-			result.Planes = append(result.Planes, pr)
+			result.Planes = append(result.Planes, withAgentID(pr, id))
 			gitops = &pr
 		}
 
@@ -738,4 +740,19 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 	result.finish(start)
 
 	return result, nil
+}
+
+// withAgentID stamps the target's DAG id on a plane result. fe-signalloom
+// attributes planes to targets by details.agent_id and fails closed on
+// ambiguity, so every plane a multi-target cascade emits must name its
+// target. The details map is copied so a map shared with the client is not
+// mutated.
+func withAgentID(pr PlaneResult, agentID string) PlaneResult {
+	details := make(map[string]any, len(pr.Details)+1)
+	for k, v := range pr.Details {
+		details[k] = v
+	}
+	details["agent_id"] = agentID
+	pr.Details = details
+	return pr
 }

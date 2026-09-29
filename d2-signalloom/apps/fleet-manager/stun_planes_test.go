@@ -114,3 +114,51 @@ func TestStun_FailedCredentialPlaneIsVisibleAndDowngradesTarget(t *testing.T) {
 		t.Fatalf("overall = %s, planes aggregate to %s; want both partial", res.OverallOutcome, AggregateOutcome(res.Planes))
 	}
 }
+
+// fe-signalloom attributes planes to targets by details.agent_id and fails
+// closed on ambiguity, so in a multi-target cascade every plane must name the
+// DAG id of the target it acted on.
+func TestStun_EveryPlaneNamesItsTargetInAMultiTargetCascade(t *testing.T) {
+	const upstream, dependent = "agent-cardvault", "agent-txn-pipeline"
+	dag, err := BuildDAG([]Agent{
+		{ID: upstream, Type: "service", Namespace: testNamespace, State: StateRunning},
+		{ID: dependent, Type: "service", Namespace: testNamespace, State: StateRunning, Dependencies: []string{upstream}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	srv, _ := newFakeBaoAccessorServer(t, map[string]*fakeBaoToken{}, nil)
+	defer srv.Close()
+	bao := NewOpenBaoClient(OpenBaoConfig{Address: srv.URL, Token: "s.fleet", LogWriter: io.Discard})
+	kc := newK8sFleetClientWithBao(fake.NewSimpleClientset(
+		agentPod(upstream, "active", nil), agentPod(dependent, "active", nil)), testNamespace, bao)
+	kc.spireClient = &recordingSpireClient{}
+
+	res, err := NewCascadeOrchestrator(dag, kc, 0).Stun(context.Background(), upstream, "stun_planes_test: multi-target")
+	if err != nil {
+		t.Fatalf("Stun: %v", err)
+	}
+	if len(res.Targets) != 2 {
+		t.Fatalf("targets = %d, want 2", len(res.Targets))
+	}
+	perTarget := map[string][]EnforcementPlane{}
+	for _, p := range res.Planes {
+		id, _ := p.Details["agent_id"].(string)
+		if id != upstream && id != dependent {
+			t.Fatalf("%s plane details.agent_id = %v, want one of the two targets", p.Plane, p.Details["agent_id"])
+		}
+		perTarget[id] = append(perTarget[id], p.Plane)
+	}
+	want := []EnforcementPlane{PlaneFreeze, PlaneBao, PlaneSpire, PlaneGitOps}
+	for _, id := range []string{upstream, dependent} {
+		got := perTarget[id]
+		if len(got) != len(want) {
+			t.Fatalf("%s planes = %v, want %v", id, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s planes = %v, want %v", id, got, want)
+			}
+		}
+	}
+}

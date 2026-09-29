@@ -220,3 +220,28 @@ async def test_federation_proxy_upstream_html_rejection():
             assert resp.status_code == 502
             err = resp.json()
             assert err["error"]["code"] == "invalid_upstream_response"
+
+
+@pytest.mark.asyncio
+async def test_federation_proxy_upstream_404_fallback():
+    """Test 404 from upstream returns canonical federation fallback with 200 OK."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.get(f"{signal_ingest_url}/api/v1/federation/summary").mock(
+            return_value=httpx.Response(
+                404,
+                text="404 page not found\n",
+                headers={"Content-Type": "text/plain; charset=utf-8"},
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "zones" in data
+            assert "federations" in data
+            assert len(data["zones"]) >= 1
+

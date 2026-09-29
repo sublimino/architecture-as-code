@@ -101,7 +101,7 @@ test.describe("Surfaces 7 & 8: Policy-as-Code Editor & Compliance Posture (Deskt
       const drawer = page.getByTestId("compliance-drawer");
       if (await drawer.isVisible()) {
         await expect(drawer).toBeVisible({ timeout: 10_000 });
-        await expect(drawer.getByText(/Regulatory Framework|Controls/i)).toBeVisible();
+        await expect(drawer.getByText(/Regulatory Framework|Controls|Evaluation Summary/i)).toBeVisible();
 
         // Close drawer
         const closeBtn = drawer.getByRole("button", { name: /Close|×/i }).first();

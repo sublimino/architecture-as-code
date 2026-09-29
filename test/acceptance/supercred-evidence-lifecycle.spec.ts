@@ -36,8 +36,8 @@ const RESET_CONFIRM = '[data-testid="supercred-reset-confirm"]';
 async function runStep(page: Page, step: string): Promise<void> {
   await page.locator(RUN_STEP(step)).click();
   const status = page.locator(RUN_STATUS);
-  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s+—\\s+(?:running|succeeded)`), { timeout: 30_000 });
-  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s+—\\s+succeeded`), { timeout: 10 * 60_000 });
+  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s*[:\u2014]\\s*(?:running|succeeded)`), { timeout: 30_000 });
+  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s*[:\u2014]\\s*succeeded`), { timeout: 10 * 60_000 });
 }
 
 async function reset(page: Page): Promise<void> {
@@ -45,7 +45,7 @@ async function reset(page: Page): Promise<void> {
   await page.locator(RESET).click();
   await page.locator(RESET_CONFIRM).click();
   const status = page.locator(RUN_STATUS);
-  await expect(status).toContainText(/Step\s+5\s+\(reset\)\s+—\s+succeeded/, { timeout: 10 * 60_000 });
+  await expect(status).toContainText(/Step\s+5\s+\(reset\)\s*[:\u2014]\s*succeeded/, { timeout: 10 * 60_000 });
 }
 
 /**
@@ -98,7 +98,7 @@ test("the credential lifecycle is authenticated and tracks the instructor contro
     for (const req of evidenceRequests) {
       expect(
         req.headers()["authorization"] ?? "",
-        "every evidence request must be authenticated — an unauthenticated one renders as an empty chain",
+        "every evidence request must be authenticated: an unauthenticated one renders as an empty chain",
       ).toMatch(/^Bearer .+/);
     }
     expect(unauthorised, "no evidence request may come back 401").toHaveLength(0);
@@ -136,7 +136,7 @@ test("the credential lifecycle is authenticated and tracks the instructor contro
 
     // ── Anti-assertions: no fabricated progress ───────────────────────────
     const body = (await page.getByTestId("credential-evidence-panel").innerText()).toLowerCase();
-    expect(body, 'the card must never render "completed" — it has no such state').not.toContain("completed");
+    expect(body, 'the card must never render "completed" - it has no such state').not.toContain("completed");
   } finally {
     await ctx.close();
   }

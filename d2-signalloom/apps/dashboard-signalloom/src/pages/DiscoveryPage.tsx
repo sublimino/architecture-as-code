@@ -803,7 +803,9 @@ export default function DiscoveryPage() {
         const matchOwner = w.owner ? w.owner.toLowerCase().includes(q) : false
         const matchNs = w.namespace ? w.namespace.toLowerCase().includes(q) : false
         const matchSource = w.source_label.toLowerCase().includes(q)
-        if (!matchName && !matchOwner && !matchNs && !matchSource) return false
+        const matchModel = w.model ? w.model.toLowerCase().includes(q) : false
+        const matchSpiffe = w.spiffe_id ? w.spiffe_id.toLowerCase().includes(q) : false
+        if (!matchName && !matchOwner && !matchNs && !matchSource && !matchModel && !matchSpiffe) return false
       }
       return true
     })

@@ -9,6 +9,7 @@ import { api } from '../api/client'
 import type { TenantSettingsResponse } from '../types/api'
 import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
+import NotificationBell from './NotificationBell'
 
 export type NavSection = 'View' | 'Control' | 'Design' | 'Demos' | 'Development'
 
@@ -652,6 +653,7 @@ export default function Sidebar() {
                 </div>
               </div>
             )}
+            <NotificationBell placement="top" />
             <button
               onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
               aria-label="Sign out"

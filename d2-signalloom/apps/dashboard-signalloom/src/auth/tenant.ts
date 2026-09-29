@@ -5,7 +5,12 @@ export function getTenantIdFromToken(token: string): string | null {
   try {
     const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
     const payload = JSON.parse(atob(b64)) as Record<string, unknown>
-    return (payload['https://signalloom.ai/tenant_id'] as string | undefined) ?? null
+    return (
+      (payload['https://signalloom.ai/tenant_id'] as string | undefined) ??
+      (payload['tenant_id'] as string | undefined) ??
+      (payload['tenantId'] as string | undefined) ??
+      null
+    )
   } catch {
     return null
   }

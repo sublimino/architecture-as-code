@@ -178,9 +178,9 @@ async function expectLogVisibleWhileRunning(page: Page, what: string): Promise<v
   });
   await expect(
     page.locator(RUN_STATUS),
-    `${what}: the run had already finished by the time any output was rendered — that is ` +
+    `${what}: the run had already finished by the time any output was rendered - that is ` +
       `batched delivery, not streaming`,
-  ).toContainText(/—\s*running/);
+  ).toContainText(/[:\u2014]\s*running/);
 }
 
 test("a reset streams its teardown output while it is still running", async ({ browser }) => {

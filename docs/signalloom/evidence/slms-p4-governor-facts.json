@@ -1,0 +1,115 @@
+{
+  "artifact": "slms-p4-governor-facts",
+  "phase": "P4",
+  "card": "SLMS-P4-GOV",
+  "title": "Phase 4 Governor: Federated Services, Fleet Demo Telemetry, Collusion/Access Polish & Quality Gate Certification",
+  "generated": "2026-09-29T10:05:00+01:00",
+  "role_boundary": "Governor quality gate and integration merge",
+  "repository": {
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "tip_commit_sha": "68ecfb26a2ef8283d17cf909d395730a5484a28d",
+    "integration_tag": "integration/slms-v0.1.0-p4",
+    "working_tree_clean": true
+  },
+  "constituent_tasks": {
+    "P4-PRE": {
+      "title": "Phase 4 Pre-Flight: Federated Services, Fleet Demo & Collusion/Access Baseline Facts",
+      "commit_sha": "6efcca03b9b47e5fa9f7400d3dbdd73fefc6ae53",
+      "merge_sha": "67ccb133b3a86ebf497dc0ea1c63dc3aa8bbd9fb",
+      "status": "PASS"
+    },
+    "P4-1": {
+      "title": "Federated Services Demo Data Hardening & Cofide Interceptor (Surface 11)",
+      "commit_sha": "0c783520f9241b71d87e0fa197ea3b7ddab9292c",
+      "merge_sha": "903e9e5014db568a3934eb1d8b561c1cdd4978c7",
+      "status": "PASS"
+    },
+    "P4-2": {
+      "title": "Fleet Demo Live Cluster Telemetry Streaming & Offline Demo Fallback (Surface 12)",
+      "commit_sha": "569196fb0089e9f6bfab61bc5b59ea5d506990cf",
+      "merge_sha": "16bcf8004f8e5c3e6aa0f97914bfba1914ebc25d",
+      "status": "PASS"
+    },
+    "P4-3": {
+      "title": "Collusion & Access Page Polish & Scan Triggers (Surface 9)",
+      "commit_sha": "2cb8f87680005a96ca76c8c4da439a48924b11f7",
+      "merge_sha": "a444d1a49ba3ec398f654b03657ff634f1993427",
+      "status": "PASS"
+    }
+  },
+  "merge_reconciliation": {
+    "merged_branches": [
+      "SLMS-P4-1",
+      "SLMS-P4-2",
+      "SLMS-P4-3"
+    ],
+    "conflicts": 0,
+    "reconciled_files": [
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/FederatedServicesPage.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/FleetDemoPage.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/CollusionAccessPage.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/api/fakeFederationData.ts",
+      "d2-signalloom/apps/dashboard-signalloom/src/api/fakeData.ts",
+      "d2-signalloom/apps/fe-signalloom/src/routers/federation.py",
+      "d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py",
+      "d2-signalloom/apps/signal-ingest/api/cofide_interceptor.go",
+      "d2-signalloom/contracts/discovery-portal-bootstrap.sql",
+      "d2-signalloom/infra/inf-signalloom/configs/base/bootstrap/discovery-portal-bootstrap.sql"
+    ]
+  },
+  "verified_test_results": {
+    "cofide_svid_attestation_go": {
+      "command": "go test ./api -run TestCofide -v",
+      "cases_passed": 8,
+      "public_key_validation": "PASS",
+      "status": "PASS"
+    },
+    "phase4_pages_vitest": {
+      "command": "bun run test -- src/pages/FederatedServicesPage.test.tsx src/pages/FleetDemoPage.test.tsx src/pages/CollusionAccessPage.test.tsx",
+      "files_passed": 3,
+      "passed": 133,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "estate_vitest_total": {
+      "dashboard_signalloom": 3482,
+      "design_system_demo": 13,
+      "tools_harness_dash": 15,
+      "total_passed": 3510,
+      "floor": 3500,
+      "status": "PASS"
+    },
+    "estate_pytest_total": {
+      "fe_signalloom": 2141,
+      "floor": 1970,
+      "status": "PASS"
+    },
+    "kpai_harness": {
+      "probes_passed": 24,
+      "contract_tests_passed": 76,
+      "status": "PASS"
+    },
+    "go_unit_suite": {
+      "modules_tested": 29,
+      "modules_passed": 29,
+      "status": "PASS"
+    },
+    "full_offline_suite": {
+      "command": "make test-all-offline",
+      "exit_code": 0,
+      "status": "PASS"
+    }
+  },
+  "typography_audit": {
+    "em_dashes_in_collusion_access_page": 0,
+    "illustrative_disclaimers_in_federated_services": 0,
+    "status": "ZERO_EM_DASHES_VERIFIED"
+  },
+  "governor_verdict": {
+    "status": "PASS",
+    "proceed": true,
+    "blocking_drift": false,
+    "unblocked_task": "SLMS-P5-PRE",
+    "summary": "Phase 4 Governor quality gate fully verified and certified. All constituent task branches (P4-1 Federated Services, P4-2 Fleet Demo, P4-3 Collusion/Access Polish) merged cleanly into integration/slms-v0.1.0 with all tests passing (8/8 Cofide Go attestation cases, 133/133 Phase 4 Vitest tests, 3510 Vitest estate total >= 3500 floor, 2141 Pytest estate total >= 1970 floor, 76/76 KPAI tests, 29/29 Go modules, full make test-all-offline exit code 0, zero em-dashes). Tag integration/slms-v0.1.0-p4 created."
+  }
+}

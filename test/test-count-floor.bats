@@ -56,7 +56,7 @@ setup() {
 @test "pytest collected at least 500 tests" {
     cd "$fe_src"
     local out
-    out="$(uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist \
+    out="$(UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
              --with-requirements requirements.txt \
              python -m pytest tests --collect-only -q 2>&1 | tail -3)"
 
@@ -76,7 +76,7 @@ setup() {
 @test "pytest passed at least 500 tests" {
     cd "$fe_src"
     local out
-    out="$(uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist \
+    out="$(UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
              --with-requirements requirements.txt \
              python -m pytest tests -q 2>&1 | tail -3)"
 
@@ -95,7 +95,7 @@ setup() {
 @test "pytest reported zero failures" {
     cd "$fe_src"
     local out
-    out="$(uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist \
+    out="$(UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
              --with-requirements requirements.txt \
              python -m pytest tests -q 2>&1 | tail -3)"
 

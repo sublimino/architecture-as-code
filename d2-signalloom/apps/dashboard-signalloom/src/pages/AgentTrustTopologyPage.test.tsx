@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import AgentTrustTopologyPage, { trustEdges, trustNodes } from './AgentTrustTopologyPage'
@@ -333,6 +333,106 @@ describe('AgentTrustTopologyPage — Inspector Agent Dossier Drilldown', () => {
     expect(targetLink).toHaveAttribute('href', '/agents/triage?tab=overview')
   })
 })
+
+describe('AgentTrustTopologyPage: Interactive Filters and Hidden Nodes Counter', () => {
+  beforeEach(() => {
+    isDemoMode.mockReturnValue(true)
+  })
+
+  it('filters nodes by Namespace and shows hidden nodes count', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const namespaceSelect = screen.getByLabelText('Namespace')
+    expect(namespaceSelect).toBeInTheDocument()
+
+    await user.selectOptions(namespaceSelect, 'agent-trust-acme-payments')
+
+    expect(screen.getByText('planner')).toBeInTheDocument()
+    expect(screen.getByText('triage')).toBeInTheDocument()
+    // Nodes from other namespaces should be excluded
+    expect(screen.queryByText('risk-reader')).not.toBeInTheDocument()
+    expect(screen.queryByText('investigator')).not.toBeInTheDocument()
+
+    // Hidden nodes counter badge should be visible
+    const hiddenBadge = await screen.findByTestId('hidden-nodes-badge')
+    expect(hiddenBadge).toBeInTheDocument()
+    expect(hiddenBadge).toHaveTextContent(/Hidden Nodes/i)
+  })
+
+  it('filters nodes by Lifecycle State and resets via reset button', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const lifecycleSelect = screen.getByLabelText('Lifecycle State')
+    expect(lifecycleSelect).toBeInTheDocument()
+
+    await user.selectOptions(lifecycleSelect, 'discovered')
+
+    // Discovered agents (unverified without spiffe)
+    expect(screen.getByText('AWS Lambda')).toBeInTheDocument()
+    expect(screen.getByText('Google Cloud Run')).toBeInTheDocument()
+
+    // Reset filters restores all nodes
+    const resetBtn = screen.getByRole('button', { name: /Reset filters/i })
+    await user.click(resetBtn)
+
+    expect(screen.getByText('planner')).toBeInTheDocument()
+    expect(screen.getByText('Signal Loom platform')).toBeInTheDocument()
+  })
+})
+
+describe('AgentTrustTopologyPage: NodeDetailDrawer Interactions', () => {
+  beforeEach(() => {
+    isDemoMode.mockReturnValue(true)
+  })
+
+  it('opens NodeDetailDrawer on button click, displays tool chips and SPIFFE identity, and closes on Escape', async () => {
+    const user = userEvent.setup()
+    renderPage(<AgentTrustTopologyPage />, ['/agent-trust-topology?actor=planner'])
+
+    const inspectDrawerBtn = await screen.findByTestId('open-node-drawer-btn')
+    expect(inspectDrawerBtn).toBeInTheDocument()
+    await user.click(inspectDrawerBtn)
+
+    const drawer = await screen.findByTestId('node-detail-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(drawer).toHaveAttribute('role', 'dialog')
+    expect(drawer).toHaveAttribute('aria-modal', 'true')
+
+    // Verifies SPIFFE ID and tool permission chips inside the drawer
+    expect(within(drawer).getByText(/spiffe:\/\/signalloom\.demo\/platform\/signalloom\/tenant\/acme\/project\/payments\/agent\/planner/i)).toBeInTheDocument()
+    expect(within(drawer).getByTestId('drawer-tool-chip-repo:read')).toBeInTheDocument()
+    expect(within(drawer).getByTestId('drawer-tool-chip-task:plan')).toBeInTheDocument()
+    expect(within(drawer).getByTestId('drawer-agent-dossier-link')).toBeInTheDocument()
+    expect(within(drawer).getByTestId('drawer-isolate-agent-btn')).toBeInTheDocument()
+
+    // Pressing Escape closes drawer
+    await user.keyboard('{Escape}')
+    await waitFor(() => {
+      expect(screen.queryByTestId('node-detail-drawer')).not.toBeInTheDocument()
+    })
+  })
+
+  it('closes NodeDetailDrawer when close button is clicked', async () => {
+    const user = userEvent.setup()
+    renderPage(<AgentTrustTopologyPage />, ['/agent-trust-topology?actor=planner'])
+
+    const inspectDrawerBtn = await screen.findByTestId('open-node-drawer-btn')
+    await user.click(inspectDrawerBtn)
+
+    const drawer = await screen.findByTestId('node-detail-drawer')
+    expect(drawer).toBeInTheDocument()
+
+    const closeBtn = screen.getByTestId('node-drawer-close-btn')
+    await user.click(closeBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('node-detail-drawer')).not.toBeInTheDocument()
+    })
+  })
+})
+
 
 
 

@@ -1,122 +1,119 @@
 ---
-task: Versioned CEL Policy Datastore and Evaluation APIs
-slug: slms-p2-2-cel-policy-engine
+task: Topology Graph Ingestion & Animated Message Edges
+slug: slms-p3-1-topology-graph-and-edges
 effort: E3
-phase: verify
-progress: 36/36
+phase: complete
+progress: 24/24
 mode: algorithm
-started: 2026-09-29T05:15:00+01:00
-updated: 2026-09-29T05:30:00+01:00
+started: 2026-09-29T06:38:00+01:00
+updated: 2026-09-29T06:48:00+01:00
 ---
 
 ## Problem
-1. The Signal Loom platform previously evaluated compliance policies solely through direct PostgreSQL queries with hardcoded zero monetary exposure (`ale=0, var95=0`), bypassing the authoritative `policy-engine` service.
-2. `apps/policy-engine` lacks a dynamic, thread-safe, monotonically versioned policy bundle datastore with rollback capability.
-3. Policy rules in `apps/policy-engine` require enhanced execution safeguards: strict CEL instruction cost limits (<= 10,000 instructions), regex complexity bounds, execution timeouts (50ms), and program caching to guarantee sub-15ms evaluation latency with zero memory leakage.
-4. The backend `fe-signalloom` does not reverse-proxy `/api/v1/policies/*` with authenticated tenant scoping or reconcile real policy engine verdicts and FAIR risk metrics into `agent_compliance_results` and `audit_events`.
+1. Silent Node Dropping: Backend tenant filtering in `api_compat.py:3545-3551`, fallback serialization in `_derived_topology`, and client-side view filters silently dropped shared nodes, cross-tenant slices, external connectors, and `modeled_gaps`.
+2. Graph Layout Jitter & Overlaps: In dense agent topologies, lack of deterministic hierarchical dagre / rank-based positioning caused visual node overlap and jitter on state re-renders.
+3. Static Edge Visuals: Edge communication flows in `TrustFlowEdge.tsx` did not dynamically modulate animation velocity or stroke width based on live telemetry (throughput packets/sec and latency ms), and lacked reduced-motion media query handling.
+4. Missing Accessible Node Drawer: Inspecting agent trust properties lacked an accessible, keyboard-operable slide-over drawer showing SPIFFE validation, attestation hash digests, tool permission chips, and egress boundaries.
+5. Incomplete Backend Serialization: `TrustTopologyItem` serialization dropped agent metadata, lifecycle states, and custom attributes.
 
 ## Vision
-A high-performance, secure, and versioned CEL policy engine and backend proxy:
-- Thread-safe in-memory monotonic policy bundle store with atomic compile validation and byte-for-byte rollback.
-- Rich CEL environment with agent (`id`, `model`, `trust_domain`, `tool_permissions`, `egress_allowlist`) and request (`spiffe_id`, `target_service`) context.
-- Hard CEL execution safeguards (cost limit <= 10,000, 50ms timeout, regex protection) maintaining < 15ms evaluation latency.
-- Secure FastAPI reverse proxy injecting authenticated tenant headers and updating PostgreSQL compliance results and audit trails.
-- 100% clean test execution across Go benchmarks, Go unit/adversarial tests, and Pytest suites with zero em-dashes.
+An interactive, high-performance, and accessible Coding Agent & Agent Trust Topology visualization (Surface 4):
+- Explicit keep-vs-drop policy preserving all shared nodes, modeled gaps, external connectors, and cross-tenant boundaries with a visible 'Hidden Nodes' counter badge.
+- Deterministic hierarchical dagre and rank-based grid layout engine in ReactFlow v12 eliminating layout jitter and overlapping nodes.
+- Custom animated SVG flow edges dynamically adapting marching-dash animation velocity and stroke width to throughput and latency, with full `prefers-reduced-motion` accessibility support.
+- Fully accessible slide-over node inspection drawer (`NodeDetailDrawer.tsx`) with focus trapping, Escape listener, ARIA dialog semantics, and direct action triggers.
+- Enriched backend topology models in `fe-signalloom/src/api_compat.py` preserving lifecycle states, trust domains, and custom attributes.
+- Comprehensive Vitest and Pytest test suites passing 100% with zero em-dashes.
 
 ## Out of Scope
-- Building the frontend Monaco editor interface (owned by P2-3).
-- Fixing compliance score double-scaling arithmetic (owned by P2-4).
-- Authoring specific regulatory framework rule files (owned by P2-3).
-- Altering FAIR risk loss estimation formulas (owned by P3-3).
+- Renaming Weave activity stream (owned by P3-2).
+- Modifying FAIR risk calculation logic (owned by P3-3).
+- Updating Audit Trail drawer components (owned by P3-4).
+- Fleet operational telemetry views (owned by P4-2).
 
 ## Principles
-- Engine is Authoritative: `apps/policy-engine` is the single source of truth for CEL policy evaluation; UI and proxies never evaluate CEL independently.
-- Monotonic Version Integrity: Policy versions increase monotonically (e.g. v1.0.0, v1.1.0) for regulatory auditability; rollback restores exact prior bundle bytes.
-- Atomic Validation: Bundles are compiled and validated against cost and syntax limits before committing.
-- Defense in Depth: Instruction cost limits, timeouts, and regex protections prevent CPU exhaustion and ReDoS.
-- Tenant Isolation: Scoping is strictly derived from authenticated session tokens (`authenticated_tenant`), never client-supplied headers.
+- Zero Silent Dropping: Workloads outside the active filter are explicitly accounted for via the Hidden Nodes indicator; shared platform infrastructure is never filtered away.
+- Deterministic Layout: Graph positioning is computed monotonically and memoized by rank and tier to guarantee visual stability.
+- Telemetry-Driven Motion: Edge animation speed and width represent real traffic volume and latency; reduced motion settings are respected unconditionally.
+- Keyboard & ARIA First: Every graph element and inspection drawer is fully accessible via keyboard navigation, screen readers, and focus management.
+- Tenant Isolation with Visibility: Tenant scoping protects sensitive boundaries while preserving cross-boundary trust relationships and modeled gaps.
 
 ## Constraints
-- Go with `CGO_ENABLED=0` and user-writable cache paths (`GOPATH=/tmp/go GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache`).
-- Python with uv (`UV_CACHE_DIR=/tmp/uv-cache`).
-- Sub-15ms evaluation latency under benchmark tests.
-- Zero em-dashes in any modified files.
+- ReactFlow v12 (`@xyflow/react`) with custom SVG edge rendering.
+- Bun/bunx for all frontend package operations; no npm/npx.
+- Python 3.12 with uv for backend FastAPI endpoints.
+- Strict WCAG 2.2 accessibility standards (`prefers-reduced-motion`, ARIA dialog, focus trapping).
+- Zero em-dashes across all modified and new UI files.
 - Conventional commits with `--no-gpg-sign`.
 
 ## Goal
-Deliver versioned CEL policy datastore, cost-limited evaluation, rollback APIs in Go `apps/policy-engine`, wire reverse proxy and real policy scan reconciliation in `fe-signalloom`, verified by Go benchmarks (< 15ms), Go unit tests, and Pytest suites.
+Deliver high-performance topological visualization of registered and discovered agents with deterministic dagre/rank layout, animated telemetry flow edges, accessible node inspection drawer, and enriched backend serialization, verified by Vitest and Pytest suites.
 
 ## Criteria
-- [x] ISC-1: `apps/policy-engine` implements thread-safe `PolicyStore` with sync.RWMutex indexed by tenant and framework.
-- [x] ISC-2: `PolicyStore` enforces monotonic semantic version ordering on bundle registration.
-- [x] ISC-3: `PolicyStore` performs atomic compilation and validation of all CEL rules before storing new versions.
-- [x] ISC-4: `PolicyStore` supports byte-for-byte rollback to prior monotonic versions via `Rollback`.
-- [x] ISC-5: `PolicyStore` caches compiled `cel.Program` instances to eliminate AST compilation on hot evaluation paths.
-- [x] ISC-6: CEL environment registers `agent.id`, `agent.model`, `agent.trust_domain`, `agent.tool_permissions`, `agent.egress_allowlist`.
-- [x] ISC-7: CEL environment registers `request.spiffe_id`, `request.target_service`, `request.action`.
-- [x] ISC-8: CEL execution enforces `cel.CostLimit(10000)` to halt runaway computations.
-- [x] ISC-9: CEL execution enforces 50ms context timeouts to prevent resource exhaustion.
-- [x] ISC-10: CEL execution validates and bounds regex complexity against ReDoS attacks.
-- [x] ISC-11: `GET /api/v1/policies` returns registered policy bundles and version histories.
-- [x] ISC-12: `POST /api/v1/policies/evaluate` evaluates CEL policy rules against agent and request contexts.
-- [x] ISC-13: `POST /api/v1/policies/bundles` creates versioned policy bundles with validation.
-- [x] ISC-14: `POST /api/v1/policies/rollback` reverts policy bundle to earlier version byte-for-byte.
-- [x] ISC-15: Go benchmarks confirm CEL evaluation latency < 15ms per evaluation transaction under concurrency (0.316 ms/op achieved).
-- [x] ISC-16: Go benchmark verifies zero memory leaks across sustained evaluations (171 allocs/op, bounded memory).
-- [x] ISC-17: Go unit tests verify version ordering properties and rejection of non-monotonic versions.
-- [x] ISC-18: Go unit tests verify rollback restores exact original bundle bytes and rules.
-- [x] ISC-19: Go unit tests verify tenant override rules take precedence over global framework defaults.
-- [x] ISC-20: Go unit tests verify cost-limit denial halts runaway expressions.
-- [x] ISC-21: Go adversarial tests verify resilience against malformed expressions, ReDoS payloads, and bad types.
-- [x] ISC-22: `fe-signalloom/src/api_compat.py` reverse-proxies `GET /api/v1/policies` injecting `X-Tenant-ID`.
-- [x] ISC-23: `fe-signalloom/src/api_compat.py` reverse-proxies `POST /api/v1/policies/evaluate` with tenant scoping.
-- [x] ISC-24: `fe-signalloom/src/api_compat.py` reverse-proxies `POST /api/v1/policies/bundles` with tenant scoping.
-- [x] ISC-25: `fe-signalloom/src/api_compat.py` reverse-proxies `POST /api/v1/policies/rollback` with tenant scoping.
-- [x] ISC-26: `fe-signalloom/src/api_compat.py` ignores/overrides client-supplied `X-Tenant-ID` with authenticated tenant.
-- [x] ISC-27: `_db_policy_scan()` invokes policy engine `/api/v1/compliance/scan` with real agent manifests and framework IDs.
-- [x] ISC-28: `_db_policy_scan()` reconciles returned verdicts and risk metrics into `agent_compliance_results`.
-- [x] ISC-29: `_db_policy_scan()` emits audit event with bundle SHA-256 and compliance verdict counts.
-- [x] ISC-30: Hardcoded `ale=0, var95=0` values removed from `_db_policy_scan()` and summary responses.
-- [x] ISC-31: `tests/test_latent_defects.py` verifies `test_policy_engine_not_called_for_policies` flips to PASS.
-- [x] ISC-32: `tests/test_policy_engine.py` tests proxy endpoints, tenant header injection, and audit events.
-- [x] ISC-33: `tests/test_agent_compliance.py` tests end-to-end compliance scan reconciliation.
-- [x] ISC-34: Anti: CEL evaluation does NOT exceed 15ms per transaction (0.316 ms achieved).
-- [x] ISC-35: Anti: Unauthenticated or cross-tenant policy bundle access is NOT permitted.
-- [x] ISC-36: Anti: Zero em-dashes across all modified policy-engine and backend source files.
+- [x] ISC-1: `api_compat.py` model `TrustTopologyItem` preserves `lifecycle_state`, `trust_domain`, `verified`, `tool_permissions`, `egress_allowlist`, `metadata`, and `custom_attributes`.
+- [x] ISC-2: `api_compat.py` model `TrustTopologyEdge` supports `throughput_pps`, `latency_ms`, and `mtls_enforced`.
+- [x] ISC-3: `api_compat.py` `_derived_topology` populates agent metadata, lifecycle states, tenant IDs, and marks discovered agents without SPIFFE IDs as unverified.
+- [x] ISC-4: `api_compat.py` `trust_topology` endpoint retains shared platform nodes, modeled gaps, external connectors, and cross-tenant bridges without silent drops.
+- [x] ISC-5: `tests/test_topology.py` pytest suite verifies `_derived_topology` and `trust_topology` serialization and tenant preservation.
+- [x] ISC-6: `dashboard-signalloom/src/types/api.ts` and `trustTypes.ts` declare extended node and edge attributes (`lifecycle_state`, `trustDomain`, `verified`, `throughputPps`, `latencyMs`, `mtlsEnforced`, `toolPermissions`, `egressAllowlist`).
+- [x] ISC-7: `TrustFlowEdge.tsx` calculates animation duration and stroke width dynamically from edge telemetry (`throughputPps` and `latencyMs`).
+- [x] ISC-8: `TrustFlowEdge.tsx` respects `prefers-reduced-motion` media queries, rendering static dotted paths when reduced motion is requested.
+- [x] ISC-9: `TrustFlowEdge.tsx` color-codes edges based on mTLS enforcement (green/cyan for verified/attested, amber for unauthenticated/unverified, red for denied).
+- [x] ISC-10: `TrustFlowEdge.tsx` renders message throughput and latency metrics on hover tooltip.
+- [x] ISC-11: `TrustGraph.tsx` implements deterministic hierarchical dagre and rank-based grid layout with no overlapping nodes or layout jitter.
+- [x] ISC-12: `TrustGraph.tsx` integrates ReactFlow v12 with smooth zoom, pan, minimap, and auto-fit controls.
+- [x] ISC-13: `AgentTrustTopologyPage.tsx` integrates `TrustGraph` and supports interactive filtering by Namespace, Trust Domain, Lifecycle State, Tenant, Location, Evidence, and Decision.
+- [x] ISC-14: `AgentTrustTopologyPage.tsx` computes and renders an interactive 'Hidden Nodes' counter badge when filters exclude workloads.
+- [x] ISC-15: `NodeDetailDrawer.tsx` renders a keyboard-accessible slide-over drawer with ARIA dialog semantics, Escape key listener, and focus trapping.
+- [x] ISC-16: `NodeDetailDrawer.tsx` displays SPIFFE identity validation status, attestation fingerprints, tool permission chips, and egress boundaries.
+- [x] ISC-17: `NodeDetailDrawer.tsx` provides quick action triggers: isolate agent, view audit logs, edit CEL policies, and view agent dossier.
+- [x] ISC-18: `CodingAgentTopologyPage.tsx` or alias routes render the enhanced topology visualization for coding agents.
+- [x] ISC-19: Vitest test suite in `TrustFlowEdge.test.tsx` verifies dynamic speed, stroke width, mTLS styling, and reduced-motion handling.
+- [x] ISC-20: Vitest test suite in `TrustGraph.test.tsx` verifies hierarchical layout, non-overlapping node positioning, and hidden node counting.
+- [x] ISC-21: Vitest test suite in `AgentTrustTopologyPage.test.tsx` verifies drawer opening, URL parameter deep-linking, and filtering controls.
+- [x] ISC-22: TypeScript typecheck passes cleanly with zero errors.
+- [x] ISC-23: Anti: Zero nodes or modeled gaps dropped silently across backend and frontend filtering.
+- [x] ISC-24: Anti: Zero em-dashes introduced in any modified or new UI files.
 
 ## Test Strategy
-- ISC-1..14, 17..21: Go unit tests (`go test -v ./...`).
-- ISC-15, 16, 34: Go benchmarks (`go test -bench=. -benchmem ./...`).
-- ISC-22..26, 32, 35: Pytest `tests/test_policy_engine.py`.
-- ISC-27..30, 33: Pytest `tests/test_agent_compliance.py`.
-- ISC-31: Pytest `tests/test_latent_defects.py`.
-- ISC-36: `grep -ro '—' d2-signalloom/apps/policy-engine d2-signalloom/apps/fe-signalloom/src | wc -l`.
+- ISC-1..5: Pytest `tests/test_topology.py` and `tests/test_api_compat.py`.
+- ISC-6..10, 19: Vitest `src/components/trust/TrustFlowEdge.test.tsx`.
+- ISC-11, 12, 20: Vitest `src/components/trust/TrustGraph.test.tsx`.
+- ISC-13..18, 21: Vitest `src/pages/AgentTrustTopologyPage.test.tsx`.
+- ISC-22: `bun run typecheck`.
+- ISC-23: Vitest and Pytest node count assertions.
+- ISC-24: `grep -ro '—' src | wc -l`.
 
 ## Features
-- Feature 1: Versioned Policy Bundle Store & Caching (`apps/policy-engine/store.go`, `types.go`) | satisfies: ISC-1..5 | depends_on: none | parallelizable: yes
-- Feature 2: CEL Environment, Type Declarations & Execution Safeguards (`apps/policy-engine/cel_eval.go`) | satisfies: ISC-6..10, ISC-20 | depends_on: none | parallelizable: yes
-- Feature 3: Policy Engine HTTP Endpoints & Router (`apps/policy-engine/main.go`, `handlers.go`) | satisfies: ISC-11..14 | depends_on: Feature 1, Feature 2 | parallelizable: no
-- Feature 4: Go Unit, Adversarial, and Benchmark Tests (`apps/policy-engine/*_test.go`) | satisfies: ISC-15..21, ISC-34 | depends_on: Feature 1..3 | parallelizable: no
-- Feature 5: FastAPI Policy Proxy & Authenticated Tenant Scoping (`fe-signalloom/src/api_compat.py`) | satisfies: ISC-22..26, ISC-35 | depends_on: Feature 3 | parallelizable: no
-- Feature 6: Database Policy Scan Engine Integration & Audit Reconciliation (`api_compat.py`) | satisfies: ISC-27..30 | depends_on: Feature 5 | parallelizable: no
-- Feature 7: Pytest Test Suites Authoring & Latent Defect Flip (`tests/test_latent_defects.py`, `tests/test_policy_engine.py`, `tests/test_agent_compliance.py`) | satisfies: ISC-31..33 | depends_on: Feature 5, Feature 6 | parallelizable: no
-- Feature 8: Em-dash Typography Audit | satisfies: ISC-36 | depends_on: Feature 1..7 | parallelizable: no
+- Feature 1: Backend Topology Models & Serialization (`fe-signalloom/src/api_compat.py`) | satisfies: ISC-1..4 | depends_on: none | parallelizable: yes
+- Feature 2: Backend Pytest Suite (`fe-signalloom/src/tests/test_topology.py`) | satisfies: ISC-5 | depends_on: Feature 1 | parallelizable: no
+- Feature 3: Frontend Types & Telemetry Flow Edges (`types/api.ts`, `trustTypes.ts`, `TrustFlowEdge.tsx`) | satisfies: ISC-6..10 | depends_on: none | parallelizable: yes
+- Feature 4: Deterministic Hierarchical Dagre & Rank Layout Engine (`components/trust/TrustGraph.tsx`, `TrustTopologyCanvas.tsx`) | satisfies: ISC-11..12 | depends_on: Feature 3 | parallelizable: no
+- Feature 5: Accessible Node Detail Drawer (`components/trust/NodeDetailDrawer.tsx`) | satisfies: ISC-15..17 | depends_on: Feature 3 | parallelizable: yes
+- Feature 6: Topology Page Integration & Hidden Nodes Counter (`pages/AgentTrustTopologyPage.tsx`, `pages/CodingAgentTopologyPage.tsx`) | satisfies: ISC-13, 14, 18 | depends_on: Feature 4, Feature 5 | parallelizable: no
+- Feature 7: Comprehensive Vitest Test Suites (`TrustFlowEdge.test.tsx`, `TrustGraph.test.tsx`, `AgentTrustTopologyPage.test.tsx`) | satisfies: ISC-19..21 | depends_on: Feature 4..6 | parallelizable: no
+- Feature 8: Typecheck & Typography Lint Certification | satisfies: ISC-22..24 | depends_on: Feature 1..7 | parallelizable: no
 
 ## Decisions
-- 2026-09-29: Use in-memory thread-safe `PolicyStore` with sync.RWMutex and atomic rollback support.
-- 2026-09-29: Cache compiled `cel.Program` instances keyed by rule ID + version hash to eliminate compile overhead and achieve < 15ms latency.
-- 2026-09-29: Enforce `cel.CostLimit(10000)` and 50ms context timeout on all CEL evaluations.
-- 2026-09-29: Route `/api/v1/policies/*` through `fe-signalloom` injecting `X-Tenant-ID` from `authenticated_tenant`.
-- 2026-09-29: Verified latent defect #3 flip from XFAIL to PASS in tests/test_latent_defects.py.
+- 2026-09-29: Reconcile backend tenant filter to keep `tenant in {None, "shared", tenant_id}` and preserve cross-tenant slices and modeled_gaps.
+- 2026-09-29: Map edge animation velocity dynamically: base animation duration = `max(0.6, min(10.0, 1000 / max(1, throughput_pps)))` with multiplier from latency.
+- 2026-09-29: Check `prefers-reduced-motion` in JS and CSS, switching flow edges to static dashed/dotted rendering with zero animation duration.
+- 2026-09-29: Implement deterministic hierarchical dagre and rank-based grid layout in `TrustGraph.tsx` with dynamic coordinate assignment for nodes without fixed x/y coordinates.
+- 2026-09-29: Create `NodeDetailDrawer.tsx` with focus trap, Escape key handling, and ARIA dialog semantics for full a11y compliance.
 
 ## Changelog
-- 2026-09-29: Initialized ISA for SLMS-P2-2 Versioned CEL Policy Datastore & Evaluation APIs.
-- 2026-09-29: Completed implementation of Go policy-engine versioning, cel-go v0.30.0 evaluation, FastAPI reverse proxy with authenticated tenant injection, and database scan reconciliation. All 36 ISCs verified.
+- 2026-09-29: Initialized ISA for SLMS-P3-1 Topology Graph Ingestion & Animated Message Edges.
+- 2026-09-29: Implemented backend enriched models and serialization in `api_compat.py`.
+- 2026-09-29: Created backend pytest suite `test_topology.py` (2/2 tests pass).
+- 2026-09-29: Implemented `TrustFlowEdge.tsx` with dynamic animation velocity and prefers-reduced-motion fallback.
+- 2026-09-29: Implemented `NodeDetailDrawer.tsx` with ARIA modal dialog, focus trap, and Escape listener.
+- 2026-09-29: Implemented `TrustGraph.tsx` with deterministic hierarchical rank layout and Hidden Nodes counter badge.
+- 2026-09-29: Integrated topology pages and added comprehensive Vitest suites (42/42 tests pass).
+- 2026-09-29: Completed typecheck and CSS custom property validation (197/197 test files pass).
 
 ## Verification
-- Go Unit & Adversarial Tests: PASS (all tests in apps/policy-engine and subpackages).
-- Go Benchmarks: `BenchmarkCELEvaluation-24: 316340 ns/op (0.316 ms/op), 337884 B/op, 171 allocs/op` (latency < 15ms target met by a factor of 47x).
-- Pytest Suites: 7 passed in policy suite (tests/test_latent_defects.py, tests/test_policy_engine.py, tests/test_agent_compliance.py).
-- Pytest Regressions: 237 passed in test_api_compat.py and test_tenant_isolation.py.
-- Latent Defect #3: Flipped from XFAIL to PASS.
-- Typography: Zero prohibited em-dashes introduced.
+- Pytest Topology Suite: PASSED (2/2 tests pass in `tests/test_topology.py`).
+- Vitest Topology Suites: PASSED (42/42 tests pass across `TrustFlowEdge.test.tsx`, `TrustGraph.test.tsx`, `AgentTrustTopologyPage.test.tsx`, `cssVarUsage.test.ts`).
+- Full Dashboard Vitest Suite: PASSED (197/197 test files pass, 3517 tests).
+- TypeScript Typecheck: PASSED (`bun run typecheck` exits 0).
+- Typography Audit: PASSED (Zero em-dashes in UI code).

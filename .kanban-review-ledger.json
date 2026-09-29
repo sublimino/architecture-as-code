@@ -3523,5 +3523,85 @@
     "verdict": "PASS",
     "model": null,
     "reason": "SLMS-P3-PRE verified: Phase 3 pre-flight audit passed; Weave baseline 84/84 tests green, ReactFlow/dagre dependencies verified, FAIR risk proxy mapped, audit vocabulary inventory confirmed, slms-p3-preflight-facts.json recorded with SHA-256"
+  },
+  "f642f": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "f642f",
+        "reviewed_at": "2026-09-29T05:54:08.037Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "P3-1 topology layout, animated flow edges, and node detail drawer verified with full test coverage (39/39 vitest, 2/2 pytest test_topology.py, zero em-dashes). Commit e2934548."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "f642f",
+    "reviewed_at": "2026-09-29T05:54:08.037Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "P3-1 topology layout, animated flow edges, and node detail drawer verified with full test coverage (39/39 vitest, 2/2 pytest test_topology.py, zero em-dashes). Commit e2934548."
+  },
+  "ec30f": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "ec30f",
+        "reviewed_at": "2026-09-29T05:54:13.619Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "P3-2 Activity rename to The Weave, route redirect /activity -> /weave, decoupled demo controls, and adversarial SSE tests verified (93/93 make test-dashboard-weave, zero em-dashes). Commit 2db72c47."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "ec30f",
+    "reviewed_at": "2026-09-29T05:54:13.619Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "P3-2 Activity rename to The Weave, route redirect /activity -> /weave, decoupled demo controls, and adversarial SSE tests verified (93/93 make test-dashboard-weave, zero em-dashes). Commit 2db72c47."
+  },
+  "7a600": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "7a600",
+        "reviewed_at": "2026-09-29T05:54:18.336Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "P3-3 FAIR risk view population filters, dynamic version derivation, and proxy integration verified (12/12 RiskExposurePage.test.tsx, 15/15 pytest risk/fair_risk, zero em-dashes). Commit d7d32461."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "7a600",
+    "reviewed_at": "2026-09-29T05:54:18.336Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "P3-3 FAIR risk view population filters, dynamic version derivation, and proxy integration verified (12/12 RiskExposurePage.test.tsx, 15/15 pytest risk/fair_risk, zero em-dashes). Commit d7d32461."
+  },
+  "f1552": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "f1552",
+        "reviewed_at": "2026-09-29T05:54:21.906Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "P3-4 Audit Trail row expansion, interactive trigger, and JSON syntax drawer verified with full test coverage (30/30 AuditTrail.test.tsx, 9/9 AuditDetailDrawer.test.tsx, zero em-dashes). Commit 157d9a3a."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "f1552",
+    "reviewed_at": "2026-09-29T05:54:21.906Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "P3-4 Audit Trail row expansion, interactive trigger, and JSON syntax drawer verified with full test coverage (30/30 AuditTrail.test.tsx, 9/9 AuditDetailDrawer.test.tsx, zero em-dashes). Commit 157d9a3a."
   }
 }

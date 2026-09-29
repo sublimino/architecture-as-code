@@ -5555,19 +5555,89 @@ async def compliance_frameworks(
                 ],
             ),
             FrameworkResponse(
-                id="nist-ai-rmf",
-                name="NIST AI RMF",
-                version="1.0",
+                id="nist-800-53",
+                name="NIST SP 800-53",
+                version="Rev 5",
                 regulatory_body="NIST",
                 compliance_deadline=None,
+                control_count=2,
+                controls=[
+                    ControlResponse(
+                        id="nist-800-53:ac-2",
+                        name="Account Management",
+                        description="Automated non-human identity lifecycle controls.",
+                        control_order=1,
+                    ),
+                    ControlResponse(
+                        id="nist-800-53:ia-2",
+                        name="Identification and Authentication",
+                        description="Cryptographic workload authentication.",
+                        control_order=2,
+                    ),
+                ],
+            ),
+            FrameworkResponse(
+                id="cyber-resilience-act",
+                name="Cyber Resilience Act",
+                version="2024-2847",
+                regulatory_body="European Union",
+                compliance_deadline="2027-12-11",
+                control_count=2,
+                controls=[
+                    ControlResponse(
+                        id="cra:art-10",
+                        name="Essential Cybersecurity Requirements",
+                        description="Software bill of materials and vulnerability handling.",
+                        control_order=1,
+                    ),
+                ],
+            ),
+            FrameworkResponse(
+                id="finos-ai-governance-framework",
+                name="FINOS AI Governance Framework",
+                version="v2.1",
+                regulatory_body="FINOS",
+                compliance_deadline=None,
+                control_count=3,
+                controls=[
+                    ControlResponse(
+                        id="finos:air-sec-024",
+                        name="Agent Action Authorization",
+                        description="Explicit policy boundaries on tool calls.",
+                        control_order=1,
+                    ),
+                ],
+            ),
+            FrameworkResponse(
+                id="dora",
+                name="DORA Regulation (EU) 2022/2554",
+                version="2022-2554",
+                regulatory_body="European Union",
+                compliance_deadline="2025-01-17",
                 control_count=1,
                 controls=[
                     ControlResponse(
-                        id="nist-ai-rmf:gov-1",
-                        name="Governance policy established",
-                        description="Document governance responsibilities for AI systems.",
+                        id="dora:art-9",
+                        name="Protection and Prevention",
+                        description="ICT systems resilience and continuous monitoring.",
                         control_order=1,
-                    )
+                    ),
+                ],
+            ),
+            FrameworkResponse(
+                id="nis2",
+                name="NIS2 Directive (EU) 2022/2555",
+                version="2022-2555",
+                regulatory_body="European Union",
+                compliance_deadline="2024-10-17",
+                control_count=1,
+                controls=[
+                    ControlResponse(
+                        id="nis2:art-21",
+                        name="Cybersecurity Risk Management Measures",
+                        description="Supply chain security and incident handling.",
+                        control_order=1,
+                    ),
                 ],
             ),
         ]
@@ -7794,56 +7864,58 @@ async def list_discovery_workloads(
                     )
             # Default seeded external service if none exists in in-memory dict for this tenant
             if not any(w.source == "external_services" for w in workloads):
-                cr_recs = ControlRecommendationsModel(
-                    config="recommended",
-                    content="recommended",
-                    supply_chain="pass",
-                    eu_ai_act="recommended",
-                )
-                workloads.append(
-                    DiscoveryWorkloadModel(
-                        id=f"{tenant_id}:cloudrun-prompt-processor",
-                        name="cloudrun-prompt-processor",
-                        tenant_id=tenant_id,
-                        source="external_services",
-                        source_label="Cloud Run",
-                        namespace="gcp-europe-west1",
-                        status="discovered",
-                        discovery_state="discovered",
-                        owner=f"ai-ops@{tenant_id}.local",
-                        spiffe_id=None,
-                        model="gemini-1.5-pro",
-                        last_seen_at=_now_iso(),
-                        recommendations=cr_recs,
-                        control_recommendations=cr_recs,
-                        metadata={"service_url": "https://prompt-processor-xyz.a.run.app", "runtime": "cloud_run"},
+                if enabled_connectors.get("gcp_iam", True) and enabled_connectors.get("external_services", True):
+                    cr_recs = ControlRecommendationsModel(
+                        config="recommended",
+                        content="recommended",
+                        supply_chain="pass",
+                        eu_ai_act="recommended",
                     )
-                )
-                n8n_recs = ControlRecommendationsModel(
-                    config="pass",
-                    content="warning",
-                    supply_chain="pass",
-                    eu_ai_act="recommended",
-                )
-                workloads.append(
-                    DiscoveryWorkloadModel(
-                        id=f"{tenant_id}:n8n-support-router",
-                        name="n8n-support-router",
-                        tenant_id=tenant_id,
-                        source="external_services",
-                        source_label="n8n",
-                        namespace="automation-prod",
-                        status="ignored",
-                        discovery_state="ignored",
-                        owner=f"support@{tenant_id}.local",
-                        spiffe_id=None,
-                        model="gpt-4o-mini",
-                        last_seen_at=_now_iso(),
-                        recommendations=n8n_recs,
-                        control_recommendations=n8n_recs,
-                        metadata={"webhook_url": "https://n8n.internal.net/webhook/support", "dismiss_reason": "internal_automation_exempt"},
+                    workloads.append(
+                        DiscoveryWorkloadModel(
+                            id=f"{tenant_id}:cloudrun-prompt-processor",
+                            name="cloudrun-prompt-processor",
+                            tenant_id=tenant_id,
+                            source="external_services",
+                            source_label="Cloud Run",
+                            namespace="gcp-europe-west1",
+                            status="discovered",
+                            discovery_state="discovered",
+                            owner=f"ai-ops@{tenant_id}.local",
+                            spiffe_id=None,
+                            model="gemini-1.5-pro",
+                            last_seen_at=_now_iso(),
+                            recommendations=cr_recs,
+                            control_recommendations=cr_recs,
+                            metadata={"service_url": "https://prompt-processor-xyz.a.run.app", "runtime": "cloud_run"},
+                        )
                     )
-                )
+                if enabled_connectors.get("aws_iam", True) and enabled_connectors.get("external_services", True):
+                    n8n_recs = ControlRecommendationsModel(
+                        config="pass",
+                        content="warning",
+                        supply_chain="pass",
+                        eu_ai_act="recommended",
+                    )
+                    workloads.append(
+                        DiscoveryWorkloadModel(
+                            id=f"{tenant_id}:n8n-support-router",
+                            name="n8n-support-router",
+                            tenant_id=tenant_id,
+                            source="external_services",
+                            source_label="n8n",
+                            namespace="automation-prod",
+                            status="ignored",
+                            discovery_state="ignored",
+                            owner=f"support@{tenant_id}.local",
+                            spiffe_id=None,
+                            model="gpt-4o-mini",
+                            last_seen_at=_now_iso(),
+                            recommendations=n8n_recs,
+                            control_recommendations=n8n_recs,
+                            metadata={"webhook_url": "https://n8n.internal.net/webhook/support", "dismiss_reason": "internal_automation_exempt"},
+                        )
+                    )
 
         # 4. External K8s (AFM)
         if enabled_connectors.get("external_k8s", True):

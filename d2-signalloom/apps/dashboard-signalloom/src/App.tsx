@@ -430,7 +430,7 @@ export default function App() {
                 <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
                 <Route path="/audit" element={<ProtectedRoute><AuditTrailPage /></ProtectedRoute>} />
                 <Route path="/workspaces" element={<Navigate to="/discovery" replace />} />
-                <Route path="/connectors" element={<Navigate to="/federated-services" replace />} />
+                <Route path="/connectors" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/federated-services" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
                 <Route path="/cryptography" element={<ProtectedRoute><CryptographyPage /></ProtectedRoute>} />
                 <Route path="/credential-inventory" element={<ProtectedRoute><CredentialInventoryPage /></ProtectedRoute>} />

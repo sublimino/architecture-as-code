@@ -457,6 +457,30 @@ def _kagent_state(status: object) -> str | None:
     return None
 
 
+KERNEL_FROZEN_ANNOTATION = "signalloom.io/kernel-frozen"
+KERNEL_OBSERVED_AT_ANNOTATION = "signalloom.io/kernel-observed-at"
+
+
+def _kernel_state(annotations: dict[str, object]) -> dict[str, object]:
+    """Kernel freezer truth as published by the stun-sentinel, or "unknown".
+
+    The sentinel reads `cgroup.events` on the node and writes two annotations.
+    This is the only source: the stun label, lifecycle state and pod phase are
+    control-plane claims and say nothing about the cgroup, so nothing here is
+    inferred from them. Absent or unrecognised values are "unknown", never
+    "running" — a missing observation is not evidence of a live process.
+    """
+    raw = annotations.get(KERNEL_FROZEN_ANNOTATION)
+    state = {"true": "frozen", "false": "running"}.get(
+        raw.strip().lower() if isinstance(raw, str) else "", "unknown"
+    )
+    observed = annotations.get(KERNEL_OBSERVED_AT_ANNOTATION)
+    return {
+        "kernel_state": state,
+        "kernel_observed_at": observed if isinstance(observed, str) and observed else None,
+    }
+
+
 def _agent_from_kagent_cr(cr: object, namespace: str | None = None) -> dict[str, object] | None:
     """Project an Agent.kagent.dev CR onto the same record shape as `_agent_from_pod`.
 
@@ -507,6 +531,9 @@ def _agent_from_kagent_cr(cr: object, namespace: str | None = None) -> dict[str,
         # Inventory needs; the swarm manifests create one SA per agent under that
         # name in d2-signalloom/infra/agent-swarm/<agent>/serviceaccount.yaml.
         "service_account": name,
+        # A declaration has no cgroup; the annotations will not be there, so
+        # this reports "unknown" rather than a kernel state nobody observed.
+        **_kernel_state(annotations),
     }
 
 
@@ -604,6 +631,7 @@ def _agent_from_pod(pod: object, namespace: str | None = None) -> dict[str, obje
         # rather than guess it. Absent stays None — defaulting to "default"
         # would render a SPIFFE ID that was never registered.
         "service_account": spec.get("serviceAccountName"),
+        **_kernel_state(annotations),
     }
     # SuperCred enrichment: expose identity-chain and compliance metadata.
     if labels.get("signalloom.ai/supercred") == "true":

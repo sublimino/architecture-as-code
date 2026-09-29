@@ -515,9 +515,20 @@ async def enroll_host_handler(
     except json.JSONDecodeError:
         return _make_error_response(400, "malformed-request", "Invalid JSON body")
 
-    # Step 7: Refuse client-supplied credential_reference with 422
+    # Step 7: Refuse client-supplied credential_reference with validation
     if "credential_reference" in body_json and body_json["credential_reference"] is not None:
+        from models import validate_spiffe_id
+        is_val, val_err = validate_spiffe_id(str(body_json["credential_reference"]))
+        if not is_val:
+            return _make_error_response(400, "malformed-spiffe-id", val_err or "Invalid SPIFFE ID")
         return _make_error_response(422, "validation-failed", "credential_reference is server-issued")
+
+    if "spiffe_id" in body_json and body_json["spiffe_id"] is not None:
+        from models import validate_spiffe_id
+        is_val, val_err = validate_spiffe_id(str(body_json["spiffe_id"]))
+        if not is_val:
+            return _make_error_response(400, "malformed-spiffe-id", val_err or "Invalid SPIFFE ID")
+        return _make_error_response(422, "validation-failed", "spiffe_id is server-minted")
 
     try:
         body = EnrollmentRequest.model_validate(body_json)

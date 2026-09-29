@@ -307,6 +307,58 @@ export const DONUT_COLORS = {
 
 // ─── 4 StatCards (Matching Spec Section 3) ──────────────────────────────────
 
+export function isAgentAttentionRequired(a: AgentResponse): boolean {
+  // 1. Security findings / warnings
+  if (a.compliance_summary && (a.compliance_summary.failing > 0 || ((a.compliance_summary as any).findings ?? 0) > 0)) {
+    return true
+  }
+  if (a.attention?.level === 'critical' || a.attention?.level === 'warning') {
+    return true
+  }
+
+  // 2. Missing SBOM
+  if ((a as any).has_sbom === false || (a as any).sbom === null || (a as any).sbom_status === 'missing' || (a as any).sbom_verified === false) {
+    return true
+  }
+  const issue = (a.attention?.highest_issue || '').toLowerCase()
+  if (issue.includes('sbom') || issue.includes('bill of materials')) {
+    return true
+  }
+
+  // 3. Expired SVID
+  if ((a as any).svid_expired === true || a.credential_state?.status === 'expired') {
+    return true
+  }
+  if (a.identity?.cert_valid_until) {
+    const expiryTime = Date.parse(a.identity.cert_valid_until)
+    if (!isNaN(expiryTime) && expiryTime <= Date.now()) {
+      return true
+    }
+  }
+
+  // 4. Suspended / stunned / revoked states
+  const state = (a.lifecycle_state || '').toLowerCase()
+  if (
+    state === 'suspended' ||
+    state === 'stunned' ||
+    state === 'revoked' ||
+    state === 'decommissioned' ||
+    a.credential_state?.status === 'revoked'
+  ) {
+    return true
+  }
+
+  // 5. Posture score threshold
+  if (a.compliance_summary?.posture_score !== null && a.compliance_summary?.posture_score !== undefined) {
+    const score = a.compliance_summary.posture_score
+    if (score <= 1.0 ? score < 0.5 : score < 50) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function AgentStatCards({
   agents,
   meta,
@@ -326,14 +378,7 @@ function AgentStatCards({
     (a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked') &&
     !(a.kernel_telemetry?.cgroup_state === 'frozen' || a.kernel_telemetry?.traffic_control_state === 'drop')
   ).length
-  const attentionCount = agents.filter(a =>
-    a.compliance_summary.failing > 0 ||
-    a.attention?.level === 'critical' ||
-    a.attention?.level === 'warning' ||
-    (a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked') ||
-    (a.compliance_summary.posture_score !== null &&
-      (a.compliance_summary.posture_score <= 1.0 ? a.compliance_summary.posture_score < 0.5 : a.compliance_summary.posture_score < 50))
-  ).length
+  const attentionCount = agents.filter(isAgentAttentionRequired).length
 
   // 2. Identity Coverage
   const registeredCount = meta?.registered_count ?? agents.filter(a => a.record_class === 'registered' || (!a.record_class && a.is_registry_linked !== false)).length
@@ -1083,11 +1128,7 @@ function GovernedTab({
   const filtered = useMemo(() => {
     let list = governedAgents
     if (attentionFilter) {
-      list = list.filter(a => {
-        const failing = a.compliance_summary?.failing ?? 0
-        const state = (a.lifecycle_state || '').toLowerCase()
-        return failing > 0 || state === 'suspended' || state === 'stunned' || state === 'revoked' || state === 'decommissioned'
-      })
+      list = list.filter(isAgentAttentionRequired)
     }
     if (lifecycleFilter !== 'all') {
       const normalizedFilter = lifecycleFilter.toLowerCase()

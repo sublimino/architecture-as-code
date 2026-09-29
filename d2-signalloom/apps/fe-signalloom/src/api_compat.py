@@ -688,10 +688,13 @@ class RevokeCredentialResponse(BaseModel):
 # CHECK failure that names the constraint but not the vocabulary.
 
 VALID_LIFECYCLE_STATES: frozenset[str] = frozenset({
+    "discovered",
     "registered",
     "enrolled",
     "active",
+    "governed",
     "suspended",
+    "stunned",
     "revoked",
     "decommissioned",
 })
@@ -700,13 +703,16 @@ VALID_LIFECYCLE_STATES: frozenset[str] = frozenset({
 #: reachable from that state.  A state absent as a key is a terminal state
 #: (no outbound transitions).  The graph is deliberately one-directional for
 #: revoked/decommissioned: once an agent reaches a terminal state, re-activation
-#: requires a new registration, not a transition — the audit trail must not
+#: requires a new registration, not a transition - the audit trail must not
 #: show a decommissioned agent silently coming back to life.
 VALID_TRANSITIONS: dict[str, frozenset[str]] = {
-    "registered": frozenset({"enrolled", "active", "suspended", "revoked", "decommissioned"}),
-    "enrolled":   frozenset({"active", "suspended", "revoked", "decommissioned"}),
-    "active":     frozenset({"suspended", "revoked", "decommissioned"}),
-    "suspended":  frozenset({"active", "revoked", "decommissioned"}),
+    "discovered": frozenset({"governed", "active", "registered", "enrolled", "in_review", "ignored"}),
+    "registered": frozenset({"enrolled", "active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
+    "enrolled":   frozenset({"active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
+    "active":     frozenset({"governed", "suspended", "stunned", "revoked", "decommissioned"}),
+    "governed":   frozenset({"suspended", "stunned", "revoked", "decommissioned", "active"}),
+    "suspended":  frozenset({"governed", "active", "revoked", "decommissioned", "stunned"}),
+    "stunned":    frozenset({"governed", "active", "suspended", "revoked", "decommissioned"}),
     # Terminal states: no outbound transitions.
     "revoked":        frozenset(),
     "decommissioned": frozenset(),
@@ -2138,7 +2144,8 @@ def _agent_response_from_discovered(
     framework = discovered.get("framework")
     model = discovered.get("model")
     runtime_val = discovered.get("runtime")
-    state = str(discovered.get("state") or "idle")
+    lifecycle_st = str(discovered.get("lifecycle_state") or discovered.get("state") or "idle")
+    state = str(discovered.get("state") or discovered.get("lifecycle_state") or "idle")
     created_at = discovered.get("created_at")
     supercred = discovered.get("supercred") is True
     supercred_target = discovered.get("supercred_target")
@@ -2226,10 +2233,13 @@ def _agent_response_from_discovered(
         normalized_score=None,
     )
 
-    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if state in ("error", "failed", "degraded") else "none"
+    attention_level: Literal["critical", "warning", "info", "none"] = (
+        "critical" if (state in ("error", "failed", "degraded") or lifecycle_st in ("suspended", "stunned", "revoked") or discovered.get("findings_count", 0) > 0)
+        else "none"
+    )
     attention = AttentionMetadata(
         level=attention_level,
-        highest_issue=f"Agent state is {state}" if attention_level != "none" else None,
+        highest_issue=discovered.get("highest_issue") or (f"Agent state is {lifecycle_st}" if attention_level != "none" else None),
     )
 
     timestamps = TimestampsMetadata(
@@ -2308,16 +2318,16 @@ def _agent_response_from_discovered(
         origin_verification=origin_metadata,
         owner=None,
         tenant_id=tenant_id,
-        lifecycle_state=state,
+        lifecycle_state=lifecycle_st,
         last_transition_at=stunned_at,
         last_transition_by=None,
         eu_ai_act_risk_class=None,
         compliance_summary=ComplianceSummaryInline(
-            total_controls=0,
-            passing=0,
-            failing=0,
+            total_controls=discovered.get("total_controls", 0),
+            passing=discovered.get("passing_controls", 0),
+            failing=discovered.get("findings_count", 0),
             pending=0,
-            posture_score=None,
+            posture_score=discovered.get("compliance_posture"),
         ),
         model_name=model,
         created_at=created_at,
@@ -2373,7 +2383,7 @@ async def _ensure_tenant_settings(executor: Any, tenant_id: str) -> asyncpg.Reco
 # In-memory fixture stores (kept for graceful fallback when DB unavailable)
 # ---------------------------------------------------------------------------
 
-_STORE_LOCK = threading.Lock()
+_STORE_LOCK = threading.RLock()
 _AGENTS: dict[str, dict[str, dict[str, Any]]] = {}
 _AGENT_CREDENTIALS: dict[str, dict[str, list[dict[str, Any]]]] = {}
 _VIOLATIONS: dict[str, dict[str, dict[str, Any]]] = {}
@@ -3294,6 +3304,19 @@ async def agents(
                     is_registry_linked=False,
                 )
             )
+        with _STORE_LOCK:
+            existing_ids = {r.id for r in all_records}
+            for ag in _AGENTS.get(tenant_id, {}).values():
+                ag_id = str(ag.get("id"))
+                if ag_id not in existing_ids:
+                    all_records.append(
+                        _agent_response_from_discovered(
+                            ag,
+                            tenant_id=tenant_id,
+                            record_class=ag.get("record_class", "registered"),
+                            is_registry_linked=ag.get("is_registry_linked", True),
+                        )
+                    )
     else:
         db_rows = await pool.fetch(
             "SELECT * FROM agent_registry WHERE tenant_id = $1 ORDER BY created_at", tenant_id,
@@ -4545,7 +4568,7 @@ def _validate_transition(from_state: str, to_state: str) -> None:
             "invalid_transition",
             f"Cannot transition from '{from_state}' to '{to_state}'. "
             f"Valid targets from '{from_state}': "
-            f"{', '.join(sorted(allowed)) if allowed else '(terminal state — no transitions)'}",
+            f"{', '.join(sorted(allowed)) if allowed else '(terminal state - no transitions)'}",
         )
 
 
@@ -8145,8 +8168,12 @@ def install_compatibility_api(app: FastAPI) -> None:
     from host_credential import host_router, host_compat_router, HostCredentialScopeMiddleware
     from routers.policy_engine import router as policy_engine_router
     from routers.federation import router as federation_router
+    from routers.discovery import router as discovery_router
+    from routers.agents import router as agents_router
 
     app.add_middleware(HostCredentialScopeMiddleware)
+    app.include_router(discovery_router)
+    app.include_router(agents_router)
     app.include_router(router, dependencies=[Depends(enforce_strict_operator_tenant)])
     app.include_router(operator_identity_router)
     app.include_router(policy_engine_router)

@@ -652,6 +652,16 @@ export const api = {
       return req<DiscoveryWorkloadsResponse>(qs ? `/discovery/workloads?${qs}` : '/discovery/workloads', token)
     },
 
+    claim: (token: string, payload: { agent_id: string; namespace: string; token_budget_limit?: number; spiffe_id?: string }) =>
+      req<{ claim_id: string; tenant_id: string; agent_id: string; namespace: string; spiffe_id: string; status: string; claimed_at: string }>(
+        '/discovery/claim',
+        token,
+        {
+          method: 'POST',
+          data: payload,
+        },
+      ),
+
     autoclaimNamespace: (token: string, namespace?: string) =>
       req<{ claimed: any[]; total_claimed: number }>('/agents/autoclaim-discovered', token, {
         method: 'POST',

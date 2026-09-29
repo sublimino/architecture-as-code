@@ -314,36 +314,40 @@ export default function AgentOverviewTab({
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
               {isTelemetryFrozenOrDrop ? (
                 <>
-                  <span
-                    data-testid="overview-kernel-cgroup"
-                    className="tag"
-                    title="cgroup.freeze: 1 (FROZEN): Processes suspended by Sentinel"
-                    style={{
-                      fontSize: 10,
-                      padding: '3px 8px',
-                      background: 'color-mix(in srgb, var(--error) 15%, transparent)',
-                      color: 'var(--error)',
-                      borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)',
-                      fontWeight: 700,
-                    }}
-                  >
-                    cgroup: FROZEN
-                  </span>
-                  <span
-                    data-testid="overview-kernel-tc"
-                    className="tag"
-                    title="TC matchall drop active: Network isolated by Sentinel"
-                    style={{
-                      fontSize: 10,
-                      padding: '3px 8px',
-                      background: 'color-mix(in srgb, var(--error) 15%, transparent)',
-                      color: 'var(--error)',
-                      borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)',
-                      fontWeight: 700,
-                    }}
-                  >
-                    TC: DROP
-                  </span>
+                  {agent.kernel_telemetry?.cgroup_state === 'frozen' && (
+                    <span
+                      data-testid="overview-kernel-cgroup"
+                      className="tag"
+                      title="cgroup.freeze: 1 (FROZEN): Processes suspended by Sentinel"
+                      style={{
+                        fontSize: 10,
+                        padding: '3px 8px',
+                        background: 'color-mix(in srgb, var(--error) 15%, transparent)',
+                        color: 'var(--error)',
+                        borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)',
+                        fontWeight: 700,
+                      }}
+                    >
+                      cgroup: FROZEN
+                    </span>
+                  )}
+                  {agent.kernel_telemetry?.traffic_control_state === 'drop' && (
+                    <span
+                      data-testid="overview-kernel-tc"
+                      className="tag"
+                      title="TC matchall drop active: Network isolated by Sentinel"
+                      style={{
+                        fontSize: 10,
+                        padding: '3px 8px',
+                        background: 'color-mix(in srgb, var(--error) 15%, transparent)',
+                        color: 'var(--error)',
+                        borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)',
+                        fontWeight: 700,
+                      }}
+                    >
+                      TC: DROP
+                    </span>
+                  )}
                 </>
               ) : isContainmentRequested ? (
                 <span
@@ -363,36 +367,40 @@ export default function AgentOverviewTab({
                 </span>
               ) : (
                 <>
-                  <span
-                    data-testid="overview-kernel-cgroup"
-                    className="tag"
-                    title="cgroup.freeze: 0 (THAWED)"
-                    style={{
-                      fontSize: 10,
-                      padding: '3px 8px',
-                      background: 'color-mix(in srgb, var(--teal) 15%, transparent)',
-                      color: 'var(--teal)',
-                      borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)',
-                      fontWeight: 600,
-                    }}
-                  >
-                    cgroup: THAWED
-                  </span>
-                  <span
-                    data-testid="overview-kernel-tc"
-                    className="tag"
-                    title="TC drop: INACTIVE"
-                    style={{
-                      fontSize: 10,
-                      padding: '3px 8px',
-                      background: 'color-mix(in srgb, var(--teal) 15%, transparent)',
-                      color: 'var(--teal)',
-                      borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)',
-                      fontWeight: 600,
-                    }}
-                  >
-                    TC: PASS
-                  </span>
+                  {agent.kernel_telemetry?.cgroup_state === 'thawed' && (
+                    <span
+                      data-testid="overview-kernel-cgroup"
+                      className="tag"
+                      title="cgroup.freeze: 0 (THAWED)"
+                      style={{
+                        fontSize: 10,
+                        padding: '3px 8px',
+                        background: 'color-mix(in srgb, var(--teal) 15%, transparent)',
+                        color: 'var(--teal)',
+                        borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      cgroup: THAWED
+                    </span>
+                  )}
+                  {agent.kernel_telemetry?.traffic_control_state === 'allow' && (
+                    <span
+                      data-testid="overview-kernel-tc"
+                      className="tag"
+                      title="TC drop: INACTIVE"
+                      style={{
+                        fontSize: 10,
+                        padding: '3px 8px',
+                        background: 'color-mix(in srgb, var(--teal) 15%, transparent)',
+                        color: 'var(--teal)',
+                        borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      TC: PASS
+                    </span>
+                  )}
                 </>
               )}
             </div>

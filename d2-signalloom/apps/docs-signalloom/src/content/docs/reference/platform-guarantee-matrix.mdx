@@ -1,0 +1,90 @@
+---
+title: Multi-Environment Platform Guarantee Matrix
+description: Security, governance, and attestation guarantees across Kubernetes, Serverless, Workstations, and Bare Metal.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Signal Loom decouples its runtime architecture into three independent operational layers:
+**Observe**, **Govern**, and **Attest**. This separation ensures that security teams can
+deploy the appropriate governance controls across heterogeneous runtime substrates—from sovereign
+Kubernetes clusters with custom kernel modules to constrained serverless execution environments.
+
+<Mermaid
+  label="Platform Layer Separation: Observe, Govern, and Attest"
+  diagram={`flowchart TD
+    subgraph ATTEST["Layer 3: ATTEST (Supply Chain & Provenance)"]
+      KMS["Cloud KMS / Hardware Enclave"]
+      COSIGN["Cosign Digest Verification"]
+      WITNESS["Witness Cryptographic Attestation"]
+      SLSA["SLSA Level 3 Provenance & SBOM"]
+    end
+
+    subgraph GOVERN["Layer 2: GOVERN (Policy & Active Containment)"]
+      OPA["Gatekeeper / Kyverno Admission"]
+      SLER["SLER Active Containment (cgroups v2 + eBPF TC)"]
+      PROBE["Stun-Sentinel (Healthz Replay & Eviction Lease)"]
+      REVOKE["Dynamic Supercredential Revocation (Vault/Bao)"]
+    end
+
+    subgraph OBSERVE["Layer 1: OBSERVE (Detective Telemetry)"]
+      EBPF["Host & Network eBPF Probes"]
+      K8SAUDIT["K8s / Cloud Audit Stream"]
+      SPIFFE["SPIFFE Workload Identity Observability"]
+      FROST["FrostDB Columnar Arrow Storage (< 5ms p95)"]
+    end
+
+    ATTEST --> GOVERN
+    GOVERN --> OBSERVE`}
+/>
+
+---
+
+## 1. The Three Architectural Layers
+
+### Layer 1: OBSERVE (Detective Telemetry)
+The foundational sensory plane. Observes process lifecycles, network socket lifecycles, file system mutations,
+and identity invocations. Telemetry streams into FrostDB with zero customer payload capture (metadata only).
+
+### Layer 2: GOVERN (Policy & Active Containment)
+The enforcement plane. Evaluates agent activity against defined behavioral boundaries and executes active
+containment when anomalies occur (SLER 3-plane kill-path: execution freeze with healthz replay, dynamic
+credential revocation, and eBPF TC packet severance).
+
+### Layer 3: ATTEST (Supply Chain & Cryptographic Verification)
+The trust verification plane. Establishes cryptographic proof of workload identity (SPIFFE SVIDs),
+container image provenance (SLSA Level 3), artifact signatures (Cloud KMS Cosign), and operational audit
+immutability.
+
+---
+
+## 2. Multi-Environment Capability & Guarantee Matrix
+
+The matrix below defines the deterministic guarantees Signal Loom provides across diverse deployment topologies:
+
+| Environment Substrate | Observe Layer Guarantees | Govern Layer Guarantees | Attest Layer Guarantees | Containment Latency Budget |
+| :--- | :--- | :--- | :--- | :--- |
+| **Sovereign / Dedicated K8s**<br/>*(e.g., GKE Standard, Sovereign Kind on GCE)* | **Complete L1-L7 Telemetry**:<br/>• eBPF sockops & sys_enter<br/>• Full Kubelet/Control plane audit<br/>• Zero-Customer-Payload network flows | **Full 3-Plane SLER**:<br/>• Kernel cgroup v2 execution freeze<br/>• Stun-sentinel healthz replay (300s lease)<br/>• eBPF TC egress packet drop<br/>• Vault token revocation | **Full Cryptographic Trust**:<br/>• Node SPIFFE/SPIRE Attestation<br/>• Cosign KMS verification<br/>• Hardware TPM bound tokens | **< 50ms** |
+| **Restricted / Managed K8s**<br/>*(e.g., AWS EKS, GKE Autopilot, Restricted Node Pools)* | **User-Space & K8s Telemetry**:<br/>• K8s audit webhook logs<br/>• Envoy proxy / Service mesh access logs<br/>• Container stdout/stderr telemetry | **2-Plane Containment**:<br/>• Dynamic NetworkPolicy egress isolation<br/>• Vault/OpenBao token revocation<br/>*(cgroup freeze requires privileged node pool)* | **Platform SPIFFE**:<br/>• ServiceAccount OIDC federation<br/>• Cosign digest verification at admission | **< 200ms** |
+| **Serverless Container**<br/>*(e.g., Google Cloud Run, AWS Fargate, Knative)* | **Proxy & Request Telemetry**:<br/>• Ingress/egress HTTP headers via CPAI sidecar<br/>• Cloud audit logs & IAM invocations | **Credential Revocation & Scale-to-Zero**:<br/>• Immediate IAM / OAuth token revocation<br/>• CPAI upstream proxy circuit breaker<br/>• Trigger scale-to-zero | **Cloud IAM Attestation**:<br/>• Workload Identity Federation (WIF)<br/>• OIDC token validation | **< 500ms** |
+| **Serverless Function**<br/>*(e.g., AWS Lambda, Google Cloud Functions)* | **Wrapper Telemetry**:<br/>• Function wrapper instrumentation<br/>• Outbound API destination telemetry | **Proxy Circuit Breaking**:<br/>• CPAI egress proxy drops model traffic<br/>• Revocation of short-lived credentials | **Invocation Attestation**:<br/>• SigV4 / Google OIDC identity tokens | **< 500ms** |
+| **Developer Workstation**<br/>*(e.g., macOS, Linux Developer Laptop)* | **Workstation Sensor Telemetry**:<br/>• Process execution tree (e.g. IDE, CLI tools)<br/>• Local port bindings & localhost egress<br/>*(Suppressed in DE/FR/NL per Geo-Guard)* | **Local Endpoint Containment**:<br/>• `nono` Landlock sandbox confinement<br/>• Developer token suspension in central portal | **Device Health Attestation**:<br/>• MDM posture check<br/>• Mutual TLS developer client certs | **< 150ms** |
+| **Bare Metal / Edge Linux Server** | **Kernel eBPF Telemetry**:<br/>• System call tracepoints (`execve`, `connect`)<br/>• Host network interface monitoring | **Host-Level Isolation**:<br/>• Systemd cgroup slice freeze<br/>• Iptables / nftables egress quarantine | **Hardware Identity**:<br/>• TPM 2.0 PCR attestation<br/>• Bare metal SPIRE agent | **< 50ms** |
+
+---
+
+## 3. Graceful Degradation & Fallback Strategy
+
+When deploying across environments with varying privilege levels, Signal Loom dynamically adapts:
+
+1. **Kernel Privilege Unavailable**:
+   If `CAP_BPF` or `CAP_SYS_ADMIN` is denied by node security policy, the agent daemon gracefully
+   falls back from eBPF TC filtering to Kubernetes `NetworkPolicy` egress isolation, while routing
+   LLM model traffic through the `cpai` proxy circuit breaker.
+2. **Cgroup V2 Unavailable**:
+   In container environments where host `/sys/fs/cgroup` cannot be mounted, execution freeze degrades
+   to container SIGSTOP or immediate pod deletion, bypassing the 300s forensic investigation lease.
+3. **EU Works Council Jurisdictions**:
+   In Germany, France, and the Netherlands, the workstation sensor is automatically disabled by the
+   **EU Jurisdiction Geo-Guard** (`config.compliance.jurisdiction_guard = true`), limiting observation
+   strictly to autonomous non-human backend workloads.

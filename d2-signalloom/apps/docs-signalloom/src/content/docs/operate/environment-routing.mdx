@@ -1,0 +1,181 @@
+---
+title: On-demand customer environment routing
+description: Automated provisioning of isolated EAP customer evaluation sandboxes via salted Tailscale domains.
+---
+
+import Mermaid from "../../../components/Mermaid.astro";
+
+Signal Loom provides an **On-Demand EAP Environment Routing & Tailscale Provisioning Engine**
+that allows enterprise design partners and Early Access Program (EAP) evaluators—such as Kurasi—to
+access dedicated, isolated governance sandboxes with a single API call.
+
+Rather than forcing prospective customers onto a shared, static demonstration estate or requiring manual
+infrastructure setup over cloud provider tunnels, the deployment router automates the entire evaluation
+lifecycle: from cryptographic domain generation to ingress routing and TTL-based auto-reaping.
+
+<Mermaid
+  label="On-Demand Customer Environment Routing Architecture"
+  diagram={`flowchart TD
+    subgraph Trigger["Customer Request / External Trigger"]
+      USER["Enterprise Customer (e.g. Kurasi)"]
+      CRM["Sales CRM / External Webhook Gateway"]
+      REQ["POST /api/v1/environments/provision"]
+    end
+
+    subgraph Engine["Signal Loom Environment Controller"]
+      ROUTER["FastAPI Router: /api/v1/environments"]
+      HASHER["Salted Hasher: SHA256(salt : 'kurasi') -> 6f82ad81"]
+      STATE["Thread-Safe Environment Registry & TTL State Machine"]
+      DEX["Dex OIDC Dynamic Origin Leaser"]
+    end
+
+    subgraph Ingress["Tailscale & Gateway Ingress Plane"]
+      TS["Tailscale Serve: https://sl-eap-6f82ad81.tailscale"]
+      FUNNEL["Tailscale Funnel (Optional Public Eval)"]
+      ENVOY["Envoy Ingress Gateway (HTTPRoute)"]
+    end
+
+    subgraph Sandbox["Tenant Evaluation Workload"]
+      NS["Namespace: sl-eap-6f82ad81"]
+      APP["Signal Loom Dashboard & API Backend"]
+      SECRETS["Scoped OpenBao / SPIFFE Credentials"]
+    end
+
+    USER --> CRM --> REQ
+    REQ --> ROUTER
+    ROUTER --> HASHER
+    HASHER --> STATE
+    STATE --> TS
+    TS --> ENVOY
+    TS -.-> FUNNEL
+    STATE --> DEX
+    ENVOY --> NS
+    NS --> APP
+    NS --> SECRETS`}
+/>
+
+---
+
+## 1. Cryptographic Salt Hashing & Domain Synthesis
+
+To protect enterprise confidentiality, prospective customer company names are never exposed as raw DNS labels.
+All EAP endpoints use a deterministic cryptographic salt hash:
+
+```
+Hash = SHA-256(SALT + ":" + lowercase(trim(company_name)))[0:8]
+```
+
+- **Default Salt**: `signalloom-eap-salt-2026-q3` (configured via `SIGNAL_LOOM_EAP_SALT`).
+- **Canonical Customer Vector**:
+  - Input: `kurasi`
+  - Normalized: `kurasi`
+  - Hash: `6f82ad81`
+  - Hostname: `sl-eap-6f82ad81`
+  - Tailscale Internal Mesh URL: `https://sl-eap-6f82ad81.tailscale`
+  - MagicDNS Public URL: `https://sl-eap-6f82ad81.<tailnet>.ts.net`
+
+All generated hostnames strictly comply with RFC 1123 label standards (`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`).
+
+---
+
+## 2. Environment Provisioning REST API
+
+The FastAPI environment router is served under `/api/v1/environments` on the Signal Loom backend (`fe-signalloom`).
+
+### Key Endpoints
+
+| Method | Path | Description | Access Control |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/environments/provision` | Allocates a dedicated sandbox with configurable TTL (default 24h, max 72h). | Admin / API Key |
+| `GET` | `/api/v1/environments` | Lists active customer sandboxes, lease status, and remaining TTL. | Operator |
+| `GET` | `/api/v1/environments/{id}` | Returns sandbox metadata, ingress URLs, and health state. | Operator |
+| `POST` | `/api/v1/environments/{id}/extend` | Extends an active sandbox lease (max cumulative 72 hours). | Admin |
+| `POST` | `/api/v1/environments/{id}/teardown` | Idempotently deletes the sandbox, tears down routing, and emits audit records. | Admin |
+| `POST` | `/api/v1/environments/resolve-domain` | Utility to pre-compute the salted hash and domain for a company name. | Public / Helper |
+
+### Provision Request Example
+
+```bash
+curl -X POST https://dashboard.osramp.acme.local/api/v1/environments/provision \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "company_name": "kurasi",
+    "contact_email": "eval@kurasi.example.com",
+    "initial_ttl_minutes": 1440,
+    "enable_public_funnel": false,
+    "seed_synthetic_fixtures": true
+  }'
+```
+
+### Provision Response Example
+
+```json
+{
+  "environment_id": "env-6f82ad81-eap",
+  "company_name": "kurasi",
+  "status": "ready",
+  "domain": {
+    "hostname": "sl-eap-6f82ad81",
+    "mesh_url": "https://sl-eap-6f82ad81.tailscale",
+    "external_fqdn": "sl-eap-6f82ad81.signal-loom.ts.net"
+  },
+  "lease": {
+    "created_at": "2026-09-19T15:30:00Z",
+    "expires_at": "2026-09-20T15:30:00Z",
+    "ttl_minutes_remaining": 1440
+  },
+  "namespace": "sl-eap-6f82ad81"
+}
+```
+
+---
+
+## 3. Tailscale & Ingress Routing Automation
+
+Dynamic routing is orchestrated via the [`scripts/eap/tailscale-eap-env.sh`](file:///home/andy/src/cp/osramp-demo/scripts/eap/tailscale-eap-env.sh) CLI utility:
+
+1. **Tailscale Node Join**:
+   Provisions a virtual machine or container join token into the target Tailnet using an ephemeral, pre-authenticated authkey (`sl-demo-tailscale-authkey`).
+2. **Tailscale Serve Proxy**:
+   Wires local Envoy Ingress Gateway traffic to the Tailscale interface:
+   ```bash
+   tailscale serve --bg --https=443 http://127.0.0.1:8080
+   ```
+3. **Dex OIDC Origin Lease**:
+   Registers the new customer FQDN in Dex's redirect URI allowlist, eliminating OAuth origin bouncing errors during evaluator login.
+4. **Envoy Gateway HTTPRoute**:
+   Applies an isolated Kubernetes `HTTPRoute` matching host `sl-eap-6f82ad81.*` to forward traffic directly to the tenant's dedicated dashboard service.
+
+---
+
+## 4. Lifecycle & Auto-Reaping Daemon
+
+Customer evaluation environments are strictly ephemeral to prevent cloud resource bloat and data sprawl:
+
+- **Default Lifetime**: 24 hours (`1440` minutes).
+- **Hard Upper Limit**: 72 hours (`4320` minutes) cumulative lifetime.
+- **Heartbeat & Activity Tracking**: The daemon records evaluator logins and API invocations.
+- **Automatic De-provisioning**:
+  When a lease expires:
+  1. **Traffic Severance**: Ingress HTTPRoute and Tailscale Serve endpoints are immediately removed.
+  2. **Secret Revocation**: Scoped OpenBao tokens and SPIFFE SVIDs are revoked.
+  3. **Namespace Deletion**: Ephemeral Kubernetes resources are purged.
+  4. **Audit Immutability**: A cryptographic teardown certificate is appended to the central FrostDB ledger.
+
+---
+
+## 5. Webhook-Triggered Automated Provisioning
+
+The platform supports hands-free sandbox creation via inbound webhooks (e.g. from a sales portal or self-service form):
+
+```bash
+# Trigger automated EAP sandbox creation via authenticated webhook CLI
+./scripts/eap/emit-eap-webhook.sh \
+  --company "kurasi" \
+  --email "security-lead@kurasi.com" \
+  --url "https://api.signalloom.cp.internal/api/v1/webhooks/eap" \
+  --secret "$WEBHOOK_HMAC_SECRET"
+```
+
+The webhook payload is verified via `X-SignalLoom-Signature` (HMAC-SHA256), preventing unauthorized environment generation.

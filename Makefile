@@ -13,6 +13,8 @@ SHELL = /usr/bin/env bash -o pipefail
 CLUSTER_NAME ?= osramp
 
 KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml
+GOPATH ?= /tmp/gopath
+GONOSUMDB ?= *
 GOCACHE ?= /tmp/gocache
 GOMODCACHE ?= /tmp/gomodcache
 CGO_ENABLED ?= 0
@@ -24,7 +26,7 @@ UV_CACHE_DIR ?= /tmp/uv-cache
 PW_CHANNEL ?= chromium
 PLAYWRIGHT_BROWSERS_PATH ?= /tmp/ms-playwright
 DOCKER_CONFIG ?= /tmp/docker
-export KUBECONFIG GOCACHE GOMODCACHE CGO_ENABLED HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME UV_CONFIG_FILE UV_CACHE_DIR PW_CHANNEL PLAYWRIGHT_BROWSERS_PATH DOCKER_CONFIG
+export KUBECONFIG GOPATH GONOSUMDB GOCACHE GOMODCACHE CGO_ENABLED HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME UV_CONFIG_FILE UV_CACHE_DIR PW_CHANNEL PLAYWRIGHT_BROWSERS_PATH DOCKER_CONFIG
 
 # Signing keys live in the MAIN worktree and are shared by every linked one.
 #
@@ -475,7 +477,7 @@ test-all: test-all-estate ## Alias for test-all-estate.
 test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI, static BATS/config/registry).
 	@echo "=== [Offline 1/5] All Go Unit Tests (29 modules via dynamic discovery loop) ==="
 	@modules=$$(find . -type d \( -name ".cache" -o -name "node_modules" \) -prune -o -type f -name "go.mod" -exec dirname {} \; | sort -u); \
-	printf '%s\n' $$modules | xargs -I {} -P $${GO_TEST_JOBS:-8} sh -c 'echo "--- Running go test in $$1 ---" && (cd "$$1" && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)' _ {} || exit 1
+	printf '%s\n' $$modules | xargs -I {} -P $${GO_TEST_JOBS:-8} sh -c 'echo "--- Running go test in $$1 ---" && (cd "$$1" && env GOPATH=$${GOPATH:-/tmp/gopath} GONOSUMDB=* GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)' _ {} || exit 1
 	$(MAKE) test-signal-ingest-frostdb
 	@echo "=== [Offline 2/5] Frontend Vitest Suites (162 files across dashboard, design-system, harness-dash) ==="
 	$(MAKE) test-dashboard-weave

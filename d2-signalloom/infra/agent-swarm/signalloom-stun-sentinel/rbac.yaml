@@ -12,6 +12,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch", "patch"]
+  # Owner-chain stun record: signalloom.io/stunned on the pod's ReplicaSet or
+  # Deployment. get only (named lookups from ownerReferences), no list/watch.
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

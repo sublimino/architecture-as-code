@@ -2,8 +2,8 @@
 //
 // Node 25 ships a built-in `localStorage` global (the experimental Web Storage
 // API). It is installed before the jsdom test environment runs, shadows jsdom's
-// own `window.localStorage`, and is inert without `--localstorage-file` — it has
-// no getItem/setItem/clear at all. Any test that exercises localStorage-backed
+// own `window.localStorage`, and is inert without `--localstorage-file` (it has
+// no getItem/setItem/clear at all). Any test that exercises localStorage-backed
 // state therefore has to install a working Storage first.
 //
 // Call installMemoryStorage() in beforeEach; each call also gives the test a

@@ -24,7 +24,7 @@ export interface FleetRiskGaugeProps {
    * The currency these figures are denominated in.
    *
    * Defaults to GBP because the fleet topology endpoint does not yet report a
-   * currency — the ONE place that assumption still lives, named here so it is
+   * currency: the ONE place that assumption still lives, named here so it is
    * visible rather than buried in a shared constant. When the topology grows a
    * currency field this default goes and the prop becomes required.
    */
@@ -35,7 +35,7 @@ export interface FleetRiskGaugeProps {
 
 function riskColour(ale: number): string {
   // NaN fails every < comparison and would fall through to var(--error),
-  // making "unknown risk" display as maximum risk — misleading. A non-finite
+  // making "unknown risk" display as maximum risk (misleading). A non-finite
   // ALE is not a risk level; it is a missing value, so it gets the neutral
   // muted colour.
   if (!Number.isFinite(ale)) return 'var(--muted)'
@@ -119,7 +119,7 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle, currenc
   const money = (value: number) => fmtMoney({ amount: value, currency }, { compact: true })
   const asOfNote = asOfFor(currency)
 
-  const trendIcon = trend === 'up' ? '\u25B2' : trend === 'down' ? '\u25BC' : '\u2014'
+  const trendIcon = trend === 'up' ? '\u25B2' : trend === 'down' ? '\u25BC' : '-'
   const trendColour = trend === 'up' ? 'var(--error)' : trend === 'down' ? 'var(--teal)' : 'var(--muted)'
 
   const container: CSSProperties = {
@@ -176,7 +176,7 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle, currenc
       </div>
 
       {/* Subtitle. The as_of suffix appears only when a conversion actually
-          happened — a converted figure with no stated date is one nobody can
+          happened: a converted figure with no stated date is one nobody can
           defend in a review, and that is the whole reason the rate table is
           checked in rather than fetched. */}
       <div data-testid="fleet-risk-subtitle" style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 4 }}>

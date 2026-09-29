@@ -169,7 +169,7 @@ describe('/agents shows the credential state to a normal user', () => {
     wireApiFor('stunned')
     renderPage(<AgentsPage />)
     const row = (await screen.findByText(AGENT_NAME)).closest('tr') as HTMLElement
-    expect(within(row).getByText(/STUNNED — CREDENTIALS REVOKED/)).toBeInTheDocument()
+    expect(within(row).getByText(/STUNNED: CREDENTIALS REVOKED/)).toBeInTheDocument()
   })
 
   it('names WHY the credentials went away, not just that they did', async () => {

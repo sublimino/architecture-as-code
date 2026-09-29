@@ -3,7 +3,7 @@
 // resolveFake(method, path, body) returns a shape-valid fixture for any of the
 // client endpoints when demo mode is on, or `undefined` if a matched demo route
 // cannot resolve a resource (for example, GET /agents/{missing-id}). Every fixture is
-// typed against ../types/api so the compiler enforces contract fidelity — the
+// typed against ../types/api so the compiler enforces contract fidelity: the
 // same guarantee the backend Pydantic models give server-side.
 
 import type {
@@ -397,7 +397,7 @@ function issueCredentialForAgent(path: string): IssueCredentialResponse | undefi
     name: record.agent.name,
     identity_token: `demo.jwt.${record.agent.id}.issue-${record.activeCredentialCount}`,
     token_expires_at: '2026-08-27T12:00:00Z',
-    token_note: 'Simulated demo credential — not a real SPIFFE SVID or secret.',
+    token_note: 'Simulated demo credential; not a real SPIFFE SVID or secret.',
     simulated: true,
   }
 }
@@ -461,7 +461,7 @@ export function resetFakeData(): void {
 // ─── Per-user display currency (demo) ──────────────────────────────────────────
 //
 // Demo mode has no database, but the currency preference still has to survive a
-// reload — a setting that resets when you refresh is not a setting. The live
+// reload: a setting that resets when you refresh is not a setting. The live
 // path persists to user_preferences.display_currency; this is its demo
 // counterpart, backed by localStorage the same way the theme and sidebar
 // preferences already are.
@@ -485,7 +485,7 @@ function readDemoCurrency(): string {
       return stored
     }
   } catch {
-    // Storage blocked — fall through to the documented default.
+    // Storage blocked: fall through to the documented default.
   }
   // Matches DEFAULT_CURRENCY in money/currency.ts and the column DEFAULT in
   // migration 020. All three have to say USD or a user sees one currency and
@@ -504,7 +504,7 @@ function writeDemoCurrency(body: unknown): { display_currency: string } {
   try {
     localStorage.setItem(DEMO_CURRENCY_STORAGE_KEY, next)
   } catch {
-    // Storage blocked — the choice stays session-only.
+    // Storage blocked: the choice stays session-only.
   }
   return { display_currency: next }
 }
@@ -615,9 +615,9 @@ const audit: AuditListResponse = {
 /** Fixture history plus anything this demo session recorded, newest first.
  *
  *  Actions taken during the demo have to appear on the same trail as the
- *  seeded history — a demo where the audience presses a button and the audit
+ *  seeded history (a demo where the audience presses a button and the audit
  *  page still shows only two week-old rows demonstrates the opposite of what
- *  the product claims.
+ *  the product claims).
  *
  *  Unpaginated, like the fixture it replaces: resolveFake() strips the query
  *  string before dispatch, so page/limit never reach a fixture. Returning the
@@ -631,7 +631,7 @@ function auditWithRecordedActivity(): AuditListResponse {
 const DEMO_ACTOR = 'demo-operator'
 
 /**
- * POST /agents/{id}/stun — record the event, then answer as the API would.
+ * POST /agents/{id}/stun: record the event, then answer as the API would.
  *
  * The narrative half of the detail (`reason`, `outcome`) is authored here, not
  * read off the request, because that is what the real endpoint does. It used
@@ -642,7 +642,7 @@ const DEMO_ACTOR = 'demo-operator'
  */
 function stunFixture(path: string): StunAgentResponse {
   const agentId = path.split('/')[2]
-  // Every field is sourced here, none from the request — the endpoint takes no
+  // Every field is sourced here, none from the request: the endpoint takes no
   // body. Identity comes from the simulated cluster, which is demo mode's stand
   // -in for the proxy the live endpoint asks.
   const identity = simulatedAgentIdentity(agentId)
@@ -1351,7 +1351,7 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/agents\/[^/]+\/transition$/), data: (path, body) => transitionAgent(path, body) },
   // Merge union: the stateful handlers above come from feat/supercred-agents-unify,
   // which replaced this branch's static fixtures. The stun route below exists only
-  // on feat/supercred-stun-timeline — resolving this hunk to either side alone
+  // on feat/supercred-stun-timeline; resolving this hunk to either side alone
   // would have silently dropped one of the two features.
   { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p) => stunFixture(p) },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
@@ -1401,7 +1401,7 @@ const ROUTES: Match[] = [
   ...COMPLIANCE_POLICY_ROUTES,
   // signal weave routes (observations, actors, coverage, correlation, seed)
   ...WEAVE_ROUTES,
-  // live OpenFAIR risk routes (agent risk, fleet rollup) — Rule SP-3 requires the
+  // live OpenFAIR risk routes (agent risk, fleet rollup): Rule SP-3 requires the
   // risk surface to render from fixtures with the toggle ON, and req() throws 501
   // for a path with no demo route, so omitting these would make the risk widget
   // the one panel that breaks an offline presentation.

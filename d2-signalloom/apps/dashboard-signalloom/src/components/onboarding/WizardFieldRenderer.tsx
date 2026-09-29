@@ -7,7 +7,7 @@ interface Props {
   disabled?: boolean
 }
 
-// Renders a WizardStepConfig.fields array generically — no per-provider
+// Renders a WizardStepConfig.fields array generically: no per-provider
 // hardcoding. `password` fields are masked and write-only: this component
 // never receives a previously-stored secret value to pre-fill, since the API
 // never returns credentials once stored.

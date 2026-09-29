@@ -66,13 +66,13 @@ export default function CurrencySetting() {
           style={{ width: '100%' }}
         >
           {SUPPORTED_CURRENCIES.map((code) => (
-            <option key={code} value={code}>{code} — {CURRENCY_LABELS[code]}</option>
+            <option key={code} value={code}>{code}: {CURRENCY_LABELS[code]}</option>
           ))}
         </select>
 
         {/* A worked example beats a description of one. The preview is produced
             by the same formatter the risk pages use, so what is shown here is
-            what will be shown there — including whether the figure could be
+            what will be shown there, including whether the figure could be
             converted at all. */}
         <p data-testid="settings-currency-preview" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>
           Figures will look like <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmtMoney({ amount: PREVIEW_AMOUNT, currency: PREVIEW_SOURCE })}</span>
@@ -88,7 +88,7 @@ export default function CurrencySetting() {
       <div>
         <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 24 }}>
           Applies to every risk and exposure figure in the dashboard. Saved against your account,
-          not your team&apos;s — changing it here does not move anyone else&apos;s numbers.
+          not your team&apos;s: changing it here does not move anyone else&apos;s numbers.
         </p>
         {/* The rate and its effective date, on the surface where the choice is
             made. A converted figure whose date the user has never been shown is

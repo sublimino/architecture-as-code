@@ -1,5 +1,5 @@
 /**
- * SignalFusionPage — the Signal Fusion three-act demo page.
+ * SignalFusionPage: the Signal Fusion three-act demo page.
  *
  * Built on the same vocabulary as SuperCredInstructorPanel, because both pages
  * drive the SAME demo runner through the same shapes and an instructor should
@@ -9,16 +9,16 @@
  * the shared presentation rules in components/demoRunPresentation.ts.
  *
  * Three acts, driven by scripts/signalfusion-demo.sh:
- *   1. Inferred  — deploy, seed collectors, correlate
- *   2. Attested  — kernel observation, detect what upper layers cannot see
- *   3. Issued    — promote to issued identity, revoke, close the gap
+ *   1. Inferred: deploy, seed collectors, correlate
+ *   2. Attested: kernel observation, detect what upper layers cannot see
+ *   3. Issued: promote to issued identity, revoke, close the gap
  *
  * Two things are deliberately NOT copied from SuperCred:
  *
  *   * the superadmin split. SuperCred renders a phase-status list for everyone
  *     and the mutating controls only for superadmins. Adding that here would
  *     change who can run this demo, which is an access decision and not a
- *     design-system one — and the runner enforces its own access regardless.
+ *     design-system one, and the runner enforces its own access regardless.
  *     So there is one act list carrying both the state and the control.
  *   * the opt-in SSE log transport. It exists in SuperCred so the streaming
  *     pattern can be exercised and judged; it is off by default there, has a
@@ -77,7 +77,7 @@ export const SIGNAL_FUSION_PAGE_TITLE = 'Signal Fusion Demo'
  * scripts/signalfusion-demo.sh dispatches on `case "${1:-}" in 1) 2) 3)`, so
  * every lookup missed against a live runner and the per-act help below was
  * structurally unreachable. It failed silently rather than loudly, because the
- * code falls back to the runner's one-line description — which is the right
+ * code falls back to the runner's one-line description, which is the right
  * length for a tooltip and the wrong length for someone about to press a
  * control that mutates a shared cluster in front of a room.
  *
@@ -170,7 +170,7 @@ const errorBanner: CSSProperties = {
  *
  * ButtonWait replaces the button's text with a fixed-width loader, so without
  * a floor here the control shrinks the moment it is pressed and drags the row
- * sideways — which reads to a room as a fault. See ButtonWait's decision 2.
+ * sideways, which reads to a room as a fault. See ButtonWait's decision 2.
  */
 const ACT_BUTTON: CSSProperties = {
   fontSize: 12, padding: '6px 12px', minWidth: 104,
@@ -268,7 +268,7 @@ export default function SignalFusionPage() {
       if (actorResult.status === 'fulfilled') setActors(actorResult.value)
       if (coverageResult.status === 'fulfilled') setCoverage(coverageResult.value)
     } catch {
-      // Results are supplementary — a failure here should not block the demo.
+      // Results are supplementary: a failure here should not block the demo.
     }
   }, [getAccessTokenSilently])
 
@@ -281,7 +281,7 @@ export default function SignalFusionPage() {
   /**
    * Append a chunk, but only if it starts exactly at the cursor.
    *
-   * Two readers share `offsetRef` — the waiting loop and `drainLog` — and
+   * Two readers share `offsetRef` (the waiting loop and `drainLog`) and
    * neither holds a lock, so a response can land that no longer describes the
    * cursor's position: a straggler assigning an older `next_offset` drags the
    * cursor backwards and the same bytes are printed twice. The server echoes
@@ -313,7 +313,7 @@ export default function SignalFusionPage() {
         if (chunk.eof) break
       }
     } catch {
-      /* the tail is best effort — the run status is the authoritative outcome */
+      /* the tail is best effort: the run status is the authoritative outcome */
     }
   }, [applyLogChunk, getAccessTokenSilently])
 
@@ -425,7 +425,7 @@ export default function SignalFusionPage() {
   const runsBlocked = running || !scriptAvailable
 
   /**
-   * The steps to render — the runner's, or the three we know exist.
+   * The steps to render: the runner's, or the three we know exist.
    *
    * Without /demo-api the titles are unknown but the acts are not, and a blank
    * panel is indistinguishable from a broken page.
@@ -445,7 +445,7 @@ export default function SignalFusionPage() {
   const resetVerified = latestRun?.kind === 'reset' && latestRun.status === 'succeeded'
   // A SUCCEEDED reset, specifically. SuperCred's equivalent cuts at the latest
   // reset of any outcome, which discards the acts before a teardown that did
-  // not happen — so an instructor whose reset failed sees a demo that looks
+  // not happen, so an instructor whose reset failed sees a demo that looks
   // un-started while the estate still carries everything act 1 deployed. The
   // badge states a fact about run history ("the last run of act 1 succeeded"),
   // which stays true whatever the failed reset did or did not remove.
@@ -456,7 +456,7 @@ export default function SignalFusionPage() {
     : status?.recent ?? []
 
   /**
-   * The most recent run for an act — active first, then the runner's history.
+   * The most recent run for an act: active first, then the runner's history.
    *
    * `kind !== 'reset'` is not belt-and-braces here the way it would be for
    * SuperCred: demo_runner.py sets SIGNAL_FUSION_RESET_STEP_ID = "3", the same
@@ -515,7 +515,7 @@ export default function SignalFusionPage() {
         </div>
       )}
 
-      {/* Instructor controls — three acts */}
+      {/* Instructor controls: three acts */}
       <div data-testid="sf-instructor" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Demo Acts</h2>
@@ -551,7 +551,7 @@ export default function SignalFusionPage() {
                       Act {step.step_id}
                     </span>
                     {/* The title is its own node so it is addressable on its
-                        own — an act's name is what an instructor says out loud. */}
+                        own: an act's name is what an instructor says out loud. */}
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{step.title}</span>
                     <span
                       data-testid={`sf-act-status-${step.step_id}`}
@@ -661,7 +661,7 @@ export default function SignalFusionPage() {
         </div>
 
         {/* Every control above is disabled and an act can run for minutes.
-            Without this the panel is indistinguishable from one that has hung —
+            Without this the panel is indistinguishable from one that has hung,
             which, on stage, is the moment an instructor starts clicking things.
             Presentation only: it reads `running` and the runner's start stamp. */}
         {running && activeRun && (
@@ -728,7 +728,7 @@ export default function SignalFusionPage() {
           </div>
         )}
 
-        {/* The RAW log goes in, escape bytes and all — the block strips them for
+        {/* The RAW log goes in, escape bytes and all: the block strips them for
             display and hands the untouched string to its Copy button, which is
             the one artefact an instructor wants off this screen when an act
             fails. Mounted as soon as a run is live rather than when the first

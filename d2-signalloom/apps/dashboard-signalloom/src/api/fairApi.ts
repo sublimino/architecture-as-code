@@ -14,7 +14,7 @@
  * ─── The path, and why it is configurable ──────────────────────────────────
  *
  * req() prefixes `/api` to any path that does not already start with it, so
- * `/v1/risk/agents/x` reaches `/api/v1/risk/agents/x` — the endpoint named in
+ * `/v1/risk/agents/x` reaches `/api/v1/risk/agents/x`: the endpoint named in
  * the Phase 2 work decomposition.
  *
  * The prefix is an env var because the service half (CRKC-P2-1) is being built

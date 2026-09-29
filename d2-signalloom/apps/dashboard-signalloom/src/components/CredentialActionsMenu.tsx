@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
-// "Manage Credentials ▾" — replaces the old side-by-side Issue/Revoke
+// "Manage Credentials ▾": replaces the old side-by-side Issue/Revoke
 // Credential buttons (ClickUp 86cak75u7) with a single dropdown, matching
 // the Actions ▾ pattern already used by TriageMenu.tsx. Revoke is styled
 // as destructive and separated by a divider, same convention as Dismiss
 // in TriageMenu.
 //
 // Credential rotation (issue a replacement + revoke the old one in one
-// step) is a separate, not-yet-built action — tracked in ClickUp. When it
+// step) is a separate, not-yet-built action, tracked in ClickUp. When it
 // ships, it slots in here as a third menu item.
 
 export default function CredentialActionsMenu({ onIssue, onRevoke }: {

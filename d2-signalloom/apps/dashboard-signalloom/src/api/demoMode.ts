@@ -22,7 +22,7 @@ const listeners = new Set<Listener>()
 
 // In-memory source of truth, seeded from localStorage on load and synced back
 // best-effort. Keeping the live value in memory means the toggle works even
-// where localStorage is unavailable (SSR, some test runners) — localStorage is
+// where localStorage is unavailable (SSR, some test runners): localStorage is
 // only for persistence across a reload.
 function readPersisted(): boolean {
   // In production environments, demo mode is always off regardless of localStorage.
@@ -48,7 +48,7 @@ export function setDemoMode(on: boolean): void {
   try {
     localStorage.setItem(KEY, on ? 'true' : 'false')
   } catch {
-    /* ignore — storage unavailable; in-memory value still holds */
+    /* ignore: storage unavailable; in-memory value still holds */
   }
   listeners.forEach((l) => l(on))
 }

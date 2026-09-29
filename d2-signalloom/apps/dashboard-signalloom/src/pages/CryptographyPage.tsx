@@ -1,5 +1,5 @@
 /**
- * Cryptography — platform trust-foundation dashboard.
+ * Cryptography: platform trust-foundation dashboard.
  *
  * A self-contained, mock-backed operator view over the cryptographic trust
  * fabric of the Signal Loom platform: cluster root of trust, OpenBao bootstrap,
@@ -98,7 +98,7 @@ interface AlgorithmEntry {
   quantumSafe: boolean
 }
 
-// EOL dates are deliberately NOT inline here — they're derived at render time
+// EOL dates are deliberately NOT inline here: they're derived at render time
 // from cryptoLifecycle.ts (CRYPTO_LIFECYCLE), the single sourced/cited data
 // file also used by the Cipher Discovery table, so the two tables can never
 // disagree about the same underlying algorithm.
@@ -106,16 +106,16 @@ const ALGORITHM_INVENTORY: AlgorithmEntry[] = [
   { algorithm: 'ML-KEM (Kyber)', standard: 'FIPS 203', type: 'KEM', nistStatus: 'Standardised 2024', quantumSafe: true },
   { algorithm: 'ML-DSA (Dilithium)', standard: 'FIPS 204', type: 'Signature', nistStatus: 'Standardised 2024', quantumSafe: true },
   { algorithm: 'SLH-DSA (SPHINCS+)', standard: 'FIPS 205', type: 'Signature (hash-based)', nistStatus: 'Standardised 2024', quantumSafe: true },
-  { algorithm: 'RSA-2048', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
-  { algorithm: 'ECDSA P-256', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
-  { algorithm: 'ECDSA P-384', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
-  { algorithm: 'X25519', standard: 'RFC 7748', type: 'Key exchange', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
-  { algorithm: 'ECDH P-256', standard: 'NIST SP 800-56A Rev. 3', type: 'Key exchange', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'RSA-2048', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable: disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'ECDSA P-256', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable: disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'ECDSA P-384', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable: disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'X25519', standard: 'RFC 7748', type: 'Key exchange', nistStatus: 'Quantum-vulnerable: disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'ECDH P-256', standard: 'NIST SP 800-56A Rev. 3', type: 'Key exchange', nistStatus: 'Quantum-vulnerable: disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
   { algorithm: 'AES-256', standard: 'FIPS 197', type: 'Symmetric', nistStatus: 'Approved', quantumSafe: true },
 ]
 
 // Cipher Discovery's `kex` values name TLS cipher groups, not the Algorithm
-// Inventory's canonical algorithm names — this maps one onto the other so the
+// Inventory's canonical algorithm names: this maps one onto the other so the
 // "Key exchange" column can click through to a real, matching inventory row.
 const KEX_TO_ALGORITHM_INVENTORY: Record<string, string> = {
   X25519MLKEM768: 'ML-KEM (Kyber)',
@@ -176,13 +176,13 @@ const PQC_DONUT = [
 //
 // The local `hex()`, `Pill`, `StatCard`, `Section` and `Table` that used to
 // live here are gone. The last four were character-level duplicates of
-// DashKit's; `hex()` was worse than duplication — it concatenated an alpha
+// DashKit's; `hex()` was worse than duplication: it concatenated an alpha
 // suffix onto its argument, and every colour it was handed is a `var(--teal)`
 // token rather than a hex literal (see styles/tokens.ts), so every pill on this
 // page computed `background: var(--teal)1f`, which is not a colour and was
 // dropped. Every badge here has been rendering with no fill at all in all three
-// themes. StatusBadge's `tint()` is the working pattern — `color-mix`, which
-// composes with custom properties — and it is what the Design System page
+// themes. StatusBadge's `tint()` is the working pattern (`color-mix`, which
+// composes with custom properties) and it is what the Design System page
 // already points at for this exact defect.
 
 function proofBadgeColor(status: CryptoProof['status']) {
@@ -202,8 +202,8 @@ function proofBadgeColor(status: CryptoProof['status']) {
 // Six tables, one strip. Every table on this page is a DataTable in the shape
 // the Design System page calls "Realistic": a `toolbar` slot carrying the
 // controls and an `emptyState` for the filter that matches nothing. The page
-// still owns the state and the predicate — DataTable reads neither and is
-// handed an already-narrowed array — which is exactly why the strip itself can
+// still owns the state and the predicate (DataTable reads neither and is
+// handed an already-narrowed array), which is exactly why the strip itself can
 // be shared here without sharing an opinion about what "search" means.
 //
 // FilterBar is local to this file rather than a component, deliberately. What
@@ -297,7 +297,7 @@ function FilterBar({
 /**
  * What a table shows when the filters match nothing.
  *
- * A separate wording from a healthy zero on purpose — nothing here ever
+ * A separate wording from a healthy zero on purpose: nothing here ever
  * legitimately has no rows, so an empty table on this page is always something
  * the reader just did, and the body says how to undo it. The toolbar is still
  * above it, because DataTable renders the toolbar on the empty branch too.
@@ -306,7 +306,7 @@ function NoMatch({ what }: { what: string }) {
   return (
     <EmptyState
       kicker="Nothing matches those filters"
-      body={`Clear the search box or choose a different ${what} — the controls above stay put when the table empties.`}
+      body={`Clear the search box or choose a different ${what}: the controls above stay put when the table empties.`}
     />
   )
 }
@@ -375,7 +375,7 @@ const CA_COLUMNS: Column<CaLink>[] = [
     key: 'status',
     label: 'Status',
     sortable: true,
-    help: 'active — valid, with no renewal under way. renewing — a replacement has been requested and both certificates are trusted while the swap completes. expiring — inside the renewal window with no replacement issued yet, so this one needs attention before the date beside it, not on it.',
+    help: 'active: valid, with no renewal under way. renewing: a replacement has been requested and both certificates are trusted while the swap completes. expiring: inside the renewal window with no replacement issued yet, so this one needs attention before the date beside it, not on it.',
   },
 ]
 
@@ -391,13 +391,13 @@ const ENGINE_COLUMNS: Column<SecretEngine>[] = [
     key: 'type',
     label: 'Type',
     sortable: true,
-    help: 'What the engine mounted at this path issues. pki signs certificates. kv-v2 stores versioned static secrets — the only kind here that is not short-lived. transit encrypts data on behalf of a caller without ever releasing the key. database mints per-request credentials against a real database and expires them.',
+    help: 'What the engine mounted at this path issues. pki signs certificates. kv-v2 stores versioned static secrets (the only kind here that is not short-lived). transit encrypts data on behalf of a caller without ever releasing the key. database mints per-request credentials against a real database and expires them.',
   },
   {
     key: 'leases',
     label: 'Active leases',
     sortable: true,
-    help: 'How many credentials this engine has issued that have not yet expired or been revoked. It is a live count, not a total ever issued, so it falls on its own as leases time out. A kv-v2 engine reads zero because static secrets are not leased — that is the engine type, not a fault.',
+    help: 'How many credentials this engine has issued that have not yet expired or been revoked. It is a live count, not a total ever issued, so it falls on its own as leases time out. A kv-v2 engine reads zero because static secrets are not leased; that is the engine type, not a fault.',
   },
   { key: 'status', label: 'Status', sortable: true },
 ]
@@ -413,7 +413,7 @@ const SVID_COLUMNS: Column<Svid>[] = [
     key: 'spiffeId',
     label: 'SPIFFE ID',
     sortable: true,
-    help: 'The workload’s name in the trust domain, and the whole of its identity — there is no accompanying password or key file. The path segments are its namespace and service account, so the identity states where the workload runs rather than asserting who wrote it.',
+    help: 'The workload’s name in the trust domain, and the whole of its identity (there is no accompanying password or key file). The path segments are its namespace and service account, so the identity states where the workload runs rather than asserting who wrote it.',
   },
   { key: 'workload', label: 'Workload', sortable: true },
   {
@@ -439,18 +439,18 @@ const CIPHER_COLUMNS: Column<CipherEndpoint>[] = [
     key: 'kex',
     label: 'Key exchange',
     sortable: true,
-    help: 'The TLS group that negotiates the session key for this endpoint — the step a future quantum computer breaks retroactively, because traffic captured today can be decrypted once the key exchange falls. Underlined entries click through to the matching row in Algorithm Inventory below.',
+    help: 'The TLS group that negotiates the session key for this endpoint (the step a future quantum computer breaks retroactively, because traffic captured today can be decrypted once the key exchange falls). Underlined entries click through to the matching row in Algorithm Inventory below.',
   },
   {
     key: 'pqc',
     label: 'PQC',
     sortable: true,
-    help: 'ready — the key exchange is post-quantum on its own. hybrid — a classical and a post-quantum exchange are combined, so the session stays safe unless both break; this counts as quantum-safe here. classical — quantum-vulnerable today, and vulnerable to traffic captured today and decrypted later.',
+    help: 'ready: the key exchange is post-quantum on its own. hybrid: a classical and a post-quantum exchange are combined, so the session stays safe unless both break; this counts as quantum-safe here. classical: quantum-vulnerable today, and vulnerable to traffic captured today and decrypted later.',
   },
   {
     key: 'endpoint',
     label: 'End of life',
-    help: 'The date after which NIST disallows this algorithm, not a vendor support date or a guess by this dashboard. Read from the cited source in cryptoLifecycle.ts, which also backs Algorithm Inventory below — hover a badge for the citation.',
+    help: 'The date after which NIST disallows this algorithm, not a vendor support date or a guess by this dashboard. Read from the cited source in cryptoLifecycle.ts, which also backs Algorithm Inventory below; hover a badge for the citation.',
   },
 ]
 
@@ -469,18 +469,18 @@ const ALGO_COLUMNS: Column<AlgorithmEntry>[] = [
   {
     key: 'nistStatus',
     label: 'NIST Status',
-    help: 'Where NIST has placed this algorithm. Standardised means a published FIPS anyone may implement now. IPD means Initial Public Draft — the 2035 dates come from a draft that is not final, so treat them as the current direction of travel rather than a settled deadline.',
+    help: 'Where NIST has placed this algorithm. Standardised means a published FIPS anyone may implement now. IPD means Initial Public Draft: the 2035 dates come from a draft that is not final, so treat them as the current direction of travel rather than a settled deadline.',
   },
   {
     key: 'algorithm',
     label: 'End of life',
-    help: 'The date after which NIST disallows this algorithm, not a vendor support date or a guess by this dashboard. Read from the cited source in cryptoLifecycle.ts, which also backs Cipher Discovery above — hover a badge for the citation.',
+    help: 'The date after which NIST disallows this algorithm, not a vendor support date or a guess by this dashboard. Read from the cited source in cryptoLifecycle.ts, which also backs Cipher Discovery above; hover a badge for the citation.',
   },
   {
     key: 'quantumSafe',
     label: 'Quantum-safe',
     sortable: true,
-    help: 'Whether the algorithm survives a cryptographically relevant quantum computer. Public-key algorithms do not: Shor’s algorithm breaks RSA and every elliptic curve outright. Symmetric ones largely do, because Grover’s only halves the effective key length — which is why AES-256 is here and RSA-2048 is not.',
+    help: 'Whether the algorithm survives a cryptographically relevant quantum computer. Public-key algorithms do not: Shor’s algorithm breaks RSA and every elliptic curve outright. Symmetric ones largely do, because Grover’s only halves the effective key length, which is why AES-256 is here and RSA-2048 is not.',
   },
 ]
 
@@ -509,7 +509,7 @@ const PROXY_COLUMNS: Column<Proxy>[] = [
     key: 'status',
     label: 'Status',
     sortable: true,
-    help: 'degraded means the proxy is still serving but has lost redundancy or is failing a share of its health checks — requests through it are answered, so this will not show up as an outage until it is one.',
+    help: 'degraded means the proxy is still serving but has lost redundancy or is failing a share of its health checks: requests through it are answered, so this will not show up as an outage until it is one.',
   },
 ]
 
@@ -525,8 +525,8 @@ export default function CryptographyPage() {
   const [highlightedAlgo, setHighlightedAlgo] = useState<string | null>(null)
 
   // Holds whichever attempt is currently outstanding, so that both ways of
-  // abandoning one — unmounting the page, and pressing Retry while the previous
-  // request is still in flight — cancel it through the same path.
+  // abandoning one (unmounting the page, and pressing Retry while the previous
+  // request is still in flight), cancel it through the same path.
   const inFlight = useRef<AbortController | null>(null)
 
   const load = useCallback(async () => {
@@ -541,7 +541,7 @@ export default function CryptographyPage() {
       setProofError(false)
     } catch {
       // An abort means this page went away or a newer attempt superseded this
-      // one — not that the proof service failed, and rendering it as a failure
+      // one, not that the proof service failed, and rendering it as a failure
       // would report an outage that never happened. It also must not reach
       // setProofs: after unmount React has no tree to dispatch into, and this
       // catch would then throw a second time from inside the handler itself,
@@ -588,7 +588,7 @@ export default function CryptographyPage() {
     <div style={{ paddingBottom: 40 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Cryptography</h1>
       <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 22, maxWidth: 720 }}>
-        Trust foundation for <code style={{ color: 'var(--cyan)' }}>{TRUST_DOMAIN}</code> — root of trust, secret
+        Trust foundation for <code style={{ color: 'var(--cyan)' }}>{TRUST_DOMAIN}</code>: root of trust, secret
         bootstrap, workload identity, post-quantum readiness, and the identity-aware proxy fabric.
       </p>
 
@@ -612,7 +612,7 @@ export default function CryptographyPage() {
               <EmptyState
                 tone="amber"
                 kicker="No workload-identity proofs reported"
-                body={'The crypto-proof service responded with zero proofs — the bao-spire-positive-proof / '
+                body={'The crypto-proof service responded with zero proofs: the bao-spire-positive-proof / '
                   + 'bao-spire-negative-proof Jobs may not have run yet in this namespace.'}
               />
             )}
@@ -740,8 +740,8 @@ export default function CryptographyPage() {
           <StatCard label="OIDC discovery" value="Active (JWKS)" sub={SPIRE.server.oidcDiscovery} accent="var(--teal)" />
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-          Bootstrap posture only. The live, per-workload credential state — SVID, OpenBao lease and
-          service token, with issuance and expiry — is on{' '}
+          Bootstrap posture only. The live, per-workload credential state (SVID, OpenBao lease and
+          service token, with issuance and expiry) is on{' '}
           <Link to="/credential-inventory" style={{ color: 'var(--cyan)' }}>Credential Inventory</Link>.
         </p>
         <DataTable<Svid>
@@ -782,7 +782,7 @@ export default function CryptographyPage() {
         <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           {/* DonutChart, not Recharts. The design system's rule is that a
               single proportion of three segments is hand-rolled SVG and that
-              Recharts is for things with axes — and the two things this page
+              Recharts is for things with axes, and the two things this page
               was hand-rolling around the PieChart, a centre label positioned by
               an absolute overlay and a legend built from the same array, are
               both already inside DonutChart. Same three segments, same colours,
@@ -796,7 +796,7 @@ export default function CryptographyPage() {
                 How this is counted
               </span>
               <HelpHint label="What the quantum-safe percentage counts" testId="pqc-coverage-hint">
-                Endpoints whose key exchange is post-quantum ready OR hybrid, over all endpoints on this page — so a hybrid endpoint counts as safe, on the basis that an attacker must break both halves. It is a count of endpoints, not of traffic: the two classical ones here carry internal database and cache connections.
+                Endpoints whose key exchange is post-quantum ready OR hybrid, over all endpoints on this page, so a hybrid endpoint counts as safe, on the basis that an attacker must break both halves. It is a count of endpoints, not of traffic: the two classical ones here carry internal database and cache connections.
               </HelpHint>
             </div>
           </div>
@@ -881,7 +881,7 @@ export default function CryptographyPage() {
         </div>
       </Section>
 
-      {/* Algorithm Inventory — PQC migration readiness */}
+      {/* Algorithm Inventory: PQC migration readiness */}
       <Section title="Algorithm Inventory" hint="NIST post-quantum migration tracking">
         <DataTable<AlgorithmEntry>
           columns={ALGO_COLUMNS}

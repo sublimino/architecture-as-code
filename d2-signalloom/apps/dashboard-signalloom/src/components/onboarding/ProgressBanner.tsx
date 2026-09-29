@@ -65,7 +65,7 @@ export default function ProgressBanner({
                       background: `${STATUS_COLOR[status]}1f`,
                       color: STATUS_COLOR[status],
                     }}
-                    title={`${displayName(id)} — ${STATUS_LABEL[status]}`}
+                    title={`${displayName(id)}: ${STATUS_LABEL[status]}`}
                   >
                     {displayName(id)}: {STATUS_LABEL[status]}
                   </span>
@@ -80,7 +80,7 @@ export default function ProgressBanner({
         </button>
       </div>
 
-      {/* Visual progress bar + step dots — the old version was text-only
+      {/* Visual progress bar + step dots: the old version was text-only
           ("Step X of Y"), which read as flat/utilitarian rather than
           showing at-a-glance where you are in the flow. */}
       <div style={{ padding: '0 32px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>

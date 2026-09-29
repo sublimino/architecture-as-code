@@ -50,13 +50,13 @@ function getWarningTypeColor(type: string): string {
 }
 
 function formatTime(iso: string | null | undefined): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   try {
     const d = new Date(iso)
     if (isNaN(d.getTime())) return iso
     return d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC'
   } catch {
-    return iso || '—'
+    return iso || '-'
   }
 }
 

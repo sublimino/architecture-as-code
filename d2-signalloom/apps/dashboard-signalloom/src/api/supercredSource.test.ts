@@ -313,7 +313,7 @@ describe('discoverSuperCredAgents', () => {
     } as Response)
 
     const result = await discoverSuperCredAgents()
-    expect(result.error).toBe('Partial discovery failure — fe-signalloom: forbidden')
+    expect(result.error).toBe('Partial discovery failure: fe-signalloom: forbidden')
   })
 
   it('throws in live mode when the proxy is unreachable, so the page can show it', async () => {

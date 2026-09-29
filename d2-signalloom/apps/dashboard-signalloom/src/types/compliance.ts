@@ -1,7 +1,7 @@
 // ─── Policy-as-Versioned-Code types ─────────────────────────────────────────
 //
 // Every money figure here is a `Money`, never a bare number. The currency used
-// to be welded into the field NAME — `carriedGbp`, `totalExposureGbp` — which
+// to be welded into the field NAME: `carriedGbp`, `totalExposureGbp`, which
 // meant three things at once, all bad: the currency could not vary, a rename
 // could silently redenominate a value, and arithmetic across two currencies
 // type-checked cleanly.
@@ -9,7 +9,7 @@
 // It also made the frontend carry a `SOURCE_CURRENCY = 'GBP'` constant that was
 // true only by coincidence. `riskctl --json` reports in each ORG's own currency
 // (`doc.Currency`), and risk/org/ludlow-health.yaml is a US provider whose
-// amounts are all GBP — so the constant was one org file away from silently
+// amounts are all GBP, so the constant was one org file away from silently
 // mislabelling every figure on screen. The currency now travels with the data.
 //
 // Matches the `{amount, currency}` shape the engine emits, which has a
@@ -59,7 +59,7 @@ export interface PostureSummary {
   passed: number
   failed: number
   /**
-   * The reporting currency of this document — the engine's `doc.Currency`.
+   * The reporting currency of this document: the engine's `doc.Currency`.
    *
    * Per-ORG, not global: two institutions in the same product can report in
    * different denominations, so this is read from the payload and never

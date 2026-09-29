@@ -7,7 +7,7 @@
 // pages.
 //
 // In demo-data mode there is no cluster, so the same interface is backed by a
-// simulated one — advanced by the SuperCred page's own controls. Both paths
+// simulated one: advanced by the SuperCred page's own controls. Both paths
 // produce the identical observation shape, which is why the projections and
 // every page above them are mode-agnostic.
 
@@ -22,7 +22,7 @@ import type {
   SuperCredScanObservation,
 } from './supercredTypes'
 
-/** Matches SUPERCRED_API in SuperCredPage.tsx — see the nginx.conf comment there. */
+/** Matches SUPERCRED_API in SuperCredPage.tsx; see the nginx.conf comment there. */
 const SUPERCRED_API = '/supercred-api'
 
 const SIM_KEY = 'sl_supercred_demo_phase'
@@ -43,13 +43,13 @@ function readPersistedSimPhase(): SuperCredPhase {
     const stored = localStorage.getItem(SIM_KEY)
     if (stored && stored in SIM_LABEL) return stored as SuperCredPhase
   } catch {
-    /* storage unavailable — fall through to absent */
+    /* storage unavailable: fall through to absent */
   }
   return 'absent'
 }
 
 // In-memory source of truth, seeded from localStorage and synced back
-// best-effort — the same pattern demoMode.ts uses, and for the same reason: the
+// best-effort (the same pattern demoMode.ts uses, and for the same reason: the
 // simulated demo has to keep working where localStorage is absent or inert
 // (Node's experimental Web Storage shadows jsdom's, SSR, some test runners).
 // localStorage only buys surviving a page reload mid-demo.
@@ -64,7 +64,7 @@ function writeSimPhase(phase: SuperCredPhase): void {
   try {
     localStorage.setItem(SIM_KEY, phase)
   } catch {
-    /* storage unavailable — the in-memory value still holds */
+    /* storage unavailable: the in-memory value still holds */
   }
 }
 
@@ -80,7 +80,7 @@ function simulate(phase: SuperCredPhase): SuperCredAgentObservation | null {
 }
 
 /**
- * Advance the simulated cluster. Demo-data mode only — in live mode the
+ * Advance the simulated cluster. Demo-data mode only: in live mode the
  * cluster is the source of truth and this is a no-op.
  */
 export function setSimulatedPhase(phase: SuperCredPhase): void {
@@ -145,7 +145,7 @@ async function refresh(): Promise<void> {
  * How long the current observation stays fresh.
  *
  * Delegated to pollInterval.ts, which owns the TTL, the failure threshold and
- * the backoff curve together — they only make sense relative to each other and
+ * the backoff curve together: they only make sense relative to each other and
  * to the poll interval the pages run at.
  */
 function staleAfter(): number {
@@ -169,7 +169,7 @@ export async function ensureSuperCredState(): Promise<SuperCredDemoState> {
   return getSuperCredState()
 }
 
-/** Force the next read to re-observe — used right after a demo action lands. */
+/** Force the next read to re-observe: used right after a demo action lands. */
 export function invalidateSuperCredState(): void {
   lastObservedAt = 0
   consecutiveFailures = 0
@@ -201,15 +201,15 @@ export interface DiscoveryResult {
 /**
  * Flatten the proxy's per-namespace failure map into one message.
  *
- * A partial discovery is worse than a total one — it looks like a complete
- * answer that is silently short — so it has to reach the operator.
+ * A partial discovery is worse than a total one: it looks like a complete
+ * answer that is silently short, so it has to reach the operator.
  */
 function discoveryError(data: Record<string, unknown>): string | undefined {
   if (data.error) return String(data.error)
   const perNamespace = data.namespace_errors
   if (perNamespace && typeof perNamespace === 'object') {
     const msgs = Object.entries(perNamespace as Record<string, string>).map(([ns, msg]) => `${ns}: ${msg}`)
-    if (msgs.length > 0) return `Partial discovery failure — ${msgs.join('; ')}`
+    if (msgs.length > 0) return `Partial discovery failure: ${msgs.join('; ')}`
   }
   return undefined
 }
@@ -222,8 +222,8 @@ function discoveryError(data: Record<string, unknown>): string | undefined {
  */
 const SIM_SCAN_RESULTS: ComplianceScanResponse['results'] = [
   { check: 'security-context-present', pass: false, reason: 'pod spec defines no securityContext' },
-  { check: 'run-as-non-root', pass: false, reason: 'runAsNonRoot is not set — container may run as uid 0' },
-  { check: 'drop-capabilities', pass: false, reason: 'capabilities.drop is not set — container retains default capabilities' },
+  { check: 'run-as-non-root', pass: false, reason: 'runAsNonRoot is not set: container may run as uid 0' },
+  { check: 'drop-capabilities', pass: false, reason: 'capabilities.drop is not set: container retains default capabilities' },
 ]
 
 /**
@@ -268,7 +268,7 @@ export async function scanSuperCredAgent(url: string, agentId: string): Promise<
     const res = await fetch(url)
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      throw new Error(`Compliance check failed: ${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`)
+      throw new Error(`Compliance check failed: ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`)
     }
     result = (await res.json()) as ComplianceScanResponse
   }
@@ -282,7 +282,7 @@ export async function scanSuperCredAgent(url: string, agentId: string): Promise<
  * stunSuperCredAgent() used to live here and POSTed the proxy directly. That
  * call is gone: `POST /api/agents/{id}/stun` now performs the cluster action
  * itself, so a browser-side copy would relabel the pod twice. More to the
- * point, the two-call shape was the defect — the browser POSTed the proxy, then
+ * point, the two-call shape was the defect: the browser POSTed the proxy, then
  * POSTed fe-signalloom to record it, and a closed tab or an expired token
  * between the two left the cluster mutated with nothing written down. One call
  * has no window to fall through.
@@ -315,7 +315,7 @@ export function recordScanResult(response: ComplianceScanResponse): SuperCredSca
   return observation
 }
 
-/** Reset everything — used by tests and by a demo teardown. */
+/** Reset everything: used by tests and by a demo teardown. */
 export function resetSuperCredSource(): void {
   lastObservedAt = 0
   inflight = null

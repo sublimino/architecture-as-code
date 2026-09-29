@@ -12,7 +12,7 @@ import type {
 
 // Thin, swappable data layer for the connector framework (ADR-ENHC-012,
 // implemented in PR #19 on services/agent_registry/routers/connectors.py).
-// VITE_CONNECTORS_API_MODE defaults to 'mock' — flip to 'live' once PR #19
+// VITE_CONNECTORS_API_MODE defaults to 'mock': flip to 'live' once PR #19
 // merges and this is wired against a real dev deployment.
 //
 // Shapes below are read directly off the PR #19 diff, not guessed from the
@@ -21,12 +21,11 @@ import type {
 //   GET  /connectors           -> { connectors: [...] }  (rows use `connector_id`,
 //                                   not `id`)
 //   POST /connectors           -> thin { connector_id, provider_id, status,
-//                                   created_at } — NOT a full connector row
+//                                   created_at } (NOT a full connector row)
 //   DELETE /connectors/{id}    -> { connector_id, status } (404 if already
 //                                   disconnected)
 //   POST /connectors/{id}/test -> { connector_id, valid, scopes_ok, error_msg,
-//                                   credential_expires_at, needs_rotation } —
-//                                   no `days_until_expiry`
+//                                   credential_expires_at, needs_rotation } (no `days_until_expiry`)
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 const http = axios.create({ baseURL: BASE })
@@ -70,7 +69,7 @@ const liveConnectorsApi: ConnectorsApi = {
 
   createConnector: async (token, body) => {
     await req<ConnectorCreateResponse>('/connectors', token, { method: 'POST', data: body })
-    // The create response is thin (no display_name/expiry/metadata) — refetch
+    // The create response is thin (no display_name/expiry/metadata): refetch
     // to get the full row rather than hand-assembling a partial one.
     const res = await req<TenantConnectorsResponse>('/connectors', token)
     const match = res.connectors.find(
@@ -102,8 +101,8 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
       ],
       permissions: ['Directory.Read.All', 'User.Read.All'],
       // In-app help route (see /help/connectors/entra) rather than an external
-      // URL — mock-mode only; live mode's docs_link still comes from the
-      // backend connector framework until that's repointed separately.
+      // URL (mock-mode only; live mode's docs_link still comes from the
+      // backend connector framework until that's repointed separately).
       docs_link: '/help/connectors/entra',
       help_text: 'Create an app registration with Directory.Read.All (application permission, admin consented) and use its credentials here.',
     },
@@ -117,7 +116,7 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
         { name: 'api_token', label: 'API token', type: 'password', required: true },
       ],
       permissions: ['okta.users.read', 'okta.apps.read'],
-      // In-app help route (see /help/connectors/okta) — matches the real
+      // In-app help route (see /help/connectors/okta): matches the real
       // backend plugin's docs_link (okta.py); mock-mode was stale/external.
       docs_link: '/help/connectors/okta',
       help_text: 'Generate a read-only API token from an Okta service account with the scopes above.',
@@ -133,7 +132,7 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
       ],
       permissions: ['api.management.read'],
       docs_link: '/help/connectors/openai',
-      help_text: 'Create an Admin API key (Organization → API keys → Admin keys) and use it here — a regular project API key will not work.',
+      help_text: 'Create an Admin API key (Organization → API keys → Admin keys) and use it here; a regular project API key will not work.',
     },
   },
   {
@@ -179,13 +178,13 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
   },
 ]
 
-// Module-level, in-memory only — resets on reload. Stands in for the real
+// Module-level, in-memory only: resets on reload. Stands in for the real
 // tenant_connectors table until PR #19 merges and dev is wired to it.
 let mockConnectors: TenantConnector[] = []
 let mockIdSeq = 1
 // Dev-only convenience so the wizard's "test failed" path is exercisable in
 // mock mode: any credential field literally containing "invalid" fails the
-// mock test call. Never a real validation rule — the real backend actually
+// mock test call. Never a real validation rule; the real backend actually
 // calls plugin.validate_credentials().
 const mockInvalidCredentials = new Map<string, boolean>()
 

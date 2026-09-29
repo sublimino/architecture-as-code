@@ -1,4 +1,4 @@
-# AgentMaxxing Demo Bridge — Frozen Contract Snapshot
+# AgentMaxxing Demo Bridge: Frozen Contract Snapshot
 
 **Card:** AMXD-P1-3
 **Frozen at:** 2026-09-15
@@ -12,7 +12,7 @@ not a silent edit. Anything under **Open** may be extended without renegotiation
 
 ---
 
-## Frozen — do not change without a recorded breaking-change decision
+## Frozen: do not change without a recorded breaking-change decision
 
 ### Channel discriminant
 
@@ -72,7 +72,7 @@ future edit "repairs" the `kind` literals, the missing-property check still
 fails. `bridge.test.ts` pins both directions with `@ts-expect-error`, so relaxing
 the boundary fails `bun run typecheck`.
 
-### Deriving prop types — use `DistributiveOmit`, never `Omit` or `Partial`
+### Deriving prop types: use `DistributiveOmit`, never `Omit` or `Partial`
 
 ```ts
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
@@ -80,7 +80,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 
 `Omit` is **not** distributive over a union. `Omit<StageOutcome<S>, 'stage'>`
 produces one object type with neither channel's brand and a widened
-`channelKind`, silently collapsing the separation. `Partial` is worse — it makes
+`channelKind`, silently collapsing the separation. `Partial` is worse: it makes
 mock and live mutually assignable again. React prop plumbing reaches for both by
 reflex, so `DistributiveOmit` is the sanctioned form and `bridge.test.ts` pins
 with `@ts-expect-error` that it preserves the boundary.
@@ -97,7 +97,7 @@ interface BridgeUnsupportedError { kind: 'unsupported'; reason: 'nginx-no-v1-loc
 ```
 
 `network` and `application` are the distinction AMXD-P4-2 needs: "unreachable,
-try again" versus "the backend answered 403". `unsupported` is neither — the
+try again" versus "the backend answered 403". `unsupported` is neither: the
 network is fine and the backend never saw the request.
 
 ### Bridge surface
@@ -145,7 +145,7 @@ interface SeedEstateResult {
 }
 ```
 
-**Reset semantics — exactly what is claimed.** `resetEstate()` removes every
+**Reset semantics: exactly what is claimed.** `resetEstate()` removes every
 `localStorage` key under `amxd.demo.` (enumerated, not hardcoded), clears the
 in-memory bridge event log, and returns `INITIAL_STEPPER_STATE`. It does **not**
 clear backend rows. There is no backend endpoint that would let it.
@@ -156,7 +156,7 @@ router mount. Their sibling `api_compat.py:2353` is documented "Nothing in the
 running application calls this." `backendStateCleared` is typed as the literal
 `false` so this cannot be quietly changed.
 
-**Seed semantics — idempotent, never destructive.** `seedEstate()` writes the
+**Seed semantics: idempotent, never destructive.** `seedEstate()` writes the
 same three keys with the same values for a given preset. A presenter
 re-running it mid-demo therefore re-establishes the known state rather than
 losing anything. `signature` is a deterministic digest of the preset, which is
@@ -188,7 +188,7 @@ interface ChannelDescriptor {
 function describeChannel(source: { readonly channel: DemoChannel }): ChannelDescriptor
 ```
 
-Panels branch on `kind` or `provenance`, never on `label` — the wording is free
+Panels branch on `kind` or `provenance`, never on `label`: the wording is free
 to change. `describeChannel` and the event log both read `source.channel.kind`,
 one field, so they cannot disagree for the same call.
 
@@ -210,7 +210,7 @@ function clearBridgeEventLog(): void
 ```
 
 AMXD-P6-1 reads this to assert which channel actually served a stage. If its
-assertion window ever needs more than 200 entries, **raise the cap** — do not
+assertion window ever needs more than 200 entries, **raise the cap**, do not
 shorten the spec.
 
 ### Live reachability
@@ -226,7 +226,7 @@ const LIVE_REACHABILITY: Readonly<Record<string, Readonly<Record<StageId, LiveRe
 
 ---
 
-## Live-reachable stage transitions — AMXD-P1-4 HAS LANDED
+## Live-reachable stage transitions: AMXD-P1-4 HAS LANDED
 
 Dated against the nginx state at **2026-09-15**: `nginx.conf` has a
 `location /api/` block **and** a `location /v1/` block (`nginx.conf:118`).
@@ -279,7 +279,7 @@ tests.
 
 ---
 
-## Open — later cards may extend these without renegotiation
+## Open: later cards may extend these without renegotiation
 
 - **`ChannelDescriptor.label` wording.** Free to change. Nothing string-matches it.
 - **`BridgeEvent` additive fields.** New optional fields may be appended. `seq`,

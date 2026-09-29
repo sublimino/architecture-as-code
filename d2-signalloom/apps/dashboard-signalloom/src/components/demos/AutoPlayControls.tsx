@@ -658,7 +658,7 @@ export const AutoPlayControls: React.FC<AutoPlayControlsProps> = ({
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--error)' }} />
               <span>
                 Stage {haltedStage ? STAGE_METADATA[haltedStage].stepNumber : ''} Verification
-                Rejected — Auto-Play Halted
+                Rejected: Auto-Play Halted
               </span>
             </div>
             <p

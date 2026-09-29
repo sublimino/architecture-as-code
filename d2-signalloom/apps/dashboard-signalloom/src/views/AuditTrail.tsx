@@ -19,7 +19,7 @@ import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 import AuditDetailDrawer from '../components/AuditDetailDrawer'
 
-// Watched by the demo audience in a second window — see api/pollInterval.ts.
+// Watched by the demo audience in a second window: see api/pollInterval.ts.
 //
 // This is the payoff page: the agent is gone, and the record of what happened
 // to it is not. That record has to arrive while the room is still looking at
@@ -50,7 +50,7 @@ const LIMIT = 50
 // the wrong node. Scope audit-table queries to the tbody. See
 // pages/stunReachesTimeline.test.tsx.
 //
-// A new type must be added to BOTH lists — one missing from EVENT_COLORS
+// A new type must be added to BOTH lists: one missing from EVENT_COLORS
 // renders grey, one missing from EVENT_TYPES cannot be filtered at all. And a
 // type the backend emits also needs a migration widening the audit_events
 // CHECK constraint, or tests/test_audit_event_types.py fails.
@@ -71,7 +71,7 @@ const EVENT_TYPES = [
   'demo.phase_run', 'demo.reset_requested',
   // Generated per demo type by _build_demo_router() in demo_runner.py, which
   // interpolates the demo type into the event name. Without these the Signal
-  // Fusion demo writes audit rows an operator cannot isolate — the events are
+  // Fusion demo writes audit rows an operator cannot isolate: the events are
   // in the table and unreachable from the product, which on the audit trail is
   // indistinguishable from them never having happened. Migration 032.
   'demo.supercred.phase_run', 'demo.supercred.reset_requested',
@@ -155,14 +155,14 @@ const EVENT_COLORS: Record<string, string> = {
  * The chip vocabulary, and the one thing on this page that is DERIVED rather
  * than declared.
  *
- * EVENT_COLORS above is already a taxonomy — the comment at its head says so
- * outright ("enforcement and trust withdrawal ... carry the error colour") —
+ * EVENT_COLORS above is already a taxonomy: the comment at its head says so
+ * outright ("enforcement and trust withdrawal ... carry the error colour"),
  * it was simply one nobody could filter on. These are the same five buckets
  * with names, so the chip a reader clicks and the colour they clicked it for
  * cannot disagree: the class is looked up THROUGH the colour rather than
  * restated beside it. Adding an event type therefore classifies it
  * automatically, and the only way to get it wrong is to give it a colour that
- * is not one of the five — which lands it in `other` rather than silently in
+ * is not one of the five, which lands it in `other` rather than silently in
  * the wrong bucket.
  *
  * The vocabulary is FIXED, not derived from the rows on screen. A list built
@@ -187,7 +187,7 @@ const CLASS_OF_COLOR: Record<string, EventClass> = {
   'var(--cyan)': 'routine',
 }
 
-/** Total by construction — an unknown type has no colour and lands in `other`. */
+/** Total by construction: an unknown type has no colour and lands in `other`. */
 function classOf(type: string): EventClass {
   return CLASS_OF_COLOR[EVENT_COLORS[type] ?? ''] ?? 'other'
 }
@@ -199,7 +199,7 @@ function classOf(type: string): EventClass {
  * `setApplied(NO_FILTERS)` is `Object.is`-equal to what is already there and
  * React bails out instead of re-rendering. That matters because the mount
  * effect is keyed on `fetchPage`, which is keyed in turn on
- * `getAccessTokenSilently` — a reference `auth/oidc` keeps stable with a
+ * `getAccessTokenSilently`: a reference `auth/oidc` keeps stable with a
  * `useCallback` and a comment explaining that consumers put it in effect deps
  * and an unstable one is an infinite refetch loop. This does not fix that
  * contract, which is not this file's to fix; it declines to add a synchronous
@@ -233,7 +233,7 @@ function fmtTs(iso: string) {
  * of hand-rolled key handling that would then be this file's to maintain.
  *
  * `aria-pressed` is what `outline` was already saying visually, and it is the
- * same fact `ToolbarFacet` publishes for the chips in the strip above — the
+ * same fact `ToolbarFacet` publishes for the chips in the strip above: the
  * two interactive filter surfaces on this page now announce identically.
  *
  * The visible text stays the accessible name, deliberately: no `aria-label`
@@ -348,7 +348,7 @@ export default function AuditTrail() {
    * The same four values as `filtersRef`, mirrored into state.
    *
    * The ref exists so `fetchPage` can read the current filters without being
-   * rebuilt on every keystroke, and a ref by definition cannot drive a render —
+   * rebuilt on every keystroke, and a ref by definition cannot drive a render,
    * so nothing on screen could say whether what is typed in the four controls
    * is what the table is actually showing. The four inputs apply on a button,
    * so that gap is reachable simply by typing, and on a page whose whole job is
@@ -365,7 +365,7 @@ export default function AuditTrail() {
    *   audit record with an error state in front of the room.
    */
   const fetchPage = useCallback(async (p: number, replace: boolean, silent = false) => {
-    if (silent) { /* background refresh — leave the current view alone */ }
+    if (silent) { /* background refresh: leave the current view alone */ }
     else if (replace) setLoading(true)
     else setLoadingMore(true)
     try {
@@ -412,7 +412,7 @@ export default function AuditTrail() {
 
   useEffect(() => {
     // Only while the operator is on the first page. "Load More" appends pages
-    // onto `events`, and a poll re-fetching page 1 replaces the lot — at
+    // onto `events`, and a poll re-fetching page 1 replaces the lot; at
     // fifteen minutes that was a rare annoyance, at 2.5s it would make
     // pagination impossible to use. Someone reading back through the log is
     // doing archaeology, not watching a demo, so the poll waits for them.
@@ -447,7 +447,7 @@ export default function AuditTrail() {
   }
 
   /**
-   * Clears BOTH tiers — the four server filters and the two client-side ones.
+   * Clears BOTH tiers: the four server filters and the two client-side ones.
    *
    * One control, because "Clear filters" naming only some of the filters is the
    * kind of half-reset that leaves an operator staring at a narrowed table
@@ -509,7 +509,7 @@ export default function AuditTrail() {
   // The predicate lives here and not in DataTableToolbar, which is the whole
   // point of that module: it never sees a row, so this page decides what
   // "search" means for an audit event. Here it means the five things the table
-  // actually renders — including the detail payload, because an operator
+  // actually renders: including the detail payload, because an operator
   // hunting a reason code is looking at the last column when they reach for the
   // box.
   //
@@ -536,7 +536,7 @@ export default function AuditTrail() {
 
   // Counts of the WHOLE loaded array, never of the result. A chip reporting the
   // filtered set reads 0 for every option the reader has not chosen and stops
-  // being a way back to the rows it is hiding — the reason DataTableToolbar
+  // being a way back to the rows it is hiding: the reason DataTableToolbar
   // takes counts as a prop rather than computing them.
   const classCounts = useMemo(() => {
     const counts = Object.fromEntries(EVENT_CLASSES.map((c) => [c, 0])) as Record<EventClass, number>
@@ -562,7 +562,7 @@ export default function AuditTrail() {
       {/* ── Tier 1: re-queries the server ─────────────────────────────────── */}
       <div role="group" aria-label="Query the audit record on the server" style={SERVER_GROUP}>
         {/* Explicit widths, because a `datetime-local` sizes itself from the
-            placeholder the BROWSER chooses for the user's locale — "dd/mm/yyyy,
+            placeholder the BROWSER chooses for the user's locale ("dd/mm/yyyy,
             --:--" here, "mm/dd/yyyy, --:-- --" for a US en, wider again for
             ja-JP. Left intrinsic, this row's wrap point is a property of the
             reader's machine, which is not a thing to discover from a support
@@ -598,7 +598,7 @@ export default function AuditTrail() {
             style={{ width: 172, fontSize: 12 }}
           />
         </ToolbarField>
-        {/* Thirty-two options, so a select and not chips — and no counts on
+        {/* Thirty-two options, so a select and not chips, and no counts on
             them. This control filters at the SERVER, so the only counts this
             page could put beside an option are counts of the fifty rows it
             happens to hold, which would understate every option in the list.
@@ -614,12 +614,12 @@ export default function AuditTrail() {
         {/* The action and its two annotations travel together.
             Left as three siblings of the fields, the row wraps between them at
             whatever width the fields happen to total, and what lands alone on
-            the second line is a bare "?" — which then reads as a hint about
+            the second line is a bare "?", which then reads as a hint about
             nothing. Grouped, the wrap can only happen before the cluster, so
             the second line is either absent or the whole action. */}
         {/* `width: 100%` so this is always its own line, never sometimes.
             Sharing a line with the fields, the cluster's width changes the
-            moment "not applied yet" appears — which is the first keystroke —
+            moment "not applied yet" appears (which is the first keystroke),
             and that reflow moves Apply itself. Clicking Apply then removes the
             caption and moves Apply back, under a pointer that is resting on
             it. DataTableToolbar's header comment argues exactly this about the
@@ -645,7 +645,7 @@ export default function AuditTrail() {
             </span>
           )}
           {/* Sits with Apply and names it, because a "?" beside a button is
-              read as being about that button whatever it says — proximity
+              read as being about that button whatever it says: proximity
               establishes the association, so the label has to agree with it. */}
           <HelpHint label="What these filters do and when they apply" testId="audit-server-filter-help">
             {'These four are sent to the server and it decides which rows exist, so they narrow the '
@@ -729,7 +729,7 @@ export default function AuditTrail() {
       )}
 
       {/* Table.
-          The filter strip is no longer a card above this ternary — it is
+          The filter strip is no longer a card above this ternary: it is
           DataTable's `toolbar` slot, which renders it above the empty branch by
           construction so a filter that matches nothing can always be undone.
           The two states where no table exists at all render the same strip in
@@ -813,7 +813,7 @@ export default function AuditTrail() {
                 // the branch that was here before.
                 <EmptyState kicker="No events found" body="Try adjusting your filters or wait for governance actions to be recorded." />
               ) : (
-                // Rows exist and are being hidden by this browser — a different
+                // Rows exist and are being hidden by this browser: a different
                 // fact, and the only one of the two an operator can undo
                 // instantly. The way out appears twice on purpose: the strip
                 // survives this branch by construction, and this one is
@@ -838,7 +838,7 @@ export default function AuditTrail() {
               )
             }
             renderRow={(ev, i) => (
-              // The stripe was `rgba(255,255,255,0.01)` — white, so it did
+              // The stripe was `rgba(255,255,255,0.01)` (white, so it did
               // nothing at all on the Light theme's white ground and the rows
               // there were unbanded. Mixing the theme's own text colour instead
               // bands every theme with one rule, and at 3% of a foreground that
@@ -868,7 +868,7 @@ export default function AuditTrail() {
                   ) : <span style={{ color: 'var(--muted)' }}>None</span>}
                 </td>
                 {/* Both of these cells are ellipsised, and until now the cut-off
-                    text was simply gone — no way to read an actor past 180px or
+                    text was simply gone: no way to read an actor past 180px or
                     a payload past 300px without exporting the file. `title` is
                     the browser's own affordance for exactly that and costs
                     nothing; it is not a substitute for the column hint, which
@@ -953,7 +953,7 @@ export default function AuditTrail() {
             )}
           />
 
-          {/* Load More (server-side — complements the client-side DataTable pagination).
+          {/* Load More (server-side: complements the client-side DataTable pagination).
               Gated on there being anything loaded, which is what the old
               `events.length === 0 ? empty : table` ternary did implicitly:
               "Loaded 0 of 0 events from server" beneath a panel that already

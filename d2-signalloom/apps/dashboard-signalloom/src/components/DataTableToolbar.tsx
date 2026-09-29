@@ -1,10 +1,10 @@
 /**
- * DataTableToolbar — the filter strip that goes in DataTable's `toolbar` slot.
+ * DataTableToolbar: the filter strip that goes in DataTable's `toolbar` slot.
  *
  * WHERE THIS CAME FROM. Nine superadmin pages migrated onto DataTable's
  * `toolbar` prop in a single day, each told to keep its strip local because ten
  * agents editing one shared component concurrently is unmergeable. That was the
- * right call and it worked — adoption went from zero call sites to thirty-one —
+ * right call and it worked (adoption went from zero call sites to thirty-one)
  * and it produced six dialects of one idea. This module is what the survey at
  * docs/signalloom/datatable-toolbar-survey.md found they agree on. It is a
  * report on nine pages, not a new opinion about them.
@@ -25,7 +25,7 @@
  * WHAT IT DOES NOT DO, WHICH IS THE POINT.
  *
  * It never sees a row. There is no `data` prop, no predicate, no `searchKeys`,
- * no comparator, no count arithmetic — every value and every callback is handed
+ * no comparator, no count arithmetic: every value and every callback is handed
  * down, and the page still owns the state and still hands DataTable an
  * already-narrowed array. This is the same division DataTable's own header
  * comment argues for, and the migration supplied the proof: the two hand-rolled
@@ -34,7 +34,7 @@
  * takes `string | readonly string[]`, because a service can sit in several
  * zones). A component that owned "search" would hand every caller one opinion
  * about a word they each define differently, and the escape hatch for the ones
- * it did not fit would be a prop that turns it off — two behaviours in one
+ * it did not fit would be a prop that turns it off: two behaviours in one
  * component, which is where a fork lands anyway, only later and with more code.
  * DataTableToolbar.test.tsx asserts the absence against this file's source,
  * because the failure mode is an addition that would pass every behavioural
@@ -46,9 +46,9 @@
  * silently removes the one control that reaches the empty state.
  *
  * It is not wired into DataTable, and it renders no table and no empty state.
- * The survey argues DataTable should absorb the labelled wrapper — its own
+ * The survey argues DataTable should absorb the labelled wrapper (its own
  * `toolbarStyle` is already this exact flex row, and every caller nests a
- * second identical div inside it purely to hang `role="group"` on — and that
+ * second identical div inside it purely to hang `role="group"` on) and that
  * EmptyState should grow an action slot, since the two pages that put "Clear
  * filters" in the empty panel both fight it with a magic negative margin and
  * land 2px apart. Both are follow-ups. Nothing here presumes either.
@@ -57,7 +57,7 @@
  * deleted strip rendered "Clear filters" ALWAYS and merely disabled it, arguing
  * that a control which appears only once it is needed moves everything beside it
  * at the moment the reader is aiming at something. Three surviving dialects
- * render it conditionally, and that is what `ToolbarClear` does — but the
+ * render it conditionally, and that is what `ToolbarClear` does, but the
  * objection is answered by the ORDER rather than ignored. Clear sits after the
  * chips, so the only thing its arrival can move is the count, and a count is
  * not a pointer target. Worth recording that the verbatim adoption which
@@ -69,10 +69,10 @@
  * they are a map of the data as much as a control; clear after the things it
  * undoes; the count last because it is the OUTCOME of everything to its left.
  * That argument is Federated Services', quoted from 06d60cf. It is not enforced
- * by the API — `DataTableToolbar` takes children, so a caller with a genuine
+ * by the API (`DataTableToolbar` takes children, so a caller with a genuine
  * exception (Collusion & Access needs a HelpHint mid-strip, NetworkTests needs
  * a disclosure after the count) can have one without this module growing a prop
- * for it. It is enforced by a test over the specimen instead.
+ * for it). It is enforced by a test over the specimen instead.
  */
 import type { CSSProperties, ReactNode } from 'react'
 import { tint } from './StatusBadge'
@@ -100,8 +100,8 @@ const CAPTION: CSSProperties = { fontSize: 11.5, color: 'var(--muted)' }
 
 /**
  * The selected treatment: a tinted fill plus a full-strength border, never a
- * solid accent fill — text on solid cyan or amber fails AA in at least one of
- * Dark, Light and Andy.
+ * solid accent fill (text on solid cyan or amber fails AA in at least one of
+ * Dark, Light and Andy).
  *
  * `tint()` rather than a hand-written `color-mix()` string, and border
  * LONGHANDS rather than the shorthand. Both come from 4fe7816: a `border`
@@ -130,7 +130,7 @@ export function toolbarChipStyle(selected: boolean): CSSProperties {
  * The labelled group every dialect wrapped its strip in, and the piece the
  * survey argues DataTable should absorb outright.
  *
- * A slot, not a schema. It reads none of its children — which is what lets the
+ * A slot, not a schema. It reads none of its children, which is what lets the
  * two pages with a bespoke extra node keep it without this module growing a
  * prop each time.
  */
@@ -148,7 +148,7 @@ export function DataTableToolbar({ label, children }: { label: string; children:
  * `label` is required and there is no default, because this control has no
  * visible text: an unnamed search box is announced as "search" and a page with
  * six tables then has six controls with one name. Every dialect composed it
- * from the table's noun — "Search the fleet roster", not "Search".
+ * from the table's noun: "Search the fleet roster", not "Search".
  */
 export function ToolbarSearch({
   label, placeholder, value, onChange, testId,
@@ -237,7 +237,7 @@ export function ToolbarFacet({
  * The accessible name is COMPOSED from the visible label rather than written
  * out. An explicit `aria-label` replaces the wrapping `<label>`'s text as the
  * name, so "Filter services by owner" has to contain the visible "Owner" or a
- * speech-input user saying "Owner" reaches nothing — WCAG 2.5.3, and composing
+ * speech-input user saying "Owner" reaches nothing (WCAG 2.5.3), and composing
  * it is what stops the two drifting apart later.
  */
 export function ToolbarSelect({
@@ -282,7 +282,7 @@ export function ToolbarSelect({
  *
  * `active` is a fact about the OTHER controls and never about this one, and
  * never about the row count either. Both of those would be the defect
- * DataTable's footer comment documents — a control whose own value decides
+ * DataTable's footer comment documents: a control whose own value decides
  * whether it renders, leaving a state the user cannot leave. An empty result is
  * precisely when this is needed, and DataTable keeps the toolbar above the
  * empty panel by construction, so it is still here to click.
@@ -312,7 +312,7 @@ export function ToolbarClear({
 /**
  * The outcome of every control to its left, which is why it goes last.
  *
- * `total` is the size of the whole table, not of the current result — the two
+ * `total` is the size of the whole table, not of the current result: the two
  * being different is the entire information content of the sentence.
  */
 export function ToolbarCount({

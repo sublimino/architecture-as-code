@@ -18,7 +18,7 @@ import { ProofConsole } from './ProofConsole'
 // whether the credential chain is real. An engineer opens a row and gets the
 // literal command that decided it plus the raw output, so they can paste it into
 // a terminal and disagree with us. Same data, same request, no second source of
-// truth — the identical script backs `make demo-signalloom-supercred-evidence`.
+// truth: the identical script backs `make demo-signalloom-supercred-evidence`.
 //
 // The card this replaces derived all six steps from `!!agent.id` and printed
 // hardcoded timestamps, so it showed everything completed the instant an agent
@@ -40,7 +40,7 @@ const STATE_STYLE: Record<EvidenceState, { label: string; bg: string; border: st
  * as the same sentence with a different number, and they are not remotely the
  * same event: one says the platform is broken, the other says it would not let
  * you look. An operator in front of an audience has to tell them apart at a
- * glance. The status code stays in the text — an engineer still needs it — but
+ * glance. The status code stays in the text (an engineer still needs it), but
  * it no longer carries the whole meaning on its own.
  *
  * None of these are findings about the credential chain, which is why every
@@ -68,7 +68,7 @@ function describeFailure(status: number): { title: string; detail: string } {
   if (status === 408 || status === 504) {
     return {
       title: `The evidence probe timed out (HTTP ${status})`,
-      detail: 'The cluster did not answer in time. Nothing was disproved — the probe simply did not finish.',
+      detail: 'The cluster did not answer in time. Nothing was disproved: the probe simply did not finish.',
     }
   }
   if (status >= 500) {
@@ -86,12 +86,12 @@ function describeFailure(status: number): { title: string; detail: string } {
 // ─── Waiting ────────────────────────────────────────────────────────────────
 //
 // "Checking the credential chain…" reads identically at second two and at
-// second ninety, and the probe shells out to kubectl six times — it is not
+// second ninety, and the probe shells out to kubectl six times: it is not
 // fast. Both of this card's waits now carry a live elapsed figure.
 //
 // The button's wait is `ButtonWait`, shared with the other three pages that
 // had each grown their own version of it: no visible word, a reserved width,
-// an accessible name, no live region. The headline below is NOT one of those —
+// an accessible name, no live region. The headline below is NOT one of those:
 // it is a panel-level wait with a whole line to itself, so it stays a plain
 // PixelLoader and keeps the full sentence.
 
@@ -103,15 +103,15 @@ const REFRESH_BUTTON_W = 96
 
 function headline(steps: EvidenceStep[], failed: boolean, loading: boolean): string {
   const { observed, unavailable, total } = evidenceSummary(steps)
-  // On failure the count is zero because nothing ran — saying "none collected
+  // On failure the count is zero because nothing ran: saying "none collected
   // yet" would describe a clean starting state, which is the one reading this
   // card must never produce for a probe that broke.
-  if (failed) return 'No evidence could be collected — the check itself failed. See below.'
+  if (failed) return 'No evidence could be collected: the check itself failed. See below.'
   // Before the first probe resolves the count is zero, which would otherwise
   // render the same false clean state the failure branch above exists to stop.
   if (loading && total === 0) return 'Checking the credential chain…'
   if (total === 0) return 'No evidence has been collected yet.'
-  if (unavailable === total) return 'Nothing could be checked — the platform could not reach the cluster.'
+  if (unavailable === total) return 'Nothing could be checked: the platform could not reach the cluster.'
   const base = `${observed} of ${total} steps in the credential chain are confirmed by direct inspection`
   return unavailable > 0
     ? `${base}; ${unavailable} could not be checked.`
@@ -130,7 +130,7 @@ export function CredentialEvidencePanel({
    *
    * The evidence route sits behind `authenticated_tenant` exactly
    * like every other route on that router, so an unauthenticated request comes
-   * back 401 and the card renders "No evidence has been collected yet." — which
+   * back 401 and the card renders "No evidence has been collected yet.", which
    * reads as "the credential chain does not exist" rather than "we were not
    * allowed to look". That is precisely the conflation this component was built
    * to end, so the token is not optional in practice; it is optional only in the
@@ -142,7 +142,7 @@ export function CredentialEvidencePanel({
   const [error, setError] = useState<{ title: string; detail?: string } | null>(null)
   const [loading, setLoading] = useState(false)
   /**
-   * Which consoles are open — the ONLY source of truth for that, keyed by step
+   * Which consoles are open: the ONLY source of truth for that, keyed by step
    * number.
    *
    * There used to be a second one: a global `showAllCommands` flag, combined as
@@ -215,7 +215,7 @@ export function CredentialEvidencePanel({
 
   // Computed over the RENDERED rows, never over the whole map. A re-check that
   // drops a step leaves its remembered `true` behind, and a vanished row must
-  // not be what makes this button offer to hide something — that is the same
+  // not be what makes this button offer to hide something: that is the same
   // "stale state outranks what is on screen" fault the `||` had, one level up.
   const anyCommandsOpen = useMemo(() => steps.some((s) => open[s.step] === true), [steps, open])
 
@@ -240,12 +240,12 @@ export function CredentialEvidencePanel({
               distinction is spelled out here rather than in the rows, because
               it is one rule that governs every row. */}
           <HelpHint label="What the three evidence badges mean" testId="evidence-states-help">
-            Each row is one probe run against the cluster just now. Observed means the probe found it. Not present means the probe ran and it was not there — often the correct answer, such as before a stun. Unverified means the probe could not run, so nothing was proved either way; it is not the same as absent.
+            Each row is one probe run against the cluster just now. Observed means the probe found it. Not present means the probe ran and it was not there (often the correct answer, such as before a stun). Unverified means the probe could not run, so nothing was proved either way; it is not the same as absent.
           </HelpHint>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Disabled with no rows: the toggle only expands per-step commands,
-              so with an empty chain it is inert and reads as a broken button —
+              so with an empty chain it is inert and reads as a broken button,
               which is exactly how it looked while the endpoint was 500ing.
               Disabled rather than hidden: hiding it would shift the header on
               every re-check, and mid-demo jitter reads as a fault of its own.
@@ -302,7 +302,7 @@ export function CredentialEvidencePanel({
           were not checked hidden inside a "completed".
 
           A div rather than a p: the first-pass wait renders PixelLoader here,
-          whose root is a div, and a paragraph may not contain one — the
+          whose root is a div, and a paragraph may not contain one: the
           browser would close the paragraph early and the styling with it. The
           test id, the sentence and the styling are otherwise unchanged, and on
           a RE-check the line keeps showing the previous counts rather than
@@ -323,7 +323,7 @@ export function CredentialEvidencePanel({
           a command that never ran. */}
       {steps.length > 0 && (
       <p style={{ fontSize: 11, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
-        Every row below was decided by running a command against the cluster just now — not by
+        Every row below was decided by running a command against the cluster just now, not by
         what the operator clicked. Open a row, or run{' '}
         <code style={code}>make demo-signalloom-supercred-evidence</code> for the same result in a terminal.
       </p>
@@ -399,8 +399,7 @@ export function CredentialEvidencePanel({
 
       {evidence && (
         <p data-testid="evidence-provenance" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 10 }}>
-          {summary.observed} observed · {summary.absent} not present · {summary.unavailable} unverified —
-          collected {evidence.generated_at} by <code style={code}>{evidence.source}</code>
+          {summary.observed} observed · {summary.absent} not present · {summary.unavailable} unverified · collected {evidence.generated_at} by <code style={code}>{evidence.source}</code>
         </p>
       )}
     </div>

@@ -85,7 +85,7 @@ function looksLikeYamlKeyword(value: string): boolean {
 }
 
 function containsControlCharacter(value: string): boolean {
-  // Matching control characters is the whole point of this guard — they must be
+  // Matching control characters is the whole point of this guard: they must be
   // escaped rather than emitted raw into a YAML plain scalar.
   // eslint-disable-next-line no-control-regex
   return /[\u0000-\u001f\u007f-\u009f]/.test(value)
@@ -240,7 +240,7 @@ function emitKeyValue(key: string, value: YamlValue | undefined, depth: number, 
   // that key's nested block has to start two deeper again to stay clear of it.
   // Without this, a nested block sequence merely looks inconsistent (legal, but
   // it reads oddly next to sibling keys) and a nested MAP becomes genuinely
-  // ambiguous — its children would land in the same column as their own key
+  // ambiguous: its children would land in the same column as their own key
   // and re-read as siblings.
   const childDepth = isSequenceEntry ? depth + 2 : depth + 1
 
@@ -346,13 +346,13 @@ export function emitYaml(value: unknown): string {
  * Which cluster the embedded AFM dashboard should open on.
  *
  * The iframe used to load `/dashboard/` with no query string. AFM selects
- * NOTHING by default on a fresh session — verified against the live instance:
+ * NOTHING by default on a fresh session: verified against the live instance:
  * a fresh context on `/dashboard/` renders no `Cluster:` label at all, while
  * `/dashboard/?cluster=<id>` renders `Cluster: SignalLoom Import ...`. So every
  * import landed correctly in AFM and was simply never shown, which reads as
  * "the send did not work".
  *
- * `?cluster=` is the ONLY spelling AFM accepts — `cluster_id`, `clusterId` and
+ * `?cluster=` is the ONLY spelling AFM accepts: `cluster_id`, `clusterId` and
  * `c` were each probed against a fresh session and selected nothing.
  *
  * Recency comes from the id, not from list order: `generateImportId` emits

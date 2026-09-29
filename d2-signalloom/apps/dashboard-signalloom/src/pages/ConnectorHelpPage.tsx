@@ -14,7 +14,7 @@ interface ProviderHelp {
 }
 
 // Route slugs are our own vocabulary (matching the ticket's /help/connectors/{provider}
-// URLs), distinct from the connector framework's provider_id values (e.g. ad_entra) —
+// URLs), distinct from the connector framework's provider_id values (e.g. ad_entra):
 // this map is the single place that translates between the two.
 const PROVIDERS: Record<string, ProviderHelp> = {
   entra: { displayName: 'Microsoft Entra ID', content: entraContent },

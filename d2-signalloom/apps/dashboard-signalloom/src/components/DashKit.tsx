@@ -1,5 +1,5 @@
 /**
- * DashKit — shared presentational primitives for the mock trust/security
+ * DashKit: shared presentational primitives for the mock trust/security
  * dashboards (Federated Services, Collusion & Access). Inline-style + CSS-var
  * idiom, matching the existing views.
  */

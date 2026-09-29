@@ -489,7 +489,7 @@ describe('SFAGENTS Mission Acceptance Criteria (AC-1 through AC-15)', () => {
     renderWithRouter(<AgentEvidenceDrawer agent={agentWithoutTelemetry} onClose={() => {}} />)
 
     expect(screen.getByTestId('drawer-spiffe-status')).toHaveTextContent('Identity unlinked')
-    expect(screen.getByTestId('drawer-spiffe-id')).toHaveTextContent('—')
+    expect(screen.getByTestId('drawer-spiffe-id')).toHaveTextContent('-')
   })
 
   // ── AC-14 ──────────────────────────────────────────────────────────────────

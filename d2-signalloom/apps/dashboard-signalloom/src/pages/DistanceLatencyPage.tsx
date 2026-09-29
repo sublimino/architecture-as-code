@@ -1,5 +1,5 @@
 /**
- * DistanceLatencyPage — Distance-Focused Latency, eBPF Sentinel & FrostDB Telemetry Demo.
+ * DistanceLatencyPage: Distance-Focused Latency, eBPF Sentinel & FrostDB Telemetry Demo.
  *
  * Built on the shared vocabulary of SuperCred and Signal Fusion:
  *   - StatCard telemetry topbar

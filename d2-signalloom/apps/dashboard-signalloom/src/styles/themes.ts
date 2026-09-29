@@ -3,8 +3,8 @@
 // Adding a fourth theme means editing this file only: extend the ThemeName
 // union, add its label to THEME_LABELS, add its full variable map to THEMES.
 // Every theme supplies a value for all of the CSS custom properties declared
-// in global.css's :root block — no theme is allowed to fall back to another's
-// values — so a future theme can restyle the whole sheet, not just an accent.
+// in global.css's :root block (no theme is allowed to fall back to another's
+// values), so a future theme can restyle the whole sheet, not just an accent.
 
 export const CSS_VAR_NAMES = [
   '--bg',
@@ -120,7 +120,7 @@ export const THEMES: Record<ThemeName, Record<CssVarName, string>> = {
   // token deliberately off the brand ramp. Its exact value is the deepest red
   // that still clears 4.5:1 as text, which is what maximises .btn-danger's
   // white label: that measures 3.62:1, up from 3.00:1 at a lighter red. Still
-  // under AA for a normal-size label — see the note in headers/primitives.tsx,
+  // under AA for a normal-size label: see the note in headers/primitives.tsx,
   // which refuses white-on-red for the unread pill for exactly this reason.
   andy: {
     '--bg': '#080A14',
@@ -149,7 +149,7 @@ export function isThemeName(value: unknown): value is ThemeName {
 /**
  * Paint a theme onto the document root: a `data-theme` hook for CSS selectors
  * plus the variable values as inline custom properties, which outrank the
- * :root block in global.css. Purely local — no reload, no network.
+ * :root block in global.css. Purely local: no reload, no network.
  */
 export function applyTheme(name: ThemeName): void {
   const root = document.documentElement
@@ -165,7 +165,7 @@ export function readStoredTheme(): ThemeName {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
     return isThemeName(stored) ? stored : DEFAULT_THEME
   } catch {
-    // Storage blocked (private mode / disabled cookies) — fall back to default.
+    // Storage blocked (private mode / disabled cookies): fall back to default.
     return DEFAULT_THEME
   }
 }
@@ -174,6 +174,6 @@ export function storeTheme(name: ThemeName): void {
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, name)
   } catch {
-    // Storage blocked — the selection stays session-only.
+    // Storage blocked: the selection stays session-only.
   }
 }

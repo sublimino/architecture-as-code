@@ -24,11 +24,11 @@ import PixelLoader from './PixelLoader'
 // The two in-button waits are `ButtonWait`, which owns the loader's width, its
 // accessible name and its silence. Their buttons keep a min-width that already
 // fits the busy state: the figure gains a character at 10.0s and again at
-// 1m 0.0s, and this control row sits next to two selects — a button that grows
+// 1m 0.0s, and this control row sits next to two selects: a button that grows
 // mid-request drags them sideways under the cursor.
 //
 // The clusters wait below is NOT one of those. It has a line to itself, so it
-// stays a plain PixelLoader and keeps its full sentence — at the same 6px gap
+// stays a plain PixelLoader and keeps its full sentence, at the same 6px gap
 // the in-button waits use, so the family still looks like one family.
 
 const LOADER_GAP = 6
@@ -60,7 +60,7 @@ async function readClusterRbac(clusterId: string): Promise<RBACData> {
   try {
     return parseRbacData(await fetchJsonOrThrow(path))
   } catch (error) {
-    // Keep the failing path in the message — the parser only knows the shape.
+    // Keep the failing path in the message: the parser only knows the shape.
     const detail = error instanceof Error ? error.message : String(error)
     throw new Error(`${detail} (from ${path})`)
   }
@@ -345,7 +345,7 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
 
     try {
       await postClusterImport(payload)
-      setSendFeedback({ tone: 'success', message: `Sent ${payload.id} to AFM — showing it below` })
+      setSendFeedback({ tone: 'success', message: `Sent ${payload.id} to AFM: showing it below` })
       // Tell the page which cluster to show. Without this the import lands in
       // AFM correctly and stays invisible, which is indistinguishable from a
       // failed send.

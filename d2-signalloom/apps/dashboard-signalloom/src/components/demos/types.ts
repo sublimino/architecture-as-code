@@ -311,7 +311,7 @@ export type DemoStepperEvent =
  * attribution and none of its substance, which is strictly worse than an honest blank:
  * it is indistinguishable from a real attribution to anyone reading the screen.
  */
-export const UNATTRIBUTED_OPERATOR_LABEL = 'UNATTRIBUTED — no authenticated principal';
+export const UNATTRIBUTED_OPERATOR_LABEL = 'UNATTRIBUTED: no authenticated principal';
 
 export const INITIAL_STEPPER_STATE: DemoStepperState = {
   currentStage: 'operator_init',

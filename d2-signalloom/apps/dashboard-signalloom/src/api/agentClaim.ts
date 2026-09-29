@@ -1,5 +1,5 @@
 /**
- * Agent Auto-Claim API — the lifecycle handshake between a new agent pod
+ * Agent Auto-Claim API: the lifecycle handshake between a new agent pod
  * and the Signal Loom platform.
  *
  * When an agent starts, its OpenBao sidecar calls the claim endpoint with
@@ -20,7 +20,7 @@ export interface AgentClaimRequest {
   namespace: string
   /** SPIFFE ID from the agent's JWT-SVID. */
   spiffe_id: string
-  /** Runtime harness — claude-code, daytona, openai-codex, etc. */
+  /** Runtime harness (claude-code, daytona, openai-codex, etc.). */
   harness: string
   /** LLM model backing the agent. */
   model: string
@@ -33,7 +33,7 @@ export interface AgentClaimRequest {
 }
 
 export interface AgentClaimResponse {
-  /** Unique claim identifier — the agent's session key. */
+  /** Unique claim identifier: the agent's session key. */
   claim_id: string
   /** Claim status: granted, denied, pending-review. */
   status: 'granted' | 'denied' | 'pending-review'
@@ -140,7 +140,7 @@ export async function claimDiscoveredAgent(
 }
 
 /**
- * Release a claim — called when an agent is shutting down or being stunned.
+ * Release a claim: called when an agent is shutting down or being stunned.
  */
 export async function releaseClaim(
   token: string,
@@ -158,7 +158,7 @@ export async function releaseClaim(
 }
 
 /**
- * List all active claims — used by the dashboard's Agent Overview panel.
+ * List all active claims: used by the dashboard's Agent Overview panel.
  */
 export async function listClaims(
   token: string,

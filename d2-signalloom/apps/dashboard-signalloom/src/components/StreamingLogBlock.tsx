@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// STREAMING LOG BLOCK — the demo runner's output, as it arrives.
+// STREAMING LOG BLOCK: the demo runner's output, as it arrives.
 //
 // Instructor Controls used to render the run log as one `<pre>`: a grey wall
 // that grew without limit, gave no sign it was still moving, and could only be
@@ -14,7 +14,7 @@
 //
 // THE REVEAL IS NOT A TIMER. Every line is rendered the instant the chunk
 // carrying it lands, and lines are keyed by their absolute position in the
-// stream — so a line React has already mounted is never remounted, and its
+// stream, so a line React has already mounted is never remounted, and its
 // entry animation therefore runs exactly once, when it genuinely arrived. A
 // staggered or timed reveal would look better and would be a lie: it would
 // report progress the runner has not made. If ten lines arrive in one chunk,
@@ -24,7 +24,7 @@
 // Tailwind demo with a hardcoded LINES array, a setTimeout loop that looped
 // forever, and a hand-rolled TypeScript tokeniser. `"use client"` is inert
 // under Vite, this app has no Tailwind, and `--accent-ink` / `--green` /
-// `--ink-3` are tokens no theme here declares — referencing them would
+// `--ink-3` are tokens no theme here declares: referencing them would
 // reproduce the `var(--card, #1a1a1a)` bug DemoToggle shipped with. Mapped to
 // this app's real tokens (--cyan / --teal / --muted) and inline styles;
 // src/styles/cssVarUsage.test.ts enforces that.
@@ -34,7 +34,7 @@
 // instead is re-derive the colour the runner ITSELF emitted and we then
 // stripped: scripts/supercred-demo.sh writes `\033[1;36m[supercred]\033[0m`,
 // `\033[1;32m[supercred] ✓\033[0m` and `\033[1;31m[supercred] FAILED:\033[0m`
-// — prefix and marker coloured, message plain. Reproducing exactly those spans
+// prefix and marker coloured, message plain. Reproducing exactly those spans
 // means the browser shows what a terminal shows, and nothing is being guessed
 // about the rest of the line. Anything unrecognised renders plain.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { usePrefersReducedMotion } from './PixelLoader'
 
 // The lifecycle scripts colour terminal output with ANSI sequences. A browser
-// renders those bytes literally, so they are removed for display only — the
+// renders those bytes literally, so they are removed for display only: the
 // raw runner bytes and the offsets that index them are never modified, and
 // Copy hands over the raw string.
 // eslint-disable-next-line no-control-regex -- \u001B IS the escape byte this regex strips from runner log output; matching it literally is the point
@@ -59,7 +59,7 @@ export function stripAnsi(log: string): string {
  * A full five-phase run is thousands of lines of kubectl and OpenBao output.
  * Every one of them as a live DOM node is an unbounded structure on a page
  * that must stay responsive for the length of a demo, and nobody scrolls back
- * two thousand lines in front of an audience — they press Copy. So the view is
+ * two thousand lines in front of an audience: they press Copy. So the view is
  * a tail and the clipboard is the archive. The count is generous enough that a
  * whole phase's meaningful output fits.
  */
@@ -84,12 +84,12 @@ const TOKEN_COLOURS: Record<LogTokenKind, string> = {
   plain: 'var(--text)',
 }
 
-/** A bracketed source tag — `[supercred]` and friends. */
+/** A bracketed source tag: `[supercred]` and friends. */
 const PREFIX = /^\[[A-Za-z][A-Za-z0-9_.-]*\]/
 const PREFIX_ANYWHERE = /\[[A-Za-z][A-Za-z0-9_.-]*\]/
 
 /**
- * Explicit timestamp shapes, for a line that carries a stamp but no tag —
+ * Explicit timestamp shapes, for a line that carries a stamp but no tag:
  * `04:12:33 Error: no such entry` is what kubectl on stderr looks like once
  * something upstream starts stamping. Bare, bracketed or parenthesised;
  * ISO date optional; fractional seconds and zone optional.
@@ -103,7 +103,7 @@ const TIMESTAMP = new RegExp(
 /**
  * Only these characters may sit between the head of a line and its tag for
  * that run to be called a timestamp. No letters except the T and Z that ISO
- * 8601 itself uses — which is what stops `pod/agent-cardvault [Ready] met`
+ * 8601 itself uses, which is what stops `pod/agent-cardvault [Ready] met`
  * from having "pod/agent-cardvault " recoloured as if it were a clock.
  */
 const TIMESTAMP_SHAPED = /^[\d\s:.,+\-TZ()[\]]*$/
@@ -120,8 +120,8 @@ const TIMESTAMP_SHAPED = /^[\d\s:.,+\-TZ()[\]]*$/
  *
  * So the tag is located rather than assumed, and whatever precedes it is
  * accepted as a stamp only if it is made of clock characters. That holds for
- * every format the runner could plausibly choose — ISO, bare clock, bracketed,
- * parenthesised, elapsed seconds — without this file needing to know which one
+ * every format the runner could plausibly choose (ISO, bare clock, bracketed,
+ * parenthesised, elapsed seconds) without this file needing to know which one
  * landed. A format outside all of it degrades to a plain line, which is what
  * the block already does with unrecognised output.
  */
@@ -136,7 +136,7 @@ export function leadingMetaLength(line: string): number {
  * Status markers, matched only where the runner puts them: immediately after
  * the prefix (or at the head of a prefix-less line, which is what a bare
  * `Error: …` from kubectl on stderr looks like). Anchored, so the word
- * "failed" inside a sentence is not silently recoloured — a log that paints
+ * "failed" inside a sentence is not silently recoloured: a log that paints
  * arbitrary prose red is worse than one that paints nothing.
  */
 const MARKERS: ReadonlyArray<readonly [RegExp, LogTokenKind]> = [
@@ -150,7 +150,7 @@ const MARKERS: ReadonlyArray<readonly [RegExp, LogTokenKind]> = [
  *
  * Deliberately shallow: an optional timestamp, an optional tag, at most one
  * marker, and the rest verbatim. Every token is a slice of the input and the
- * tokens concatenate back to it exactly — nothing is dropped, reordered or
+ * tokens concatenate back to it exactly: nothing is dropped, reordered or
  * rewritten, so a timestamp arriving from elsewhere is displayed, not stripped.
  * Exported so the rules are testable without a DOM, and so the next person
  * adding a marker has one obvious place to add it.
@@ -188,7 +188,7 @@ export function tokeniseLine(line: string): LogToken[] {
 /**
  * The display lines, and how many were dropped off the front.
  *
- * A trailing newline is a line TERMINATOR, not an empty line — splitting on it
+ * A trailing newline is a line TERMINATOR, not an empty line: splitting on it
  * naively invents a blank final row that then carries the caret, which reads as
  * "the runner is producing nothing" when it is producing plenty. A log that
  * genuinely ends mid-line (the common case while streaming) keeps its partial
@@ -219,10 +219,10 @@ const KEYFRAMES = `
 export interface StreamingLogBlockProps {
   /** Raw runner bytes, ANSI and all. Copy hands over exactly this. */
   log: string
-  /** Whether output is still arriving — drives the caret, nothing else. */
+  /** Whether output is still arriving: drives the caret, nothing else. */
   streaming?: boolean
   /**
-   * What is producing this output — "Phase 4 · Stun", "Reset".
+   * What is producing this output: "Phase 4 · Stun", "Reset".
    *
    * The header of the component this is adapted from carried a filename and a
    * language. Neither exists here, and inventing one ("run.log", "Shell")
@@ -230,7 +230,7 @@ export interface StreamingLogBlockProps {
    * named is which phase they are watching, so that is what the header says.
    */
   title?: string
-  /** The run's own status word — `running`, `succeeded`, `failed`. */
+  /** The run's own status word: `running`, `succeeded`, `failed`. */
   status?: string
   /**
    * Colour for the status word. Must be a `var(--token)` string: a bare hex
@@ -244,8 +244,8 @@ export interface StreamingLogBlockProps {
    * What the body says while the log is empty and output is still expected.
    *
    * The block is now mounted when a run STARTS rather than when its first byte
-   * lands, so there is a real interval — a slow first phase spends it inside
-   * kubectl — where there is a block and nothing to put in it. Rendering the
+   * lands, so there is a real interval (a slow first phase spends it inside
+   * kubectl) where there is a block and nothing to put in it. Rendering the
    * empty log as-is produces one blank numbered row carrying the caret, which
    * reads as "the runner is producing nothing"; an empty bordered box is worse
    * than no box. This says what is actually true and claims nothing else: no
@@ -279,7 +279,7 @@ export default function StreamingLogBlock({
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // Pinned to the bottom unless the instructor has scrolled up to read
-  // something — in which case new output must not yank the view away from
+  // something, in which case new output must not yank the view away from
   // whatever they are reading. Re-pins as soon as they scroll back down.
   const pinnedRef = useRef(true)
   const lastScrollHeightRef = useRef(0)
@@ -329,7 +329,7 @@ export default function StreamingLogBlock({
   }, [copyState])
 
   // Absolute position in the stream, so the numbers stay true under the tail
-  // and — the load-bearing part — so React keys identify a LINE rather than a
+  // and (the load-bearing part) so React keys identify a LINE rather than a
   // slot. Keyed by slot, dropping a line off the front would shuffle every
   // remaining line into its neighbour's node, no node would be new, and the
   // reveal would stop firing entirely once the bound was reached.
@@ -367,19 +367,19 @@ export default function StreamingLogBlock({
       {hidden > 0 && (
         <div data-testid={`${testId}-truncation`} style={truncationNote}>
           Showing the last {lines.length} lines. {hidden} earlier{' '}
-          {hidden === 1 ? 'line is' : 'lines are'} off screen — Copy takes the whole log.
+          {hidden === 1 ? 'line is' : 'lines are'} off screen: Copy takes the whole log.
         </div>
       )}
 
       {/* Focusable and labelled: this scrolls, and a scrollable region that
           cannot be reached or named from the keyboard is unusable without a
-          mouse. Not role="log" — that is a live region, and announcing every
+          mouse. Not role="log": that is a live region, and announcing every
           kubectl line during a demo is noise, not access. */}
       <div
         ref={scrollRef}
         onScroll={onScroll}
         role="region"
-        aria-label={title ? `${label} — ${title}` : label}
+        aria-label={title ? `${label}: ${title}` : label}
         tabIndex={0}
         data-testid={`${testId}-scroll`}
         style={scroll}
@@ -387,7 +387,7 @@ export default function StreamingLogBlock({
         {log === '' && placeholder !== undefined ? (
           // Deliberately not a numbered row: numbering it would assert that
           // line 1 of the runner's output exists and is blank. Nothing here
-          // animates — a pulsing "waiting" is decoration that reads as
+          // animates: a pulsing "waiting" is decoration that reads as
           // activity, and the activity indicator is PixelLoader's job.
           <div data-testid={`${testId}-waiting`} style={waiting}>
             {placeholder}
@@ -444,7 +444,7 @@ export default function StreamingLogBlock({
  *
  * currentColor throughout, so the glyph is whatever the button's text colour
  * already resolved to and no colour decision is duplicated here. aria-hidden
- * because the button's own label already says what state it is in — a screen
+ * because the button's own label already says what state it is in: a screen
  * reader does not need the picture as well.
  */
 function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
@@ -493,13 +493,13 @@ function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
 }
 
 // Measured across all three themes rather than eyeballed in whichever one the
-// author had open — that is how DemoToggle shipped at 1.03:1.
+// author had open: that is how DemoToggle shipped at 1.03:1.
 //
 // Three tiers, matching the source's card / bar / inset structure: the card
 // behind this is --surface, the header bar is --surface2 (raised), the code
 // body is --bg (inset). That the inset also happens to be the highest-contrast
-// choice is the reason it is not merely cosmetic. Dark's --error — the single
-// most important glyph in a failure log — is 3.03:1 on --surface2 and 3.70:1
+// choice is the reason it is not merely cosmetic. Dark's --error (the single
+// most important glyph in a failure log) is 3.03:1 on --surface2 and 3.70:1
 // on --surface, but 4.18:1 on --bg, and every other token rises with it
 // (--text 13.98 → 19.28, --cyan 6.03 → 8.31). --border-subtle rather than
 // --border keeps the block delimited from the card it sits on.
@@ -509,7 +509,7 @@ function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
 // shared by every accent-coloured string in the app (ProofConsole,
 // StatusBadge, the phase status chips), and inventing a brighter red here
 // would put a bare hex in an inline style, which is the exact thing
-// cssVarUsage.test.ts exists to stop — the fix belongs in themes.ts or nowhere.
+// cssVarUsage.test.ts exists to stop: the fix belongs in themes.ts or nowhere.
 //
 // The Andy half of this residual is gone. It read "--cyan / --amber at
 // ~4.1-4.2:1 in Andy", and rebuilding that theme on the Signal Loom brand ramp

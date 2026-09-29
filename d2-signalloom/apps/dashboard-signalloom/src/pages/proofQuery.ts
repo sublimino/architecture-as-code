@@ -1,5 +1,5 @@
 /**
- * Proof material assembled from a response the page actually received — and
+ * Proof material assembled from a response the page actually received, and
  * from nothing else.
  *
  * ProofConsole's contract is that `command` is literally re-runnable and
@@ -8,7 +8,7 @@
  * from a fabrication, which is the one failure this product cannot afford:
  * network reachability in this repo already has a history of probes reporting a
  * verdict they had not earned. So the only proof this module can build is a jq
- * PROJECTION over an endpoint the client really called — the command names that
+ * PROJECTION over an endpoint the client really called: the command names that
  * endpoint and the fields it selects, and the detail is those fields rendered
  * the way jq renders them.
  *
@@ -18,7 +18,7 @@
  *
  * 1. jq's object-construction shorthand emits `null` for a key the input does
  *    not carry. So an `undefined` on our side becomes `null` here rather than a
- *    dropped key — dropping it would print a shorter object than the command
+ *    dropped key (dropping it would print a shorter object than the command
  *    does. This is also why the projections built on top of this are restricted
  *    to fields whose client-side parse maps a missing value to `undefined`:
  *    a field parsed with a `?? 0` or `?? []` default would read as 0 where jq
@@ -29,7 +29,7 @@
  *    every match rather than only the row that was clicked. One truthful object
  *    under a command that prints two is still a misleading proof.
  *
- * 3. A value interpolated into the filter has to survive both quoting layers —
+ * 3. A value interpolated into the filter has to survive both quoting layers:
  *    jq's own string literal and the single-quoted shell word the filter sits
  *    inside. Kubernetes names cannot contain either character today, which is
  *    exactly why it would go unnoticed the day something else can.
@@ -45,7 +45,7 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
  * no index signature, so `NetworkTestEndpoint` is not assignable to
  * `{ [key: string]: JsonValue }` however JSON-shaped it actually is. Widening
  * here beats re-declaring every wire type or spreading each nested object into
- * a fresh literal — the latter loses the wire's own key order, which is the one
+ * a fresh literal: the latter loses the wire's own key order, which is the one
  * property that makes the printed object match what jq prints.
  *
  * The contract is still JSON-serialisable; `JSON.stringify` is what enforces
@@ -67,7 +67,7 @@ export function jqString(value: string): string {
  * Wrap `filter` as a single-quoted shell word.
  *
  * `'\''` is the only way to get a literal single quote inside single quotes in
- * POSIX sh — close, escape, reopen. Without it a name carrying an apostrophe
+ * POSIX sh: close, escape, reopen. Without it a name carrying an apostrophe
  * would produce a command that does not parse, which is worse than no proof:
  * it looks checkable and is not.
  */
@@ -103,7 +103,7 @@ function normalise(record: JqRecord): Record<string, unknown> {
  * Exactly what jq prints for a stream of object constructions.
  *
  * Two spaces of indent, one object after another, no separator and no
- * surrounding array — jq's default pretty output. Zero matches print nothing,
+ * surrounding array: jq's default pretty output. Zero matches print nothing,
  * which ProofConsole already renders as "(no output)".
  */
 export function jqOutput(matches: JqRecord[]): string {

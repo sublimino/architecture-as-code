@@ -1,5 +1,5 @@
 /**
- * Design System & Component Library — the internal, superadmin-visible index of
+ * Design System & Component Library: the internal, superadmin-visible index of
  * what this dashboard is built out of.
  *
  * Why it exists. The app's visual language lives in two places that nothing
@@ -11,7 +11,7 @@
  * is a question with an answer.
  *
  * What it is not. It is not a live view of anything. Every specimen below is
- * driven by fixed props declared in this file — no API client, no auth context,
+ * driven by fixed props declared in this file: no API client, no auth context,
  * no router. That is deliberate and it is load-bearing: a gallery that needs a
  * cluster to render is a gallery nobody opens, and DesignSystemPage.test.tsx
  * renders it with no providers at all precisely to keep it that way.
@@ -21,20 +21,20 @@
  * 1. LIVE REGIONS. This is the only page in the app that mounts many
  *    waiting-indicators at once, which makes it the only page where the count
  *    of ARIA live regions is a design problem rather than an afterthought. Each
- *    gallery PixelLoader therefore passes `announce={false}` — the default is
+ *    gallery PixelLoader therefore passes `announce={false}` (the default is
  *    true, and thirteen defaulted loaders is a screen reader reading thirteen
- *    simultaneous "Churning" announcements at anyone who opens this page. The
+ *    simultaneous "Churning" announcements at anyone who opens this page). The
  *    six LoadingState specimens do own regions, because LoadingState has no
  *    `announce` opt-out; six is a deliberate ceiling, asserted exactly in the
  *    test rather than left to drift. See the note rendered in that section.
- *    ButtonWait owns no region by design and adds none here — the roster is
+ *    ButtonWait owns no region by design and adds none here: the roster is
  *    seven regions before and after that section, asserted by name in the test.
  *
  * 2. COLOURS. styles/cssVarUsage.test.ts forbids bare hex in inline styles and
  *    forbids referencing a `var(--x)` that no theme declares. The swatches below
  *    are built from CSS_VAR_NAMES itself rather than a hand-kept list, so the
  *    palette here cannot fall behind themes.ts, and the hex values shown are
- *    read from THEMES — displayed as text, never as a style value.
+ *    read from THEMES (displayed as text, never as a style value).
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import PixelLoader, { type PixelLoaderVariant } from '../components/PixelLoader'
@@ -73,7 +73,7 @@ import PageTocLayout, { type TocEntry } from '../components/PageToc'
  * Loom is first and carries the "default" badge because the question anyone
  * opening this page actually has is "what do I get if I write `<PixelLoader />`
  * and pass nothing?". A gallery that answers that only by ordering has not
- * answered it — so the answer is stated in the section's when-to-use line, shown
+ * answered it, so the answer is stated in the section's when-to-use line, shown
  * as a badge on the Loom specimen, and demonstrated by a ninth specimen below
  * the four that passes no `variant` at all.
  *
@@ -216,7 +216,7 @@ const TABLE_COLUMNS: Column<DemoRow>[] = [
  * AgentsPage.tsx line 3 has carried `// TODO: migrate table to DataTable (1
  * table with search/lifecycle filtering)` since the filter interaction was
  * written by hand. The reason it has not moved is that nothing showed what the
- * migrated version looks like — the only worked example of DataTable was the
+ * migrated version looks like: the only worked example of DataTable was the
  * four-column one above, which answers none of the questions AgentsPage has:
  * where does the search box live, who owns the filter state, what happens to
  * the page number when a filter cuts the rows out from under it.
@@ -228,7 +228,7 @@ const TABLE_COLUMNS: Column<DemoRow>[] = [
  * The division of labour is the thing to take away. DataTable sorts and
  * paginates; the page owns search and filtering and hands down an already-narrow
  * array. DataTable notices the length change and resets to page 1 by itself
- * (see its `usePrevious` guard), which is the bug you would otherwise ship —
+ * (see its `usePrevious` guard), which is the bug you would otherwise ship;
  * filtering to three rows while sitting on page 2 and rendering nothing.
  */
 interface FleetRow {
@@ -241,7 +241,7 @@ interface FleetRow {
   lastActivity: string
 }
 
-/** Deliberately not in alphabetical or numeric order — a sort you cannot see is not a demonstration. */
+/** Deliberately not in alphabetical or numeric order: a sort you cannot see is not a demonstration. */
 const FLEET_ROWS: FleetRow[] = [
   { agent: 'policy-evaluator', type: 'evaluator', owner: 'platform-eng', state: 'active', findings: 2, posture: 71, lastActivity: '12s ago' },
   { agent: 'sbom-collector', type: 'collector', owner: 'supply-chain', state: 'revoked', findings: 5, posture: 34, lastActivity: '4h ago' },
@@ -286,7 +286,7 @@ const FLEET_STATES = ['all', 'enrolled', 'active', 'suspended', 'revoked'] as co
 const POSTURE_PASS_THRESHOLD = 70
 
 /**
- * Fixture for the third DataTable specimen — the "super" form.
+ * Fixture for the third DataTable specimen: the "super" form.
  *
  * Wider than FLEET_ROWS on purpose, and in two dimensions rather than one. The
  * realistic specimen above needs a chip vocabulary and nothing else; this one
@@ -307,7 +307,7 @@ interface SuperRow {
   lastSeen: string
 }
 
-/** Not sorted by anything — a sort you cannot see is not a demonstration. */
+/** Not sorted by anything: a sort you cannot see is not a demonstration. */
 const SUPER_ROWS: SuperRow[] = [
   { service: 'policy-evaluator', namespace: 'signalloom', owner: 'platform-eng', source: 'live', findings: 2, lastSeen: '12s ago' },
   { service: 'sbom-collector', namespace: 'supply-chain', owner: 'supply-chain', source: 'demo', findings: 9, lastSeen: '4h ago' },
@@ -343,12 +343,12 @@ const SUPER_COLUMNS: Column<SuperRow>[] = [
  * map for (`variant="provenance"`). Deliberately not a severity scale: severity
  * words look like a natural fit for a chip row and StatusBadge has no map for
  * `critical`/`high`/`medium`/`low`, so all four would resolve through its
- * fall-through to the same neutral grey — a badge that silently stops carrying
- * the distinction it is there to carry.
+ * fall-through to the same neutral grey (a badge that silently stops carrying
+ * the distinction it is there to carry).
  */
 const SUPER_SOURCES = ['all', 'live', 'config', 'demo'] as const
 
-/** `all` first, then the owning teams. A select rather than five more chips — see the strip's note. */
+/** `all` first, then the owning teams. A select rather than five more chips: see the strip's note. */
 const SUPER_OWNERS = ['all', 'platform-eng', 'identity', 'supply-chain', 'network'] as const
 
 /** Seven of eighteen, so there are three pages and the last one is short. */
@@ -384,9 +384,9 @@ const PROOFS: Proof[] = [
 //
 // What it simulates is the pattern that DOES exist. `fetchDemoRunLog(runId,
 // offset)` returns a `DemoRunLogChunk` and is how the Instructor Controls run
-// log fills in today. `pollFixture` below returns that same type — imported,
+// log fills in today. `pollFixture` below returns that same type (imported,
 // not redeclared, so this claim is checked by the compiler rather than
-// asserted in a comment — and the hook applies the same append rule: position
+// asserted in a comment), and the hook applies the same append rule: position
 // each chunk by its absolute offset instead of concatenating, so a duplicate
 // or out-of-order chunk overwrites the bytes it already wrote rather than
 // doubling them.
@@ -449,7 +449,7 @@ function pollFixture(log: string, offset: number): DemoRunLogChunk {
  * Drives the live specimen: polls the fixture on a timer until it reports eof.
  *
  * `replay` bumps a key rather than mutating in place, so a second run starts
- * from a genuinely empty console instead of appending to the first one — the
+ * from a genuinely empty console instead of appending to the first one: the
  * mistake that makes a replayed demo look like it produced twice the output.
  */
 function useSimulatedProofStream(log: string): {
@@ -517,7 +517,7 @@ const disclaimerTag: CSSProperties = {
   flexShrink: 0,
   // --text, not --amber, and this one was measured rather than eyeballed.
   // Amber on --surface is 5.60:1 in Dark and 4.80:1 in Light but only 3.82:1 in
-  // Andy, which is under AA for a 10px bold word — and this is the single word
+  // Andy, which is under AA for a 10px bold word, and this is the single word
   // on the section that most needs to be read rather than scanned. The amber
   // moves to the border, where 3.82:1 clears the 3:1 that non-text UI has to
   // meet, and the word itself is then 17:1 or better in all three themes.
@@ -557,12 +557,12 @@ const REVOKED_CREDENTIAL = {
  */
 const NOT_SHOWN: { name: string; reason: string }[] = [
   { name: 'Sidebar', reason: 'Needs the router, the auth context and a live failing-controls count; it is the app shell, not a specimen.' },
-  { name: 'TopNav', reason: 'Reads the OIDC profile from useAuth0 — renders empty without a signed-in user.' },
+  { name: 'TopNav', reason: 'Reads the OIDC profile from useAuth0; renders empty without a signed-in user.' },
   { name: 'AddClusterModal', reason: 'Full-screen overlay. Rendering it here would sit on top of the gallery.' },
   { name: 'ConfirmDialog', reason: 'Full-screen overlay, and meaningless without the destructive action it guards.' },
   { name: 'ConsentModal', reason: 'Full-screen overlay; accepting posts document versions to the consent API.' },
   { name: 'CookieSettingsModal', reason: 'Full-screen overlay; reads and writes cookie preferences through api/client with a bearer token.' },
-  { name: 'ApiKeyRevealModal', reason: 'Full-screen overlay driven by AppContext.apiKeyReveal — there is no key to reveal here.' },
+  { name: 'ApiKeyRevealModal', reason: 'Full-screen overlay driven by AppContext.apiKeyReveal: there is no key to reveal here.' },
   { name: 'ApiKeyRotateModal', reason: 'Full-screen overlay; confirming rotates a real credential.' },
   { name: 'KeyboardShortcutsOverlay', reason: 'Full-screen overlay bound to a global key handler; open it anywhere with "?".' },
   { name: 'HelpModal', reason: 'Full-screen overlay; fetches help content from api/client.' },
@@ -571,7 +571,7 @@ const NOT_SHOWN: { name: string; reason: string }[] = [
   { name: 'RbacImporterPanel', reason: 'Uploads and parses a live RBAC dump through api/afmApi.' },
   { name: 'SuperCredInstructorPanel', reason: 'Drives a live demo runner against a cluster via api/demoRunner.' },
   { name: 'CredentialActionsMenu / TriageMenu', reason: 'Row-anchored popovers whose actions mutate the row they hang off; nothing to anchor to here.' },
-  { name: 'OpenFindingsPanel', reason: 'Derives its content from an AgentPosture[] fetched by the posture page — a fake array would document the fake, not the component.' },
+  { name: 'OpenFindingsPanel', reason: 'Derives its content from an AgentPosture[] fetched by the posture page; a fake array would document the fake, not the component.' },
   { name: 'fleet/ and trust/ subtrees', reason: 'React Flow and gauge canvases that size themselves from real layout; they belong on their own pages, not in a grid of small boxes.' },
   { name: 'onboarding/ subtree', reason: 'Wizard steps that only make sense in sequence, sharing the wizard’s step state.' },
 ]
@@ -582,8 +582,8 @@ const NOT_SHOWN: { name: string; reason: string }[] = [
  * The on-this-page index, in document order.
  *
  * Kept as data rather than derived from the DOM so the rail is right on the
- * first paint with no measuring pass. That buys a divergence risk — a Group
- * added below and not added here would be invisible in the index — and
+ * first paint with no measuring pass. That buys a divergence risk (a Group
+ * added below and not added here would be invisible in the index) and
  * DesignSystemPage.test.tsx spends it: it asserts these ids are exactly the
  * rendered `ds-section-*` set, in the same order, and that each label appears
  * in the heading it points at. Adding a Group without adding it here is a red
@@ -635,7 +635,7 @@ function Group({
     // when something scrolls here.
     <section id={id} data-testid={`ds-section-${id}`} style={{ marginBottom: 38, scrollMarginTop: 20 }}>
       {/* The heading carries its own testid because a specimen can bring its
-          own h2 along — DashKit's Section does — and a query by role alone
+          own h2 along (DashKit's Section does) and a query by role alone
           then matches two headings inside one group. */}
       <h2 data-testid={`ds-heading-${id}`} style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: '0 0 3px' }}>
         {title}
@@ -663,7 +663,7 @@ function Specimen({
 }: {
   caption: string
   captionTestId?: string
-  /** A short word in the corner of the caption — "default", and nothing longer. */
+  /** A short word in the corner of the caption: "default", and nothing longer. */
   badge?: string
   badgeTestId?: string
   note?: string
@@ -744,8 +744,8 @@ function Caveat({ children }: { children: ReactNode }) {
  *
  * h3, not h2: `Group` already owns the section's h2, and the page's test asserts
  * the section heading is an H2 found by testid. A second h2 in the same group
- * would make that query ambiguous — the same trap the Group heading's testid was
- * added for.
+ * would make that query ambiguous (the same trap the Group heading's testid was
+ * added for).
  */
 function ExampleHeading({ id, title, blurb }: { id: string; title: string; blurb: string }) {
   return (
@@ -838,7 +838,7 @@ export default function DesignSystemPage() {
 
   // AND, not OR: each control narrows what the previous one left. The two
   // facets are independent, so `demo` + `platform-eng` reaches zero rows even
-  // though four rows are demo and six are platform-eng — that composition is
+  // though four rows are demo and six are platform-eng. That composition is
   // the state the empty branch below exists for, and it is the reason this
   // specimen carries two facets rather than one.
   const superRows = useMemo(() => {
@@ -885,7 +885,7 @@ export default function DesignSystemPage() {
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Design System &amp; Component Library</h1>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0, marginBottom: 26, maxWidth: 820, lineHeight: 1.55 }}>
         Every shared token and every component that can be rendered from fixed props, in one place, so
-        the next page does not reinvent one. Internal and superadmin-only — clarity over polish. Nothing
+        the next page does not reinvent one. Internal and superadmin-only: clarity over polish. Nothing
         below talks to the API: every specimen is driven by constants in this file.
       </p>
 
@@ -893,7 +893,7 @@ export default function DesignSystemPage() {
       <Group
         id="tokens"
         title="Colour tokens"
-        when="Use a token, never a hex. All sixteen switch with the theme, so a literal colour is correct in exactly one of Dark, Light and Andy and wrong in the other two — styles/cssVarUsage.test.ts fails the build for bare hex in inline styles, and for any custom property referenced but declared by no theme."
+        when="Use a token, never a hex. All sixteen switch with the theme, so a literal colour is correct in exactly one of Dark, Light and Andy and wrong in the other two. styles/cssVarUsage.test.ts fails the build for bare hex in inline styles, and for any custom property referenced but declared by no theme."
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {CSS_VAR_NAMES.map((name: CssVarName) => (
@@ -904,7 +904,7 @@ export default function DesignSystemPage() {
                   borderRadius: 4,
                   // Built from CSS_VAR_NAMES itself, so the swatch set cannot fall
                   // behind themes.ts. The interpolation is why cssVarUsage.test.ts
-                  // does not see a literal `var(--x)` here — every name in it is
+                  // does not see a literal `var(--x)` here: every name in it is
                   // by definition one of the declared ones.
                   background: `var(${name})`,
                   border: '1px solid var(--border-subtle)',
@@ -928,7 +928,7 @@ export default function DesignSystemPage() {
       <Group
         id="pixel-loader"
         title="PixelLoader"
-        when="Use for work long enough that a spinner stops helping — it names what is running and counts elapsed seconds, so a slow step is distinguishable from a hung one. Render it with no variant prop and you get Loom, the default; the other three are alternatives you have to ask for by name. md owns its own line; sm sits inside a 12px one. Whether the elapsed figure is drawn is the reader's own load-times setting; the label is not, and is shown in every mode."
+        when="Use for work long enough that a spinner stops helping: it names what is running and counts elapsed seconds, so a slow step is distinguishable from a hung one. Render it with no variant prop and you get Loom, the default; the other three are alternatives you have to ask for by name. md owns its own line; sm sits inside a 12px one. Whether the elapsed figure is drawn is the reader's own load-times setting; the label is not, and is shown in every mode."
       >
         <div style={rowStyle}>
           {LOADER_VARIANTS.map(({ name, blurb, isDefault }) => (
@@ -945,7 +945,7 @@ export default function DesignSystemPage() {
                 {LOADER_SIZES.map((size) => (
                   <div key={size} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <code style={{ fontSize: 10.5, color: 'var(--dim)', width: 22 }}>{size}</code>
-                    {/* announce={false} on every gallery instance — see the file
+                    {/* announce={false} on every gallery instance: see the file
                         header. The default is true, and nine defaulted loaders
                         is nine simultaneous announcements on page load. */}
                     <PixelLoader
@@ -967,7 +967,7 @@ export default function DesignSystemPage() {
           <Specimen
             caption="no variant prop"
             captionTestId="ds-loader-caption-default"
-            note="Rendered as <PixelLoader label='Churning' /> — no variant passed. Compare it against the Loom specimen: they are the same loader."
+            note="Rendered as <PixelLoader label='Churning' /> (no variant passed). Compare it against the Loom specimen: they are the same loader."
             minWidth={260}
           >
             <PixelLoader label="Churning" announce={false} testId="ds-loader-default" />
@@ -1014,7 +1014,7 @@ export default function DesignSystemPage() {
           Accessibility note, and the reason this page can exist at all: <code>announce</code> defaults
           to <code>true</code>, which is right for a lone loader and wrong for a gallery. All thirteen
           instances above pass <code>announce={'{false}'}</code>. Pass it whenever the host is already a
-          live region — <code>LoadingState</code> does exactly that. The four load-times specimens are
+          live region: <code>LoadingState</code> does exactly that. The four load-times specimens are
           no exception: a mode that hides the figure hides nothing a screen reader was reading anyway,
           since the figure is <code>aria-hidden</code> in every mode and the label carries the
           announcement.
@@ -1025,13 +1025,13 @@ export default function DesignSystemPage() {
       <Group
         id="button-wait"
         title="ButtonWait"
-        when="A wait that happens inside an interactive control. Three constraints come with that position and none of them are negotiable: there is no room for a label, the control must not change size when the work starts, and it must not own a live region — the button already has an accessible name and a disabled state, and a region inside it talks over both."
+        when="A wait that happens inside an interactive control. Three constraints come with that position and none of them are negotiable: there is no room for a label, the control must not change size when the work starts, and it must not own a live region. The button already has an accessible name and a disabled state, and a region inside it talks over both."
       >
         <div style={rowStyle}>
           <Specimen
             caption="idle"
             minWidth={260}
-            note="The control at rest. Note the width — it is fixed, and the loading state below has to match it."
+            note="The control at rest. Note the width: it is fixed, and the loading state below has to match it."
           >
             <button className="btn btn-secondary" data-testid="ds-buttonwait-idle" style={WAIT_BUTTON_STYLE}>
               Rotate credential
@@ -1059,17 +1059,17 @@ export default function DesignSystemPage() {
           <strong>
             <code>ButtonWait</code>
           </strong>{' '}
-          — the wait is inside a control the user just pressed: no label, fixed size, no live region,
+          : the wait is inside a control the user just pressed (no label, fixed size, no live region),
           because the button is already the thing being announced.{' '}
           <strong>
             <code>PixelLoader</code>
           </strong>{' '}
-          — the wait is a named piece of work in the body of the page: it says what is running and counts
+          : the wait is a named piece of work in the body of the page (it says what is running and counts
           the seconds, so a slow step is distinguishable from a hung one.{' '}
           <strong>
             <code>LoadingState</code>
           </strong>{' '}
-          — the wait is a whole fetch: all four phases including idle and a retryable error, and it owns
+          : the wait is a whole fetch (all four phases including idle and a retryable error), and it owns
           the live region for everything nested inside it.
         </Caveat>
       </Group>
@@ -1114,7 +1114,7 @@ export default function DesignSystemPage() {
         </div>
         <Caveat>
           Six specimens, not more, and that is a budget rather than a coincidence. Unlike PixelLoader,
-          LoadingState has no <code>announce</code> opt-out — every instance is a live region by
+          LoadingState has no <code>announce</code> opt-out: every instance is a live region by
           construction, and the success and error phases re-render a relative timestamp every second
           inside it. Six is what this page can carry without becoming noise; the test asserts the exact
           count so a seventh has to be a decision. Worth considering giving LoadingState the same
@@ -1126,7 +1126,7 @@ export default function DesignSystemPage() {
       <Group
         id="error-state"
         title="ErrorState"
-        when="A whole panel failed and there is nothing to show. isAuthError(message) picks the branch: a 401 gets “Log in”, because retrying a refused request just reproduces the refusal — everything else gets Retry."
+        when="A whole panel failed and there is nothing to show. isAuthError(message) picks the branch: a 401 gets “Log in”, because retrying a refused request just reproduces the refusal; everything else gets Retry."
       >
         <div style={rowStyle}>
           <div data-testid="ds-errorstate-retry" style={{ ...cardStyle, flex: '1 1 320px' }}>
@@ -1147,7 +1147,7 @@ export default function DesignSystemPage() {
       <Group
         id="empty-state"
         title="EmptyState"
-        when="The query succeeded and the answer is nothing. Never use it for a failure — a healthy zero and a fetch that never ran must not look alike."
+        when="The query succeeded and the answer is nothing. Never use it for a failure: a healthy zero and a fetch that never ran must not look alike."
       >
         <div style={rowStyle}>
           <div style={{ ...cardStyle, flex: '1 1 320px' }}>
@@ -1163,7 +1163,7 @@ export default function DesignSystemPage() {
       <Group
         id="status-badge"
         title="StatusBadge"
-        when="One enum value in a table cell. Pass the variant so the colour comes from the right map — without it the lookup falls through every map in order and the first match wins, which is fine until two domains share a word."
+        when="One enum value in a table cell. Pass the variant so the colour comes from the right map. Without it the lookup falls through every map in order and the first match wins, which is fine until two domains share a word."
       >
         <div style={{ display: 'grid', gap: 10 }}>
           {BADGE_SPECIMENS.map(({ variant, statuses }) => (
@@ -1181,7 +1181,7 @@ export default function DesignSystemPage() {
       <Group
         id="help-hint"
         title="HelpHint"
-        when="A term whose meaning is not in its label. Hover or focus the “?”. It self-places to stay on screen, so it is safe at a viewport edge or inside a scrolling panel. tone recolours only the affordance — a coloured popup would read as an error rather than an explanation."
+        when="A term whose meaning is not in its label. Hover or focus the “?”. It self-places to stay on screen, so it is safe at a viewport edge or inside a scrolling panel. tone recolours only the affordance: a coloured popup would read as an error rather than an explanation."
       >
         <div style={rowStyle}>
           <Specimen caption="default (cyan)" minWidth={220}>
@@ -1209,13 +1209,13 @@ export default function DesignSystemPage() {
       <Group
         id="data-table"
         title="DataTable"
-        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only — it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header. Three examples below, read as a progression, because the gaps between them are where every question about this component actually lives: the minimum that works, the configuration a real page needs, and the fullest form the nine migrated superadmin pages converged on. Pick the one your case needs — one filter is the second, two composing facets is the third. All three are the same component. There is no separate filtered variant, and the caveat under them says why."
+        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only: it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header. Three examples below, read as a progression, because the gaps between them are where every question about this component actually lives: the minimum that works, the configuration a real page needs, and the fullest form the nine migrated superadmin pages converged on. Pick the one your case needs: one filter is the second, two composing facets is the third. All three are the same component. There is no separate filtered variant, and the caveat under them says why."
       >
         <div data-testid="ds-datatable-simple-example">
           <ExampleHeading
             id="datatable-simple"
             title="Minimum viable"
-            blurb="Four columns, three of them sortable, one page control. This is the whole API surface you need for a table that is just a list — hand it columns, data and a row renderer and stop."
+            blurb="Four columns, three of them sortable, one page control. This is the whole API surface you need for a table that is just a list: hand it columns, data and a row renderer and stop."
           />
           <DataTable
             columns={TABLE_COLUMNS}
@@ -1236,7 +1236,7 @@ export default function DesignSystemPage() {
         <div data-testid="ds-datatable-complex-example" style={{ marginTop: 30 }}>
           <ExampleHeading
             id="datatable-complex"
-            title="Realistic — the shape AgentsPage needs"
+            title="Realistic: the shape AgentsPage needs"
             blurb="The same component with two more optional props. Seven sortable columns, StatusBadge in two of them, pageSize 5 so the pager is part of the example, and a toolbar slot carrying search and lifecycle chips whose state and predicate still belong to this page. This is what the TODO on AgentsPage.tsx line 3 is asking for, written out."
           />
           <DataTable
@@ -1248,8 +1248,8 @@ export default function DesignSystemPage() {
             // optional props rather than a second component. `toolbar` is a
             // slot: the search state, the chips and the predicate all still
             // live in this page, and DataTable is handed an already-narrowed
-            // array. What it owns is the position of the strip and — the part
-            // worth having — the guarantee that the strip outlives the table
+            // array. What it owns is the position of the strip and (the part
+            // worth having) the guarantee that the strip outlives the table
             // when a filter matches nothing.
             toolbar={
               <div
@@ -1340,8 +1340,8 @@ export default function DesignSystemPage() {
         <div data-testid="ds-datatable-super-example" style={{ marginTop: 30 }}>
           <ExampleHeading
             id="datatable-super"
-            title="Super — the shared toolbar, everything at once"
-            blurb="Reach for this when one facet is not enough. Two independent facets — chips and a select — narrowing together with a search box, so the reader can reach a combination that matches nothing while neither facet is empty on its own. That state is why the rest exists: counts of the whole table rather than the result, a Clear filters control that appears only while something is filtered, and a second way out inside the empty panel. Unlike the two above, this strip is NOT hand-rolled: it is components/DataTableToolbar, the module the migration converged on, composed here in the open. One filter and the realistic specimen above is the one to copy; this is more strip than most tables earn."
+            title="Super: the shared toolbar, everything at once"
+            blurb="Reach for this when one facet is not enough. Two independent facets (chips and a select) narrowing together with a search box, so the reader can reach a combination that matches nothing while neither facet is empty on its own. That state is why the rest exists: counts of the whole table rather than the result, a Clear filters control that appears only while something is filtered, and a second way out inside the empty panel. Unlike the two above, this strip is NOT hand-rolled: it is components/DataTableToolbar, the module the migration converged on, composed here in the open. One filter and the realistic specimen above is the one to copy; this is more strip than most tables earn."
           />
           <DataTable
             columns={SUPER_COLUMNS}
@@ -1350,7 +1350,7 @@ export default function DesignSystemPage() {
             testIdPrefix="ds-datatable-super"
             // The real DataTableToolbar, not a mock-up of one. Composed here in
             // the specimen rather than hidden behind a local wrapper, because
-            // the composition IS what a migrating page copies — and because the
+            // the composition IS what a migrating page copies, and because the
             // order below is the convention the module documents but
             // deliberately does not enforce: search, facets, select, clear,
             // count. A test asserts it against this specimen.
@@ -1404,7 +1404,7 @@ export default function DesignSystemPage() {
                 <HelpHint label="What the super example's filters do" testId="ds-datatable-super-help">
                   Every control here narrows the array this page hands to DataTable, and nothing else.
                   The counts on the chips and in the select are counts of the whole table, not of what
-                  is on screen — a facet reporting the filtered set would read 0 for every option you
+                  is on screen: a facet reporting the filtered set would read 0 for every option you
                   have not chosen and stop being a way back to the rows it is hiding.
                 </HelpHint>
               </DataTableToolbar>
@@ -1414,14 +1414,14 @@ export default function DesignSystemPage() {
               // strip above survives the empty branch by construction, so the
               // control is already reachable; this one is reachable from where
               // the mistake is visible, which is a different thing. Two pages
-              // arrived at it independently — RbacExplorerPage and
-              // CollusionAccessPage — and both had to fight EmptyState with a
+              // arrived at it independently (RbacExplorerPage and
+              // CollusionAccessPage), and both had to fight EmptyState with a
               // negative margin to get there, because EmptyState has no action
               // slot. That is a missing slot, not a styling preference.
               <div data-testid="ds-datatable-super-filtered-empty">
                 <EmptyState
                   kicker="Nothing matches these filters"
-                  body="All eighteen services are still here — the search box, a source chip or the owner select above is hiding them."
+                  body="All eighteen services are still here: the search box, a source chip or the owner select above is hiding them."
                 />
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: -34, marginBottom: 12 }}>
                   <button
@@ -1483,13 +1483,13 @@ export default function DesignSystemPage() {
           agents were not editing one file. They produced six dialects of one idea, and{' '}
           <code>components/DataTableToolbar</code> is what they agree on: a labelled group, a search
           box, faceted chips in their <em>own</em> named group, a select past five options, a
-          conditional clear, and a count — in that order, for the reasons the module records. It is
+          conditional clear, and a count (in that order, for the reasons the module records). It is
           rendered above rather than mocked up, so what you are looking at is the code that would be
           rolled across those nine pages.
         </Caveat>
         <Caveat>
           <strong>What it deliberately does not do.</strong> It never sees a row. No{' '}
-          <code>data</code>, no predicate, no <code>searchKeys</code>, no count arithmetic — the page
+          <code>data</code>, no predicate, no <code>searchKeys</code>, no count arithmetic: the page
           above still owns all three pieces of state, the predicate and both count objects, and still
           hands <code>DataTable</code> an already-narrowed array. That is not modesty: the two
           hand-rolled <code>useFilter</code> hooks on Cryptography and Federated Services had already
@@ -1507,7 +1507,7 @@ export default function DesignSystemPage() {
       <Group
         id="donut-chart"
         title="DonutChart"
-        when="A single proportion worth reading at a glance — three or four segments, no more. Hand-rolled SVG, no charting dependency; reach for Recharts only when you need axes."
+        when="A single proportion worth reading at a glance: three or four segments, no more. Hand-rolled SVG, no charting dependency; reach for Recharts only when you need axes."
       >
         <div style={rowStyle}>
           <Specimen caption="63 controls" minWidth={200}>
@@ -1630,7 +1630,7 @@ export default function DesignSystemPage() {
       <Group
         id="credential-state-notice"
         title="CredentialStateNotice"
-        when="Says why an agent cannot authenticate, next to the agent. Renders nothing at all when the state is absent — absent is not the same as fine, and inventing “active” would be a lie."
+        when="Says why an agent cannot authenticate, next to the agent. Renders nothing at all when the state is absent (absent is not the same as fine, and inventing “active” would be a lie)."
       >
         <div style={rowStyle}>
           <Specimen caption="revoked · panel" minWidth={340}>
@@ -1644,8 +1644,7 @@ export default function DesignSystemPage() {
           Found by building this page: the revoked branch is a live region
           (<code>role=&quot;status&quot;</code>, <code>aria-live=&quot;polite&quot;</code>) with a
           hard-coded <code>data-testid</code> and no way to switch either off. That is the right default
-          — on the audience window the notice appears with no user action, so it has to announce itself —
-          but it means the specimen above is the seventh live region on this page, and two of these in
+          (on the audience window the notice appears with no user action, so it has to announce itself), but it means the specimen above is the seventh live region on this page, and two of these in
           one table would announce twice. Same escape hatch as PixelLoader&rsquo;s{' '}
           <code>announce</code> would fix it. The page&rsquo;s test asserts the full live-region roster
           by name, so this is counted rather than tolerated.
@@ -1804,14 +1803,14 @@ export default function DesignSystemPage() {
       <Group
         id="dash-kit"
         title="DashKit"
-        when="Presentational primitives for the mock trust dashboards — Pill, StatCard, Section and Table. Use DataTable instead when rows need sorting or pagination; DashKit's Table is a static one."
+        when="Presentational primitives for the mock trust dashboards: Pill, StatCard, Section and Table. Use DataTable instead when rows need sorting or pagination; DashKit's Table is a static one."
       >
         <div style={{ ...rowStyle, marginBottom: 14 }}>
           <StatCard label="Federated services" value="14" sub="across 3 trust domains" accent={colors.cyanLoom} />
           <StatCard label="Degraded" value="2" sub="mesh probe failing" accent={colors.amber} />
           <StatCard label="Blocked" value="1" sub="policy denied egress" accent={colors.red} />
         </div>
-        <Specimen caption="Pill" minWidth={320} note="Pill takes the label itself and colours it by a lookup — an unknown label falls back to muted rather than throwing.">
+        <Specimen caption="Pill" minWidth={320} note="Pill takes the label itself and colours it by a lookup: an unknown label falls back to muted rather than throwing.">
           {['active', 'degraded', 'blocked', 'pending', 'unknown-label'].map((label) => (
             <Pill key={label} label={label} />
           ))}
@@ -1835,7 +1834,7 @@ export default function DesignSystemPage() {
         <Caveat>
           Known defect, surfaced by putting these side by side: <code>DashKit.hex()</code> concatenates
           an alpha suffix onto its argument, but the <code>PILL</code> map now holds{' '}
-          <code>var(--teal)</code>-style tokens rather than hex literals — so the background computes to{' '}
+          <code>var(--teal)</code>-style tokens rather than hex literals, so the background computes to{' '}
           <code>var(--teal)1f</code>, which is not a colour, and every Pill above renders with no fill at
           all. The text colour is unaffected, which is why it has gone unnoticed. Fixing it belongs in
           DashKit, not here; <code>StatusBadge.tint()</code> shows the working pattern
@@ -1847,7 +1846,7 @@ export default function DesignSystemPage() {
       <Group
         id="not-shown"
         title="Not shown on this page"
-        when="What the gallery leaves out, and why. A component library page that silently omits half the library is worse than one that admits what it could not render — these are the components that need an overlay, a router, an auth token or a live API to mean anything."
+        when="What the gallery leaves out, and why. A component library page that silently omits half the library is worse than one that admits what it could not render: these are the components that need an overlay, a router, an auth token or a live API to mean anything."
       >
         <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
           {NOT_SHOWN.map(({ name, reason }, i) => (

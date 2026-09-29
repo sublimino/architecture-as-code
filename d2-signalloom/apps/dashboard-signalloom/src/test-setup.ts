@@ -10,7 +10,7 @@ import { resetFakeData } from './api/fakeData'
 //
 // Everything they stub is measurement, not behaviour: the components still
 // mount, render their real DOM, and respond to real events. What tests cannot
-// assert under them is anything derived from element geometry — which is why
+// assert under them is anything derived from element geometry, which is why
 // the topology's layout maths lives in trustGeometry.ts as pure functions and
 // is tested directly there rather than through the renderer.
 class ResizeObserverStub {

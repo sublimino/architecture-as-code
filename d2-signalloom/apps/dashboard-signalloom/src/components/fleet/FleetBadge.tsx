@@ -1,5 +1,5 @@
 /**
- * FleetBadge — the diagram's own colour vocabulary, in a table cell.
+ * FleetBadge: the diagram's own colour vocabulary, in a table cell.
  *
  * WHY THIS IS NOT `StatusBadge`. The shared badge is the right component and
  * this borrows its markup verbatim: the same `.tag` class, the same
@@ -17,8 +17,8 @@
  *   - Fleet lifecycle overlaps `lifecycle` on exactly one word. `active`
  *     resolves there to TEAL, and this page's diagram has drawn an active
  *     agent CYAN since it was written (`stateColour` in FleetTopology.tsx).
- *     The other five states — absent, deploying, non-compliant, grace-period,
- *     stunned — are not in that map either.
+ *     The other five states (absent, deploying, non-compliant, grace-period,
+ *     stunned) are not in that map either.
  *
  * The alternative was adding a `fleet` and a `trust` variant to StatusBadge,
  * which is the right long-term answer and is what should happen once the ten
@@ -65,7 +65,7 @@ export function trustToken(profile: AgentState['trustProfile']): string {
 interface Props {
   /** The word shown in the badge. Hyphens stay: `non-compliant` is the API's word. */
   label: string
-  /** A CSS custom property reference. Never a literal colour — see cssVarUsage.test.ts. */
+  /** A CSS custom property reference. Never a literal colour (see cssVarUsage.test.ts). */
   token: string
   testId?: string
 }

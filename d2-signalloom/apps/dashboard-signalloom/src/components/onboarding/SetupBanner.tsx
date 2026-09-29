@@ -7,7 +7,7 @@ interface Props {
 
 // Persistent dashboard-wide "Complete setup" nudge (US-ENHC-011 closeout).
 // Distinct from ProgressBanner.tsx, which lives inside the wizard itself and
-// tracks per-provider connect status within the wizard's step machine — this
+// tracks per-provider connect status within the wizard's step machine: this
 // one is coarser (just "setup incomplete, click to resume") and renders on
 // every page except the wizard and its help pages (see App.tsx).
 export default function SetupBanner({ connectedCount, totalCount }: Props) {

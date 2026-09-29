@@ -1,7 +1,7 @@
 /**
  * Fake fixture data for the Signal Weave page in demo mode.
  *
- * Tells the story of a shadow AI agent — an LLM-backed service that was
+ * Tells the story of a shadow AI agent: an LLM-backed service that was
  * provisioned outside governance, discovered via network anomalies, and
  * correlated across layers until it became actionable.
  */
@@ -26,7 +26,7 @@ const observations: SignalObservation[] = [
     actor_hint: 'pod/shadow-llm-proxy-7f8b9',
     raw_evidence_ref: 'hubble://flows/2026-08-15/net-001',
     labels: { namespace: 'ml-workloads', dst: 'api.openai.com:443' },
-    description: 'Outbound HTTPS to api.openai.com from unregistered pod in ml-workloads namespace — 847 requests in 6h window.',
+    description: 'Outbound HTTPS to api.openai.com from unregistered pod in ml-workloads namespace (847 requests in 6h window).',
   },
   {
     id: 'obs-net-002',
@@ -38,7 +38,7 @@ const observations: SignalObservation[] = [
     actor_hint: 'pod/shadow-llm-proxy-7f8b9',
     raw_evidence_ref: 'hubble://flows/2026-08-15/net-002',
     labels: { namespace: 'ml-workloads', dst: 'storage.googleapis.com:443' },
-    description: 'Secondary egress to GCS storage bucket — model artifact retrieval pattern consistent with warm-start cache.',
+    description: 'Secondary egress to GCS storage bucket (model artifact retrieval pattern consistent with warm-start cache).',
   },
   {
     id: 'obs-id-001',
@@ -50,7 +50,7 @@ const observations: SignalObservation[] = [
     actor_hint: 'sa/ml-inference-sa',
     raw_evidence_ref: 'opa://decisions/2026-08-15/id-001',
     labels: { serviceaccount: 'ml-inference-sa', action: 'secrets.get' },
-    description: 'Service account ml-inference-sa read 3 secrets in kube-system — no RBAC binding exists in governance registry.',
+    description: 'Service account ml-inference-sa read 3 secrets in kube-system (no RBAC binding exists in governance registry).',
   },
   {
     id: 'obs-id-002',
@@ -85,7 +85,7 @@ const observations: SignalObservation[] = [
     actor_hint: 'pod/shadow-llm-proxy-7f8b9',
     raw_evidence_ref: 'falco://alerts/ep-001',
     labels: { rule: 'write_below_etc', container: 'shadow-llm-proxy' },
-    description: 'Container wrote to /etc/resolv.conf — DNS reconfiguration attempt to bypass corporate resolver.',
+    description: 'Container wrote to /etc/resolv.conf: DNS reconfiguration attempt to bypass corporate resolver.',
   },
   {
     id: 'obs-beh-001',
@@ -107,7 +107,7 @@ const observations: SignalObservation[] = [
     confidence: 0.58,
     raw_evidence_ref: 'sl-ml://models/beh-002',
     labels: { model: 'data-exfil-detector-v1', risk: 'medium' },
-    description: 'Outbound payload sizes follow bimodal distribution — consistent with prompt/response rather than bulk transfer.',
+    description: 'Outbound payload sizes follow bimodal distribution, consistent with prompt/response rather than bulk transfer.',
   },
   {
     id: 'obs-cloud-001',
@@ -147,7 +147,7 @@ const actors: ProvisionalActor[] = [
     created_at: '2026-08-15T02:14:00Z',
     updated_at: '2026-08-15T07:30:00Z',
     evidence_chain: [
-      { observation_id: 'obs-id-001', layer: 'identity_authorization', fidelity: 'definitive', contribution: 'Unregistered service account accessing secrets — strongest identity signal.', timestamp: '2026-08-15T02:12:00Z' },
+      { observation_id: 'obs-id-001', layer: 'identity_authorization', fidelity: 'definitive', contribution: 'Unregistered service account accessing secrets: strongest identity signal.', timestamp: '2026-08-15T02:12:00Z' },
       { observation_id: 'obs-net-001', layer: 'network_egress', fidelity: 'strong', contribution: 'High-volume outbound to OpenAI API confirms AI workload classification.', timestamp: '2026-08-15T02:14:00Z' },
       { observation_id: 'obs-cloud-001', layer: 'cloud_control_plane', fidelity: 'definitive', contribution: 'APIServer audit log proves direct secret token harvesting.', timestamp: '2026-08-15T02:15:00Z' },
       { observation_id: 'obs-app-001', layer: 'application_saas', fidelity: 'strong', contribution: 'CSPM finding independently confirms shadow AI workload.', timestamp: '2026-08-15T02:30:00Z' },
@@ -201,10 +201,10 @@ const coverage: CoverageStatement = {
     'cloud_control_plane',
   ],
   blind_spots: [
-    { id: 'bs-001', layer: 'network_egress', description: 'Local transport (Unix socket, localhost) — no Hubble visibility on loopback.' },
+    { id: 'bs-001', layer: 'network_egress', description: 'Local transport (Unix socket, localhost): no Hubble visibility on loopback.' },
     { id: 'bs-002', layer: 'network_egress', description: 'Encrypted C2 channels using domain-fronting or steganographic payloads.' },
-    { id: 'bs-003', layer: 'identity_authorization', description: 'Session inheritance via leaked tokens — no provenance chain for bearer reuse.' },
-    { id: 'bs-005', layer: 'protocol', description: 'All protocol-level signals — protocol analyser not deployed.' },
+    { id: 'bs-003', layer: 'identity_authorization', description: 'Session inheritance via leaked tokens: no provenance chain for bearer reuse.' },
+    { id: 'bs-005', layer: 'protocol', description: 'All protocol-level signals: protocol analyser not deployed.' },
   ],
   closeable_by_issuance: ['bs-003', 'bs-001'],
   deployment_coverage: '6 of 7 signal layers active. 1 layer requires additional collector deployment.',

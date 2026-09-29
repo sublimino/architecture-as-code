@@ -1,5 +1,5 @@
 /**
- * useSignalSummary — fetches and caches signal observation + actor data for
+ * useSignalSummary: fetches and caches signal observation + actor data for
  * the session. Used by pages that show cross-cutting signal indicators
  * without being the Signal Weave page itself.
  *
@@ -36,7 +36,7 @@ export interface SignalSummary {
   highestFidelity: FidelityTier | null
   layerCount: number
   /**
-   * The service's own coverage statement — which layers have a collector
+   * The service's own coverage statement: which layers have a collector
    * deployed and which are blind spots.
    *
    * Null when signal-ingest does not answer for it. Coverage degrades
@@ -108,7 +108,7 @@ export function useSignalSummary(): SignalSummary {
   useEffect(() => {
     mounted.current = true
 
-    // Already cached — serve immediately
+    // Already cached: serve immediately
     if (cachedSummary) {
       setSummary(cachedSummary)
       return
@@ -166,7 +166,7 @@ export function useSignalSummary(): SignalSummary {
             error: null,
           }
         } catch (err) {
-          // Graceful degradation — signal data is supplementary
+          // Graceful degradation: signal data is supplementary
           cachedSummary = {
             ...EMPTY,
             loading: false,

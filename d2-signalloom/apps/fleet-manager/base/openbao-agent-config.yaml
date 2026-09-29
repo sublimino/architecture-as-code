@@ -1,0 +1,51 @@
+# openbao-agent config for the fleet-manager sidecar (deployment.yaml).
+#
+# Same shape as the swarm pattern in infra/agent-swarm/openbao-agent-sidecar.yaml
+# (jwt auto_auth + file sink) with ONE deliberate deviation: the jwt method's
+# `path` is a FILE, not the SPIRE socket. The swarm pattern points it at
+# /run/spire/sockets/agent.sock, and the live agent-cardvault sidecar has been
+# logging this every ~5m since it was deployed:
+#
+#   agent.auth.jwt: jwt file is not a regular file or symlink
+#   agent.auth.handler: error="latest known jwt is empty, cannot authenticate"
+#
+# The jwt auth method reads a JWT from a file; it does not speak the Workload
+# API. The `jwt-svid` sidecar in deployment.yaml fetches the JWT-SVID with
+# signalloom-spire-helper (the mechanism bao-spire-proof.yaml already proves
+# works) and writes it here atomically every 60s.
+#
+# The token is sunk to /var/run/secrets/openbao/token, which is the path
+# OpenBaoConfigFromEnv has always defaulted to and which the fleet-manager
+# client now re-reads on every request (BAO_TOKEN_FILE).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-manager-openbao-config
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        mount_path = "auth/jwt"
+        config = {
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "fleet-manager"
+          remove_jwt_after_reading = false
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/var/run/secrets/openbao/token"
+          mode = 0440
+        }
+      }
+    }

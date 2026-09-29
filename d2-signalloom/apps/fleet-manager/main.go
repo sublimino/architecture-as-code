@@ -626,6 +626,7 @@ func main() {
 	mux.HandleFunc("/api/v1/fleet/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/fleet/recover", s.handleRecover)
 	mux.HandleFunc("/api/v1/fleet/reset", s.handleReset)
+	registerConsistencyRoutes(mux, s)
 
 	srv := &http.Server{
 		Addr:         ":" + port,

@@ -1786,8 +1786,9 @@ test-ci-path-anchoring: ## Verify no CI path variable is relative, in the Makefi
 
 .PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down
 demo-signalloom-fleet-image: ## Build and kind-load the Fleet Manager image.
-	docker build -t fleet-manager:local d2-signalloom/apps/fleet-manager
+	docker build -f d2-signalloom/apps/fleet-manager/Dockerfile -t fleet-manager:local d2-signalloom/apps
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh fleet-manager:local
+
 
 demo-signalloom-fleet-up: demo-signalloom-fleet-image ## TEST ESCAPE HATCH ONLY — Flux owns Fleet Manager; use demo-signalloom-up.
 	# Flux is the deploy path. fleet-manager/base is reconciled by the

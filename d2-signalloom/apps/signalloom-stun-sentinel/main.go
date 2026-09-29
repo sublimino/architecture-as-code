@@ -250,24 +250,46 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		return nil
 	}
 
-	veth, err := r.tc.findHostVeth(cgroupPath)
-	if err != nil {
-		return fmt.Errorf("find veth before unfreezing pod: %w", err)
-	}
-	if err := r.probes.release(pod, cgroupPath, veth); err != nil {
-		return fmt.Errorf("release liveness probes: %w", err)
-	}
-	if err := r.tc.detachDrop(veth); err != nil {
-		return fmt.Errorf("detach drop filter: %w", err)
-	}
+	// Release order: thaw FIRST. The network layer must never block a
+	// release: a pod frozen before its sandbox joined a netns has no
+	// resolvable veth, and looking the veth up first left it frozen forever.
 	if err := r.freezer.unfreeze(cgroupPath); err != nil {
 		return fmt.Errorf("unfreeze: %w", err)
+	}
+	if err := r.probes.release(pod, cgroupPath, ""); err != nil {
+		return fmt.Errorf("release liveness probes: %w", err)
 	}
 
 	var count int64
 	if r.reconcileCount != nil {
 		count = r.reconcileCount.Load()
 	}
+
+	veth, netErr := r.tc.findHostVeth(cgroupPath)
+	if netErr != nil {
+		netErr = fmt.Errorf("find veth after unfreezing pod: %w", netErr)
+	} else if err := r.tc.detachDrop(veth); err != nil {
+		netErr = fmt.Errorf("detach drop filter after unfreezing pod: %w", err)
+	}
+	if netErr != nil {
+		// Thawed, but the drop filter may still be attached. Returning the
+		// error requeues the detach; the thaw is already done.
+		logEvent(stunEvent{
+			Timestamp:      now(),
+			Event:          "unstun_partial",
+			Pod:            pod.Name,
+			Namespace:      pod.Namespace,
+			UID:            string(pod.UID),
+			DryRun:         r.dryRun,
+			CgroupPath:     cgroupPath,
+			HostVeth:       veth,
+			Decision:       "thawed_network_release_pending",
+			ReconcileCount: count,
+			Error:          netErr.Error(),
+		})
+		return netErr
+	}
+
 	decision := "containment_released"
 	if r.dryRun {
 		decision = "containment_release_planned_dry_run"

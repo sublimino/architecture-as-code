@@ -296,8 +296,10 @@ func (t *tcDropFilter) attachDrop(iface string) error {
 	if t.dryRun {
 		return nil
 	}
-	if out, err := t.run("tc", "qdisc", "add", "dev", iface, "clsact"); err != nil && !strings.Contains(string(out), "File exists") {
-		return tcError("add clsact", iface, out, err)
+	// replace, not add: clsact is shared and outlives an unstun, and a second
+	// `add` fails "Exclusivity flag on, cannot modify" (exit 2) on re-stun.
+	if out, err := t.run("tc", "qdisc", "replace", "dev", iface, "clsact"); err != nil {
+		return tcError("replace clsact", iface, out, err)
 	}
 	if out, err := t.run("tc", "filter", "replace", "dev", iface, "pref", sentinelIngressPref, "protocol", "all", "ingress", "handle", sentinelIngressHandle, "matchall", "action", "drop"); err != nil {
 		return tcError("replace Sentinel ingress filter", iface, out, err)

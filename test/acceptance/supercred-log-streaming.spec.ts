@@ -214,7 +214,7 @@ test("a reset streams its teardown output while it is still running", async ({ b
     await page.locator(RESET_CONFIRM).click();
 
     await expectLogVisibleWhileRunning(page, "the reset");
-    await expect(page.locator(RUN_STATUS)).toContainText(/Step\s+5\s+\(reset\)\s+—\s+succeeded/, {
+    await expect(page.locator(RUN_STATUS)).toContainText(/Step\s+5\s+\(reset\)\s*[:\u2014]\s*succeeded/, {
       timeout: PHASE_TIMEOUT,
     });
     // The post-run drain lands after the status word flips, so wait for the log
@@ -285,7 +285,7 @@ test("phase 1 follows the tail, and stops following once the instructor scrolls 
     const afterScrollDown = await sampleCursor(page);
     await waitForLine(page, (await currentLastLine(page)) + 10, { timeout: PHASE_TIMEOUT });
 
-    await expect(page.locator(RUN_STATUS)).toContainText(/Step\s+1\s+\(step\)\s+—\s+succeeded/, {
+    await expect(page.locator(RUN_STATUS)).toContainText(/Step\s+1\s+\(step\)\s*[:\u2014]\s*succeeded/, {
       timeout: PHASE_TIMEOUT,
     });
 

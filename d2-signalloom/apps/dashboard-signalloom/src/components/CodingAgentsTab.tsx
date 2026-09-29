@@ -306,9 +306,9 @@ export function CodingAgentsTab({ initialHarness, initialTaskId, onSelectAgent }
 
       {/* ─── Content Body: Cards or Empty / Loading State ────────────────── */}
       {loading && records.length === 0 ? (
-        <LoadingState status="loading" label="coding agent telemetry" />
+        <LoadingState status="loading" label="coding agent telemetry" testId="coding-agents-load-state" />
       ) : error && records.length === 0 ? (
-        <LoadingState status="error" error={error} label="coding agent telemetry" onRetry={fetchTelemetry} />
+        <LoadingState status="error" error={error} label="coding agent telemetry" onRetry={fetchTelemetry} testId="coding-agents-load-state" />
       ) : filteredRecords.length === 0 ? (
         <EmptyState
           kicker="No coding agents found"

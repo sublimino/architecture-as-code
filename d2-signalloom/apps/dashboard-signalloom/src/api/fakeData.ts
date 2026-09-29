@@ -1407,8 +1407,8 @@ const ROUTES: Match[] = [
   // the one panel that breaks an offline presentation.
   ...FAIR_ROUTES,
   // coding agent telemetry routes (SLCD-P5-1 / SLCD-P5-2)
-  { method: 'GET', test: re(/^\/v1\/telemetry\/coding-agents$/), data: () => FAKE_CODING_AGENT_TELEMETRY },
-  { method: 'GET', test: re(/^\/v1\/telemetry\/coding-agents\/aggregate$/), data: () => FAKE_CODING_AGENT_AGGREGATE },
+  { method: 'GET', test: re(/^\/v1\/telemetry\/coding-agents(\?.*)?$/), data: () => FAKE_CODING_AGENT_TELEMETRY },
+  { method: 'GET', test: re(/^\/v1\/telemetry\/coding-agents\/aggregate(\?.*)?$/), data: () => FAKE_CODING_AGENT_AGGREGATE },
   { method: 'POST', test: re(/^\/v1\/telemetry\/coding-agents\/ordering$/), data: () => ({
     record_a: 'event-a',
     record_b: 'event-b',

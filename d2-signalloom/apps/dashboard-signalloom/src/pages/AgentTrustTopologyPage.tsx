@@ -61,7 +61,7 @@ function toTrustTopology(topology: TrustTopologyResponse): { nodes: TrustNode[];
       toolPermissions: node.tool_permissions ?? undefined,
       egressAllowlist: node.egress_allowlist ?? undefined,
       x: node.x ?? 200 + (seen % 4) * 260,
-      y: node.y ?? RANK_Y[node.kind] ?? 520,
+      y: node.y ?? ((RANK_Y[node.kind] ?? 520) + Math.floor(seen / 4) * 130),
     } as TrustNode
   })
   const edges = topology.edges.map(edge => ({
@@ -408,9 +408,57 @@ export default function AgentTrustTopologyPage() {
       {!demo && loadError && <div role="alert">Unable to load authenticated trust topology: {loadError}</div>}
       {!demo && !loading && !loadError && <DegradedBanner topology={liveTopology} />}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
-        <StatCard label="Runtime-observed" value={String(counts.observed)} sub={demo ? 'none in demonstration fixture' : 'authenticated endpoint response'} accent="var(--slate-gray)" />
-        <StatCard label="Modeled items" value={String(counts.modeled)} sub="contract assumptions, not proof" accent="var(--violet)" />
-        <StatCard label="Fixture-tested items" value={String(counts.fixture)} sub="available fixture state" accent="var(--cyan)" />
+        <button
+          type="button"
+          data-testid="stat-card-observed"
+          aria-pressed={evidence === 'observed'}
+          onClick={() => setEvidence(prev => prev === 'observed' ? 'all' : 'observed')}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            textAlign: 'left',
+            outline: evidence === 'observed' ? '2px solid var(--slate-gray)' : 'none',
+            borderRadius: 8,
+          }}
+        >
+          <StatCard label="Runtime-observed" value={String(counts.observed)} sub={demo ? 'none in demonstration fixture' : 'authenticated endpoint response'} accent="var(--slate-gray)" />
+        </button>
+        <button
+          type="button"
+          data-testid="stat-card-modeled"
+          aria-pressed={evidence === 'modeled'}
+          onClick={() => setEvidence(prev => prev === 'modeled' ? 'all' : 'modeled')}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            textAlign: 'left',
+            outline: evidence === 'modeled' ? '2px solid var(--violet)' : 'none',
+            borderRadius: 8,
+          }}
+        >
+          <StatCard label="Modeled items" value={String(counts.modeled)} sub="contract assumptions, not proof" accent="var(--violet)" />
+        </button>
+        <button
+          type="button"
+          data-testid="stat-card-fixture"
+          aria-pressed={evidence === 'fixture'}
+          onClick={() => setEvidence(prev => prev === 'fixture' ? 'all' : 'fixture')}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            textAlign: 'left',
+            outline: evidence === 'fixture' ? '2px solid var(--cyan)' : 'none',
+            borderRadius: 8,
+          }}
+        >
+          <StatCard label="Fixture-tested items" value={String(counts.fixture)} sub="available fixture state" accent="var(--cyan)" />
+        </button>
       </div>
 
       <Section title="Trust relationship plane" hint="one display layer at a time">

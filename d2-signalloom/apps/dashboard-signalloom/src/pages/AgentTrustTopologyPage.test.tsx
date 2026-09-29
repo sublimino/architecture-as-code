@@ -431,6 +431,41 @@ describe('AgentTrustTopologyPage: NodeDetailDrawer Interactions', () => {
       expect(screen.queryByTestId('node-detail-drawer')).not.toBeInTheDocument()
     })
   })
+
+  it('clicking StatCards updates the evidence filter on the diagram', async () => {
+    const user = userEvent.setup()
+    renderPage(<AgentTrustTopologyPage />)
+
+    const observedCard = screen.getByTestId('stat-card-observed')
+    const modeledCard = screen.getByTestId('stat-card-modeled')
+    const fixtureCard = screen.getByTestId('stat-card-fixture')
+
+    expect(observedCard).toHaveAttribute('aria-pressed', 'false')
+    expect(modeledCard).toHaveAttribute('aria-pressed', 'false')
+    expect(fixtureCard).toHaveAttribute('aria-pressed', 'false')
+
+    // Click Runtime-observed card
+    await user.click(observedCard)
+    expect(observedCard).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Evidence')).toHaveValue('observed')
+
+    // Click Modeled items card
+    await user.click(modeledCard)
+    expect(modeledCard).toHaveAttribute('aria-pressed', 'true')
+    expect(observedCard).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('Evidence')).toHaveValue('modeled')
+
+    // Click Fixture-tested items card
+    await user.click(fixtureCard)
+    expect(fixtureCard).toHaveAttribute('aria-pressed', 'true')
+    expect(modeledCard).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('Evidence')).toHaveValue('fixture')
+
+    // Clicking again toggles back to all
+    await user.click(fixtureCard)
+    expect(fixtureCard).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('Evidence')).toHaveValue('all')
+  })
 })
 
 

@@ -366,3 +366,27 @@ func TestUnstunThawsEvenWhenVethCannotBeResolved(t *testing.T) {
 		t.Fatalf("reconcile err = %v, want the veth error returned so the detach is retried", err)
 	}
 }
+
+// `kubectl annotate deploy` propagates the annotation to the ReplicaSet, and
+// removing it from the Deployment leaves it on the RS. The Deployment is the
+// record of truth whenever it controls the RS, so a stale RS copy must not
+// keep the owner stun alive (W6: owner stun could not be revoked).
+func TestOwnerRecordReadsDeploymentNotStaleReplicaSet(t *testing.T) {
+	h := newKernelHarness(t, "populated 1\nfrozen 0\n")
+	seedOwners(h.api, nil) // Deployment revoked: no annotation
+	h.api.replicaSets["agent-cardvault-bb57657"].Annotations = map[string]string{annotationOwnerStunned: "true"}
+	if isPodStunned(ownedPod(), h.reconciler.kernel) {
+		t.Fatal("stale signalloom.io/stunned on the ReplicaSet kept a revoked Deployment stun alive")
+	}
+}
+
+func TestOwnerRecordFallsBackToReplicaSetWithoutDeployment(t *testing.T) {
+	h := newKernelHarness(t, "populated 1\nfrozen 0\n")
+	h.api.replicaSets["agent-cardvault-bb57657"] = &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+		Name: "agent-cardvault-bb57657", Namespace: "fe-signalloom-agents",
+		Annotations: map[string]string{annotationOwnerStunned: "true"},
+	}}
+	if !isPodStunned(ownedPod(), h.reconciler.kernel) {
+		t.Fatal("bare ReplicaSet with signalloom.io/stunned=true not honoured")
+	}
+}

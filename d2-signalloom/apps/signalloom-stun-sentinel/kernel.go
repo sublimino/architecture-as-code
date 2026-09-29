@@ -116,8 +116,9 @@ func newKernelPublisher(api kubeAPI, resync time.Duration, dryRun bool) *kernelP
 	}
 }
 
-// ownerStunned reports whether the pod's controller chain (ReplicaSet, then
-// its Deployment) carries signalloom.io/stunned=true. Cached per pod UID for
+// ownerStunned reports whether the pod's owner record carries
+// signalloom.io/stunned=true: the controlling Deployment if there is one,
+// else the ReplicaSet. Cached per pod UID for
 // one resync period. A lookup error is logged and cached as "no record": the
 // three label terms still apply, and a missing RBAC grant must not wedge
 // every reconcile.
@@ -164,16 +165,19 @@ func (k *kernelPublisher) lookupOwnerChain(namespace, replicaSet string) (bool, 
 	if err != nil {
 		return false, fmt.Errorf("get replicaset %s/%s: %w", namespace, replicaSet, err)
 	}
-	if rs.Annotations[annotationOwnerStunned] == "true" {
-		return true, nil
-	}
+	rsStunned := rs.Annotations[annotationOwnerStunned] == "true"
+	// The Deployment is the record whenever it controls the RS. `kubectl
+	// annotate deploy` copies the annotation onto the RS and removing it from
+	// the Deployment leaves the RS copy behind, so reading the RS here would
+	// make an owner stun irrevocable. The RS speaks only when there is no
+	// Deployment controller, or that Deployment no longer exists.
 	dep := metav1.GetControllerOf(rs)
 	if dep == nil || dep.Kind != "Deployment" {
-		return false, nil
+		return rsStunned, nil
 	}
 	d, err := k.api.GetDeployment(ctx, namespace, dep.Name)
 	if apierrors.IsNotFound(err) {
-		return false, nil
+		return rsStunned, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("get deployment %s/%s: %w", namespace, dep.Name, err)

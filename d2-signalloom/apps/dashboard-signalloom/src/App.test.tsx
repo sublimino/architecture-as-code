@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import App, { routeLoadingLabel } from './App'
+import App, { routeLoadingLabel, SuperadminRoute } from './App'
 import { NAV } from './components/Sidebar'
 
 // The bug this file pins: clicking Compliance showed a rotating ring (App's
@@ -13,6 +13,7 @@ import { NAV } from './components/Sidebar'
 const auth = vi.hoisted(() => ({
   isAuthenticated: true,
   isLoading: false,
+  user: { name: 'Test User', email: 'test@acme.com' } as Record<string, unknown> | null,
   // Never resolves: App's onboarding/consent effects both start by awaiting a
   // token, so a pending promise keeps every post-mount setState from firing
   // and the tree under test stays exactly as rendered.
@@ -28,7 +29,7 @@ vi.mock('./auth/ProtectedRoute', () => ({
   default: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-// Sidebar is stubbed for its render only — NAV is where the loading labels
+// Sidebar is stubbed for its render only: NAV is where the loading labels
 // come from, so the real export has to survive the mock.
 vi.mock('./components/Sidebar', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./components/Sidebar')>()),
@@ -42,7 +43,7 @@ vi.mock('./components/KeyboardShortcutsOverlay', () => ({ default: () => null })
 // React.lazy caches: a chunk resolves once and every later mount of that route
 // is synchronous, so a route whose module settles can only be observed
 // suspending by the first test that touches it. These two never settle, which
-// holds the fallback up for as many renders as the suite needs — and does it
+// holds the fallback up for as many renders as the suite needs, and does it
 // through the genuine pending-import path rather than a hand-thrown thenable.
 vi.mock('./pages/CompliancePage', () => new Promise<never>(() => {}))
 vi.mock('./pages/DiscoveryAccountDetailPage', () => new Promise<never>(() => {}))
@@ -77,6 +78,7 @@ function renderAt(path: string) {
 beforeEach(() => {
   auth.isAuthenticated = true
   auth.isLoading = false
+  auth.user = { name: 'Test User', email: 'test@acme.com' }
 })
 
 describe('routeLoadingLabel', () => {
@@ -94,8 +96,8 @@ describe('routeLoadingLabel', () => {
     expect(routeLoadingLabel('/compliance/risk')).toBe('Loading Risk Exposure')
     expect(routeLoadingLabel('/compliance/soc2')).toBe('Loading Framework')
 
-    expect(routeLoadingLabel('/fleet')).toBe('Loading Fleet Config')
-    expect(routeLoadingLabel('/fleet/audience')).toBe('Loading Fleet Demo')
+    expect(routeLoadingLabel('/fleet')).toBe('Loading Fleet Demo')
+    expect(routeLoadingLabel('/fleet/audience')).toBe('Loading Fleet Demo Audience')
   })
 
   it('labels the detail routes that are not in the nav', () => {
@@ -108,7 +110,7 @@ describe('routeLoadingLabel', () => {
 
   it('gives every nav destination a name of its own', () => {
     // A nav item added without a label here would silently fall through to the
-    // bare "Loading" — the exact wording this change exists to get rid of.
+    // bare "Loading": the exact wording this change exists to get rid of.
     for (const item of NAV) {
       expect(routeLoadingLabel(item.to)).toBe(`Loading ${item.label}`)
     }
@@ -176,5 +178,53 @@ describe('App auth gate', () => {
     auth.isLoading = true
     renderAt('/compliance')
     expect(liveRegions()).toHaveLength(1)
+  })
+})
+
+describe('SuperadminRoute route guards', () => {
+  it('redirects unauthorized standard users to /agents', () => {
+    auth.user = { name: 'Standard User', email: 'user@example.com' }
+
+    render(
+      <MemoryRouter initialEntries={['/protected-demo']}>
+        <Routes>
+          <Route
+            path="/protected-demo"
+            element={
+              <SuperadminRoute>
+                <div>Sensitive Demo Content</div>
+              </SuperadminRoute>
+            }
+          />
+          <Route path="/agents" element={<div>Agents Fallback Page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByText('Sensitive Demo Content')).not.toBeInTheDocument()
+    expect(screen.getByText('Agents Fallback Page')).toBeInTheDocument()
+  })
+
+  it('renders protected content when user is superadmin eligible', () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+
+    render(
+      <MemoryRouter initialEntries={['/protected-demo']}>
+        <Routes>
+          <Route
+            path="/protected-demo"
+            element={
+              <SuperadminRoute>
+                <div>Sensitive Demo Content</div>
+              </SuperadminRoute>
+            }
+          />
+          <Route path="/agents" element={<div>Agents Fallback Page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Sensitive Demo Content')).toBeInTheDocument()
+    expect(screen.queryByText('Agents Fallback Page')).not.toBeInTheDocument()
   })
 })

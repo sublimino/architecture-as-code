@@ -23,11 +23,10 @@ setup() {
   SERVER="${BATS_TEST_DIRNAME}/fixtures/a2a-conformance-server.ts"
   [ -f "$SERVER" ]
 
-  # A distinct port per test, so a leaked server from a previous test cannot
-  # answer this one's requests and manufacture a pass. Guarantee uniqueness across
-  # tests in this suite to prevent TIME_WAIT port collisions.
-  PORT=$(( 38000 + (($$ % 100) * 20) + ${BATS_TEST_NUMBER:-1} ))
-  export KAGENT_A2A_BASE="http://127.0.0.1:${PORT}"
+  # Dynamic ephemeral port assigned by the OS (port 0) to guarantee zero port collisions
+  # across tests, runs, and background cluster services.
+  PORT=0
+  export KAGENT_A2A_BASE=""
 
   STUB_DIR="${BATS_TEST_TMPDIR}/bin"
   mkdir -p "$STUB_DIR"
@@ -54,23 +53,22 @@ teardown() {
 }
 
 start_server() {
-  while nc -z 127.0.0.1 "$PORT" 2>/dev/null; do
-    PORT=$(( PORT + 1 ))
-    export KAGENT_A2A_BASE="http://127.0.0.1:${PORT}"
-  done
-  A2A_SCENARIO="$1" A2A_PORT="$PORT" \
+  A2A_SCENARIO="$1" A2A_PORT=0 \
     bun "$SERVER" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
   SERVER_PID=$!
-  # Poll for the listener. A fixed sleep is either flaky or wasted, and it hides
-  # the case where the server died on startup.
+  # Poll for the listener to report its assigned port.
   for _ in $(seq 1 60); do
-    if curl -sS -o /dev/null -m 1 "http://127.0.0.1:${PORT}/" 2>/dev/null; then return 0; fi
+    if grep -q "a2a-conformance-server listening" "${BATS_TEST_TMPDIR}/server.log" 2>/dev/null; then
+      PORT="$(grep "a2a-conformance-server listening" "${BATS_TEST_TMPDIR}/server.log" | head -n1 | sed -E 's/.*127\.0\.0\.1:([0-9]+).*/\1/')"
+      export KAGENT_A2A_BASE="http://127.0.0.1:${PORT}"
+      if curl -sS -o /dev/null -m 1 "http://127.0.0.1:${PORT}/" 2>/dev/null; then return 0; fi
+    fi
     kill -0 "$SERVER_PID" 2>/dev/null || {
       echo "server exited during startup:"; cat "${BATS_TEST_TMPDIR}/server.log"; return 1
     }
-    sleep 0.1
+    sleep 0.05
   done
-  echo "server never listened on ${PORT}"; cat "${BATS_TEST_TMPDIR}/server.log"; return 1
+  echo "server never listened"; cat "${BATS_TEST_TMPDIR}/server.log"; return 1
 }
 
 @test "kagent-invoke-http: real HTTP round trip returns the agent's text and exits zero" {

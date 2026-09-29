@@ -112,28 +112,32 @@ export function PlaneOutcomeTable({ planes }: { planes: PlaneResult[] }) {
         </tr>
       </thead>
       <tbody>
-        {planes.map(p => {
+        {planes.map((p, i) => {
           const tone = outcomeTone(p.outcome)
+          // A fleet cascade reports one entry per plane PER TARGET, so a name
+          // can repeat. The first keeps the plain test id; later ones get -2, -3.
+          const nth = planes.slice(0, i).filter(q => q.plane === p.plane).length
+          const id = nth === 0 ? p.plane : `${p.plane}-${nth + 1}`
           return (
-            <tr key={p.plane} data-testid={`stun-plane-row-${p.plane}`} style={{ borderBottom: '1px solid var(--border)' }}>
+            <tr key={`${p.plane}-${i}`} data-testid={`stun-plane-row-${id}`} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={{ ...DataTable.td, fontFamily: 'monospace' }}>{p.plane}</td>
               <td style={DataTable.td}>
                 <span
-                  data-testid={`stun-plane-outcome-${p.plane}`}
+                  data-testid={`stun-plane-outcome-${id}`}
                   className={`stun-outcome stun-outcome--${tone}`}
                   style={toneStyle(tone)}
                 >
                   {p.outcome}
                 </span>
               </td>
-              <td data-testid={`stun-plane-latency-${p.plane}`} style={muted}>
+              <td data-testid={`stun-plane-latency-${id}`} style={muted}>
                 {typeof p.latency_ms === 'number' ? `${p.latency_ms} ms` : '-'}
               </td>
-              <td data-testid={`stun-plane-error-${p.plane}`} style={{ ...DataTable.td, fontSize: 12 }}>
+              <td data-testid={`stun-plane-error-${id}`} style={{ ...DataTable.td, fontSize: 12 }}>
                 {p.error ?? '-'}
               </td>
               <td
-                data-testid={`stun-plane-details-${p.plane}`}
+                data-testid={`stun-plane-details-${id}`}
                 title={p.details ? JSON.stringify(p.details, null, 2) : undefined}
                 style={{ ...muted, fontFamily: 'monospace', fontSize: 11, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               >
@@ -151,12 +155,14 @@ export function PlaneOutcomeTable({ planes }: { planes: PlaneResult[] }) {
 export function PlaneStrip({ planes, testId }: { planes: PlaneResult[]; testId: string }) {
   return (
     <div data-testid={testId} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-      {planes.map(p => {
+      {planes.map((p, i) => {
         const tone = outcomeTone(p.outcome)
+        const nth = planes.slice(0, i).filter(q => q.plane === p.plane).length
+        const id = nth === 0 ? p.plane : `${p.plane}-${nth + 1}`
         return (
           <span
-            key={p.plane}
-            data-testid={`${testId}-${p.plane}`}
+            key={`${p.plane}-${i}`}
+            data-testid={`${testId}-${id}`}
             className={`stun-outcome stun-outcome--${tone}`}
             title={p.error ?? undefined}
             style={{ ...toneStyle(tone), fontSize: 10, fontFamily: 'monospace', fontWeight: 500 }}

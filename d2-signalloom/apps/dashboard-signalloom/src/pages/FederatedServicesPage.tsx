@@ -16,6 +16,7 @@ import StatusBadge, { tint } from '../components/StatusBadge'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
 import { isDemoMode } from '../api/demoMode'
 import { api } from '../api/client'
+import { useAuth0 } from '../auth/oidc'
 import {
   TRUST_ZONES,
   FEDERATIONS,
@@ -45,6 +46,7 @@ export interface FederatedServicesData {
 
 export function useFederatedServices() {
   const isDemo = isDemoMode()
+  const { getAccessTokenSilently } = useAuth0()
   const [data, setData] = useState<FederatedServicesData>(() =>
     isDemo
       ? {
@@ -85,9 +87,11 @@ export function useFederatedServices() {
 
     setLoading(true)
     setError(null)
-    const token = (typeof window !== 'undefined' && typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null) || 'demo-token'
-    api.federation.summary(token)
-      .then((res) => {
+
+    void (async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        const res = await api.federation.summary(token)
         if (!active) return
         setData({
           zones: res.zones ?? [],
@@ -98,17 +102,17 @@ export function useFederatedServices() {
           events: res.events ?? [],
         })
         setLoading(false)
-      })
-      .catch((err: any) => {
+      } catch (err: unknown) {
         if (!active) return
-        setError(err?.message || 'Failed to fetch federated services data')
+        setError(err instanceof Error ? err.message : 'Failed to fetch federated services data')
         setLoading(false)
-      })
+      }
+    })()
 
     return () => {
       active = false
     }
-  }, [isDemo])
+  }, [isDemo, getAccessTokenSilently])
 
   return { data, loading, error, isDemo }
 }

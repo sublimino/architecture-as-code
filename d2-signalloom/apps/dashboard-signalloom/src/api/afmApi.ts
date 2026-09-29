@@ -521,7 +521,7 @@ export async function fetchAnalysisStatus(clusterId: string): Promise<AnalysisSt
 
 /** Trigger an asynchronous collusion and privilege escalation scan against KubeSec-AFM for a cluster. */
 export async function triggerCollusionScan(clusterId: string): Promise<JobRecord> {
-  const url = `${AFM}/clusters/${encodeURIComponent(clusterId)}/jobs`
+  const url = `${AFM}/clusters/${encodeURIComponent(clusterId)}/analysis/escalation`
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
@@ -541,16 +541,19 @@ export async function triggerCollusionScan(clusterId: string): Promise<JobRecord
     const parsed = parseJobRecord(data)
     if (parsed) return parsed
 
-    if (isRecord(data) && typeof data.id === 'string') {
-      return {
-        id: data.id,
-        clusterId,
-        status: parseJobStatus(data.status),
-        triggerSource: parseTriggerSource(data.trigger_source),
-        createdAt: asOptionalString(data.created_at) ?? new Date().toISOString(),
-        startedAt: asOptionalString(data.started_at),
-        finishedAt: asOptionalString(data.finished_at),
-        error: asOptionalString(data.error),
+    if (isRecord(data)) {
+      const jobId = typeof data.job_id === 'string' ? data.job_id : typeof data.id === 'string' ? data.id : null
+      if (jobId) {
+        return {
+          id: jobId,
+          clusterId,
+          status: parseJobStatus(data.status),
+          triggerSource: parseTriggerSource(data.trigger_source) ?? 'manual',
+          createdAt: asOptionalString(data.created_at) ?? new Date().toISOString(),
+          startedAt: asOptionalString(data.started_at),
+          finishedAt: asOptionalString(data.finished_at),
+          error: asOptionalString(data.error),
+        }
       }
     }
 

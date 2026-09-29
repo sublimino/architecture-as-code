@@ -267,7 +267,7 @@ describe('fetchers', () => {
     vi.unstubAllGlobals()
   })
 
-  it('triggerCollusionScan POSTs to /afm/clusters/{id}/jobs and parses the resulting job', async () => {
+  it('triggerCollusionScan POSTs to /afm/clusters/{id}/analysis/escalation and parses the resulting job', async () => {
     const jobPayload = {
       id: 'job-new-123',
       cluster_id: 'local',
@@ -282,7 +282,7 @@ describe('fetchers', () => {
     const job = await triggerCollusionScan('local')
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/afm/clusters/local/jobs',
+      '/afm/clusters/local/analysis/escalation',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

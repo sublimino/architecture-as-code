@@ -139,12 +139,15 @@ func (h *kernelHarness) events(t *testing.T, name string) []stunEvent {
 
 func TestKernelTruth_FrozenUnlabelledPublishesTrueBeforeVethStep(t *testing.T) {
 	h := newKernelHarness(t, "populated 1\nfrozen 1\n")
+	// The static fake never settles a thaw (events stay frozen 1), so the
+	// unstun path's unfreeze fails: the kernel read must already have
+	// published, ahead of every containment step (unfreeze, veth, tc).
 	err := h.reconciler.reconcile(kernelTestPod(map[string]string{labelStunnedAI: "idle"}, nil))
-	if err == nil || !strings.Contains(err.Error(), "find veth before unfreezing pod") {
-		t.Fatalf("reconcile err = %v, want the live veth failure", err)
+	if err == nil || !strings.Contains(err.Error(), "unfreeze") {
+		t.Fatalf("reconcile err = %v, want the unsettled-thaw failure", err)
 	}
 	if len(h.api.patches) != 1 {
-		t.Fatalf("patches = %+v, want exactly one despite the veth failure", h.api.patches)
+		t.Fatalf("patches = %+v, want exactly one despite the containment failure", h.api.patches)
 	}
 	p := h.api.patches[0]
 	if p.namespace != "fe-signalloom-agents" || p.name != "agent-sir-lancelot" || p.annotations[annotationKernelFrozen] != "true" {
@@ -308,5 +311,82 @@ func TestKernelTruth_MetricsExposesFrozenUnlabelledGauge(t *testing.T) {
 	h.reconciler.forget("fe-signalloom-agents/agent-sir-lancelot")
 	if n := h.reconciler.kernel.frozenUnlabelledCount(); n != 0 {
 		t.Fatalf("gauge after forget = %d, want 0", n)
+	}
+}
+
+// simulateKernel mirrors cgroup.freeze into cgroup.events the way the kernel
+// settles a freeze or thaw, until the test ends.
+func (h *kernelHarness) simulateKernel(t *testing.T) {
+	t.Helper()
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	t.Cleanup(func() { close(done); <-stopped })
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case <-done:
+				return
+			case <-time.After(200 * time.Microsecond):
+			}
+			b, err := os.ReadFile(filepath.Join(h.cgroup, "cgroup.freeze"))
+			if err != nil {
+				continue
+			}
+			_ = os.WriteFile(filepath.Join(h.cgroup, "cgroup.events"),
+				[]byte("populated 1\nfrozen "+strings.TrimSpace(string(b))+"\n"), 0o644)
+		}
+	}()
+}
+
+// W6: a replacement frozen by the owner record before its sandbox joined a
+// netns has its only PID in the node netns, so the veth lookup fails forever.
+// Unstun used to look the veth up BEFORE thawing, so that pod could never be
+// released. The release must never be blocked by the network layer.
+func TestUnstunThawsEvenWhenVethCannotBeResolved(t *testing.T) {
+	h := newKernelHarness(t, "populated 1\nfrozen 1\n")
+	if err := os.WriteFile(filepath.Join(h.cgroup, "cgroup.freeze"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.simulateKernel(t)
+
+	err := h.reconciler.reconcile(kernelTestPod(map[string]string{labelStunnedAI: "idle"}, nil))
+
+	if b, _ := os.ReadFile(filepath.Join(h.cgroup, "cgroup.freeze")); strings.TrimSpace(string(b)) != "0" {
+		t.Fatalf("pod left frozen (cgroup.freeze=%q) because the veth lookup failed; reconcile err = %v", b, err)
+	}
+	partial := h.events(t, "unstun_partial")
+	if len(partial) != 1 || !strings.Contains(partial[0].Error, "permission denied") {
+		t.Fatalf("unstun_partial events = %+v, want one carrying the veth error", partial)
+	}
+	if got := h.events(t, "unstun"); len(got) != 0 {
+		t.Fatalf("full unstun reported although tc detach never ran: %+v", got)
+	}
+	if err == nil || !strings.Contains(err.Error(), "veth") {
+		t.Fatalf("reconcile err = %v, want the veth error returned so the detach is retried", err)
+	}
+}
+
+// `kubectl annotate deploy` propagates the annotation to the ReplicaSet, and
+// removing it from the Deployment leaves it on the RS. The Deployment is the
+// record of truth whenever it controls the RS, so a stale RS copy must not
+// keep the owner stun alive (W6: owner stun could not be revoked).
+func TestOwnerRecordReadsDeploymentNotStaleReplicaSet(t *testing.T) {
+	h := newKernelHarness(t, "populated 1\nfrozen 0\n")
+	seedOwners(h.api, nil) // Deployment revoked: no annotation
+	h.api.replicaSets["agent-cardvault-bb57657"].Annotations = map[string]string{annotationOwnerStunned: "true"}
+	if isPodStunned(ownedPod(), h.reconciler.kernel) {
+		t.Fatal("stale signalloom.io/stunned on the ReplicaSet kept a revoked Deployment stun alive")
+	}
+}
+
+func TestOwnerRecordFallsBackToReplicaSetWithoutDeployment(t *testing.T) {
+	h := newKernelHarness(t, "populated 1\nfrozen 0\n")
+	h.api.replicaSets["agent-cardvault-bb57657"] = &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+		Name: "agent-cardvault-bb57657", Namespace: "fe-signalloom-agents",
+		Annotations: map[string]string{annotationOwnerStunned: "true"},
+	}}
+	if !isPodStunned(ownedPod(), h.reconciler.kernel) {
+		t.Fatal("bare ReplicaSet with signalloom.io/stunned=true not honoured")
 	}
 }

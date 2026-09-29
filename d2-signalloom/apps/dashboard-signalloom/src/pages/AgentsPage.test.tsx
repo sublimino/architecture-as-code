@@ -1152,3 +1152,103 @@ describe('AgentsPage — Auto-Claim workflow (SLAC-P2-1)', () => {
     expect(audit.violations).toEqual([])
   })
 })
+
+describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  it('renders full timestamps in the Last Observed cell', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({
+          id: 'agent-ts-1',
+          name: 'Timestamp Agent',
+          timestamps: {
+            last_observed_at: '2026-09-29T14:30:00Z',
+          },
+        }),
+      ],
+      total: 1,
+    })
+    renderPage()
+
+    const tsCell = await screen.findByTestId('agent-full-timestamp-agent-ts-1')
+    expect(tsCell).toHaveTextContent(/29 Sept? 2026/)
+    expect(tsCell).toHaveTextContent(/14:30:00|15:30:00/)
+  })
+
+  it('sorts agents ascending and descending when clicking Operational State header', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({ id: 'agent-z', name: 'Zeta Agent', lifecycle_state: 'Suspended' }),
+        makeAgent({ id: 'agent-a', name: 'Alpha Agent', lifecycle_state: 'Governed' }),
+      ],
+      total: 2,
+    })
+    renderPage()
+
+    await screen.findByText('Alpha Agent')
+    const sortHeader = screen.getByTestId('sort-header-lifecycle')
+
+    // First click: asc (Governed before Suspended)
+    await userEvent.click(sortHeader)
+    let rows = screen.getAllByRole('button', { name: /View evidence for/i })
+    expect(rows[0]).toHaveTextContent('Alpha Agent')
+    expect(rows[1]).toHaveTextContent('Zeta Agent')
+
+    // Second click: desc (Suspended before Governed)
+    await userEvent.click(sortHeader)
+    rows = screen.getAllByRole('button', { name: /View evidence for/i })
+    expect(rows[0]).toHaveTextContent('Zeta Agent')
+    expect(rows[1]).toHaveTextContent('Alpha Agent')
+  })
+
+  it('sorts agents chronologically when clicking Last Observed header', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({ id: 'agent-old', name: 'Older Agent', timestamps: { last_observed_at: '2026-01-01T00:00:00Z' } }),
+        makeAgent({ id: 'agent-new', name: 'Newer Agent', timestamps: { last_observed_at: '2026-09-29T12:00:00Z' } }),
+      ],
+      total: 2,
+    })
+    renderPage()
+
+    await screen.findByText('Older Agent')
+    const sortHeader = screen.getByTestId('sort-header-last-assessed')
+
+    // First click: asc (Older before Newer)
+    await userEvent.click(sortHeader)
+    let rows = screen.getAllByRole('button', { name: /View evidence for/i })
+    expect(rows[0]).toHaveTextContent('Older Agent')
+    expect(rows[1]).toHaveTextContent('Newer Agent')
+
+    // Second click: desc (Newer before Older)
+    await userEvent.click(sortHeader)
+    rows = screen.getAllByRole('button', { name: /View evidence for/i })
+    expect(rows[0]).toHaveTextContent('Newer Agent')
+    expect(rows[1]).toHaveTextContent('Older Agent')
+  })
+
+  it('filters agents when Attention Required button is clicked', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({ id: 'agent-healthy', name: 'Healthy Agent', lifecycle_state: 'Governed', compliance_summary: { total_controls: 5, passing: 5, failing: 0, pending: 0, posture_score: 1.0 } }),
+        makeAgent({ id: 'agent-failing', name: 'Failing Agent', lifecycle_state: 'Governed', compliance_summary: { total_controls: 5, passing: 4, failing: 1, pending: 0, posture_score: 0.8 } }),
+      ],
+      total: 2,
+    })
+    renderPage()
+
+    await screen.findByText('Healthy Agent')
+    expect(screen.getByText('Failing Agent')).toBeInTheDocument()
+
+    const attentionBtn = screen.getByTestId('agent-attention-filter-btn')
+    await userEvent.click(attentionBtn)
+    expect(screen.getByText('Healthy Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByText('Failing Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+  })
+})

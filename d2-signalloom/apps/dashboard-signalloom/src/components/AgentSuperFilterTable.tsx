@@ -344,6 +344,7 @@ export function AgentSuperFilterTable<T>({
         {namespaceOptions.length > 1 && (
           <ToolbarSelect
             label="Namespace"
+            subject="workloads"
             value={namespaceFilter}
             options={namespaceOptions}
             onChange={setNamespaceFilter}
@@ -407,20 +408,21 @@ export function AgentSuperFilterTable<T>({
 
       {/* Table Content or Empty State */}
       {filteredData.length === 0 ? (
-        <EmptyState
-          kicker="No workloads match criteria"
-          body="No agent or workload matches the active filter selection. Try clearing the search or resetting facets."
-          actionSlot={
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleClearFilters}
-              data-testid={`${testId}-empty-clear`}
-            >
-              Reset filters
-            </button>
-          }
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <EmptyState
+            kicker="No workloads match criteria"
+            body="No agent or workload matches the active filter selection. Try clearing the search or resetting facets."
+          />
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleClearFilters}
+            data-testid={`${testId}-empty-clear`}
+            style={{ marginTop: -32, marginBottom: 24 }}
+          >
+            Reset filters
+          </button>
+        </div>
       ) : (
         <DataTable<T>
           columns={columns}

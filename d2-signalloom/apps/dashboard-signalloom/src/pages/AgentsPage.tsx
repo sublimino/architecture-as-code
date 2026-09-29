@@ -18,6 +18,8 @@ import { useSignalSummary } from '../hooks/useSignalSummary'
 import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
 import { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 import { CodingAgentsTab } from '../components/CodingAgentsTab'
+import { formatFullTimestamp } from '../components/AgentSuperFilterTable'
+import { colors } from '../styles/tokens'
 
 // Watched by the demo audience in a second window: see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -833,11 +835,11 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
         <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div>
-              <div style={{ color: 'var(--text)', fontSize: 12 }}>
-                {fmtRelative(observedTime)}
+              <div style={{ color: 'var(--text)', fontSize: 12 }} data-testid={`agent-full-timestamp-${agent.id}`} title={formatFullTimestamp(observedTime)}>
+                {formatFullTimestamp(observedTime)}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                {agent.timestamps?.last_observed_at ? 'Observed' : (agent.last_transition_at ? 'Transitioned' : 'Created')}
+                {fmtRelative(observedTime)} ({agent.timestamps?.last_observed_at ? 'Observed' : (agent.last_transition_at ? 'Transitioned' : 'Created')})
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -963,6 +965,21 @@ function GovernedTab({
   const [showRegister, setShowRegister] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<AgentResponse | null>(null)
+  const [sortKey, setSortKey] = useState<string>('')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null)
+  const [attentionFilter, setAttentionFilter] = useState(false)
+
+  const handleSort = (key: string) => {
+    if (sortKey !== key) {
+      setSortKey(key)
+      setSortDir('asc')
+    } else if (sortDir === 'asc') {
+      setSortDir('desc')
+    } else {
+      setSortKey('')
+      setSortDir(null)
+    }
+  }
 
   // Auto-sync search from URL
   useEffect(() => {
@@ -1037,6 +1054,9 @@ function GovernedTab({
 
   const handleClear = () => {
     setSearch('')
+    setSortKey('')
+    setSortDir(null)
+    setAttentionFilter(false)
     onFilterChange('all')
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -1062,6 +1082,13 @@ function GovernedTab({
 
   const filtered = useMemo(() => {
     let list = governedAgents
+    if (attentionFilter) {
+      list = list.filter(a => {
+        const failing = a.compliance_summary?.failing ?? 0
+        const state = (a.lifecycle_state || '').toLowerCase()
+        return failing > 0 || state === 'suspended' || state === 'stunned' || state === 'revoked' || state === 'decommissioned'
+      })
+    }
     if (lifecycleFilter !== 'all') {
       const normalizedFilter = lifecycleFilter.toLowerCase()
       list = list.filter(a => {
@@ -1079,7 +1106,46 @@ function GovernedTab({
       list = list.filter(a => matchAgentByQuery(a, parsedQuery))
     }
     return list
-  }, [governedAgents, search, parsedQuery, lifecycleFilter])
+  }, [governedAgents, search, parsedQuery, lifecycleFilter, attentionFilter])
+
+  const displayAgents = useMemo(() => {
+    if (!sortKey || !sortDir) return governedAgents
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...governedAgents].sort((a, b) => {
+      if (sortKey === 'lifecycle' || sortKey === 'lifecycle_state') {
+        return (a.lifecycle_state || '').localeCompare(b.lifecycle_state || '', undefined, { sensitivity: 'base' }) * dir
+      }
+      if (sortKey === 'last_assessed' || sortKey === 'last_observed') {
+        const aTime = Date.parse(a.timestamps?.last_observed_at || a.last_transition_at || a.created_at || '')
+        const bTime = Date.parse(b.timestamps?.last_observed_at || b.last_transition_at || b.created_at || '')
+        const aValid = !Number.isNaN(aTime)
+        const bValid = !Number.isNaN(bTime)
+        if (!aValid && !bValid) return 0
+        if (!aValid) return 1
+        if (!bValid) return -1
+        return (aTime - bTime) * dir
+      }
+      if (sortKey === 'name') {
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }) * dir
+      }
+      if (sortKey === 'runtime') {
+        const aNs = a.runtime?.namespace || a.namespace || 'default'
+        const bNs = b.runtime?.namespace || b.namespace || 'default'
+        return aNs.localeCompare(bNs, undefined, { sensitivity: 'base' }) * dir
+      }
+      if (sortKey === 'responsibility') {
+        const aOwner = a.responsibility?.owner_name || a.owner || ''
+        const bOwner = b.responsibility?.owner_name || b.owner || ''
+        return aOwner.localeCompare(bOwner, undefined, { sensitivity: 'base' }) * dir
+      }
+      if (sortKey === 'attention') {
+        const aFail = a.compliance_summary?.failing ?? 0
+        const bFail = b.compliance_summary?.failing ?? 0
+        return (aFail - bFail) * dir
+      }
+      return 0
+    })
+  }, [governedAgents, sortKey, sortDir])
 
   const lifecycleCounts = useMemo(() => Object.fromEntries(
     LIFECYCLE_OPTIONS.map((state) => {
@@ -1192,7 +1258,45 @@ function GovernedTab({
             </button>
           ))}
         </div>
-        {(search || lifecycleFilter !== 'all') && (
+        <button
+          type="button"
+          onClick={() => setAttentionFilter((prev) => !prev)}
+          data-testid="agent-attention-filter-btn"
+          aria-pressed={attentionFilter}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '5px 10px',
+            borderRadius: 4,
+            fontSize: 12,
+            fontWeight: attentionFilter ? 600 : 500,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            background: attentionFilter
+              ? 'rgba(239, 68, 68, 0.18)'
+              : 'var(--surface2)',
+            color: attentionFilter ? colors.red : 'var(--text)',
+            border: `1px solid ${attentionFilter ? colors.red : 'var(--border)'}`,
+          }}
+        >
+          <span
+            style={{
+              background: colors.red,
+              color: 'var(--on-accent)',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '0px 5px',
+              minWidth: 16,
+              textAlign: 'center',
+            }}
+          >
+            {governedAgents.filter((a) => (a.compliance_summary?.failing ?? 0) > 0 || a.lifecycle_state === 'Suspended' || a.lifecycle_state === 'Revoked').length}
+          </span>
+          Attention Required
+        </button>
+        {(search || lifecycleFilter !== 'all' || attentionFilter || sortKey) && (
           <button
             className="btn btn-secondary"
             style={{ fontSize: 12, padding: '5px 12px' }}
@@ -1223,16 +1327,82 @@ function GovernedTab({
           <table style={{ width: '100%', minWidth: 1100, borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                <th style={TH_STYLE}>Agent</th>
-                <th style={TH_STYLE}>Runtime</th>
-                <th style={TH_STYLE}>Responsibility</th>
-                <th style={TH_STYLE}>Operational State</th>
-                <th style={TH_STYLE}>Attention</th>
+                <th
+                  style={{ ...TH_STYLE, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('name')}
+                  data-testid="sort-header-name"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>Agent</span>
+                    <span style={{ color: sortKey === 'name' ? 'var(--cyan)' : 'var(--border)', fontSize: 10 }}>
+                      {sortKey === 'name' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  style={{ ...TH_STYLE, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('runtime')}
+                  data-testid="sort-header-runtime"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>Runtime</span>
+                    <span style={{ color: sortKey === 'runtime' ? 'var(--cyan)' : 'var(--border)', fontSize: 10 }}>
+                      {sortKey === 'runtime' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  style={{ ...TH_STYLE, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('responsibility')}
+                  data-testid="sort-header-responsibility"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>Responsibility</span>
+                    <span style={{ color: sortKey === 'responsibility' ? 'var(--cyan)' : 'var(--border)', fontSize: 10 }}>
+                      {sortKey === 'responsibility' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  style={{ ...TH_STYLE, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('lifecycle')}
+                  data-testid="sort-header-lifecycle"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>Operational State</span>
+                    <span style={{ color: sortKey === 'lifecycle' ? 'var(--cyan)' : 'var(--border)', fontSize: 10 }}>
+                      {sortKey === 'lifecycle' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  style={{ ...TH_STYLE, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('attention')}
+                  data-testid="sort-header-attention"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>Attention</span>
+                    <span style={{ color: sortKey === 'attention' ? 'var(--cyan)' : 'var(--border)', fontSize: 10 }}>
+                      {sortKey === 'attention' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </div>
+                </th>
                 <th style={TH_STYLE}>Identity & Evidence</th>
-                <th style={TH_STYLE}>Last Observed</th>
+                <th
+                  style={{ ...TH_STYLE, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('last_assessed')}
+                  data-testid="sort-header-last-assessed"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>Last Observed</span>
+                    <span style={{ color: sortKey === 'last_assessed' ? 'var(--cyan)' : 'var(--border)', fontSize: 10 }}>
+                      {sortKey === 'last_assessed' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </div>
+                </th>
               </tr>
             </thead>
-            {governedAgents.map((a) => {
+            {displayAgents.map((a) => {
               const shown = filtered.some((agent) => agent.id === a.id)
               return (
                 <AgentTableRow

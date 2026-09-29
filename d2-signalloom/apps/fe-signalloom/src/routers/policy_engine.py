@@ -218,6 +218,22 @@ async def proxy_compliance_route(
     "/v1/policies",
     methods=["GET", "POST"],
 )
+@router.api_route(
+    "/api/policies/{subpath:path}",
+    methods=["GET", "POST"],
+)
+@router.api_route(
+    "/api/policies",
+    methods=["GET", "POST"],
+)
+@router.api_route(
+    "/policies/{subpath:path}",
+    methods=["GET", "POST"],
+)
+@router.api_route(
+    "/policies",
+    methods=["GET", "POST"],
+)
 async def proxy_policies_route(
     request: Request,
     subpath: str = "",

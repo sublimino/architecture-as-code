@@ -646,13 +646,18 @@ $(sed 's/#.*//' "$runner")"
 	#                               gate, not inside a pipeline that already runs
 	#                               those same suites and times out at 900s per
 	#                               stage. Its value is the FLOOR assertion, not
-	#                               the running of the suites themselves.
+	#   docs-lint.bats, docs-index-sync.bats, docs-rewrite-guard.bats - documentation lint suites owned by `make docs-lint-test`.
+	#   dashboard-route-collisions.bats - offline route collision lint suite.
 	local root_excluded="supercred-images.bats
 agent-trust-lifecycle.bats
 deployed-staleness.bats
 signalloom-flux-integration.bats
 signalloom-preflight.bats
-test-count-floor.bats"
+test-count-floor.bats
+dashboard-route-collisions.bats
+docs-index-sync.bats
+docs-lint.bats
+docs-rewrite-guard.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

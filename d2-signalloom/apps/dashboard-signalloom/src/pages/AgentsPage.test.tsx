@@ -386,8 +386,8 @@ describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', 
   it('correctly filters governed agents by lifecycle state chips', async () => {
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [
-        makeAgent({ name: 'Active Agent', lifecycle_state: 'active' }),
-        makeAgent({ id: 'agent-2', name: 'Suspended Agent', lifecycle_state: 'suspended' }),
+        makeAgent({ name: 'Active Agent', lifecycle_state: 'Governed' }),
+        makeAgent({ id: 'agent-2', name: 'Suspended Agent', lifecycle_state: 'Suspended' }),
       ],
       total: 2,
     })
@@ -396,7 +396,7 @@ describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', 
     await screen.findByText('Active Agent')
 
     // Filter to suspended only
-    await userEvent.click(screen.getByTestId('agent-lifecycle-filter-suspended'))
+    await userEvent.click(screen.getByTestId('agent-lifecycle-filter-Suspended'))
 
     expect(screen.getByText('Active Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByText('Suspended Agent')).toBeInTheDocument()
@@ -405,8 +405,8 @@ describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', 
   it('restores the unfiltered rows after clearing search or chips', async () => {
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [
-        makeAgent({ name: 'Active Agent', lifecycle_state: 'active' }),
-        makeAgent({ id: 'agent-2', name: 'Suspended Agent', lifecycle_state: 'suspended' }),
+        makeAgent({ name: 'Active Agent', lifecycle_state: 'Governed' }),
+        makeAgent({ id: 'agent-2', name: 'Suspended Agent', lifecycle_state: 'Suspended' }),
       ],
       total: 2,
     })
@@ -420,6 +420,20 @@ describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', 
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }))
     expect(screen.getByText('Active Agent')).toBeInTheDocument()
     expect(screen.getByText('Suspended Agent')).toBeInTheDocument()
+  })
+
+  it('strictly excludes shadow discovery records from the operational table', async () => {
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [
+        makeAgent({ id: 'gov-1', name: 'Governed Agent', record_class: 'registered', lifecycle_state: 'Governed' }),
+        makeAgent({ id: 'shadow-1', name: 'Shadow Workload', record_class: 'discovery' as any, lifecycle_state: 'Suspended' }),
+      ],
+      total: 2,
+    })
+    renderPage()
+
+    expect(await screen.findByText('Governed Agent')).toBeInTheDocument()
+    expect(screen.queryByText('Shadow Workload')).not.toBeInTheDocument()
   })
 })
 

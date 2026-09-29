@@ -1,3 +1,7 @@
+// ─── Canonical Governance Lifecycle ──────────────────────────────────────────
+
+export type AgentLifecycleState = 'Governed' | 'Suspended' | 'Revoked'
+
 // ─── Inline summaries ────────────────────────────────────────────────────────
 
 export interface ComplianceSummaryInline {
@@ -133,7 +137,7 @@ export interface TimestampsMetadata {
 export interface EnrichedAgentRecord {
   id: string
   name: string
-  record_class: 'registered' | 'discovered' | 'resolved' | 'fixture'
+  record_class: 'registered' | 'discovered' | 'resolved' | 'fixture' | 'discovery'
   is_registry_linked: boolean
   runtime: RuntimeMetadata
   responsibility: ResponsibilityMetadata
@@ -152,7 +156,7 @@ export interface AgentResponse {
   origin_verification?: OriginVerificationMetadata | null
   owner?: string | null
   tenant_id: string
-  lifecycle_state: string
+  lifecycle_state: AgentLifecycleState | string
   last_transition_at: string | null
   last_transition_by?: string | null
   eu_ai_act_risk_class: string | null
@@ -171,7 +175,7 @@ export interface AgentResponse {
   pod_uid?: string | null
   framework?: string | null
   state?: string | null
-  record_class?: 'registered' | 'discovered' | 'resolved' | 'fixture'
+  record_class?: 'registered' | 'discovered' | 'resolved' | 'fixture' | 'discovery'
   is_registry_linked?: boolean
 
   // Section 2.1 Enriched Structures

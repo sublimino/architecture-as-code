@@ -22,7 +22,9 @@ const baoPlaneSubject = "spiffe://signalloom.demo/ns/" + testNamespace + "/sa/ag
 func baoPlaneClient(t *testing.T, addr string) *k8sFleetClient {
 	t.Helper()
 	bao := NewOpenBaoClient(OpenBaoConfig{Address: addr, Token: "s.fleet", LogWriter: io.Discard})
-	return newK8sFleetClientWithBao(fake.NewSimpleClientset(), testNamespace, bao)
+	// The agent pod carries ServiceAccount agent-cardvault, which is where the
+	// plane reads the subject from (agentSubject).
+	return newK8sFleetClientWithBao(fake.NewSimpleClientset(agentPod("agent-cardvault", "active", nil)), testNamespace, bao)
 }
 
 func TestBaoPlane_RevokesTheAgentsTokens(t *testing.T) {
@@ -45,6 +47,9 @@ func TestBaoPlane_RevokesTheAgentsTokens(t *testing.T) {
 	}
 	if got := revokedAccessors(*paths); len(got) != 2 || got[0] != "acc-1" || got[1] != "acc-2" {
 		t.Fatalf("revoked accessors = %q, want [acc-1 acc-2]", got)
+	}
+	if res.Details["subject"] != baoPlaneSubject || res.Details["subject_source"] != "pod" {
+		t.Fatalf("subject=%v source=%v, want %s from the pod", res.Details["subject"], res.Details["subject_source"], baoPlaneSubject)
 	}
 }
 

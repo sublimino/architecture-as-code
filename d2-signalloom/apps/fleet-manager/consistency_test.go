@@ -299,8 +299,11 @@ func TestConsistency_UnconfiguredPlanesAre503(t *testing.T) {
 }
 
 func TestConsistency_AbsentPodWithLiveTokens(t *testing.T) {
-	bao := &fakeTokenCounter{configured: true, counts: map[string]int{consTestSPIFFE: 3}}
-	c, _ := newTestChecker(t, bao, &fakeEntryLister{entries: map[string]int{consTestSPIFFE: 1}})
+	// No pod, so no ServiceAccount to read: the subject falls back to
+	// agentNameFromID, exactly as the enforcement planes do (agentSubject).
+	const derived = "spiffe://signalloom.demo/ns/" + testNamespace + "/sa/cardvault"
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{derived: 3}}
+	c, _ := newTestChecker(t, bao, &fakeEntryLister{entries: map[string]int{derived: 1}})
 	code, rep := getConsistency(t, c, consTestAgent)
 	if code != http.StatusOK || rep.Pod.Found || rep.Pod.State != "absent" {
 		t.Fatalf("code=%d pod=%+v, want 200 with found=false state=absent", code, rep.Pod)

@@ -447,3 +447,50 @@ def test_agent_detail_credential_revocation_follows_the_memory_stun_row(monkeypa
     assert body["operational_state"]["containment"]["credential_source"] == "stun-audit"
     agent = next(a for a in listed["agents"] if a["id"] == "agent-sir-lancelot")
     assert agent["operational_state"]["containment"]["credential_revocation"] == "active"
+
+
+class TestCredentialStateFromEvidence:
+    """credential_state.status is "revoked" only on the same evidence as
+    credential_revocation; a stun or revoked lifecycle alone is "unknown"."""
+
+    def test_stunned_without_a_stun_row_is_unknown_not_revoked(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z", stun_reason="egress"),
+            tenant_id="tenant-a",
+        )
+        assert resp.credential_state is not None
+        assert resp.credential_state.status == "unknown"
+
+    def test_contained_credential_planes_are_revoked(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z", stun_reason="egress"),
+            tenant_id="tenant-a",
+            stun_detail=_stun_detail(bao="contained", spire="contained"),
+        )
+        assert resp.credential_state is not None
+        assert resp.credential_state.status == "revoked"
+        assert resp.credential_state.reason == "egress"
+
+    def test_partial_credential_plane_is_unknown(self) -> None:
+        resp = _agent_response_from_row(
+            _row("stunned"), _compliance(), discovered_overlay=None,
+            stun_detail=_stun_detail(bao="partial", spire="contained"),
+        )
+        assert resp.credential_state is not None
+        assert resp.credential_state.status == "unknown"
+
+    def test_revoked_lifecycle_alone_is_unknown(self) -> None:
+        resp = _agent_response_from_row(_row("revoked"), _compliance(), discovered_overlay=None)
+        assert resp.credential_state is not None
+        assert resp.credential_state.status == "unknown"
+
+    def test_registry_flag_is_revoked(self) -> None:
+        row = _row("active")
+        row["credential_revoked"] = True
+        resp = _agent_response_from_row(row, _compliance(), discovered_overlay=None)
+        assert resp.credential_state is not None
+        assert resp.credential_state.status == "revoked"
+
+    def test_active_agent_without_signals_makes_no_credential_claim(self) -> None:
+        resp = _agent_response_from_row(_row("active"), _compliance(), discovered_overlay=None)
+        assert resp.credential_state is None

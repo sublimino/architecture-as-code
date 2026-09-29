@@ -124,7 +124,10 @@ class AgentCreateRequest(BaseModel):
 class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["active", "revoked"]
+    # "revoked" only on evidence (the last stun's bao and spire planes both
+    # contained, or the registry's credential_revoked flag); "unknown" when
+    # a stun or revoked lifecycle suggests it but nothing evidences it.
+    status: Literal["active", "revoked", "unknown"]
     reason: str | None = None
     revoked_at: str | None = None
     revoked_by: str | None = None
@@ -2307,12 +2310,13 @@ def _agent_response_from_row(
     )
 
     cred_state = None
-    if stunned_at or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned") or cred_revoked:
+    if row_credentials["credential_revocation"] == "active" or stunned_at or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned") or stun_detail is not None:
         rev_reason = row.get("revocation_reason") if isinstance(row, dict) else (row["revocation_reason"] if "revocation_reason" in row else None)
+        revoked = row_credentials["credential_revocation"] == "active"
         cred_state = AgentCredentialState(
-            status="revoked",
+            status="revoked" if revoked else "unknown",
             reason=stun_reason or rev_reason or ("Agent revoked under governance policy" if canonical_state == "Revoked" else None),
-            revoked_at=stunned_at or last_transition_at,
+            revoked_at=(stunned_at or last_transition_at) if revoked else None,
         )
 
     telemetry = _kernel_telemetry(
@@ -2500,11 +2504,12 @@ def _agent_response_from_discovered(
     )
 
     cred_state = None
-    if stunned_at or state in ("revoked", "stunned"):
+    if disc_credentials["credential_revocation"] == "active" or stunned_at or state in ("revoked", "stunned") or stun_detail is not None:
+        revoked = disc_credentials["credential_revocation"] == "active"
         cred_state = AgentCredentialState(
-            status="revoked",
+            status="revoked" if revoked else "unknown",
             reason=stun_reason,
-            revoked_at=stunned_at,
+            revoked_at=stunned_at if revoked else None,
         )
 
     telemetry = _kernel_telemetry(

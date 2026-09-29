@@ -51,7 +51,10 @@ class AgentCreateRequest(BaseModel):
 class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["active", "revoked"]
+    # "revoked" only on evidence (the last stun's bao and spire planes both
+    # contained, or the registry's credential_revoked flag); "unknown" when
+    # a stun or revoked lifecycle suggests it but nothing evidences it.
+    status: Literal["active", "revoked", "unknown"]
     reason: str | None = None
     revoked_at: str | None = None
     revoked_by: str | None = None

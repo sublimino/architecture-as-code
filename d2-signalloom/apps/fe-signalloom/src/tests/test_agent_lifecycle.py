@@ -129,8 +129,10 @@ class TestAgentLifecycleMapping:
         }
         resp = _agent_response_from_row(row, _dummy_compliance(), discovered_overlay=overlay)
         assert resp.lifecycle_state == "Suspended"
+        # A stun record without a stun audit row showing bao and spire
+        # contained is not evidence the credentials were revoked.
         assert resp.credential_state is not None
-        assert resp.credential_state.status == "revoked"
+        assert resp.credential_state.status == "unknown"
         assert resp.credential_state.reason == "Process anomaly detected by Sentinel"
 
     def test_ebpf_kernel_telemetry_included_for_suspended_and_stunned(self) -> None:
@@ -162,7 +164,7 @@ class TestAgentLifecycleMapping:
         resp_revoked = _agent_response_from_row(revoked_row, _dummy_compliance())
         assert resp_revoked.lifecycle_state == "Revoked"
         assert resp_revoked.credential_state is not None
-        assert resp_revoked.credential_state.status == "revoked"
+        assert resp_revoked.credential_state.status == "unknown"
         assert resp_revoked.operational_state is not None
         # The revoked lifecycle alone is not evidence that credentials were
         # revoked; that comes from the stun audit planes or credential_revoked.
@@ -170,6 +172,8 @@ class TestAgentLifecycleMapping:
         assert resp_revoked.operational_state.containment.credential_source == "unavailable"
         revoked_row["credential_revoked"] = True
         resp_flagged = _agent_response_from_row(revoked_row, _dummy_compliance())
+        assert resp_flagged.credential_state is not None
+        assert resp_flagged.credential_state.status == "revoked"
         assert resp_flagged.operational_state is not None
         assert resp_flagged.operational_state.containment.credential_revocation == "active"
 

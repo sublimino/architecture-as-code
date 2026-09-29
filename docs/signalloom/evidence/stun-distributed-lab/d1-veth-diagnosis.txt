@@ -1,0 +1,6 @@
+3
+2: eth0@if3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000\    link/ether 9e:55:63:ca:0f:f6 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+3: veth1004624c@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default \    link/ether 72:5c:10:9e:ef:65 brd ff:ff:ff:ff:ff:ff link-netns cni-60e4100e-28b4-e
+2
+3
+1245

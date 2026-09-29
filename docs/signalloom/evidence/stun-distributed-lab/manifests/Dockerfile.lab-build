@@ -1,0 +1,12 @@
+FROM golang:1.27-alpine AS build
+WORKDIR /src/signalloom-stun-sentinel
+COPY stun-sentinel /src/stun-sentinel
+COPY signalloom-stun-sentinel/go.mod signalloom-stun-sentinel/go.sum ./
+RUN go mod download
+COPY signalloom-stun-sentinel/*.go ./
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/stun-sentinel .
+FROM cgr.dev/chainguard/wolfi-base:latest
+RUN apk add --no-cache iproute2
+COPY --from=build /out/stun-sentinel /usr/local/bin/stun-sentinel
+USER 0:0
+ENTRYPOINT ["/usr/local/bin/stun-sentinel"]

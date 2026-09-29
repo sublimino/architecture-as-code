@@ -266,4 +266,40 @@ describe('fetchers', () => {
     expect(fetchMock).toHaveBeenCalledWith('/afm/clusters/a%2Fb%20c/jobs?limit=25', expect.anything())
     vi.unstubAllGlobals()
   })
+
+  it('triggerCollusionScan POSTs to /afm/clusters/{id}/jobs and parses the resulting job', async () => {
+    const jobPayload = {
+      id: 'job-new-123',
+      cluster_id: 'local',
+      status: 'queued',
+      trigger_source: 'manual',
+      created_at: '2026-08-02T12:00:00Z',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(response(true, jobPayload))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { triggerCollusionScan } = await import('./afmApi')
+    const job = await triggerCollusionScan('local')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/afm/clusters/local/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger_source: 'manual' }),
+      }),
+    )
+    expect(job).toEqual({
+      id: 'job-new-123',
+      clusterId: 'local',
+      status: 'queued',
+      triggerSource: 'manual',
+      createdAt: '2026-08-02T12:00:00Z',
+      startedAt: undefined,
+      finishedAt: undefined,
+      error: undefined,
+    })
+    vi.unstubAllGlobals()
+  })
 })
+

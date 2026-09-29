@@ -1,31 +1,31 @@
 /**
- * Collusion & Access — ControlPlane KubeSec-AFM (KTP with King's College London).
+ * Collusion & Access: ControlPlane KubeSec-AFM (KTP with King's College London).
  *
  * KubeSec-AFM is a formal-methods engine that model-checks Kubernetes RBAC for
- * privilege escalation and *collusion* — groups of subjects (users / service
+ * privilege escalation and *collusion*: groups of subjects (users / service
  * accounts) that can exchange permissions to reach a goal role. It runs bounded
  * model checking over cluster-scoped resources, namespaces, roles and bindings,
  * and every fix it proposes ships as a downloadable TraceGuard.
  *
  * This page used to render four tables of hardcoded mock data with no fetch
- * call at all, so "demo" and "live" were visually identical by construction —
+ * call at all, so "demo" and "live" were visually identical by construction;
  * that was the bug. It now has a run selector backed by real data.
  *
  * The selector offers the same three altitudes the rest of the KubeSec-AFM
  * surfaces do, so the same results are reachable from here:
  *
- *   - "All runs (aggregate)"  — cross-cluster rollup;
- *   - one entry per CLUSTER   — that cluster's latest completed analysis. This
+ *   - "All runs (aggregate)": cross-cluster rollup;
+ *   - one entry per CLUSTER: that cluster's latest completed analysis. This
  *     is the selection the KTP/AFM dashboard (RBAC Analysis) and RBAC Explorer
  *     both offer, and its absence here is why a cluster visible on those pages
  *     could not be inspected on this one: a cluster with analysis results but
  *     no stored job history contributed to the aggregate and appeared nowhere
  *     in the dropdown;
- *   - one entry per RUN       — drill into a specific historical job.
+ *   - one entry per RUN: drill into a specific historical job.
  *
  * Demo mode renders two fixed, offline runs (afmDemoFixtures.ts) through the
  * same three altitudes. Live mode calls the real KubeSec-AFM API (afmApi.ts)
- * and fails visibly — never falls back to demo data — when it is unreachable.
+ * and fails visibly (never falls back to demo data) when it is unreachable.
  *
  * Every claim on the page carries its source. The "How do we know?" buttons
  * open the shared ProofConsole with the literal command that returns the row's
@@ -34,7 +34,7 @@
  *
  * ── The four tables ────────────────────────────────────────────────────────
  *
- * All four are now `DataTable` — the shared component — rather than DashKit's
+ * All four are now `DataTable` (the shared component) rather than DashKit's
  * `Table`, which is a `thead`/`tbody` wrapper and nothing else. What that buys,
  * and why each part of it is worth having on THIS page specifically:
  *
@@ -46,7 +46,7 @@
  *     fixtures fit on one page and the pager hides itself; a live rollup will
  *     not, and the page should not have to grow a scroll region for it.
  *   - THE TOOLBAR SLOT. Each table carries a search box and a facet chip row,
- *     and the page — not DataTable — owns the predicate. See `narrow` below.
+ *     and the page, not DataTable, owns the predicate. See `narrow` below.
  *     The slot's real value is stated in DataTable's own header: a hand-rolled
  *     `rows.length ? <Table/> : <Empty/>` ternary takes the filter control down
  *     with the table, stranding the operator with a filter they cannot clear.
@@ -66,11 +66,11 @@ import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
-import SafeLink from '../components/SafeLink'
 import type { AgentResponse } from '../types/api'
 import { findMatchingAgent } from '../data/agentMatching'
 import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 import { resolveFake } from '../api/fakeData'
+import { useAuth0 } from '../auth/oidc'
 import {
   fetchAnalysisStatus,
   fetchClusterJobs,
@@ -80,12 +80,15 @@ import {
   fetchAnalysisResult,
   fetchSharedRoles,
   parseClusterList,
+  triggerCollusionScan,
   type ClusterMeta,
   type Guard,
   type GroupEscalation,
+  type JobRecord,
   type SharedRoleEntry,
   type SingleEscalation,
 } from '../api/afmApi'
+import { triggerRbacScan } from '../api/rbacCorrelationApi'
 import { DEMO_RUNS, type DemoRun } from '../api/afmDemoFixtures'
 
 const AGGREGATE_ID = 'aggregate'
@@ -96,11 +99,11 @@ const DEMO_FIXTURE_PATH = 'd2-signalloom/apps/dashboard-signalloom/src/api/afmDe
 /** The unfiltered facet. A literal so the chip row and the predicate cannot disagree. */
 const ALL_FACET = 'all'
 
-/** Rows per page, the same on all four tables — see the header note on uniformity. */
+/** Rows per page, the same on all four tables; see the header note on uniformity. */
 const PAGE_SIZE = 10
 
 const PHASES = [
-  { n: 'Phase 1', title: 'Admin & self-escalation removal', body: 'Drop subjects who are already cluster-admin or can self-escalate via the escalate verb — they have no incentive to collude.' },
+  { n: 'Phase 1', title: 'Admin & self-escalation removal', body: 'Drop subjects who are already cluster-admin or can self-escalate via the escalate verb, because they have no incentive to collude.' },
   { n: 'Phase 1.5', title: 'Impersonation check', body: 'Test escalation through impersonation, including a group impersonating a service account in another namespace (unscoped pre-1.36).' },
   { n: 'Phase 2', title: 'Collusion escalation', body: 'Model-check whether pairs of subjects can exchange permissions to jointly reach a higher-privileged role.' },
 ]
@@ -126,7 +129,7 @@ interface Sourced<T> {
   proofs: Proof[]
 }
 
-/** Whatever is currently rendered below the selector — a run, a cluster, or the aggregate rollup. */
+/** Whatever is currently rendered below the selector: a run, a cluster, or the aggregate rollup. */
 interface RunView {
   label: string
   clusterName: string
@@ -139,14 +142,30 @@ interface RunView {
   guards: Guard[]
   guardsProofs: Proof[]
   guardsCaption: string
-  /** How this whole view was assembled — the data path, not any one row. */
+  /** How this whole view was assembled: the data path, not any one row. */
   provenanceProofs: Proof[]
+}
+
+export function humanizeRelativeTime(isoString?: string | null): string {
+  if (!isoString) return 'never'
+  const date = new Date(isoString)
+  if (Number.isNaN(date.getTime())) return 'unknown'
+  const diffMs = Date.now() - date.getTime()
+  if (diffMs < 0) return 'just now'
+  const secs = Math.floor(diffMs / 1000)
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 function formatTimestamp(iso: string): string {
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) return iso
-  // Fixed, locale-independent formatting — avoids CI/test-runner locale drift.
+  // Fixed, locale-independent formatting; avoids CI/test-runner locale drift.
   return parsed.toISOString().slice(0, 16).replace('T', ' ')
 }
 
@@ -163,7 +182,7 @@ function riskLevel(risk: { level?: string } | null): string {
 // These print the finding's own fields and nothing else. Every line is a value
 // the page received and rendered; none of it is re-derived, inferred or filled
 // in. `risk.reason` is AFM's own sentence about why the path exists, which is
-// the closest thing the engine gives us to a trace, so it is always shown —
+// the closest thing the engine gives us to a trace, so it is always shown,
 // including when it is absent, which is itself worth knowing.
 
 function singleDetail(e: SingleEscalation): string {
@@ -184,7 +203,7 @@ function groupDetail(g: GroupEscalation): string {
     `scope:             ${g.scope}`,
     `primary_gain:      ${permissionLabel(g.primaryGain)}`,
     ...(g.collaboratorGains.length > 0
-      ? g.collaboratorGains.map(c => `collaborator_gain: ${c.subject} → ${permissionLabel(c.permission)}`)
+      ? g.collaboratorGains.map(c => `collaborator_gain: ${c.subject} -> ${permissionLabel(c.permission)}`)
       : ['collaborator_gain: (none reported)']),
     `risk.level:        ${riskLevel(g.risk)}`,
     `risk.reason:       ${g.risk?.reason ?? '(none reported by AFM)'}`,
@@ -194,35 +213,35 @@ function groupDetail(g: GroupEscalation): string {
 function sharedRoleLines(entries: SharedRoleEntry[]): string {
   if (entries.length === 0) return '(no shared-role pivots returned)'
   return entries
-    .map(p => `${p.role} — shared by ${p.sharedBy}, privileged: ${p.privilegedSubjects.join(', ') || 'none'}`)
+    .map(p => `${p.role}: shared by ${p.sharedBy}, privileged: ${p.privilegedSubjects.join(', ') || 'none'}`)
     .join('\n')
 }
 
 function guardLines(guards: Guard[]): string {
   if (guards.length === 0) return '(no TraceGuards returned)'
   return guards
-    .map(g => `${g.name} [${g.kind}] participants: ${g.participants.join(', ') || 'none'} — would_block: ${g.wouldBlock}`)
+    .map(g => `${g.name} [${g.kind}] participants: ${g.participants.join(', ') || 'none'}; would_block: ${g.wouldBlock}`)
     .join('\n')
 }
 
 // ── Demo proofs ───────────────────────────────────────────────────────────
 // Demo mode makes no network call, so there is no command output to show. What
 // it can honestly offer is the file the figures come from and a statement that
-// nothing was measured — the same disclosure the Credential Inventory page
+// nothing was measured: the same disclosure the Credential Inventory page
 // makes for its demo path.
 
 const DEMO_SOURCE_PROOF: Proof = {
   label: 'Data source',
   command: 'localStorage.getItem("demoMode")   // ?demo=1 sets this',
   detail: 'Demo mode is on, so no KubeSec-AFM call was made. Every figure on this page is a fixture '
-    + `in ${DEMO_FIXTURE_PATH} — nothing here was measured.`,
+    + `in ${DEMO_FIXTURE_PATH}; nothing here was measured.`,
 }
 
 function demoProof(run: DemoRun, body: string): Proof {
   return {
     label: run.clusterName,
     command: `rg -n "id: '${run.id}'" -A 60 ${DEMO_FIXTURE_PATH}`,
-    detail: `Demo mode — fixture for run ${run.id}, not a measurement:\n${body}`,
+    detail: `Demo mode: fixture for run ${run.id}, not a measurement:\n${body}`,
   }
 }
 
@@ -270,7 +289,7 @@ function demoView(runs: DemoRun[], label: string, clusterName: string, timestamp
 // ── Live proofs ───────────────────────────────────────────────────────────
 // The command is the endpoint this page actually fetched, with a jq selector
 // that narrows the body to the row in question. The detail is what came back
-// for that row — no interpretation added.
+// for that row: no interpretation added.
 
 function analysisUrl(clusterId: string): string {
   return `/afm/clusters/${encodeURIComponent(clusterId)}/analysis/latest`
@@ -331,7 +350,7 @@ function liveGuardsProof(clusterId: string, clusterName: string, guards: Guard[]
 // DataTable sorts by `item[column.key]`, so each row is FLAT: the columns it
 // can sort on are primitives sitting directly on the row, and anything the
 // cell needs but nobody sorts by (the proofs) rides alongside. The alternative
-// — handing it `Sourced<SingleEscalation>` — gives it two keys, `finding` and
+// (handing it `Sourced<SingleEscalation>`) gives it two keys, `finding` and
 // `proofs`, and sorting by either is meaningless.
 //
 // These are PRESENTATION shapes. Every field is a string this page already
@@ -339,7 +358,7 @@ function liveGuardsProof(clusterId: string, clusterName: string, guards: Guard[]
 // combined or re-ordered on the way in.
 
 interface SingleRow {
-  /** Index in the unfiltered array. Addresses the proof console — see the header. */
+  /** Index in the unfiltered array. Addresses the proof console; see the header. */
   key: string
   subject: string
   escalationType: string
@@ -410,7 +429,7 @@ function narrow<T>(
  * Worst first, and only the levels that occur.
  *
  * Derived from the rows rather than declared, so a level AFM invents tomorrow
- * gets a chip instead of being silently unfilterable — and a level absent from
+ * gets a chip instead of being silently unfilterable, and a level absent from
  * this run does not get a chip that always reads zero. `RISK_ORDER` puts the
  * ones we do know in severity order; anything unrecognised sorts after them,
  * alphabetically, rather than being dropped.
@@ -436,34 +455,12 @@ function facetsOf<T>(rows: T[], facetOf: (row: T) => string, rank: (value: strin
   ]
 }
 
-/** Facets with no severity meaning — guard kinds — sort alphabetically. */
+/** Facets with no severity meaning (guard kinds) sort alphabetically. */
 function flatRank(): number {
   return 0
 }
 
 // ── Filter chrome ─────────────────────────────────────────────────────────
-//
-// One strip, four tables, identical markup. Ten pages are being migrated in
-// parallel and a filter that looks slightly different on each of them is the
-// thing that makes a product read as four products, so the shape here is
-// copied from the Design System's "Realistic — the shape AgentsPage needs"
-// specimen rather than invented.
-//
-// The selected chip is a TINTED FILL plus a full-strength border, never a solid
-// accent fill: text on solid cyan or amber fails AA in at least one of Dark,
-// Light and Andy, and the same reasoning is written out on the specimen.
-//
-// ONE DELIBERATE DEPARTURE FROM THE SPECIMEN, measured rather than preferred.
-// The specimen renders the facet label and the per-chip count in `--dim`. That
-// is 3.07:1 on `--surface2` in Dark, and 2.51:1 once the selected chip's cyan
-// tint is underneath it — an AA failure on the digit that is the entire reason
-// the chip is worth pressing. `--muted` is the same grey family at the same
-// visual weight, and its worst case across Dark, Light and Andy and across both
-// chip states is 4.66:1. Two shades of grey apart; one of them is legible.
-//
-// The specimen carries the same defect, so this wants fixing there rather than
-// in ten pages independently — raised with the lead rather than patched into a
-// shared component mid-migration.
 
 const searchInputStyle: CSSProperties = {
   fontSize: 12,
@@ -502,13 +499,6 @@ function FilterStrip({
   hint,
 }: {
   id: string
-  /**
-   * What this strip filters, in the plural — "escalation paths".
-   *
-   * One noun, two names: the strip is "Filter escalation paths" and the box
-   * inside it is "Search escalation paths". Giving both the same name puts two
-   * differently-shaped controls under one utterance for a speech-input user.
-   */
   subject: string
   placeholder: string
   search: string
@@ -519,7 +509,6 @@ function FilterStrip({
   onFacet: (next: string) => void
   shown: number
   total: number
-  /** What the facet column actually means, where the chip labels alone do not say it. */
   hint?: string
 }) {
   return (
@@ -565,32 +554,14 @@ function FilterStrip({
   )
 }
 
-/**
- * How far up into EmptyState's own bottom padding the Clear button sits.
- *
- * EmptyState is a centred panel with `padding: 60px 24px` and no action slot,
- * so a button appended after it lands 60px below the sentence it answers and
- * reads as belonging to the next thing on the page. This pulls it back to
- * roughly the panel's internal gap. It is a deliberate coupling to a number in
- * EmptyState.tsx; the clean fix is an action slot on EmptyState itself, which
- * is a shared component and not this page's to change.
- */
 const EMPTY_ACTION_PULL_UP = -32
 
-/**
- * The panel a filter that matched nothing leaves behind.
- *
- * The way back sits beside EmptyState rather than inside it. That button is not
- * a convenience: the toolbar above stays mounted (DataTable guarantees that
- * much), but clearing two controls to undo one mistake is a worse answer than
- * clearing both at once, from where the mistake is visible.
- */
 function FilteredEmpty({ id, onClear }: { id: string; onClear: () => void }) {
   return (
     <div data-testid={`${id}-filtered-empty`}>
       <EmptyState
         kicker="Nothing matches these filters"
-        body="Every finding in this run is still here — the search box or the chip above is hiding them."
+        body="Every finding in this run is still here; the search box or the chip above is hiding them."
       />
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: EMPTY_ACTION_PULL_UP, marginBottom: 12 }}>
         <button
@@ -617,19 +588,13 @@ function NoFindings({ testId, kicker, body }: { testId: string; kicker: string; 
 }
 
 // ── Columns ───────────────────────────────────────────────────────────────
-//
-// `help` is set only where the header does not already say it — DataTable's
-// own note on the prop, and the rule that keeps a "?" from becoming furniture.
-// The bar used here: would a competent engineer who has never met KubeSec-AFM
-// read this header and know what the cell under it is claiming? "Subject" and
-// "Role" pass. "Scope", "Primary gain" and "Shared by" do not.
 
 const SINGLE_COLUMNS: Column<SingleRow>[] = [
   {
     key: 'subject',
     label: 'Subject',
     sortable: true,
-    help: 'The identity the escalation belongs to — a user, a group, or a service account, in AFM\'s kind:namespace/name notation.',
+    help: 'The identity the escalation belongs to: a user, a group, or a service account, in AFM\'s kind:namespace/name notation.',
   },
   {
     key: 'escalationType',
@@ -647,7 +612,7 @@ const SINGLE_COLUMNS: Column<SingleRow>[] = [
     key: 'gained',
     label: 'Gained permission',
     sortable: true,
-    help: 'The verb and resource the subject ends up holding that it was never granted — the actual prize at the end of the path.',
+    help: 'The verb and resource the subject ends up holding that it was never granted: the actual prize at the end of the path.',
   },
   {
     key: 'risk',
@@ -667,7 +632,7 @@ const GROUP_COLUMNS: Column<GroupRow>[] = [
     key: 'group',
     label: 'Group',
     sortable: true,
-    help: 'The set of subjects that must cooperate. Neither of them can reach the goal role alone — that is what makes this collusion rather than an escalation path.',
+    help: 'The set of subjects that must cooperate. Neither of them can reach the goal role alone; that is what makes this collusion rather than an escalation path.',
   },
   {
     key: 'primaryActor',
@@ -684,7 +649,7 @@ const GROUP_COLUMNS: Column<GroupRow>[] = [
   {
     key: 'collaboratorGains',
     label: 'Collaborator gains',
-    help: 'What each of the other subjects picks up along the way. Often nothing — a collaborator can be useful without profiting.',
+    help: 'What each of the other subjects picks up along the way. Often nothing: a collaborator can be useful without profiting.',
   },
   {
     key: 'risk',
@@ -731,7 +696,7 @@ const GUARD_COLUMNS: Column<GuardRow>[] = [
     key: 'name',
     label: 'Fix',
     sortable: true,
-    help: 'A TraceGuard — the RBAC change AFM proposes, generated from the trace it proved rather than from a rule of thumb.',
+    help: 'A TraceGuard: the RBAC change AFM proposes, generated from the trace it proved rather than from a rule of thumb.',
   },
   {
     key: 'kind',
@@ -839,7 +804,7 @@ export function CollaboratorGainsLinks({
   agents: AgentResponse[]
   testIdPrefix?: string
 }) {
-  if (text === '—') return <span>—</span>
+  if (text === 'none' || text === '' || text === 'none reported') return <span>none</span>
   const parts = text.split(';').map((s) => s.trim()).filter(Boolean)
   return (
     <span data-testid={testIdPrefix}>
@@ -870,6 +835,7 @@ export function CollaboratorGainsLinks({
 
 export default function CollusionAccessPage() {
   const [demo, setDemo] = useState(isDemoMode())
+  const { getAccessTokenSilently } = useAuth0()
   const [agents, setAgents] = useState<AgentResponse[]>(() => {
     try {
       return (resolveFake('GET', '/agents') as { agents: AgentResponse[] } | undefined)?.agents ?? []
@@ -896,6 +862,7 @@ export default function CollusionAccessPage() {
     void loadAgents()
     return () => { cancelled = true }
   }, [demo])
+
   const [clusters, setClusters] = useState<ClusterMeta[]>([])
   const [runOptions, setRunOptions] = useState<RunOption[]>([])
   const [selectedRunId, setSelectedRunId] = useState<string>(AGGREGATE_ID)
@@ -905,6 +872,13 @@ export default function CollusionAccessPage() {
   const [isLoadingList, setIsLoadingList] = useState(false)
   const [isLoadingView, setIsLoadingView] = useState(false)
   const [openProof, setOpenProof] = useState<Record<string, boolean>>({})
+
+  // Scan triggers & recency state
+  const [isScanningCollusion, setIsScanningCollusion] = useState(false)
+  const [isScanningRbac, setIsScanningRbac] = useState(false)
+  const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [ariaAnnouncement, setAriaAnnouncement] = useState('')
+  const [latestJob, setLatestJob] = useState<JobRecord | null>(null)
 
   // Per-table filter state. Four tables, one search + one facet each; the
   // predicate for every one of them is `narrow` below.
@@ -917,14 +891,6 @@ export default function CollusionAccessPage() {
   const [guardSearch, setGuardSearch] = useState('')
   const [guardKind, setGuardKind] = useState(ALL_FACET)
 
-  /**
-   * Filters belong to the run they were typed against.
-   *
-   * "critical" is a live selection on one cluster and matches nothing on the
-   * next, so carrying a filter across a run change hands the operator four
-   * empty tables and no obvious cause. Cleared on every selection change and
-   * on the demo/live flip, for the same reason `openProof` is.
-   */
   const clearAllFilters = useCallback(() => {
     setSingleSearch('')
     setSingleRisk(ALL_FACET)
@@ -947,10 +913,17 @@ export default function CollusionAccessPage() {
       const clusterList = parseClusterList(await fetchJsonOrThrow('/clusters'))
       setClusters(clusterList)
 
+      let mostRecentJob: JobRecord | null = null
+
       const perCluster = await Promise.all(
         clusterList.map(async (cluster): Promise<RunOption[]> => {
           try {
             const jobs = await fetchClusterJobs(cluster.id, 10)
+            if (jobs.length > 0) {
+              if (!mostRecentJob || jobs[0].createdAt > mostRecentJob.createdAt) {
+                mostRecentJob = jobs[0]
+              }
+            }
             return jobs.map(job => ({
               id: job.id,
               clusterId: cluster.id,
@@ -959,14 +932,13 @@ export default function CollusionAccessPage() {
               outcome: job.status,
             }))
           } catch {
-            // One cluster's job history failing to load should not blank the
-            // whole selector — it just contributes no runs. The cluster itself
-            // stays selectable via its "latest analysis" entry, which is the
-            // whole reason that group exists.
             return []
           }
         }),
       )
+      if (mostRecentJob) {
+        setLatestJob(mostRecentJob)
+      }
       const merged = perCluster.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       setRunOptions(merged)
       setSelectedRunId(AGGREGATE_ID)
@@ -1014,7 +986,7 @@ export default function CollusionAccessPage() {
         setView({
           label: 'All runs (aggregate)',
           clusterName: `${clusterList.length} cluster${clusterList.length === 1 ? '' : 's'}`,
-          timestampLabel: '—',
+          timestampLabel: 'aggregate',
           subjects: [],
           singleEscalations: [],
           groupEscalations: [],
@@ -1032,7 +1004,7 @@ export default function CollusionAccessPage() {
       setView({
         label: 'All runs (aggregate)',
         clusterName: `${withData.length} of ${clusterList.length} cluster${clusterList.length === 1 ? '' : 's'}`,
-        timestampLabel: '—',
+        timestampLabel: 'aggregate',
         subjects: Array.from(new Set(withData.flatMap(e => e.analysis.subjects))),
         singleEscalations: withData.flatMap(e =>
           liveSingles(analysisUrl(e.cluster.id), e.cluster.name, e.analysis.singleEscalations)),
@@ -1062,23 +1034,20 @@ export default function CollusionAccessPage() {
     }
   }, [])
 
-  /**
-   * ── Live mode: one cluster's latest completed analysis ──────────────────
-   *
-   * The selection the KTP/AFM dashboard and RBAC Explorer both offer. It is
-   * NOT the same as picking the newest job: a cluster whose job history is
-   * empty or unreadable still answers /analysis/latest, and before this
-   * existed such a cluster was unreachable from this page.
-   */
+  // ── Live mode: one cluster's latest completed analysis ──────────────────
   const loadLiveCluster = useCallback(async (cluster: ClusterMeta) => {
     setIsLoadingView(true)
     setRunError(null)
     try {
-      const [analysis, sharedRoles, guards] = await Promise.all([
+      const [analysis, sharedRoles, guards, jobs] = await Promise.all([
         fetchAnalysisResult(cluster.id),
         fetchSharedRoles(cluster.id).catch(() => []),
         fetchGuards(cluster.id).catch(() => ({ jobId: '', guards: [] })),
+        fetchClusterJobs(cluster.id, 5).catch(() => []),
       ])
+      if (jobs.length > 0) {
+        setLatestJob(jobs[0])
+      }
       if (analysis === null) {
         setRunError(`${cluster.name} has no completed analysis run yet.`)
         setView(null)
@@ -1161,7 +1130,7 @@ export default function CollusionAccessPage() {
     }
   }, [])
 
-  // Initial load + reload whenever the demo/live toggle flips.
+  // Initial load and reload whenever the demo/live toggle flips.
   useEffect(() => {
     setOpenProof({})
     clearAllFilters()
@@ -1178,7 +1147,7 @@ export default function CollusionAccessPage() {
           : 'clear',
       })))
       setSelectedRunId(AGGREGATE_ID)
-      setView(demoView(DEMO_RUNS, 'All runs (aggregate)', 'All demo clusters', '—'))
+      setView(demoView(DEMO_RUNS, 'All runs (aggregate)', 'All demo clusters', 'aggregate'))
       return
     }
     void loadLiveRunList()
@@ -1192,11 +1161,6 @@ export default function CollusionAccessPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demo, fatalError, clusters])
 
-  /**
-   * The clusters the selector offers, derived from the same source the other
-   * KubeSec-AFM surfaces use — /afm/clusters in live mode, the fixtures'
-   * distinct clusters in demo mode. Never a hand-maintained list.
-   */
   const clusterOptions = useMemo<ClusterMeta[]>(() => {
     if (demo) {
       const seen = new Map<string, string>()
@@ -1208,15 +1172,13 @@ export default function CollusionAccessPage() {
 
   function handleRunChange(nextId: string) {
     setSelectedRunId(nextId)
-    // A console left open across a selection change would show the previous
-    // view's proof beside the new view's row.
     setOpenProof({})
     clearAllFilters()
 
     if (nextId === AGGREGATE_ID) {
       if (demo) {
         setRunError(null)
-        setView(demoView(DEMO_RUNS, 'All runs (aggregate)', 'All demo clusters', '—'))
+        setView(demoView(DEMO_RUNS, 'All runs (aggregate)', 'All demo clusters', 'aggregate'))
         return
       }
       void loadLiveAggregate(clusters)
@@ -1252,6 +1214,132 @@ export default function CollusionAccessPage() {
     setOpenProof(prev => ({ ...prev, [key]: prev[key] !== true }))
   }, [])
 
+  // Scan triggers
+  const getTargetClusterId = useCallback(() => {
+    if (selectedRunId.startsWith(CLUSTER_PREFIX)) {
+      return selectedRunId.slice(CLUSTER_PREFIX.length)
+    }
+    if (selectedRunId !== AGGREGATE_ID) {
+      const option = runOptions.find(r => r.id === selectedRunId)
+      if (option) return option.clusterId
+    }
+    return clusters[0]?.id || (demo ? 'prod-eu' : 'prod')
+  }, [selectedRunId, runOptions, clusters, demo])
+
+  const handleRunCollusionScan = async () => {
+    const targetClusterId = getTargetClusterId()
+    setIsScanningCollusion(true)
+    setScanFeedback(null)
+    setAriaAnnouncement(`Initiating collusion scan for cluster ${targetClusterId}`)
+    try {
+      if (demo) {
+        await new Promise(r => setTimeout(r, 600))
+        setScanFeedback({ type: 'success', message: `Collusion scan triggered for ${targetClusterId} (demo simulation).` })
+        setAriaAnnouncement(`Collusion scan successfully triggered for ${targetClusterId}`)
+      } else {
+        const job = await triggerCollusionScan(targetClusterId)
+        setLatestJob(job)
+        setScanFeedback({ type: 'success', message: `Collusion scan started: job ${job.id}` })
+        setAriaAnnouncement(`Collusion scan started with job ID ${job.id}`)
+        void loadLiveRunList()
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to trigger collusion scan.'
+      setScanFeedback({ type: 'error', message: msg })
+      setAriaAnnouncement(`Error: ${msg}`)
+    } finally {
+      setIsScanningCollusion(false)
+    }
+  }
+
+  const handleScanRbac = async () => {
+    const targetClusterId = getTargetClusterId()
+    setIsScanningRbac(true)
+    setScanFeedback(null)
+    setAriaAnnouncement(`Initiating RBAC scan for cluster ${targetClusterId}`)
+    try {
+      if (demo) {
+        await new Promise(r => setTimeout(r, 600))
+        setScanFeedback({ type: 'success', message: `RBAC scan triggered for ${targetClusterId} (demo simulation).` })
+        setAriaAnnouncement(`RBAC scan successfully triggered for ${targetClusterId}`)
+      } else {
+        const token = await getAccessTokenSilently().catch(() => '')
+        const res = await triggerRbacScan(token, targetClusterId)
+        setScanFeedback({ type: 'success', message: `RBAC scan initiated: ${res.message ?? res.status}` })
+        setAriaAnnouncement(`RBAC scan initiated: ${res.message ?? res.status}`)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to trigger RBAC scan.'
+      setScanFeedback({ type: 'error', message: msg })
+      setAriaAnnouncement(`Error: ${msg}`)
+    } finally {
+      setIsScanningRbac(false)
+    }
+  }
+
+  // Recency badge calculation
+  const recencyBadge = useMemo(() => {
+    if (isScanningCollusion || isScanningRbac) {
+      return {
+        label: 'Scan Running',
+        tone: 'var(--amber)',
+        bg: 'color-mix(in srgb, var(--amber) 12%, transparent)',
+        border: 'color-mix(in srgb, var(--amber) 30%, transparent)',
+        running: true,
+      }
+    }
+
+    if (demo) {
+      const latestDemoDate = DEMO_RUNS[DEMO_RUNS.length - 1]?.createdAt
+      const rel = humanizeRelativeTime(latestDemoDate)
+      return {
+        label: `Clean: Scanned ${rel}`,
+        tone: 'var(--cyan)',
+        bg: 'color-mix(in srgb, var(--cyan) 12%, transparent)',
+        border: 'color-mix(in srgb, var(--cyan) 30%, transparent)',
+        running: false,
+      }
+    }
+
+    if (!latestJob && runOptions.length === 0) {
+      return {
+        label: 'Never Scanned',
+        tone: 'var(--muted)',
+        bg: 'var(--surface2)',
+        border: 'var(--border)',
+        running: false,
+      }
+    }
+
+    const job = latestJob ?? (runOptions.length > 0 ? {
+      createdAt: runOptions[0].createdAt,
+      status: runOptions[0].outcome as JobRecord['status'],
+      finishedAt: undefined,
+    } : null)
+
+    if (job?.status === 'running' || job?.status === 'queued') {
+      return {
+        label: 'Scan Running',
+        tone: 'var(--amber)',
+        bg: 'color-mix(in srgb, var(--amber) 12%, transparent)',
+        border: 'color-mix(in srgb, var(--amber) 30%, transparent)',
+        running: true,
+      }
+    }
+
+    const timestamp = job?.finishedAt || job?.createdAt
+    const rel = humanizeRelativeTime(timestamp)
+    const hasFindings = (view?.singleEscalations.length ?? 0) > 0 || (view?.groupEscalations.length ?? 0) > 0
+
+    return {
+      label: hasFindings ? `Findings: Scanned ${rel}` : `Clean: Scanned ${rel}`,
+      tone: hasFindings ? 'var(--amber)' : 'var(--teal)',
+      bg: hasFindings ? 'color-mix(in srgb, var(--amber) 12%, transparent)' : 'color-mix(in srgb, var(--teal) 12%, transparent)',
+      border: hasFindings ? 'color-mix(in srgb, var(--amber) 30%, transparent)' : 'color-mix(in srgb, var(--teal) 30%, transparent)',
+      running: false,
+    }
+  }, [isScanningCollusion, isScanningRbac, demo, latestJob, runOptions, view])
+
   const statCards = useMemo(() => {
     return [
       { label: 'Subjects analysed', value: String(view?.subjects.length ?? 0), sub: 'users, groups, service accounts', accent: 'var(--cyan)' },
@@ -1261,11 +1349,6 @@ export default function CollusionAccessPage() {
       { label: 'Priority fixes', value: String(view?.guards.length ?? 0), sub: 'applyable TraceGuards', accent: 'var(--cyan)' },
     ]
   }, [view])
-
-  // ── Rows, then filtered rows ──────────────────────────────────────────
-  // Two steps on purpose: the facet counts and the "n of m shown" figure are
-  // both computed against the FULL set, so a chip never reports the effect of
-  // the search box sitting next to it.
 
   const singleRows = useMemo<SingleRow[]>(() => (view?.singleEscalations ?? []).map(({ finding, proofs }, i) => ({
     key: `single-${i}`,
@@ -1284,7 +1367,7 @@ export default function CollusionAccessPage() {
     primaryGain: permissionLabel(finding.primaryGain),
     collaboratorGains: finding.collaboratorGains
       .map(c => `${c.subject}: ${permissionLabel(c.permission)}`)
-      .join('; ') || '—',
+      .join('; ') || 'none',
     risk: riskLevel(finding.risk),
     proofs,
   })), [view])
@@ -1294,9 +1377,7 @@ export default function CollusionAccessPage() {
     role: p.role,
     sharedBy: p.sharedBy,
     sharedByLabel: `${p.sharedBy} subject${p.sharedBy === 1 ? '' : 's'}`,
-    privileged: p.privilegedSubjects.join(', ') || '—',
-    // The same derivation the Pill has always shown, lifted out so the chip
-    // row and the cell cannot disagree about what "high" means here.
+    privileged: p.privilegedSubjects.join(', ') || 'none',
     risk: p.privilegedSubjects.length > 0 ? 'high' : 'low',
   })), [view])
 
@@ -1304,7 +1385,7 @@ export default function CollusionAccessPage() {
     key: `${g.name}-${i}`,
     name: g.name,
     kind: g.kind,
-    participants: g.participants.join(', ') || '—',
+    participants: g.participants.join(', ') || 'none',
     wouldBlock: g.wouldBlock ? 'active' : 'pending',
   })), [view])
 
@@ -1330,7 +1411,6 @@ export default function CollusionAccessPage() {
     [guardRows, guardSearch, guardKind],
   )
 
-  /** The "How do we know?" affordance on its own — the console it opens is rendered by the caller. */
   function ProofButton({ id, proofs }: { id: string; proofs: Proof[] }) {
     if (proofs.length === 0) return null
     const isOpen = openProof[id] === true
@@ -1351,7 +1431,6 @@ export default function CollusionAccessPage() {
     )
   }
 
-  /** Button and console together, for the claims that are not table rows. */
   function Disclosure({ id, proofs }: { id: string; proofs: Proof[] }) {
     if (proofs.length === 0) return null
     return (
@@ -1364,25 +1443,154 @@ export default function CollusionAccessPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Collusion &amp; Access</h1>
-      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 18, maxWidth: 780 }}>
-        Formal-methods RBAC analysis from ControlPlane <strong style={{ color: 'var(--text)' }}>KubeSec-AFM</strong> (KTP
-        with King&apos;s College London) — <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          bounded model checking
-          <HelpHint label="What bounded model checking means" testId="collusion-bmc-help">
-            An exhaustive search of every sequence of RBAC operations up to a fixed length. Within that
-            bound the answer is a proof rather than a sample: if it finds no path, none exists in that
-            many steps. It says nothing about longer ones.
-          </HelpHint>
-        </span> for privilege escalation and <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          multi-subject collusion
-          <HelpHint label="What collusion means" testId="collusion-concept-help">
-            Two or more identities that cannot reach a privileged role on their own, but can if they
-            cooperate — one grants, the other uses. Nothing here is a breach; it is a route that exists
-            in the RBAC configuration whether or not anyone has walked it.
-          </HelpHint>
-        </span>, with TraceGuard remediation.
-      </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Collusion &amp; Access</h1>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 0, maxWidth: 780 }}>
+            Formal-methods RBAC analysis from ControlPlane <strong style={{ color: 'var(--text)' }}>KubeSec-AFM</strong> (KTP
+            with King&apos;s College London): <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              bounded model checking
+              <HelpHint label="What bounded model checking means" testId="collusion-bmc-help">
+                An exhaustive search of every sequence of RBAC operations up to a fixed length. Within that
+                bound the answer is a proof rather than a sample: if it finds no path, none exists in that
+                many steps. It says nothing about longer ones.
+              </HelpHint>
+            </span> for privilege escalation and <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              multi-subject collusion
+              <HelpHint label="What collusion means" testId="collusion-concept-help">
+                Two or more identities that cannot reach a privileged role on their own, but can if they
+                cooperate (one grants, the other uses). Nothing here is a breach; it is a route that exists
+                in the RBAC configuration whether or not anyone has walked it.
+              </HelpHint>
+            </span>, with TraceGuard remediation.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div
+            data-testid="collusion-scan-badge"
+            role="status"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 500,
+              padding: '5px 10px',
+              borderRadius: 4,
+              color: recencyBadge.tone,
+              background: recencyBadge.bg,
+              border: `1px solid ${recencyBadge.border}`,
+            }}
+          >
+            {recencyBadge.running && (
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  border: '2px solid currentColor',
+                  borderTopColor: 'transparent',
+                  animation: 'spin 1s linear infinite',
+                }}
+                aria-hidden="true"
+              />
+            )}
+            {recencyBadge.label}
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleRunCollusionScan}
+            disabled={isScanningCollusion || isScanningRbac || isLoadingList}
+            data-testid="btn-run-collusion-scan"
+            aria-label="Run Collusion Scan"
+            style={{ fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            {isScanningCollusion && (
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  border: '2px solid currentColor',
+                  borderTopColor: 'transparent',
+                  animation: 'spin 1s linear infinite',
+                }}
+                aria-hidden="true"
+              />
+            )}
+            {isScanningCollusion ? 'Running Collusion Scan…' : 'Run Collusion Scan'}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleScanRbac}
+            disabled={isScanningCollusion || isScanningRbac || isLoadingList}
+            data-testid="btn-scan-rbac"
+            aria-label="Scan RBAC"
+            style={{ fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            {isScanningRbac && (
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  border: '2px solid currentColor',
+                  borderTopColor: 'transparent',
+                  animation: 'spin 1s linear infinite',
+                }}
+                aria-hidden="true"
+              />
+            )}
+            {isScanningRbac ? 'Scanning RBAC…' : 'Scan RBAC'}
+          </button>
+        </div>
+      </div>
+
+      {/* Accessible live region for scan announcements */}
+      <div
+        role="status"
+        aria-live="polite"
+        data-testid="scan-status-live-region"
+        style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
+      >
+        {ariaAnnouncement}
+      </div>
+
+      {scanFeedback && (
+        <div
+          data-testid="scan-feedback-alert"
+          style={{
+            padding: '8px 12px',
+            marginBottom: 16,
+            borderRadius: 6,
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: scanFeedback.type === 'error' ? 'color-mix(in srgb, var(--error) 12%, transparent)' : 'color-mix(in srgb, var(--cyan) 12%, transparent)',
+            border: `1px solid ${scanFeedback.type === 'error' ? 'color-mix(in srgb, var(--error) 30%, transparent)' : 'color-mix(in srgb, var(--cyan) 30%, transparent)'}`,
+            color: scanFeedback.type === 'error' ? 'var(--error)' : 'var(--cyan)',
+          }}
+        >
+          <span>{scanFeedback.message}</span>
+          <button
+            type="button"
+            onClick={() => setScanFeedback(null)}
+            aria-label="Dismiss alert"
+            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, fontSize: 14 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {demo && (
         <div style={{
@@ -1390,7 +1598,7 @@ export default function CollusionAccessPage() {
           border: '1px solid color-mix(in srgb, var(--amber) 25%, transparent)',
           borderRadius: 6, padding: '8px 14px', marginBottom: 16, fontSize: 12, color: 'var(--amber)',
         }}>
-          Demo mode — fixed, offline collusion/escalation data across two sample runs. Switch to live mode
+          Demo mode: fixed, offline collusion and escalation data across two sample runs. Switch to live mode
           for the real KubeSec-AFM analysis.
         </div>
       )}
@@ -1427,8 +1635,8 @@ export default function CollusionAccessPage() {
         </select>
         <HelpHint label="What the Run selector offers" testId="collusion-run-help">
           Three altitudes on the same KubeSec-AFM data. The aggregate rolls every cluster up. A cluster
-          entry is that cluster&apos;s latest completed analysis — the same selection the KubeSec-AFM
-          dashboard and RBAC Explorer offer, so the results match across all three pages. A run entry is
+          entry is that cluster&apos;s latest completed analysis (the same selection the KubeSec-AFM
+          dashboard and RBAC Explorer offer, so the results match across all three pages). A run entry is
           one specific historical job. Changing it clears the table filters, which belonged to the run
           you were looking at.
         </HelpHint>
@@ -1460,7 +1668,7 @@ export default function CollusionAccessPage() {
 
       {view && (
         <>
-          {/* Provenance — which data path produced everything below, and the
+          {/* Provenance: which data path produced everything below, and the
               commands that return it. The tables carry their own row-level
               proofs; this one answers "where did this whole view come from". */}
           <div
@@ -1486,7 +1694,7 @@ export default function CollusionAccessPage() {
             {statCards.map(card => <StatCard key={card.label} {...card} />)}
           </div>
 
-          <Section title="Analysis Phases" hint="bounded model checking (depth ≤ 10)">
+          <Section title="Analysis Phases" hint="bounded model checking (depth <= 10)">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
               {PHASES.map((p) => (
                 <div key={p.n} className="card" style={{ padding: '14px 16px' }}>
@@ -1498,7 +1706,7 @@ export default function CollusionAccessPage() {
             </div>
           </Section>
 
-          <Section title="Privilege Escalation Paths" hint={`${view.label} — single-subject findings`}>
+          <Section title="Privilege Escalation Paths" hint={`${view.label}: single-subject findings`}>
             <DataTable
               columns={SINGLE_COLUMNS}
               data={singleShown}
@@ -1546,7 +1754,7 @@ export default function CollusionAccessPage() {
             />
           </Section>
 
-          <Section title="Collusion Pairs" hint={`${view.label} — subjects that jointly escalate`}>
+          <Section title="Collusion Pairs" hint={`${view.label}: subjects that jointly escalate`}>
             <DataTable
               columns={GROUP_COLUMNS}
               data={groupShown}
@@ -1641,8 +1849,6 @@ export default function CollusionAccessPage() {
                 </tr>
               )}
             />
-            {/* One source per cluster covers the whole table, so the proof
-                sits on the section rather than repeating down the rows. */}
             {pivotRows.length > 0 && <Disclosure id="shared-roles" proofs={view.sharedRolesProofs} />}
           </Section>
 
@@ -1697,13 +1903,6 @@ export default function CollusionAccessPage() {
   )
 }
 
-/**
- * A finding row, plus the full-width row its console expands into.
- *
- * A console rendered inside one <td> would be squeezed into that column's
- * width and wrap a pasteable command into nonsense; a sibling <tr> spanning
- * the table gives it the room, and keeps it adjacent to the row it explains.
- */
 function ProofRow({ id, span, proofs, open, children }: {
   id: string
   span: number

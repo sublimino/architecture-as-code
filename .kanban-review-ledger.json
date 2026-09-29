@@ -3279,5 +3279,25 @@
     "verdict": "PASS",
     "model": null,
     "reason": "SLMS-P1-1 verified: Sidebar navigation refactor delivered, Demos and Development sections created, Dex superadmin gating enforced, 3461 vitest passed, committed as 0963af66"
+  },
+  "517d8": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "517d8",
+        "reviewed_at": "2026-09-29T03:27:47.359Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "SLMS-P1-3 verified: Agents page governance states consolidated to 3 canonical states (Governed, Suspended, Revoked), batch actions updated, lifecycle regression tests added, committed as 726b1e9b"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "517d8",
+    "reviewed_at": "2026-09-29T03:27:47.359Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "SLMS-P1-3 verified: Agents page governance states consolidated to 3 canonical states (Governed, Suspended, Revoked), batch actions updated, lifecycle regression tests added, committed as 726b1e9b"
   }
 }

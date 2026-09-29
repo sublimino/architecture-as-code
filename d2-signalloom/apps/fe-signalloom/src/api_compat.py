@@ -1867,6 +1867,9 @@ def _canonical_lifecycle_state(
     return "Governed"
 
 
+map_to_canonical_lifecycle = _canonical_lifecycle_state
+
+
 def _agent_response_from_row(
     row: asyncpg.Record | dict[str, Any],
     compliance: ComplianceSummaryInline | dict[str, Any],
@@ -4112,7 +4115,6 @@ async def claim_agent(
     return await _execute_claim(principal.tenant, principal.actor, body)
 
 
-@router.post("/api/v1/agents/autoclaim-discovered", response_model=AutoclaimDiscoveredResponse, responses=ERROR_RESPONSES)
 @router.post("/v1/agents/autoclaim-discovered", response_model=AutoclaimDiscoveredResponse, responses=ERROR_RESPONSES)
 @router.post("/agents/autoclaim-discovered", response_model=AutoclaimDiscoveredResponse, responses=ERROR_RESPONSES)
 async def autoclaim_discovered(
@@ -6467,7 +6469,6 @@ async def nhi_discovered(
     )
 
 
-@router.post("/api/v1/nhi/discovered/{account_id}/enroll", responses=ERROR_RESPONSES)
 @router.post("/v1/nhi/discovered/{account_id}/enroll", responses=ERROR_RESPONSES)
 @router.post("/nhi/discovered/{account_id}/enroll", responses=ERROR_RESPONSES)
 async def enroll_nhi_account(
@@ -6501,7 +6502,6 @@ async def enroll_nhi_account(
     return {"account_id": account_id, "status": "enrollment_requested"}
 
 
-@router.post("/api/v1/nhi/discovered/{account_id}/dismiss", responses=ERROR_RESPONSES)
 @router.post("/v1/nhi/discovered/{account_id}/dismiss", responses=ERROR_RESPONSES)
 @router.post("/nhi/discovered/{account_id}/dismiss", responses=ERROR_RESPONSES)
 async def dismiss_nhi_account(
@@ -7310,7 +7310,6 @@ def reset_tenant_connectors(tenant_id: str | None = None) -> None:
             _TENANT_CONNECTORS.clear()
 
 
-@router.get("/api/v1/discovery/workloads", response_model=DiscoveryWorkloadsResponseModel, responses=ERROR_RESPONSES)
 @router.get("/v1/discovery/workloads", response_model=DiscoveryWorkloadsResponseModel, responses=ERROR_RESPONSES)
 @router.get("/discovery/workloads", response_model=DiscoveryWorkloadsResponseModel, responses=ERROR_RESPONSES)
 async def list_discovery_workloads(

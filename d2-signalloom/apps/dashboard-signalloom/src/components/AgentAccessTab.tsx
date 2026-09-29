@@ -99,7 +99,8 @@ export default function AgentAccessTab({
     agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned'
   const cgroupObservationTimestamp = agent.kernel_telemetry?.observed_at || agent.kernel_telemetry?.last_observed_at || agent.timestamps?.last_observed_at
 
-  let cgroupBadgeText = 'cgroup: UNCONFINED'
+  // No observation and no request: render no badge rather than a default.
+  let cgroupBadgeText: string | null = null
   let cgroupBadgeColor = 'var(--muted)'
   let cgroupBadgeBg = 'rgba(156, 163, 175, 0.15)'
 
@@ -123,7 +124,7 @@ export default function AgentAccessTab({
   const isNetworkIsolationRequested = agent.operational_state?.containment?.network_isolation === 'requested' ||
     agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned'
 
-  let tcBadgeText = 'TC: UNRESTRICTED'
+  let tcBadgeText: string | null = null
   let tcBadgeColor = 'var(--muted)'
   let tcBadgeBg = 'rgba(156, 163, 175, 0.15)'
 
@@ -160,8 +161,12 @@ export default function AgentAccessTab({
   }
 
   // ─── 6. Sentinel Telemetry Status ─────────────────────────────────────────
-  const ebpfActive = agent.kernel_telemetry?.ebpf_active ?? true
-  const ebpfAttached = agent.kernel_telemetry?.ebpf_program_attached ?? true
+  // Rendered only when the telemetry reports them; never defaulted.
+  const ebpfActive = typeof agent.kernel_telemetry?.ebpf_active === 'boolean' ? agent.kernel_telemetry.ebpf_active : null
+  const ebpfAttached = typeof agent.kernel_telemetry?.ebpf_program_attached === 'boolean' ? agent.kernel_telemetry.ebpf_program_attached : null
+  const dropCount = typeof agent.kernel_telemetry?.sentinel_drop_count === 'number' ? agent.kernel_telemetry.sentinel_drop_count : null
+  const kernelObserved = !!agent.kernel_telemetry && agent.kernel_telemetry.source !== 'unavailable'
+  const vethInterface = agent.kernel_telemetry?.veth_interface ?? null
 
   // ─── 7. Workload Action Capabilities ──────────────────────────────────────
   const workloadCaps: WorkloadActionCapabilities = useMemo(() => {
@@ -392,20 +397,22 @@ export default function AgentAccessTab({
               Process Track (cgroup v2)
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span
-                data-testid="access-cgroup-badge"
-                className="tag"
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: '3px 8px',
-                  background: cgroupBadgeBg,
-                  color: cgroupBadgeColor,
-                  border: `1px solid ${cgroupBadgeColor}40`,
-                }}
-              >
-                {cgroupBadgeText}
-              </span>
+              {cgroupBadgeText && (
+                <span
+                  data-testid="access-cgroup-badge"
+                  className="tag"
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    background: cgroupBadgeBg,
+                    color: cgroupBadgeColor,
+                    border: `1px solid ${cgroupBadgeColor}40`,
+                  }}
+                >
+                  {cgroupBadgeText}
+                </span>
+              )}
               {agent.kernel_telemetry?.sentinel_ack && (
                 <span
                   data-testid="access-cgroup-sentinel-ack"
@@ -423,12 +430,14 @@ export default function AgentAccessTab({
                 </span>
               )}
             </div>
-            <div data-testid="access-cgroup-state" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-              Kernel freeze:{' '}
-              <strong style={{ color: isKernelFrozen ? 'var(--error)' : 'var(--text)' }}>
-                {isKernelFrozen ? '1 (FROZEN)' : isCgroupThawed ? '0 (THAWED)' : 'UNCONFINED'}
-              </strong>
-            </div>
+            {(isKernelFrozen || isCgroupThawed) && (
+              <div data-testid="access-cgroup-state" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                Kernel freeze:{' '}
+                <strong style={{ color: isKernelFrozen ? 'var(--error)' : 'var(--text)' }}>
+                  {isKernelFrozen ? '1 (FROZEN)' : '0 (THAWED)'}
+                </strong>
+              </div>
+            )}
             <div data-testid="access-cgroup-probe-state" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
               Probe state:{' '}
               <strong style={{ color: (agent.kernel_telemetry?.containment_probe_state === 'confirmed' || isKernelFrozen) ? 'var(--teal)' : agent.kernel_telemetry?.containment_probe_state === 'pending' ? 'var(--amber)' : 'var(--muted)' }}>
@@ -448,20 +457,22 @@ export default function AgentAccessTab({
               Network Track (TC Filter)
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span
-                data-testid="access-tc-badge"
-                className="tag"
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: '3px 8px',
-                  background: tcBadgeBg,
-                  color: tcBadgeColor,
-                  border: `1px solid ${tcBadgeColor}40`,
-                }}
-              >
-                {tcBadgeText}
-              </span>
+              {tcBadgeText && (
+                <span
+                  data-testid="access-tc-badge"
+                  className="tag"
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    background: tcBadgeBg,
+                    color: tcBadgeColor,
+                    border: `1px solid ${tcBadgeColor}40`,
+                  }}
+                >
+                  {tcBadgeText}
+                </span>
+              )}
               {agent.kernel_telemetry?.sentinel_ack && (
                 <span
                   data-testid="access-tc-sentinel-ack"
@@ -479,25 +490,27 @@ export default function AgentAccessTab({
                 </span>
               )}
             </div>
-            <div data-testid="access-tc-state" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-              TC action:{' '}
-              <strong style={{ color: isKernelTcDrop ? 'var(--error)' : 'var(--text)' }}>
-                {isKernelTcDrop ? 'DROP (matchall active)' : isKernelTcPass ? 'PASS (unrestricted)' : 'INACTIVE'}
-              </strong>
-            </div>
-            <div data-testid="access-tc-drop-counter" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              Sentinel drops:{' '}
-              <strong style={{ color: (agent.kernel_telemetry?.sentinel_drop_count && agent.kernel_telemetry.sentinel_drop_count > 0) || isKernelTcDrop ? 'var(--error)' : 'var(--text)' }}>
-                {agent.kernel_telemetry?.sentinel_drop_count !== undefined && agent.kernel_telemetry?.sentinel_drop_count !== null
-                  ? `${agent.kernel_telemetry.sentinel_drop_count} packets dropped`
-                  : isKernelTcDrop
-                    ? '142 packets dropped'
-                    : '0 packets dropped'}
-              </strong>
-            </div>
+            {(isKernelTcDrop || isKernelTcPass) && (
+              <div data-testid="access-tc-state" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                TC action:{' '}
+                <strong style={{ color: isKernelTcDrop ? 'var(--error)' : 'var(--text)' }}>
+                  {isKernelTcDrop ? 'DROP (matchall active)' : 'PASS (unrestricted)'}
+                </strong>
+              </div>
+            )}
+            {dropCount !== null && (
+              <div data-testid="access-tc-drop-counter" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                Sentinel drops:{' '}
+                <strong style={{ color: dropCount > 0 ? 'var(--error)' : 'var(--text)' }}>
+                  {`${dropCount} packets dropped`}
+                </strong>
+              </div>
+            )}
           </div>
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
-            Interface: <span style={{ color: 'var(--text)', fontFamily: 'monospace' }}>veth-loom-0</span>
+            {vethInterface && (
+              <>Interface: <span style={{ color: 'var(--text)', fontFamily: 'monospace' }}>{vethInterface}</span></>
+            )}
           </div>
         </div>
 
@@ -542,20 +555,22 @@ export default function AgentAccessTab({
               Sentinel Telemetry
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span
-                data-testid="access-ebpf-status"
-                className="tag"
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: '3px 8px',
-                  background: ebpfActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(220, 38, 38, 0.15)',
-                  color: ebpfActive ? 'var(--teal)' : 'var(--error)',
-                  border: `1px solid ${ebpfActive ? 'var(--teal)' : 'var(--error)'}40`,
-                }}
-              >
-                {ebpfActive ? 'eBPF Sentinel Active' : 'Sentinel Inactive'}
-              </span>
+              {ebpfActive !== null && (
+                <span
+                  data-testid="access-ebpf-status"
+                  className="tag"
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    background: ebpfActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(220, 38, 38, 0.15)',
+                    color: ebpfActive ? 'var(--teal)' : 'var(--error)',
+                    border: `1px solid ${ebpfActive ? 'var(--teal)' : 'var(--error)'}40`,
+                  }}
+                >
+                  {ebpfActive ? 'eBPF Sentinel Active' : 'Sentinel Inactive'}
+                </span>
+              )}
               {agent.kernel_telemetry?.sentinel_ack && (
                 <span
                   data-testid="access-sentinel-ack-badge"
@@ -573,27 +588,33 @@ export default function AgentAccessTab({
                 </span>
               )}
             </div>
-            <div data-testid="access-ebpf-attached" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-              Program:{' '}
-              <strong style={{ color: ebpfAttached ? 'var(--teal)' : 'var(--error)' }}>
-                {ebpfAttached ? 'cls_bpf / kprobe attached' : 'Detached'}
-              </strong>
-            </div>
+            {ebpfAttached !== null && (
+              <div data-testid="access-ebpf-attached" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                Program:{' '}
+                <strong style={{ color: ebpfAttached ? 'var(--teal)' : 'var(--error)' }}>
+                  {ebpfAttached ? 'cls_bpf / kprobe attached' : 'Detached'}
+                </strong>
+              </div>
+            )}
             <div data-testid="access-sentinel-probe-state" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
               Probe state:{' '}
               <strong style={{ color: (agent.kernel_telemetry?.containment_probe_state === 'confirmed' || isKernelFrozen || isKernelTcDrop) ? 'var(--teal)' : 'var(--muted)' }}>
                 {agent.kernel_telemetry?.containment_probe_state || ((isKernelFrozen || isKernelTcDrop) ? 'confirmed' : 'unconfirmed')}
               </strong>
             </div>
-            <div data-testid="access-sentinel-drops" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              Sentinel drops:{' '}
-              <strong style={{ color: (agent.kernel_telemetry?.sentinel_drop_count && agent.kernel_telemetry.sentinel_drop_count > 0) || isKernelTcDrop ? 'var(--error)' : 'var(--text)' }}>
-                {agent.kernel_telemetry?.sentinel_drop_count ?? (isKernelTcDrop ? 142 : 0)}
-              </strong>
-            </div>
+            {dropCount !== null && (
+              <div data-testid="access-sentinel-drops" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                Sentinel drops:{' '}
+                <strong style={{ color: dropCount > 0 ? 'var(--error)' : 'var(--text)' }}>
+                  {dropCount}
+                </strong>
+              </div>
+            )}
           </div>
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
-            Telemetry Mode: <span style={{ color: 'var(--text)' }}>Kernel-observed</span>
+            {kernelObserved && (
+              <>Telemetry Mode: <span style={{ color: 'var(--text)' }}>Kernel-observed</span></>
+            )}
           </div>
         </div>
       </div>
@@ -624,13 +645,15 @@ export default function AgentAccessTab({
                   Linux cgroup v2 (cgroup.freeze)
                 </td>
                 <td style={{ padding: '10px 12px' }}>
-                  <span className="tag" style={{
-                    fontSize: 11, padding: '2px 6px',
-                    background: isKernelFrozen ? 'rgba(220, 38, 38, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                    color: isKernelFrozen ? 'var(--error)' : 'var(--teal)',
-                  }}>
-                    {isKernelFrozen ? 'cgroup.freeze = 1 (FROZEN)' : 'cgroup.freeze = 0 (THAWED)'}
-                  </span>
+                  {(isKernelFrozen || isCgroupThawed) && (
+                    <span className="tag" style={{
+                      fontSize: 11, padding: '2px 6px',
+                      background: isKernelFrozen ? 'rgba(220, 38, 38, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                      color: isKernelFrozen ? 'var(--error)' : 'var(--teal)',
+                    }}>
+                      {isKernelFrozen ? 'cgroup.freeze = 1 (FROZEN)' : 'cgroup.freeze = 0 (THAWED)'}
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11 }}>
                   eBPF cgroup sentinel probe
@@ -647,9 +670,9 @@ export default function AgentAccessTab({
                     </span>
                   ) : isProcessFreezeRequested ? (
                     <span style={{ color: 'var(--amber)', fontWeight: 600 }}>Requested (Outcome unconfirmed)</span>
-                  ) : (
+                  ) : isCgroupThawed ? (
                     <span style={{ color: 'var(--teal)' }}>Normal execution</span>
-                  )}
+                  ) : null}
                 </td>
               </tr>
 
@@ -662,13 +685,15 @@ export default function AgentAccessTab({
                   Traffic Control (cls_bpf / TC matchall)
                 </td>
                 <td style={{ padding: '10px 12px' }}>
-                  <span className="tag" style={{
-                    fontSize: 11, padding: '2px 6px',
-                    background: isKernelTcDrop ? 'rgba(220, 38, 38, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                    color: isKernelTcDrop ? 'var(--error)' : 'var(--teal)',
-                  }}>
-                    {isKernelTcDrop ? 'TC filter action = DROP' : 'TC filter action = PASS'}
-                  </span>
+                  {(isKernelTcDrop || isKernelTcPass) && (
+                    <span className="tag" style={{
+                      fontSize: 11, padding: '2px 6px',
+                      background: isKernelTcDrop ? 'rgba(220, 38, 38, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                      color: isKernelTcDrop ? 'var(--error)' : 'var(--teal)',
+                    }}>
+                      {isKernelTcDrop ? 'TC filter action = DROP' : 'TC filter action = PASS'}
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11 }}>
                   cls_bpf ingress/egress hook
@@ -677,17 +702,17 @@ export default function AgentAccessTab({
                   {isKernelTcDrop ? (
                     <span style={{ color: 'var(--error)', fontWeight: 600 }}>
                       Packet drop active
-                      <span style={{ display: 'block', fontSize: 11, color: 'var(--error)', fontWeight: 400 }}>
-                        {agent.kernel_telemetry?.sentinel_drop_count !== undefined
-                          ? `${agent.kernel_telemetry.sentinel_drop_count} packets dropped`
-                          : '142 packets dropped'}
-                      </span>
+                      {dropCount !== null && (
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--error)', fontWeight: 400 }}>
+                          {`${dropCount} packets dropped`}
+                        </span>
+                      )}
                     </span>
                   ) : isNetworkIsolationRequested ? (
                     <span style={{ color: 'var(--amber)', fontWeight: 600 }}>Requested (Outcome unconfirmed)</span>
-                  ) : (
+                  ) : isKernelTcPass ? (
                     <span style={{ color: 'var(--teal)' }}>Unrestricted network</span>
-                  )}
+                  ) : null}
                 </td>
               </tr>
 

@@ -64,7 +64,7 @@ class SentinelKernelTelemetry(BaseModel):
     cgroup_state: Literal["frozen", "thawed", "none", "unknown"] = "thawed"
     tc_drop_active: bool = False
     traffic_control_state: Literal["drop", "allow", "unknown"] = "allow"
-    ebpf_active: bool = False
+    ebpf_active: bool | None = False
     ebpf_program_attached: bool | None = None
     observed_at: str | None = None
     last_observed_at: str | None = None
@@ -129,6 +129,10 @@ class ContainmentMeasures(BaseModel):
     process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    # Whether process_freeze / network_isolation rest on an observation
+    # (sentinel annotation or discovered traffic-control data). None for
+    # producers that predate the field.
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
 
 
 class OperationalStateMetadata(BaseModel):

@@ -142,10 +142,12 @@ class TestAgentLifecycleMapping:
         assert resp_suspended.kernel_telemetry.cgroup_state == "unknown"
         assert resp_suspended.kernel_telemetry.source == "unavailable"
         assert resp_suspended.kernel_telemetry.traffic_control_state == "unknown"
-        assert resp_suspended.kernel_telemetry.ebpf_active is False
+        assert resp_suspended.kernel_telemetry.ebpf_active is None
+        # Containment was requested; nothing observed it take effect.
         assert resp_suspended.operational_state is not None
-        assert resp_suspended.operational_state.containment.process_freeze == "active"
-        assert resp_suspended.operational_state.containment.network_isolation == "active"
+        assert resp_suspended.operational_state.containment.process_freeze == "requested"
+        assert resp_suspended.operational_state.containment.network_isolation == "requested"
+        assert resp_suspended.operational_state.containment.source == "unavailable"
 
         # Governed agent has clean operational state
         active_row = _make_db_row(lifecycle_state="active")

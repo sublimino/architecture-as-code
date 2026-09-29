@@ -221,7 +221,7 @@ class TestKernelTelemetryFromKernelState:
         assert t.traffic_control_state == "unknown"
         assert t.sentinel_ack is False
         assert t.sentinel_drop_count is None
-        assert t.ebpf_active is False
+        assert t.ebpf_active is None
 
     def test_suspended_row_with_frozen_annotation_reports_frozen(self) -> None:
         resp = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=_disc())
@@ -303,3 +303,58 @@ class TestTrafficControlOnlyFromDiscovery:
         assert t.sentinel_drop_count == 0
         assert t.cgroup_state == "unknown"
         assert t.source == "unavailable"
+
+
+class TestContainmentFromObservations:
+    """operational_state.containment may report a freeze or an isolation as
+    active only on an observation. A stun or suspension without one is a
+    request, and the source says so."""
+
+    def _c(self, resp):
+        assert resp.operational_state is not None
+        return resp.operational_state.containment
+
+    def test_suspended_row_without_observation_is_requested_not_active(self) -> None:
+        c = self._c(_agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=None))
+        assert c.process_freeze == "requested"
+        assert c.network_isolation == "requested"
+        assert c.source == "unavailable"
+
+    def test_stunned_discovered_without_observation_is_requested_not_active(self) -> None:
+        c = self._c(_agent_response_from_discovered(
+            _disc(state="stunned", kernel_state=None, stunned_at="2026-09-01T00:00:00Z"),
+            tenant_id="tenant-a",
+        ))
+        assert c.process_freeze == "requested"
+        assert c.network_isolation == "requested"
+        assert c.source == "unavailable"
+
+    def test_observed_freeze_is_active_and_isolation_needs_its_own_observation(self) -> None:
+        c = self._c(_agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=_disc()))
+        assert c.process_freeze == "active"
+        assert c.network_isolation == "requested"
+        assert c.source == "sentinel-annotation"
+
+    def test_observed_drop_makes_isolation_active(self) -> None:
+        c = self._c(_agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z", traffic_control_state="drop"),
+            tenant_id="tenant-a",
+        ))
+        assert c.process_freeze == "active"
+        assert c.network_isolation == "active"
+
+    def test_split_brain_freeze_is_active_even_without_a_stun_record(self) -> None:
+        c = self._c(_agent_response_from_discovered(_disc(), tenant_id="tenant-a"))
+        assert c.process_freeze == "active"
+
+    def test_active_row_without_observation_is_inactive_and_unavailable(self) -> None:
+        c = self._c(_agent_response_from_row(_row("active"), _compliance(), discovered_overlay=None))
+        assert c.process_freeze == "inactive"
+        assert c.network_isolation == "inactive"
+        assert c.source == "unavailable"
+
+    def test_derived_telemetry_leaves_ebpf_unset(self) -> None:
+        t = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=None).kernel_telemetry
+        assert t is not None
+        assert t.ebpf_active is None
+        assert t.ebpf_program_attached is None

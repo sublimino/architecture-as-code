@@ -137,7 +137,7 @@ class SentinelKernelTelemetry(BaseModel):
     cgroup_state: Literal["frozen", "thawed", "none", "unknown"] = "thawed"
     tc_drop_active: bool = False
     traffic_control_state: Literal["drop", "allow", "unknown"] | None = None
-    ebpf_active: bool = False
+    ebpf_active: bool | None = False
     ebpf_program_attached: bool | None = None
     containment_latency_ms: float | None = None
     cgroup_path: str | None = None
@@ -204,6 +204,10 @@ class ContainmentMeasures(BaseModel):
     process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    # Whether process_freeze / network_isolation rest on an observation
+    # (sentinel annotation or discovered traffic-control data). None for
+    # producers that predate the field.
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
 
 
 class OperationalStateMetadata(BaseModel):
@@ -1992,6 +1996,32 @@ def _kernel_view(discovered: dict[str, Any] | None, stunned: bool) -> dict[str, 
     }
 
 
+def _containment_observations(
+    kernel: dict[str, Any],
+    discovered: dict[str, Any] | None,
+    containment_requested: bool,
+) -> dict[str, Any]:
+    """process_freeze and network_isolation from observations only.
+
+    "active" needs an observation: kernel_state frozen for the freeze, a
+    discovered traffic_control_state of "drop" for isolation. A stun or
+    suspension without one is "requested", never "active".
+    """
+    tc = (discovered or {}).get("traffic_control_state")
+    frozen = kernel["kernel_state"] == "frozen"
+    dropping = tc == "drop"
+
+    def measure(observed: bool) -> str:
+        return "active" if observed else ("requested" if containment_requested else "inactive")
+
+    observed_any = kernel["kernel_state"] != "unknown" or tc in ("drop", "allow")
+    return {
+        "process_freeze": measure(frozen),
+        "network_isolation": measure(dropping),
+        "source": "sentinel-annotation" if observed_any else "unavailable",
+    }
+
+
 def _kernel_telemetry(
     kernel: dict[str, Any],
     containment_requested: bool,
@@ -2021,7 +2051,7 @@ def _kernel_telemetry(
         tc_drop_active=tc_state == "drop",
         traffic_control_state=tc_state,
         sentinel_drop_count=drop_count,
-        ebpf_active=False,
+        ebpf_active=None,
         ebpf_program_attached=None,
         observed_at=observed,
         last_observed_at=observed,
@@ -2138,9 +2168,12 @@ def _agent_response_from_row(
         assignment_status="assigned" if owner else "unassigned",
     )
 
+    # is_frozen is the stun record / lifecycle: a request for containment,
+    # not evidence of it. Observations decide "active" below.
     is_frozen = (stunned_at is not None) or (disc_state in ("stunned", "frozen")) or (canonical_state == "Suspended") or (raw_lifecycle_state in ("suspended", "stunned"))
-    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if canonical_state == "Suspended" else "inactive")
-    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else "inactive"
+    row_containment = _containment_observations(
+        _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended"), discovered_overlay, is_frozen,
+    )
     cred_revoked = row.get("credential_revoked") if isinstance(row, dict) else (row["credential_revoked"] if "credential_revoked" in row else False)
     credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if (cred_revoked or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned")) else "inactive"
 
@@ -2148,8 +2181,7 @@ def _agent_response_from_row(
     operational_state = OperationalStateMetadata(
         runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded")),
         containment=ContainmentMeasures(
-            process_freeze=process_freeze,
-            network_isolation=network_isolation,
+            **row_containment,
             credential_revocation=credential_revocation,
         ),
     )
@@ -2327,9 +2359,12 @@ def _agent_response_from_discovered(
         assignment_status="registry_unlinked" if not is_registry_linked else "unassigned",
     )
 
+    # A stun record or stunned/suspended label requests containment; only
+    # observations (kernel_state, discovered TC) make it "active".
     is_frozen = (stunned_at is not None) or (state in ("stunned", "frozen"))
-    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if state == "suspended" else "inactive")
-    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else "inactive"
+    disc_containment = _containment_observations(
+        _kernel_view(discovered, stunned=is_frozen or state == "suspended"), discovered, is_frozen or state == "suspended",
+    )
     credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if state in ("revoked", "stunned") else "inactive"
 
     kernel = _kernel_view(
@@ -2339,8 +2374,7 @@ def _agent_response_from_discovered(
     operational_state = OperationalStateMetadata(
         runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or state in ("ready", "active", "idle")) else "unknown"),
         containment=ContainmentMeasures(
-            process_freeze=process_freeze,
-            network_isolation=network_isolation,
+            **disc_containment,
             credential_revocation=credential_revocation,
         ),
     )

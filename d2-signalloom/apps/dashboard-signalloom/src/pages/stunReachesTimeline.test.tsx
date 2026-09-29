@@ -93,11 +93,16 @@ async function auditRows(): Promise<HTMLElement> {
   return table.querySelector('tbody') as HTMLElement
 }
 
-/** Press Stun on the SuperCred page, confirm it recorded, then unmount. */
+const STUN_REASON = 'anomalous egress during demo'
+
+/** Press Stun on the SuperCred page, give a reason, confirm it recorded, then unmount. */
 async function stunViaSuperCredPage(): Promise<void> {
   const { unmount } = render(<MemoryRouter><SuperCredPage /></MemoryRouter>)
   await userEvent.click(screen.getByRole('button', { name: /Refresh Agents/ }))
   await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+  // The confirm step: the server requires a reason, so the page asks first.
+  await userEvent.type(await screen.findByLabelText(/Reason for stunning/), STUN_REASON)
+  await userEvent.click(screen.getByRole('button', { name: /Confirm stun/ }))
   await screen.findByTestId('supercred-stun-event')
   unmount()
 }
@@ -130,6 +135,18 @@ describe('stun reaches the audit timeline', () => {
     render(<MemoryRouter><AuditTrail /></MemoryRouter>)
     const row = (await within(await auditRows()).findByText('agent.stunned')).closest('tr')
     expect(row?.textContent).toMatch(/"outcome":"stunned"/)
+  })
+
+  it('carries the operator reason and the per-plane outcome through to the trail', async () => {
+    await stunViaSuperCredPage()
+
+    render(<MemoryRouter><AuditTrail /></MemoryRouter>)
+    const row = (await within(await auditRows()).findByText('agent.stunned')).closest('tr') as HTMLElement
+    expect(row.querySelector('[data-testid^="audit-reason-"]')).toHaveTextContent(`Reason: ${STUN_REASON}`)
+    // The demo fixture is a realistic partial: spire did not fully contain.
+    const strip = row.querySelector('[data-testid^="audit-planes-"]') as HTMLElement
+    expect(strip).toHaveTextContent('spire: partial')
+    expect(within(strip).getByText('spire: partial')).toHaveClass('stun-outcome--partial')
   })
 
   it('keeps the seeded history alongside the new event', async () => {

@@ -18,6 +18,7 @@ import EmptyState from '../components/EmptyState'
 import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 import AuditDetailDrawer from '../components/AuditDetailDrawer'
+import { PlaneStrip, planesFromDetail } from '../components/StunPlanes'
 
 // Watched by the demo audience in a second window: see api/pollInterval.ts.
 //
@@ -948,6 +949,22 @@ export default function AuditTrail() {
                       {Object.keys(ev.detail ?? {}).length > 0 ? JSON.stringify(ev.detail) : '{}'}
                     </code>
                   </button>
+                  {/* Read out of the verbatim payload, not added to it: the
+                      reason the operator gave and, for a stun, which planes
+                      contained. The JSON above stays the record. */}
+                  {typeof ev.detail?.reason === 'string' && ev.detail.reason && (
+                    <div
+                      data-testid={`audit-reason-${ev.id}`}
+                      style={{ fontSize: 11, color: 'var(--text)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={ev.detail.reason}
+                    >
+                      Reason: {ev.detail.reason}
+                    </div>
+                  )}
+                  {(() => {
+                    const planes = planesFromDetail(ev.detail)
+                    return planes ? <PlaneStrip planes={planes} testId={`audit-planes-${ev.id}`} /> : null
+                  })()}
                 </td>
               </tr>
             )}

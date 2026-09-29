@@ -466,8 +466,41 @@ export interface StunProxyReport {
   message?: string | null
 }
 
+/**
+ * POST /agents/{id}/stun body. The reason is the operator's stated intent,
+ * required by the server (422 without it, 1..256 chars) and recorded against
+ * the actor it reads off the token. It is an input to the action, like
+ * TransitionRequest.reason, not a claim about what the action did.
+ */
+export interface StunAgentRequest {
+  reason: string
+}
+
+/**
+ * One containment plane's report from a stun. Known planes are freeze, bao,
+ * spire, mesh, admission and gitops; known outcomes are contained, partial,
+ * not_found and failed. Both are typed as open strings because the server may
+ * grow either vocabulary, and the UI must render an unknown word as unknown
+ * rather than fail to compile against it.
+ */
+export interface PlaneResult {
+  plane: string
+  outcome: string
+  error?: string
+  timestamp: string
+  latency_ms?: number
+  details?: Record<string, unknown>
+}
+
 export interface StunAgentResponse {
   agent_id: string
+  /** The operator's reason, as the server recorded it. */
+  reason: string
+  /** contained, partial, failed or simulated; open for the same reason as PlaneResult. */
+  overall_outcome: string
+  /** HTTP status the fleet manager answered with, or null when it was not reached. */
+  fleet_manager_status: number | null
+  planes: PlaneResult[]
   from_state: string
   /** Lifecycle vocabulary, not UI wording: a stun lands the agent in
    *  'suspended' (migration 009). Mirrors TransitionResponse's naming. */

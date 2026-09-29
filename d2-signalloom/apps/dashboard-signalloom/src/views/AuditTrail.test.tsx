@@ -628,3 +628,50 @@ describe('AuditTrail: Detail Drawer and Inspection', () => {
 
 
 
+
+describe('stun events show their reason and per-plane outcome', () => {
+  const STUN = {
+    id: 'evt-stun',
+    timestamp: '2026-07-01T12:10:00Z',
+    event_type: 'agent.stunned',
+    agent_id: 'agent-cardvault',
+    agent_name: 'Cardvault Agent',
+    actor: 'operator@signal-loom.ai',
+    detail: {
+      outcome: 'stunned',
+      reason: 'exfiltration to unknown host',
+      overall_outcome: 'partial',
+      planes: [
+        { plane: 'freeze', outcome: 'contained', timestamp: '2026-07-01T12:10:00Z' },
+        { plane: 'bao', outcome: 'failed', timestamp: '2026-07-01T12:10:00Z', error: 'lease revoke returned 503' },
+        { plane: 'gitops', outcome: 'not_found', timestamp: '2026-07-01T12:10:00Z' },
+      ],
+    },
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.audit).mockResolvedValue({ events: [STUN, ...EVENTS], total: 3, page: 1, limit: 50 } as never)
+    vi.mocked(api.auditExportCsv).mockResolvedValue('' as never)
+  })
+
+  it('shows the stun reason on the row', async () => {
+    renderPage()
+    expect(await screen.findByTestId('audit-reason-evt-stun')).toHaveTextContent('Reason: exfiltration to unknown host')
+  })
+
+  it('shows a compact per-plane strip with outcome classes', async () => {
+    renderPage()
+    const strip = await screen.findByTestId('audit-planes-evt-stun')
+    expect(strip).toHaveTextContent('freeze: contained')
+    expect(screen.getByTestId('audit-planes-evt-stun-freeze')).toHaveClass('stun-outcome--contained')
+    expect(screen.getByTestId('audit-planes-evt-stun-bao')).toHaveClass('stun-outcome--failed')
+    expect(screen.getByTestId('audit-planes-evt-stun-gitops')).toHaveClass('stun-outcome--failed')
+  })
+
+  it('adds nothing to rows whose payload carries no planes', async () => {
+    renderPage()
+    await screen.findByTestId('audit-planes-evt-stun')
+    expect(screen.queryByTestId('audit-planes-evt-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('audit-reason-evt-1')).not.toBeInTheDocument()
+  })
+})

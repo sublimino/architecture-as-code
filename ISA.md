@@ -1,112 +1,125 @@
 ---
-task: Federated Services Demo Data Hardening & Cofide Interceptor
-slug: slms-p4-1-federated-services-and-cofide-interceptor
-effort: E3
-phase: complete
-progress: 24/24
+task: Cross-Surface Multi-Domain UI and Protocol Remediation
+slug: slms-cross-surface-multi-domain-remediation
+effort: E4
+phase: build
+progress: 0/32
 mode: algorithm
-started: 2026-09-29T07:16:00+01:00
-updated: 2026-09-29T07:27:50+01:00
+started: 2026-09-29T19:55:00+01:00
+updated: 2026-09-29T19:55:00+01:00
 ---
 
 ## Problem
-1. Illustrative Disclaimer & Placeholder Copy: `FederatedServicesPage.tsx` lines 520-526 contain explicit references to "illustrative mock data" and line 577 renders an "Illustrative" disclaimer badge with static text stating "no trust zone, federation or SVID below was observed".
-2. Hardcoded Static Fixtures: `TRUST_ZONES`, `FEDERATIONS`, `FEDERATED_SERVICES`, `POLICIES`, `SPIFFE_IDS`, and `FEDERATION_EVENTS` were defined as raw array literals in `FederatedServicesPage.tsx`, bypassing the standard `isDemoMode()` toggle and preventing live API connectivity.
-3. Missing Server-Side Cofide Attestation Interceptor: `apps/signal-ingest` lacked an HTTP middleware interceptor implementing Cofide Go SDK contracts to validate inbound SPIFFE SVID bundles, check cryptographic signatures, parse ASN.1 DER certificate sequences, and enforce trust domain federation boundaries.
-4. Missing Reverse Proxy for Federation Endpoints: `fe-signalloom/src/api_compat.py` lacked proxy routes under `/api/v1/federation/*` forwarding to `signal-ingest:8082` with authenticated tenant scoping and SPIFFE credential forwarding.
-5. Incomplete Test Coverage: No table-driven tests existed in `apps/signal-ingest` for Cofide SVID validation scenarios, no Vitest suite existed for `FederatedServicesPage.tsx`, and no Pytest suite existed for federation proxy routes.
+1. Discovery Attention Selection: In `DiscoveryPage.tsx`, the 'Attention Required' panel and header lack selection action binding, and the 'unowned' alert click clears filters rather than selecting unowned workloads requiring attention.
+2. Coding Agents Error State: When querying host detective coding agent telemetry against live clusters without active agentmaxxing sensor data, the component does not surface the standardized inline error code banner (`Failed 8s ago:Request failed with status code 404 Retry`) with truthful relative timestamps and retry handling.
+3. Trust Topology Live Visualization and Interactive Cards: The StatCards on `AgentTrustTopologyPage.tsx` do not filter or interact with the React Flow canvas diagram, and live topology nodes are placed with naive coordinate wrapping that leads to visual collisions and unreadable diagrams.
+4. Activity View Naming: 'The Weave' terminology in sidebar navigation, route maps, page headings, and links departs from the canonical user-facing label 'Activity'.
+5. Regulatory Policy Bundles and FAIR Risk: FAIR Risk and Policy pages only expose baseline claim facts and an incomplete framework set, omitting full regulatory bundles and realistic CEL rules for EU AI Act, NIST SP 800-53, Cyber Resilience Act (CRA), and FINOS AI Governance Framework (AIGF).
+6. Agent Super Filter Table Missing: No unified, reusable design system table exists with standardized filter facets (search, lifecycle state, source connector, namespace, attention required) and sortable columns including sortable 'last assessed' with full timestamps and sortable 'lifecycle'.
+7. RBAC Analysis Iframe Loading Failure: Navigating to `/rbac-analysis` fails to display the embedded AFM dashboard due to server-wide `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'` response headers blocking same-origin iframe rendering.
+8. AFM Scan Trigger 405 Method Not Allowed: Triggering a collusion and privilege escalation scan via `triggerCollusionScan` issues a `POST` request to `/afm/clusters/{cluster_id}/jobs`, which KubeSec-AFM rejects with HTTP 405 Method Not Allowed because its escalation trigger endpoint is `/clusters/{cluster_id}/analysis/escalation`.
+9. Federated Services Authentication Redirect: Navigating to `/federated-services` in live mode triggers an unexpected redirect to sign-in because `useFederatedServices` uses a fallback `'demo-token'` instead of calling `useAuth0().getAccessTokenSilently()`, causing HTTP 401 Unauthorized and Axios redirect interception.
 
 ## Vision
-A hardened, production-grade Federated Services surface (Surface 11) backed by an interactive `useFederatedServices` client hook, unified `fakeData.ts` fixture integration, robust server-side Go Cofide SVID interceptor in `signal-ingest`, FastAPI reverse proxying in `fe-signalloom`, and comprehensive test suites:
-- Production-ready `FederatedServicesPage.tsx` free of illustrative disclaimers or placeholder warning badges.
-- Seamless dual-mode operation: live mode fetches from `/api/v1/federation/*` with loading and error boundaries; demo mode serves hardened fixtures from `fakeData.ts` with simulated latency.
-- Cryptographically sound `CofideInterceptor` in `apps/signal-ingest/api/cofide_interceptor.go` verifying SVID bundles, X.509 chains, ASN.1 DER encoding, RSA/ECDSA signatures, and SPIFFE trust domain matching (`spiffe://signalloom.demo/`).
-- Multi-tenant reverse proxy in `fe-signalloom/src/api_compat.py` preserving caller tenancy (`X-Tenant-ID`) and forwarding SVID credentials.
-- Table-driven Go unit tests validating valid SVIDs (200), forged signatures (401), expired certificates (401), untrusted trust domains (403), and malformed ASN.1 payloads (400).
-- Vitest suite testing `FederatedServicesPage.tsx` rendering in both demo and live modes with zero "illustrative" strings.
-- Pytest suite in `fe-signalloom` verifying tenant isolation and proxy forwarding.
-- Strict zero em-dash compliance across all modified frontend and backend code.
+A completely reconciled, bulletproof Signal Loom multi-surface experience where:
+- All 13 delivery surfaces communicate consistently with authoritative live backend services and offline demo mode fixtures.
+- The 'Attention Required' panel in Discovery directly selects and isolates workloads requiring security review.
+- Coding Agents error state truthfully displays exact upstream status codes, live relative elapsed timestamps, and working retry affordances.
+- Topology StatCards reactively filter and highlight canvas elements with clean hierarchical DAG layout across both demo fixtures and live cluster data.
+- 'Activity' is canonically restored across navigation, routes, and page typography.
+- EU AI Act, NIST SP 800-53, CRA, and FINOS AIGF regulatory bundles offer rich, realistic CEL policies and full population filtering across FAIR Risk and Policy views.
+- A unified Agent Super Filter Table component powers Discovery, Agents, FAIR Risk, and Policy posture with synchronized filtering, column sorting, and full timestamp visibility.
+- `/rbac-analysis` seamlessly renders the embedded AFM console without CSP or X-Frame-Options blocking.
+- Collusion and privilege escalation scans trigger successfully against AFM via `/analysis/escalation` without 405 errors.
+- `/federated-services` authenticates cleanly using real OIDC bearer tokens without redirecting to login.
 
 ## Out of Scope
-- Fleet operational telemetry streaming (owned by P4-2).
-- Collusion Access typography rewrite (owned by P4-3).
-- Settings connector synchronization (owned by P5-1).
-- Direct SPIRE server gRPC management (handled by spire_client).
+1. Rewriting the internal Next.js application of KubeSec-AFM itself.
+2. Modifying the core FrostDB columnar storage engine in `signal-store`.
+3. Creating new third-party identity providers outside Entra ID, Okta, and Dex.
+4. Upgrading Dex or SPIRE cryptographic signing algorithms outside existing SPIFFE standards.
 
 ## Principles
-- Production Posture: The UI must present a professional, production-grade posture without draft disclaimers or placeholder markers.
-- Defense in Depth: SVID attestation bundle verification is enforced cryptographically at the Go ingest gateway with strict trust domain boundaries.
-- Multi-Tenant Isolation: Reverse proxy strictly derives tenant context from verified session state, never blindly trusting client headers.
-- Transparent Fail-Closed: Invalid, expired, or tampered credentials fail closed with structured HTTP status codes (400, 401, 403) and audit logging.
-- Deterministic Dual-Mode: Demo mode provides high-fidelity simulations of all six federation entities; live mode operates against live endpoints.
+1. Truth in UI: The frontend must never claim an agent is governed or an AFM scan is queued when the underlying API refused the call or returned 404/405.
+2. Zero Em-Dash Mandate: Strictly no em-dashes (`—`) or en-dashes (`–`) in any user-facing code, typography, comments, or commit messages.
+3. Separation of Concerns: Reusable design system primitives (such as the Agent Super Filter Table) must separate data fetching from presentation and filtering mechanics.
+4. Two Data Planes, One Experience: Seamless operation across offline demo mode fixtures and live cluster API endpoints.
+5. Falsifiability: Every test must assert specific, meaningful conditions that fail if the bug is present and pass when resolved.
 
 ## Constraints
-- TypeScript / React with Bun for frontend components and Vitest tests; no npm/npx.
-- Go 1.26+ with `CGO_ENABLED=0` and temporary cache paths in `/tmp`.
-- Python 3.12 with FastAPI and `uv` for `fe-signalloom`.
-- Zero em-dashes (`—`) in all user-facing UI text and component strings.
-- Conventional commits with `--no-gpg-sign`.
+1. TypeScript and Bun: All frontend code, components, and unit tests must execute with `bun` and Vitest (no `npm` or `npx`).
+2. Git Hygiene: Commit with `git commit --no-gpg-sign` using conventional commit prefixes.
+3. Worktree Isolation: Any background or isolated code development must reside under `~/src/.worktrees/<repo>/<branch>/`.
+4. Browser Acceptance: Browser tests must use Playwright and web-first assertions without arbitrary `page.waitForTimeout()` calls.
 
 ## Goal
-Harden `FederatedServicesPage.tsx` by removing illustrative disclaimers and badges, moving fixtures to `api/fakeData.ts` behind `isDemoMode()` with live API integration, implementing the Cofide Go SDK SVID interceptor in `apps/signal-ingest/api/cofide_interceptor.go` with table tests, and proxying federation routes in `fe-signalloom/src/api_compat.py` with Pytest coverage.
+Deliver complete, verified cross-surface fixes across Discovery, Agents, Topology, Activity, FAIR Risk, Policy, RBAC Analysis, Collusion & Access, and Federated Services, validated by targeted Vitest and Playwright test suites.
 
 ## Criteria
-- [x] ISC-1: `FederatedServicesPage.tsx` removes illustrative disclaimer text at lines 520-526 and placeholder disclaimer badge at line 577.
-- [x] ISC-2: `FederatedServicesPage.tsx` replaces static banner with an environment indicator and live/demo mode status.
-- [x] ISC-3: `TRUST_ZONES`, `FEDERATIONS`, `FEDERATED_SERVICES`, `POLICIES`, `SPIFFE_IDS`, and `FEDERATION_EVENTS` are exported from `api/fakeData.ts` and `api/fakeFederationData.ts`.
-- [x] ISC-4: `fakeData.ts` demo route table registers routes for `/federation/summary`, `/federation/zones`, `/federation/federations`, `/federation/services`, `/federation/policies`, `/federation/identities`, and `/federation/events`.
-- [x] ISC-5: `types/api.ts` declares complete TypeScript interfaces for `TrustZone`, `Federation`, `FederatedService`, `AttestationPolicy`, `SpiffeIdentity`, `FederationEvent`, and `FederationSummaryResponse`.
-- [x] ISC-6: `api/client.ts` implements `getFederationSummary()`, `getFederatedZones()`, `getFederations()`, `getFederatedServices()`, `getAttestationPolicies()`, `getSpiffeIdentities()`, and `getFederationEvents()`.
-- [x] ISC-7: `FederatedServicesPage.tsx` uses `useFederatedServices()` hook to fetch data in live mode and resolve fixtures in demo mode.
-- [x] ISC-8: `FederatedServicesPage.tsx` renders loading state and error alert boundary on API failure in live mode.
-- [x] ISC-9: `FederatedServicesPage.tsx` retains full `DataTable` filtering across all six tables with zero regressions.
-- [x] ISC-10: `apps/signal-ingest/api/cofide_interceptor.go` implements HTTP middleware interceptor `CofideInterceptor` wrapping `http.Handler`.
-- [x] ISC-11: `CofideInterceptor` extracts SPIFFE SVID from `X-SPIFFE-SVID` header or `Authorization: Bearer` token.
-- [x] ISC-12: `CofideInterceptor` parses and decodes ASN.1 DER X.509 certificate bundles and extracts SPIFFE URI SANs.
-- [x] ISC-13: `CofideInterceptor` enforces cryptographic signature validation using SHA-256 with trusted RSA/ECDSA trust bundle keys.
-- [x] ISC-14: `CofideInterceptor` verifies certificate expiration and rejects expired certificates with 401 Unauthorized.
-- [x] ISC-15: `CofideInterceptor` enforces trust domain matching (`spiffe://signalloom.demo/` or configured federated domains) and rejects untrusted domains with 403 Forbidden.
-- [x] ISC-16: `CofideInterceptor` rejects malformed ASN.1 payload with 400 Bad Request.
-- [x] ISC-17: `apps/signal-ingest/api/cofide_interceptor_test.go` implements table-driven tests verifying all 5 SVID scenarios.
-- [x] ISC-18: `fe-signalloom/src/api_compat.py` implements reverse-proxy endpoints under `/api/v1/federation/*` forwarding to `signal-ingest` with `X-Tenant-ID` injection.
-- [x] ISC-19: `fe-signalloom/src/tests/test_federation.py` pytest suite validates federation proxying, tenant header injection, and SVID forwarding.
-- [x] ISC-20: `dashboard-signalloom/src/pages/FederatedServicesPage.test.tsx` vitest suite verifies rendering in demo and live modes.
-- [x] ISC-21: Vitest suite asserts that no "illustrative" string exists in the rendered DOM of `FederatedServicesPage`.
-- [x] ISC-22: `bun run typecheck` passes cleanly with zero TypeScript errors.
-- [x] ISC-23: Anti: Zero occurrences of "illustrative" text or placeholder disclaimer badges in `FederatedServicesPage.tsx`.
-- [x] ISC-24: Anti: Zero em-dashes (`—`) in modified UI components.
+- [ ] ISC-1: In `DiscoveryPage.tsx`, clicking the 'Attention Required' banner header or badge filters/selects workloads that require attention.
+- [ ] ISC-2: In `DiscoveryPage.tsx`, clicking the 'unowned' alert in `AttentionPanel` filters to unowned workloads rather than resetting filters.
+- [ ] ISC-3: In `CodingAgentsTab.tsx`, when the telemetry list API returns 404, the inline error banner displays `Failed <n>s ago:Request failed with status code 404 Retry`.
+- [ ] ISC-4: In `CodingAgentsTab.tsx`, clicking 'Retry' on the 404 error banner re-invokes `fetchTelemetry`.
+- [ ] ISC-5: In `AgentTrustTopologyPage.tsx`, clicking the 'Runtime-observed' StatCard filters the diagram to observed evidence nodes and edges.
+- [ ] ISC-6: In `AgentTrustTopologyPage.tsx`, clicking the 'Modeled items' StatCard filters the diagram to modeled evidence nodes and edges.
+- [ ] ISC-7: In `AgentTrustTopologyPage.tsx`, clicking the 'Fixture-tested items' StatCard filters the diagram to fixture-tested evidence nodes and edges.
+- [ ] ISC-8: In `TrustGraph.tsx` and `toTrustTopology`, hierarchical DAG rank positioning is applied to live topology nodes preventing coordinate collision.
+- [ ] ISC-9: In `Sidebar.tsx`, the navigation entry for `/activity` or `/weave` displays the label 'Activity' instead of 'The Weave'.
+- [ ] ISC-10: In `App.tsx`, route titles for `/activity` and `/weave` are set to 'Activity'.
+- [ ] ISC-11: In `WeavePage.tsx`, the page heading and breadcrumb render 'Activity'.
+- [ ] ISC-12: In `AgentsPage.tsx`, the navigation action button displays 'View Activity'.
+- [ ] ISC-13: In `RiskExposurePage.tsx`, `DEFAULT_VERSIONS` includes active versions for EU AI Act, NIST 800-53, Cyber Resilience Act (CRA), and FINOS AIGF.
+- [ ] ISC-14: In `CompliancePolicyPage.tsx`, `DEFAULT_BUNDLES` includes realistic CEL rules for EU AI Act, NIST 800-53, CRA, and FINOS AIGF.
+- [ ] ISC-15: Author new reusable component `components/AgentSuperFilterTable.tsx` providing search, lifecycle state, connector source, namespace, and attention filters.
+- [ ] ISC-16: In `AgentSuperFilterTable.tsx`, columns for `last_assessed` and `lifecycle` are sortable.
+- [ ] ISC-17: In `AgentSuperFilterTable.tsx`, `last_assessed` displays full timestamps with tooltip or formatted date-time.
+- [ ] ISC-18: Integrate `AgentSuperFilterTable` into `DiscoveryPage.tsx`.
+- [ ] ISC-19: Integrate `AgentSuperFilterTable` into `AgentsPage.tsx`.
+- [ ] ISC-20: Integrate `AgentSuperFilterTable` into `RiskExposurePage.tsx` population breakdown table.
+- [ ] ISC-21: In `nginx.conf`, configure `location /dashboard/` with `X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'`.
+- [ ] ISC-22: Verify `/rbac-analysis` loads the embedded AFM iframe without CSP or X-Frame-Options blocking.
+- [ ] ISC-23: In `afmApi.ts`, update `triggerCollusionScan` to POST to `/clusters/{cluster_id}/analysis/escalation` instead of `/jobs`.
+- [ ] ISC-24: In `afmApi.ts`, parse `job_id` from the 202 response of `/clusters/{cluster_id}/analysis/escalation`.
+- [ ] ISC-25: In `FederatedServicesPage.tsx`, replace `localStorage.getItem('token') || 'demo-token'` with `useAuth0().getAccessTokenSilently()`.
+- [ ] ISC-26: Verify navigating to `/federated-services` in authenticated live mode does not redirect to login or sign-in.
+- [ ] ISC-27: Vitest: author and pass unit tests for `AgentSuperFilterTable.test.tsx`.
+- [ ] ISC-28: Vitest: author and pass unit tests in `afmApi.test.ts` verifying `triggerCollusionScan` endpoint and payload parsing.
+- [ ] ISC-29: Vitest: author and pass unit tests in `CodingAgentsTab.test.tsx` for 404 error rendering and retry.
+- [ ] ISC-30: Vitest: run all dashboard vitest suites and confirm 100% pass rate.
+- [ ] ISC-31: Playwright: author or update browser acceptance tests verifying AFM scan trigger and iframe embedding.
+- [ ] ISC-32: Anti: Zero em-dashes (`—`) or en-dashes (`–`) introduced across all modified source code, templates, and tests.
 
 ## Test Strategy
-- ISC-1, 2, 23: Grep and AST inspection of `FederatedServicesPage.tsx`.
-- ISC-3..6: Typecheck and `demoMode.test.ts` / fake route resolution tests.
-- ISC-7..9, 20, 21: Vitest `src/pages/FederatedServicesPage.test.tsx`.
-- ISC-10..17: Go table tests in `apps/signal-ingest/api/cofide_interceptor_test.go`.
-- ISC-18, 19: Pytest `tests/test_federation.py` in `fe-signalloom`.
-- ISC-22: `bun run typecheck`.
-- ISC-24: `grep -rn '—' src/pages/FederatedServicesPage.tsx`.
+- ISC-1..2: Vitest in `DiscoveryPage.test.tsx` verifying 'Attention Required' filtering.
+- ISC-3..4: Vitest in `CodingAgentsTab.test.tsx` simulating 404 API error and retry.
+- ISC-5..8: Vitest in `AgentTrustTopologyPage.test.tsx` and `TrustGraph.test.tsx` asserting StatCard click filter state and node layout coordinates.
+- ISC-9..12: Vitest in `Sidebar.test.tsx` and `WeavePage.test.tsx` verifying 'Activity' title and link.
+- ISC-13..14: Vitest in `RiskExposurePage.test.tsx` and `CompliancePolicyPage.test.tsx` asserting 4 regulatory frameworks.
+- ISC-15..20: Vitest in `AgentSuperFilterTable.test.tsx` asserting filter facets, sorting on last_assessed (with timestamps) and lifecycle.
+- ISC-21..22: Nginx config curl test and Playwright browser iframe check on `/rbac-analysis`.
+- ISC-23..24: Vitest in `afmApi.test.ts` asserting `/analysis/escalation` route and `job_id` normalization.
+- ISC-25..26: Vitest in `FederatedServicesPage.test.tsx` asserting token acquisition and zero unexpected signin redirects.
+- ISC-27..30: Full Vitest suite run (`bun run test --run` in `dashboard-signalloom`).
+- ISC-31: Playwright acceptance run (`./scripts/acceptance-test.sh`).
+- ISC-32: Automated regex sweep `grep -rn '[—–]'` on modified files.
 
 ## Features
-- Feature 1: TypeScript Types & Client API Methods (`types/api.ts`, `api/client.ts`) | satisfies: ISC-5, 6 | status: done
-- Feature 2: Demo Fixtures & Fake Route Handlers (`api/fakeFederationData.ts`, `api/fakeData.ts`) | satisfies: ISC-3, 4 | status: done
-- Feature 3: UI Hardening & FederatedServicesPage Refactor (`pages/FederatedServicesPage.tsx`) | satisfies: ISC-1, 2, 7, 8, 9, 23, 24 | status: done
-- Feature 4: Server-Side Cofide Go SVID Interceptor (`signal-ingest/api/cofide_interceptor.go`) | satisfies: ISC-10..16 | status: done
-- Feature 5: Go Table-Driven Unit Tests (`signal-ingest/api/cofide_interceptor_test.go`) | satisfies: ISC-17 | status: done
-- Feature 6: FastAPI Reverse Proxy Routes (`fe-signalloom/src/api_compat.py`, `fe-signalloom/src/routers/federation.py`) | satisfies: ISC-18 | status: done
-- Feature 7: Pytest Federation Test Suite (`fe-signalloom/src/tests/test_federation.py`) | satisfies: ISC-19 | status: done
-- Feature 8: Vitest Suite & Frontend Verification (`pages/FederatedServicesPage.test.tsx`) | satisfies: ISC-20, 21, 22 | status: done
+- Feature 1: Protocol & Security Fixes (AFM Escalation Endpoint, Nginx Iframe CSP, Federated Services Auth) | satisfies: ISC-21, 22, 23, 24, 25, 26, 28
+- Feature 2: Design System Agent Super Filter Table (`AgentSuperFilterTable.tsx`) | satisfies: ISC-15, 16, 17, 27
+- Feature 3: Cross-Surface Integration of Super Filter Table (Discovery, Agents, FAIR Risk) | satisfies: ISC-1, 2, 18, 19, 20
+- Feature 4: Regulatory Policy Bundles & FAIR Risk Expansion (EU AI Act, NIST, CRA, FINOS) | satisfies: ISC-13, 14
+- Feature 5: Topology Interactive StatCards & Hierarchical Layout | satisfies: ISC-5, 6, 7, 8
+- Feature 6: Activity Navigation Rename & Coding Agents 404 Error State | satisfies: ISC-3, 4, 9, 10, 11, 12, 29
+- Feature 7: Comprehensive Test Pyramid, Cluster Rebuild & Acceptance Verification | satisfies: ISC-30, 31, 32
 
 ## Decisions
-- 2026-09-29: Define `fakeFederationData.ts` to isolate federation data fixtures and avoid bloat in `fakeData.ts`, then re-export and register in `ROUTES`.
-- 2026-09-29: Build `CofideInterceptor` in `apps/signal-ingest/api/cofide_interceptor.go` supporting both raw X.509 DER bundles (base64/PEM) and JWT-SVID tokens with SPIFFE URI SAN validation.
-- 2026-09-29: Cleanse all em-dashes (`—`) in `FederatedServicesPage.tsx` and replace with colons or parentheses according to PAI platform rules.
+- 2026-09-29: Root cause for `/rbac-analysis` failure identified as Nginx `X-Frame-Options: DENY` and `frame-ancestors 'none'`. Resolved by configuring `SAMEORIGIN` and `frame-ancestors 'self'` on `location /dashboard/`.
+- 2026-09-29: Root cause for AFM scan 405 identified as `afmApi.ts` calling `/clusters/{cluster_id}/jobs` instead of `/clusters/{cluster_id}/analysis/escalation`. Resolved by repointing to `/analysis/escalation` and parsing `job_id`.
+- 2026-09-29: Root cause for `/federated-services` sign-in redirect identified as hardcoded fallback to `'demo-token'`, prompting Axios 401 response interceptor. Resolved by using `useAuth0().getAccessTokenSilently()`.
+- 2026-09-29: Design System Agent Super Filter Table designed as a reusable generic container standardizing filter facets and sortable timestamps across Discovery, Agents, and Risk views.
 
 ## Changelog
-- 2026-09-29: Initialized ISA for SLMS-P4-1 Federated Services Demo Data Hardening & Cofide Interceptor.
-- 2026-09-29: Completed all frontend fixtures, API types, UI cleansing, Go SVID interceptor, table tests, FastAPI proxy, and Pytest verification.
+- 2026-09-29: Initialized ISA for SLMS cross-surface multi-domain UI and protocol remediation.
 
 ## Verification
-- Go interceptor tests: 100% pass (`TestCofideInterceptor_TableDriven`, `TestCofideInterceptor_PublicKeyValidation`).
-- Frontend vitest tests: 100% pass (`FederatedServicesPage.test.tsx` 8/8, `demoMode.test.ts` 24/24).
-- TypeScript check: `bun run typecheck` 0 errors.
-- Python pytest tests: 100% pass (`test_federation.py` 8/8).
-- Typography & Anti-patterns: 0 occurrences of "illustrative", 0 em-dashes.
+- Pending execution.

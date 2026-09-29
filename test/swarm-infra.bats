@@ -120,8 +120,10 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 # ─── eBPF sentinel RBAC ─────────────────────────────────────────────────────
 
 @test "stun sentinel Role allows pod patch" {
+  # The namespaced Role has one owner, next to the DaemonSet; see
+  # d2-signalloom/test/stun-sentinel-daemonset.bats.
   grep -q 'patch' \
-    "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/ebpf-sentinel-rbac.yaml"
+    "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac.yaml"
 }
 
 @test "stun sentinel ClusterRole reads nodes" {

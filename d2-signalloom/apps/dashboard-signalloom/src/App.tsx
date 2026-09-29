@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, matchPath } from 'react-router-dom'
 import { useAuth0 } from './auth/oidc'
-import { useSuperadmin } from './auth/superadmin'
+import { useSuperadmin, isSuperadminEligible } from './auth/superadmin'
 import Sidebar, { NAV } from './components/Sidebar'
 import PixelLoader from './components/PixelLoader'
 import ProtectedRoute from './auth/ProtectedRoute'
@@ -14,9 +14,17 @@ import { connectorsApi } from './api/connectorsClient'
 import { onboardingApi } from './api/onboardingClient'
 import type { CookiePreferences } from './types/api'
 
+export function SuperadminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth0()
+  if (!isSuperadminEligible(user)) {
+    return <Navigate to="/agents" replace />
+  }
+  return <>{children}</>
+}
+
 const CONSENT_ENABLED = import.meta.env.VITE_CONSENT_MODAL_ENABLED === 'true'
 
-/** localStorage key shared with OnboardingWizard — skip TTL (30 min). */
+/** localStorage key shared with OnboardingWizard: skip TTL (30 min). */
 export const ONBOARDING_SKIP_STORAGE_KEY = 'sl_onboarding_skipped'
 export const ONBOARDING_SKIP_TTL_MS = 30 * 60 * 1000
 
@@ -114,7 +122,7 @@ export function useAppContext() {
 //
 // PixelLoader directly, not LoadingState. LoadingState is a *phase* component:
 // idle / loading / success / error, with the stamps and the "last refreshed
-// 12s ago" line that go with them. Neither of these two surfaces has phases —
+// 12s ago" line that go with them. Neither of these two surfaces has phases:
 // a chunk that fails to load throws to an error boundary rather than settling
 // into an error state, and the auth gate resolves by rendering the app or
 // redirecting away. Feeding a four-phase machine a constant `status="loading"`
@@ -151,7 +159,7 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/weave': 'The Weave',
   '/federated-services': 'Federated Services',
   '/collusion-access': 'Collusion & Access',
-  '/fleet/audience': 'Fleet Demo',
+  '/fleet/audience': 'Fleet Demo Audience',
   '/onboarding': 'Setup',
   '/help/connectors/:provider': 'Connector Help',
   '/redeem-invite': 'Invite',
@@ -163,7 +171,7 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
  * What to call the page whose chunk is being fetched.
  *
  * The Suspense fallback sits above the Routes and so is not told which route
- * it is covering — but App already holds the pathname (it keys the fade on it),
+ * it is covering, but App already holds the pathname (it keys the fade on it),
  * and that is enough to name the destination. Worth doing: "Loading" is the
  * one label PixelLoader's own docs tell callers not to use, and the fallback
  * is on screen for precisely the moment the user is wondering whether their
@@ -192,13 +200,13 @@ export function routeLoadingLabel(pathname: string): string {
 /**
  * The brand mark, centred, for a surface that is doing nothing else yet.
  *
- * One live region, and it is PixelLoader's own (`announce` defaults true) —
+ * One live region, and it is PixelLoader's own (`announce` defaults true):
  * this wrapper adds none. Announcing on navigation is the deliberate choice
  * rather than an accident of the default: a client-side route change is
  * otherwise completely silent to a screen reader, so "Loading Compliance" is
  * the only confirmation that the click did anything. It is polite, so it
  * queues rather than interrupts, and it only ever fires when the chunk is not
- * already cached — which is exactly when there is something worth saying.
+ * already cached, which is exactly when there is something worth saying.
  *
  * `minHeight` rather than a height: the box must never be taller than the
  * space it sits in, or the scrollbar appears while loading and vanishes when
@@ -241,7 +249,7 @@ export default function App() {
       return
     }
 
-    // Client-side TTL — if the user recently skipped, suppress the gate
+    // Client-side TTL: if the user recently skipped, suppress the gate
     // for ~30 minutes without hitting the server. The localStorage entry
     // is written by OnboardingWizard.handleSkip().
     try {
@@ -252,11 +260,11 @@ export default function App() {
           setNeedsOnboarding(false)
           return
         }
-        // Expired — clean up
+        // Expired: clean up
         localStorage.removeItem(ONBOARDING_SKIP_STORAGE_KEY)
       }
     } catch {
-      // Corrupt or unavailable localStorage — fall through to server check.
+      // Corrupt or unavailable localStorage: fall through to server check.
     }
 
     try {
@@ -326,7 +334,7 @@ export default function App() {
       needsOnboarding, refreshOnboardingState,
     }}>
       {/* Wraps the whole tree, not just the risk pages. Every surface that
-          shows money must resolve the same user preference — a figure in one
+          shows money must resolve the same user preference: a figure in one
           currency beside a figure in another, both unlabelled, is worse than
           either alone. */}
       <CurrencyProvider>
@@ -354,11 +362,11 @@ export default function App() {
             `overflow: auto` makes this the app's scroll container, but it does
             NOT make it the containing block. An absolutely-positioned
             descendant with no positioned ancestor resolves against the initial
-            containing block instead — which is OUTSIDE this clip, so the clip
+            containing block instead (which is OUTSIDE this clip), so the clip
             does not apply to it and its box extends the DOCUMENT's scroll area.
             The shell above is `height: 100vh; overflow: hidden`, so that
             document scroll shows up as a SECOND scrollbar which drags the whole
-            UI — sidebar, page and sticky rail alike — off the top of the screen.
+            UI (sidebar, page and sticky rail alike) off the top of the screen.
 
             Nothing has to be positioned on purpose for this to bite. The two
             elements that triggered it are visually-hidden live regions,
@@ -369,7 +377,7 @@ export default function App() {
             lands inside the viewport; /design-system is 12620px tall and put
             one at y=9573, which was the document height to the pixel. So this
             was a latent shell defect that a long page revealed rather than
-            something that page introduced — and pinning the containing block
+            something that page introduced, and pinning the containing block
             here closes it for every abspos descendant rather than for the two
             that happened to surface it.
 
@@ -428,24 +436,21 @@ export default function App() {
                 <Route path="/credential-inventory" element={<ProtectedRoute><CredentialInventoryPage /></ProtectedRoute>} />
                 <Route path="/rbac-analysis" element={<ProtectedRoute><RbacAnalysisPage /></ProtectedRoute>} />
                 <Route path="/rbac-explorer" element={<ProtectedRoute><RbacExplorerPage /></ProtectedRoute>} />
-                <Route path="/signal-fusion" element={<ProtectedRoute><SignalFusionPage /></ProtectedRoute>} />
-                <Route path="/distance-latency" element={<ProtectedRoute><DistanceLatencyPage /></ProtectedRoute>} />
+                <Route path="/signal-fusion" element={<ProtectedRoute><SuperadminRoute><SignalFusionPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/distance-latency" element={<ProtectedRoute><SuperadminRoute><DistanceLatencyPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/signal-store" element={<ProtectedRoute><SignalStorePage /></ProtectedRoute>} />
                 <Route path="/feeds" element={<ProtectedRoute><FeedsExplorerPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/onboarding" element={<ProtectedRoute exemptFromOnboardingGate><OnboardingWizardPage /></ProtectedRoute>} />
                 <Route path="/help/connectors/:provider" element={<ProtectedRoute exemptFromOnboardingGate><ConnectorHelpPage /></ProtectedRoute>} />
                 <Route path="/network-tests" element={<ProtectedRoute><NetworkTestsPage /></ProtectedRoute>} />
-                <Route path="/supercred" element={<ProtectedRoute><SuperCredPage /></ProtectedRoute>} />
-                <Route path="/fleet" element={<ProtectedRoute><FleetDemoPage /></ProtectedRoute>} />
-                <Route path="/fleet/audience" element={<ProtectedRoute><FleetDemoPage audience /></ProtectedRoute>} />
-                <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />
-                <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><AgentMaxxingDemoPage /></ProtectedRoute>} />
-                {/* Superadmin is a VISIBILITY control (see auth/superadmin.ts):
-                    the Sidebar decides whether to render the link, the route
-                    stays registered and reachable by URL like every other one. */}
-                <Route path="/design-system" element={<ProtectedRoute><DesignSystemPage /></ProtectedRoute>} />
-                <Route path="/design-system/headers" element={<ProtectedRoute><DesignSystemHeadersPage /></ProtectedRoute>} />
+                <Route path="/supercred" element={<ProtectedRoute><SuperadminRoute><SuperCredPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/fleet" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage audience /></SuperadminRoute></ProtectedRoute>} />
+                <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/design-system" element={<ProtectedRoute><SuperadminRoute><DesignSystemPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/design-system/headers" element={<ProtectedRoute><SuperadminRoute><DesignSystemHeadersPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />
               </Routes>
             </Suspense>

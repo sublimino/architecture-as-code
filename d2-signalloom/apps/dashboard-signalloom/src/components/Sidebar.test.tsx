@@ -97,7 +97,7 @@ describe('Sidebar tenant identity card', () => {
     await waitFor(() => expect(agentsLink).toHaveTextContent('7'))
   })
 
-  it('fails open — renders nav with no tenant card when settings fetch errors', async () => {
+  it('fails open: renders nav with no tenant card when settings fetch errors', async () => {
     vi.mocked(api.settings).mockRejectedValue(new Error('network error'))
     renderSidebar()
 
@@ -125,7 +125,7 @@ describe('Sidebar Discovery nav item', () => {
     await waitFor(() => expect(discoveryLink).toHaveTextContent('3'))
   })
 
-  it('fails open — renders nav with no badge when discovery fetch errors', async () => {
+  it('fails open: renders nav with no badge when discovery fetch errors', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     vi.mocked(api.nhi.discovered).mockRejectedValue(new Error('network error'))
     renderSidebar()
@@ -200,8 +200,8 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
 
     // Design group
     expect(screen.getByRole('link', { name: /^Federated Services$/ })).toHaveAttribute('href', '/federated-services')
-    expect(screen.getByRole('link', { name: /^Fleet Config$/ })).toHaveAttribute('href', '/fleet')
     expect(screen.getByRole('link', { name: /^Settings$/ })).toHaveAttribute('href', '/settings')
+    expect(screen.queryByRole('link', { name: /Fleet/ })).not.toBeInTheDocument()
 
     // Persistent Anchors
     expect(screen.getByRole('link', { name: /^Onboarding/ })).toHaveAttribute('href', '/onboarding')
@@ -226,8 +226,7 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
     expect(links.indexOf('/collusion-access')).toBeLessThan(links.indexOf('/audit'))
 
     expect(links.indexOf('/audit')).toBeLessThan(links.indexOf('/federated-services'))
-    expect(links.indexOf('/federated-services')).toBeLessThan(links.indexOf('/fleet'))
-    expect(links.indexOf('/fleet')).toBeLessThan(links.indexOf('/settings'))
+    expect(links.indexOf('/federated-services')).toBeLessThan(links.indexOf('/settings'))
   })
 })
 
@@ -288,8 +287,16 @@ describe('Sidebar superadmin-only nav', () => {
     'RBAC Analysis',
     'RBAC Explorer',
     'Network Tests',
+    'Signal Store',
+    'Feeds & Collectors',
+    'Fleet Demo',
+    'Fleet Demo Audience',
     'SuperCredential Demo',
+    'AgentMaxxing Demo',
     'Signal Fusion Demo',
+    'Distance Latency Demo',
+    'Design System',
+    'Design System: Headers',
   ]
 
   beforeEach(() => {
@@ -602,7 +609,7 @@ describe('Sidebar quick-search clearing', () => {
 })
 
 describe('Sidebar filtered section headings', () => {
-  const ALL_HEADINGS = ['View', 'Control', 'Design', 'Superadmin']
+  const ALL_HEADINGS = ['View', 'Control', 'Design', 'Superadmin', 'Demos', 'Development']
 
   function navRegion(): HTMLElement {
     return document.getElementById('sl-sidebar-nav')!
@@ -652,9 +659,30 @@ describe('Sidebar filtered section headings', () => {
     renderSidebar({ superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
-    fireEvent.change(search, { target: { value: 'fleet' } })
+    fireEvent.change(search, { target: { value: 'settings' } })
 
     expect(visibleHeadings()).toEqual(['Design'])
+  })
+
+  it('renders Superadmin and Demos when the match is a Demos item', async () => {
+    renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'fleet' } })
+
+    expect(visibleHeadings()).toEqual(['Superadmin', 'Demos'])
+    expect(screen.getByRole('link', { name: 'Fleet Demo' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Fleet Demo Audience' })).toBeInTheDocument()
+  })
+
+  it('renders Superadmin and Development when the match is a Development item', async () => {
+    renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'headers' } })
+
+    expect(visibleHeadings()).toEqual(['Superadmin', 'Development'])
+    expect(screen.getByRole('link', { name: 'Design System: Headers' })).toBeInTheDocument()
   })
 
   it('drops the Superadmin heading and its rule when no superadmin item matches', async () => {
@@ -664,6 +692,8 @@ describe('Sidebar filtered section headings', () => {
     fireEvent.change(search, { target: { value: 'audit' } })
 
     expect(within(navRegion()).queryByText('Superadmin')).not.toBeInTheDocument()
+    expect(within(navRegion()).queryByText('Demos')).not.toBeInTheDocument()
+    expect(within(navRegion()).queryByText('Development')).not.toBeInTheDocument()
     expect(container.querySelector('hr')).toBeNull()
     expect(screen.getByTestId('superadmin-toggle')).toHaveTextContent('Superadmin')
   })
@@ -689,6 +719,58 @@ describe('Sidebar filtered section headings', () => {
     expect(visibleHeadings()).toEqual([])
     expect(container.querySelector('hr')).toBeNull()
     expect(within(navRegion()).queryAllByRole('link')).toHaveLength(0)
+  })
+})
+
+describe('Sidebar Demos and Development sections', () => {
+  beforeEach(() => {
+    installMemoryStorage()
+    authMock.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  afterEach(() => {
+    authMock.user = { ...DEFAULT_USER }
+  })
+
+  it('renders Demos and Development sections when superadmin mode is active', async () => {
+    renderSidebar({ superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    const nav = document.getElementById('sl-sidebar-nav')!
+    expect(within(nav).getByText('Demos')).toBeInTheDocument()
+    expect(within(nav).getByText('Development')).toBeInTheDocument()
+
+    // Demos items
+    expect(within(nav).getByRole('link', { name: 'Fleet Demo' })).toHaveAttribute('href', '/fleet')
+    expect(within(nav).getByRole('link', { name: 'Fleet Demo Audience' })).toHaveAttribute('href', '/fleet/audience')
+    expect(within(nav).getByRole('link', { name: 'AgentMaxxing Demo' })).toHaveAttribute('href', '/demos/agentmaxxing')
+    expect(within(nav).getByRole('link', { name: 'Signal Fusion Demo' })).toHaveAttribute('href', '/signal-fusion')
+    expect(within(nav).getByRole('link', { name: 'Distance Latency Demo' })).toHaveAttribute('href', '/distance-latency')
+    expect(within(nav).getByRole('link', { name: 'SuperCredential Demo' })).toHaveAttribute('href', '/supercred')
+
+    // Development items
+    expect(within(nav).getByRole('link', { name: 'Design System' })).toHaveAttribute('href', '/design-system')
+    expect(within(nav).getByRole('link', { name: 'Design System: Headers' })).toHaveAttribute('href', '/design-system/headers')
+  })
+
+  it('completely hides Demos and Development sections and items when superadmin mode is inactive', async () => {
+    renderSidebar({ superadmin: false })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    const nav = document.getElementById('sl-sidebar-nav')!
+    expect(within(nav).queryByText('Demos')).not.toBeInTheDocument()
+    expect(within(nav).queryByText('Development')).not.toBeInTheDocument()
+
+    // Demos items absent
+    expect(within(nav).queryByRole('link', { name: /Fleet/ })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('link', { name: /AgentMaxxing/ })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('link', { name: /Signal Fusion/ })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('link', { name: /Distance Latency/ })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('link', { name: /SuperCredential/ })).not.toBeInTheDocument()
+
+    // Development items absent
+    expect(within(nav).queryByRole('link', { name: /Design System/ })).not.toBeInTheDocument()
   })
 })
 
@@ -901,7 +983,7 @@ describe('Sidebar Design System nav entry', () => {
     expect(link.querySelector('svg')).toBeInTheDocument()
   })
 
-  it('is hidden when superadmin is off — it is an internal surface', async () => {
+  it('is hidden when superadmin is off: it is an internal surface', async () => {
     renderSidebar({ superadmin: false })
     await screen.findByRole('link', { name: 'Agents' })
 

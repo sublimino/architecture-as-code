@@ -14,7 +14,7 @@ import type { TenantSettingsResponse } from '../types/api'
 // `aria-label="Open help and support"` while rendering the visible text
 // "Help & Support". An explicit aria-label REPLACES the element's content as
 // its accessible name, so the name a speech-input user must utter ("open help
-// and support") was not the label they can see ("Help & Support") — and no
+// and support") was not the label they can see ("Help & Support"), and no
 // substring of it, because "and" is not "&". A user saying "click Help and
 // Support" got nothing, and a screen reader announced words that are on no
 // part of the screen.
@@ -28,7 +28,7 @@ import type { TenantSettingsResponse } from '../types/api'
 //
 // The invariant: if a control has an explicit aria-label AND renders visible
 // text, the aria-label must contain that text (case-insensitively). Icon-only
-// controls are exempt — they have no visible label to contain, which is the
+// controls are exempt: they have no visible label to contain, which is the
 // entire reason they need an aria-label in the first place.
 
 const DEFAULT_USER = { name: 'Test User', email: 'test@acme.com' }
@@ -107,7 +107,7 @@ function renderSidebar(ctx: Partial<typeof appCtxValue> = {}) {
  * Subtrees marked `aria-hidden="true"` are excluded, which mirrors the real
  * accessible-name computation: decorative glyphs and state badges that merely
  * restate `aria-pressed`/`aria-expanded` are not part of the label a user
- * would speak. Everything else counts, at any depth — `<button
+ * would speak. Everything else counts, at any depth: `<button
  * aria-label="X"><span>Save</span></button>` is the same defect as a bare text
  * child and must fail the same way.
  */
@@ -149,7 +149,7 @@ function violations(root: HTMLElement): string[] {
   })
 }
 
-describe('Sidebar — WCAG 2.5.3 label in name', () => {
+describe('Sidebar: WCAG 2.5.3 label in name', () => {
   beforeEach(() => {
     installMemoryStorage()
     vi.mocked(api.settings).mockResolvedValue(makeSettings())

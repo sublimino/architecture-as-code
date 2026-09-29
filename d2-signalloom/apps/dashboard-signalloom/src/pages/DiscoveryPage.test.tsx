@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import DiscoveryPage from './DiscoveryPage'
 import { api } from '../api/client'
-import type { NHIAccount } from '../types/api'
+import type { DiscoveryWorkload, DiscoveryWorkloadsResponse } from '../types/api'
 
 vi.mock('../auth/oidc', () => {
   const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
@@ -13,6 +13,12 @@ vi.mock('../auth/oidc', () => {
 
 vi.mock('../api/client', () => ({
   api: {
+    discovery: {
+      workloads: vi.fn(),
+      autoclaimNamespace: vi.fn(),
+      enroll: vi.fn(),
+      dismiss: vi.fn(),
+    },
     nhi: {
       discovered: vi.fn(),
       scans: vi.fn().mockResolvedValue({ scans: [] }),
@@ -21,32 +27,93 @@ vi.mock('../api/client', () => ({
     },
     agents: {
       list: vi.fn().mockResolvedValue({ agents: [] }),
+      claim: vi.fn(),
+      autoclaimDiscovered: vi.fn(),
     },
   },
 }))
 
-function makeAccount(overrides: Partial<NHIAccount> = {}): NHIAccount {
+function makeWorkload(overrides: Partial<DiscoveryWorkload> = {}): DiscoveryWorkload {
   return {
-    id: 'acct-1',
-    scan_id: 'scan-1',
-    account_name: 'svc-billing-sync',
-    directory_source: 'ad_entra',
-    owner_email: null,
-    last_credential_rotation: null,
-    privilege_level: 'standard',
+    id: 'workload-1',
+    name: 'svc-billing-sync',
+    source: 'idp',
+    source_label: 'Entra ID',
+    namespace: 'identity-entra',
     status: 'discovered',
-    findings: [],
-    scan_count: 1,
-    dismissed_at: null,
-    dismissed_by: null,
-    changes_since_dismissal: null,
-    previous_risk_flags: null,
-    first_discovered_at: '2026-07-01T00:00:00Z',
+    owner: 'alice@signalloom.test',
+    spiffe_id: null,
+    model: 'gpt-4o',
     last_seen_at: '2026-07-20T00:00:00Z',
-    source_removed: false,
-    source_removed_at: null,
+    recommendations: {
+      config: 'pass',
+      content: 'recommended',
+      supply_chain: 'warning',
+      eu_ai_act: 'pass',
+    },
+    metadata: { privilege_level: 'standard' },
     ...overrides,
   }
+}
+
+const mockMultiSourceResponse: DiscoveryWorkloadsResponse = {
+  workloads: [
+    makeWorkload({
+      id: 'idp-1',
+      name: 'entra-audit-sync',
+      source: 'idp',
+      source_label: 'Entra ID',
+      namespace: 'identity-entra',
+      status: 'discovered',
+      owner: 'secops@signalloom.test',
+    }),
+    makeWorkload({
+      id: 'k8s-1',
+      name: 'agent-inventory-worker',
+      source: 'local_k8s',
+      source_label: 'Local K8s',
+      namespace: 'fe-signalloom-agents',
+      status: 'in_review',
+      owner: null,
+      spiffe_id: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-inventory-worker',
+    }),
+    makeWorkload({
+      id: 'afm-1',
+      name: 'afm-remote-collector',
+      source: 'external_k8s',
+      source_label: 'AFM Cluster',
+      namespace: 'staging-workloads',
+      status: 'revoked',
+      owner: 'compliance@signalloom.test',
+    }),
+    makeWorkload({
+      id: 'ext-1',
+      name: 'cloudrun-prompt-processor',
+      source: 'external_services',
+      source_label: 'Cloud Run',
+      namespace: 'gcp-europe-west1',
+      status: 'ignored',
+      owner: 'ai-ops@signalloom.test',
+    }),
+    makeWorkload({
+      id: 'gov-1',
+      name: 'governed-security-scanner',
+      source: 'local_k8s',
+      source_label: 'Local K8s',
+      namespace: 'fe-signalloom-agents',
+      status: 'governed',
+      owner: 'platform@signalloom.test',
+      spiffe_id: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/governed-security-scanner',
+    }),
+  ],
+  total: 5,
+  summary: {
+    total_discovered: 1,
+    in_review: 1,
+    ignored: 1,
+    revoked: 1,
+    governed: 1,
+  },
 }
 
 function renderPage() {
@@ -61,209 +128,192 @@ function renderPage() {
   )
 }
 
-describe('DiscoveryPage', () => {
+describe('DiscoveryPage Super Datatable', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(api.nhi.scans as ReturnType<typeof vi.fn>).mockResolvedValue({ scans: [] })
+    ;(api.discovery.workloads as ReturnType<typeof vi.fn>).mockResolvedValue(mockMultiSourceResponse)
+    ;(api.discovery.autoclaimNamespace as ReturnType<typeof vi.fn>).mockResolvedValue({
+      total_claimed: 2,
+      claimed: [
+        { namespace: 'fe-signalloom-agents', spiffe_id: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-inventory-worker', status: 'granted' },
+        { namespace: 'fe-signalloom-agents', spiffe_id: 'spiffe://cluster.local/ns/fe-signalloom-agents/sa/governed-security-scanner', status: 'granted' },
+      ],
+    })
+    ;(api.discovery.enroll as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'in_review' })
+    ;(api.discovery.dismiss as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'ignored' })
   })
 
-  it('renders discovered accounts from the list endpoint', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount()],
-      total: 1,
-      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
-    })
+  it('renders all four connector sources and all discovery states in Super Datatable', async () => {
     renderPage()
 
-    expect(await screen.findByText('svc-billing-sync')).toBeInTheDocument()
-    expect(screen.getByText('Discovery')).toBeInTheDocument()
+    expect(await screen.findByText('Shadow AI & Multi-Source Discovery')).toBeInTheDocument()
+    expect(screen.getByText('entra-audit-sync')).toBeInTheDocument()
+    expect(screen.getByText('agent-inventory-worker')).toBeInTheDocument()
+    expect(screen.getByText('afm-remote-collector')).toBeInTheDocument()
+    expect(screen.getByText('cloudrun-prompt-processor')).toBeInTheDocument()
+    expect(screen.getByText('governed-security-scanner')).toBeInTheDocument()
+
+    // Assert sources visible
+    expect(screen.getByText('Entra ID')).toBeInTheDocument()
+    expect(screen.getByText('Cloud Run')).toBeInTheDocument()
+    expect(screen.getAllByText('Local K8s').length).toBeGreaterThan(0)
+    expect(screen.getByText('AFM Cluster')).toBeInTheDocument()
   })
 
-  it('shows the Connect a directory CTA and navigates to /onboarding', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [], total: 0, summary: { total_discovered: 0, needs_triage: 0, previously_dismissed: 0 },
-    })
+  it('renders control recommendations badges and policy requirement hints', async () => {
     renderPage()
-    await screen.findByText(/No accounts found/i)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Connect a directory' }))
+    await screen.findByText('entra-audit-sync')
+
+    // Find control badges
+    const cfgBadges = screen.getAllByTestId('control-rec-badge-config')
+    expect(cfgBadges.length).toBeGreaterThan(0)
+
+    const euBadges = screen.getAllByTestId('control-rec-badge-eu_ai_act')
+    expect(euBadges.length).toBeGreaterThan(0)
+
+    // Click on CFG badge to reveal requirement tooltip
+    await userEvent.click(cfgBadges[0])
+    expect(screen.getByText(/credential confinement policies/i)).toBeInTheDocument()
+  })
+
+  it('filters workloads by connector source facet', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    // Click IDP source facet
+    const idpFacetBtn = screen.getByTestId('discovery-source-facet-idp')
+    await userEvent.click(idpFacetBtn)
+
+    expect(screen.getByText('entra-audit-sync')).toBeInTheDocument()
+    expect(screen.queryByText('afm-remote-collector')).not.toBeInTheDocument()
+    expect(screen.queryByText('cloudrun-prompt-processor')).not.toBeInTheDocument()
+  })
+
+  it('filters workloads by discovery lifecycle state facet', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    // Click 'Revoked' state facet
+    const revokedFacetBtn = screen.getByTestId('discovery-state-facet-revoked')
+    await userEvent.click(revokedFacetBtn)
+
+    expect(screen.getByText('afm-remote-collector')).toBeInTheDocument()
+    expect(screen.queryByText('entra-audit-sync')).not.toBeInTheDocument()
+    expect(screen.queryByText('cloudrun-prompt-processor')).not.toBeInTheDocument()
+  })
+
+  it('filters workloads by namespace dropdown select', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    const nsSelect = screen.getByTestId('discovery-namespace-select')
+    await userEvent.selectOptions(nsSelect, 'gcp-europe-west1')
+
+    expect(screen.getByText('cloudrun-prompt-processor')).toBeInTheDocument()
+    expect(screen.queryByText('entra-audit-sync')).not.toBeInTheDocument()
+  })
+
+  it('searches workloads by name or owner query', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    const searchInput = screen.getByTestId('discovery-search-input')
+    await userEvent.type(searchInput, 'prompt-processor')
+
+    expect(screen.getByText('cloudrun-prompt-processor')).toBeInTheDocument()
+    expect(screen.queryByText('entra-audit-sync')).not.toBeInTheDocument()
+  })
+
+  it('clears active filters via ToolbarClear button', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    // Apply search filter
+    const searchInput = screen.getByTestId('discovery-search-input')
+    await userEvent.type(searchInput, 'remote-collector')
+    expect(screen.queryByText('entra-audit-sync')).not.toBeInTheDocument()
+
+    // Click Clear filters
+    const clearBtn = screen.getByTestId('discovery-clear-filters')
+    await userEvent.click(clearBtn)
+
+    expect(screen.getByText('entra-audit-sync')).toBeInTheDocument()
+    expect(screen.getByText('afm-remote-collector')).toBeInTheDocument()
+  })
+
+  it('opens Auto-Claim Namespace modal and triggers bulk onboarding', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    // Click Auto-Claim Namespace toolbar button
+    const autoClaimBtn = screen.getByTestId('autoclaim-namespace-btn')
+    await userEvent.click(autoClaimBtn)
+
+    // Modal dialog is displayed
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Auto-Claim Discovered Namespace')).toBeInTheDocument()
+
+    // Select target namespace and confirm
+    const modalSelect = screen.getByTestId('autoclaim-modal-namespace-select')
+    await userEvent.selectOptions(modalSelect, 'fe-signalloom-agents')
+
+    const confirmBtn = screen.getByTestId('autoclaim-modal-confirm-btn')
+    await userEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(api.discovery.autoclaimNamespace).toHaveBeenCalledWith('test-token', 'fe-signalloom-agents')
+    })
+
+    // Feedback notification toast appears
+    expect(await screen.findByText(/Successfully auto-claimed 2 workload\(s\)/i)).toBeInTheDocument()
+  })
+
+  it('handles inline Claim / Enroll row action and transitions status', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    const enrollBtn = screen.getByTestId('enroll-workload-btn-idp-1')
+    await userEvent.click(enrollBtn)
+
+    await waitFor(() => {
+      expect(api.discovery.enroll).toHaveBeenCalledWith('test-token', 'idp-1')
+    })
+
+    expect(await screen.findByText(/enrolled into governance review/i)).toBeInTheDocument()
+  })
+
+  it('handles inline Ignore / Dismiss row action and transitions status', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    const dismissBtn = screen.getByTestId('dismiss-workload-btn-idp-1')
+    await userEvent.click(dismissBtn)
+
+    await waitFor(() => {
+      expect(api.discovery.dismiss).toHaveBeenCalledWith('test-token', 'idp-1')
+    })
+
+    expect(await screen.findByText(/dismissed/i)).toBeInTheDocument()
+  })
+
+  it('navigates to /onboarding when Connect Directory button is clicked', async () => {
+    renderPage()
+
+    await screen.findByText('entra-audit-sync')
+
+    const ctaBtn = screen.getByRole('button', { name: /Connect Directory \/ Clusters/i })
+    await userEvent.click(ctaBtn)
+
     expect(await screen.findByText('ONBOARDING WIZARD')).toBeInTheDocument()
-  })
-
-  it('navigates to the account detail route when an account name is clicked', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount()],
-      total: 1,
-      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
-    })
-    renderPage()
-
-    const nameBtn = await screen.findByText('svc-billing-sync')
-    await userEvent.click(nameBtn)
-
-    expect(await screen.findByText('ACCOUNT DETAIL PAGE')).toBeInTheDocument()
-  })
-
-  it('shows an Attention Required alert for unowned accounts', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount({ owner_email: null })],
-      total: 1,
-      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
-    })
-    renderPage()
-
-    expect(await screen.findByText('Attention Required')).toBeInTheDocument()
-    expect(screen.getByText(/unowned accounts/i)).toBeInTheDocument()
-  })
-
-  it('dismisses an account via the triage menu and reloads the list', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount()],
-      total: 1,
-      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
-    })
-    renderPage()
-    await screen.findByText('svc-billing-sync')
-
-    await userEvent.click(screen.getByRole('button', { name: /Actions/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
-
-    await waitFor(() => expect(api.nhi.dismissAccount).toHaveBeenCalledWith('test-token', 'acct-1'))
-    expect(api.nhi.discovered).toHaveBeenCalledTimes(2) // initial load + reload after action
-  })
-
-  it('paginates through accounts beyond the first page using total', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount()],
-      total: 362,
-      summary: { total_discovered: 362, needs_triage: 310, previously_dismissed: 5 },
-    })
-    renderPage()
-
-    expect(await screen.findByText(/Showing 1–50 of 362/)).toBeInTheDocument()
-    const nextBtn = screen.getByRole('button', { name: 'Next' })
-    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled()
-
-    await userEvent.click(nextBtn)
-
-    await waitFor(() => expect(api.nhi.discovered).toHaveBeenLastCalledWith('test-token', 2, 50, undefined, false))
-    expect(await screen.findByText(/Showing 51–100 of 362/)).toBeInTheDocument()
-  })
-
-  it('filters via the single Filter dropdown instead of separate tab buttons', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [
-        makeAccount({ id: 'acct-1', account_name: 'svc-billing-sync', status: 'discovered' }),
-        makeAccount({ id: 'acct-2', account_name: 'svc-dismissed-thing', status: 'dismissed' }),
-      ],
-      total: 2,
-      summary: { total_discovered: 2, needs_triage: 1, previously_dismissed: 1 },
-    })
-    renderPage()
-    await screen.findByText('svc-billing-sync')
-
-    // No standalone "All"/"Needs Triage"/"Dismissed" tab buttons — one dropdown trigger instead.
-    expect(screen.queryByRole('button', { name: 'Needs Triage' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('checkbox', { name: /show disconnected/i })).not.toBeInTheDocument()
-
-    const trigger = screen.getByRole('button', { name: /^Filter: All/ })
-    await userEvent.click(trigger)
-    await userEvent.click(screen.getByRole('button', { name: 'Dismissed' }))
-
-    expect(screen.queryByText('svc-billing-sync')).not.toBeInTheDocument()
-    expect(screen.getByText('svc-dismissed-thing')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Filter: Dismissed/ })).toBeInTheDocument()
-  })
-
-  it('toggles "Show disconnected sources" from within the Filter dropdown and refetches', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount()],
-      total: 1,
-      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
-    })
-    renderPage()
-    await screen.findByText('svc-billing-sync')
-
-    await userEvent.click(screen.getByRole('button', { name: /^Filter: All/ }))
-    await userEvent.click(screen.getByRole('button', { name: /Show disconnected sources/ }))
-
-    await waitFor(() => expect(api.nhi.discovered).toHaveBeenLastCalledWith('test-token', 1, 50, undefined, true))
-    expect(screen.getByRole('button', { name: /Filter: All \+ Disconnected/ })).toBeInTheDocument()
-  })
-
-  it('renders sortable column headers via DataTable and allows sorting', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [
-        makeAccount({ id: 'acct-b', account_name: 'zebra-worker' }),
-        makeAccount({ id: 'acct-a', account_name: 'alpha-worker' }),
-      ],
-      total: 2,
-      summary: { total_discovered: 2, needs_triage: 2, previously_dismissed: 0 },
-    })
-    renderPage()
-    await screen.findByText('zebra-worker')
-
-    // Find Account sortable header
-    const accountHeader = screen.getByRole('columnheader', { name: /Account/i })
-    expect(accountHeader).toBeInTheDocument()
-
-    // Click to sort ascending (alpha-worker first)
-    await userEvent.click(accountHeader)
-    const rows = screen.getAllByRole('row')
-    expect(rows[1]).toHaveTextContent('alpha-worker')
-    expect(rows[2]).toHaveTextContent('zebra-worker')
-  })
-
-  it('correlates discovered account with registered agent and renders drill-down links', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount({ id: 'acct-1', account_name: 'svc-billing-sync' })],
-      total: 1,
-      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
-    })
-    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
-      agents: [
-        {
-          id: 'agent-billing-sync',
-          name: 'Billing Agent',
-          service_account: 'svc-billing-sync',
-          type: 'Signal Loom Built',
-          tenant_id: 'tenant-1',
-          lifecycle_state: 'active',
-          last_transition_at: null,
-          eu_ai_act_risk_class: null,
-          compliance_summary: { total_controls: 5, passing: 5, failing: 0, pending: 0, posture_score: 100 },
-          created_at: null,
-        },
-      ],
-    })
-
-    renderPage()
-    await screen.findByText('svc-billing-sync')
-
-    // The inline agent dossier link should be present
-    const agentLink = await screen.findByTestId('discovery-agent-link-acct-1')
-    expect(agentLink).toBeInTheDocument()
-    expect(agentLink).toHaveAttribute('href', '/agents/agent-billing-sync?tab=overview')
-    expect(agentLink).toHaveTextContent('Billing Agent')
-
-    // The actions column Dossier button should also link to agent overview
-    const dossierBtn = screen.getByTestId('discovery-agent-dossier-btn-acct-1')
-    expect(dossierBtn).toHaveAttribute('href', '/agents/agent-billing-sync?tab=overview')
-  })
-
-  it('renders Find Agent registry link when no registered agent directly matches', async () => {
-    ;(api.nhi.discovered as ReturnType<typeof vi.fn>).mockResolvedValue({
-      accounts: [makeAccount({ id: 'acct-unmatched', account_name: 'unmatched-svc' })],
-      total: 1,
-      summary: { total_discovered: 1, needs_triage: 1, previously_dismissed: 0 },
-    })
-    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({ agents: [] })
-
-    renderPage()
-    await screen.findByText('unmatched-svc')
-
-    const findAgentBtn = screen.getByTestId('discovery-agent-search-btn-acct-unmatched')
-    expect(findAgentBtn).toHaveAttribute('href', '/agents?search=unmatched-svc')
-    expect(findAgentBtn).toHaveTextContent('Find Agent ↗')
   })
 })

@@ -886,3 +886,49 @@ export interface ExternalEvidenceResponse {
 
 export * from './codingAgent'
 
+// ─── Multi-Source Discovery & Super Datatable (SLMS-P1-2) ───────────────────
+
+export type DiscoverySource = 'idp' | 'local_k8s' | 'external_k8s' | 'external_services'
+
+export type DiscoveryLifecycleState = 'discovered' | 'in_review' | 'ignored' | 'revoked' | 'governed'
+
+export interface ControlRecommendations {
+  config?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
+  content?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
+  supply_chain?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
+  eu_ai_act?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
+}
+
+export interface DiscoveryWorkload {
+  id: string
+  name: string
+  source: DiscoverySource
+  source_label: string
+  namespace?: string | null
+  status: DiscoveryLifecycleState
+  owner?: string | null
+  spiffe_id?: string | null
+  model?: string | null
+  last_seen_at?: string | null
+  recommendations?: ControlRecommendations
+  metadata?: Record<string, any>
+}
+
+export interface DiscoveryWorkloadsSummary {
+  total_discovered: number
+  in_review: number
+  ignored: number
+  revoked: number
+  governed: number
+}
+
+export interface DiscoveryWorkloadsResponse {
+  workloads: DiscoveryWorkload[]
+  total: number
+  summary: DiscoveryWorkloadsSummary
+}
+
+export interface AutoclaimNamespaceRequest {
+  namespace: string
+}
+

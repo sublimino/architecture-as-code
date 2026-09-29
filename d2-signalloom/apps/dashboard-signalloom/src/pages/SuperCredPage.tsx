@@ -16,7 +16,7 @@ import { StatCard } from '../components/DashKit'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import type { AuditEventResponse, StunAgentResponse } from '../types/api'
+import type { AuditEventResponse, PlaneResult, StunAgentResponse } from '../types/api'
 import { isDemoMode } from '../api/demoMode'
 import {
   discoverSuperCredAgents,
@@ -61,7 +61,12 @@ interface RuntimeAgent {
 
 // ─── Credential Lifecycle Types ─────────────────────────────────────────────
 
-type CredentialStatus = 'pending' | 'issued' | 'active' | 'rotated' | 'revoked' | 'expired'
+type CredentialStatus =
+  | 'pending' | 'issued' | 'active' | 'rotated' | 'revoked' | 'expired'
+  // Revocation attempted, plane did not report contained: may still be live.
+  | 'revocation_failed'
+  // No plane evidence either way.
+  | 'unknown'
 
 interface CredentialRecord {
   id: string
@@ -70,6 +75,8 @@ interface CredentialRecord {
   issued_at: string | null
   expires_at: string | null
   revoked_at: string | null
+  /** Why the status is not plain revoked: the plane's error, or the missing evidence. */
+  plane_note?: string
   issuer: string
   scope: string
   rotation_count: number
@@ -108,18 +115,57 @@ function stunFullyContained(result: StunAgentResponse): boolean {
     && planeContained(result.planes, 'spire')
 }
 
-// ─── Fake lifecycle data for demo enrichment ────────────────────────────────
+// ─── Credential inventory: fixture rows, observed revocation status ─────────
+//
+// The rows themselves are FIXTURE: ids, issuers, scopes, issue and expiry
+// times and rotation counts are hardcoded demo enrichment, not read from SPIRE
+// or OpenBao. What is not fixture is whether the identity and lease rows say
+// "revoked": that comes only from the matching plane (spire, bao) in the last
+// stun result this page received for the agent. Contained is revoked; any
+// other outcome is revocation_failed with the plane's error; no report at all
+// is unknown. The agent's state being "stunned" is not evidence that a
+// credential died, and used to be the only thing this read.
 
-function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
+type RevocationView = Pick<CredentialRecord, 'status' | 'revoked_at' | 'plane_note'>
+
+function revocationFromPlane(
+  planeName: 'spire' | 'bao',
+  planes: PlaneResult[] | null,
+  fallbackAt: string,
+): RevocationView {
+  const plane = planes?.find(p => p.plane === planeName)
+  if (!plane) {
+    return {
+      status: 'unknown',
+      revoked_at: null,
+      plane_note: planes
+        ? `No ${planeName} plane in the last stun report.`
+        : `No ${planeName} plane report from a stun on this page.`,
+    }
+  }
+  if (plane.outcome === 'contained') {
+    return { status: 'revoked', revoked_at: plane.timestamp || fallbackAt }
+  }
+  return {
+    status: 'revocation_failed',
+    revoked_at: null,
+    plane_note: `Still active: ${plane.error ?? `${planeName} reported ${plane.outcome}`}`,
+  }
+}
+
+function buildCredentialRecords(agent: RuntimeAgent, planes: PlaneResult[] | null): CredentialRecord[] {
   const isStunned = agent.state === 'stunned'
+  const stunnedAt = agent.stunned_at ?? '2026-01-01T00:01:00Z'
+  const live: RevocationView = { status: 'active', revoked_at: null }
+  const spiffe = isStunned ? revocationFromPlane('spire', planes, stunnedAt) : live
+  const openbao = isStunned ? revocationFromPlane('bao', planes, stunnedAt) : live
   return [
     {
       id: `cred-${agent.id}-spiffe`,
       agent_id: agent.id,
-      status: isStunned ? 'revoked' : 'active',
+      ...spiffe,
       issued_at: '2026-01-01T00:00:02Z',
       expires_at: '2026-01-01T01:00:02Z',
-      revoked_at: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
       issuer: 'spire-server.spire-system',
       scope: 'spiffe://signalloom.ai/agent/cardvault',
       rotation_count: 0,
@@ -127,10 +173,9 @@ function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
     {
       id: `cred-${agent.id}-openbao`,
       agent_id: agent.id,
-      status: isStunned ? 'revoked' : 'active',
+      ...openbao,
       issued_at: '2026-01-01T00:00:03Z',
       expires_at: '2026-01-01T00:05:03Z',
-      revoked_at: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
       issuer: 'openbao.openbao-system',
       scope: 'database/creds/cardvault-readonly',
       rotation_count: 2,
@@ -249,7 +294,7 @@ const COMPLIANCE_COLUMNS: Column<ComplianceResult>[] = [
 
 /** Lifecycle order, so the chips keep one order regardless of what the data holds. */
 const CREDENTIAL_STATUS_ORDER: CredentialStatus[] = [
-  'pending', 'issued', 'active', 'rotated', 'revoked', 'expired',
+  'pending', 'issued', 'active', 'rotated', 'revocation_failed', 'revoked', 'expired', 'unknown',
 ]
 
 /** Which compliance rows to show. `all` first, then the two verdicts. */
@@ -561,8 +606,13 @@ export default function SuperCredPage() {
   // Derive lifecycle and credential data from the first supercred agent
   const activeAgent = agents[0] ?? null
   const credentialRecords = useMemo(
-    () => (activeAgent ? buildCredentialRecords(activeAgent) : []),
-    [activeAgent],
+    () => (activeAgent
+      ? buildCredentialRecords(
+        activeAgent,
+        stunResult && stunResult.agent_id === activeAgent.id ? stunResult.planes ?? [] : null,
+      )
+      : []),
+    [activeAgent, stunResult],
   )
 
   // Chip counts are read off the FULL record set, never the filtered one: a
@@ -1090,6 +1140,14 @@ export default function SuperCredPage() {
                     variant="credential"
                     testId={`credential-status-${cred.id}`}
                   />
+                  {cred.plane_note && (
+                    <div
+                      data-testid={`credential-plane-note-${cred.id}`}
+                      style={{ fontSize: 10, color: 'var(--text)', marginTop: 3, maxWidth: 220 }}
+                    >
+                      {cred.plane_note}
+                    </div>
+                  )}
                 </td>
                 <td style={{ ...DataTable.td, fontSize: 10, color: 'var(--muted)' }}>{cred.issued_at ?? '-'}</td>
                 <td style={{ ...DataTable.td, fontSize: 10, color: 'var(--muted)' }}>{cred.expires_at ?? '-'}</td>

@@ -2,7 +2,7 @@
  * Tests for AuditTrail CSV export button and clickable event-type chip filters.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import AuditTrail from './AuditTrail'
@@ -487,5 +487,144 @@ describe('AuditTrail — agent drill-down links', () => {
     expect(actorLink).toBeInTheDocument()
   })
 })
+
+describe('AuditTrail: Detail Drawer and Inspection', () => {
+  const RICH_EVENT = {
+    id: 'evt-rich-1',
+    timestamp: '2026-09-29T11:22:33Z',
+    event_type: 'agent.credential_issued',
+    agent_id: 'agent-42',
+    agent_name: 'super-agent',
+    actor: 'admin@signal-loom.ai',
+    spiffe_id: 'spiffe://cluster.local/ns/prod/sa/super-agent',
+    authorizing_principal_id: 'principal-superadmin',
+    executing_actor_id: 'exec-agent-runner',
+    evidence_ref: 'sha256:abcd1234ef5678',
+    kernel_telemetry_ref: 'lsm:landlock:rule-100',
+    attribution_rationale: 'Quarterly compliance recertification',
+    detail: {
+      action: 'rotate_cert',
+      days_valid: 90,
+      active: true,
+      notes: null,
+    },
+  }
+
+  let writeTextMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    writeTextMock = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(api.audit).mockResolvedValue({
+      events: [RICH_EVENT],
+      total: 1,
+      page: 1,
+      limit: 50,
+    } as never)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: writeTextMock,
+      },
+      writable: true,
+      configurable: true,
+    })
+  })
+
+  it('renders interactive detail button with inspection icon and ARIA attributes', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('super-agent')).toBeInTheDocument())
+
+    const trigger = screen.getByTestId('audit-detail-trigger-evt-rich-1')
+    expect(trigger).toBeInTheDocument()
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog')
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger.tagName).toBe('BUTTON')
+  })
+
+  it('opens drawer on click and shows formatted JSON, SPIFFE ID, and attestation metadata', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('super-agent')).toBeInTheDocument())
+
+    const trigger = screen.getByTestId('audit-detail-trigger-evt-rich-1')
+    await user.click(trigger)
+
+    const drawer = await screen.findByTestId('audit-detail-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+
+    // Verify metadata and identity
+    expect(screen.getByText('spiffe://cluster.local/ns/prod/sa/super-agent')).toBeInTheDocument()
+    expect(screen.getByText('principal-superadmin')).toBeInTheDocument()
+    expect(screen.getByText('sha256:abcd1234ef5678')).toBeInTheDocument()
+    expect(screen.getByText('lsm:landlock:rule-100')).toBeInTheDocument()
+
+    // Verify syntax highlighted payload
+    const viewer = screen.getByTestId('audit-json-viewer')
+    expect(viewer.textContent).toContain('"action": "rotate_cert"')
+    expect(viewer.textContent).toContain('"days_valid": 90')
+    expect(viewer.textContent).toContain('"active": true')
+  })
+
+  it('opens drawer on Enter key press and restores focus on Escape key press', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('super-agent')).toBeInTheDocument())
+
+    const trigger = screen.getByTestId('audit-detail-trigger-evt-rich-1')
+    trigger.focus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByTestId('audit-detail-drawer')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('audit-detail-drawer')).not.toBeInTheDocument()
+    })
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('opens drawer on Space key press and closes on close button click', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('super-agent')).toBeInTheDocument())
+
+    const trigger = screen.getByTestId('audit-detail-trigger-evt-rich-1')
+    trigger.focus()
+    await user.keyboard(' ')
+
+    expect(await screen.findByTestId('audit-detail-drawer')).toBeInTheDocument()
+
+    const closeBtn = screen.getByTestId('audit-detail-drawer-close')
+    await user.click(closeBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('audit-detail-drawer')).not.toBeInTheDocument()
+    })
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('copies payload to clipboard when Copy Payload button is clicked', async () => {
+    const writeMock = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window.navigator, 'clipboard', {
+      value: { writeText: writeMock },
+      configurable: true,
+      writable: true,
+    })
+    renderPage()
+    await waitFor(() => expect(screen.getByText('super-agent')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('audit-detail-trigger-evt-rich-1'))
+    const copyBtn = await screen.findByTestId('audit-copy-payload-button')
+
+    fireEvent.click(copyBtn)
+
+    expect(writeMock).toHaveBeenCalledWith(
+      JSON.stringify(RICH_EVENT.detail, null, 2),
+    )
+    expect(await screen.findByText('Copied!')).toBeInTheDocument()
+  })
+})
+
 
 

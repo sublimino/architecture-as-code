@@ -492,3 +492,92 @@ func TestConsistency_StunnedNonConsumerWithTokensStaysUniversal(t *testing.T) {
 		t.Fatalf("applicable=%v split_brain=%q, want true and the stunned token finding", rep.Bao.Applicable, rep.SplitBrain)
 	}
 }
+
+// ── Kernel plane (sentinel-published cgroup freeze truth) ────────────────────
+
+func withKernelAnnotation(pod *corev1.Pod, frozen string) *corev1.Pod {
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+	pod.Annotations[kernelFrozenAnnotation] = frozen
+	pod.Annotations[kernelObservedAtAnnotation] = "2026-09-29T11:59:30Z"
+	return pod
+}
+
+func TestConsistency_KernelFrozenButPodNotStunnedIsSplitBrain(t *testing.T) {
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{consTestSPIFFE: 1}}
+	spire := &fakeEntryLister{entries: map[string]int{consTestSPIFFE: 1}}
+	c, _ := newTestChecker(t, bao, spire, withKernelAnnotation(consPod(false, false), "true"), consDeployment(false))
+	code, rep := getConsistency(t, c, consTestAgent)
+	if code != http.StatusOK || rep.Consistent {
+		t.Fatalf("code=%d consistent=%v, want 200 inconsistent", code, rep.Consistent)
+	}
+	if !splitBrainHas(rep, "kernel frozen but pod not stunned") {
+		t.Fatalf("split_brain=%q, want kernel frozen but pod not stunned", rep.SplitBrain)
+	}
+	if rep.Kernel.Frozen == nil || !*rep.Kernel.Frozen || rep.Kernel.ObservedAt == nil || *rep.Kernel.ObservedAt != "2026-09-29T11:59:30Z" || rep.Kernel.Source != "sentinel-annotation" {
+		t.Fatalf("kernel=%+v, want frozen=true observed_at set source=sentinel-annotation", rep.Kernel)
+	}
+}
+
+func TestConsistency_PodStunnedButKernelNotFrozenIsSplitBrain(t *testing.T) {
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{}}
+	spire := &fakeEntryLister{entries: map[string]int{}}
+	c, _ := newTestChecker(t, bao, spire, withKernelAnnotation(consPod(true, true), "false"), consDeployment(true))
+	code, rep := getConsistency(t, c, consTestAgent)
+	if code != http.StatusOK || rep.Consistent || !splitBrainHas(rep, "pod stunned but kernel not frozen") {
+		t.Fatalf("code=%d consistent=%v split_brain=%q, want pod stunned but kernel not frozen", code, rep.Consistent, rep.SplitBrain)
+	}
+	if rep.Kernel.Frozen == nil || *rep.Kernel.Frozen {
+		t.Fatalf("kernel=%+v, want frozen=false", rep.Kernel)
+	}
+}
+
+func TestConsistency_KernelAgreesWithStunIsConsistent(t *testing.T) {
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{}}
+	spire := &fakeEntryLister{entries: map[string]int{}}
+	c, _ := newTestChecker(t, bao, spire, withKernelAnnotation(consPod(true, true), "true"), consDeployment(true))
+	code, rep := getConsistency(t, c, consTestAgent)
+	if code != http.StatusOK || !rep.Consistent || len(rep.SplitBrain) != 0 {
+		t.Fatalf("code=%d consistent=%v split_brain=%q, want consistent", code, rep.Consistent, rep.SplitBrain)
+	}
+}
+
+// Absence is unknown, never "not frozen": no annotation (sentinel not
+// deployed, or never reconciled this pod) or a malformed value is null and
+// produces no kernel finding in either direction.
+func TestConsistency_KernelAnnotationAbsentOrMalformedIsNull(t *testing.T) {
+	for name, pod := range map[string]*corev1.Pod{
+		"absent-active":     consPod(false, false),
+		"absent-stunned":    consPod(true, true),
+		"malformed-stunned": withKernelAnnotation(consPod(true, true), "yes"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			bao := &fakeTokenCounter{configured: true, counts: map[string]int{consTestSPIFFE: 1}}
+			spire := &fakeEntryLister{entries: map[string]int{consTestSPIFFE: 1}}
+			c, _ := newTestChecker(t, bao, spire, pod, consDeployment(pod.Labels[StunnedLabel] == "true"))
+			mux := http.NewServeMux()
+			c.register(mux)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/fleet/consistency/"+consTestAgent, nil))
+			var raw struct {
+				Kernel map[string]any `json:"kernel"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+				t.Fatal(err)
+			}
+			if v, ok := raw.Kernel["frozen"]; !ok || v != nil {
+				t.Fatalf("kernel=%v, want frozen present and null", raw.Kernel)
+			}
+			if raw.Kernel["source"] != "sentinel-annotation" {
+				t.Fatalf("kernel=%v, want source sentinel-annotation", raw.Kernel)
+			}
+			_, rep := getConsistency(t, c, consTestAgent)
+			for _, s := range rep.SplitBrain {
+				if strings.Contains(s, "kernel") {
+					t.Fatalf("split_brain=%q, want no kernel finding when kernel state is unknown", rep.SplitBrain)
+				}
+			}
+		})
+	}
+}

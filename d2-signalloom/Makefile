@@ -234,7 +234,7 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 	docker build -t nono-containment-probe:latest apps/nono-containment-probe/
 
 swarm-stun-sentinel-image: ## Build signalloom-stun-sentinel DaemonSet image
-	docker build -t stun-sentinel:latest apps/signalloom-stun-sentinel/
+	docker build -f apps/signalloom-stun-sentinel/Dockerfile -t stun-sentinel:latest apps/
 
 swarm-kusari-image: ## Build kusari-agent stub image (Tier 9 Kusari pilot stand-in)
 	docker build -t kusari-agent:latest apps/kusari-agent/

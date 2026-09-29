@@ -1631,7 +1631,7 @@ def test_tab3_access_containment_tracks_models_and_telemetry(client, monkeypatch
     assert "containment" in op_state
     assert op_state["containment"]["process_freeze"] in ("active", "inactive", "requested", "unsupported")
     assert op_state["containment"]["network_isolation"] in ("active", "inactive", "requested", "unsupported")
-    assert op_state["containment"]["credential_revocation"] in ("active", "inactive", "requested", "unsupported")
+    assert op_state["containment"]["credential_revocation"] in ("active", "inactive", "requested", "unsupported", "unknown")
 
 
 def test_tab3_capabilities_workload_scoped_rbac_and_invariants(client, monkeypatch):

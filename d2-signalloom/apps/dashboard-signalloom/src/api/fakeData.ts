@@ -32,6 +32,8 @@ import type {
   TenantSettingsResponse,
   TransitionResponse,
   ViolationListResponse,
+  DiscoveryWorkload,
+  DiscoveryWorkloadsResponse,
 } from '../types/api'
 
 import type { StunAgentResponse } from '../types/api'
@@ -699,6 +701,335 @@ const nhiDiscovered: NHIDiscoveredResponse = {
 
 const nhiReport = { tenant_id: TENANT, generated_at: NOW, at_risk: 4, format: 'json' }
 
+// ─── Discovery Super Datatable Workloads (SLMS-P1-2) ─────────────────────────
+
+export const initialDiscoveryWorkloads: DiscoveryWorkload[] = [
+  // 1. IDP (Entra ID, Okta)
+  {
+    id: `${TENANT}:disc-idp-1`,
+    name: 'svc-billing-sync',
+    source: 'idp',
+    source_label: 'Entra ID',
+    namespace: 'identity-entra',
+    status: 'discovered',
+    owner: 'ops@signalloom.local',
+    spiffe_id: null,
+    model: null,
+    last_seen_at: NOW,
+    recommendations: {
+      config: 'warning',
+      content: 'not_applicable',
+      supply_chain: 'recommended',
+      eu_ai_act: 'pass',
+    },
+    metadata: {
+      directory_source: 'entra',
+      privilege_level: 'high',
+      findings: ['stale_credential', 'over_privileged'],
+      scan_count: 3,
+    },
+  },
+  {
+    id: `${TENANT}:disc-idp-2`,
+    name: 'sa-datapipeline-runner',
+    source: 'idp',
+    source_label: 'Okta',
+    namespace: 'identity-okta',
+    status: 'in_review',
+    owner: 'data-eng@signalloom.local',
+    spiffe_id: null,
+    model: null,
+    last_seen_at: '2026-07-26T15:30:00Z',
+    recommendations: {
+      config: 'pass',
+      content: 'recommended',
+      supply_chain: 'pass',
+      eu_ai_act: 'recommended',
+    },
+    metadata: {
+      directory_source: 'okta',
+      privilege_level: 'standard',
+      findings: ['unrotated_secret'],
+      scan_count: 2,
+    },
+  },
+  // 2. Local K8s (in-cluster pods)
+  {
+    id: `${TENANT}:disc-k8s-1`,
+    name: 'kagent-k8s-reader',
+    source: 'local_k8s',
+    source_label: 'Local K8s',
+    namespace: 'fe-signalloom-agents',
+    status: 'discovered',
+    owner: null,
+    spiffe_id: null,
+    model: 'anthropic-claude',
+    last_seen_at: NOW,
+    recommendations: {
+      config: 'recommended',
+      content: 'recommended',
+      supply_chain: 'warning',
+      eu_ai_act: 'recommended',
+    },
+    metadata: {
+      cluster_id: 'cluster-local',
+      pod_name: 'kagent-k8s-reader',
+      service_account: 'kagent-k8s-reader',
+      node: 'osramp-control-plane',
+      framework: 'kagent',
+    },
+  },
+  {
+    id: `${TENANT}:disc-k8s-2`,
+    name: 'inventory-worker-pod',
+    source: 'local_k8s',
+    source_label: 'Local K8s',
+    namespace: 'default',
+    status: 'governed',
+    owner: 'demo-user',
+    spiffe_id: 'spiffe://signalloom.svc.cluster.local/ns/default/sa/inventory-worker',
+    model: 'gpt-4o',
+    last_seen_at: NOW,
+    recommendations: {
+      config: 'pass',
+      content: 'pass',
+      supply_chain: 'pass',
+      eu_ai_act: 'pass',
+    },
+    metadata: {
+      cluster_id: 'cluster-local',
+      pod_name: 'inventory-worker-pod',
+      service_account: 'inventory-worker',
+      node: 'osramp-control-plane',
+      framework: 'custom',
+    },
+  },
+  // 3. External K8s (AFM imported clusters)
+  {
+    id: `${TENANT}:disc-ext-k8s-1`,
+    name: 'afm-staging-collector',
+    source: 'external_k8s',
+    source_label: 'AFM Cluster',
+    namespace: 'staging-workloads',
+    status: 'in_review',
+    owner: 'security-team@signalloom.local',
+    spiffe_id: 'spiffe://afm.remote.io/ns/staging/sa/collector',
+    model: 'llama-3.3-70b',
+    last_seen_at: '2026-07-27T08:00:00Z',
+    recommendations: {
+      config: 'recommended',
+      content: 'pass',
+      supply_chain: 'recommended',
+      eu_ai_act: 'pass',
+    },
+    metadata: {
+      cluster_name: 'afm-staging',
+      imported_from: 'kubesec-afm',
+      rbac_analysis_job: 'job-afm-9821',
+    },
+  },
+  {
+    id: `${TENANT}:disc-ext-k8s-2`,
+    name: 'prod-eu-validator',
+    source: 'external_k8s',
+    source_label: 'AFM Cluster',
+    namespace: 'prod-eu',
+    status: 'revoked',
+    owner: 'compliance@signalloom.local',
+    spiffe_id: 'spiffe://prod-eu.remote.io/ns/prod-eu/sa/validator',
+    model: 'mistral-large',
+    last_seen_at: '2026-07-20T10:00:00Z',
+    recommendations: {
+      config: 'warning',
+      content: 'warning',
+      supply_chain: 'warning',
+      eu_ai_act: 'warning',
+    },
+    metadata: {
+      cluster_name: 'prod-eu-cluster',
+      revocation_reason: 'unauthorized_network_access',
+      revoked_by: 'ciso@signalloom.local',
+    },
+  },
+  // 4. External Services (Cloud Run, n8n)
+  {
+    id: `${TENANT}:disc-ext-svc-1`,
+    name: 'cloudrun-prompt-processor',
+    source: 'external_services',
+    source_label: 'Cloud Run',
+    namespace: 'gcp-europe-west1',
+    status: 'discovered',
+    owner: 'ai-ops@signalloom.local',
+    spiffe_id: null,
+    model: 'gemini-1.5-pro',
+    last_seen_at: NOW,
+    recommendations: {
+      config: 'recommended',
+      content: 'recommended',
+      supply_chain: 'pass',
+      eu_ai_act: 'recommended',
+    },
+    metadata: {
+      service_url: 'https://prompt-processor-xyz.a.run.app',
+      runtime: 'cloud_run',
+      region: 'europe-west1',
+    },
+  },
+  {
+    id: `${TENANT}:disc-ext-svc-2`,
+    name: 'n8n-support-router',
+    source: 'external_services',
+    source_label: 'n8n',
+    namespace: 'automation-prod',
+    status: 'ignored',
+    owner: 'support-lead@signalloom.local',
+    spiffe_id: null,
+    model: 'gpt-4o-mini',
+    last_seen_at: '2026-07-22T08:00:00Z',
+    recommendations: {
+      config: 'pass',
+      content: 'warning',
+      supply_chain: 'pass',
+      eu_ai_act: 'recommended',
+    },
+    metadata: {
+      webhook_url: 'https://n8n.internal.net/webhook/support',
+      dismiss_reason: 'internal_automation_exempt',
+      runtime: 'n8n_workflow',
+    },
+  },
+]
+
+let demoDiscoveryWorkloads: DiscoveryWorkload[] = [...initialDiscoveryWorkloads]
+
+export function resetDemoDiscoveryWorkloads(): void {
+  demoDiscoveryWorkloads = [...initialDiscoveryWorkloads]
+}
+
+function listDiscoveryWorkloads(path: string): DiscoveryWorkloadsResponse {
+  const urlObj = path.includes('?') ? new URL(`http://dummy${path}`) : null
+  const source = urlObj?.searchParams.get('source')
+  const status = urlObj?.searchParams.get('status')
+  const namespace = urlObj?.searchParams.get('namespace')
+  const search = urlObj?.searchParams.get('search')?.toLowerCase()
+
+  let filtered = [...demoDiscoveryWorkloads]
+  if (source && source !== 'all') {
+    filtered = filtered.filter((w) => w.source === source)
+  }
+  if (status && status !== 'all') {
+    filtered = filtered.filter((w) => w.status === status)
+  }
+  if (namespace && namespace !== 'all') {
+    filtered = filtered.filter((w) => w.namespace === namespace)
+  }
+  if (search) {
+    filtered = filtered.filter(
+      (w) =>
+        w.name.toLowerCase().includes(search) ||
+        (w.namespace && w.namespace.toLowerCase().includes(search)) ||
+        (w.owner && w.owner.toLowerCase().includes(search)) ||
+        w.source_label.toLowerCase().includes(search),
+    )
+  }
+
+  const summary = {
+    total_discovered: demoDiscoveryWorkloads.filter((w) => w.status === 'discovered').length,
+    in_review: demoDiscoveryWorkloads.filter((w) => w.status === 'in_review').length,
+    ignored: demoDiscoveryWorkloads.filter((w) => w.status === 'ignored').length,
+    revoked: demoDiscoveryWorkloads.filter((w) => w.status === 'revoked').length,
+    governed: demoDiscoveryWorkloads.filter((w) => w.status === 'governed').length,
+  }
+
+  return {
+    workloads: filtered,
+    total: filtered.length,
+    summary,
+  }
+}
+
+function autoclaimDiscoveredWorkloads(body?: unknown): { claimed: any[]; total_claimed: number } {
+  const reqObj = (body as { namespace?: string }) ?? {}
+  const targetNs = reqObj.namespace
+
+  const claimed: any[] = []
+  demoDiscoveryWorkloads = demoDiscoveryWorkloads.map((w) => {
+    if ((w.status === 'discovered' || w.status === 'in_review') && (!targetNs || w.namespace === targetNs)) {
+      const spiffeId = w.spiffe_id || `spiffe://signalloom.svc.cluster.local/ns/${w.namespace || 'default'}/sa/${w.name}`
+      const updated = {
+        ...w,
+        status: 'governed' as const,
+        spiffe_id: spiffeId,
+      }
+      claimed.push({
+        claim_id: `claim-${w.id}`,
+        pod_name: w.name,
+        namespace: w.namespace || 'default',
+        spiffe_id: spiffeId,
+        status: 'active',
+        harness: 'claude-code',
+        model: w.model || 'claude-3-5-sonnet',
+        claimed_at: NOW,
+      })
+      recordDemoActivity({
+        event_type: 'agent.claimed',
+        agent_id: w.id,
+        agent_name: w.name,
+        actor: DEMO_ACTOR,
+        detail: {
+          action: 'autoclaimed',
+          namespace: w.namespace,
+          spiffe_id: spiffeId,
+          source: w.source,
+        },
+      })
+      return updated
+    }
+    return w
+  })
+
+  return {
+    claimed,
+    total_claimed: claimed.length,
+  }
+}
+
+function enrollDiscoveredWorkload(path: string): { account_id: string; status: string } {
+  const accountId = path.split('/')[3]
+  demoDiscoveryWorkloads = demoDiscoveryWorkloads.map((w) => {
+    if (w.id === accountId || w.id.endsWith(`:${accountId}`) || w.name === accountId) {
+      return { ...w, status: 'governed' }
+    }
+    return w
+  })
+  recordDemoActivity({
+    event_type: 'agent.enrolled',
+    agent_id: accountId,
+    agent_name: accountId,
+    actor: DEMO_ACTOR,
+    detail: { action: 'enrolled', account_id: accountId },
+  })
+  return { account_id: accountId, status: 'enrollment_requested' }
+}
+
+function dismissDiscoveredWorkload(path: string): { account_id: string; status: string } {
+  const accountId = path.split('/')[3]
+  demoDiscoveryWorkloads = demoDiscoveryWorkloads.map((w) => {
+    if (w.id === accountId || w.id.endsWith(`:${accountId}`) || w.name === accountId) {
+      return { ...w, status: 'ignored' }
+    }
+    return w
+  })
+  recordDemoActivity({
+    event_type: 'agent.dismissed',
+    agent_id: accountId,
+    agent_name: accountId,
+    actor: DEMO_ACTOR,
+    detail: { action: 'dismissed', account_id: accountId },
+  })
+  return { account_id: accountId, status: 'dismissed' }
+}
+
 // ─── Tenant / settings ─────────────────────────────────────────────────────────
 
 const COOKIE_PREFS = { strictly_necessary: true, analytics: false }
@@ -938,11 +1269,14 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/compliance\/export$/), data: () => complianceExport },
   // audit
   { method: 'GET', test: re(/^\/audit$/), data: () => auditWithRecordedActivity() },
+  // discovery (SLMS-P1-2)
+  { method: 'GET', test: re(/^\/discovery\/workloads$/), data: (path) => listDiscoveryWorkloads(path) },
+  { method: 'POST', test: re(/^\/agents\/autoclaim-discovered$/), data: (_path, body) => autoclaimDiscoveredWorkloads(body) },
   // nhi
   { method: 'GET', test: re(/^\/nhi\/scans$/), data: () => nhiScans },
   { method: 'GET', test: re(/^\/nhi\/discovered$/), data: () => nhiDiscovered },
-  { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/enroll$/), data: (p) => ({ account_id: p.split('/')[3], status: 'enrollment_requested' }) },
-  { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/dismiss$/), data: (p) => ({ account_id: p.split('/')[3], status: 'dismissed' }) },
+  { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/enroll$/), data: (p) => enrollDiscoveredWorkload(p) },
+  { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/dismiss$/), data: (p) => dismissDiscoveredWorkload(p) },
   { method: 'GET', test: re(/^\/nhi\/report\/json$/), data: () => nhiReport },
   // tenant / support / users
   { method: 'GET', test: re(/^\/tenant\/users$/), data: () => platformUsers },
@@ -1019,5 +1353,5 @@ export function hasFakeRoute(method: string, path: string): boolean {
 export function resolveFake(method: string, path: string, body?: unknown): unknown | undefined {
   const clean = cleanPath(path)
   const route = ROUTES.find((r) => r.method === method.toUpperCase() && r.test(clean))
-  return route ? route.data(clean, body) : undefined
+  return route ? route.data(path, body) : undefined
 }

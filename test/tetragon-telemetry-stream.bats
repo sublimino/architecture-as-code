@@ -26,8 +26,10 @@ setup() {
   EBPF_PKG="${REPO_ROOT}/d2-signalloom/apps/signal-ingest/collectors/ebpf"
   MOCK_DIR="${REPO_ROOT}/test/mocks"
   export CGO_ENABLED=0
+  export GOPATH="${GOPATH:-/tmp/gopath}"
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="${GONOSUMDB:-*}"
 }
 
 # ---------------------------------------------------------------------------

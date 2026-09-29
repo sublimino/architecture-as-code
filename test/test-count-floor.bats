@@ -41,8 +41,10 @@ setup() {
 
     export UV_CONFIG_FILE="${UV_CONFIG_FILE:-/dev/null}"
     export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
+    export GOPATH="${GOPATH:-/tmp/gopath}"
     export GOCACHE="${GOCACHE:-/tmp/gocache}"
     export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+    export GONOSUMDB="${GONOSUMDB:-*}"
     export CGO_ENABLED="${CGO_ENABLED:-0}"
 }
 

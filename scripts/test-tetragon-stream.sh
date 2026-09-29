@@ -29,8 +29,10 @@ LATENCY_BUDGET_MS="${TETRAGON_LATENCY_BUDGET_MS:-500}"
 PROOF_OUT="${TETRAGON_PROOF_OUT:-${REPO_ROOT}/docs/signalloom/evidence/tetragon-stream-proof.json}"
 
 export CGO_ENABLED=0
+export GOPATH="${GOPATH:-/tmp/gopath}"
 export GOCACHE="${GOCACHE:-/tmp/gocache}"
 export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+export GONOSUMDB="${GONOSUMDB:-*}"
 
 WORKDIR=""
 MOCK_PID=""

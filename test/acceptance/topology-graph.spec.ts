@@ -42,25 +42,22 @@ test.describe("Surface 4: Topology Graph & Node Detail Drawer (Desktop 1280x800)
       hasText: /agent|service|vault|platform|orchestrator/i,
     }).first();
 
-    if (await nodeElement.isVisible()) {
-      await nodeElement.click();
+    await expect(nodeElement).toBeVisible({ timeout: 15_000 });
+    await nodeElement.click();
 
-      // Node Detail Drawer should mount
-      const drawer = page.getByTestId("node-detail-drawer");
-      if (await drawer.isVisible()) {
-        await expect(drawer).toBeVisible({ timeout: 10_000 });
+    // Node Detail Drawer must mount
+    const drawer = page.getByTestId("node-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10_000 });
 
-        // Assert Identity & Cryptographic Attestation sections
-        await expect(drawer.getByText(/Identity & Cryptographic Attestation/i)).toBeVisible();
-        await expect(drawer.getByText(/SPIFFE Identity/i)).toBeVisible();
-        await expect(drawer.getByText(/Attestation Digest/i)).toBeVisible();
+    // Assert Identity & Cryptographic Attestation sections
+    await expect(drawer.getByText(/Identity & Cryptographic Attestation/i)).toBeVisible();
+    await expect(drawer.getByText(/SPIFFE Identity/i)).toBeVisible();
+    await expect(drawer.getByText(/Attestation Digest/i)).toBeVisible();
 
-        // Close drawer
-        const closeBtn = page.getByTestId("node-drawer-close-btn");
-        await closeBtn.click();
-        await expect(drawer).not.toBeVisible();
-      }
-    }
+    // Close drawer
+    const closeBtn = page.getByTestId("node-drawer-close-btn");
+    await closeBtn.click();
+    await expect(drawer).not.toBeVisible();
   });
 
   test("topology views contain zero em-dashes across rendered DOM", async ({ page }) => {

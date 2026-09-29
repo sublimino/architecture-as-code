@@ -74,6 +74,9 @@ describe('agentDiscovery — fake swarm agents', () => {
         'signalloom.ai/tenant': 'controlplane',
         'signalloom.ai/state': 'stunned',
       },
+      // The sentinel annotation, as the proxy carries it. The stun label alone
+      // no longer implies a frozen cgroup.
+      kernel_state: 'frozen',
     }
     const record = proxyRecordToDiscovery(raw, 'live')
     expect(record.framework).toBe('kagent')
@@ -83,7 +86,8 @@ describe('agentDiscovery — fake swarm agents', () => {
     expect(record.state).toBe('stunned')
     expect(record.kernel_telemetry?.cgroup_frozen).toBe(true)
     expect(record.kernel_telemetry?.cgroup_state).toBe('frozen')
-    expect(record.kernel_telemetry?.tc_drop_active).toBe(true)
+    // Nothing observed TC, so nothing is claimed about it.
+    expect(record.kernel_telemetry?.tc_drop_active).toBeNull()
     expect(isKernelContained(record)).toBe(true)
   })
 
@@ -96,11 +100,12 @@ describe('agentDiscovery — fake swarm agents', () => {
         'signalloom.ai/role': 'triage',
         'signalloom.ai/state': 'active',
       },
+      kernel_state: 'running',
     }
     const record = proxyRecordToDiscovery(raw, 'live')
     expect(record.kernel_telemetry?.cgroup_frozen).toBe(false)
     expect(record.kernel_telemetry?.cgroup_state).toBe('thawed')
-    expect(record.kernel_telemetry?.tc_drop_active).toBe(false)
+    expect(record.kernel_telemetry?.tc_drop_active).toBeNull()
     expect(isKernelContained(record)).toBe(false)
   })
 })

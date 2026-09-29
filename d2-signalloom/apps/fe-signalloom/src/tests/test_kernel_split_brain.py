@@ -9,6 +9,7 @@ disagreement, never infer ``frozen`` from any other field.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -221,7 +222,7 @@ class TestKernelTelemetryFromKernelState:
         assert t.traffic_control_state == "unknown"
         assert t.sentinel_ack is False
         assert t.sentinel_drop_count is None
-        assert t.ebpf_active is False
+        assert t.ebpf_active is None
 
     def test_suspended_row_with_frozen_annotation_reports_frozen(self) -> None:
         resp = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=_disc())
@@ -252,3 +253,197 @@ class TestKernelTelemetryFromKernelState:
     def test_active_row_with_unknown_kernel_has_no_telemetry(self) -> None:
         resp = _agent_response_from_row(_row("active"), _compliance(), discovered_overlay=None)
         assert resp.kernel_telemetry is None
+
+
+class TestTrafficControlOnlyFromDiscovery:
+    """traffic_control_state and sentinel_drop_count come from discovered data
+    or nowhere. They were 'drop' and 142 whenever the lifecycle said stunned."""
+
+    def test_stunned_without_tc_observation_has_no_drop_count(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", kernel_state=None, stunned_at="2026-09-01T00:00:00Z"),
+            tenant_id="tenant-a",
+        )
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "unknown"
+        assert t.sentinel_drop_count is None
+        assert t.source == "unavailable"
+
+    def test_suspended_row_without_tc_observation_has_no_drop_count(self) -> None:
+        t = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=None).kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "unknown"
+        assert t.sentinel_drop_count is None
+
+    def test_discovered_tc_and_drop_count_pass_through(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z",
+                  traffic_control_state="drop", sentinel_drop_count=7),
+            tenant_id="tenant-a",
+        )
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "drop"
+        assert t.sentinel_drop_count == 7
+
+    def test_discovered_drop_without_a_count_is_not_filled_in(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(traffic_control_state="drop"), tenant_id="tenant-a",
+        )
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "drop"
+        assert t.sentinel_drop_count is None
+
+    def test_row_overlay_tc_passes_through(self) -> None:
+        overlay = _disc(kernel_state=None, traffic_control_state="allow", sentinel_drop_count=0)
+        t = _agent_response_from_row(_row("active"), _compliance(), discovered_overlay=overlay).kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "allow"
+        assert t.sentinel_drop_count == 0
+        assert t.cgroup_state == "unknown"
+        assert t.source == "unavailable"
+
+
+class TestContainmentFromObservations:
+    """operational_state.containment may report a freeze or an isolation as
+    active only on an observation. A stun or suspension without one is a
+    request, and the source says so."""
+
+    def _c(self, resp):
+        assert resp.operational_state is not None
+        return resp.operational_state.containment
+
+    def test_suspended_row_without_observation_is_requested_not_active(self) -> None:
+        c = self._c(_agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=None))
+        assert c.process_freeze == "requested"
+        assert c.network_isolation == "requested"
+        assert c.source == "unavailable"
+
+    def test_stunned_discovered_without_observation_is_requested_not_active(self) -> None:
+        c = self._c(_agent_response_from_discovered(
+            _disc(state="stunned", kernel_state=None, stunned_at="2026-09-01T00:00:00Z"),
+            tenant_id="tenant-a",
+        ))
+        assert c.process_freeze == "requested"
+        assert c.network_isolation == "requested"
+        assert c.source == "unavailable"
+
+    def test_observed_freeze_is_active_and_isolation_needs_its_own_observation(self) -> None:
+        c = self._c(_agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=_disc()))
+        assert c.process_freeze == "active"
+        assert c.network_isolation == "requested"
+        assert c.source == "sentinel-annotation"
+
+    def test_observed_drop_makes_isolation_active(self) -> None:
+        c = self._c(_agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z", traffic_control_state="drop"),
+            tenant_id="tenant-a",
+        ))
+        assert c.process_freeze == "active"
+        assert c.network_isolation == "active"
+
+    def test_split_brain_freeze_is_active_even_without_a_stun_record(self) -> None:
+        c = self._c(_agent_response_from_discovered(_disc(), tenant_id="tenant-a"))
+        assert c.process_freeze == "active"
+
+    def test_active_row_without_observation_is_inactive_and_unavailable(self) -> None:
+        c = self._c(_agent_response_from_row(_row("active"), _compliance(), discovered_overlay=None))
+        assert c.process_freeze == "inactive"
+        assert c.network_isolation == "inactive"
+        assert c.source == "unavailable"
+
+    def test_derived_telemetry_leaves_ebpf_unset(self) -> None:
+        t = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=None).kernel_telemetry
+        assert t is not None
+        assert t.ebpf_active is None
+        assert t.ebpf_program_attached is None
+
+
+def _stun_detail(**outcomes: str) -> dict[str, Any]:
+    return {"planes": [{"plane": p, "outcome": o} for p, o in outcomes.items()]}
+
+
+class TestCredentialRevocationFromStunPlanes:
+    """credential_revocation follows the last stun's bao and spire outcomes,
+    never the stunned label."""
+
+    def _cr(self, resp):
+        c = resp.operational_state.containment
+        return c.credential_revocation, c.credential_source
+
+    def test_stunned_without_a_stun_audit_row_is_unknown(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z"), tenant_id="tenant-a",
+        )
+        assert self._cr(resp) == ("unknown", "unavailable")
+
+    def test_stunned_row_without_a_stun_audit_row_is_unknown(self) -> None:
+        resp = _agent_response_from_row(_row("stunned"), _compliance(), discovered_overlay=None)
+        assert self._cr(resp) == ("unknown", "unavailable")
+
+    def test_both_credential_planes_contained_is_active(self) -> None:
+        resp = _agent_response_from_row(
+            _row("stunned"), _compliance(), discovered_overlay=None,
+            stun_detail=_stun_detail(bao="contained", spire="contained", freeze="contained"),
+        )
+        assert self._cr(resp) == ("active", "stun-audit")
+
+    def test_a_partial_credential_plane_is_requested(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned"), tenant_id="tenant-a",
+            stun_detail=_stun_detail(bao="contained", spire="partial"),
+        )
+        assert self._cr(resp) == ("requested", "stun-audit")
+
+    def test_an_unavailable_credential_plane_is_requested(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned"), tenant_id="tenant-a",
+            stun_detail=_stun_detail(bao="unavailable", spire="contained"),
+        )
+        assert self._cr(resp) == ("requested", "stun-audit")
+
+    def test_a_stun_row_without_credential_planes_is_requested(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned"), tenant_id="tenant-a", stun_detail=_stun_detail(freeze="contained"),
+        )
+        assert self._cr(resp) == ("requested", "stun-audit")
+
+    def test_revoked_lifecycle_alone_is_unknown(self) -> None:
+        resp = _agent_response_from_row(_row("revoked"), _compliance(), discovered_overlay=None)
+        assert self._cr(resp) == ("unknown", "unavailable")
+
+    def test_registry_credential_revocation_is_active(self) -> None:
+        row = _row("active")
+        row["credential_revoked"] = True
+        resp = _agent_response_from_row(row, _compliance(), discovered_overlay=None)
+        assert self._cr(resp) == ("active", "registry")
+
+
+class TestLatestStunIndex:
+    def test_latest_row_wins_and_keys_cover_id_ref_and_name(self) -> None:
+        rows = [
+            {"agent_id": None, "agent_name": None, "detail": json.dumps({"agent_ref": "agent-x", **_stun_detail(bao="contained", spire="contained")})},
+            {"agent_id": None, "agent_name": None, "detail": {"agent_ref": "agent-x", **_stun_detail(bao="partial")}},
+            {"agent_id": "11111111-1111-1111-1111-111111111111", "agent_name": "named", "detail": _stun_detail(spire="contained")},
+        ]
+        index = api_compat._stun_index_from_rows(rows)
+        assert index["agent-x"]["planes"][0]["outcome"] == "contained"
+        assert "11111111-1111-1111-1111-111111111111" in index
+        assert "named" in index
+
+
+def test_agent_detail_credential_revocation_follows_the_memory_stun_row(monkeypatch, frozen_discovery) -> None:
+    _FakeDiscovery.agents = [_disc(state="stunned", stunned_at="2026-09-01T00:00:00Z")]
+    with client_for(monkeypatch, _FakeDiscovery) as client:
+        api_compat._record_memory_audit(
+            "tenant-a", "agent.stunned", "agent-sir-lancelot", None, "alice",
+            _stun_detail(bao="contained", spire="contained"),
+        )
+        body = client.get("/api/agents/agent-sir-lancelot", headers=bearer(token_for())).json()
+        listed = client.get("/api/agents", headers=bearer(token_for())).json()
+    assert body["operational_state"]["containment"]["credential_revocation"] == "active"
+    assert body["operational_state"]["containment"]["credential_source"] == "stun-audit"
+    agent = next(a for a in listed["agents"] if a["id"] == "agent-sir-lancelot")
+    assert agent["operational_state"]["containment"]["credential_revocation"] == "active"

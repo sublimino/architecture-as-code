@@ -6,7 +6,7 @@ import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import { claimDiscoveredAgent, type AgentClaimRequest } from '../api/agentClaim'
-import type { AgentResponse, AgentListMeta, SourceHealthMap } from '../types/api'
+import type { AgentResponse, AgentListMeta, SourceHealthMap, AgentLifecycleState } from '../types/api'
 import StatusBadge from '../components/StatusBadge'
 import SignalBadge from '../components/SignalBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
@@ -19,19 +19,19 @@ import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySe
 import { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 import { CodingAgentsTab } from '../components/CodingAgentsTab'
 
-// Watched by the demo audience in a second window — see api/pollInterval.ts.
+// Watched by the demo audience in a second window: see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
 
 // ─── Register Modal ──────────────────────────────────────────────────────────
 
-/** Prefill values for the registration form — used by Claim to pre-populate
+/** Prefill values for the registration form, used by Claim to pre-populate
  *  from a discovered NHI account. */
 export interface AgentFormPrefill {
   name?: string
   type?: string
   description?: string
   owner?: string
-  /** The NHI account ID being claimed — drives the enroll call on submit. */
+  /** The NHI account ID being claimed: drives the enroll call on submit. */
   nhiAccountId?: string
 }
 
@@ -235,12 +235,12 @@ function EditAgentModal({ agent, onClose, onSaved }: {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return 'N/A'
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function fmtRelative(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return 'N/A'
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'just now'
@@ -513,23 +513,29 @@ function AttentionPanel({ alerts, onAlert }: {
 
 // ─── 7-Column Operational Inventory Table Row ────────────────────────────────
 
-const LIFECYCLE_OPTIONS = ['all', 'registered', 'enrolled', 'active', 'suspended', 'revoked'] as const
+export const LIFECYCLE_OPTIONS: readonly ('all' | AgentLifecycleState)[] = ['all', 'Governed', 'Suspended', 'Revoked'] as const
 
-const LIFECYCLE_LABELS: Record<string, string> = {
+export const LIFECYCLE_LABELS: Record<string, string> = {
   all: 'All states',
-  registered: 'Registered',
-  enrolled: 'Enrolled',
-  active: 'Active',
+  Governed: 'Governed',
+  Suspended: 'Suspended',
+  Revoked: 'Revoked',
+  registered: 'Governed',
+  enrolled: 'Governed',
+  active: 'Governed',
   suspended: 'Suspended',
   revoked: 'Revoked',
 }
 
-const LIFECYCLE_TOOLTIP: Record<string, string> = {
-  registered: 'Created in the registry and not yet enrolled — no identity has been issued.',
-  enrolled: 'Enrolled with an identity but not yet activated — cannot authenticate until transitioned to active.',
+export const LIFECYCLE_TOOLTIP: Record<string, string> = {
+  Governed: 'Active, enrolled, or registered agent governed under Signal Loom policy controls.',
+  Suspended: 'Temporarily suspended or stunned agent: credentials refused and kernel containment active if enforced.',
+  Revoked: 'Permanently revoked or decommissioned terminal state: credentials refused.',
+  registered: 'Created in the registry and not yet enrolled: no identity has been issued.',
+  enrolled: 'Enrolled with an identity but not yet activated: cannot authenticate until transitioned to active.',
   active: 'Active and authorized to operate.',
-  suspended: 'Temporarily suspended — reversible; credentials refused until reinstated.',
-  revoked: 'Permanently revoked — terminal state; credentials refused.',
+  suspended: 'Temporarily suspended: reversible, credentials refused until reinstated.',
+  revoked: 'Permanently revoked: terminal state, credentials refused.',
 }
 
 function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
@@ -548,7 +554,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
 
   // 1. Agent column
   const agentName = agent.name || 'Unnamed agent'
-  const agentExecutionMode = agent.runtime?.execution_mode || agent.type || (agent.id ? `ID: ${agent.id.split('-')[0]}…` : '—')
+  const agentExecutionMode = agent.runtime?.execution_mode || agent.type || (agent.id ? `ID: ${agent.id.split('-')[0]}…` : 'N/A')
 
   // 2. Runtime column
   const namespace = agent.runtime?.namespace || agent.namespace || 'default'
@@ -561,7 +567,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
 
   // 4. Operational State column (with kernel telemetry)
   const isTelemetryFrozenOrDrop = agent.kernel_telemetry?.cgroup_state === 'frozen' || agent.kernel_telemetry?.traffic_control_state === 'drop'
-  const isContainmentRequested = agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked'
+  const isContainmentRequested = agent.lifecycle_state === 'Suspended' || agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked'
 
   // 5. Attention column (truthful language)
   const isNotAssessed = (agent.compliance_summary.total_controls === 0) ||
@@ -710,7 +716,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
         <td style={{ padding: '11px 16px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
-              <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+              <StatusBadge status={agent.lifecycle_state} variant="lifecycle" isFrozen={isTelemetryFrozenOrDrop} />
             </span>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {isTelemetryFrozenOrDrop ? (
@@ -718,7 +724,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                   <span
                     data-testid={`kernel-telemetry-cgroup-${agent.id}`}
                     className="tag"
-                    title="cgroup.freeze: 1 (FROZEN) — Processes atomically suspended by Sentinel"
+                    title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
                     style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                   >
                     cgroup: FROZEN
@@ -726,7 +732,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                   <span
                     data-testid={`kernel-telemetry-tc-${agent.id}`}
                     className="tag"
-                    title="TC matchall drop active — Network isolated by Sentinel"
+                    title="TC matchall drop active: Network isolated by Sentinel"
                     style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                   >
                     TC: DROP
@@ -1050,21 +1056,48 @@ function GovernedTab({
 
   const parsedQuery = useMemo(() => parseAgentSelectorQuery(search), [search])
 
+  const governedAgents = useMemo(() => {
+    return agents.filter(a => a.record_class !== 'discovery')
+  }, [agents])
+
   const filtered = useMemo(() => {
-    let list = agents
-    if (lifecycleFilter !== 'all') list = list.filter(a => a.lifecycle_state === lifecycleFilter)
+    let list = governedAgents
+    if (lifecycleFilter !== 'all') {
+      const normalizedFilter = lifecycleFilter.toLowerCase()
+      list = list.filter(a => {
+        const s = (a.lifecycle_state || '').toLowerCase()
+        return s === normalizedFilter || (
+          normalizedFilter === 'governed' && (s === 'registered' || s === 'enrolled' || s === 'active' || s === 'governed')
+        ) || (
+          normalizedFilter === 'suspended' && (s === 'suspended' || s === 'stunned')
+        ) || (
+          normalizedFilter === 'revoked' && (s === 'revoked' || s === 'decommissioned')
+        )
+      })
+    }
     if (search.trim()) {
       list = list.filter(a => matchAgentByQuery(a, parsedQuery))
     }
     return list
-  }, [agents, search, parsedQuery, lifecycleFilter])
+  }, [governedAgents, search, parsedQuery, lifecycleFilter])
 
   const lifecycleCounts = useMemo(() => Object.fromEntries(
-    LIFECYCLE_OPTIONS.map((state) => [
-      state,
-      state === 'all' ? agents.length : agents.filter((agent) => agent.lifecycle_state === state).length,
-    ])
-  ), [agents])
+    LIFECYCLE_OPTIONS.map((state) => {
+      if (state === 'all') return [state, governedAgents.length]
+      const normalizedFilter = state.toLowerCase()
+      const count = governedAgents.filter((agent) => {
+        const s = (agent.lifecycle_state || '').toLowerCase()
+        return s === normalizedFilter || (
+          normalizedFilter === 'governed' && (s === 'registered' || s === 'enrolled' || s === 'active' || s === 'governed')
+        ) || (
+          normalizedFilter === 'suspended' && (s === 'suspended' || s === 'stunned')
+        ) || (
+          normalizedFilter === 'revoked' && (s === 'revoked' || s === 'decommissioned')
+        )
+      }).length
+      return [state, count]
+    })
+  ), [governedAgents])
 
   const phase = loadPhase({ loading, error, loaded })
   if (phase === 'loading' || phase === 'idle' || phase === 'error') {
@@ -1199,7 +1232,7 @@ function GovernedTab({
                 <th style={TH_STYLE}>Last Observed</th>
               </tr>
             </thead>
-            {agents.map((a) => {
+            {governedAgents.map((a) => {
               const shown = filtered.some((agent) => agent.id === a.id)
               return (
                 <AgentTableRow
@@ -1219,7 +1252,7 @@ function GovernedTab({
 
       {filtered.length > 0 && (
         <div aria-live="polite" style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Showing {filtered.length} of {agents.length} agent{agents.length !== 1 ? 's' : ''}</span>
+          <span>Showing {filtered.length} of {governedAgents.length} agent{governedAgents.length !== 1 ? 's' : ''}</span>
           {lifecycleFilter !== 'all' && (
             <span style={{ fontSize: 11, color: 'var(--muted)', opacity: 0.8 }}>
               Filtered by: <strong>{LIFECYCLE_LABELS[lifecycleFilter]}</strong>

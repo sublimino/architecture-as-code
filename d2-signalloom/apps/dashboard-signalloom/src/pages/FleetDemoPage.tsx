@@ -22,10 +22,12 @@ import {
   recoverFleet,
   resetFleet,
 } from '../api/fleetApi'
+import { FLEET_DEMO_FIXTURE } from '../api/fakeData'
+import { isDemoMode } from '../api/demoMode'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const FLEET_POLL_MS = 2000
+const FLEET_POLL_MS = 5000
 
 /** Rows per page in the roster. A demo fleet is five to twelve agents, so this
  *  shows the whole estate at once and the pager stays hidden until it cannot. */
@@ -33,24 +35,24 @@ const ROSTER_PAGE_SIZE = 10
 
 // ─── Waiting ────────────────────────────────────────────────────────────────
 //
-// Every control here already had a LoadingState beside it saying THAT it was
+// Every control here already had a LoadingState beside it saying that it was
 // running. None said for how long, which is the only thing anyone wants to
 // know a minute into a fleet deploy against a real cluster.
 //
-// The private component that used to live here is now `ButtonWait` in
+// The private component that used to live here is now ButtonWait in
 // components/, shared with the other three pages that had each grown their own
-// version of it. Everything it decided — no visible word, a reserved width, an
-// accessible name, no live region beside the LoadingState's — it still decides,
-// and now decides identically everywhere. The `aria-label` ternary that used to
+// version of it. Everything it decided (no visible word, a reserved width, an
+// accessible name, no live region beside the LoadingState's) it still decides,
+// and now decides identically everywhere. The aria-label ternary that used to
 // sit on each of these five buttons went with it.
 
-/** Fits the compact wait plus the button's padding — the Stun control is the
+/** Fits the compact wait plus the button's padding: the Stun control is the
  *  one button here that sizes to its content rather than filling its column. */
 const STUN_BUTTON_W = 110
 
 // ─── Chrome ─────────────────────────────────────────────────────────────────
 //
-// These five controls used to carry a private `btn()` style function that
+// These five controls used to carry a private btn() style function that
 // reimplemented the shared button badly: --surface fill and a --border
 // outline, where every other button in the product is a filled .btn-primary,
 // .btn-secondary or .btn-danger. The result was a column of grey outlined
@@ -72,11 +74,11 @@ const CONTROL_ROW: React.CSSProperties = { display: 'flex', alignItems: 'center'
 // The fleet's agents were already on this page, drawn as cards on the diagram.
 // What the diagram cannot do is sort, filter, or be read from the back of a
 // room by someone who wants to find one workload by name, and two of the six
-// fields the API returns for every agent — `team` and the workload ID the Stun
-// control actually sends — were not on screen anywhere at all.
+// fields the API returns for every agent (team and the workload ID the Stun
+// control actually sends) were not on screen anywhere at all.
 //
 // So this is the same data in the medium that answers those questions, on the
-// shared DataTable. No new request: `topology.agents` is the array the poll has
+// shared DataTable. No new request: topology.agents is the array the poll has
 // been fetching since this page was written.
 
 interface RosterRow {
@@ -182,6 +184,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   const { superadmin } = useAppContext()
   const { getAccessTokenSilently } = useAuth0()
 
+  // Connection mode and heartbeat state.
+  const [sourceMode, setSourceMode] = useState<'live' | 'demo'>('live')
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'demo_fallback' | 'offline'>('connected')
+  const [lastHeartbeat, setLastHeartbeat] = useState<Date | null>(null)
+
   // Fleet state.
   const [topology, setTopology] = useState<FleetTopologyData | null>(null)
   const [cascadeInProgress, setCascadeInProgress] = useState<string[]>([])
@@ -218,26 +225,44 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   // Poll for topology.
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const loadTopology = useCallback(async () => {
+  const loadTopology = useCallback(async (forcedMode?: 'live' | 'demo') => {
+    const activeMode = forcedMode ?? sourceMode
     setTopologyLoading(true)
     setError(null)
+
+    if (activeMode === 'demo') {
+      setTopology(FLEET_DEMO_FIXTURE)
+      setConnectionStatus('demo_fallback')
+      setLastHeartbeat(new Date())
+      setTopologyLoaded(true)
+      setTopologyLoading(false)
+      return
+    }
+
     try {
       const data = await fetchFleetTopology()
       setTopology(data)
+      setConnectionStatus('connected')
+      setLastHeartbeat(new Date())
       setTopologyLoaded(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load fleet topology')
+      const msg = err instanceof Error ? err.message : 'Failed to load fleet topology'
+      setError(msg)
+      setConnectionStatus('offline')
     } finally {
       setTopologyLoading(false)
     }
-  }, [])
+  }, [sourceMode])
 
-  // Start polling on mount.
+  // Start polling on mount and clean up on unmount.
   useEffect(() => {
     void loadTopology()
     pollRef.current = setInterval(() => { void loadTopology() }, FLEET_POLL_MS)
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
     }
   }, [loadTopology])
 
@@ -352,7 +377,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
   // Keyed on `topology`, not on `agents`. `agents` is `topology?.agents ?? []`,
   // which mints a fresh array on every render, so a memo depending on it would
-  // recompute on every one of them — twice a second, forever, given the poll.
+  // recompute on every one of them: twice a second, forever, given the poll.
   // `topology` is the state value and only changes when a fetch resolves.
   // Deliberately NOT fixed by memoizing `agents` itself: that array is handed
   // to FleetTopology, whose layout effects key on it, and stabilizing its
@@ -424,7 +449,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     // This variant is what goes on the projector, and it is the one place a
     // silent failure is most expensive and least likely to be noticed: it had
     // no error surface at all, so an unreachable fleet manager rendered as an
-    // empty diagram beside a risk gauge reading zero — a picture of a perfectly
+    // empty diagram beside a risk gauge reading zero: a picture of a perfectly
     // healthy estate with nothing in it, in front of a room. The shared
     // ErrorState replaces the whole view rather than sitting in a corner,
     // because at projector distance a corner is not read.
@@ -435,7 +460,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
           style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}
         >
           <div data-testid="fleet-audience-unreachable">
-            <ErrorState message={error} onRetry={loadTopology} />
+            <ErrorState message={error} onRetry={() => void loadTopology()} />
           </div>
         </div>
       )
@@ -476,17 +501,113 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
   return (
     <div data-testid="fleet-demo-page">
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
-        Fleet Demo
-      </h1>
-      {/* This page is presented from, live. The previous single line said
-          "topology and cascade visualisation", which is a label rather than an
-          explanation: it named the picture without saying what a card is, what
-          a line is, what the money on the right is measuring, or that the
-          buttons act on a real cluster with no confirmation step. Everything
-          an instructor has to say out loud in the first thirty seconds is now
-          on the page, and the running order, which is presenter guidance
-          rather than product documentation, sits in the hint. */}
+      {/* Header with Title, Heartbeat Indicator, and Mode Toggle */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+          Fleet Demo
+        </h1>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Pulsing heartbeat status indicator */}
+          <div
+            data-testid="fleet-heartbeat-indicator"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
+              padding: '4px 10px',
+              borderRadius: 6,
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <span
+              data-testid="fleet-heartbeat-dot"
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background:
+                  connectionStatus === 'connected'
+                    ? 'var(--cyan)'
+                    : connectionStatus === 'demo_fallback'
+                      ? 'var(--amber)'
+                      : 'var(--error)',
+                boxShadow:
+                  connectionStatus === 'connected'
+                    ? '0 0 6px var(--cyan)'
+                    : connectionStatus === 'demo_fallback'
+                      ? '0 0 6px var(--amber)'
+                      : 'none',
+                display: 'inline-block',
+              }}
+            />
+            <span data-testid="fleet-connection-label" style={{ color: 'var(--text)', fontWeight: 500 }}>
+              {connectionStatus === 'connected'
+                ? 'Live Cluster Connected'
+                : connectionStatus === 'demo_fallback'
+                  ? 'Demo Fixture Active'
+                  : 'Cluster Offline'}
+            </span>
+            <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+              (5s poll)
+            </span>
+          </div>
+
+          {/* Manual mode toggle */}
+          <button
+            type="button"
+            data-testid="fleet-source-toggle"
+            onClick={() => {
+              const nextMode = sourceMode === 'live' ? 'demo' : 'live'
+              setSourceMode(nextMode)
+              void loadTopology(nextMode)
+            }}
+            className="btn btn-secondary"
+            style={{ fontSize: 11.5, padding: '4px 9px' }}
+          >
+            {sourceMode === 'live' ? 'Use Demo Fixture' : 'Use Live Cluster'}
+          </button>
+        </div>
+      </div>
+
+      {/* Architectural Boundary Banner */}
+      <div
+        data-testid="fleet-boundary-banner"
+        style={{
+          background: 'color-mix(in srgb, var(--cyan) 6%, var(--surface))',
+          border: '1px solid color-mix(in srgb, var(--cyan) 25%, transparent)',
+          borderRadius: 8,
+          padding: '10px 14px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          fontSize: 12.5,
+        }}
+      >
+        <div>
+          <strong style={{ color: 'var(--cyan)' }}>Architectural Boundary:</strong>{' '}
+          Fleet Demo monitors operational cluster infrastructure, node/pod telemetry, Flux GitOps health,
+          and cascading failure blast radiuses. For cryptographic SPIFFE trust boundaries, mTLS enforcement policies,
+          and agent communication graphs, visit the{' '}
+          <Link to="/topology" style={{ color: 'var(--cyan)', textDecoration: 'underline' }}>
+            Topology
+          </Link>{' '}
+          surface.
+        </div>
+        <Link
+          to="/topology"
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap' }}
+        >
+          View Topology
+        </Link>
+      </div>
+
+      {/* Introduction */}
       <div data-testid="fleet-intro" style={{ maxWidth: 780, marginBottom: 20 }}>
         <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px', lineHeight: 1.55 }}>
           A live SuperCredential fleet: every agent running in the cluster, drawn as the
@@ -558,18 +679,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             status={loadPhase({ loading: topologyLoading, error, loaded: topologyLoaded })}
             label="fleet topology"
             error={error}
-            onRetry={loadTopology}
+            onRetry={() => void loadTopology()}
             testId="fleet-topology-status"
           />
 
-          {/* Fleet summary.
-              Four counts that were a row of coloured words in a bordered box
-              that existed nowhere else in the product. They are now DashKit
-              StatCards, the same primitive the Federated Services and Collusion
-              & Access dashboards count with, and the accents are unchanged —
-              cyan active, red stunned, amber non-compliant — because they are
-              the diagram's colours and changing them here would desynchronise
-              the two halves of the screen. */}
+          {/* Fleet summary */}
           <div data-testid="fleet-summary">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -584,13 +698,6 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               </HelpHint>
             </div>
             {unreachable ? (
-              // Four cards reading "0 deployed, 0 active, 0 stunned, 0
-              // non-compliant" is a picture of a clean, empty estate, and it is
-              // what this block drew while the ErrorState below it said the
-              // fleet manager had never answered. Two contradictory claims on
-              // one screen, and the confident one is the lie: nobody counted
-              // anything, because nobody replied. A count you do not have is
-              // not zero.
               <div
                 data-testid="fleet-summary-unreachable"
                 className="card"
@@ -600,11 +707,6 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                 agents; it is a fleet nobody has heard from.
               </div>
             ) : (
-              // A 2x2 grid rather than flex wrap. DashKit's StatCard carries
-              // `flex: 1; min-width: 180`, which in this 40%-width column fits
-              // three across and drops the fourth onto a full-bleed row of its
-              // own, so "Non-compliant" rendered three times the width of
-              // "Stunned" and read as the most important number here.
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
                 <StatCard label="Deployed" value={String(agents.length)} sub="agents deployed" accent="var(--text)" />
                 <StatCard label="Active" value={String(activeCount)} sub="active and authenticating" accent="var(--cyan)" />
@@ -688,11 +790,6 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   data-testid="fleet-stun-select"
                   value={stunTarget}
                   onChange={e => setStunTarget(e.target.value)}
-                  // Layout only. global.css already themes `input, select,
-                  // textarea`; the fill and border that used to be set here
-                  // were --surface/--border against the stylesheet's
-                  // --surface2/--border-subtle, so this was the one select in
-                  // the product that matched no other.
                   style={{ flex: 1, minWidth: 0 }}
                 >
                   {stunnableAgents.map(a => (
@@ -702,10 +799,6 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                     <option value="agent-cardvault">agent-cardvault</option>
                   )}
                 </select>
-                {/* The only content-sized button in the column, and the one
-                    that shares its row with a select — so it goes compact and
-                    keeps a fixed min-width, or the select resizes under the
-                    operator's cursor every time the figure gains a digit. */}
                 <button
                   data-testid="fleet-stun-btn"
                   onClick={handleStun}
@@ -775,21 +868,17 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       </div>
 
       {/* ── Fleet roster ────────────────────────────────────────────────────
-          The diagram answers "what depends on what". It cannot answer "which
-          agents does the AI team own", "what is the workload ID I have to type
-          into Stun", or "show me only the low-trust ones", and those are the
+          The diagram answers what depends on what. It cannot answer which
+          agents does the AI team own, what is the workload ID I have to type
+          into Stun, or show me only the low-trust ones, and those are the
           questions asked from the floor. Same array, same poll, sortable. */}
       <Section
         title="Fleet roster"
         hint="the same agents the diagram draws, as rows you can sort and narrow"
       >
         {unreachable ? (
-          // NOT an EmptyState. A fleet manager that never answered and a fleet
-          // manager that answered "nothing deployed" are different claims, and
-          // only one of them means the demo is broken. Filters over an estate
-          // nobody has heard from would be theater, so the toolbar goes too.
           <div data-testid="fleet-roster-unreachable">
-            <ErrorState message={error} onRetry={loadTopology} />
+            <ErrorState message={error} onRetry={() => void loadTopology()} />
           </div>
         ) : (
           <DataTable
@@ -838,9 +927,6 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   )
                 })}
 
-                {/* A select rather than three more chips. Two chip rows read as
-                    one row of eight controls with no grouping, and global.css
-                    already themes every select in the product. */}
                 <select
                   aria-label="Filter the fleet roster by trust profile"
                   value={rosterTrust}

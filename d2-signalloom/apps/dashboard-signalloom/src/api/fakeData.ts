@@ -44,6 +44,7 @@ import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTests
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
 import { simulatedAgentIdentity } from './supercredTypes'
 import { FAKE_CODING_AGENT_TELEMETRY, FAKE_CODING_AGENT_AGGREGATE } from './fakeCodingAgentData'
+import type { FleetTopology } from './fleetApi'
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
@@ -1240,6 +1241,79 @@ type Match = {
 
 const re = (r: RegExp) => (path: string) => r.test(path)
 
+export const FLEET_DEMO_FIXTURE: FleetTopology = {
+  agents: [
+    { id: 'agent-cardvault', name: 'Card Vault', type: 'data-vault', team: 'data', trustProfile: 'high', state: 'active' },
+    { id: 'agent-pipeline', name: 'Data Pipeline', type: 'data-pipeline', team: 'data', trustProfile: 'medium', state: 'active' },
+    { id: 'agent-llm', name: 'LLM Inference', type: 'llm-inference', team: 'ai', trustProfile: 'medium', state: 'active' },
+    { id: 'agent-gateway', name: 'API Gateway', type: 'api-gateway', team: 'platform', trustProfile: 'low', state: 'active' },
+    { id: 'agent-monitor', name: 'Monitor', type: 'observability', team: 'sre', trustProfile: 'high', state: 'active' },
+    { id: 'agent-auth', name: 'Auth Service', type: 'api-gateway', team: 'platform', trustProfile: 'high', state: 'active' },
+    { id: 'agent-storage', name: 'Secure Storage', type: 'data-vault', team: 'data', trustProfile: 'high', state: 'active' },
+  ],
+  edges: [
+    { from: 'agent-cardvault', to: 'agent-pipeline' },
+    { from: 'agent-pipeline', to: 'agent-llm' },
+    { from: 'agent-llm', to: 'agent-gateway' },
+    { from: 'agent-gateway', to: 'agent-monitor' },
+    { from: 'agent-auth', to: 'agent-gateway' },
+    { from: 'agent-storage', to: 'agent-pipeline' },
+  ],
+  aggregateRisk: {
+    ale: 847000,
+    var95: 1200000,
+    trend: 'stable',
+    previousAle: 820000,
+  },
+  cascadeHistory: [
+    {
+      triggerId: 'agent-cardvault',
+      affectedIds: ['agent-cardvault', 'agent-pipeline', 'agent-llm'],
+      timestamp: '2026-09-28T14:30:00Z',
+      durationMs: 420,
+      riskBefore: 650000,
+      riskAfter: 847000,
+    },
+  ],
+  nodes: [
+    { name: 'osramp-control-plane', status: 'Ready', cpuUsagePercent: 38, memoryUsagePercent: 62, roles: ['control-plane', 'master'] },
+    { name: 'osramp-worker-1', status: 'Ready', cpuUsagePercent: 45, memoryUsagePercent: 58, roles: ['worker'] },
+    { name: 'osramp-worker-2', status: 'Ready', cpuUsagePercent: 52, memoryUsagePercent: 71, roles: ['worker'] },
+  ],
+  podPhaseCounts: {
+    running: 22,
+    pending: 0,
+    failed: 0,
+    succeeded: 2,
+  },
+  fluxStatus: {
+    reconciled: true,
+    lastReconciledAt: '2026-09-28T14:35:00Z',
+    revision: 'main@sha1:9774902',
+    suspended: false,
+  },
+}
+
+export const FLEET_ROUTES: Match[] = [
+  { method: 'GET', test: re(/^\/fleet\/topology$/), data: () => FLEET_DEMO_FIXTURE },
+  { method: 'GET', test: re(/^\/fleet\/status$/), data: () => ({ status: 'ok', cluster: 'osramp-demo', nodes: 3, pods: 24, fluxReconciled: true }) },
+  { method: 'POST', test: re(/^\/fleet\/deploy$/), data: () => ({ status: 'deployed' }) },
+  { method: 'POST', test: re(/^\/fleet\/scan$/), data: () => ({ status: 'scanned' }) },
+  { method: 'POST', test: re(/^\/fleet\/stun\/[^/]+$/), data: (path) => {
+    const target = path.split('/').pop() ?? 'agent-cardvault'
+    return {
+      triggerId: target,
+      affectedIds: [target, 'agent-pipeline'],
+      timestamp: '2026-09-28T14:30:00Z',
+      durationMs: 380,
+      riskBefore: 650000,
+      riskAfter: 847000,
+    }
+  }},
+  { method: 'POST', test: re(/^\/fleet\/recover$/), data: () => ({ status: 'recovered' }) },
+  { method: 'POST', test: re(/^\/fleet\/reset$/), data: () => ({ status: 'reset' }) },
+]
+
 // Ordered most-specific-first; paths are the raw values passed to req() in
 // client.ts (query string stripped before matching).
 const ROUTES: Match[] = [
@@ -1323,21 +1397,15 @@ const ROUTES: Match[] = [
     explanation: 'Resolved via monotonic execution anchor and bounded clock skew',
   }) },
   { method: 'POST', test: re(/^\/v1\/telemetry\/coding-agents$/), data: () => ({ status: 'ingested', session_id: 'demo-session', duplicate: false }) },
+  // fleet manager routes (Surface 12: Fleet Demo offline fallback)
+  ...FLEET_ROUTES,
 ]
 
-
-/** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *
- *  The previous revision of this comment carried a running sum that had drifted from
- *  the code it described (it totalled 46 while ROUTES.length was 50, which the test
- *  had been quietly updated to). A tally maintained by hand beside a value computed
- *  by the compiler is a second source of truth that only ever loses, so it is gone:
- *  ROUTES.length is the count, and demoMode.test.ts asserts the literal so that
- *  adding a route stays a deliberate, visible change. */
+/** Number of distinct demo routes. Asserted by vitest to match client surface. */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 function cleanPath(path: string): string {
-  return path.replace(/^\/api/, '').split('?')[0]
+  return path.replace(/^\/api/, '').replace(/^\/fleet-api\/v1/, '').split('?')[0]
 }
 
 export function hasFakeRoute(method: string, path: string): boolean {

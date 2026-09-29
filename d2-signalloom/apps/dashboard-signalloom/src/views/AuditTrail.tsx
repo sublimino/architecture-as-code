@@ -96,7 +96,7 @@ const EVENT_COLORS: Record<string, string> = {
   // takes on its own, so they carry the error colour.
   'agent.stunned': 'var(--error)',
   'agent.stun_failed': 'var(--error)',
-  'agent.stun_simulated': 'var(--muted)',
+  'agent.stun_simulated': 'var(--cyan)', // routine: nothing was enforced, the taxonomy has no muted bucket
   'agent.credential_revoked': 'var(--error)',
   'agent.created': 'var(--teal)',
   'agent.transitioned': 'var(--violet)',

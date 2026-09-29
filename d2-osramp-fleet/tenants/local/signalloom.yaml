@@ -1017,6 +1017,16 @@ spec:
         - apiGroups: [""]
           resources: ["pods"]
           verbs: ["get", "list", "patch"]
+        # gitops plane: walk pod -> ReplicaSet -> Deployment and annotate the
+        # Deployment's metadata with kustomize.toolkit.fluxcd.io/reconcile=
+        # disabled while an agent is contained. No update (a full replace
+        # could rewrite the pod template) and no list or watch.
+        - apiGroups: ["apps"]
+          resources: ["replicasets"]
+          verbs: ["get"]
+        - apiGroups: ["apps"]
+          resources: ["deployments"]
+          verbs: ["get", "patch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:

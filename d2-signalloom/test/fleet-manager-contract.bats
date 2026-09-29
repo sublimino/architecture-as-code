@@ -146,6 +146,42 @@ fleet_role_rules() {
 	[ -z "$wildcards" ]
 }
 
+# --- gitops plane grants (kusari-e2e W1) ---
+#
+# The gitops plane annotates the agent's owning Deployment with
+# kustomize.toolkit.fluxcd.io/reconcile=disabled, reached pod -> ReplicaSet ->
+# Deployment. That needs get on replicasets and get+patch on deployments, and
+# nothing more. The tests above only read rules[0]; these read every rule.
+
+fleet_role() {
+	yq ea "select(.metadata.name == \"signalloom-infra\")
+	       | .spec.resources[]
+	       | select(.kind == \"Role\" and .metadata.name == \"fleet-manager-pod-reader\")" "$resourceset"
+}
+
+rule_for() {
+	fleet_role | yq ".rules[] | select(.resources[] == \"$1\") | (.apiGroups | join(\",\")) + \":\" + (.verbs | sort | join(\",\"))"
+}
+
+@test "Role grants exactly get,patch on apps/deployments" {
+	run rule_for deployments
+	[ "$status" -eq 0 ]
+	[ "$output" = "apps:get,patch" ]
+}
+
+@test "Role grants exactly get on apps/replicasets" {
+	run rule_for replicasets
+	[ "$status" -eq 0 ]
+	[ "$output" = "apps:get" ]
+}
+
+@test "no Role rule grants update or any wildcard" {
+	local all
+	all="$(fleet_role | yq '.rules[] | (.apiGroups[], .resources[], .verbs[])')"
+	[ -n "$all" ]
+	[ -z "$(printf '%s\n' "$all" | grep -Fx -e '*' -e update || true)" ]
+}
+
 @test "Role is namespace-scoped to fe-signalloom-agents" {
 	run yq ea "select(.metadata.name == \"signalloom-infra\")
 	           | .spec.resources[]
@@ -224,4 +260,12 @@ fleet_role_rules() {
 	run yq '.spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/part-of"]' "$base/networkpolicy.yaml"
 	[ "$status" -eq 0 ]
 	[ "$output" = "signalloom" ]
+}
+
+@test "NetworkPolicy admits the fe-signalloom API pod on http (kusari-e2e stun call)" {
+	# The fe-signalloom API pod carries only app.kubernetes.io/name=fe-signalloom,
+	# so neither the part-of nor the dashboard selector admits it.
+	run yq '.spec.ingress[] | select(.from[].podSelector.matchLabels["app.kubernetes.io/name"] == "fe-signalloom") | .ports[].port' "$base/networkpolicy.yaml"
+	[ "$status" -eq 0 ]
+	[ "$output" = "http" ]
 }

@@ -250,11 +250,13 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	// The dashboard and the integration proxy send pod names; the DAG knows
 	// agent ids. Resolve before anything else so a 404 means "no such agent"
 	// and never "you used the pod's name".
+	w.Header().Set(requestedAgentHeader, agentID)
 	resolved, err := s.resolveAgentID(r.Context(), agentID)
 	if err != nil {
 		writeUnknownAgent(w, resolved)
 		return
 	}
+	slog.Info("stun target resolved", "requested_id", agentID, "agent", resolved.ID, "resolved_by", resolved.By)
 
 	reason, err := decodeStunRequest(r, agentID, resolved.ID)
 	if err != nil {
@@ -262,10 +264,7 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.orchestrator.Stun(r.Context(), resolved.ID, reason)
-	if result != nil {
-		result.Details = map[string]any{"requested_id": agentID}
-	}
+	result, err := s.orchestrator.Stun(withAgentResolution(r.Context(), resolved), resolved.ID, reason)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -384,11 +383,13 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	// token's agent binding is then checked against the resolved id. An id no
 	// branch resolves is a 404 before any token verification.
 	if req.AgentID != "" {
+		w.Header().Set(requestedAgentHeader, req.AgentID)
 		resolved, err := s.resolveAgentID(r.Context(), req.AgentID)
 		if err != nil {
 			writeUnknownAgent(w, resolved)
 			return
 		}
+		slog.Info("resume target resolved", "requested_id", req.AgentID, "agent", resolved.ID, "resolved_by", resolved.By)
 		req.AgentID = resolved.ID
 	}
 	if req.IdempotencyKey == "" {

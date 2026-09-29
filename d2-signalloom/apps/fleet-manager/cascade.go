@@ -119,10 +119,6 @@ type CascadeResult struct {
 	DurationMs     int64              `json:"duration_ms"`
 	RecoveryOrder  []string           `json:"recovery_order,omitempty"`
 	OverallOutcome PlaneOutcome       `json:"overall_outcome,omitempty"`
-	// Details carries request-level context the handler adds, currently
-	// requested_id: the id the caller sent before it was resolved onto the
-	// DAG agent named in TargetAgent (often a pod name).
-	Details map[string]any `json:"details,omitempty"`
 }
 
 // FailedTargets returns the agent IDs whose containment or recovery did not
@@ -245,6 +241,10 @@ func (o *CascadeOrchestrator) freezePlaneResult(ctx context.Context, namespace, 
 			"pod":         pod,
 			"state_label": PodStateLabel + "=" + PodStateLabelValue(StateStunned),
 		},
+	}
+	if res, ok := agentResolutionFrom(ctx); ok {
+		pr.Details["requested_id"] = res.Requested
+		pr.Details["resolved_by"] = res.By
 	}
 	if !write.Succeeded {
 		pr.Outcome = OutcomeUnavailable

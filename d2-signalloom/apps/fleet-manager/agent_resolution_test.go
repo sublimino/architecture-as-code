@@ -74,7 +74,7 @@ func resolutionServer(t *testing.T, objects ...runtime.Object) (*server, *fake.C
 func TestResolveAgentID_ExactDAGID(t *testing.T) {
 	s, cs := resolutionServer(t)
 	got, err := s.resolveAgentID(context.Background(), "agent-cardvault")
-	if err != nil || got.ID != "agent-cardvault" {
+	if err != nil || got.ID != "agent-cardvault" || got.By != "exact" {
 		t.Fatalf("resolve = %+v, %v; want agent-cardvault", got, err)
 	}
 	if n := len(cs.Actions()); n != 0 {
@@ -85,7 +85,7 @@ func TestResolveAgentID_ExactDAGID(t *testing.T) {
 func TestResolveAgentID_AgentNameLabel(t *testing.T) {
 	s, _ := resolutionServer(t, livePod(livePodKusari, "kusari-agent"))
 	got, err := s.resolveAgentID(context.Background(), livePodKusari)
-	if err != nil || got.ID != kusariAgentID {
+	if err != nil || got.ID != kusariAgentID || got.By != "label" {
 		t.Fatalf("resolve = %+v, %v; want %s via the agent-name label", got, err, kusariAgentID)
 	}
 }
@@ -93,7 +93,7 @@ func TestResolveAgentID_AgentNameLabel(t *testing.T) {
 func TestResolveAgentID_ReplicaSetPodNameWithoutLabel(t *testing.T) {
 	s, _ := resolutionServer(t, livePod(livePodCardvault, ""))
 	got, err := s.resolveAgentID(context.Background(), livePodCardvault)
-	if err != nil || got.ID != "agent-cardvault" {
+	if err != nil || got.ID != "agent-cardvault" || got.By != "replicaset-pattern" {
 		t.Fatalf("resolve = %+v, %v; want agent-cardvault via the ReplicaSet name pattern", got, err)
 	}
 }
@@ -147,7 +147,7 @@ func TestHandleStun_PodNameResolvesToDAGAgent(t *testing.T) {
 	if res.TargetAgent != "agent-cardvault" {
 		t.Fatalf("target_agent = %q, want the resolved DAG id agent-cardvault", res.TargetAgent)
 	}
-	assertRequestedID(t, w.Body.Bytes(), livePodCardvault)
+	assertRequestedID(t, w, livePodCardvault, "replicaset-pattern")
 }
 
 func TestHandleStun_UnknownAgentAnswers404WithTried(t *testing.T) {
@@ -220,16 +220,35 @@ func TestHandleResume_UnknownAgentAnswers404BeforeTokenChecks(t *testing.T) {
 	}
 }
 
-// assertRequestedID checks the response records what the caller sent.
-func assertRequestedID(t *testing.T, raw []byte, want string) {
+// assertRequestedID checks the response records what the caller sent without
+// any change to the frozen CascadeResult: in every freeze plane's details
+// (requested_id, resolved_by) and in the X-Requested-Agent-Id header.
+func assertRequestedID(t *testing.T, w *httptest.ResponseRecorder, want, wantBy string) {
 	t.Helper()
-	var body struct {
-		Details map[string]any `json:"details"`
+	if got := w.Header().Get("X-Requested-Agent-Id"); got != want {
+		t.Fatalf("X-Requested-Agent-Id = %q, want %q", got, want)
 	}
-	if err := json.Unmarshal(raw, &body); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Details["requested_id"] != want {
-		t.Fatalf("details.requested_id = %v, want %q", body.Details["requested_id"], want)
+	if _, ok := raw["details"]; ok {
+		t.Fatalf("CascadeResult carries a top-level details key; the frozen contract has none")
+	}
+	var res CascadeResult
+	_ = json.Unmarshal(w.Body.Bytes(), &res)
+	freezes := 0
+	for _, p := range res.Planes {
+		if p.Plane != PlaneFreeze {
+			continue
+		}
+		freezes++
+		if p.Details["requested_id"] != want || p.Details["resolved_by"] != wantBy {
+			t.Fatalf("freeze details requested_id=%v resolved_by=%v, want %q and %q",
+				p.Details["requested_id"], p.Details["resolved_by"], want, wantBy)
+		}
+	}
+	if freezes == 0 {
+		t.Fatalf("no freeze plane in %+v", res.Planes)
 	}
 }

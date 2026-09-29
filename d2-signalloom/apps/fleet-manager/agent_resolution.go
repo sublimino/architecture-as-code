@@ -26,7 +26,34 @@ type AgentPodLookup interface {
 type agentResolution struct {
 	ID        string
 	Requested string
-	Tried     []string
+	// By names the branch that resolved it: exact, label or replicaset-pattern.
+	By    string
+	Tried []string
+}
+
+// Resolution branch names, as reported in freeze-plane details.resolved_by.
+const (
+	resolvedByExact      = "exact"
+	resolvedByLabel      = "label"
+	resolvedByReplicaSet = "replicaset-pattern"
+)
+
+// requestedAgentHeader carries the id the caller sent, before resolution.
+const requestedAgentHeader = "X-Requested-Agent-Id"
+
+// requestContextKey carries the resolution into the orchestrator, so the
+// freeze PlaneResult records requested_id and resolved_by at creation and the
+// signed attestation evidence includes them. PlaneResult.details is already a
+// free map on the wire, so this needs no change to the frozen CascadeResult.
+type requestContextKey struct{}
+
+func withAgentResolution(ctx context.Context, r agentResolution) context.Context {
+	return context.WithValue(ctx, requestContextKey{}, r)
+}
+
+func agentResolutionFrom(ctx context.Context) (agentResolution, bool) {
+	r, ok := ctx.Value(requestContextKey{}).(agentResolution)
+	return r, ok
 }
 
 // podLookup returns the client that can read agent pods: the installed
@@ -74,6 +101,7 @@ func (s *server) resolveAgentID(ctx context.Context, requested string) (agentRes
 	res.Tried = append(res.Tried, "dag:"+requested)
 	if s.dag != nil && s.dag.GetAgent(requested) != nil {
 		res.ID = requested
+		res.By = resolvedByExact
 		return res, nil
 	}
 	if s.dag == nil {
@@ -101,6 +129,7 @@ func (s *server) resolveAgentID(ctx context.Context, requested string) (agentRes
 		if s.dag.GetAgent(candidate) != nil {
 			res.Tried = append(res.Tried, fmt.Sprintf("label:%s=%s -> %s", AgentNameLabel, n, candidate))
 			res.ID = candidate
+			res.By = resolvedByLabel
 			return res, nil
 		}
 		res.Tried = append(res.Tried, fmt.Sprintf("label:%s=%s -> %s (not in topology)", AgentNameLabel, n, candidate))
@@ -112,6 +141,7 @@ func (s *server) resolveAgentID(ctx context.Context, requested string) (agentRes
 		if s.dag.GetAgent(base) != nil {
 			res.Tried = append(res.Tried, "replicaset:"+base)
 			res.ID = base
+			res.By = resolvedByReplicaSet
 			return res, nil
 		}
 		res.Tried = append(res.Tried, "replicaset:"+base+" (not in topology)")

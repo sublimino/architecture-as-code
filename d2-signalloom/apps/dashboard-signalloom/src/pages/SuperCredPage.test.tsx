@@ -628,14 +628,69 @@ describe('SuperCredPage', () => {
     expect(openbao).toHaveTextContent('active')
   })
 
-  it('shows revoked status for credentials of a stunned agent', async () => {
+  // A stunned agent found by discovery, with no stun made from this page, has
+  // no plane report behind it. "revoked" would be a claim with no evidence, so
+  // the identity and lease rows say unknown instead. This test used to assert
+  // "revoked" from the agent state alone.
+  it('shows unknown, never revoked, for a stunned agent with no plane report', async () => {
     mockFetch({ agents: [stunnedCardvault()] })
     renderPage()
     await refresh()
     const spiffeCred = await screen.findByTestId('credential-status-cred-agent-cardvault-spiffe')
-    expect(spiffeCred).toHaveTextContent('revoked')
+    expect(spiffeCred).toHaveTextContent('unknown')
+    expect(spiffeCred).not.toHaveTextContent(/\brevoked\b/)
     const openbao = screen.getByTestId('credential-status-cred-agent-cardvault-openbao')
-    expect(openbao).toHaveTextContent('revoked')
+    expect(openbao).toHaveTextContent('unknown')
+    expect(openbao).not.toHaveTextContent(/\brevoked\b/)
+  })
+
+  /** Stun through the page, with discovery answering "stunned" on the reload the page does afterwards. */
+  async function stunThenReload(response: StunAgentResponse) {
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(response)
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    mockFetch({ agents: [stunnedCardvault()] })
+    await confirmStun()
+    await screen.findByTestId('supercred-stun-result')
+  }
+
+  it('marks a credential revoked only when its plane reported contained', async () => {
+    await stunThenReload(stunResponse())
+    await waitFor(() =>
+      expect(screen.getByTestId('credential-status-cred-agent-cardvault-spiffe')).toHaveTextContent(/^revoked$/),
+    )
+    expect(screen.getByTestId('credential-status-cred-agent-cardvault-openbao')).toHaveTextContent(/^revoked$/)
+  })
+
+  it('renders the SPIFFE credential as not revoked when the spire plane was partial', async () => {
+    await stunThenReload(stunResponse({
+      overall_outcome: 'partial',
+      planes: [
+        plane('freeze'),
+        plane('bao'),
+        plane('spire', 'partial', { error: '1 of 2 SVIDs still within TTL' }),
+        plane('mesh'),
+      ],
+    }))
+    const spiffe = await screen.findByTestId('credential-status-cred-agent-cardvault-spiffe')
+    await waitFor(() => expect(spiffe).toHaveTextContent('revocation failed'))
+    expect(spiffe).not.toHaveTextContent(/\brevoked\b/)
+    expect(screen.getByTestId('credential-plane-note-cred-agent-cardvault-spiffe'))
+      .toHaveTextContent('1 of 2 SVIDs still within TTL')
+    // bao did contain, so the lease row may say so.
+    expect(screen.getByTestId('credential-status-cred-agent-cardvault-openbao')).toHaveTextContent(/^revoked$/)
+  })
+
+  it('shows unknown when the stun result carries no plane for that credential', async () => {
+    await stunThenReload(stunResponse({
+      overall_outcome: 'partial',
+      planes: [plane('freeze'), plane('spire'), plane('mesh')],
+    }))
+    const openbao = await screen.findByTestId('credential-status-cred-agent-cardvault-openbao')
+    await waitFor(() => expect(openbao).toHaveTextContent('unknown'))
+    expect(screen.getByTestId('credential-plane-note-cred-agent-cardvault-openbao')).toHaveTextContent(/no bao plane/i)
   })
 
   it('shows rotation count for credentials', async () => {

@@ -167,7 +167,7 @@ describe('FleetDemoPage', () => {
     expect(options).not.toContain('agent-monitor')
   })
 
-  it('stun button calls the API with selected agent', async () => {
+  it('stun button asks for a reason, then calls the API with the selected agent and that reason', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     renderPage()
     await waitFor(() => {
@@ -175,9 +175,49 @@ describe('FleetDemoPage', () => {
     })
     // Default target is agent-cardvault.
     await user.click(screen.getByTestId('fleet-stun-btn'))
+    expect(mockStunFleetAgent).not.toHaveBeenCalled()
+    await user.type(await screen.findByLabelText(/Reason for stunning Card Vault/), '  exfil drill  ')
+    await user.click(screen.getByRole('button', { name: /Confirm stun/ }))
     await waitFor(() => {
-      expect(mockStunFleetAgent).toHaveBeenCalledWith('agent-cardvault', 'test-token')
+      expect(mockStunFleetAgent).toHaveBeenCalledWith('agent-cardvault', 'test-token', 'exfil drill')
     })
+  })
+
+  it('will not stun the fleet without a reason', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-stun-btn')).toBeInTheDocument())
+    await user.click(screen.getByTestId('fleet-stun-btn'))
+    await user.click(await screen.findByRole('button', { name: /Confirm stun/ }))
+    expect(await screen.findByTestId('stun-reason-error')).toHaveTextContent(/reason is required/i)
+    expect(mockStunFleetAgent).not.toHaveBeenCalled()
+  })
+
+  it('renders the per-plane result with the overall outcome, partial never as success', async () => {
+    mockStunFleetAgent.mockResolvedValue({
+      target_agent: 'agent-cardvault',
+      affected_agents: ['agent-cardvault', 'agent-pipeline'],
+      duration_ms: 420,
+      overall_outcome: 'partial',
+      planes: [
+        { plane: 'gitops', outcome: 'contained', timestamp: '2026-09-29T10:00:00Z' },
+        { plane: 'gitops', outcome: 'not_found', timestamp: '2026-09-29T10:00:01Z', error: 'no Kustomization owns it' },
+      ],
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-stun-btn')).toBeInTheDocument())
+    await user.click(screen.getByTestId('fleet-stun-btn'))
+    await user.type(await screen.findByLabelText(/Reason for stunning/), 'drill')
+    await user.click(screen.getByRole('button', { name: /Confirm stun/ }))
+
+    const result = await screen.findByTestId('fleet-stun-result')
+    const headline = within(result).getByTestId('stun-overall-outcome')
+    expect(headline).toHaveClass('stun-outcome--partial')
+    expect(headline).not.toHaveClass('stun-outcome--contained')
+    // Two gitops rows, one per cascade target, both kept.
+    expect(within(result).getByTestId('stun-plane-table').querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(result).toHaveTextContent('no Kustomization owns it')
   })
 
   it('recover button calls the API', async () => {
@@ -569,6 +609,9 @@ describe('fleet waits say how long they have been waiting', () => {
     await waitFor(() => expect(screen.getByTestId('fleet-stun-btn')).toBeInTheDocument())
     const idleWidth = screen.getByTestId('fleet-stun-btn').style.minWidth
     await user.click(screen.getByTestId('fleet-stun-btn'))
+    // The confirm step comes first: the reason is required before anything is sent.
+    await user.type(await screen.findByLabelText(/Reason for stunning/), 'drill')
+    await user.click(screen.getByRole('button', { name: /Confirm stun/ }))
 
     expect(await screen.findByTestId('fleet-stun-loader')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /stunning/i })).toBeDisabled()

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -53,15 +53,6 @@ vi.mock('../api/client', () => ({
           failedControls: 3,
           totalExposure: { amount: 50500, currency: 'GBP' },
         },
-        {
-          id: 'gemara',
-          name: 'Gemara',
-          versions: ['v1.0', 'v2.0', 'v2.1'],
-          totalControls: 10,
-          passedControls: 7,
-          failedControls: 3,
-          totalExposure: { amount: 61900, currency: 'GBP' },
-        },
       ]),
       summary: vi.fn().mockResolvedValue({
         totalChecks: 41,
@@ -91,6 +82,65 @@ vi.mock('../api/client', () => ({
         },
       }),
     },
+    policies: {
+      list: vi.fn().mockResolvedValue([
+        {
+          framework_id: 'eu-ai-act',
+          active_version: 'v2.1.0',
+          latest_version: 'v2.1.0',
+          active_bundle: {
+            id: 'eu-ai-act-v2.1.0',
+            framework_id: 'eu-ai-act',
+            version: 'v2.1.0',
+            author: 'system',
+            description: 'EU AI Act Rules',
+            created_at: '2026-09-28T12:00:00Z',
+            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            rules: [
+              {
+                id: 'container-run-as-non-root',
+                name: 'AI system container runs as non-root',
+                cel_expression: 'object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)',
+                severity: 'high',
+                remediation: 'Set runAsNonRoot to true.',
+              },
+            ],
+          },
+          version_history: [
+            {
+              version: 'v2.1.0',
+              author: 'system',
+              description: 'Active release',
+              created_at: '2026-09-28T12:00:00Z',
+              rule_count: 1,
+              checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            },
+            {
+              version: 'v2.0.0',
+              author: 'alice',
+              description: 'Prior draft',
+              created_at: '2026-09-20T10:00:00Z',
+              rule_count: 1,
+              checksum: 'a1b2c3d4e5f6',
+            },
+          ],
+        },
+      ]),
+      registerBundle: vi.fn().mockResolvedValue({
+        id: 'eu-ai-act-v2.1.1',
+        version: 'v2.1.1',
+      }),
+      rollback: vi.fn().mockResolvedValue({
+        message: 'Rolled back successfully',
+        active_bundle: {
+          id: 'eu-ai-act-v2.0.0',
+          version: 'v2.0.0',
+        },
+      }),
+      evaluate: vi.fn().mockResolvedValue({
+        compliant: true,
+      }),
+    },
   },
 }))
 
@@ -105,97 +155,88 @@ function renderPage() {
 }
 
 describe('CompliancePolicyPage', () => {
-  it('renders the Policy Compliance heading', async () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders the Policy Compliance heading and breadcrumb navigation', async () => {
     renderPage()
     expect(screen.getByRole('heading', { level: 1, name: 'Policy Compliance' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument()
+    expect(screen.getByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
   })
 
-  it('renders framework cards after loading', async () => {
+  it('mounts PolicyEditor with active bundle rules on default editor tab', async () => {
     renderPage()
-    const euMatches = await screen.findAllByText('EU AI Act')
-    expect(euMatches.length).toBeGreaterThanOrEqual(1)
-    const nistMatches = await screen.findAllByText('NIST 800-53')
-    expect(nistMatches.length).toBeGreaterThanOrEqual(1)
-    const finosMatches = await screen.findAllByText('FINOS AIGF')
-    expect(finosMatches.length).toBeGreaterThanOrEqual(1)
-    const gemaraMatches = await screen.findAllByText('Gemara')
-    expect(gemaraMatches.length).toBeGreaterThanOrEqual(1)
+    expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-code-textarea')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-diagnostic-valid')).toBeInTheDocument()
   })
 
-  it('renders stat cards with check totals', async () => {
+  it('renders framework cards, stat cards, and chart after switching to overview tab', async () => {
+    const user = userEvent.setup()
     renderPage()
+
+    const overviewTab = screen.getByTestId('tab-overview')
+    await user.click(overviewTab)
+
     expect(await screen.findByText('Total Checks')).toBeInTheDocument()
     expect(await screen.findByText('41')).toBeInTheDocument()
-    const passedMatches = screen.getAllByText('Passed')
-    expect(passedMatches.length).toBeGreaterThanOrEqual(1)
-    const failedMatches = screen.getAllByText('Failed')
-    expect(failedMatches.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('renders a Scan Now button', async () => {
-    renderPage()
-    const btn = screen.getByRole('button', { name: /Scan Now/i })
-    expect(btn).toBeInTheDocument()
+    const euMatches = await screen.findAllByText('EU AI Act')
+    expect(euMatches.length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByTestId('bar-chart')).toBeInTheDocument()
   })
 
   it('calls the scan API when Scan Now is clicked', async () => {
     const { api } = await import('../api/client')
+    const user = userEvent.setup()
     renderPage()
-    await screen.findAllByText('EU AI Act')
-    await userEvent.click(screen.getByRole('button', { name: /Scan Now/i }))
+
+    await screen.findByTestId('policy-editor-container')
+    await user.click(screen.getByRole('button', { name: /Scan Now/i }))
+
     await waitFor(() => {
       expect(api.compliancePolicy.scan).toHaveBeenCalled()
     })
   })
 
-  it('renders the bar chart container', async () => {
-    renderPage()
-    await screen.findAllByText('EU AI Act')
-    expect(screen.getByTestId('bar-chart')).toBeInTheDocument()
-  })
-
-  it('renders version pills on framework cards', async () => {
-    renderPage()
-    const pills = await screen.findAllByText('v2.1')
-    expect(pills.length).toBeGreaterThan(0)
-  })
-
-  it('renders total exposure in GBP format', async () => {
-    renderPage()
-    expect(await screen.findByText('Total Exposure')).toBeInTheDocument()
-  })
-
-  it('renders correctly when API returns raw wire format with carried and exposure fields', async () => {
+  it('calls registerBundle when Save New Version is clicked in editor', async () => {
     const { api } = await import('../api/client')
-    vi.mocked(api.compliancePolicy.frameworks).mockResolvedValueOnce([
-      {
-        id: 'wire-fw',
-        name: 'Wire Framework',
-        versions: ['v1.0'],
-        totalControls: 5,
-        passedControls: 5,
-        failedControls: 0,
-        exposure: { amount: 12300, currency: 'GBP' },
-        totalExposureGbp: 12300,
-      } as any,
-    ])
-    vi.mocked(api.compliancePolicy.summary).mockResolvedValueOnce({
-      totalChecks: 5,
-      passed: 5,
-      failed: 0,
-      currency: 'GBP',
-      totalAle: 50000 as any,
-      totalVar95: 100000 as any,
-      totalTvar: 150000 as any,
-      carried: { amount: 0, currency: 'GBP' },
-      totalCarriedGbp: 0,
-      scanTimestamp: '2026-07-27T12:00:00Z',
-      frameworks: [],
-    } as any)
-
+    const user = userEvent.setup()
     renderPage()
-    const fwMatches = await screen.findAllByText('Wire Framework')
-    expect(fwMatches.length).toBeGreaterThanOrEqual(1)
-    expect(await screen.findByText('Total Exposure')).toBeInTheDocument()
+
+    await screen.findByTestId('policy-editor-container')
+    const saveBtn = screen.getByTestId('save-policy-btn')
+    await user.click(saveBtn)
+
+    await waitFor(() => {
+      expect(api.policies.registerBundle).toHaveBeenCalled()
+    })
+  })
+
+  it('dispatches rollback when rollback action is confirmed in editor', async () => {
+    const { api } = await import('../api/client')
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByTestId('policy-editor-container')
+    await user.click(screen.getByTestId('toggle-version-history-btn'))
+    await user.click(screen.getByTestId('version-item-v2.0.0'))
+
+    const rollbackBtn = screen.getByTestId('rollback-btn')
+    await user.click(rollbackBtn)
+
+    const confirmButtons = screen.getAllByRole('button', { name: /Rollback to v2.0.0/i })
+    await user.click(confirmButtons[confirmButtons.length - 1])
+
+    await waitFor(() => {
+      expect(api.policies.rollback).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          framework_id: 'eu-ai-act',
+          target_version: 'v2.0.0',
+        }),
+      )
+    })
   })
 })

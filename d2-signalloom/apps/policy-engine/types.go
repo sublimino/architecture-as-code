@@ -12,6 +12,7 @@ type PolicyRule struct {
 	CELExpression string          `json:"cel_expression" yaml:"cel_expression"`
 	Severity      string          `json:"severity,omitempty" yaml:"severity,omitempty"`
 	Remediation   string          `json:"remediation,omitempty" yaml:"remediation,omitempty"`
+	Status        string          `json:"status,omitempty" yaml:"status,omitempty"`
 	RiskTriple    fair.RiskTriple `json:"risk_triple,omitempty" yaml:"risk_triple,omitempty"`
 	FreqTriple    fair.RiskTriple `json:"freq_triple,omitempty" yaml:"freq_triple,omitempty"`
 }
@@ -25,6 +26,7 @@ type PolicyBundle struct {
 	Author      string       `json:"author" yaml:"author"`
 	Description string       `json:"description,omitempty" yaml:"description,omitempty"`
 	CreatedAt   string       `json:"created_at" yaml:"created_at"`
+	Status      string       `json:"status,omitempty" yaml:"status,omitempty"`
 	Rules       []PolicyRule `json:"rules" yaml:"rules"`
 	RawBundle   string       `json:"raw_bundle,omitempty" yaml:"raw_bundle,omitempty"`
 	Checksum    string       `json:"checksum" yaml:"checksum"`
@@ -66,6 +68,7 @@ type RuleEvaluationResult struct {
 	RuleID      string  `json:"rule_id"`
 	Name        string  `json:"name"`
 	Passed      bool    `json:"passed"`
+	Status      string  `json:"status,omitempty"`
 	Severity    string  `json:"severity,omitempty"`
 	Remediation string  `json:"remediation,omitempty"`
 	Error       string  `json:"error,omitempty"`

@@ -2,6 +2,11 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml
+ifeq ($(GOPATH),/usr/local/src/gocode)
+  override GOPATH = /tmp/gopath
+  override GOMODCACHE = /tmp/gomodcache
+  override GOCACHE = /tmp/gocache
+endif
 GOPATH ?= /tmp/gopath
 GOCACHE ?= /tmp/gocache
 GOMODCACHE ?= /tmp/gomodcache

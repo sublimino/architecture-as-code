@@ -117,3 +117,10 @@
 {"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-29T19:30:08.277107637Z","scenario":"acc-05"}
 {"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-29T19:30:08.279311209Z","scenario":"acc-runtime-probe"}
 {"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-29T19:30:08.279490563Z","scenario":"acc-ledger-selftest"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-29T19:48:18.527205632Z","scenario":"acc-01"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-29T19:48:18.52891996Z","scenario":"acc-02"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-29T19:48:18.530149293Z","scenario":"acc-03"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-29T19:48:18.531282768Z","scenario":"acc-04"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-29T19:48:18.532254671Z","scenario":"acc-05"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":0,"recorded_at":"2026-09-29T19:48:18.533070203Z","scenario":"acc-runtime-probe"}
+{"card":"SLER-P6-3","ceiling_ms":20000,"elapsed_ms":1,"recorded_at":"2026-09-29T19:48:18.533273812Z","scenario":"acc-ledger-selftest"}

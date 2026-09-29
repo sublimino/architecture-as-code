@@ -831,7 +831,7 @@ demo-signalloom-afm-up: ## Deploy the KubeSec-AFM slice the RBAC pages read. FAI
 	  exit 1; \
 	fi
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
-	$(MAKE) -C d2-signalloom test
+	$(MAKE) -C d2-signalloom test GOPATH=/tmp/gopath
 demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom Flux readiness.
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.

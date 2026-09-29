@@ -201,6 +201,42 @@ export const claimedDossierAgentFixture: AgentResponse = {
   },
 }
 
+/**
+ * A kernel-frozen pod with no stun record, shaped like the live
+ * `agent-sir-lancelot`: the lifecycle label still says idle while the
+ * stun-sentinel has observed `cgroup.events frozen 1` for 22 days (relative to
+ * the demo clock). The dashboard must render the split brain, never "idle".
+ */
+export const splitBrainFrozenAgentFixture: AgentResponse = {
+  ...claimableDossierAgentFixture,
+  id: 'agent-sir-lancelot',
+  name: 'agent-sir-lancelot',
+  type: 'custom',
+  lifecycle_state: 'idle',
+  state: 'idle',
+  model_name: 'openai/gpt-4o',
+  runtime: {
+    ...claimableDossierAgentFixture.runtime!,
+    pod_name: 'agent-sir-lancelot',
+    pod_uid: 'demo-sir-lancelot-pod-uid',
+    service_account: 'agent-sir-lancelot',
+    framework: 'custom',
+    model: 'openai/gpt-4o',
+  },
+  kernel_state: 'frozen',
+  kernel_observed_at: '2026-07-05T12:00:00Z',
+  split_brain: ['kernel frozen without stun record'],
+  operational_state: {
+    runtime_status: 'stopped',
+    containment: {
+      process_freeze: 'inactive',
+      network_isolation: 'inactive',
+      credential_revocation: 'inactive',
+    },
+  },
+  attention: { level: 'critical', highest_issue: 'kernel frozen without stun record' },
+}
+
 function buildInitialAgents(): DemoAgentRecord[] {
   return [
     { agent: agent('agent-inventory', 'Inventory Agent', 'active', 'limited'), activeCredentialCount: 1 },
@@ -209,6 +245,7 @@ function buildInitialAgents(): DemoAgentRecord[] {
     { agent: agent('agent-remediation', 'Remediation Agent', 'active', 'high', { failing: 0, passing: 12, posture_score: 95 }), activeCredentialCount: 1 },
     { agent: agent('agent-scanner', 'Vulnerability Scanner', 'suspended', 'limited', { failing: 3, passing: 7, posture_score: 42, type: 'COTS', owner: 'security-team' }), activeCredentialCount: 0 },
     { agent: agent('agent-reporter', 'Compliance Reporter', 'active', 'minimal', { failing: 1, passing: 9, posture_score: 78, type: 'Custom' }), activeCredentialCount: 1 },
+    { agent: splitBrainFrozenAgentFixture, activeCredentialCount: 0 },
   ]
 }
 

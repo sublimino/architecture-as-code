@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
-import StatusBadge from './StatusBadge'
+import StatusBadge, { KernelStateBadge, isFrozenWithoutStun } from './StatusBadge'
 import CredentialStateNotice from './CredentialStateNotice'
 import RiskWidget from './RiskWidget'
 import { useAgentRisk } from '../hooks/useAgentRisk'
@@ -114,7 +114,10 @@ export default function AgentEvidenceDrawer({
   const node = agent.runtime?.node || agent.node || 'Not assigned'
   const podUid = agent.runtime?.pod_uid || agent.pod_uid || '-'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || '-'
-  const phase = agent.runtime?.phase || agent.state || 'Running'
+  // Kernel frozen with no stun record: the lifecycle label is stale, so it is
+  // never used as a fallback phase and never rendered as the header badge.
+  const splitBrainFrozen = isFrozenWithoutStun(agent)
+  const phase = agent.runtime?.phase || (splitBrainFrozen ? null : agent.state) || 'Running'
 
   // 3. Responsibility metadata (Truthful language)
   const ownerName = agent.responsibility?.owner_name || agent.owner
@@ -240,7 +243,10 @@ export default function AgentEvidenceDrawer({
                 >
                   {recordClassLabel}
                 </span>
-                <StatusBadge status={agent.lifecycle_state} variant="lifecycle" testId="drawer-lifecycle-badge" />
+                {!splitBrainFrozen && (
+                  <StatusBadge status={agent.lifecycle_state} variant="lifecycle" testId="drawer-lifecycle-badge" />
+                )}
+                <KernelStateBadge view={agent} testId="drawer-kernel-state-badge" />
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
                 Quick Evidence Dossier · {framework} · {executionMode}
@@ -569,7 +575,9 @@ export default function AgentEvidenceDrawer({
               <div>
                 <span style={{ color: 'var(--muted)' }}>Observed Kernel Containment Telemetry</span>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                  {isTelemetryFrozenOrDrop ? (
+                  {splitBrainFrozen ? (
+                    <KernelStateBadge view={agent} testId="drawer-kernel-split-brain" />
+                  ) : isTelemetryFrozenOrDrop ? (
                     <>
                       <span
                         data-testid="drawer-kernel-cgroup"

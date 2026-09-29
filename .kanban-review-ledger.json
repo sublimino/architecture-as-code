@@ -3783,5 +3783,25 @@
     "verdict": "PASS",
     "model": null,
     "reason": "Platform-wide em-dash eradication complete (0 em-dashes), en-dash baseline held <= 9, allowlist empty, 5/5 lint-ui-typography.bats passed, vitest 3483/3483 passed"
+  },
+  "3d95e": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "3d95e",
+        "reviewed_at": "2026-09-29T10:37:19.720Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "Comprehensive cross-surface Playwright acceptance suite certified, 5 new specs registered in SPEC-REGISTRY.tsv (governance-navigation, discovery-claim, topology-graph, policy-editor, risk-audit), bats test/acceptance-spec-coverage.bats 7/7 passed, dashboard vitest 3486 passed, zero em-dashes"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "3d95e",
+    "reviewed_at": "2026-09-29T10:37:19.720Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "Comprehensive cross-surface Playwright acceptance suite certified, 5 new specs registered in SPEC-REGISTRY.tsv (governance-navigation, discovery-claim, topology-graph, policy-editor, risk-audit), bats test/acceptance-spec-coverage.bats 7/7 passed, dashboard vitest 3486 passed, zero em-dashes"
   }
 }

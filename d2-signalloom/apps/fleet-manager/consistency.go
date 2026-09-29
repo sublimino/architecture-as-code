@@ -281,7 +281,8 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 	}
 	rep.queried = rep.queried && podQueried
 
-	serviceAccount := agent.ID
+	// Same fallback as k8sFleetClient.agentSubject: never the raw DAG id.
+	serviceAccount := agentNameFromID(agent.ID)
 	if pod != nil {
 		rep.Pod.Found = true
 		if pod.Spec.ServiceAccountName != "" {

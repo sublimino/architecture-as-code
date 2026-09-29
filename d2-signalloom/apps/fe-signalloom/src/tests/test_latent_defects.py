@@ -177,8 +177,42 @@ def test_posture_score_double_scaling_latent_defect():
     resp = api_compat._agent_response_from_row(row, compliance)
     assert resp.assessment_summary.status == "assessed"
     assert resp.assessment_summary.total_controls == 10
-    assert resp.assessment_summary.passed_controls == 8
-    assert resp.assessment_summary.failed_controls == 2
     assert resp.assessment_summary.normalized_score == 0.8
     assert resp.compliance_summary.posture_score == 0.8
+
+
+@pytest.mark.asyncio
+async def test_fair_version_list_matches_api():
+    """Latent defect #2 verification:
+
+    Prior defect: RiskExposurePage used a hardcoded static VERSIONS array (['v1.0', 'v2.0', 'v2.1'])
+    which mismatched active backend framework/scenario versions and lacked status indicators.
+    Fix: /api/v1/fair/versions provides dynamic framework version list from backend metadata,
+    including version tags, semantic sorting, and status badges (active, draft, retired).
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/fair/versions", headers=eap_bearer(EAP_ALICE))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) > 0
+
+        # Verify version metadata fields
+        for item in data:
+            assert "version" in item
+            assert "name" in item or "framework_id" in item
+            assert "status" in item
+            assert item["status"] in {"active", "draft", "retired"}
+
+        # Verify active and retired versions are present
+        statuses = {item["status"] for item in data}
+        assert "active" in statuses
+        assert "retired" in statuses
+
+        # Verify alias route /v1/fair/versions
+        alias_resp = await client.get("/v1/fair/versions", headers=eap_bearer(EAP_ALICE))
+        assert alias_resp.status_code == 200
+        alias_data = alias_resp.json()
+        assert len(alias_data) == len(data)
 

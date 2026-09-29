@@ -121,6 +121,29 @@ export interface FleetRisk {
   source: FairSource
 }
 
+/** Regulatory framework and scenario version metadata. */
+export interface FrameworkVersion {
+  id?: string
+  frameworkId?: string
+  framework_id?: string
+  name: string
+  version: string
+  status: 'active' | 'draft' | 'retired'
+  isDefault?: boolean
+  is_default?: boolean
+  description?: string
+}
+
+/** Loss Exceedance Curve data point. */
+export interface LossExceedancePoint {
+  probability: number
+  loss: number
+  label: string
+}
+
+/** Agent population filter category. */
+export type PopulationFilter = 'all' | 'governed' | 'discovered'
+
 // ─── Normalisation ──────────────────────────────────────────────────────────
 
 /**

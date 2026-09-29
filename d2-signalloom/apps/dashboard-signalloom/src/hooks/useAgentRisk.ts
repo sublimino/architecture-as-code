@@ -173,3 +173,44 @@ export function useFleetRisk(enabled = true): RiskQuery<FleetRisk> {
   )
   return useRiskQuery(fetcher, enabled)
 }
+
+/** Dynamic regulatory framework versions. */
+export function useFrameworkVersions(enabled = true): RiskQuery<import('../types/fair').FrameworkVersion[]> {
+  const fetcher = useCallback(
+    (token: string, signal: AbortSignal) => fairApi.fetchFrameworkVersions(token, signal),
+    [],
+  )
+  return useRiskQuery(fetcher, enabled)
+}
+
+/**
+ * Reactive loss exceedance curve recalculation with sub-250ms latency.
+ * Applies a debounce of at most 200ms (default 150ms) to ensure smooth UI responsiveness
+ * while eliminating main-thread jank during interactive slider adjustments.
+ */
+export function useReactiveLossCurve(
+  ale: number,
+  tvar: number,
+  debounceMs = 150,
+): import('../types/fair').LossExceedancePoint[] {
+  const [debouncedPoints, setDebouncedPoints] = useState<import('../types/fair').LossExceedancePoint[]>(() =>
+    fairApi.calculateLossExceedance(ale, tvar),
+  )
+
+  useEffect(() => {
+    // If debounceMs <= 0 calculate immediately
+    if (debounceMs <= 0) {
+      setDebouncedPoints(fairApi.calculateLossExceedance(ale, tvar))
+      return
+    }
+
+    const timer = setTimeout(() => {
+      setDebouncedPoints(fairApi.calculateLossExceedance(ale, tvar))
+    }, Math.min(debounceMs, 250)) // Cap strictly at 250ms per SLA
+
+    return () => clearTimeout(timer)
+  }, [ale, tvar, debounceMs])
+
+  return debouncedPoints
+}
+

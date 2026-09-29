@@ -443,12 +443,12 @@ def _with_pool(monkeypatch: pytest.MonkeyPatch, pool: FakePostgres) -> FakePostg
     # down its 502 path and the transaction assertions would never execute --
     # passing while measuring nothing, which is the failure mode this file's
     # own subject matter is about.
-    async def _stun_succeeds(_agent_id: str) -> api_compat._ClusterStunObservation:
+    async def _stun_succeeds(_agent_id: str, _reason: str) -> api_compat._ClusterStunObservation:
         return api_compat._ClusterStunObservation(
             observed=True,
-            outcome="stunned",
-            namespace="fe-signalloom",
-            proxy_status=200,
+            overall_outcome="contained",
+            fleet_agent_id="agent-under-test",
+            fleet_manager_status=200,
             error=None,
         )
 
@@ -628,7 +628,7 @@ def test_stunning_an_agent_commits_the_state_and_its_audit_event_together(
 
     response = client.post(
         f"/api/agents/{agent_uuid}/stun",
-        json={"reason": "compliance-failure: securityContext not set"},
+        json={"reason": "operator isolated agent after anomalous egress"},
         headers=_bearer("tx-pooled"),
     )
 
@@ -645,11 +645,52 @@ def test_the_recorded_from_state_is_read_inside_the_transaction(
     """A from_state read outside the write could name a state already gone."""
     agent_uuid = _seed_stun_agent(healthy, lifecycle_state="registered")
 
-    client.post(f"/api/agents/{agent_uuid}/stun", headers=_bearer("tx-pooled"))
+    client.post(f"/api/agents/{agent_uuid}/stun", json={"reason": "tx probe"}, headers=_bearer("tx-pooled"))
 
     detail = json.loads(healthy.committed.audit_events[0]["detail"])
     assert detail["from_state"] == "registered"
     assert detail["to_state"] == "suspended"
+
+
+def test_the_committed_row_carries_the_reason_and_every_plane(
+    client: TestClient, healthy: FakePostgres, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pooled path writes the same fleet-manager fields as the in-memory one.
+
+    Asserted on the committed row rather than the response, because the
+    response is assembled from a dict the insert may not have received.
+    """
+    planes = [
+        {"plane": "network", "outcome": "contained", "error": None,
+         "timestamp": "2026-09-29T10:00:00Z", "latency_ms": 9, "details": None},
+        {"plane": "credentials", "outcome": "failed", "error": "lease revoke 503",
+         "timestamp": "2026-09-29T10:00:01Z", "latency_ms": 30, "details": None},
+    ]
+
+    async def _partial(fleet_agent_id: str, reason: str) -> api_compat._ClusterStunObservation:
+        return api_compat._ClusterStunObservation(
+            observed=True, overall_outcome="partial", fleet_agent_id=fleet_agent_id,
+            fleet_manager_status=207, planes=planes,
+        )
+
+    monkeypatch.setattr(api_compat, "_perform_cluster_stun", _partial)
+    agent_uuid = _seed_stun_agent(healthy)
+
+    response = client.post(
+        f"/api/agents/{agent_uuid}/stun",
+        json={"reason": "pooled-path reason"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert detail["reason"] == "pooled-path reason"
+    assert detail["overall_outcome"] == "partial"
+    assert detail["fleet_manager_status"] == 207
+    assert detail["planes"] == planes
+    assert detail["fleet_agent_id"] == f"agent-{agent_uuid}"
+    # Partial containment still moves the registry: at least one plane held.
+    assert healthy.committed.agent_registry[0]["lifecycle_state"] == "suspended"
 
 
 def test_a_rejected_audit_event_leaves_the_agent_unstunned(
@@ -663,7 +704,7 @@ def test_a_rejected_audit_event_leaves_the_agent_unstunned(
     """
     agent_uuid = _seed_stun_agent(audit_rejects)
 
-    response = client.post(f"/api/agents/{agent_uuid}/stun", headers=_bearer("tx-pooled"))
+    response = client.post(f"/api/agents/{agent_uuid}/stun", json={"reason": "tx probe"}, headers=_bearer("tx-pooled"))
 
     assert response.status_code == 500, response.text
     assert audit_rejects.committed.agent_registry[0]["lifecycle_state"] == "active", (
@@ -680,7 +721,7 @@ def test_stunning_a_pod_with_no_registry_row_still_records_the_event(
     """SuperCred agent ids are pod names. The event must not depend on a UUID."""
     response = client.post(
         "/api/agents/agent-cardvault/stun",
-        json={"agent_name": "Cardvault Agent"},
+        json={"reason": "tx probe"},
         headers=_bearer("tx-pooled"),
     )
 
@@ -724,7 +765,7 @@ def test_a_pod_name_row_can_still_say_which_agent_it_was_about(
     """
     client.post(
         "/api/agents/agent-cardvault/stun",
-        json={"agent_name": "Cardvault Agent"},
+        json={"reason": "tx probe"},
         headers=_bearer("tx-pooled"),
     )
 
@@ -749,7 +790,7 @@ def test_a_pod_with_no_registry_row_records_no_transition_it_did_not_make(
     """
     client.post(
         "/api/agents/agent-cardvault/stun",
-        json={"agent_name": "Cardvault Agent"},
+        json={"reason": "tx probe"},
         headers=_bearer("tx-pooled"),
     )
 

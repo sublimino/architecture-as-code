@@ -518,3 +518,50 @@ export async function fetchGuards(clusterId: string): Promise<GuardsResult> {
 export async function fetchAnalysisStatus(clusterId: string): Promise<AnalysisStatusInfo> {
   return parseAnalysisStatus(await fetchJsonOrThrow(`/clusters/${encodeURIComponent(clusterId)}/analysis/status`))
 }
+
+/** Trigger an asynchronous collusion and privilege escalation scan against KubeSec-AFM for a cluster. */
+export async function triggerCollusionScan(clusterId: string): Promise<JobRecord> {
+  const url = `${AFM}/clusters/${encodeURIComponent(clusterId)}/jobs`
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trigger_source: 'manual' }),
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      throw new Error(`AFM scan trigger failed for ${url} with status ${res.status}.`)
+    }
+
+    const data: unknown = await res.json()
+    const parsed = parseJobRecord(data)
+    if (parsed) return parsed
+
+    if (isRecord(data) && typeof data.id === 'string') {
+      return {
+        id: data.id,
+        clusterId,
+        status: parseJobStatus(data.status),
+        triggerSource: parseTriggerSource(data.trigger_source),
+        createdAt: asOptionalString(data.created_at) ?? new Date().toISOString(),
+        startedAt: asOptionalString(data.started_at),
+        finishedAt: asOptionalString(data.finished_at),
+        error: asOptionalString(data.error),
+      }
+    }
+
+    throw new Error(`AFM returned unusable job payload for ${url}.`)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`AFM scan trigger request to ${url} timed out after ${FETCH_TIMEOUT_MS / 1000} seconds.`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+

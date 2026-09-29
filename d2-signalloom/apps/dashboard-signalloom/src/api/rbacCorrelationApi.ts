@@ -338,3 +338,52 @@ export async function fetchRbacClusters(token: string): Promise<ClusterMeta[]> {
 export async function fetchCorrelatedRbac(token: string, clusterId: string): Promise<CorrelatedRbac> {
   return parseCorrelatedRbac(await authedGet(`/clusters/${encodeURIComponent(clusterId)}/correlated`, token))
 }
+
+export interface RbacScanResponse {
+  jobId?: string
+  status: string
+  message?: string
+}
+
+export async function triggerRbacScan(token: string, clusterId: string): Promise<RbacScanResponse> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const url = `${BASE}/clusters/${encodeURIComponent(clusterId)}/scan`
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cluster_id: clusterId }),
+    })
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const body: unknown = await res.json()
+        if (isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string') {
+          detail = ` ${body.error.message}`
+        }
+      } catch {
+        /* body was not JSON */
+      }
+      throw new Error(`RBAC scan trigger request failed for ${url} with status ${res.status}.${detail}`)
+    }
+    try {
+      return (await res.json()) as RbacScanResponse
+    } catch {
+      return { status: 'queued' }
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`RBAC scan request to ${url} timed out after ${FETCH_TIMEOUT_MS / 1000} seconds.`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+

@@ -96,7 +96,7 @@ func TestStun_CascadeFromRoot(t *testing.T) {
 	client := newMockClient()
 	orch := NewCascadeOrchestrator(dag, client, 0) // no delay for tests
 
-	result, err := orch.Stun(context.Background(), "agent-cardvault")
+	result, err := orch.Stun(context.Background(), "agent-cardvault", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestStun_LeafAgent(t *testing.T) {
 	client := newMockClient()
 	orch := NewCascadeOrchestrator(dag, client, 0)
 
-	result, err := orch.Stun(context.Background(), "agent-llm-classifier")
+	result, err := orch.Stun(context.Background(), "agent-llm-classifier", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestStun_UnknownAgent(t *testing.T) {
 	client := newMockClient()
 	orch := NewCascadeOrchestrator(dag, client, 0)
 
-	_, err := orch.Stun(context.Background(), "nonexistent")
+	_, err := orch.Stun(context.Background(), "nonexistent", "")
 	if err == nil {
 		t.Fatal("expected error for unknown agent")
 	}
@@ -163,7 +163,7 @@ func TestStun_CallOrder(t *testing.T) {
 	client := newMockClient()
 	orch := NewCascadeOrchestrator(dag, client, 0)
 
-	_, err := orch.Stun(context.Background(), "agent-llm-classifier")
+	_, err := orch.Stun(context.Background(), "agent-llm-classifier", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestStun_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	result, err := orch.Stun(ctx, "agent-cardvault")
+	result, err := orch.Stun(ctx, "agent-cardvault", "")
 	// Should have at least started (first agent before delay check)
 	if result == nil {
 		t.Fatal("expected partial result on cancellation")
@@ -273,7 +273,7 @@ func TestStun_ClientErrors_AreRecordedNotTolerated(t *testing.T) {
 
 	// Still NOT a returned error -- one target's failure must not abort the
 	// cascade for the others.
-	result, err := orch.Stun(context.Background(), "agent-llm-classifier")
+	result, err := orch.Stun(context.Background(), "agent-llm-classifier", "")
 	if err != nil {
 		t.Fatalf("expected cascade to continue despite client errors: %v", err)
 	}

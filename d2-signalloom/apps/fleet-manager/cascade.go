@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -182,6 +183,75 @@ type ReasonedStateWriter interface {
 type GitOpsPlane interface {
 	SuspendGitOps(ctx context.Context, namespace, agentID string) PlaneResult
 	ResumeGitOps(ctx context.Context, namespace, agentID string) PlaneResult
+}
+
+// CredentialPlaneRevoker is an optional FleetClient capability: credential
+// revocation that reports one PlaneResult per credential plane (bao, spire)
+// instead of collapsing them into one error. Stun uses it when present so
+// CascadeResult.planes[] carries the per-plane truth; a client without it gets
+// RevokeCredentials and contributes no credential planes. The namespace is the
+// target's DAG namespace, bound once per target like every other step.
+type CredentialPlaneRevoker interface {
+	RevokeCredentialsPlanesIn(ctx context.Context, namespace, agentID string) ([]PlaneResult, error)
+}
+
+// PodNameResolver is an optional FleetClient capability that names the pod an
+// agent id resolves to, so the freeze PlaneResult can say which pod it froze.
+type PodNameResolver interface {
+	ResolvePodName(ctx context.Context, namespace, agentID string) (string, error)
+}
+
+// credentialPlaneRank fixes the wire order of credential planes: bao, then
+// spire. RevokeCredentialsPlanes returns spire first; the cascade reports the
+// order the contract documents, not the order the fan-out happened to use.
+func credentialPlaneRank(p EnforcementPlane) int {
+	switch p {
+	case PlaneBao:
+		return 0
+	case PlaneSpire:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func orderCredentialPlanes(planes []PlaneResult) []PlaneResult {
+	out := append([]PlaneResult(nil), planes...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return credentialPlaneRank(out[i].Plane) < credentialPlaneRank(out[j].Plane)
+	})
+	return out
+}
+
+// freezePlaneResult records the stun state write as a PlaneResult. The write
+// IS the freeze request the stun sentinel acts on, so a successful write is
+// contained and a failed one unavailable with its error.
+func (o *CascadeOrchestrator) freezePlaneResult(ctx context.Context, namespace, agentID string, write StepResult, latencyMs int64) PlaneResult {
+	pod := agentID
+	if r, ok := o.client.(PodNameResolver); ok {
+		if name, err := r.ResolvePodName(ctx, namespace, agentID); err == nil && name != "" {
+			pod = name
+		}
+	}
+	pr := PlaneResult{
+		Plane:     PlaneFreeze,
+		Outcome:   OutcomeContained,
+		LatencyMs: latencyMs,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"pod":         pod,
+			"state_label": PodStateLabel + "=" + PodStateLabelValue(StateStunned),
+		},
+	}
+	if res, ok := agentResolutionFrom(ctx); ok {
+		pr.Details["requested_id"] = res.Requested
+		pr.Details["resolved_by"] = res.By
+	}
+	if !write.Succeeded {
+		pr.Outcome = OutcomeUnavailable
+		pr.Error = write.Error
+	}
+	return pr
 }
 
 // gitOpsNotAttempted records a gitops step that was skipped on purpose, so a
@@ -372,11 +442,29 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 		}
 		outcome.FromState = currentState
 
-		// Step 2: revoke credentials.
+		// Step 2: revoke credentials. The per-plane results are kept and
+		// reported after the freeze plane; discarding them is how planes[] came
+		// to carry only gitops while bao and spire did their work unseen.
 		outcome.Credential = StepResult{Attempted: true}
-		if err := o.client.RevokeCredentials(ctx, id); err != nil {
-			slog.Warn("failed to revoke credentials", "agent", id, "error", err)
-			outcome.Credential.Error = err.Error()
+		var credPlanes []PlaneResult
+		var credErr error
+		if cp, ok := o.client.(CredentialPlaneRevoker); ok {
+			credPlanes, credErr = cp.RevokeCredentialsPlanesIn(ctx, namespace, id)
+			credPlanes = orderCredentialPlanes(credPlanes)
+			if credErr == nil {
+				for _, p := range credPlanes {
+					if p.Outcome != OutcomeContained {
+						credErr = fmt.Errorf("%s plane %s: %s", p.Plane, p.Outcome, p.Error)
+						break
+					}
+				}
+			}
+		} else {
+			credErr = o.client.RevokeCredentials(ctx, id)
+		}
+		if credErr != nil {
+			slog.Warn("failed to revoke credentials", "agent", id, "error", credErr)
+			outcome.Credential.Error = credErr.Error()
 		} else {
 			outcome.Credential.Succeeded = true
 		}
@@ -392,6 +480,7 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 		// attached.
 		outcome.StateWrite = StepResult{Attempted: true}
 		var writeErr error
+		writeStart := time.Now()
 		if w, ok := o.client.(ReasonedStateWriter); ok {
 			writeErr = w.SetPodStateWithReason(ctx, namespace, id, StateStunned, reason)
 		} else {
@@ -402,6 +491,14 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 			outcome.StateWrite.Error = writeErr.Error()
 		} else {
 			outcome.StateWrite.Succeeded = true
+		}
+		writeLatency := time.Since(writeStart).Milliseconds()
+
+		// Planes in contract order: freeze, the credential planes (bao, spire),
+		// then gitops, which step 4 appends.
+		result.Planes = append(result.Planes, withAgentID(o.freezePlaneResult(ctx, namespace, id, outcome.StateWrite, writeLatency), id))
+		for _, cp := range credPlanes {
+			result.Planes = append(result.Planes, withAgentID(cp, id))
 		}
 
 		// ToState is what the agent is, not what we asked it to be. Only a
@@ -430,7 +527,7 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 			if pr.Outcome != OutcomeContained {
 				slog.Warn("gitops plane did not fully suspend reconciliation", "agent", id, "outcome", pr.Outcome, "error", pr.Error)
 			}
-			result.Planes = append(result.Planes, pr)
+			result.Planes = append(result.Planes, withAgentID(pr, id))
 			gitops = &pr
 		}
 
@@ -602,7 +699,7 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 			if pr.Outcome != OutcomeContained {
 				slog.Warn("gitops plane did not fully resume reconciliation", "agent", id, "outcome", pr.Outcome, "error", pr.Error)
 			}
-			result.Planes = append(result.Planes, pr)
+			result.Planes = append(result.Planes, withAgentID(pr, id))
 			gitops = &pr
 		}
 
@@ -643,4 +740,19 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 	result.finish(start)
 
 	return result, nil
+}
+
+// withAgentID stamps the target's DAG id on a plane result. fe-signalloom
+// attributes planes to targets by details.agent_id and fails closed on
+// ambiguity, so every plane a multi-target cascade emits must name its
+// target. The details map is copied so a map shared with the client is not
+// mutated.
+func withAgentID(pr PlaneResult, agentID string) PlaneResult {
+	details := make(map[string]any, len(pr.Details)+1)
+	for k, v := range pr.Details {
+		details[k] = v
+	}
+	details["agent_id"] = agentID
+	pr.Details = details
+	return pr
 }

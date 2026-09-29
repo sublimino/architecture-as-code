@@ -372,16 +372,33 @@ function AttentionPanel({ alerts, onAlert }: { alerts: AlertItem[]; onAlert: (fi
       gap: 10,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: colors.red }}>Attention Required</span>
-        <span style={{
-          background: colors.red, color: 'var(--on-accent)', borderRadius: 99,
-          fontSize: 10, fontWeight: 700, padding: '1px 7px',
-        }}>{alerts.length}</span>
+        <button
+          type="button"
+          onClick={() => onAlert('attention_all')}
+          data-testid="attention-required-header-btn"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            fontFamily: 'inherit',
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: colors.red }}>Attention Required</span>
+          <span style={{
+            background: colors.red, color: 'var(--on-accent)', borderRadius: 99,
+            fontSize: 10, fontWeight: 700, padding: '1px 7px',
+          }}>{alerts.length}</span>
+        </button>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {alerts.map((a) => (
           <button
             key={a.id}
+            data-testid={`attention-alert-${a.id}`}
             onClick={() => onAlert(a.filterKey)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
@@ -657,6 +674,7 @@ export default function DiscoveryPage() {
   const [sourceFilter, setSourceFilter] = useState('all')
   const [stateFilter, setStateFilter] = useState('all')
   const [namespaceFilter, setNamespaceFilter] = useState('all')
+  const [attentionFilter, setAttentionFilter] = useState<'all' | 'unowned' | 'attention_all'>('all')
 
   // Auto-claim Modal
   const [isAutoClaimOpen, setIsAutoClaimOpen] = useState(false)
@@ -752,18 +770,30 @@ export default function DiscoveryPage() {
     })),
   ]
 
-  const isFiltered = searchQuery !== '' || sourceFilter !== 'all' || stateFilter !== 'all' || namespaceFilter !== 'all'
+  const isFiltered = searchQuery !== '' || sourceFilter !== 'all' || stateFilter !== 'all' || namespaceFilter !== 'all' || attentionFilter !== 'all'
 
   function handleClearFilters() {
     setSearchQuery('')
     setSourceFilter('all')
     setStateFilter('all')
     setNamespaceFilter('all')
+    setAttentionFilter('all')
   }
 
   // Filtered dataset
   const filteredWorkloads = useMemo(() => {
     return workloads.filter((w) => {
+      // Attention filter
+      if (attentionFilter === 'unowned') {
+        if (w.owner || w.status === 'ignored') return false
+      } else if (attentionFilter === 'attention_all') {
+        const isUnowned = !w.owner && w.status !== 'ignored'
+        const isDiscovered = w.status === 'discovered'
+        const isRevoked = w.status === 'revoked'
+        const isInReview = w.status === 'in_review'
+        if (!isUnowned && !isDiscovered && !isRevoked && !isInReview) return false
+      }
+
       if (sourceFilter !== 'all' && w.source !== sourceFilter) return false
       if (stateFilter !== 'all' && w.status !== stateFilter) return false
       if (namespaceFilter !== 'all' && w.namespace !== namespaceFilter) return false
@@ -777,7 +807,7 @@ export default function DiscoveryPage() {
       }
       return true
     })
-  }, [workloads, sourceFilter, stateFilter, namespaceFilter, searchQuery])
+  }, [workloads, sourceFilter, stateFilter, namespaceFilter, searchQuery, attentionFilter])
 
   // Attention Alerts
   const alerts: AlertItem[] = useMemo(() => {
@@ -818,10 +848,13 @@ export default function DiscoveryPage() {
   function handleAlertClick(key: string) {
     if (key === 'discovered' || key === 'revoked') {
       setStateFilter(key)
+      setAttentionFilter('all')
     } else if (key === 'unowned') {
-      setSearchQuery('')
+      setAttentionFilter('unowned')
       setStateFilter('all')
       setSourceFilter('all')
+    } else if (key === 'attention_all') {
+      setAttentionFilter((prev) => (prev === 'attention_all' ? 'all' : 'attention_all'))
     }
   }
 
@@ -1014,6 +1047,44 @@ export default function DiscoveryPage() {
                 onChange={setNamespaceFilter}
                 testId="discovery-namespace-select"
               />
+              <button
+                type="button"
+                onClick={() => setAttentionFilter((prev) => (prev === 'attention_all' ? 'all' : 'attention_all'))}
+                data-testid="discovery-attention-facet-btn"
+                aria-pressed={attentionFilter === 'attention_all'}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '5px 10px',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  fontWeight: attentionFilter === 'attention_all' ? 600 : 500,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  background: attentionFilter === 'attention_all'
+                    ? 'rgba(239, 68, 68, 0.18)'
+                    : 'var(--surface2)',
+                  color: attentionFilter === 'attention_all' ? colors.red : 'var(--text)',
+                  border: `1px solid ${attentionFilter === 'attention_all' ? colors.red : 'var(--border)'}`,
+                }}
+              >
+                <span
+                  style={{
+                    background: colors.red,
+                    color: 'var(--on-accent)',
+                    borderRadius: 99,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '0px 5px',
+                    minWidth: 16,
+                    textAlign: 'center',
+                  }}
+                >
+                  {workloads.filter((w) => (!w.owner && w.status !== 'ignored') || w.status === 'discovered' || w.status === 'revoked' || w.status === 'in_review').length}
+                </span>
+                Attention Required
+              </button>
               <ToolbarClear
                 active={isFiltered}
                 onClear={handleClearFilters}

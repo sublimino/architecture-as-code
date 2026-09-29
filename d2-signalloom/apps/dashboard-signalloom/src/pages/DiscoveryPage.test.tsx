@@ -316,4 +316,32 @@ describe('DiscoveryPage Super Datatable', () => {
 
     expect(await screen.findByText('ONBOARDING WIZARD')).toBeInTheDocument()
   })
+
+  it('clicking Attention Required header button selects and filters attention-required workloads', async () => {
+    renderPage()
+    await screen.findByText('entra-audit-sync')
+
+    const attentionHeaderBtn = screen.getByTestId('attention-required-header-btn')
+    await userEvent.click(attentionHeaderBtn)
+
+    // agent-inventory-worker (unowned/in_review), afm-remote-collector (revoked), entra-audit-sync (discovered) remain
+    expect(screen.getByText('agent-inventory-worker')).toBeInTheDocument()
+    expect(screen.getByText('afm-remote-collector')).toBeInTheDocument()
+    // governed-security-scanner (governed, owned) is filtered out
+    expect(screen.queryByText('governed-security-scanner')).not.toBeInTheDocument()
+  })
+
+  it('clicking unowned alert button filters specifically to unowned workloads', async () => {
+    renderPage()
+    await screen.findByText('entra-audit-sync')
+
+    const unownedAlertBtn = screen.getByTestId('attention-alert-unowned')
+    await userEvent.click(unownedAlertBtn)
+
+    // agent-inventory-worker is unowned
+    expect(screen.getByText('agent-inventory-worker')).toBeInTheDocument()
+    // entra-audit-sync has owner secops@signalloom.test so it must be filtered out
+    expect(screen.queryByText('entra-audit-sync')).not.toBeInTheDocument()
+    expect(screen.queryByText('governed-security-scanner')).not.toBeInTheDocument()
+  })
 })

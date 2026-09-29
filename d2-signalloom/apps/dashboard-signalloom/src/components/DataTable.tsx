@@ -56,11 +56,13 @@ import HelpHint from './HelpHint'
 
 export interface Column<T> {
   /** Key used to access the data field for sorting. */
-  key: keyof T & string
+  key: (keyof T & string) | string
   /** Display label in the header. */
   label: string
   /** Whether clicking the header sorts by this column. Default false. */
   sortable?: boolean
+  /** Optional custom value extractor for complex or nested fields. */
+  accessor?: (item: T) => unknown
   /**
    * Plain-English explanation of what this column means, shown behind a "?".
    *
@@ -221,6 +223,15 @@ export default function DataTable<T>({
       // Numeric comparison
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         return (aVal - bVal) * dir
+      }
+
+      // Date string comparison (e.g. ISO timestamps for last_assessed)
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        const aTime = Date.parse(aVal)
+        const bTime = Date.parse(bVal)
+        if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aVal.length >= 10 && bVal.length >= 10) {
+          return (aTime - bTime) * dir
+        }
       }
 
       // String comparison (case-insensitive)

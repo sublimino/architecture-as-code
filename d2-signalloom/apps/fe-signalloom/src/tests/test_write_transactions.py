@@ -450,6 +450,8 @@ def _with_pool(monkeypatch: pytest.MonkeyPatch, pool: FakePostgres) -> FakePostg
             fleet_agent_id="agent-under-test",
             fleet_manager_status=200,
             error=None,
+            # The freeze plane is what makes a stun an isolation.
+            planes=[{"plane": "freeze", "outcome": "contained"}],
         )
 
     monkeypatch.setattr(api_compat, "_perform_cluster_stun", _stun_succeeds)
@@ -661,9 +663,9 @@ def test_the_committed_row_carries_the_reason_and_every_plane(
     response is assembled from a dict the insert may not have received.
     """
     planes = [
-        {"plane": "network", "outcome": "contained", "error": None,
+        {"plane": "freeze", "outcome": "contained", "error": None,
          "timestamp": "2026-09-29T10:00:00Z", "latency_ms": 9, "details": None},
-        {"plane": "credentials", "outcome": "failed", "error": "lease revoke 503",
+        {"plane": "bao", "outcome": "partial", "error": "lease revoke 503",
          "timestamp": "2026-09-29T10:00:01Z", "latency_ms": 30, "details": None},
     ]
 
@@ -688,7 +690,7 @@ def test_the_committed_row_carries_the_reason_and_every_plane(
     assert detail["overall_outcome"] == "partial"
     assert detail["fleet_manager_status"] == 207
     assert detail["planes"] == planes
-    assert detail["fleet_agent_id"] == f"agent-{agent_uuid}"
+    assert detail["fleet_agent_id"] == str(agent_uuid)  # passed through unchanged; fleet-manager resolves ids
     # Partial containment still moves the registry: at least one plane held.
     assert healthy.committed.agent_registry[0]["lifecycle_state"] == "suspended"
 

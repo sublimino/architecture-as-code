@@ -104,6 +104,8 @@ class _FakeProxy:
             fleet_agent_id="agent-under-test",
             fleet_manager_status=200,
             error=None,
+            # The freeze plane is what makes a stun an isolation.
+            planes=[{"plane": "freeze", "outcome": "contained"}],
         )
 
     async def __call__(self, agent_id: str, reason: str) -> Any:
@@ -184,6 +186,8 @@ def test_the_outcome_and_status_come_from_fleet_manager(
     proxy.observation = api_compat._ClusterStunObservation(
         observed=True, overall_outcome="partial", fleet_agent_id="agent-under-test",
         fleet_manager_status=207, error=None,
+        # The freeze plane is what makes a stun an isolation.
+        planes=[{"plane": "freeze", "outcome": "contained"}],
     )
 
     detail = _stun(client).json()["event"]["detail"]
@@ -251,6 +255,8 @@ def test_the_proxys_account_is_nested_and_not_flattened(
         error=None,
         payload={"target_agent": "agent-under-test", "overall_outcome": "contained",
                  "duration_ms": 41},
+        # The freeze plane is what makes a stun an isolation.
+        planes=[{"plane": "freeze", "outcome": "contained"}],
     )
 
     body = _stun(client).json()
@@ -319,7 +325,7 @@ def test_a_failed_cluster_action_is_recorded_and_then_reported(
     assert response.json()["error"]["code"] == "cluster_action_failed"
 
     recorded = client.get(
-        "/api/audit", params={"type": "agent.stunned"}, headers=_bearer(),
+        "/api/audit", params={"type": "agent.stun_failed"}, headers=_bearer(),
     ).json()["events"]
     assert len(recorded) == 1, "a failed isolation left no trace"
     assert recorded[0]["detail"]["proxy"]["outcome"] == "error"
@@ -348,7 +354,7 @@ def test_a_failed_cluster_action_leaves_the_agent_unsuspended(
     agent = client.get(f"/api/agents/{AGENT_ID}", headers=_bearer()).json()
     assert agent["lifecycle_state"] in ("active", "Governed")
     recorded = client.get(
-        "/api/audit", params={"type": "agent.stunned"}, headers=_bearer(),
+        "/api/audit", params={"type": "agent.stun_failed"}, headers=_bearer(),
     ).json()["events"][0]
     assert recorded["detail"]["to_state"] == "unchanged"
 

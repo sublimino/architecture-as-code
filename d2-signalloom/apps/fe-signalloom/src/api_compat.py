@@ -930,7 +930,10 @@ class StunAgentResponse(BaseModel):
     planes: list[PlaneResult]
     proxy: ProxyStunReport
     event: AuditEventResponse
-    sentinel_telemetry: SentinelKernelTelemetry | None = None
+    #: The freeze plane's own ``details``, tagged ``source:
+    #: "fleet-manager.freeze"``; ``{"source": "unavailable"}`` when it gave
+    #: none; None when no fleet-manager was asked. Never synthesised.
+    sentinel_telemetry: dict[str, Any] | None = None
 
 
 class ComplianceSummaryResponse(BaseModel):
@@ -4700,18 +4703,68 @@ class _ClusterStunObservation:
     def acted(self) -> bool:
         """Whether the agent may be recorded as isolated.
 
-        ``partial`` counts: at least one plane contained the agent, and the
-        failing planes travel with the answer rather than being hidden by it.
+        The ``freeze`` plane decides, not fleet-manager's summary word.
+        fleet-manager calls "bao revoked the lease, freeze failed" ``partial``,
+        and treating every ``partial`` as success suspended agents whose
+        workload was still running. So: ``overall_outcome`` must be
+        ``contained`` or ``partial`` AND every ``freeze`` plane reported must
+        be ``contained``. No freeze plane at all fails closed. ``partial``
+        with the freeze held is a success whose failing planes travel with
+        the answer rather than being hidden by it.
+
         ``simulated`` counts only when nothing was asked -- fleet-manager
         itself claiming ``simulated`` is not a containment.
         """
         if not self.observed:
             return self.overall_outcome == "simulated"
-        return self.overall_outcome in _STUN_CONTAINED_OUTCOMES
+        return self.overall_outcome in _STUN_CONTAINED_OUTCOMES and _freeze_failure(self.planes) is None
 
 
-#: fleet-manager outcomes that mean the agent was isolated on at least one plane.
+#: fleet-manager summary outcomes that MAY mean the agent was isolated. Never
+#: sufficient on their own: ``_freeze_failure`` must also find the freeze held.
 _STUN_CONTAINED_OUTCOMES = frozenset({"contained", "partial"})
+#: The plane that actually stops the workload. Every other plane (bao, spire,
+#: mesh, admission, gitops) cuts off something the workload uses; only a
+#: frozen cgroup means it is not running.
+_FREEZE_PLANE = "freeze"
+
+
+def _freeze_failure(planes: list[dict[str, Any]]) -> str | None:
+    """Why the freeze plane does not show the agent frozen, or None if it does.
+
+    Every ``freeze`` entry must be ``contained``: fleet-manager reports one per
+    target, and one unfrozen target is a running workload. Absence is a
+    failure, never a pass -- a cascade that does not mention the freeze has
+    not shown one happened.
+    """
+    freezes = [plane for plane in planes if plane.get("plane") == _FREEZE_PLANE]
+    if not freezes:
+        return "no freeze plane in fleet-manager's CascadeResult, so the freeze is unconfirmed (failing closed)"
+    failed = [plane for plane in freezes if plane.get("outcome") != "contained"]
+    if not failed:
+        return None
+    return "; ".join(
+        f"freeze plane {plane.get('outcome')}: {plane.get('error') or 'no error given'}" for plane in failed
+    )[:_FLEET_ERROR_TEXT_LIMIT * 2]
+
+
+def _sentinel_telemetry(observation: _ClusterStunObservation) -> dict[str, Any] | None:
+    """What the freeze plane reported about the workload, and nothing invented.
+
+    This used to be a hard-coded ``cgroup_state=frozen``, ``ebpf_active=True``,
+    ``sentinel_drop_count=142`` on every acted stun -- a kernel observation no
+    one made. Now: None when no fleet-manager was asked (simulated); the
+    freeze plane's ``details`` verbatim, tagged ``source:
+    fleet-manager.freeze``, when it carried any; otherwise ``{"source":
+    "unavailable"}``. ``source`` is set last so a details key cannot claim a
+    different provenance.
+    """
+    if not observation.observed:
+        return None
+    for plane in observation.planes:
+        if plane.get("plane") == _FREEZE_PLANE and plane.get("details"):
+            return {**plane["details"], "source": "fleet-manager.freeze"}
+    return {"source": "unavailable"}
 #: fleet-manager answers 200 when every plane contained, 207 when some did.
 _FLEET_STUN_SUCCESS_STATUSES = frozenset({200, 207})
 _FLEET_STUN_TIMEOUT_SECONDS = 10.0
@@ -4719,21 +4772,23 @@ _FLEET_ERROR_TEXT_LIMIT = 200
 
 
 def _fleet_agent_id(agent_ref: str) -> str:
-    """Map the id the caller used to the id fleet-manager's DAG knows.
+    """The id fleet-manager is asked about: the caller's id, unchanged.
 
-    fleet-manager names agents by pod-name stem with an ``agent-`` prefix
-    (``agent-cardvault``, ``agent-kusari-agent``). The dashboard already posts
-    those stems, so an id that starts with ``agent-`` is passed through
-    unchanged and anything else gets exactly one ``agent-`` prefix
-    (``kusari-agent`` -> ``agent-kusari-agent``).
+    The dashboard posts pod names (``cardvault-7d9f8b6c4-x2k9q``), not the
+    ``agent-<stem>`` DAG ids. This function used to prepend ``agent-`` to
+    anything lacking it, which turned every pod name into an id nothing
+    knows. fleet-manager now resolves pod names and stems to DAG nodes
+    itself and lists the candidates it tried in its 404 body, so resolution
+    lives in one place -- the service that owns the DAG -- and is not
+    guessed at here.
 
-    Deliberately not guessed any further. A registry UUID or a registry display
-    name maps to ``agent-<that>``, which fleet-manager will not know, so the
-    stun is recorded as ``not_found`` and answered 404 -- an honest refusal
-    rather than a lookup that might isolate the wrong workload. The mapped id
-    is stored on the audit row as ``fleet_agent_id`` beside ``agent_ref``.
+    An id fleet-manager cannot resolve is answered 404 naming what it tried,
+    an honest refusal rather than a lookup that might isolate the wrong
+    workload. Kept as a function, and stored on the audit row as
+    ``fleet_agent_id`` beside ``agent_ref``, so the row still says which id
+    was sent.
     """
-    return agent_ref if agent_ref.startswith("agent-") else f"agent-{agent_ref}"
+    return agent_ref
 
 
 def _fleet_stun_url(fleet_agent_id: str) -> str:
@@ -4840,14 +4895,21 @@ async def _perform_cluster_stun(fleet_agent_id: str, reason: str) -> _ClusterStu
         if parsed is None:
             return _observed(
                 "invalid_response",
-                f"fleet-manager answered HTTP {status} without a well-formed CascadeResult",
+                f"fleet-manager answered HTTP {status} without a well-formed CascadeResult, "
+                "so the freeze plane is unconfirmed (failing closed)",
             )
         overall = parsed[0]
         if overall in _STUN_CONTAINED_OUTCOMES:
-            return _observed(overall, None)
+            # fleet-manager's summary word is kept as the outcome; the freeze
+            # plane's failure, if any, is what the operator is told.
+            return _observed(overall, _freeze_failure(planes))
         return _observed(overall, f"fleet-manager reported overall_outcome={overall!r}")
     if status == 404:
-        return _observed("not_found", _fleet_error_text(body, response))
+        error = _fleet_error_text(body, response)
+        tried = body.get("tried") if isinstance(body, dict) else None
+        if isinstance(tried, list) and tried:
+            error = f"{error}; tried {', '.join(str(candidate) for candidate in tried)}"
+        return _observed("not_found", error[:_FLEET_ERROR_TEXT_LIMIT * 2])
     if status >= 400:
         # A failure status cannot be outvoted by a body claiming containment.
         overall = parsed[0] if parsed is not None and parsed[0] not in _STUN_CONTAINED_OUTCOMES else "error"
@@ -4946,9 +5008,13 @@ async def stun_agent(
     first, carrying ``reason``, ``overall_outcome``, ``planes``,
     ``fleet_manager_status`` and a ``stun_attempt_id``:
 
-    * 200 contained -> 200.
-    * 207 partial -> 200 with ``overall_outcome: "partial"``; the failing
-      planes are in ``planes`` with their errors, never summarised away.
+    * 200 contained, freeze plane contained -> 200, ``agent.stunned``.
+    * 207 partial, freeze plane contained -> 200 with ``overall_outcome:
+      "partial"``, ``agent.stunned``; the failing planes are in ``planes``
+      with their errors, never summarised away.
+    * Any freeze plane not ``contained``, or no freeze plane at all -> 502
+      ``cluster_action_failed`` naming the freeze error, registry unchanged.
+    * Every non-success case is recorded as ``agent.stun_failed``.
     * 404 -> 404, naming the ``stun_attempt_id`` of the row it left.
     * 500, unreachable, timeout, a malformed body, or a 2xx whose
       ``overall_outcome`` is not ``contained``/``partial`` -> 502, likewise.
@@ -4963,8 +5029,9 @@ async def stun_agent(
     gap is irreducible in any observe-then-record design.
 
     The registry is moved to ``suspended`` only when the id resolves to a row
-    and the cascade contained the agent on at least one plane (``contained``
-    or ``partial``, or ``simulated``). A failed cascade leaves it unchanged:
+    and ``observation.acted``: the freeze plane held (or ``simulated``). A
+    failed cascade, including a ``partial`` whose freeze failed, leaves it
+    unchanged:
     claiming an agent is isolated when containment failed would be a
     fabrication.
 
@@ -5071,22 +5138,11 @@ async def stun_agent(
                 agent["last_transition_by"] = principal.actor
         detail = _detail(from_state, registry_match=registry_match)
         event = _record_memory_audit(
-            tenant_id, "agent.stunned", agent_id, agent_name, principal.actor, detail,
+            tenant_id, "agent.stunned" if acted else "agent.stun_failed",
+            agent_id, agent_name, principal.actor, detail,
         )
         _raise_if_stun_failed(observation, stun_attempt_id)
-        sentinel_telem = SentinelKernelTelemetry(
-            cgroup_state="frozen" if acted else "thawed",
-            traffic_control_state="drop" if acted else "allow",
-            ebpf_active=True,
-            ebpf_program_attached=True,
-            observed_at=now,
-            last_observed_at=now,
-            sentinel_ack=acted,
-            sentinel_ack_id=f"ack-{agent_id}-ebpf-sentinel" if acted else None,
-            sentinel_drop_count=142 if acted else 0,
-            sentinel_last_ack_at=now if acted else None,
-            containment_probe_state="confirmed" if acted else "pending",
-        )
+        sentinel_telem = _sentinel_telemetry(observation)
         return StunAgentResponse(
             agent_id=agent_id,
             from_state=from_state,
@@ -5147,8 +5203,8 @@ async def stun_agent(
 
         detail = _detail(from_state, registry_match=registry_match)
         await _audit_log(
-            conn, tenant_id, "agent.stunned", agent_id, agent_name, principal.actor,
-            detail,
+            conn, tenant_id, "agent.stunned" if acted else "agent.stun_failed",
+            agent_id, agent_name, principal.actor, detail,
         )
 
     # After the commit, never before: the failure has to reach the trail first.
@@ -5156,19 +5212,7 @@ async def stun_agent(
     # left no record of the attempt, which is the wrong half to optimise.
     _raise_if_stun_failed(observation, stun_attempt_id)
 
-    sentinel_telem = SentinelKernelTelemetry(
-        cgroup_state="frozen" if acted else "thawed",
-        traffic_control_state="drop" if acted else "allow",
-        ebpf_active=True,
-        ebpf_program_attached=True,
-        observed_at=now,
-        last_observed_at=now,
-        sentinel_ack=acted,
-        sentinel_ack_id=f"ack-{agent_id}-ebpf-sentinel" if acted else None,
-        sentinel_drop_count=142 if acted else 0,
-        sentinel_last_ack_at=now if acted else None,
-        containment_probe_state="confirmed" if acted else "pending",
-    )
+    sentinel_telem = _sentinel_telemetry(observation)
 
     return StunAgentResponse(
         agent_id=agent_id,
@@ -5189,6 +5233,7 @@ async def stun_agent(
         event=AuditEventResponse(
             id=f"{tenant_id}:audit-pending",
             timestamp=now,
+            # Only reached when acted: every failure raised above.
             event_type="agent.stunned",
             agent_id=agent_id,
             agent_name=agent_name,

@@ -164,7 +164,14 @@ class TestAgentLifecycleMapping:
         assert resp_revoked.credential_state is not None
         assert resp_revoked.credential_state.status == "revoked"
         assert resp_revoked.operational_state is not None
-        assert resp_revoked.operational_state.containment.credential_revocation == "active"
+        # The revoked lifecycle alone is not evidence that credentials were
+        # revoked; that comes from the stun audit planes or credential_revoked.
+        assert resp_revoked.operational_state.containment.credential_revocation == "unknown"
+        assert resp_revoked.operational_state.containment.credential_source == "unavailable"
+        revoked_row["credential_revoked"] = True
+        resp_flagged = _agent_response_from_row(revoked_row, _dummy_compliance())
+        assert resp_flagged.operational_state is not None
+        assert resp_flagged.operational_state.containment.credential_revocation == "active"
 
     def test_mutation_proof_removing_mapping_fails(self) -> None:
         """Mutation proof: If serializer emitted raw DB strings, tests asserting canonical set would fail."""

@@ -76,3 +76,38 @@ describe('proxyRecordToDiscovery kernel telemetry', () => {
     expect(isKernelContained(record)).toBe(false)
   })
 })
+
+describe('AgentAccessTab SVID state needs an attestation field', () => {
+  const unattested = agent({
+    identity: { ...claimedDossierAgentFixture.identity!, cert_serial: null },
+    credential_state: null,
+    operational_state: {
+      runtime_status: 'running',
+      containment: { process_freeze: 'inactive', network_isolation: 'inactive', credential_revocation: 'unknown', credential_source: 'unavailable' },
+    },
+  })
+
+  it('does not claim the SVID is valid and attested without an attestation field', () => {
+    renderTab(unattested)
+    const text = document.body.textContent ?? ''
+    expect(text).not.toMatch(/SVID: ACTIVE|Active & Attested|SVID Valid & Attested|Authenticated(?!\w)/)
+    expect(screen.getByTestId('access-spiffe-crl-badge')).toHaveTextContent('SVID: UNKNOWN')
+  })
+
+  it('claims attestation when the SVID carries a certificate serial', () => {
+    renderTab(agent({ ...unattested, identity: { ...unattested.identity!, cert_serial: '4f:2a:91' } }))
+    expect(screen.getByTestId('access-spiffe-crl-badge')).toHaveTextContent('SVID: ACTIVE')
+    expect(screen.getByText('Active & Attested')).toBeInTheDocument()
+  })
+
+  it('shows a recorded credential revocation as revoked', () => {
+    renderTab(agent({
+      ...unattested,
+      operational_state: {
+        runtime_status: 'stopped',
+        containment: { process_freeze: 'inactive', network_isolation: 'inactive', credential_revocation: 'active', credential_source: 'stun-audit' },
+      },
+    }))
+    expect(screen.getByTestId('access-spiffe-crl-badge')).toHaveTextContent('CRL: REVOKED')
+  })
+})

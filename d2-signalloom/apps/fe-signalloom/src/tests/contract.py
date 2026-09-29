@@ -128,11 +128,15 @@ class ContainmentMeasures(BaseModel):
 
     process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported", "unknown"] = "inactive"
     # Whether process_freeze / network_isolation rest on an observation
     # (sentinel annotation or discovered traffic-control data). None for
     # producers that predate the field.
     source: Literal["sentinel-annotation", "unavailable"] | None = None
+    # Where credential_revocation came from: the last agent.stunned audit
+    # row's bao/spire planes, the registry's credential_revoked flag, or
+    # nothing. None for producers that predate the field.
+    credential_source: Literal["stun-audit", "registry", "unavailable"] | None = None
 
 
 class OperationalStateMetadata(BaseModel):

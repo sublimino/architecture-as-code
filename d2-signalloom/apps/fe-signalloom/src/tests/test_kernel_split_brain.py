@@ -9,6 +9,7 @@ disagreement, never infer ``frozen`` from any other field.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -358,3 +359,91 @@ class TestContainmentFromObservations:
         assert t is not None
         assert t.ebpf_active is None
         assert t.ebpf_program_attached is None
+
+
+def _stun_detail(**outcomes: str) -> dict[str, Any]:
+    return {"planes": [{"plane": p, "outcome": o} for p, o in outcomes.items()]}
+
+
+class TestCredentialRevocationFromStunPlanes:
+    """credential_revocation follows the last stun's bao and spire outcomes,
+    never the stunned label."""
+
+    def _cr(self, resp):
+        c = resp.operational_state.containment
+        return c.credential_revocation, c.credential_source
+
+    def test_stunned_without_a_stun_audit_row_is_unknown(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z"), tenant_id="tenant-a",
+        )
+        assert self._cr(resp) == ("unknown", "unavailable")
+
+    def test_stunned_row_without_a_stun_audit_row_is_unknown(self) -> None:
+        resp = _agent_response_from_row(_row("stunned"), _compliance(), discovered_overlay=None)
+        assert self._cr(resp) == ("unknown", "unavailable")
+
+    def test_both_credential_planes_contained_is_active(self) -> None:
+        resp = _agent_response_from_row(
+            _row("stunned"), _compliance(), discovered_overlay=None,
+            stun_detail=_stun_detail(bao="contained", spire="contained", freeze="contained"),
+        )
+        assert self._cr(resp) == ("active", "stun-audit")
+
+    def test_a_partial_credential_plane_is_requested(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned"), tenant_id="tenant-a",
+            stun_detail=_stun_detail(bao="contained", spire="partial"),
+        )
+        assert self._cr(resp) == ("requested", "stun-audit")
+
+    def test_an_unavailable_credential_plane_is_requested(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned"), tenant_id="tenant-a",
+            stun_detail=_stun_detail(bao="unavailable", spire="contained"),
+        )
+        assert self._cr(resp) == ("requested", "stun-audit")
+
+    def test_a_stun_row_without_credential_planes_is_requested(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned"), tenant_id="tenant-a", stun_detail=_stun_detail(freeze="contained"),
+        )
+        assert self._cr(resp) == ("requested", "stun-audit")
+
+    def test_revoked_lifecycle_alone_is_unknown(self) -> None:
+        resp = _agent_response_from_row(_row("revoked"), _compliance(), discovered_overlay=None)
+        assert self._cr(resp) == ("unknown", "unavailable")
+
+    def test_registry_credential_revocation_is_active(self) -> None:
+        row = _row("active")
+        row["credential_revoked"] = True
+        resp = _agent_response_from_row(row, _compliance(), discovered_overlay=None)
+        assert self._cr(resp) == ("active", "registry")
+
+
+class TestLatestStunIndex:
+    def test_latest_row_wins_and_keys_cover_id_ref_and_name(self) -> None:
+        rows = [
+            {"agent_id": None, "agent_name": None, "detail": json.dumps({"agent_ref": "agent-x", **_stun_detail(bao="contained", spire="contained")})},
+            {"agent_id": None, "agent_name": None, "detail": {"agent_ref": "agent-x", **_stun_detail(bao="partial")}},
+            {"agent_id": "11111111-1111-1111-1111-111111111111", "agent_name": "named", "detail": _stun_detail(spire="contained")},
+        ]
+        index = api_compat._stun_index_from_rows(rows)
+        assert index["agent-x"]["planes"][0]["outcome"] == "contained"
+        assert "11111111-1111-1111-1111-111111111111" in index
+        assert "named" in index
+
+
+def test_agent_detail_credential_revocation_follows_the_memory_stun_row(monkeypatch, frozen_discovery) -> None:
+    _FakeDiscovery.agents = [_disc(state="stunned", stunned_at="2026-09-01T00:00:00Z")]
+    with client_for(monkeypatch, _FakeDiscovery) as client:
+        api_compat._record_memory_audit(
+            "tenant-a", "agent.stunned", "agent-sir-lancelot", None, "alice",
+            _stun_detail(bao="contained", spire="contained"),
+        )
+        body = client.get("/api/agents/agent-sir-lancelot", headers=bearer(token_for())).json()
+        listed = client.get("/api/agents", headers=bearer(token_for())).json()
+    assert body["operational_state"]["containment"]["credential_revocation"] == "active"
+    assert body["operational_state"]["containment"]["credential_source"] == "stun-audit"
+    agent = next(a for a in listed["agents"] if a["id"] == "agent-sir-lancelot")
+    assert agent["operational_state"]["containment"]["credential_revocation"] == "active"

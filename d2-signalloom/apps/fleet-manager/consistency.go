@@ -327,7 +327,7 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 	gitopsQueried := true
 	if pod != nil {
 		rep.GitOps.PodPinned = pod.Annotations[consistencyPinAnnotation] == consistencyPinValue
-		if err := c.readDeploymentPin(ctx, namespace, agent.ID, pod, &rep.GitOps); err != nil {
+		if err := c.readDeploymentPin(ctx, namespace, pod, &rep.GitOps); err != nil {
 			gitopsQueried = false
 			rep.GitOps.Error = err.Error()
 		}
@@ -372,35 +372,44 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 	return rep
 }
 
-// readDeploymentPin finds the agent's Deployment — by the agent ID, else by the
-// pod's ReplicaSet owner with its pod-template-hash suffix stripped (no extra
-// API call, no replicasets RBAC) — and reads the Flux pin. A bare pod has no
-// Deployment: DeploymentFound=false, which is an answer, not an error.
-func (c *consistencyChecker) readDeploymentPin(ctx context.Context, namespace, agentID string, pod *corev1.Pod, out *ConsistencyGitOps) error {
+// readDeploymentPin follows the SAME chain W1's pin writer does
+// (k8sclient.go owningDeployment): pod controller -> ReplicaSet -> that
+// ReplicaSet's controller, if it is a Deployment. Never a lookup by agent id:
+// agent-kusari-agent is owned by Deployment agent-kusari, and a Deployment that
+// merely shares the agent's name is not the object the stun pinned.
+//
+// No controller, a non-ReplicaSet controller, or a ReplicaSet without a
+// Deployment controller all mean "no Deployment": DeploymentFound=false is an
+// answer, not an error. Only Get calls, matching the RBAC (get, no list).
+func (c *consistencyChecker) readDeploymentPin(ctx context.Context, namespace string, pod *corev1.Pod, out *ConsistencyGitOps) error {
 	if c.clientset == nil {
 		return errors.New("gitops plane not configured: no Kubernetes clientset")
 	}
-	candidates := []string{agentID}
-	for _, ref := range pod.OwnerReferences {
-		if ref.Kind == "ReplicaSet" {
-			if i := strings.LastIndex(ref.Name, "-"); i > 0 && ref.Name[:i] != agentID {
-				candidates = append(candidates, ref.Name[:i])
-			}
-		}
-	}
-	for _, name := range candidates {
-		dep, err := c.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("get deployment %s/%s: %w", namespace, name, err)
-		}
-		out.DeploymentFound = true
-		out.Deployment = dep.Name
-		out.DeploymentPinned = dep.Annotations[consistencyPinAnnotation] == consistencyPinValue
+	podOwner := metav1.GetControllerOf(pod)
+	if podOwner == nil || podOwner.Kind != "ReplicaSet" {
 		return nil
 	}
+	rs, err := c.clientset.AppsV1().ReplicaSets(namespace).Get(ctx, podOwner.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get replicaset %s/%s: %w", namespace, podOwner.Name, err)
+	}
+	rsOwner := metav1.GetControllerOf(rs)
+	if rsOwner == nil || rsOwner.Kind != "Deployment" {
+		return nil
+	}
+	dep, err := c.clientset.AppsV1().Deployments(namespace).Get(ctx, rsOwner.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get deployment %s/%s: %w", namespace, rsOwner.Name, err)
+	}
+	out.DeploymentFound = true
+	out.Deployment = dep.Name
+	out.DeploymentPinned = dep.Annotations[consistencyPinAnnotation] == consistencyPinValue
 	return nil
 }
 

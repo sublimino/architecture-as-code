@@ -8,3 +8,4 @@ resources:
   - spire-agent.yaml
   - openbao-bootstrap.yaml
   - openbao-supercred-bootstrap.yaml
+  - openbao-fleet-manager-bootstrap.yaml

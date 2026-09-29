@@ -32,6 +32,19 @@ spec:
       ports:
         - protocol: TCP
           port: 8200
+    # fleet-manager, the containment enforcer: revokes agent leases and reads
+    # live token state (consistency check) as OpenBao role fleet-manager.
+    # OpenBao only; SPIRE :8081 is deliberately not opened here.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              bao.controlplane.io/consumer: fleet-manager
+      ports:
+        - protocol: TCP
+          port: 8200
     # SuperCred: agents in the agent-inventory namespace need OpenBao access
     # for the SPIFFE→JWT→KV credential chain.
     - from:

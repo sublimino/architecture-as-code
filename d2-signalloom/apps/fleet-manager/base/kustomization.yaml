@@ -26,3 +26,4 @@ resources:
   - networkpolicy.yaml
   - rbac.yaml
   - configmap.yaml
+  - openbao-agent-config.yaml

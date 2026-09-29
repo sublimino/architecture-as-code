@@ -1,0 +1,117 @@
+# fleet-manager: the containment enforcer's own OpenBao identity.
+#
+# fleet-manager (apps/fleet-manager) revokes agent credentials on stun and
+# reads live token state for the cross-plane consistency check. Until this Job
+# it had no identity at all: the Deployment carried no token, every bao-plane
+# request went out unauthenticated, OpenBao answered 403, and every stun
+# reported the bao plane Unavailable.
+#
+# It authenticates exactly like every other workload here: a SPIRE JWT-SVID
+# (audience "openbao") exchanged on the base auth/jwt mount, bound to ONE
+# SPIFFE ID. No static token, no root — the root token below is this bootstrap
+# Job's, as in every sibling bootstrap Job, and never reaches fleet-manager.
+#
+# The policy grants exactly the paths openbao_client.go reaches from production
+# code, and nothing else:
+#
+#   sys/leases/revoke           RevokeLease            (stun: bao plane)
+#   cardvault/creds/*           RotateAgentCredentials (resume: rotation)
+#   auth/token/accessors        tokenSubjects          (stun + consistency: LIST, needs sudo)
+#   auth/token/lookup-accessor  tokenSubjects          (metadata only, never the token)
+#   auth/token/revoke-accessor  RevokeTokensBySubject  (stun: kill the agent's live tokens)
+#
+# renew-self / lookup-self come from the default policy; sys/health is
+# unauthenticated. RevokeToken (revoke by token VALUE) exists on the client but
+# nothing in production calls it, so auth/token/revoke is deliberately NOT
+# granted. revoke-accessor can revoke ANY token whose accessor fleet-manager
+# can list; that is inherent to containment by accessor and is the reason this
+# identity is bound to exactly one SPIFFE ID.
+#
+# Separate Job (not an edit to openbao-bootstrap.yaml) because a Job's pod
+# template is immutable and that Job carries no force annotation: editing it
+# would fail the Flux apply for the whole slice.
+#
+# Prerequisites: openbao-spire-bootstrap has enabled the jwt/ auth mount with the
+# SPIRE OIDC jwks_url, and SPIRE has an entry for
+# spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager (registered by
+# infra/inf-bao/controllers/base/spire-agent-swarm-entries.yaml).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-fleet-manager-bootstrap
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "true"
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: quay.io/openbao/openbao:2.1.1
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: BAO_TOKEN
+              value: signalloom-demo-root-token
+          command:
+            - sh
+            - -ec
+            - |
+              until bao status >/dev/null 2>&1; do sleep 2; done
+
+              echo "waiting for JWT auth backend..."
+              until bao auth list 2>/dev/null | grep -q 'jwt/'; do sleep 2; done
+
+              # --- Policy: exactly what openbao_client.go calls ---
+              cat >/tmp/policy.hcl <<'POLICY'
+              path "sys/leases/revoke" {
+                capabilities = ["update"]
+              }
+              path "cardvault/creds/*" {
+                capabilities = ["update"]
+              }
+              path "auth/token/accessors" {
+                capabilities = ["list", "sudo"]
+              }
+              path "auth/token/lookup-accessor" {
+                capabilities = ["update"]
+              }
+              path "auth/token/revoke-accessor" {
+                capabilities = ["update"]
+              }
+              POLICY
+              bao policy write fleet-manager /tmp/policy.hcl
+
+              # --- JWT auth role: bound to fleet-manager's SPIFFE identity ---
+              # JSON on stdin, not k=v: list-typed fields sent as k=v arrive as
+              # strings (see controllers/base/openbao-agent-generic-role.yaml).
+              bao write auth/jwt/role/fleet-manager - <<'ROLE'
+              {
+                "role_type": "jwt",
+                "bound_audiences": ["openbao"],
+                "bound_subject": "spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager",
+                "user_claim": "sub",
+                "token_policies": ["fleet-manager"],
+                "token_type": "service",
+                "token_ttl": "5m",
+                "token_max_ttl": "15m"
+              }
+              ROLE
+
+              # --- Assert the outcome, not the exit code ---
+              bao read -field=bound_subject auth/jwt/role/fleet-manager \
+                | grep -qx 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager'
+              bao policy read fleet-manager | grep -q 'auth/token/revoke-accessor'| grep -q 'auth/token/lookup-accessor'
+
+              echo "fleet-manager bootstrap complete"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

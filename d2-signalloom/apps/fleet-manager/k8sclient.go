@@ -513,7 +513,7 @@ func (c *k8sFleetClient) revokeCredentialsIdempotencyKey(agentID string) string 
 func (c *k8sFleetClient) RevokeCredentialsPlanes(ctx context.Context, agentID string) ([]PlaneResult, error) {
 	seq := c.degraded.nextSeq()
 	namespace := c.defaultNamespace
-	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+	spiffeID, subjectSource := c.agentSubject(ctx, namespace, agentID)
 	idempotencyKey := c.revokeCredentialsIdempotencyKey(agentID)
 
 	if c.spireClient == nil && c.baoClient == nil {
@@ -537,6 +537,7 @@ func (c *k8sFleetClient) RevokeCredentialsPlanes(ctx context.Context, agentID st
 		go func() {
 			defer wg.Done()
 			spireRes, spireErr = c.revokeSpirePlane(ctx, namespace, agentID, spiffeID, idempotencyKey, startedAt)
+			stampSubject(spireRes, spiffeID, subjectSource)
 		}()
 	}
 
@@ -635,22 +636,30 @@ func (c *k8sFleetClient) revokeSpirePlane(ctx context.Context, namespace, agentI
 // key is now threaded through; the previous implementation passed "" here, so a
 // retry was indistinguishable from a fresh decision on this plane while the
 // SPIRE plane saw a stable key.
+//
+// Two calls, and the plane is Contained only when BOTH succeed:
+//  1. lease revoke (RevokeAgentCredentials), as before;
+//  2. RevokeTokensBySubject: every live token whose SPIFFE subject is this
+//     agent's, revoked by accessor. Before this, step 1 alone reported
+//     Contained while the agent's JWT-login tokens stayed usable until their
+//     5m TTL. Step 2 runs even when step 1 failed: killing the tokens is still
+//     containment, and the outcome stays non-contained either way.
+//
+// The subject uses the same derivation as RevokeCredentialsPlanes' SPIRE
+// eviction (namespace + agent id as the service account), so both planes target
+// one identity.
 func (c *k8sFleetClient) revokeBaoPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
-	planeRes, err := c.baoClient.RevokeAgentCredentials(ctx, namespace, agentID, idempotencyKey)
-	if err != nil {
-		if planeRes == nil {
-			planeRes = &PlaneResult{
-				Plane:     PlaneBao,
-				Outcome:   OutcomeUnavailable,
-				Timestamp: c.now().UTC().Format(time.RFC3339Nano),
-				Details: map[string]any{
-					"idempotency_key":        idempotencyKey,
-					"worst_case_residual_ms": DefaultWorstCaseResidualMs,
-				},
-			}
+	planeRes, leaseErr := c.baoClient.RevokeAgentCredentials(ctx, namespace, agentID, idempotencyKey)
+	if planeRes == nil {
+		planeRes = &PlaneResult{
+			Plane:     PlaneBao,
+			Outcome:   OutcomeUnavailable,
+			Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+			Details: map[string]any{
+				"idempotency_key":        idempotencyKey,
+				"worst_case_residual_ms": DefaultWorstCaseResidualMs,
+			},
 		}
-		planeRes.Error = err.Error()
-		return planeRes, err
 	}
 	if planeRes.Details == nil {
 		planeRes.Details = map[string]any{}
@@ -661,9 +670,30 @@ func (c *k8sFleetClient) revokeBaoPlane(ctx context.Context, namespace, agentID,
 	planeRes.Details["residual_provenance"] = "config-derived (token_ttl = token_max_ttl = 5m)"
 	planeRes.Details["invalidates_issued_credentials"] = false
 
-	if planeRes.Outcome == OutcomeUnavailable {
-		resErr := fmt.Errorf("%w: %s", ErrEnforcementUnavailable, planeRes.Error)
-		return planeRes, resErr
+	leasesRevoked, _ := planeRes.Details["revoked_leases"].(int)
+	planeRes.Details["leases_revoked"] = leasesRevoked
+
+	subject, subjectSource := c.agentSubject(ctx, namespace, agentID)
+	tokensRevoked, tokenErr := c.baoClient.RevokeTokensBySubject(ctx, subject)
+	planeRes.Details["tokens_revoked"] = tokensRevoked
+	stampSubject(planeRes, subject, subjectSource)
+
+	var failures []string
+	if leaseErr != nil {
+		failures = append(failures, "lease revoke: "+leaseErr.Error())
+	} else if planeRes.Outcome == OutcomeUnavailable {
+		failures = append(failures, "lease revoke: "+planeRes.Error)
+	}
+	if tokenErr != nil {
+		failures = append(failures, "token revoke: "+tokenErr.Error())
+		if planeRes.Outcome == OutcomeContained {
+			// Leases gone, tokens possibly live: partial, never contained.
+			planeRes.Outcome = OutcomePartial
+		}
+	}
+	if len(failures) > 0 {
+		planeRes.Error = strings.Join(failures, "; ")
+		return planeRes, fmt.Errorf("%w: %s", ErrEnforcementUnavailable, planeRes.Error)
 	}
 	return planeRes, nil
 }
@@ -710,7 +740,7 @@ func (c *k8sFleetClient) RevokeCredentials(ctx context.Context, agentID string) 
 func (c *k8sFleetClient) EvictSpireEntry(ctx context.Context, namespace, agentID string) (*SpireEvictionResponse, error) {
 	seq := c.degraded.nextSeq()
 	namespace = c.namespaceOrDefault(namespace)
-	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+	spiffeID, _ := c.agentSubject(ctx, namespace, agentID)
 
 	if c.spireClient == nil {
 		err := fmt.Errorf("evict_spire_entry %s/%s: %w: SPIRE client unconfigured (SLER-P2-2)",
@@ -947,7 +977,7 @@ func (c *k8sFleetClient) RestoreCredentialsPlanes(ctx context.Context, namespace
 	if idempotencyKey == "" {
 		idempotencyKey = fmt.Sprintf("restore-%s-%d", agentID, c.now().UnixNano())
 	}
-	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+	spiffeID, subjectSource := c.agentSubject(ctx, namespace, agentID)
 
 	if c.spireClient == nil && c.baoClient == nil {
 		err := fmt.Errorf("restore_credentials %s/%s: %w: no credential plane configured",
@@ -970,6 +1000,7 @@ func (c *k8sFleetClient) RestoreCredentialsPlanes(ctx context.Context, namespace
 		go func() {
 			defer wg.Done()
 			spireRes, spireErr = c.restoreSpirePlane(ctx, namespace, agentID, spiffeID, idempotencyKey, startedAt)
+			stampSubject(spireRes, spiffeID, subjectSource)
 		}()
 	}
 
@@ -1127,10 +1158,11 @@ func (c *k8sFleetClient) ContainAllPlanes(ctx context.Context, namespace, agentI
 		idempotencyKey = fmt.Sprintf("contain-all-%s-%d", agentID, c.now().UnixNano())
 	}
 	decisionID := fmt.Sprintf("dec-%s-%d", agentID, c.now().UnixNano())
+	subject, subjectSource := c.agentSubject(ctx, namespace, agentID)
 	target := TargetRef{
 		AgentID:   agentID,
 		Namespace: namespace,
-		SPIFFEID:  fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID),
+		SPIFFEID:  subject,
 	}
 	reason := ContainmentReason{
 		Code:                  "MANUAL_CONTAINMENT",
@@ -1209,6 +1241,7 @@ func (c *k8sFleetClient) ContainAllPlanes(ctx context.Context, namespace, agentI
 	go func() {
 		defer wg.Done()
 		res, err := c.revokeSpirePlane(ctx, namespace, agentID, target.SPIFFEID, idempotencyKey, startedAt)
+		stampSubject(res, target.SPIFFEID, subjectSource)
 		addResult(res, err)
 	}()
 
@@ -1244,3 +1277,39 @@ func (c *k8sFleetClient) IsDegraded(namespace, agentID string) bool {
 	return c.degraded.isDegraded(c.namespaceOrDefault(namespace), agentID)
 }
 
+// Subject sources recorded in PlaneResult details.
+const (
+	subjectSourcePod     = "pod"
+	subjectSourceDerived = "derived"
+)
+
+// agentSubject returns the SPIFFE ID the agent actually holds, and where it
+// came from. The ServiceAccount segment is the pod's spec.serviceAccountName
+// (resolved with the same name-then-agent-name-selector lookup as every other
+// pod operation). Only when the pod cannot be read does it fall back to
+// agentNameFromID(agentID).
+//
+// The raw DAG id is never used: Kusari's id is agent-kusari-agent and its
+// ServiceAccount kusari-agent, so the old derivation made token revocation,
+// SPIRE eviction and re-entry all target an identity nothing holds while
+// reporting success.
+func (c *k8sFleetClient) agentSubject(ctx context.Context, namespace, agentID string) (string, string) {
+	namespace = c.namespaceOrDefault(namespace)
+	sa, source := agentNameFromID(agentID), subjectSourceDerived
+	if pod, err := c.resolvePod(ctx, namespace, agentID); err == nil && pod.Spec.ServiceAccountName != "" {
+		sa, source = pod.Spec.ServiceAccountName, subjectSourcePod
+	}
+	return fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, sa), source
+}
+
+// stampSubject records which identity a plane acted on.
+func stampSubject(res *PlaneResult, subject, source string) {
+	if res == nil {
+		return
+	}
+	if res.Details == nil {
+		res.Details = map[string]any{}
+	}
+	res.Details["subject"] = subject
+	res.Details["subject_source"] = source
+}

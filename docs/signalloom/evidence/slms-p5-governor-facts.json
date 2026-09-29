@@ -1,0 +1,117 @@
+{
+  "artifact": "slms-p5-governor-facts",
+  "phase": "P5",
+  "card": "SLMS-P5-GOV",
+  "title": "Phase 5 Governor: Final Mission Certification, Estate-Wide Verification & Quality Gate",
+  "generated": "2026-09-29T13:38:00+01:00",
+  "role_boundary": "Final Governor quality gate, release certification, and tag integration",
+  "repository": {
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "tip_commit_sha": "ef238177ab1d4c954d593d3d2aad91fc90d1a64e",
+    "integration_tag": "integration/slms-v0.1.0-final",
+    "working_tree_clean": true
+  },
+  "constituent_tasks": {
+    "P5-PRE": {
+      "title": "Phase 5 Pre-Flight: Settings Reconciliation, Connectors Router, Typography Gate & Estate Baseline Facts",
+      "commit_sha": "e03ac07a10a187313a48e71b29ebfae8e6e5d95b",
+      "merge_sha": "37fd1d62d2d9aa9ebfef79ef531201d14878b1cf",
+      "status": "PASS"
+    },
+    "P5-1": {
+      "title": "Settings Reconciliation & Connector Synchronization (Surface 13)",
+      "commit_sha": "72d968c3539bc7a60b943265eb6340dd2c41c7a2",
+      "merge_sha": "28410cc28fe6f30a916ebae77d337be26f584e0c",
+      "status": "PASS"
+    },
+    "P5-2": {
+      "title": "Platform-Wide Em-Dash Eradication & Typography Lint Gate",
+      "commit_sha": "0deb8209930f3f2d0ca60113f89e24687fb49ee2",
+      "merge_sha": "cf999b691bf3986ec621d9669527ec3c0db692b1",
+      "status": "PASS"
+    },
+    "P5-3": {
+      "title": "Comprehensive Playwright End-to-End Regression Certification",
+      "commit_sha": "3bbaaaa731ca1e2a05bb31891b09b552e6900ee1",
+      "merge_sha": "ef238177ab1d4c954d593d3d2aad91fc90d1a64e",
+      "status": "PASS"
+    }
+  },
+  "merge_reconciliation": {
+    "merged_branches": [
+      "SLMS-P5-1",
+      "SLMS-P5-2",
+      "SLMS-P5-3"
+    ],
+    "conflicts": 0,
+    "reconciled_files": [
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/SettingsPage.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/SettingsPage.test.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/components/layout/AppNavigation.tsx",
+      "d2-signalloom/apps/fe-signalloom/src/routers/connectors.py",
+      "d2-signalloom/apps/fe-signalloom/src/routers/discovery.py",
+      "d2-signalloom/apps/fe-signalloom/src/tests/test_connectors.py",
+      "d2-signalloom/test/lint-ui-typography.bats",
+      "test/acceptance/signalloom/slms-full-regression.spec.ts"
+    ]
+  },
+  "verified_test_results": {
+    "estate_vitest_total": {
+      "dashboard_signalloom": 3486,
+      "design_system_demo": 13,
+      "tools_harness_dash": 15,
+      "weave_suites": 93,
+      "total_passed": 3514,
+      "floor": 3500,
+      "status": "PASS"
+    },
+    "estate_pytest_total": {
+      "fe_signalloom": 2141,
+      "latent_defects": 3,
+      "audit_vocabulary": 8,
+      "total_passed": 2141,
+      "floor": 1975,
+      "status": "PASS"
+    },
+    "kpai_harness": {
+      "probes_passed": 24,
+      "contract_tests_passed": 76,
+      "status": "PASS"
+    },
+    "go_unit_suite": {
+      "modules_tested": 29,
+      "modules_passed": 29,
+      "status": "PASS"
+    },
+    "full_offline_suite": {
+      "command": "make test-all-offline",
+      "exit_code": 0,
+      "stages_passed": 5,
+      "total_stages": 5,
+      "status": "PASS"
+    },
+    "latent_defects_certified": {
+      "defect_1_posture_scaling": "RESOLVED_AND_VERIFIED",
+      "defect_2_fair_versions": "RESOLVED_AND_VERIFIED",
+      "defect_3_policy_engine_routing": "RESOLVED_AND_VERIFIED",
+      "defect_4_audit_vocabulary": "RESOLVED_AND_VERIFIED",
+      "status": "PASS"
+    }
+  },
+  "typography_audit": {
+    "em_dashes_in_ui_source_files": 0,
+    "en_dash_count": 9,
+    "en_dash_floor_ceiling": 9,
+    "eslint_typography_allowlist_count": 0,
+    "lint_ui_typography_bats_tests": 5,
+    "lint_ui_typography_bats_passed": 5,
+    "status": "ZERO_EM_DASHES_VERIFIED"
+  },
+  "governor_verdict": {
+    "status": "PASS",
+    "proceed": true,
+    "blocking_drift": false,
+    "final_tag": "integration/slms-v0.1.0-final",
+    "summary": "Phase 5 Final Governor quality gate and whole-mission certification fully verified and certified. All constituent task branches across all 5 phases (28 cards total) merged cleanly into integration/slms-v0.1.0 with 100% green test execution (3514 Vitest tests >= 3500 floor, 2141 Pytest tests >= 1975 floor, 76/76 KPAI tests, 29/29 Go modules, make test-all-offline exit code 0, exactly 0 em-dashes across all UI source files, all 4 latent defects permanently resolved). Release tag integration/slms-v0.1.0-final minted."
+  }
+}

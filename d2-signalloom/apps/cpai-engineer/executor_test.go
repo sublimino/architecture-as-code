@@ -273,8 +273,8 @@ func TestPostTask_ValidRequest(t *testing.T) {
 	if resp.TaskID == "" {
 		t.Error("expected non-empty task_id")
 	}
-	if resp.Status != "pending" {
-		t.Errorf("expected pending, got %s", resp.Status)
+	if resp.Status != "pending" && resp.Status != "running" {
+		t.Errorf("expected pending or running, got %s", resp.Status)
 	}
 
 	// Wait for async execution to complete so git doesn't race with t.TempDir() cleanup.

@@ -1,0 +1,5 @@
+NAME                            READY   STATUS    RESTARTS   AGE     IP            NODE                        NOMINATED NODE   READINESS GATES
+kusari-agent-59679655c4-cd2gf   1/1     Running   0          58s     10.244.2.2    osramp-dist-worker2         <none>           <none>
+stun-sentinel-9v5gz             1/1     Running   0          2m26s   172.18.0.8    osramp-dist-control-plane   <none>           <none>
+stun-sentinel-bzpvq             1/1     Running   0          2m12s   172.18.0.9    osramp-dist-worker2         <none>           <none>
+stun-sentinel-dgjng             1/1     Running   0          2m19s   172.18.0.10   osramp-dist-worker          <none>           <none>

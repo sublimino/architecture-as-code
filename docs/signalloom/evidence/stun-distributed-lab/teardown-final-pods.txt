@@ -1,0 +1,18 @@
+NAMESPACE              NAME                                                READY   STATUS    RESTARTS        AGE     IP            NODE                        NOMINATED NODE   READINESS GATES
+fe-signalloom-agents   kusari-agent-59679655c4-fbsvn                       0/1     Running   1 (7m40s ago)   8m5s    10.244.2.2    osramp-dist-worker2         <none>           <none>
+fe-signalloom-agents   stun-sentinel-69qqd                                 1/1     Running   0               8m18s   172.18.0.10   osramp-dist-worker          <none>           <none>
+fe-signalloom-agents   stun-sentinel-kwsp4                                 1/1     Running   0               8m26s   172.18.0.8    osramp-dist-control-plane   <none>           <none>
+fe-signalloom-agents   stun-sentinel-z9m7r                                 1/1     Running   1 (7m40s ago)   8m12s   172.18.0.9    osramp-dist-worker2         <none>           <none>
+kube-system            coredns-589f44dc88-7n9k6                            1/1     Running   0               15m     10.244.0.3    osramp-dist-control-plane   <none>           <none>
+kube-system            coredns-589f44dc88-fh8gp                            1/1     Running   0               15m     10.244.0.2    osramp-dist-control-plane   <none>           <none>
+kube-system            etcd-osramp-dist-control-plane                      1/1     Running   0               15m     172.18.0.8    osramp-dist-control-plane   <none>           <none>
+kube-system            kindnet-bb9bk                                       1/1     Running   1 (7m40s ago)   15m     172.18.0.9    osramp-dist-worker2         <none>           <none>
+kube-system            kindnet-q4rtm                                       1/1     Running   0               15m     172.18.0.8    osramp-dist-control-plane   <none>           <none>
+kube-system            kindnet-r8nsp                                       1/1     Running   0               15m     172.18.0.10   osramp-dist-worker          <none>           <none>
+kube-system            kube-apiserver-osramp-dist-control-plane            1/1     Running   0               15m     172.18.0.8    osramp-dist-control-plane   <none>           <none>
+kube-system            kube-controller-manager-osramp-dist-control-plane   1/1     Running   0               15m     172.18.0.8    osramp-dist-control-plane   <none>           <none>
+kube-system            kube-proxy-bfd4t                                    1/1     Running   1 (7m40s ago)   15m     172.18.0.9    osramp-dist-worker2         <none>           <none>
+kube-system            kube-proxy-fdwvs                                    1/1     Running   0               15m     172.18.0.8    osramp-dist-control-plane   <none>           <none>
+kube-system            kube-proxy-nc9bx                                    1/1     Running   0               15m     172.18.0.10   osramp-dist-worker          <none>           <none>
+kube-system            kube-scheduler-osramp-dist-control-plane            1/1     Running   0               15m     172.18.0.8    osramp-dist-control-plane   <none>           <none>
+local-path-storage     local-path-provisioner-855c7b7774-2ckfk             1/1     Running   0               15m     10.244.0.4    osramp-dist-control-plane   <none>           <none>

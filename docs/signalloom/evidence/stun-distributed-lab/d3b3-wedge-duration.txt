@@ -1,0 +1,1 @@
+wedged_pod kusari-agent-59679655c4-5g9bb state_at 23:37:49.584427067 {"waiting":{"reason":"ContainerCreating"}}

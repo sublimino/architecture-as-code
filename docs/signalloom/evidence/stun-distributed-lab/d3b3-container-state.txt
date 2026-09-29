@@ -1,0 +1,5 @@
+{"waiting":{"reason":"ContainerCreating"}}
+false
+populated 1
+frozen 1
+Name:	6 State:	S (sleeping) 

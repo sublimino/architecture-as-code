@@ -1,0 +1,2 @@
+kusari-agent-59679655c4-xkszt b6b08f67-905d-4831-a2a8-24df43752aa1 osramp-dist-worker
+/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-podb6b08f67_905d_4831_a2a8_24df43752aa1.slice

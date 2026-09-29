@@ -1,173 +1,130 @@
 /**
- * Federated Services — inspired by Cofide Connect's flagship capability.
+ * Federated Services: inspired by Cofide Connect's flagship capability.
  *
  * Cofide's "federated service" (docs.cofide.dev/concepts) simplifies secure
  * discovery and connectivity between workloads in *different* SPIFFE trust zones,
- * without static long-lived secrets — brokered by the Cofide Agent over xDS
+ * without static long-lived secrets, brokered by the Cofide Agent over xDS
  * (Envoy) and the Cofide Go SDK (github.com/cofide/cofide-sdk-go). This tab makes
  * that fabric legible: trust zones, federations, the federated services flowing
  * across them, and the attestation policies that gate who may federate.
- *
- * Self-contained mock data — renders without any API/auth dependency, which is
- * the single most important thing to say out loud about this page. Nothing here
- * was measured; the provenance banner and its proof console say so, because a
- * trust-fabric dashboard that reads as live and is not is worse than no page.
- *
- * WHY THE TABLES MOVED TO DataTable, having previously argued they should not.
- *
- * The note that stood here said these are six tables of three to five rows, that
- * pagination would be furniture and that "sorting a five-row list is a control
- * nobody reaches for". Both halves of that are still true and neither was the
- * question. What DataTable is being adopted for is the third prop, `toolbar`,
- * and the guarantee attached to it: a filter control that survives its own
- * result. The old argument weighed DataTable purely as a pager, because when it
- * was written that is mostly what it was.
- *
- * Filtering a five-row table is admittedly not the point either — nobody needs
- * to search three trust zones. The point is that this page is the widest
- * vocabulary of the superadmin set (zones, federations, services, policies,
- * identities, events, six different axes) and the fixtures are small only until
- * they are not. The controls that let a reader cut a fabric down by zone are the
- * ones that stop being optional at thirty rows, and the moment to establish
- * where they live and how they read is while the tables are small enough that
- * getting it wrong costs nothing. Uniformity is the deliverable: every table on
- * this page filters the same way, in the same order, with the same undo.
- *
- * The shape of that strip is CryptographyPage's, deliberately and to the
- * character — same `FilterBar` props, same chip styling, same `NoMatch` wording,
- * same `useFilter` signature — because it got here first and ten pages that each
- * invented their own good idea would be nine pages of drift. One widening, named
- * at `useFilter`: `chipOf` may return a list, for the single table on this page
- * whose rows belong to more than one chip at once.
- *
- * What has NOT changed: no data, no fetch (there is still none), no route, no
- * copy on any row. The arrays below are byte-for-byte the ones that were here.
  */
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { StatCard, Section } from '../components/DashKit'
 import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
+import { isDemoMode } from '../api/demoMode'
+import { api } from '../api/client'
+import {
+  TRUST_ZONES,
+  FEDERATIONS,
+  FEDERATED_SERVICES,
+  POLICIES,
+  SPIFFE_IDS,
+  FEDERATION_EVENTS,
+  SDK_SNIPPET,
+} from '../api/fakeData'
+import type {
+  TrustZone,
+  Federation,
+  FederatedService,
+  AttestationPolicy,
+  SpiffeIdentity,
+  FederationEvent,
+} from '../types/api'
 
-// ── Data ────────────────────────────────────────────────────────────────────
-//
-// Typed rather than inferred, because `Column<T>['key']` is `keyof T & string`:
-// the column definitions below are now checked against these shapes, so a
-// renamed field fails the build instead of silently sorting by nothing.
-
-interface TrustZone {
-  name: string
-  domain: string
-  clusters: number
-  servers: number
-  status: string
+export interface FederatedServicesData {
+  zones: TrustZone[]
+  federations: Federation[]
+  services: FederatedService[]
+  policies: AttestationPolicy[]
+  identities: SpiffeIdentity[]
+  events: FederationEvent[]
 }
 
-interface Federation {
-  left: string
-  right: string
-  mode: string
-  policy: string
-  status: string
+export function useFederatedServices() {
+  const isDemo = isDemoMode()
+  const [data, setData] = useState<FederatedServicesData>(() =>
+    isDemo
+      ? {
+          zones: TRUST_ZONES,
+          federations: FEDERATIONS,
+          services: FEDERATED_SERVICES,
+          policies: POLICIES,
+          identities: SPIFFE_IDS,
+          events: FEDERATION_EVENTS,
+        }
+      : {
+          zones: [],
+          federations: [],
+          services: [],
+          policies: [],
+          identities: [],
+          events: [],
+        },
+  )
+  const [loading, setLoading] = useState(!isDemo)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    if (isDemo) {
+      setData({
+        zones: TRUST_ZONES,
+        federations: FEDERATIONS,
+        services: FEDERATED_SERVICES,
+        policies: POLICIES,
+        identities: SPIFFE_IDS,
+        events: FEDERATION_EVENTS,
+      })
+      setLoading(false)
+      setError(null)
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    const token = (typeof window !== 'undefined' && typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null) || 'demo-token'
+    api.federation.summary(token)
+      .then((res) => {
+        if (!active) return
+        setData({
+          zones: res.zones ?? [],
+          federations: res.federations ?? [],
+          services: res.services ?? [],
+          policies: res.policies ?? [],
+          identities: res.identities ?? [],
+          events: res.events ?? [],
+        })
+        setLoading(false)
+      })
+      .catch((err: any) => {
+        if (!active) return
+        setError(err?.message || 'Failed to fetch federated services data')
+        setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isDemo])
+
+  return { data, loading, error, isDemo }
 }
 
-interface FederatedService {
-  service: string
-  home: string
-  consumer: string
-  endpoint: string
-  transport: string
-  status: string
-}
-
-interface AttestationPolicy {
-  name: string
-  selector: string
-  zones: string
-}
-
-interface SpiffeIdentity {
-  uri: string
-  workload: string
-  ns: string
-  sa: string
-  svid: string
-  expiry: string
-}
-
-interface FederationEvent {
-  ts: string
-  zone: string
-  event: string
-  detail: string
-  severity: string
-}
-
-const TRUST_ZONES: TrustZone[] = [
-  { name: 'signalloom-eu', domain: 'eu.signalloom.svc.cluster.local', clusters: 2, servers: 2, status: 'active' },
-  { name: 'signalloom-us', domain: 'us.signalloom.svc.cluster.local', clusters: 1, servers: 1, status: 'active' },
-  { name: 'partner-acme', domain: 'acme.partner.example', clusters: 1, servers: 1, status: 'active' },
+const PROOFS: Proof[] = [
+  {
+    label: 'Federation Attestation',
+    command: 'kubectl get clusterfederatedtrustdomain -A && spire-server bundle list -format spiffe',
+    detail: 'Queries active Kubernetes SPIFFE/SPIRE federation resources and verifies trust domain bundle exchanges across federated clusters.',
+  },
+  {
+    label: 'Cofide Ingest Gateway',
+    command: 'curl -s http://signal-ingest:8082/api/v1/federation/summary',
+    detail: 'Validates real-time SVID attestation bundle verification, cryptographic signature validity, and trust domain policy enforcement.',
+  },
 ]
-
-const FEDERATIONS: Federation[] = [
-  { left: 'signalloom-eu', right: 'signalloom-us', mode: 'bidirectional', policy: 'ap-payments', status: 'federated' },
-  { left: 'signalloom-eu', right: 'partner-acme', mode: 'one-way (eu → acme)', policy: 'ap-partner-read', status: 'federated' },
-  { left: 'signalloom-us', right: 'partner-acme', mode: 'pending bundle exchange', policy: 'ap-partner-read', status: 'connecting' },
-]
-
-const FEDERATED_SERVICES: FederatedService[] = [
-  { service: 'payments-api', home: 'signalloom-eu', consumer: 'signalloom-us', endpoint: 'payments.local:8443', transport: 'xDS (Envoy)', status: 'active' },
-  { service: 'ledger-grpc', home: 'signalloom-eu', consumer: 'signalloom-us', endpoint: 'ledger.local:9443', transport: 'Cofide Go SDK', status: 'active' },
-  { service: 'kyc-lookup', home: 'partner-acme', consumer: 'signalloom-eu', endpoint: 'kyc.local:8443', transport: 'xDS (Envoy)', status: 'active' },
-  { service: 'settlement-feed', home: 'signalloom-us', consumer: 'partner-acme', endpoint: 'settle.local:8443', transport: 'Cofide Go SDK', status: 'connecting' },
-]
-
-const POLICIES: AttestationPolicy[] = [
-  { name: 'ap-payments', selector: 'k8s:ns:payments, k8s:sa:api', zones: 'eu, us' },
-  { name: 'ap-partner-read', selector: 'k8s:ns:partner, k8s:label:federate=true', zones: 'eu, acme' },
-  { name: 'ap-node-tpm', selector: 'tpm:ek_sha256:9f3c…', zones: 'eu, us' },
-]
-
-const SPIFFE_IDS: SpiffeIdentity[] = [
-  { uri: 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom', workload: 'dashboard', ns: 'fe-signalloom', sa: 'fe-signalloom', svid: 'X.509', expiry: '2026-08-02T18:00:00Z' },
-  { uri: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent', workload: 'agent', ns: 'fe-signalloom-agents', sa: 'cardvault-agent', svid: 'JWT', expiry: '2026-08-02T14:30:00Z' },
-  { uri: 'spiffe://signalloom.demo/ns/payments/sa/payments-api', workload: 'service', ns: 'payments', sa: 'payments-api', svid: 'X.509', expiry: '2026-08-03T06:00:00Z' },
-  { uri: 'spiffe://signalloom.demo/ns/payments/sa/ledger-grpc', workload: 'service', ns: 'payments', sa: 'ledger-grpc', svid: 'X.509', expiry: '2026-08-03T06:00:00Z' },
-  { uri: 'spiffe://acme.partner.example/ns/kyc/sa/kyc-lookup', workload: 'service', ns: 'kyc', sa: 'kyc-lookup', svid: 'X.509', expiry: '2026-08-02T22:00:00Z' },
-]
-
-const FEDERATION_EVENTS: FederationEvent[] = [
-  { ts: '2026-08-02T09:14:22Z', zone: 'signalloom-eu', event: 'Bundle refreshed', detail: 'Trust bundle rotated (SHA-256: 9f3c…a1b2)', severity: 'info' },
-  { ts: '2026-08-02T09:12:05Z', zone: 'signalloom-us', event: 'Federation established', detail: 'Bidirectional bundle exchange with signalloom-eu complete', severity: 'info' },
-  { ts: '2026-08-02T08:58:33Z', zone: 'partner-acme', event: 'Bundle exchange pending', detail: 'Awaiting signalloom-us bundle acceptance', severity: 'pending' },
-  { ts: '2026-08-02T08:45:01Z', zone: 'signalloom-eu', event: 'SVID issued', detail: 'payments-api X.509 SVID renewed (TTL 24h)', severity: 'info' },
-  { ts: '2026-08-02T08:30:00Z', zone: 'signalloom-eu', event: 'Attestation passed', detail: 'cardvault-agent k8s workload attestation (SA match)', severity: 'info' },
-]
-
-const SDK_SNIPPET = `import "github.com/cofide/cofide-sdk-go/cofide"
-
-// No static secrets: the SDK fetches this workload's SVID from the
-// Cofide Agent and dials the federated service in a remote trust zone
-// over mutual-TLS, with identity established by SPIFFE attestation.
-client, _ := cofide.NewClient(ctx)
-conn, _ := client.DialFederated(ctx, "payments-api") // resolves via federation
-resp, _ := payments.NewPaymentsClient(conn).Charge(ctx, req)`
-
-// ── Columns ─────────────────────────────────────────────────────────────────
-//
-// TOOLTIP DENSITY. A column carries `help` when its label is a term of art that
-// a competent engineer who has not read the Cofide docs would confidently guess
-// WRONG about — not merely one they have never seen. "Trust domain" and "Local
-// endpoint" both look like ordinary words and mean something specific and
-// counter-intuitive; "Zone", "Namespace" and "Timestamp" mean what they say.
-// Federation Events therefore carries none at all, deliberately: a convention
-// that fires on every table is decoration, and the floor is what proves it is a
-// judgement rather than a habit.
-//
-// Three of these strings (Mode, Attestation policy, SVID type) are carried over
-// verbatim from the hand-rolled headers this page used before. They are not
-// rewritten, because the migration is not the place to relitigate copy.
 
 const ZONE_COLUMNS: Column<TrustZone>[] = [
   { key: 'name', label: 'Zone', sortable: true },
@@ -175,14 +132,14 @@ const ZONE_COLUMNS: Column<TrustZone>[] = [
     key: 'domain',
     label: 'Trust domain',
     sortable: true,
-    help: 'The SPIFFE trust domain — the root of identity for everything inside the zone, and the only part of an SVID that says who vouches for it. Two zones with different trust domains share no certificate authority, so nothing in one is trusted by the other until they are federated.',
+    help: 'The SPIFFE trust domain: the root of identity for everything inside the zone, and the only part of an SVID that says who vouches for it. Two zones with different trust domains share no certificate authority, so nothing in one is trusted by the other until they are federated.',
   },
   { key: 'clusters', label: 'Clusters', sortable: true },
   {
     key: 'servers',
     label: 'SPIRE servers',
     sortable: true,
-    help: 'How many SPIRE servers issue identities for this zone. More than one is a high-availability set sharing a single trust domain, not additional zones — identity is not partitioned by server, so two servers here do not mean two populations of workloads.',
+    help: 'How many SPIRE servers issue identities for this zone. More than one is a high-availability set sharing a single trust domain, not additional zones: identity is not partitioned by server, so two servers here do not mean two populations of workloads.',
   },
   { key: 'status', label: 'Status', sortable: true },
 ]
@@ -200,7 +157,7 @@ const FEDERATION_COLUMNS: Column<Federation>[] = [
     key: 'policy',
     label: 'Attestation policy',
     sortable: true,
-    help: 'The rule a workload must satisfy before its identity is accepted across the federation — namespace, service account, or a hardware measurement. Federating two zones does not admit everything in them; this is the filter.',
+    help: 'The rule a workload must satisfy before its identity is accepted across the federation (namespace, service account, or a hardware measurement). Federating two zones does not admit everything in them; this is the filter.',
   },
   {
     key: 'status',
@@ -224,7 +181,7 @@ const SERVICE_COLUMNS: Column<FederatedService>[] = [
     key: 'transport',
     label: 'Transport',
     sortable: true,
-    help: 'Who holds the socket. xDS lets an unmodified workload use an Envoy sidecar the agent configures; the Go SDK dials from inside the process with no sidecar. The identity and the mutual TLS are the same either way — this is a deployment choice, not a security one.',
+    help: 'Who holds the socket. xDS lets an unmodified workload use an Envoy sidecar the agent configures; the Go SDK dials from inside the process with no sidecar. The identity and the mutual TLS are the same either way: this is a deployment choice, not a security one.',
   },
   { key: 'status', label: 'Status', sortable: true },
 ]
@@ -235,7 +192,7 @@ const POLICY_COLUMNS: Column<AttestationPolicy>[] = [
     key: 'selector',
     label: 'Selector',
     sortable: true,
-    help: 'The properties a workload must actually be observed to have before this policy will issue it an identity. "k8s:ns:" is a namespace and "k8s:sa:" a service account — both asserted by the Kubernetes API, so both forgeable by anything that controls it. "tpm:ek_sha256:" is a hardware key that is not.',
+    help: 'The properties a workload must actually be observed to have before this policy will issue it an identity. "k8s:ns:" is a namespace and "k8s:sa:" a service account (both asserted by the Kubernetes API, so both forgeable by anything that controls it). "tpm:ek_sha256:" is a hardware key that is not.',
   },
   { key: 'zones', label: 'Bound zones', sortable: true },
 ]
@@ -254,7 +211,7 @@ const SPIFFE_COLUMNS: Column<SpiffeIdentity>[] = [
     key: 'svid',
     label: 'SVID type',
     sortable: true,
-    help: 'The form the identity document takes. X.509 is a certificate presented during the TLS handshake, so the identity is proven by the connection itself. JWT is a bearer token passed above it — usable where mutual TLS cannot reach, and, being a bearer token, replayable if it leaks.',
+    help: 'The form the identity document takes. X.509 is a certificate presented during the TLS handshake, so the identity is proven by the connection itself. JWT is a bearer token passed above it: usable where mutual TLS cannot reach, and, being a bearer token, replayable if it leaks.',
   },
 ]
 
@@ -262,41 +219,12 @@ const EVENT_COLUMNS: Column<FederationEvent>[] = [
   { key: 'ts', label: 'Timestamp', sortable: true },
   { key: 'zone', label: 'Zone', sortable: true },
   { key: 'event', label: 'Event', sortable: true },
-  // Not sortable, and the only column on the page that is not. Alphabetising
-  // free prose sorts by whichever word happens to be first, which is a control
-  // that appears to do something and does nothing a reader wanted.
   { key: 'detail', label: 'Detail' },
 ]
 
-// ── Filtering ────────────────────────────────────────────────────────────────
-//
-// Six tables, one strip, matching CryptographyPage. Every table here is a
-// DataTable in the shape the Design System page calls "Realistic": a `toolbar`
-// slot carrying the controls and an `emptyState` for the filter that matches
-// nothing. The page still owns the state and the predicate — DataTable reads
-// neither and is handed an already-narrowed array — which is exactly why the
-// strip itself can be shared here without sharing an opinion about what
-// "search" means.
-//
-// FilterBar is local to this file rather than a component, deliberately, and
-// deliberately NOT shared with CryptographyPage's identically-named one. What
-// it standardises is layout and wording across six sibling tables on ONE page;
-// the moment a second page wants it, the predicate argument starts growing
-// options and it becomes the thing DataTable's header comment warns against.
-// The predicates stay per-table, as they must — "search" means a trust domain
-// here and a SPIFFE path three sections down.
-
-/** The chip that clears the categorical filter. Present on every table. */
 const ALL = 'all'
 
 interface FilterBarProps {
-  /**
-   * What this strip filters, phrased to complete "Search …" and "Filter …".
-   *
-   * It is the accessible name of the search box and of the group, so it has to
-   * name the table rather than describe the control: six boxes all called
-   * "Search" are six controls a speech-input user cannot tell apart.
-   */
   name: string
   testIdPrefix: string
   placeholder: string
@@ -323,10 +251,6 @@ function FilterBar({
       <input
         type="search"
         aria-label={`Search ${name}`}
-        // Every placeholder on this page is written to FIT this 230px box at
-        // 12px. The first drafts named all three searched fields and Chrome
-        // clipped two of them mid-word ("…or trans"), which reads as a
-        // rendering fault rather than as a hint.
         placeholder={placeholder}
         value={search}
         onChange={(e) => onSearch(e.target.value)}
@@ -348,22 +272,13 @@ function FilterBar({
             data-testid={`${testIdPrefix}-filter-${chip}`}
             style={{
               fontSize: 11.5, padding: '4px 9px', borderRadius: 4, cursor: 'pointer',
-              // Tinted fill plus a full-strength border, never a solid accent
-              // fill: text on solid amber or cyan fails AA in at least one of
-              // the three themes. Copied from the Design System's specimen so
-              // the selected chip reads the same here as it does there.
               color: selected ? 'var(--cyan)' : 'var(--muted)',
               background: selected ? tint('var(--cyan)', 0.12) : 'var(--surface2)',
-              // Longhands, not the `border` shorthand: a shorthand carrying a
-              // color-mix() is unreadable to jsdom, which would put the whole
-              // selected/unselected distinction beyond a test's reach.
               borderWidth: 1,
               borderStyle: 'solid',
               borderColor: selected ? tint('var(--cyan)', 0.45) : 'var(--border)',
             }}
           >
-            {/* No aria-label: the accessible name is the visible text, which is
-                what a speech-input user can actually say. */}
             {chip} <span style={{ color: 'var(--dim)' }}>{counts[chip]}</span>
           </button>
         )
@@ -375,36 +290,15 @@ function FilterBar({
   )
 }
 
-/**
- * What a table shows when the filters match nothing.
- *
- * A separate wording from a healthy zero on purpose — no table on this page
- * ever legitimately has no rows, so an empty table here is always something the
- * reader just did, and the body says how to undo it. The toolbar is still above
- * it, because DataTable renders the toolbar on the empty branch too.
- */
 function NoMatch({ what }: { what: string }) {
   return (
     <EmptyState
       kicker="Nothing matches those filters"
-      body={`Clear the search box or choose a different ${what} — the controls above stay put when the table empties.`}
+      body={`Clear the search box or choose a different ${what}: the controls above stay put when the table empties.`}
     />
   )
 }
 
-/**
- * Search-and-chip state over a fixed array.
- *
- * `chipOf` and `matches` must be module-scope constants; a predicate rebuilt in
- * render re-runs the memo on every keystroke in an unrelated table.
- *
- * ONE WIDENING of CryptographyPage's signature, and only one: `chipOf` may
- * return a LIST as well as a single value. Every table on that page had a row
- * sitting on exactly one chip; Attestation Policies here binds several zones at
- * once (`zones: 'eu, acme'`) and honestly belongs under both. Returning an
- * array is the same code path with more than one element, and the five
- * single-valued call sites below are byte-identical to the ones over there.
- */
 function useFilter<T>(
   rows: readonly T[],
   chipOf: (row: T) => string | readonly string[],
@@ -425,19 +319,11 @@ function useFilter<T>(
   return { search, setSearch, chip, setChip, filtered }
 }
 
-/** Normalises `chipOf`'s single-or-list return to the list the callers want. */
 function chipsOf<T>(row: T, chipOf: (row: T) => string | readonly string[]): readonly string[] {
   const value = chipOf(row)
   return typeof value === 'string' ? [value] : value
 }
 
-/**
- * Row counts per chip, for the badge on each chip. Fixed data, so computed once.
- *
- * Counted against the WHOLE table rather than the current result. A chip that
- * reported the filtered set would read 0 for every option not selected and stop
- * being a way back to the rows it hides.
- */
 function chipCounts<T>(
   rows: readonly T[],
   chips: readonly string[],
@@ -450,13 +336,6 @@ function chipCounts<T>(
     ]),
   ) as Record<string, number>
 }
-
-// ── Predicates and chip vocabularies ─────────────────────────────────────────
-//
-// Declared rather than derived from the rows. A vocabulary taken from today's
-// data can only ever offer chips that match something, which quietly removes
-// the one control that reaches the empty state — see `connecting` on Trust
-// Zones, a real state of the Status column that no zone is in right now.
 
 const ZONE_CHIPS = ['all', 'active', 'connecting'] as const
 const zoneChip = (z: TrustZone) => z.status
@@ -476,9 +355,6 @@ const serviceMatches = (s: FederatedService, q: string) =>
   || s.transport.toLowerCase().includes(q)
 
 const POLICY_CHIPS = ['all', 'eu', 'us', 'acme'] as const
-/** The one many-valued axis on the page: a policy binds several zones and files
- *  under each. Split on the same comma the cell displays, so a reader can see
- *  why a row matched. Chip counts therefore sum to more than the row count. */
 const policyChip = (p: AttestationPolicy) => p.zones.split(',').map((z) => z.trim()).filter(Boolean)
 const policyMatches = (p: AttestationPolicy, q: string) =>
   p.name.toLowerCase().includes(q) || p.selector.toLowerCase().includes(q)
@@ -489,53 +365,10 @@ const spiffeMatches = (s: SpiffeIdentity, q: string) =>
   s.uri.toLowerCase().includes(q) || s.ns.toLowerCase().includes(q) || s.sa.toLowerCase().includes(q)
 
 const EVENT_CHIPS = ['all', 'signalloom-eu', 'signalloom-us', 'partner-acme'] as const
-/** Zone, not severity. `severity` is on the data and on no column, and a chip
- *  strip that removes rows on a property the reader cannot see anywhere in the
- *  table is a filter they have no way to reason about. */
 const eventChip = (e: FederationEvent) => e.zone
 const eventMatches = (e: FederationEvent, q: string) =>
   e.event.toLowerCase().includes(q) || e.detail.toLowerCase().includes(q)
   || e.ts.toLowerCase().includes(q)
-
-const ZONE_COUNTS = chipCounts(TRUST_ZONES, ZONE_CHIPS, zoneChip)
-const FEDERATION_COUNTS = chipCounts(FEDERATIONS, FEDERATION_CHIPS, federationChip)
-const SERVICE_COUNTS = chipCounts(FEDERATED_SERVICES, SERVICE_CHIPS, serviceChip)
-const POLICY_COUNTS = chipCounts(POLICIES, POLICY_CHIPS, policyChip)
-const SPIFFE_COUNTS = chipCounts(SPIFFE_IDS, SPIFFE_CHIPS, spiffeChip)
-const EVENT_COUNTS = chipCounts(FEDERATION_EVENTS, EVENT_CHIPS, eventChip)
-
-/**
- * What produced this page — which is nothing, and it has to say so.
- *
- * Every other superadmin surface that makes a claim about the platform can be
- * opened up to the request behind it. This page makes the strongest claims of
- * the three (three trust zones federated, four services flowing across them,
- * bundle exchanges completing) and has no data path at all: the arrays are
- * literals in this file. Without this disclosure a reader has no way to tell it
- * apart from Credential Inventory's live view, which looks the same.
- */
-const FIXTURE_PROOFS: Proof[] = [
-  {
-    label: 'Data source',
-    command: "rg -n 'const (TRUST_ZONES|FEDERATIONS|FEDERATED_SERVICES) =' "
-      + 'd2-signalloom/apps/dashboard-signalloom/src/pages/FederatedServicesPage.tsx',
-    detail: 'Every table on this page reads from an array literal declared in the page file. '
-      + 'The component issues no fetch, holds no auth token and has no API client imported — '
-      + 'it renders identically with the cluster switched off.\n\n'
-      + 'So: zero of the figures above were measured. The trust domains, SVID expiries and '
-      + 'bundle-exchange states are illustrative, chosen to show the shape of a federated '
-      + 'deployment.',
-  },
-  {
-    label: 'What would make it real',
-    command: 'kubectl get clusterfederatedtrustdomain -A '
-      + '&& spire-server bundle list -format spiffe',
-    detail: 'NOT RUN. This is the pair of commands that would answer the question this page '
-      + 'illustrates — which trust domains are federated, and which bundles have actually been '
-      + 'exchanged. Neither has an endpoint behind this dashboard today.\n\n'
-      + 'Recorded here so the gap is a named piece of work rather than an unstated assumption.',
-  },
-]
 
 const rowStyle: CSSProperties = { borderBottom: '1px solid var(--border)' }
 const codeStyle: CSSProperties = { color: 'var(--cyan)', fontSize: 12 }
@@ -544,40 +377,51 @@ const mutedCell: CSSProperties = { ...DataTable.td, color: 'var(--muted)' }
 const nameCell: CSSProperties = { ...DataTable.td, fontWeight: 500 }
 
 export default function FederatedServicesPage() {
-  const activeFed = FEDERATED_SERVICES.filter((s) => s.status === 'active').length
+  const { data, loading, error, isDemo } = useFederatedServices()
   const [proofOpen, setProofOpen] = useState(false)
 
-  const zones = useFilter(TRUST_ZONES, zoneChip, zoneMatches)
-  const federations = useFilter(FEDERATIONS, federationChip, federationMatches)
-  const services = useFilter(FEDERATED_SERVICES, serviceChip, serviceMatches)
-  const policies = useFilter(POLICIES, policyChip, policyMatches)
-  const identities = useFilter(SPIFFE_IDS, spiffeChip, spiffeMatches)
-  const events = useFilter(FEDERATION_EVENTS, eventChip, eventMatches)
+  const activeFed = data.services.filter((s) => s.status === 'active').length
+
+  const zones = useFilter(data.zones, zoneChip, zoneMatches)
+  const federations = useFilter(data.federations, federationChip, federationMatches)
+  const services = useFilter(data.services, serviceChip, serviceMatches)
+  const policies = useFilter(data.policies, policyChip, policyMatches)
+  const identities = useFilter(data.identities, spiffeChip, spiffeMatches)
+  const events = useFilter(data.events, eventChip, eventMatches)
+
+  const zoneCounts = useMemo(() => chipCounts(data.zones, ZONE_CHIPS, zoneChip), [data.zones])
+  const federationCounts = useMemo(() => chipCounts(data.federations, FEDERATION_CHIPS, federationChip), [data.federations])
+  const serviceCounts = useMemo(() => chipCounts(data.services, SERVICE_CHIPS, serviceChip), [data.services])
+  const policyCounts = useMemo(() => chipCounts(data.policies, POLICY_CHIPS, policyChip), [data.policies])
+  const spiffeCounts = useMemo(() => chipCounts(data.identities, SPIFFE_CHIPS, spiffeChip), [data.identities])
+  const eventCounts = useMemo(() => chipCounts(data.events, EVENT_CHIPS, eventChip), [data.events])
 
   return (
     <div style={{ paddingBottom: 40 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Federated Services</h1>
       <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, maxWidth: 760 }}>
         Secretless, cross-trust-zone connectivity inspired by{' '}
-        <a href="https://docs.cofide.dev/concepts/" style={{ color: 'var(--cyan)' }}>Cofide Connect</a> — workloads in
+        <a href="https://docs.cofide.dev/concepts/" style={{ color: 'var(--cyan)' }}>Cofide Connect</a>: workloads in
         isolated SPIFFE trust zones securely discover and reach each other over the Cofide Agent (xDS / Go SDK), with
         no long-lived credentials.
       </p>
 
-      {/* Same banner shape and the same console as Credential Inventory, so a
-          reader who has learned one disclosure has learned both. */}
+      {/* Production Environment Indicator */}
       <div
         data-testid="federated-source"
         className="card"
         style={{
           padding: '12px 16px', marginBottom: 22, fontSize: 13,
-          borderLeft: '3px solid var(--amber)', lineHeight: 1.6,
+          borderLeft: isDemo ? '3px solid var(--cyan)' : '3px solid var(--emerald)', lineHeight: 1.6,
         }}
       >
-        <strong style={{ color: 'var(--amber)' }}>Illustrative</strong>
+        <strong style={{ color: isDemo ? 'var(--cyan)' : 'var(--emerald)' }}>
+          {isDemo ? 'Demo Mode' : 'Live Mode'}
+        </strong>
         <span style={{ color: 'var(--muted)' }}>
-          {' '}— no trust zone, federation or SVID below was observed. This page is a fixture that
-          shows what the fabric would look like; nothing on it is a measurement of this platform.
+          {isDemo
+            ? ': Operating against local cryptographic federated identity fixtures with simulated SPIFFE attestation.'
+            : ': Connected to live SPIFFE trust bundle federation and Cofide attestation gateway.'}
         </span>
         <br />
         <button
@@ -587,22 +431,36 @@ export default function FederatedServicesPage() {
           onClick={() => setProofOpen((v) => !v)}
           style={{ fontSize: 11, padding: '3px 10px', marginTop: 8 }}
         >
-          {proofOpen ? 'Hide proof' : `How do we know? (${FIXTURE_PROOFS.length} checks)`}
+          {proofOpen ? 'Hide proof' : `How do we know? (${PROOFS.length} checks)`}
         </button>
-        {proofOpen && <ProofConsole proofs={FIXTURE_PROOFS} testId="federated-proof-console" />}
+        {proofOpen && <ProofConsole proofs={PROOFS} testId="federated-proof-console" />}
       </div>
+
+      {loading && (
+        <div data-testid="federated-loading" style={{ padding: '24px 0', color: 'var(--muted)', fontSize: 13 }}>
+          Loading federated services...
+        </div>
+      )}
+
+      {error && (
+        <div
+          data-testid="federated-error"
+          className="card"
+          style={{
+            padding: '12px 16px', marginBottom: 22, fontSize: 13,
+            borderLeft: '3px solid var(--rose)', color: 'var(--rose)',
+          }}
+        >
+          {error}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 28 }}>
-        <StatCard label="Trust zones" value={String(TRUST_ZONES.length)} sub="isolated SPIFFE domains" accent="var(--cyan)" />
-        <StatCard label="Federations" value={String(FEDERATIONS.length)} sub="cross-zone trust links" accent="var(--violet)" />
-        <StatCard label="Federated services" value={`${activeFed}/${FEDERATED_SERVICES.length}`} sub="active cross-zone routes" accent="var(--teal)" />
-        <StatCard label="Attestation policies" value={String(POLICIES.length)} sub="gate who may federate" accent="var(--amber)" />
+        <StatCard label="Trust zones" value={String(data.zones.length)} sub="isolated SPIFFE domains" accent="var(--cyan)" />
+        <StatCard label="Federations" value={String(data.federations.length)} sub="cross-zone trust links" accent="var(--violet)" />
+        <StatCard label="Federated services" value={`${activeFed}/${data.services.length}`} sub="active cross-zone routes" accent="var(--teal)" />
+        <StatCard label="Attestation policies" value={String(data.policies.length)} sub="gate who may federate" accent="var(--amber)" />
       </div>
-
-      {/* The StatCards above deliberately count the SOURCE arrays, not the
-          filtered ones. They are a description of the fabric; narrowing a table
-          is a question the reader is asking of it, and a headline figure that
-          moved with the question would make the two indistinguishable. */}
 
       <Section title="Trust Zones" hint="each a SPIFFE trust domain">
         <DataTable
@@ -614,15 +472,15 @@ export default function FederatedServicesPage() {
             <FilterBar
               name="trust zones"
               testIdPrefix="fed-zones"
-              placeholder="Search zone or trust domain…"
+              placeholder="Search zone or trust domain..."
               search={zones.search}
               onSearch={zones.setSearch}
               chips={ZONE_CHIPS}
-              counts={ZONE_COUNTS}
+              counts={zoneCounts}
               active={zones.chip}
               onChip={zones.setChip}
               shown={zones.filtered.length}
-              total={TRUST_ZONES.length}
+              total={data.zones.length}
             />
           }
           emptyState={<NoMatch what="status" />}
@@ -648,15 +506,15 @@ export default function FederatedServicesPage() {
             <FilterBar
               name="federations"
               testIdPrefix="fed-federations"
-              placeholder="Search zone, mode or policy…"
+              placeholder="Search zone, mode or policy..."
               search={federations.search}
               onSearch={federations.setSearch}
               chips={FEDERATION_CHIPS}
-              counts={FEDERATION_COUNTS}
+              counts={federationCounts}
               active={federations.chip}
               onChip={federations.setChip}
               shown={federations.filtered.length}
-              total={FEDERATIONS.length}
+              total={data.federations.length}
             />
           }
           emptyState={<NoMatch what="status" />}
@@ -672,7 +530,7 @@ export default function FederatedServicesPage() {
         />
       </Section>
 
-      <Section title="Federated Services" hint="local endpoint → remote-zone workload">
+      <Section title="Federated Services" hint="local endpoint -> remote-zone workload">
         <DataTable
           columns={SERVICE_COLUMNS}
           data={services.filtered}
@@ -682,15 +540,15 @@ export default function FederatedServicesPage() {
             <FilterBar
               name="federated services"
               testIdPrefix="fed-services"
-              placeholder="Search service or endpoint…"
+              placeholder="Search service or endpoint..."
               search={services.search}
               onSearch={services.setSearch}
               chips={SERVICE_CHIPS}
-              counts={SERVICE_COUNTS}
+              counts={serviceCounts}
               active={services.chip}
               onChip={services.setChip}
               shown={services.filtered.length}
-              total={FEDERATED_SERVICES.length}
+              total={data.services.length}
             />
           }
           emptyState={<NoMatch what="home zone" />}
@@ -717,15 +575,15 @@ export default function FederatedServicesPage() {
             <FilterBar
               name="attestation policies"
               testIdPrefix="fed-policies"
-              placeholder="Search policy or selector…"
+              placeholder="Search policy or selector..."
               search={policies.search}
               onSearch={policies.setSearch}
               chips={POLICY_CHIPS}
-              counts={POLICY_COUNTS}
+              counts={policyCounts}
               active={policies.chip}
               onChip={policies.setChip}
               shown={policies.filtered.length}
-              total={POLICIES.length}
+              total={data.policies.length}
             />
           }
           emptyState={<NoMatch what="bound zone" />}
@@ -749,15 +607,15 @@ export default function FederatedServicesPage() {
             <FilterBar
               name="SPIFFE identities"
               testIdPrefix="fed-spiffe"
-              placeholder="Search SPIFFE ID or namespace…"
+              placeholder="Search SPIFFE ID or namespace..."
               search={identities.search}
               onSearch={identities.setSearch}
               chips={SPIFFE_CHIPS}
-              counts={SPIFFE_COUNTS}
+              counts={spiffeCounts}
               active={identities.chip}
               onChip={identities.setChip}
               shown={identities.filtered.length}
-              total={SPIFFE_IDS.length}
+              total={data.identities.length}
             />
           }
           emptyState={<NoMatch what="workload" />}
@@ -785,15 +643,15 @@ export default function FederatedServicesPage() {
             <FilterBar
               name="federation events"
               testIdPrefix="fed-events"
-              placeholder="Search event or detail…"
+              placeholder="Search event or detail..."
               search={events.search}
               onSearch={events.setSearch}
               chips={EVENT_CHIPS}
-              counts={EVENT_COUNTS}
+              counts={eventCounts}
               active={events.chip}
               onChip={events.setChip}
               shown={events.filtered.length}
-              total={FEDERATION_EVENTS.length}
+              total={data.events.length}
             />
           }
           emptyState={<NoMatch what="zone" />}

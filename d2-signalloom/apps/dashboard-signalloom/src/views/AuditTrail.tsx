@@ -17,6 +17,7 @@ import {
 import EmptyState from '../components/EmptyState'
 import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
+import AuditDetailDrawer from '../components/AuditDetailDrawer'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 //
@@ -336,6 +337,8 @@ export default function AuditTrail() {
   // the count beside them counts loaded events rather than the audit record.
   const [search, setSearch] = useState('')
   const [eventClass, setEventClass] = useState<EventClass>('all')
+  const [selectedEvent, setSelectedEvent] = useState<AuditEventResponse | null>(null)
+  const triggerRefMap = useRef<Record<string, HTMLButtonElement | null>>({})
 
   // Track active filters so polling uses same params
   const initialFilters: AuditQuery = { fromDate: initialFrom, toDate: initialTo, agentId: initialAgent, eventType: initialType }
@@ -647,7 +650,7 @@ export default function AuditTrail() {
           <HelpHint label="What these filters do and when they apply" testId="audit-server-filter-help">
             {'These four are sent to the server and it decides which rows exist, so they narrow the '
               + 'whole audit record and not just what is on screen. They take effect when you press '
-              + 'Apply — the two controls below the line take effect as you type. Export CSV always '
+              + 'Apply: the two controls below the line take effect as you type. Export CSV always '
               + 'uses these four, so it returns every matching event and not only the rows loaded here.'}
           </HelpHint>
         </div>
@@ -679,7 +682,7 @@ export default function AuditTrail() {
       <HelpHint label="What the search box and class chips do" testId="audit-refine-help">
         {'These two hide rows that are already in this browser. They never ask the server for '
           + 'anything, so an empty result here means nothing matched among the events loaded so '
-          + 'far — not that the audit record holds no such event. Load More, or narrow with the '
+          + 'far, not that the audit record holds no such event. Load More, or narrow with the '
           + 'four controls above the line, to search the record itself. The number on each chip '
           + 'counts the loaded events of that class, not the ones currently on screen.'}
       </HelpHint>
@@ -697,7 +700,7 @@ export default function AuditTrail() {
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Audit Trail</h1>
           <HelpHint label="What the Audit Trail records" testId="audit-page-help">
             Every row is written by the part of the system that carried the action out, as it
-            carried it out — nothing here was submitted by a browser. Rows cannot be edited or
+            carried it out: nothing here was submitted by a browser. Rows cannot be edited or
             deleted afterwards; a correction is recorded as a further event rather than by
             changing the original.
           </HelpHint>
@@ -715,7 +718,7 @@ export default function AuditTrail() {
           {/* Beside the button, not inside it: nested in the `button` the hint
               joins its accessible name and `Export CSV` stops matching. */}
           <HelpHint label="What Export CSV contains" testId="audit-export-help">
-            {'Every event matching the four server filters, not just the rows loaded below — the '
+            {'Every event matching the four server filters, not just the rows loaded below: the '
               + 'file is not paginated. The search box and class chips are not applied to it, '
               + 'because they hide rows rather than exclude them from the record.'}
           </HelpHint>
@@ -752,7 +755,7 @@ export default function AuditTrail() {
                 label: 'Timestamp',
                 sortable: true,
                 help:
-                  'When the server recorded the event, rendered in this browser\'s time zone — '
+                  'When the server recorded the event, rendered in this browser\'s time zone: '
                   + 'two people in different offices see different clock times for the same row, '
                   + 'and the exported CSV carries the original UTC value rather than either of '
                   + 'them.',
@@ -764,7 +767,7 @@ export default function AuditTrail() {
                 help:
                   'What happened, in the vocabulary the server writes. Click any tag in the '
                   + 'table to filter the whole record to that type, and click it again to clear '
-                  + 'it — that reaches the server, unlike the class chips in the strip above.',
+                  + 'it: that reaches the server, unlike the class chips in the strip above.',
               },
               {
                 key: 'agent_name',
@@ -772,7 +775,7 @@ export default function AuditTrail() {
                 sortable: true,
                 help:
                   'The agent the event was about, with the first eight characters of its ID '
-                  + 'beneath. A dash means the event was not about a particular agent — a tenant '
+                  + 'beneath. None means the event was not about a particular agent, such as a tenant '
                   + 'or account action rather than an agent one.',
               },
               {
@@ -780,7 +783,7 @@ export default function AuditTrail() {
                 label: 'Actor',
                 sortable: true,
                 help:
-                  'Who the server saw make this happen, taken from their sign-in token — '
+                  'Who the server saw make this happen, taken from their sign-in token: '
                   + 'usually an email address, because that is what the token carries and a '
                   + 'friendlier name would be one nobody could check it against. '
                   + '"demo-actor" means that event was recorded before actions were '
@@ -796,7 +799,7 @@ export default function AuditTrail() {
                 label: 'Detail',
                 help:
                   'Everything else the server recorded about the event, verbatim and unedited. '
-                  + 'Long payloads are cut to one line here — hover the value to read it in full, '
+                  + 'Click the cell or press Enter to inspect the full formatted payload in the detail drawer, '
                   + 'or export the CSV, which never truncates.',
               },
             ]}
@@ -818,7 +821,7 @@ export default function AuditTrail() {
                 <div data-testid="audit-filtered-empty">
                   <EmptyState
                     kicker="Nothing matches these filters"
-                    body={`All ${events.length.toLocaleString()} loaded events are still here — the search box or a class chip above is hiding them.`}
+                    body={`All ${events.length.toLocaleString()} loaded events are still here; the search box or a class chip above is hiding them.`}
                   />
                   <div style={{ display: 'flex', justifyContent: 'center', marginTop: -34, marginBottom: 12 }}>
                     <button
@@ -862,7 +865,7 @@ export default function AuditTrail() {
                         <div style={{ color: 'var(--muted)', fontSize: 10, fontFamily: 'monospace' }}>{ev.agent_id.slice(0, 8)}…</div>
                       )}
                     </AgentDeepLink>
-                  ) : <span style={{ color: 'var(--muted)' }}>—</span>}
+                  ) : <span style={{ color: 'var(--muted)' }}>None</span>}
                 </td>
                 {/* Both of these cells are ellipsised, and until now the cut-off
                     text was simply gone — no way to read an actor past 180px or
@@ -874,13 +877,77 @@ export default function AuditTrail() {
                   {ev.actor ? (
                     <AgentDeepLink target={ev.actor} variant="subtle" dataTestId={`audit-actor-link-${ev.id}`} />
                   ) : (
-                    '—'
+                    'None'
                   )}
                 </td>
                 <td style={{ ...DataTable.td, maxWidth: 300 }}>
-                  <code title={JSON.stringify(ev.detail ?? {}, null, 2)} style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {Object.keys(ev.detail).length > 0 ? JSON.stringify(ev.detail) : '{}'}
-                  </code>
+                  <button
+                    type="button"
+                    className="btn-audit-inspect"
+                    data-testid={`audit-detail-trigger-${ev.id}`}
+                    aria-label={`Inspect event details for ${ev.event_type} (${ev.id})`}
+                    aria-haspopup="dialog"
+                    aria-expanded={selectedEvent?.id === ev.id}
+                    onClick={(e) => {
+                      triggerRefMap.current[ev.id] = e.currentTarget
+                      setSelectedEvent(ev)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        triggerRefMap.current[ev.id] = e.currentTarget
+                        setSelectedEvent(ev)
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      width: '100%',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 4,
+                      padding: '3px 8px',
+                      color: 'var(--text)',
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'border-color 0.15s ease, background 0.15s ease',
+                    }}
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      style={{ flexShrink: 0, color: 'var(--cyan)' }}
+                    >
+                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    <code
+                      title={JSON.stringify(ev.detail ?? {}, null, 2)}
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--muted)',
+                        background: 'transparent',
+                        padding: 0,
+                        display: 'block',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                      }}
+                    >
+                      {Object.keys(ev.detail ?? {}).length > 0 ? JSON.stringify(ev.detail) : '{}'}
+                    </code>
+                  </button>
                 </td>
               </tr>
             )}
@@ -908,6 +975,18 @@ export default function AuditTrail() {
           )}
         </>
       )}
+
+      <AuditDetailDrawer
+        isOpen={selectedEvent !== null}
+        event={selectedEvent}
+        onClose={() => {
+          const prevId = selectedEvent?.id
+          setSelectedEvent(null)
+          if (prevId && triggerRefMap.current[prevId]) {
+            triggerRefMap.current[prevId]?.focus()
+          }
+        }}
+      />
     </div>
   )
 }

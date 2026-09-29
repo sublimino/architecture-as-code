@@ -113,7 +113,7 @@ func generateSVID(t *testing.T, caKey *rsa.PrivateKey, caCert *x509.Certificate,
 }
 
 func TestCofideInterceptor_TableDriven(t *testing.T) {
-	fixedNow := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	fixedNow := time.Now()
 
 	// Setup trusted CA and pool
 	caKey, caCert := generateCA(t, "Signal Loom Root CA")

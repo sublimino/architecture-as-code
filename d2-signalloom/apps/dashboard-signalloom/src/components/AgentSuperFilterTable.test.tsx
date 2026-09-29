@@ -159,4 +159,118 @@ describe('AgentSuperFilterTable', () => {
     expect(screen.getByText('4 of 4 workloads shown')).toBeInTheDocument()
     expect(screen.getByTestId('row-agent-2')).toBeInTheDocument()
   })
+
+  it('filters rows by multi-column criteria (status, framework, search query)', () => {
+    interface ComplianceAgent {
+      id: string
+      name: string
+      status: string
+      framework: string
+      namespace: string
+    }
+
+    const testData: ComplianceAgent[] = [
+      { id: 'ca-1', name: 'Alpha Guard', status: 'Governed', framework: 'nist-800-53', namespace: 'prod' },
+      { id: 'ca-2', name: 'Alpha Probe', status: 'Suspended', framework: 'nist-800-53', namespace: 'stage' },
+      { id: 'ca-3', name: 'Alpha Watch', status: 'Governed', framework: 'eu-ai-act', namespace: 'prod' },
+      { id: 'ca-4', name: 'Beta Guard', status: 'Governed', framework: 'nist-800-53', namespace: 'prod' },
+    ]
+
+    const testCols: Column<ComplianceAgent>[] = [
+      { key: 'name', label: 'Name' },
+      { key: 'status', label: 'Status' },
+      { key: 'framework', label: 'Framework' },
+    ]
+
+    render(
+      <AgentSuperFilterTable<ComplianceAgent>
+        data={testData}
+        columns={testCols}
+        renderRow={(item) => (
+          <tr key={item.id} data-testid={`test-row-${item.id}`}>
+            <td>{item.name}</td>
+            <td>{item.status}</td>
+            <td>{item.framework}</td>
+          </tr>
+        )}
+      />
+    )
+
+    // Initially 4 workloads shown
+    expect(screen.getByTestId('test-row-ca-1')).toBeInTheDocument()
+    expect(screen.getByTestId('test-row-ca-4')).toBeInTheDocument()
+
+    // 1. Filter by framework select
+    const fwSelect = screen.getByTestId('agent-super-filter-table-framework')
+    fireEvent.change(fwSelect, { target: { value: 'nist-800-53' } })
+    expect(screen.queryByTestId('test-row-ca-3')).not.toBeInTheDocument()
+
+    // 2. Filter by state facet (Governed)
+    const governedChip = screen.getByRole('button', { name: /^Governed/i })
+    fireEvent.click(governedChip)
+    expect(screen.queryByTestId('test-row-ca-2')).not.toBeInTheDocument()
+
+    // 3. Search query "Alpha Guard"
+    const searchInput = screen.getByPlaceholderText(/Search by name, ID/i)
+    fireEvent.change(searchInput, { target: { value: 'Alpha Guard' } })
+
+    // Only ca-1 should match all 3 criteria
+    expect(screen.getByTestId('test-row-ca-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('test-row-ca-4')).not.toBeInTheDocument()
+    expect(screen.getByText('1 of 4 workloads shown')).toBeInTheDocument()
+  })
+
+  it('renders EmptyState and resets when search yields no matches', () => {
+    renderTable()
+    const searchInput = screen.getByPlaceholderText(/Search by name, ID/i)
+    fireEvent.change(searchInput, { target: { value: 'NonExistentAgentQuery123' } })
+
+    expect(screen.getByText('No workloads match criteria')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-super-filter-table-empty-clear')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('agent-super-filter-table-empty-clear'))
+    expect(screen.queryByText('No workloads match criteria')).not.toBeInTheDocument()
+    expect(screen.getByTestId('row-agent-1')).toBeInTheDocument()
+  })
+
+  it('safely handles special regex characters in search query without crashing', () => {
+    renderTable()
+    const searchInput = screen.getByPlaceholderText(/Search by name, ID/i)
+
+    const adversarialQueries = ['.*', '[a-z]+', '(', '(?=.*)', '^$', '\\d+', '+', '*', '?', '{1,3}', '[']
+    for (const maliciousQuery of adversarialQueries) {
+      expect(() => {
+        fireEvent.change(searchInput, { target: { value: maliciousQuery } })
+      }).not.toThrow()
+    }
+  })
+
+  it('safely handles null and undefined data fields without crashing', () => {
+    const dirtyData: any[] = [
+      { id: 'dirty-1', name: null, status: null, namespace: null, owner: null },
+      { id: null, name: undefined, status: undefined },
+      {},
+      null,
+    ]
+
+    expect(() => {
+      render(
+        <AgentSuperFilterTable<any>
+          data={dirtyData}
+          columns={[{ key: 'id', label: 'ID' }]}
+          renderRow={(item, idx) => (
+            <tr key={idx} data-testid={`dirty-row-${idx}`}>
+              <td>{String(item?.id || '')}</td>
+            </tr>
+          )}
+        />
+      )
+    }).not.toThrow()
+
+    // Searching across dirty records should also not throw
+    const searchInput = screen.getByPlaceholderText(/Search by name, ID/i)
+    expect(() => {
+      fireEvent.change(searchInput, { target: { value: 'test' } })
+    }).not.toThrow()
+  })
 })

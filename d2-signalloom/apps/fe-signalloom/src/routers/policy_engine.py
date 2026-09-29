@@ -193,7 +193,15 @@ async def proxy_compliance_route(
     subpath: str = "",
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
-    """Proxy compliance requests to upstream policy-engine."""
+    """Proxy compliance requests to upstream policy-engine or local handlers."""
+    clean_subpath = subpath.lstrip("/")
+    if clean_subpath.startswith("frameworks/"):
+        fw_id = clean_subpath.split("/", 1)[1]
+        from routers.compliance import get_framework_by_id
+        return await get_framework_by_id(fw_id, request, tenant_id=tenant_id)
+    if clean_subpath == "posture/calculate":
+        from routers.compliance import calculate_posture
+        return await calculate_posture(request)
     return await proxy_policy_engine(request, subpath, "compliance", tenant_id=tenant_id)
 
 
@@ -239,12 +247,28 @@ async def proxy_policies_route(
     subpath: str = "",
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
-    """Proxy policy evaluation and bundle requests to upstream policy-engine."""
+    """Proxy policy evaluation and bundle requests to upstream policy-engine or local handlers."""
+    clean_subpath = subpath.lstrip("/")
+    if clean_subpath == "validate":
+        from routers.policies import validate_policy_expression
+        return await validate_policy_expression(request)
+    if clean_subpath == "evaluate":
+        from routers.policies import evaluate_policies
+        return await evaluate_policies(request, tenant_id=tenant_id)
+    if clean_subpath == "bundles" and request.method == "POST":
+        from routers.policies import register_bundle
+        return await register_bundle(request, tenant_id=tenant_id)
+    if clean_subpath == "rollback" and request.method == "POST":
+        from routers.policies import rollback_bundle
+        return await rollback_bundle(request, tenant_id=tenant_id)
     return await proxy_policy_engine(request, subpath, "policies", tenant_id=tenant_id)
 
 
 def install_policy_engine_api(app: Any) -> None:
-    """Mount the policy-engine reverse proxy router on the FastAPI app."""
+    """Mount the policies, compliance, and reverse proxy routers on the FastAPI app."""
+    from routers.compliance import router as compliance_router
+    from routers.policies import router as policies_router
+
     # Avoid duplicate includes if already registered
     for route in app.routes:
         if getattr(route, "endpoint", None) in (
@@ -252,4 +276,6 @@ def install_policy_engine_api(app: Any) -> None:
             proxy_policies_route,
         ):
             return
+    app.include_router(policies_router)
+    app.include_router(compliance_router)
     app.include_router(router)

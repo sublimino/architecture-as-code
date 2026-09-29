@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
@@ -195,13 +196,37 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(results)
 }
 
-// handleFrameworks returns available frameworks and their versions.
+// handleFrameworks returns available frameworks and their versions, or 404 for non-existent framework ID.
 func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Request) {
+	subpath := strings.TrimPrefix(r.URL.Path, "/api/v1/compliance/frameworks")
+	subpath = strings.TrimPrefix(subpath, "/")
+
 	fws, err := frameworks.ListFrameworks(ch.policyRoot)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	if subpath != "" {
+		versions, ok := fws[subpath]
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error":        "framework_not_found",
+				"message":      fmt.Sprintf("Regulatory framework %q not found", subpath),
+				"framework_id": subpath,
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":       subpath,
+			"versions": versions,
+		})
 		return
 	}
 

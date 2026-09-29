@@ -19,6 +19,8 @@ export interface AgentFilterFields {
   id?: string
   name?: string
   state?: string
+  status?: string
+  framework?: string
   source?: string
   namespace?: string
   owner?: string
@@ -34,6 +36,8 @@ export interface AgentSuperFilterTableProps<T> {
   pageSize?: number
   testId?: string
   initialStateFilter?: string
+  initialFrameworkFilter?: string
+  initialStatusFilter?: string
   initialSourceFilter?: string
   initialNamespaceFilter?: string
   initialAttentionFilter?: boolean
@@ -58,9 +62,31 @@ export function formatFullTimestamp(val: string | number | null | undefined): st
 }
 
 function defaultExtractFields<T>(item: T): AgentFilterFields {
+  if (!item || typeof item !== 'object') {
+    return {
+      id: '',
+      name: '',
+      state: '',
+      status: '',
+      framework: '',
+      source: '',
+      namespace: '',
+      owner: '',
+      lastAssessed: null,
+      requiresAttention: false,
+    }
+  }
   const rec = item as Record<string, unknown>
   const name = typeof rec.name === 'string' ? rec.name : typeof rec.agent_name === 'string' ? rec.agent_name : ''
   const id = typeof rec.id === 'string' ? rec.id : typeof rec.agent_id === 'string' ? rec.agent_id : ''
+  const status = typeof rec.status === 'string' ? rec.status : ''
+  const framework = typeof rec.framework === 'string'
+    ? rec.framework
+    : typeof rec.framework_id === 'string'
+      ? rec.framework_id
+      : typeof rec.frameworkId === 'string'
+        ? rec.frameworkId
+        : ''
   const state = typeof rec.lifecycle_state === 'string'
     ? rec.lifecycle_state
     : typeof rec.status === 'string'
@@ -104,6 +130,8 @@ function defaultExtractFields<T>(item: T): AgentFilterFields {
     id,
     name,
     state,
+    status: status || state,
+    framework,
     source,
     namespace,
     owner,
@@ -120,19 +148,23 @@ export function AgentSuperFilterTable<T>({
   pageSize = 50,
   testId = 'agent-super-filter-table',
   initialStateFilter = 'all',
+  initialFrameworkFilter = 'all',
+  initialStatusFilter = 'all',
   initialSourceFilter = 'all',
   initialNamespaceFilter = 'all',
   initialAttentionFilter = false,
 }: AgentSuperFilterTableProps<T>) {
   const [searchQuery, setSearchQuery] = useState('')
   const [stateFilter, setStateFilter] = useState(initialStateFilter)
+  const [frameworkFilter, setFrameworkFilter] = useState(initialFrameworkFilter)
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
   const [sourceFilter, setSourceFilter] = useState(initialSourceFilter)
   const [namespaceFilter, setNamespaceFilter] = useState(initialNamespaceFilter)
   const [attentionOnly, setAttentionOnly] = useState(initialAttentionFilter)
 
   // Extract fields once per dataset
   const enrichedData = useMemo(() => {
-    return data.map((item) => ({
+    return (data || []).map((item) => ({
       item,
       fields: extractFields(item),
     }))
@@ -229,6 +261,22 @@ export function AgentSuperFilterTable<T>({
     return opts
   }, [enrichedData])
 
+  // Available unique frameworks
+  const frameworkOptions: ToolbarOption[] = useMemo(() => {
+    const set = new Set<string>()
+    enrichedData.forEach((e) => {
+      const fw = e.fields?.framework
+      if (fw && typeof fw === 'string' && fw.trim()) {
+        set.add(fw.trim())
+      }
+    })
+    const list = Array.from(set).sort()
+    return [
+      { value: 'all', label: 'All frameworks' },
+      ...list.map((fw) => ({ value: fw, label: fw })),
+    ]
+  }, [enrichedData])
+
   // Filter application
   const filteredData = useMemo(() => {
     return enrichedData
@@ -236,13 +284,13 @@ export function AgentSuperFilterTable<T>({
         const { fields } = e
 
         // Attention filter
-        if (attentionOnly && !fields.requiresAttention) {
+        if (attentionOnly && !fields?.requiresAttention) {
           return false
         }
 
         // State filter
         if (stateFilter !== 'all') {
-          const s = (fields.state || '').toLowerCase()
+          const s = (fields?.state || '').toLowerCase()
           if (stateFilter === 'governed') {
             if (s !== 'governed' && s !== 'active' && s !== 'enrolled' && s !== 'registered') return false
           } else if (stateFilter === 'suspended') {
@@ -251,14 +299,30 @@ export function AgentSuperFilterTable<T>({
             if (s !== 'revoked' && s !== 'decommissioned') return false
           } else if (stateFilter === 'discovered') {
             if (s !== 'discovered' && s !== 'in_review') return false
-          } else if (s !== stateFilter) {
+          } else if (s !== stateFilter.toLowerCase()) {
+            return false
+          }
+        }
+
+        // Status filter
+        if (statusFilter !== 'all') {
+          const st = (fields?.status || fields?.state || '').toLowerCase()
+          if (st !== statusFilter.toLowerCase()) {
+            return false
+          }
+        }
+
+        // Framework filter
+        if (frameworkFilter !== 'all') {
+          const fw = (fields?.framework || '').toLowerCase()
+          if (fw !== frameworkFilter.toLowerCase()) {
             return false
           }
         }
 
         // Source filter
         if (sourceFilter !== 'all') {
-          const src = (fields.source || '').toLowerCase()
+          const src = (fields?.source || '').toLowerCase()
           if (sourceFilter === 'idp') {
             if (!src.includes('idp') && !src.includes('entra') && !src.includes('okta') && !src.includes('dex')) return false
           } else if (sourceFilter === 'k8s') {
@@ -272,20 +336,26 @@ export function AgentSuperFilterTable<T>({
 
         // Namespace filter
         if (namespaceFilter !== 'all') {
-          if (fields.namespace !== namespaceFilter) {
+          if (fields?.namespace !== namespaceFilter) {
             return false
           }
         }
 
-        // Search query
+        // Search query (safe against regex chars like .*, [a-z]+, ?, \d+, (group, ^$ and nulls)
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim()
-          const matchName = fields.name?.toLowerCase().includes(q)
-          const matchId = fields.id?.toLowerCase().includes(q)
-          const matchNamespace = fields.namespace?.toLowerCase().includes(q)
-          const matchOwner = fields.owner?.toLowerCase().includes(q)
-          const matchSource = fields.source?.toLowerCase().includes(q)
-          if (!matchName && !matchId && !matchNamespace && !matchOwner && !matchSource) {
+          const checkMatch = (val: unknown) => {
+            if (val === null || val === undefined) return false
+            return String(val).toLowerCase().includes(q)
+          }
+          const matchName = checkMatch(fields?.name)
+          const matchId = checkMatch(fields?.id)
+          const matchNamespace = checkMatch(fields?.namespace)
+          const matchOwner = checkMatch(fields?.owner)
+          const matchSource = checkMatch(fields?.source)
+          const matchFramework = checkMatch(fields?.framework)
+          const matchStatus = checkMatch(fields?.status) || checkMatch(fields?.state)
+          if (!matchName && !matchId && !matchNamespace && !matchOwner && !matchSource && !matchFramework && !matchStatus) {
             return false
           }
         }
@@ -293,11 +363,13 @@ export function AgentSuperFilterTable<T>({
         return true
       })
       .map((e) => e.item)
-  }, [enrichedData, attentionOnly, stateFilter, sourceFilter, namespaceFilter, searchQuery])
+  }, [enrichedData, attentionOnly, stateFilter, statusFilter, frameworkFilter, sourceFilter, namespaceFilter, searchQuery])
 
   const isFiltered = Boolean(
     searchQuery.trim() ||
     stateFilter !== 'all' ||
+    frameworkFilter !== 'all' ||
+    statusFilter !== 'all' ||
     sourceFilter !== 'all' ||
     namespaceFilter !== 'all' ||
     attentionOnly
@@ -306,6 +378,8 @@ export function AgentSuperFilterTable<T>({
   const handleClearFilters = useCallback(() => {
     setSearchQuery('')
     setStateFilter('all')
+    setFrameworkFilter('all')
+    setStatusFilter('all')
     setSourceFilter('all')
     setNamespaceFilter('all')
     setAttentionOnly(false)
@@ -330,6 +404,17 @@ export function AgentSuperFilterTable<T>({
           onChange={setStateFilter}
           testIdPrefix={`${testId}-state`}
         />
+
+        {frameworkOptions.length > 1 && (
+          <ToolbarSelect
+            label="Framework"
+            subject="frameworks"
+            value={frameworkFilter}
+            options={frameworkOptions}
+            onChange={setFrameworkFilter}
+            testId={`${testId}-framework`}
+          />
+        )}
 
         {sourceOptions.length > 1 && (
           <ToolbarFacet

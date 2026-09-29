@@ -236,6 +236,7 @@ func main() {
 		} else {
 			mux.HandleFunc("/api/v1/compliance/scan", ch.handleScan)
 			mux.HandleFunc("/api/v1/compliance/frameworks", ch.handleFrameworks)
+			mux.HandleFunc("/api/v1/compliance/frameworks/", ch.handleFrameworks)
 			mux.HandleFunc("/api/v1/compliance/summary", ch.handleSummary)
 			slog.Info("compliance scanner enabled", "policyRoot", policyRoot)
 		}

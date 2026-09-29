@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ComplianceDrawer, { type ComplianceDrawerItem } from './ComplianceDrawer'
+import ComplianceDrawer, {
+  calculateEffectivePostureScore,
+  type ComplianceDrawerItem,
+} from './ComplianceDrawer'
 
 describe('ComplianceDrawer', () => {
   const mockOnClose = vi.fn()
@@ -181,3 +184,47 @@ describe('ComplianceDrawer', () => {
     expect(document.activeElement).toBe(footerClose)
   })
 })
+
+describe('calculateEffectivePostureScore', () => {
+  it('handles empty controls by returning null', () => {
+    expect(calculateEffectivePostureScore(null, undefined, 0)).toBeNull()
+    expect(calculateEffectivePostureScore(undefined, 0, 0)).toBeNull()
+    expect(calculateEffectivePostureScore(null, undefined, undefined)).toBeNull()
+  })
+
+  it('calculates 100% failing as 0', () => {
+    expect(calculateEffectivePostureScore(null, 0, 10)).toBe(0)
+    expect(calculateEffectivePostureScore(0)).toBe(0)
+  })
+
+  it('calculates 100% passing as 100', () => {
+    expect(calculateEffectivePostureScore(null, 10, 10)).toBe(100)
+    expect(calculateEffectivePostureScore(100)).toBe(100)
+  })
+
+  it('handles missing evidence by returning 0 when evidenceCount is 0', () => {
+    expect(calculateEffectivePostureScore(null, 8, 10, 0)).toBe(0)
+    expect(calculateEffectivePostureScore(null, 8, 10, 3)).toBe(80)
+  })
+
+  it('strictly bounds score to [0, 100]', () => {
+    expect(calculateEffectivePostureScore(-45)).toBe(0)
+    expect(calculateEffectivePostureScore(150)).toBe(100)
+    expect(calculateEffectivePostureScore(null, 12, 10)).toBe(100)
+  })
+
+  it('prevents double-scaling from 1000-10000 and 0-1 decimal values', () => {
+    expect(calculateEffectivePostureScore(8500)).toBe(85)
+    expect(calculateEffectivePostureScore(7500)).toBe(75)
+    expect(calculateEffectivePostureScore(0.85)).toBe(85)
+    expect(calculateEffectivePostureScore(1.0)).toBe(100)
+    expect(calculateEffectivePostureScore(0.0)).toBe(0)
+  })
+
+  it('safely handles NaN and Infinity', () => {
+    expect(calculateEffectivePostureScore(NaN)).toBe(0)
+    expect(calculateEffectivePostureScore(Infinity)).toBe(0)
+    expect(calculateEffectivePostureScore(-Infinity)).toBe(0)
+  })
+})
+

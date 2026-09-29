@@ -1,5 +1,5 @@
 /**
- * Signal Loom Platform Acceptance Suite — Policy-as-Code CEL Editor & Compliance (Surfaces 7 & 8).
+ * Signal Loom Platform Acceptance Suite - Policy-as-Code CEL Editor & Compliance (Surfaces 7 & 8).
  *
  * Validates:
  *   1. Policy-as-Code CEL editor workspace mounting on /policies.

@@ -42,6 +42,46 @@ export interface ComplianceDrawerProps {
   onClose: () => void
 }
 
+/**
+ * Calculates effective posture score strictly bounded in [0, 100],
+ * preventing double-scaling and safely handling edge cases (empty controls,
+ * 100% failing, 100% passing, missing evidence, NaN, negative, overflow).
+ */
+export function calculateEffectivePostureScore(
+  rawScore?: number | null,
+  passedChecks?: number,
+  totalChecks?: number,
+  evidenceCount?: number
+): number | null {
+  if (rawScore !== null && rawScore !== undefined) {
+    if (isNaN(rawScore) || !isFinite(rawScore)) {
+      return 0
+    }
+    let score = Number(rawScore)
+    // Double-scaling prevention (e.g. 8500 -> 85)
+    if (score >= 1000 && score <= 10000) {
+      score = score / 100
+    } else if (score > 0 && score <= 1.0) {
+      score = score * 100
+    }
+    return Math.max(0, Math.min(100, Math.round(score)))
+  }
+
+  // Derive from checks
+  if (totalChecks !== undefined && totalChecks > 0) {
+    const passed = passedChecks ?? 0
+    if (passed <= 0) return 0
+    if (evidenceCount !== undefined && evidenceCount === 0 && passed > 0) {
+      return 0
+    }
+    if (passed >= totalChecks) return 100
+    const pct = (passed / totalChecks) * 100
+    return Math.max(0, Math.min(100, Math.round(pct)))
+  }
+
+  return null
+}
+
 export default function ComplianceDrawer({ open, item, onClose }: ComplianceDrawerProps) {
   const [copied, setCopied] = useState(false)
   const [jsonExpanded, setJsonExpanded] = useState(true)
@@ -127,9 +167,12 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
 
   if (!open || !item) return null
 
-  const effectiveScorePct = item.postureScore !== null && item.postureScore !== undefined
-    ? Math.round(item.postureScore <= 1.0 ? item.postureScore * 100 : item.postureScore)
-    : (item.totalChecks > 0 ? Math.round((item.passedChecks / item.totalChecks) * 100) : null)
+  const effectiveScorePct = calculateEffectivePostureScore(
+    item.postureScore,
+    item.passedChecks,
+    item.totalChecks,
+    item.evidenceHashes ? item.evidenceHashes.length : undefined
+  )
 
   const effectiveStatus = item.status || (item.failedChecks > 0 ? 'fail' : 'pass')
   const policyVer = item.policyVersion || item.frameworkVersion || 'v2.1.0'

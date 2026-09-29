@@ -3977,52 +3977,70 @@ async def _execute_claim(
                 "SELECT id, name FROM public.governance_controls WHERE tenant_id = $1 OR tenant_id = 'tenant-demo' ORDER BY control_order",
                 tenant_id,
             )
-            if not ctrl_rows:
-                ctrl_rows = [
-                    {"id": uuid.uuid5(uuid.NAMESPACE_DNS, f"ctrl-{i}"), "name": f"POL-SEC-0{i}"}
-                    for i in range(1, 7)
-                ]
-            for idx, ctrl in enumerate(ctrl_rows):
-                status = "pending" if idx == len(ctrl_rows) - 1 else "pass"
-                ctrl_code = ctrl.get("name") or ctrl.get("control_id") or str(ctrl["id"])
-                evidence_ref = f"autoclaim:{body.pod_name}:{ctrl_code}"
-                await conn.execute(
-                    """INSERT INTO public.agent_compliance_results (
-                        id, tenant_id, agent_id, control_id, status, assessed_at, evidence_ref
-                    ) VALUES (
-                        gen_random_uuid(), $1, $2, $3, $4, NOW(), $5
+            if ctrl_rows:
+                for idx, ctrl in enumerate(ctrl_rows):
+                    status = "pending" if idx == len(ctrl_rows) - 1 else "pass"
+                    ctrl_code = ctrl.get("name") or ctrl.get("control_id") or str(ctrl["id"])
+                    evidence_ref = f"autoclaim:{body.pod_name}:{ctrl_code}"
+                    await conn.execute(
+                        """INSERT INTO public.agent_compliance_results (
+                            id, tenant_id, agent_id, control_id, status, assessed_at, evidence_ref
+                        ) VALUES (
+                            gen_random_uuid(), $1, $2, $3, $4, NOW(), $5
+                        )
+                        ON CONFLICT (agent_id, control_id) DO UPDATE SET
+                            status = EXCLUDED.status,
+                            assessed_at = NOW(),
+                            evidence_ref = EXCLUDED.evidence_ref""",
+                        tenant_id,
+                        agent_uuid,
+                        ctrl["id"],
+                        status,
+                        evidence_ref,
                     )
-                    ON CONFLICT (agent_id, control_id) DO UPDATE SET
-                        status = EXCLUDED.status,
-                        assessed_at = NOW(),
-                        evidence_ref = EXCLUDED.evidence_ref""",
-                    tenant_id,
-                    agent_uuid,
-                    ctrl["id"],
-                    status,
-                    evidence_ref,
-                )
 
             # Persist to public.agent_claims
-            await conn.execute(
-                """INSERT INTO public.agent_claims (
-                    claim_id, tenant_id, agent_id, pod_name, namespace, spiffe_id,
-                    harness, model, status, allocated_token_budget, claimed_at
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, 'granted', $9, NOW()
-                ) ON CONFLICT (claim_id) DO UPDATE SET
-                    status = 'granted',
-                    released_at = NULL""",
-                claim_id,
-                tenant_id,
-                agent_uuid,
-                body.pod_name,
-                body.namespace,
-                body.spiffe_id,
-                body.harness,
-                body.model,
-                allocated_budget,
+            existing_claim = await conn.fetchrow(
+                """SELECT claim_id FROM public.agent_claims
+                    WHERE tenant_id = $1 AND (agent_id = $2 OR pod_name = $3)
+                      AND status = 'granted' AND released_at IS NULL""",
+                tenant_id, agent_uuid, body.pod_name,
             )
+            if existing_claim is not None:
+                claim_id = existing_claim["claim_id"]
+                await conn.execute(
+                    """UPDATE public.agent_claims
+                          SET pod_name = $1, namespace = $2, spiffe_id = $3, harness = $4,
+                              model = $5, allocated_token_budget = $6, claimed_at = NOW()
+                        WHERE claim_id = $7""",
+                    body.pod_name,
+                    body.namespace,
+                    body.spiffe_id,
+                    body.harness,
+                    body.model,
+                    allocated_budget,
+                    claim_id,
+                )
+            else:
+                await conn.execute(
+                    """INSERT INTO public.agent_claims (
+                        claim_id, tenant_id, agent_id, pod_name, namespace, spiffe_id,
+                        harness, model, status, allocated_token_budget, claimed_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, 'granted', $9, NOW()
+                    ) ON CONFLICT (claim_id) DO UPDATE SET
+                        status = 'granted',
+                        released_at = NULL""",
+                    claim_id,
+                    tenant_id,
+                    agent_uuid,
+                    body.pod_name,
+                    body.namespace,
+                    body.spiffe_id,
+                    body.harness,
+                    body.model,
+                    allocated_budget,
+                )
 
             audit_detail = {
                 "action": "claimed",
@@ -4207,6 +4225,20 @@ async def autoclaim_discovered(
                         "namespace": a.get("namespace", "fe-signalloom-agents"),
                         "id": a.get("id"),
                     })
+        pool = await _get_pool()
+        if pool is not None and not discovered_list:
+            reg_rows = await pool.fetch(
+                """SELECT ar.name, ac.namespace
+                     FROM public.agent_registry ar
+                     LEFT JOIN public.agent_claims ac ON ac.agent_id = ar.id AND ac.tenant_id = ar.tenant_id
+                    WHERE ar.tenant_id = $1""",
+                tenant_id,
+            )
+            for r in reg_rows:
+                discovered_list.append({
+                    "name": r["name"],
+                    "namespace": r["namespace"] or "fe-signalloom-agents",
+                })
     if target_ns:
         discovered_list = [d for d in discovered_list if d.get("namespace") == target_ns]
     if not discovered_list:
@@ -4231,6 +4263,27 @@ async def autoclaim_discovered(
         record = _CLAIMS.get(tenant_id, {}).get(claim_res.claim_id)
         if record:
             claimed_records.append(ClaimRecord(**record))
+        else:
+            pool = await _get_pool()
+            if pool is not None:
+                db_claim = await pool.fetchrow(
+                    "SELECT * FROM public.agent_claims WHERE claim_id = $1",
+                    claim_res.claim_id,
+                )
+                if db_claim:
+                    claimed_records.append(ClaimRecord(
+                        claim_id=db_claim["claim_id"],
+                        tenant_id=db_claim["tenant_id"],
+                        agent_id=str(db_claim["agent_id"]),
+                        pod_name=db_claim["pod_name"],
+                        namespace=db_claim["namespace"],
+                        spiffe_id=db_claim["spiffe_id"],
+                        harness=db_claim["harness"],
+                        model=db_claim["model"],
+                        status=db_claim["status"],
+                        allocated_token_budget=db_claim["allocated_token_budget"],
+                        claimed_at=_ts(db_claim["claimed_at"]),
+                    ))
 
     return AutoclaimDiscoveredResponse(
         claimed=claimed_records,
@@ -7567,66 +7620,111 @@ async def list_discovery_workloads(
                  ORDER BY first_discovered_at DESC""",
                 tenant_id,
             )
-            for r in nhi_rows:
-                raw_st = r["status"]
-                st: Literal["discovered", "in_review", "ignored", "revoked", "governed"] = "discovered"
-                if raw_st == "dismissed":
-                    st = "ignored"
-                elif raw_st in ("enrollment_requested", "needs_triage", "in_review"):
-                    st = "in_review"
-                elif raw_st in ("governed", "enrolled", "active"):
-                    st = "governed"
-
-                findings = list(r["findings"]) if r["findings"] else []
-                dir_source = r["directory_source"] or "idp"
-                source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
-                privilege = r["privilege_level"] or "standard"
-
-                config_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "warning" if "stale_credential" in findings or privilege in ("high", "elevated", "domain_admin") else "pass"
-                supply_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended" if "unrotated_secret" in findings else "pass"
-
-                workloads.append(
-                    DiscoveryWorkloadModel(
-                        id=str(r["id"]),
-                        name=r["account_name"],
-                        source="idp",
-                        source_label=source_label,
-                        namespace=f"identity-{dir_source.lower()}",
-                        status=st,
-                        owner=r["owner_email"],
-                        spiffe_id=None,
-                        model=None,
-                        last_seen_at=_ts(r["last_seen_at"]) or _ts(r["first_discovered_at"]),
-                        recommendations=ControlRecommendationsModel(
-                            config=config_rec,
+            if not nhi_rows:
+                _ensure_seeded(tenant_id)
+                with _STORE_LOCK:
+                    nhi_map = _NHI_ACCOUNTS.get(tenant_id, {})
+                    for a_id, a in nhi_map.items():
+                        raw_st = a.get("status", "discovered")
+                        st = "ignored" if raw_st == "dismissed" else ("in_review" if raw_st in ("enrollment_requested", "needs_triage", "in_review") else ("governed" if raw_st in ("governed", "enrolled", "active") else "discovered"))
+                        dir_source = a.get("directory_source") or "idp"
+                        source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
+                        findings = a.get("findings", [])
+                        privilege = a.get("privilege_level", "standard")
+                        recs = ControlRecommendationsModel(
+                            config="warning" if "stale_credential" in findings or privilege in ("high", "elevated") else "pass",
                             content="not_applicable",
-                            supply_chain=supply_rec,
+                            supply_chain="recommended" if "unrotated_secret" in findings else "pass",
                             eu_ai_act="pass",
-                        ),
-                        metadata={
-                            "privilege_level": privilege,
-                            "findings": findings,
-                            "scan_count": r["scan_count"],
-                            "directory_source": dir_source,
-                        },
+                        )
+                        workloads.append(
+                            DiscoveryWorkloadModel(
+                                id=a_id,
+                                name=a.get("account_name", a_id),
+                                tenant_id=tenant_id,
+                                source="idp",
+                                source_label=source_label,
+                                namespace=f"identity-{dir_source.lower()}",
+                                status=st,
+                                discovery_state=st,
+                                owner=a.get("owner_email"),
+                                spiffe_id=None,
+                                model=None,
+                                last_seen_at=a.get("last_seen_at") or a.get("first_discovered_at"),
+                                recommendations=recs,
+                                control_recommendations=recs,
+                                metadata={"privilege_level": privilege, "findings": findings, "scan_count": a.get("scan_count", 1)},
+                            )
+                        )
+            else:
+                for r in nhi_rows:
+                    raw_st = r["status"]
+                    st: Literal["discovered", "in_review", "ignored", "revoked", "governed"] = "discovered"
+                    if raw_st == "dismissed":
+                        st = "ignored"
+                    elif raw_st in ("enrollment_requested", "needs_triage", "in_review"):
+                        st = "in_review"
+                    elif raw_st in ("governed", "enrolled", "active"):
+                        st = "governed"
+
+                    findings = list(r["findings"]) if r["findings"] else []
+                    dir_source = r["directory_source"] or "idp"
+                    source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
+                    privilege = r["privilege_level"] or "standard"
+
+                    config_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "warning" if "stale_credential" in findings or privilege in ("high", "elevated", "domain_admin") else "pass"
+                    supply_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended" if "unrotated_secret" in findings else "pass"
+
+                    workloads.append(
+                        DiscoveryWorkloadModel(
+                            id=str(r["id"]),
+                            name=r["account_name"],
+                            source="idp",
+                            source_label=source_label,
+                            namespace=f"identity-{dir_source.lower()}",
+                            status=st,
+                            owner=r["owner_email"],
+                            spiffe_id=None,
+                            model=None,
+                            last_seen_at=_ts(r["last_seen_at"]) or _ts(r["first_discovered_at"]),
+                            recommendations=ControlRecommendationsModel(
+                                config=config_rec,
+                                content="not_applicable",
+                                supply_chain=supply_rec,
+                                eu_ai_act="pass",
+                            ),
+                            metadata={
+                                "privilege_level": privilege,
+                                "findings": findings,
+                                "scan_count": r["scan_count"],
+                                "directory_source": dir_source,
+                            },
+                        )
                     )
-                )
 
         # 2. Local K8s (unlinked pods / agent discovery)
         if enabled_connectors.get("local_k8s", True):
             agent_rows = await pool.fetch(
-                """SELECT id, name, type, lifecycle_state, owner, service_account, namespace,
-                          model_name, created_at, is_registry_linked
-                     FROM agent_registry
-                    WHERE tenant_id = $1""",
+                """SELECT ar.id, ar.name, ar.lifecycle_state, ar.owner, ar.model_name, ar.created_at,
+                          ar.config,
+                          ac.claim_id, ac.namespace AS claim_namespace, ac.spiffe_id, ac.status AS claim_status
+                     FROM public.agent_registry ar
+                     LEFT JOIN public.agent_claims ac
+                       ON ac.agent_id = ar.id
+                      AND ac.tenant_id = ar.tenant_id
+                      AND ac.status = 'granted'
+                      AND ac.released_at IS NULL
+                    WHERE ar.tenant_id = $1""",
                 tenant_id,
             )
             for r in agent_rows:
-                is_linked = r["is_registry_linked"]
+                is_linked = r["claim_id"] is not None
                 lc = r["lifecycle_state"] or "active"
                 st = "governed" if is_linked or lc in ("registered", "enrolled", "active") else ("revoked" if lc in ("suspended", "revoked", "decommissioned") else "discovered")
-                ns = r["namespace"] or "fe-signalloom-agents"
-                spiffe = f"spiffe://signalloom.svc.cluster.local/ns/{ns}/sa/{r['service_account'] or r['name']}" if is_linked else None
+                cfg = r["config"] if isinstance(r["config"], dict) else {}
+                ns = r["claim_namespace"] or cfg.get("namespace") or "fe-signalloom-agents"
+                sa = cfg.get("service_account") or r["name"]
+                spiffe = r["spiffe_id"] or (f"spiffe://signalloom.svc.cluster.local/ns/{ns}/sa/{sa}" if st == "governed" else None)
                 workloads.append(
                     DiscoveryWorkloadModel(
                         id=str(r["id"]),
@@ -7646,9 +7744,10 @@ async def list_discovery_workloads(
                             eu_ai_act="pass" if st == "governed" else "recommended",
                         ),
                         metadata={
-                            "service_account": r["service_account"],
+                            "service_account": sa,
                             "namespace": ns,
                             "cluster_id": "cluster-local",
+                            "claim_id": r["claim_id"],
                         },
                     )
                 )
@@ -7657,7 +7756,7 @@ async def list_discovery_workloads(
         if enabled_connectors.get("external_services", True):
             ext_rows = await pool.fetch(
                 """SELECT agent_id, host_id, host_os, runtime_profile, enrollment_status,
-                          metadata, spiffe_id_pattern, created_at, last_observed_at, revoked_at
+                          metadata, spiffe_id_pattern, created_at, enrolled_at, revoked_at
                      FROM public.external_agent_registrations
                     WHERE tenant_id = $1
                  ORDER BY created_at DESC""",
@@ -7688,7 +7787,7 @@ async def list_discovery_workloads(
                         owner=meta.get("owner"),
                         spiffe_id=f"spiffe://signalloom.demo/ext/{agent_name}" if enrolled else None,
                         model=meta.get("model") or "gemini-1.5-pro",
-                        last_seen_at=_ts(r["last_observed_at"]) or _ts(r["created_at"]),
+                        last_seen_at=_ts(r["enrolled_at"]) or _ts(r["created_at"]),
                         recommendations=ControlRecommendationsModel(
                             config="recommended",
                             content="recommended",

@@ -692,7 +692,31 @@ demo-agent-trust-down: ## Prune only Agent Trust; inf-bao is never deleted.
 demo-agent-trust-render: ## Render Agent Trust Kubernetes manifests.
 	$(MAKE) -C d2-agent-trust render
 
-.PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-test-1 demo-signalloom-down
+.PHONY: deploy demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-test-1 demo-signalloom-down
+deploy: demo-signalloom-up ## Deploy Signal Loom and configure Dex OIDC to work over Tailscale.
+	@set -e; \
+	origin="$${TAILSCALE_ORIGIN:-}"; \
+	if [ -z "$$origin" ] && [ -f .tunnel/url ]; then \
+	  origin="$$(cat .tunnel/url)"; \
+	fi; \
+	if [ -z "$$origin" ] && [ -f .tunnel/ts-fqdn ]; then \
+	  origin="https://$$(cat .tunnel/ts-fqdn)"; \
+	fi; \
+	if [ -z "$$origin" ]; then \
+	  origin="https://fortuna.taild4da3.ts.net"; \
+	fi; \
+	echo "==> Configuring Dex OIDC origin for Tailscale: $$origin"; \
+	./scripts/lib/dex-origin.sh apply tailscale "$$origin"; \
+	echo "==> Ensuring dashboard port-forward on port 19080..."; \
+	if ! curl -sI --connect-timeout 2 http://127.0.0.1:19080/ >/dev/null 2>&1; then \
+	  kubectl -n fe-signalloom port-forward svc/dashboard-signalloom 19080:8080 >/dev/null 2>&1 & \
+	  sleep 2; \
+	fi; \
+	echo "==> Verifying Dex issuer over port-forward..."; \
+	issuer=$$(curl -s http://127.0.0.1:19080/dex/.well-known/openid-configuration | jq -r .issuer 2>/dev/null || true); \
+	echo "==> Dex issuer is: $$issuer"; \
+	echo "==> Signal Loom deployed successfully and Dex configured for Tailscale at $$origin"
+
 demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle.
 	$(MAKE) push-local-signalloom
 	$(MAKE) signalloom-spire-helper

@@ -256,6 +256,13 @@ func (c *k8sFleetClient) GetPodState(ctx context.Context, namespace, agentID str
 // The patch is idempotent: re-applying the same state is a no-op for the API
 // server and returns nil, which is what makes containment safe to retry.
 func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, state string) error {
+	return c.SetPodStateWithReason(ctx, namespace, agentID, state, "")
+}
+
+// SetPodStateWithReason is SetPodState with a caller-supplied stun reason. An
+// empty reason means StunReason. The reason is only written on a stun; any
+// other state blanks it, exactly as before.
+func (c *k8sFleetClient) SetPodStateWithReason(ctx context.Context, namespace, agentID, state, reason string) error {
 	seq := c.degraded.nextSeq()
 	pod, err := c.resolvePod(ctx, namespace, agentID)
 	if err != nil {
@@ -274,7 +281,10 @@ func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, st
 	stunReason := ""
 	if stunning {
 		containmentMode = ContainmentModeFrozen
-		stunReason = StunReason
+		stunReason = reason
+		if stunReason == "" {
+			stunReason = StunReason
+		}
 
 		// Preserve an existing containment timestamp rather than restamping it.
 		//
@@ -323,6 +333,130 @@ func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, st
 	classified := classifyAPIError("set_pod_state", TargetRef{AgentID: agentID, Namespace: c.namespaceOrDefault(namespace)}, patchErr)
 	c.record(seq, PlaneFreeze, namespace, agentID, "set_pod_state", classified)
 	return classified
+}
+
+// SuspendGitOps annotates the agent's pod and its owning Deployment with
+// kustomize.toolkit.fluxcd.io/reconcile=disabled so Flux cannot reconcile a
+// contained workload back to its declared state.
+func (c *k8sFleetClient) SuspendGitOps(ctx context.Context, namespace, agentID string) PlaneResult {
+	return c.setFluxReconcile(ctx, namespace, agentID, true)
+}
+
+// ResumeGitOps removes the annotation SuspendGitOps wrote. Removing an absent
+// annotation is a no-op, so this is safe on a pod that was never suspended.
+func (c *k8sFleetClient) ResumeGitOps(ctx context.Context, namespace, agentID string) PlaneResult {
+	return c.setFluxReconcile(ctx, namespace, agentID, false)
+}
+
+// setFluxReconcile writes or removes the Flux annotation on the pod and, when
+// the pod is owned through a ReplicaSet by a Deployment, on that Deployment.
+//
+// Only object metadata is patched. Touching spec.template would roll the
+// Deployment and replace the frozen pod, which undoes the containment this
+// plane exists to protect.
+//
+// The verdict is honest per object: both written is contained, one written is
+// partial, none written is unavailable. A pod with no Deployment owner is not a
+// failure; the pod is annotated and Details says what the owner was.
+func (c *k8sFleetClient) setFluxReconcile(ctx context.Context, namespace, agentID string, disable bool) PlaneResult {
+	start := c.now()
+	namespace = c.namespaceOrDefault(namespace)
+	action := "enable_reconcile"
+	var value any // nil in a JSON merge patch deletes the key
+	if disable {
+		action = "disable_reconcile"
+		value = FluxReconcileDisabled
+	}
+	res := PlaneResult{
+		Plane:     PlaneGitOps,
+		Timestamp: start.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"agent_id":   agentID,
+			"action":     action,
+			"pod":        "",
+			"deployment": "",
+			"annotation": FluxReconcileAnnotation + "=" + FluxReconcileDisabled,
+		},
+	}
+	finish := func(outcome PlaneOutcome, errs []string) PlaneResult {
+		res.Outcome = outcome
+		res.Error = strings.Join(errs, "; ")
+		res.LatencyMs = c.now().Sub(start).Milliseconds()
+		return res
+	}
+
+	pod, err := c.resolvePod(ctx, namespace, agentID)
+	if err != nil {
+		return finish(OutcomeUnavailable, []string{err.Error()})
+	}
+	res.Details["pod"] = pod.Name
+
+	body, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{"annotations": map[string]any{FluxReconcileAnnotation: value}},
+	})
+	if err != nil {
+		return finish(OutcomeUnavailable, []string{"marshal gitops patch: " + err.Error()})
+	}
+	opts := metav1.PatchOptions{FieldManager: PodPatchFieldManager}
+
+	var errs []string
+	written, wanted := 0, 1
+	if _, err := c.clientset.CoreV1().Pods(namespace).Patch(ctx, pod.Name, types.MergePatchType, body, opts); err != nil {
+		errs = append(errs, fmt.Sprintf("patch pod %s/%s: %v", namespace, pod.Name, err))
+	} else {
+		written++
+	}
+
+	deployment, ownerKind, note, err := c.owningDeployment(ctx, namespace, pod)
+	res.Details["owner_kind"] = ownerKind
+	if note != "" {
+		res.Details["note"] = note
+	}
+	switch {
+	case err != nil:
+		wanted++
+		errs = append(errs, err.Error())
+	case deployment != "":
+		wanted++
+		res.Details["deployment"] = deployment
+		if _, err := c.clientset.AppsV1().Deployments(namespace).Patch(ctx, deployment, types.MergePatchType, body, opts); err != nil {
+			errs = append(errs, fmt.Sprintf("patch deployment %s/%s: %v", namespace, deployment, err))
+		} else {
+			written++
+		}
+	}
+
+	switch {
+	case written == wanted:
+		return finish(OutcomeContained, errs)
+	case written > 0:
+		return finish(OutcomePartial, errs)
+	default:
+		return finish(OutcomeUnavailable, errs)
+	}
+}
+
+// owningDeployment walks pod -> ReplicaSet -> Deployment through controller
+// owner references. It returns an empty name, with a note, when the chain does
+// not end in a Deployment. That is a fact about the workload, not an error.
+// An error means the chain could not be read.
+func (c *k8sFleetClient) owningDeployment(ctx context.Context, namespace string, pod *corev1.Pod) (name, ownerKind, note string, err error) {
+	ref := metav1.GetControllerOf(pod)
+	if ref == nil {
+		return "", "none", "pod has no controller; only the pod is annotated", nil
+	}
+	if ref.Kind != "ReplicaSet" {
+		return "", ref.Kind, fmt.Sprintf("owner is %s/%s, not a Deployment; only the pod is annotated", ref.Kind, ref.Name), nil
+	}
+	rs, err := c.clientset.AppsV1().ReplicaSets(namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+	if err != nil {
+		return "", "ReplicaSet", "", fmt.Errorf("get replicaset %s/%s: %v", namespace, ref.Name, err)
+	}
+	rsRef := metav1.GetControllerOf(rs)
+	if rsRef == nil || rsRef.Kind != "Deployment" {
+		return "", "ReplicaSet", fmt.Sprintf("replicaset %s has no Deployment owner; only the pod is annotated", rs.Name), nil
+	}
+	return rsRef.Name, "Deployment", "", nil
 }
 
 // Worst-case residual-exposure bounds for the SPIRE plane, in milliseconds.

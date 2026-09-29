@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
 )
@@ -55,9 +58,55 @@ type Edge struct {
 	To   string `json:"to"`
 }
 
-// StunRequest is the wire format for POST /api/v1/fleet/stun/{agentId}.
+// StunRequest is the optional body of POST /api/v1/fleet/stun/{agentId}. An
+// empty body is valid and means "no reason given".
 type StunRequest struct {
+	// AgentID, when present, must equal the agent in the URL path. The path is
+	// authoritative; a body naming a different agent is a caller bug.
 	AgentID string `json:"agent_id"`
+	// Reason is written to the stun-reason annotations. At most
+	// MaxStunReasonRunes printable runes; empty means StunReason.
+	Reason string `json:"reason"`
+}
+
+// maxStunBodyBytes caps the stun body. A 256-rune reason is at most 1 KiB of
+// UTF-8; the rest is JSON framing and an agent id.
+const maxStunBodyBytes = 4 << 10
+
+// decodeStunRequest reads the optional stun body and returns the effective
+// reason. Every rejection is a 400 before any enforcement call is made.
+func decodeStunRequest(r *http.Request, pathAgentID string) (string, error) {
+	var req StunRequest
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxStunBodyBytes))
+	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("invalid stun body: %v", err)
+	}
+	if req.AgentID != "" && req.AgentID != pathAgentID {
+		return "", fmt.Errorf("agent_id %q in body contradicts %q in path", req.AgentID, pathAgentID)
+	}
+	return validateStunReason(req.Reason)
+}
+
+// validateStunReason bounds a caller-supplied reason. It rejects rather than
+// sanitises: a reason that was silently rewritten is a provenance record that
+// no longer says what the caller said.
+func validateStunReason(reason string) (string, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return StunReason, nil
+	}
+	if !utf8.ValidString(reason) {
+		return "", errors.New("reason is not valid UTF-8")
+	}
+	if n := utf8.RuneCountInString(reason); n > MaxStunReasonRunes {
+		return "", fmt.Errorf("reason is %d characters, maximum %d", n, MaxStunReasonRunes)
+	}
+	for _, r := range reason {
+		if !unicode.IsPrint(r) {
+			return "", fmt.Errorf("reason contains non-printable character %U", r)
+		}
+	}
+	return reason, nil
 }
 
 // ErrorResponse is a standard error envelope.
@@ -195,7 +244,13 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.orchestrator.Stun(r.Context(), agentID)
+	reason, err := decodeStunRequest(r, agentID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, err := s.orchestrator.Stun(r.Context(), agentID, reason)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

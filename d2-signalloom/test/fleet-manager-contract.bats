@@ -261,3 +261,11 @@ rule_for() {
 	[ "$status" -eq 0 ]
 	[ "$output" = "signalloom" ]
 }
+
+@test "NetworkPolicy admits the fe-signalloom API pod on http (kusari-e2e stun call)" {
+	# The fe-signalloom API pod carries only app.kubernetes.io/name=fe-signalloom,
+	# so neither the part-of nor the dashboard selector admits it.
+	run yq '.spec.ingress[] | select(.from[].podSelector.matchLabels["app.kubernetes.io/name"] == "fe-signalloom") | .ports[].port' "$base/networkpolicy.yaml"
+	[ "$status" -eq 0 ]
+	[ "$output" = "http" ]
+}

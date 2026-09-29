@@ -1055,11 +1055,9 @@ def test_operational_inventory_response_envelope_and_models(client, monkeypatch)
                             "node": "node-1",
                             "phase": "Running",
                             "pod_uid": "uid-12345",
-                            "cgroup_frozen": False,
-                            "cgroup_state": "thawed",
-                            "tc_drop_active": False,
-                            "traffic_control_state": "allow",
-                            "ebpf_active": True,
+                            # The stun-sentinel annotation, as discovery carries it.
+                            "kernel_state": "running",
+                            "kernel_observed_at": "2026-09-07T09:00:00Z",
                         }
                     ]
                 },
@@ -1077,8 +1075,11 @@ def test_operational_inventory_response_envelope_and_models(client, monkeypatch)
     assert agent["runtime"]["framework"] == "LangChain"
     assert agent["responsibility"]["assignment_status"] in ("unassigned", "registry_unlinked")
     assert agent["assessment_summary"]["status"] == "not_assessed"
+    # cgroup_state comes from the sentinel annotation; the annotation says
+    # nothing about traffic control, so that stays unknown.
     assert agent["kernel_telemetry"]["cgroup_state"] == "thawed"
-    assert agent["kernel_telemetry"]["traffic_control_state"] == "allow"
+    assert agent["kernel_telemetry"]["source"] == "sentinel-annotation"
+    assert agent["kernel_telemetry"]["traffic_control_state"] == "unknown"
 
 
 def test_capabilities_workload_scoped_discovery(client, monkeypatch):
@@ -2316,11 +2317,14 @@ def test_get_agent_detail_returns_sentinel_telemetry_side_effect_free(client, mo
     assert data["id"] == "agent-stunned-001"
     assert data["kernel_telemetry"] is not None
     telem = data["kernel_telemetry"]
-    assert telem["cgroup_state"] == "frozen"
-    assert telem["traffic_control_state"] == "drop"
-    assert telem["sentinel_ack"] is True
-    assert telem["containment_probe_state"] == "confirmed"
-    assert telem["sentinel_drop_count"] == 142
+    # A stun record with no sentinel annotation is a request, not an
+    # observation: nothing may claim the cgroup froze or packets dropped.
+    assert telem["cgroup_state"] == "unknown"
+    assert telem["source"] == "unavailable"
+    assert telem["traffic_control_state"] == "unknown"
+    assert telem["sentinel_ack"] is False
+    assert telem["containment_probe_state"] == "unconfirmed"
+    assert telem["sentinel_drop_count"] is None
     assert len(executed_writes) == 0
 
 

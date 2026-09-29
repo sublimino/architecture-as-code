@@ -7,7 +7,7 @@ import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import { claimDiscoveredAgent, type AgentClaimRequest } from '../api/agentClaim'
 import type { AgentResponse, AgentListMeta, SourceHealthMap, AgentLifecycleState } from '../types/api'
-import StatusBadge from '../components/StatusBadge'
+import StatusBadge, { KernelStateBadge, hasKernelSplitBrain, isFrozenWithoutStun } from '../components/StatusBadge'
 import SignalBadge from '../components/SignalBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
@@ -327,6 +327,7 @@ function AgentStatCards({
     !(a.kernel_telemetry?.cgroup_state === 'frozen' || a.kernel_telemetry?.traffic_control_state === 'drop')
   ).length
   const attentionCount = agents.filter(a =>
+    hasKernelSplitBrain(a) ||
     a.compliance_summary.failing > 0 ||
     a.attention?.level === 'critical' ||
     a.attention?.level === 'warning' ||
@@ -569,6 +570,9 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
 
   // 4. Operational State column (with kernel telemetry)
   const isTelemetryFrozenOrDrop = agent.kernel_telemetry?.cgroup_state === 'frozen' || agent.kernel_telemetry?.traffic_control_state === 'drop'
+  // Kernel frozen with no stun record: the lifecycle label and the thawed
+  // telemetry tags are both stale claims, so neither is rendered.
+  const splitBrainFrozen = isFrozenWithoutStun(agent)
   const isContainmentRequested = agent.lifecycle_state === 'Suspended' || agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked'
 
   // 5. Attention column (truthful language)
@@ -717,28 +721,35 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
         {/* 4. Operational State */}
         <td style={{ padding: '11px 16px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
-              <StatusBadge status={agent.lifecycle_state} variant="lifecycle" isFrozen={isTelemetryFrozenOrDrop} />
-            </span>
+            {!splitBrainFrozen && (
+              <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
+                <StatusBadge status={agent.lifecycle_state} variant="lifecycle" isFrozen={isTelemetryFrozenOrDrop} />
+              </span>
+            )}
+            <KernelStateBadge view={agent} testId={`kernel-state-badge-${agent.id}`} />
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {isTelemetryFrozenOrDrop ? (
+              {splitBrainFrozen ? null : isTelemetryFrozenOrDrop ? (
                 <>
-                  <span
-                    data-testid={`kernel-telemetry-cgroup-${agent.id}`}
-                    className="tag"
-                    title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                  >
-                    cgroup: FROZEN
-                  </span>
-                  <span
-                    data-testid={`kernel-telemetry-tc-${agent.id}`}
-                    className="tag"
-                    title="TC matchall drop active: Network isolated by Sentinel"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                  >
-                    TC: DROP
-                  </span>
+                  {agent.kernel_telemetry?.cgroup_state === 'frozen' && (
+                    <span
+                      data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                      className="tag"
+                      title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                    >
+                      cgroup: FROZEN
+                    </span>
+                  )}
+                  {agent.kernel_telemetry?.traffic_control_state === 'drop' && (
+                    <span
+                      data-testid={`kernel-telemetry-tc-${agent.id}`}
+                      className="tag"
+                      title="TC matchall drop active: Network isolated by Sentinel"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                    >
+                      TC: DROP
+                    </span>
+                  )}
                 </>
               ) : isContainmentRequested ? (
                 <span
@@ -751,22 +762,26 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                 </span>
               ) : (
                 <>
-                  <span
-                    data-testid={`kernel-telemetry-cgroup-${agent.id}`}
-                    className="tag"
-                    title="cgroup.freeze: 0 (THAWED)"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                  >
-                    cgroup: THAWED
-                  </span>
-                  <span
-                    data-testid={`kernel-telemetry-tc-${agent.id}`}
-                    className="tag"
-                    title="TC drop: INACTIVE"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                  >
-                    TC: PASS
-                  </span>
+                  {agent.kernel_telemetry?.cgroup_state === 'thawed' && (
+                    <span
+                      data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                      className="tag"
+                      title="cgroup.freeze: 0 (THAWED)"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                    >
+                      cgroup: THAWED
+                    </span>
+                  )}
+                  {agent.kernel_telemetry?.traffic_control_state === 'allow' && (
+                    <span
+                      data-testid={`kernel-telemetry-tc-${agent.id}`}
+                      className="tag"
+                      title="TC drop: INACTIVE"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                    >
+                      TC: PASS
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -1086,7 +1101,7 @@ function GovernedTab({
       list = list.filter(a => {
         const failing = a.compliance_summary?.failing ?? 0
         const state = (a.lifecycle_state || '').toLowerCase()
-        return failing > 0 || state === 'suspended' || state === 'stunned' || state === 'revoked' || state === 'decommissioned'
+        return hasKernelSplitBrain(a) || failing > 0 || state === 'suspended' || state === 'stunned' || state === 'revoked' || state === 'decommissioned'
       })
     }
     if (lifecycleFilter !== 'all') {

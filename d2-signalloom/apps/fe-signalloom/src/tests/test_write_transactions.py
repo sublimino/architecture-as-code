@@ -347,7 +347,7 @@ class FakePostgres:
         raise AssertionError(f"unexpected fetchrow: {query}")
 
     def read_many(self, state: _State, query: str, *args: Any) -> list[dict[str, Any]]:
-        if "FROM agent_compliance_results" in query:
+        if "FROM agent_compliance_results" in query or "FROM governance_controls" in query:
             return []
         raise AssertionError(f"unexpected fetch: {query}")
 

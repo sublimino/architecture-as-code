@@ -166,19 +166,17 @@ describe('CompliancePolicyPage', () => {
     expect(screen.getByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
   })
 
-  it('mounts PolicyEditor with active bundle rules on default editor tab', async () => {
+  it('mounts PolicyEditor with active bundle rules on editor tab', async () => {
+    const user = userEvent.setup()
     renderPage()
+    await user.click(screen.getByTestId('tab-editor'))
     expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
     expect(screen.getByTestId('cel-code-textarea')).toBeInTheDocument()
     expect(screen.getByTestId('cel-diagnostic-valid')).toBeInTheDocument()
   })
 
-  it('renders framework cards, stat cards, and chart after switching to overview tab', async () => {
-    const user = userEvent.setup()
+  it('renders framework cards, stat cards, and chart on overview tab', async () => {
     renderPage()
-
-    const overviewTab = screen.getByTestId('tab-overview')
-    await user.click(overviewTab)
 
     expect(await screen.findByText('Total Checks')).toBeInTheDocument()
     expect(await screen.findByText('41')).toBeInTheDocument()
@@ -192,7 +190,7 @@ describe('CompliancePolicyPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByTestId('policy-editor-container')
+    expect(await screen.findByText('Total Checks')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Scan Now/i }))
 
     await waitFor(() => {
@@ -205,6 +203,7 @@ describe('CompliancePolicyPage', () => {
     const user = userEvent.setup()
     renderPage()
 
+    await user.click(screen.getByTestId('tab-editor'))
     await screen.findByTestId('policy-editor-container')
     const saveBtn = screen.getByTestId('save-policy-btn')
     await user.click(saveBtn)
@@ -219,6 +218,7 @@ describe('CompliancePolicyPage', () => {
     const user = userEvent.setup()
     renderPage()
 
+    await user.click(screen.getByTestId('tab-editor'))
     await screen.findByTestId('policy-editor-container')
     await user.click(screen.getByTestId('toggle-version-history-btn'))
     await user.click(screen.getByTestId('version-item-v2.0.0'))

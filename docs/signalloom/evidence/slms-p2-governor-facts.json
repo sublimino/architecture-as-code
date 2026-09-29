@@ -1,0 +1,105 @@
+{
+  "artifact": "slms-p2-governor-facts",
+  "phase": "P2",
+  "card": "SLMS-P2-GOV",
+  "title": "Phase 2 Governor: Policy Engine, CEL & Compliance Reconciliation and Quality Gate Certification",
+  "generated": "2026-09-29T06:25:00+01:00",
+  "role_boundary": "Governor quality gate and integration merge",
+  "repository": {
+    "worktree": "/home/andy/src/.worktrees/e30c9/osramp-demo",
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "base_commit_sha": "87a5bc96160332236ea2464726bcb2c6207a23b3",
+    "integration_tag": "integration/slms-v0.1.0-p2",
+    "working_tree_clean": true
+  },
+  "constituent_tasks": {
+    "P2-PRE": {
+      "title": "Phase 2 Pre-Flight: Policy Engine & NetworkPolicy Audit",
+      "commit_sha": "fe958021fc930ca1b58289aabecc4fa8e9b1b450",
+      "status": "PASS"
+    },
+    "P2-1": {
+      "title": "Policy Engine 4-Layer GitOps Deployment & NetworkPolicies",
+      "commit_sha": "2d6c4b39ece2ad40d424807c172a1e6764fefd15",
+      "status": "PASS"
+    },
+    "P2-2": {
+      "title": "Versioned CEL Policy Datastore & Evaluation APIs",
+      "commit_sha": "c69ed1598f8252271fc5a9d8ad3dfbc75e7a9b0c",
+      "status": "PASS"
+    },
+    "P2-3": {
+      "title": "CEL Policy Editor UI & Regulatory Framework Schemas",
+      "commit_sha": "5af3d1c23f2f81152a514d2efab30438cfce8f77",
+      "status": "PASS"
+    },
+    "P2-4": {
+      "title": "Compliance Posture Score Drill-Down & Arithmetic Fix",
+      "commit_sha": "2783195ecd4c4410a99a9833d067016bac470229",
+      "status": "PASS"
+    }
+  },
+  "merge_reconciliation": {
+    "reconciled_files": [
+      "d2-signalloom/apps/dashboard-signalloom/package-lock.json",
+      "d2-signalloom/apps/dashboard-signalloom/src/components/ComplianceDrawer.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/components/PolicyEditor.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/CompliancePolicyPage.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/CompliancePolicyPage.test.tsx",
+      "d2-signalloom/apps/fe-signalloom/src/tests/test_audit_provenance.py",
+      "d2-signalloom/apps/fe-signalloom/src/tests/test_write_transactions.py"
+    ]
+  },
+  "verified_test_results": {
+    "dashboard_vitest": {
+      "command": "bun run test -- --run",
+      "passed": 3499,
+      "skipped": 3,
+      "failed": 0,
+      "total": 3502,
+      "files_passed": 195,
+      "files_total": 195,
+      "duration_seconds": 14.54,
+      "status": "PASS"
+    },
+    "backend_pytest": {
+      "command": "uv run pytest tests/ -q",
+      "passed": 2114,
+      "skipped": 94,
+      "xfailed": 1,
+      "failed": 0,
+      "total": 2209,
+      "latent_defects_resolved": [
+        "test_policy_engine_not_called_for_policies",
+        "test_posture_score_double_scaling_latent_defect"
+      ],
+      "duration_seconds": 293.60,
+      "status": "PASS"
+    },
+    "frontend_typecheck": {
+      "command": "bun run typecheck",
+      "errors": 0,
+      "status": "PASS"
+    },
+    "policy_engine_go": {
+      "command": "CGO_ENABLED=0 go test ./...",
+      "packages_passed": 4,
+      "evaluation_benchmark_ns_op": 315844,
+      "evaluation_benchmark_ms_op": 0.316,
+      "benchmark_ceiling_ms": 15.0,
+      "status": "PASS"
+    }
+  },
+  "typography_audit": {
+    "modified_files_count": 32,
+    "new_em_dashes_added": 0,
+    "status": "ZERO_NEW_EM_DASHES_VERIFIED"
+  },
+  "governor_verdict": {
+    "status": "PASS",
+    "proceed": true,
+    "blocking_drift": false,
+    "unblocked_task": "SLMS-P3-PRE",
+    "summary": "Phase 2 quality gate fully verified. All constituent task branches (P2-1, P2-2, P2-3, P2-4) merged cleanly into integration/slms-v0.1.0 with all tests passing (3,499 Vitest, 2,114 Pytest, 4 Go packages with 0.316ms CEL benchmark, 0 failures, 0 regressions, P0 latent defects #1 and #3 verified PASS, zero em-dashes in UI). Tag integration/slms-v0.1.0-p2 created."
+  }
+}

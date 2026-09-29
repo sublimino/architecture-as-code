@@ -237,7 +237,7 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
           </div>
 
           {item.description && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary, var(--muted))', marginTop: 6, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, lineHeight: 1.4 }}>
               {item.description}
             </div>
           )}
@@ -391,7 +391,7 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
               {failingChecks.length > 0 && (
                 <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {failingChecks.map((c, i) => (
-                    <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary, var(--text))' }}>
+                    <div key={i} style={{ fontSize: 12, color: 'var(--text)' }}>
                       <strong style={{ color: 'var(--error)' }}>✗ {c.check}</strong>
                       {c.remediation && <div style={{ color: 'var(--muted)', marginLeft: 12 }}>{c.remediation}</div>}
                     </div>

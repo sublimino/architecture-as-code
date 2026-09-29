@@ -273,7 +273,7 @@ export default function PolicyEditor({
       case 'macro':
         return { color: 'var(--violet)', fontWeight: 600 }
       case 'variable':
-        return { color: 'var(--cyanLoom, #38bdf8)', fontWeight: 600 }
+        return { color: 'var(--cyan)', fontWeight: 600 }
       case 'string':
         return { color: 'var(--teal)' }
       case 'number':

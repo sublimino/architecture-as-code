@@ -175,7 +175,7 @@ export default function CompliancePolicyPage() {
   const [selectedFrameworkId, setSelectedFrameworkId] = useState<string>('eu-ai-act')
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'editor' | 'overview'>('editor')
+  const [activeTab, setActiveTab] = useState<'editor' | 'overview'>('overview')
 
   const load = useCallback(async () => {
     try {

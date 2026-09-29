@@ -46,6 +46,9 @@ const (
 	consistencyRoutePrefix   = "/api/v1/fleet/consistency/"
 	consistencyCheckTimeout  = 5 * time.Second
 	consistencyDefaultPeriod = 60 * time.Second
+	// baoConsumerLabel admits a pod to OpenBao through inf-bao's NetworkPolicy;
+	// it is also how a pod declares itself an OpenBao consumer.
+	baoConsumerLabel = "bao.controlplane.io/consumer"
 )
 
 // ConsistencyReport is the wire shape of GET /api/v1/fleet/consistency/{id}.
@@ -72,7 +75,12 @@ type ConsistencyPod struct {
 }
 
 type ConsistencyBao struct {
-	Configured   bool   `json:"configured"`
+	Configured bool `json:"configured"`
+	// Applicable says whether "active pod => at least one live token" is
+	// expected of this pod: only OpenBao consumers (an openbao-agent container
+	// or the bao.controlplane.io/consumer label). "stunned/absent => zero live
+	// tokens" is universal, so Applicable is always true for those.
+	Applicable   bool   `json:"applicable"`
 	ActiveTokens int    `json:"active_tokens"`
 	Error        string `json:"error,omitempty"`
 }
@@ -296,6 +304,7 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 		}
 	}
 	rep.SPIFFEID = fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", consistencyTrustDomain, namespace, serviceAccount)
+	rep.Bao.Applicable = pod == nil || rep.Pod.Stunned || isBaoConsumer(pod)
 
 	// ── OpenBao plane ──
 	rep.Bao.Configured = bao.configured
@@ -354,7 +363,7 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 			rep.SplitBrain = append(rep.SplitBrain, "pod stunned but pod not pinned")
 		}
 	case pod != nil:
-		if baoQueried && rep.Bao.ActiveTokens == 0 {
+		if baoQueried && rep.Bao.Applicable && rep.Bao.ActiveTokens == 0 {
 			rep.SplitBrain = append(rep.SplitBrain, "pod active but 0 openbao tokens active")
 		}
 		if spireQueried && !rep.Spire.EntryPresent {
@@ -370,6 +379,21 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 
 	rep.Consistent = rep.queried && len(rep.SplitBrain) == 0
 	return rep
+}
+
+// isBaoConsumer: the pod runs an openbao-agent container or carries the
+// consumer label. Anything else never talks to OpenBao, and zero tokens is its
+// correct steady state rather than a split brain.
+func isBaoConsumer(pod *corev1.Pod) bool {
+	if pod.Labels[baoConsumerLabel] != "" {
+		return true
+	}
+	for _, ctr := range pod.Spec.Containers {
+		if ctr.Name == "openbao-agent" {
+			return true
+		}
+	}
+	return false
 }
 
 // readDeploymentPin follows the SAME chain W1's pin writer does

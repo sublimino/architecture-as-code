@@ -260,6 +260,12 @@ def _get_federation_fallback(subpath: str) -> Any | None:
     return None
 
 
+SERVER_SPIFFE_ID = os.getenv(
+    "SERVER_SPIFFE_ID",
+    "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom",
+)
+
+
 async def proxy_federation_request(
     request: Request,
     subpath: str = "",
@@ -296,6 +302,59 @@ async def proxy_federation_request(
                 )
             body_bytes = raw_body
 
+    # Cross-tenant isolation (IDOR protection)
+    if tenant_id:
+        # Check query parameters
+        req_tenant = request.query_params.get("tenant") or request.query_params.get("tenant_id")
+        if req_tenant and req_tenant != tenant_id:
+            logger.warning(
+                "federation IDOR rejected: query tenant %r does not match authenticated tenant %r",
+                req_tenant,
+                tenant_id,
+            )
+            return _error_response(
+                403,
+                "tenant_mismatch",
+                f"Token tenant '{tenant_id}' does not match query tenant '{req_tenant}'",
+            )
+
+        # Check path parameters
+        path_parts = clean_subpath.split("/")
+        for idx, part in enumerate(path_parts):
+            if part in ("tenants", "configurations", "configs") and idx + 1 < len(path_parts):
+                target_tenant = path_parts[idx + 1]
+                if target_tenant and target_tenant != tenant_id:
+                    logger.warning(
+                        "federation IDOR rejected: path tenant %r does not match authenticated tenant %r",
+                        target_tenant,
+                        tenant_id,
+                    )
+                    return _error_response(
+                        403,
+                        "tenant_mismatch",
+                        f"Token tenant '{tenant_id}' does not match path tenant '{target_tenant}'",
+                    )
+
+        # Check body payload for mutating operations
+        if body_bytes:
+            try:
+                body_json = json.loads(body_bytes)
+                if isinstance(body_json, dict):
+                    payload_tenant = body_json.get("tenant_id") or body_json.get("tenant")
+                    if payload_tenant and payload_tenant != tenant_id:
+                        logger.warning(
+                            "federation IDOR rejected: body tenant %r does not match authenticated tenant %r",
+                            payload_tenant,
+                            tenant_id,
+                        )
+                        return _error_response(
+                            403,
+                            "tenant_mismatch",
+                            f"Token tenant '{tenant_id}' does not match payload tenant '{payload_tenant}'",
+                        )
+            except Exception:
+                pass
+
     headers: dict[str, str] = {
         "Accept": "application/json",
     }
@@ -303,13 +362,23 @@ async def proxy_federation_request(
         headers["Content-Type"] = "application/json"
     if tenant_id:
         headers["X-Tenant-ID"] = tenant_id
+        try:
+            from tenant_isolation import get_tenant_spiffe_id
+            headers["X-SPIFFE-ID"] = get_tenant_spiffe_id(tenant_id)
+        except Exception:
+            headers["X-SPIFFE-ID"] = f"spiffe://signalloom.demo/ns/fe-signalloom/sa/{tenant_id}"
+    else:
+        headers["X-SPIFFE-ID"] = SERVER_SPIFFE_ID
 
-    # Preserve SPIFFE SVID credential headers and Authorization
+    # Preserve allowed client headers, strictly stripping client-supplied identity/SPIFFE headers
     for k, v in request.headers.items():
         k_lower = k.lower()
-        if k_lower == "x-spiffe-svid":
-            headers["X-SPIFFE-SVID"] = v
-        elif k_lower.startswith("x-") and k_lower not in ("x-tenant-id", "host"):
+        if k_lower.startswith("x-") and k_lower not in (
+            "x-tenant-id",
+            "host",
+            "x-spiffe-id",
+            "x-spiffe-svid",
+        ):
             headers[k] = v
 
     auth_header = request.headers.get("authorization")
@@ -361,6 +430,12 @@ async def proxy_federation_request(
             target_path,
             exc,
         )
+        return _error_response(
+            502,
+            "upstream_unavailable",
+            f"signal-ingest federation proxy error: {exc}",
+        )
+
     # If upstream signal-ingest does not implement the requested federation route (404),
     # serve the canonical federation fallback dataset rather than failing with 502/404.
     if resp.status_code == 404 and request.method == "GET":
@@ -393,6 +468,19 @@ async def proxy_federation_request(
             502,
             "invalid_upstream_response",
             f"signal-ingest returned non-JSON response (status {resp.status_code})",
+        )
+
+    # If upstream returned non-JSON content-type
+    if not ("application/json" in resp_content_type.lower() or "+json" in resp_content_type.lower()):
+        logger.warning(
+            "signal-ingest returned non-JSON content type: status=%d content_type=%r",
+            resp.status_code,
+            resp_content_type,
+        )
+        return _error_response(
+            502,
+            "invalid_upstream_response",
+            f"signal-ingest returned non-JSON content type {resp_content_type!r} (status {resp.status_code})",
         )
 
     try:

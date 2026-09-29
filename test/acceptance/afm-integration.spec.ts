@@ -112,4 +112,35 @@ test.describe("AFM integration in Signal Loom", () => {
       expect(contentType).toContain("javascript");
     }
   });
+
+  test("AFM scan trigger endpoint returns 202 on POST and 405 on PUT/DELETE/PATCH", async ({ page }) => {
+    const clustersRes = await page.request.get(`${BASE}/afm/clusters`);
+    expect(clustersRes.ok()).toBeTruthy();
+    const clusters = await clustersRes.json();
+    expect(clusters.length).toBeGreaterThan(0);
+    const clusterId = clusters[0].id;
+
+    // POST returns 202 Accepted
+    const postRes = await page.request.post(`${BASE}/afm/clusters/${clusterId}/jobs`, {
+      data: { trigger_source: "acceptance-test" },
+    });
+    expect(postRes.status()).toBe(202);
+    const postBody = await postRes.json();
+    expect(postBody.cluster_id).toBe(clusterId);
+    expect(postBody.status).toBe("queued");
+
+    // PUT, DELETE, PATCH return 405 Method Not Allowed
+    for (const method of ["put", "delete", "patch"] as const) {
+      const res = await page.request[method](`${BASE}/afm/clusters/${clusterId}/jobs`);
+      expect(res.status()).toBe(405);
+    }
+  });
+
+  test("AFM scan trigger returns 404 for unknown cluster", async ({ page }) => {
+    const postRes = await page.request.post(`${BASE}/afm/clusters/non-existent-cluster-id/jobs`, {
+      data: { trigger_source: "acceptance-test" },
+    });
+    expect(postRes.status()).toBe(404);
+  });
 });
+

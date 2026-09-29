@@ -115,6 +115,10 @@ class FakeResponse:
             request = httpx.Request("GET", "http://afm.test/x")
             raise httpx.HTTPStatusError("bad status", request=request, response=httpx.Response(self._status, request=request))
 
+    @property
+    def status_code(self) -> int:
+        return self._status
+
     def json(self):
         return self._payload
 
@@ -136,6 +140,14 @@ def fake_client_cls(routes: dict[str, FakeResponse], requested: list[str] | None
             path = url.split(rbac_correlation.AFM_BASE_URL, 1)[-1]
             if path not in routes:
                 raise httpx.ConnectError(f"no fake route for {path}", request=httpx.Request("GET", url))
+            return routes[path]
+
+        async def post(self, url: str, *args, **kwargs):
+            if requested is not None:
+                requested.append(url)
+            path = url.split(rbac_correlation.AFM_BASE_URL, 1)[-1]
+            if path not in routes:
+                raise httpx.ConnectError(f"no fake route for {path}", request=httpx.Request("POST", url))
             return routes[path]
 
     return FakeAsyncClient
@@ -483,3 +495,96 @@ def test_timeout_reports_the_deadline_rather_than_the_exception(monkeypatch):
     error = response.json()["error"]
     assert error["code"] == "afm_unreachable"
     assert "did not respond within 20s" in error["message"]
+
+
+# -----------------------------------------------------------------------------
+# AFM scan triggers
+# -----------------------------------------------------------------------------
+
+
+def test_afm_post_cluster_jobs_accepted(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+        "/clusters/local/analysis/escalation": FakeResponse({"id": "job-afm-upstream-1", "status": "queued"}),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.post("/afm/clusters/local/jobs")
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["cluster_id"] == "local"
+    assert body["status"] == "queued"
+    assert body["trigger_source"] == "manual"
+    assert "id" in body
+    assert "created_at" in body
+
+
+def test_afm_post_cluster_jobs_custom_payload(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "prod", "name": "Prod Cluster"}]),
+        "/clusters/prod/analysis/escalation": FakeResponse({"id": "job-afm-prod-1", "status": "running"}),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.post(
+            "/afm/clusters/prod/jobs",
+            json={"trigger_source": "ci-pipeline"},
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["cluster_id"] == "prod"
+    assert body["trigger_source"] == "ci-pipeline"
+    assert body["id"] == "job-afm-prod-1"
+    assert body["status"] == "running"
+
+
+def test_afm_cluster_jobs_method_not_allowed(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        for method in ("put", "delete", "patch"):
+            call = getattr(client, method)
+            response = call("/afm/clusters/local/jobs")
+            assert response.status_code == 405, f"Expected 405 for {method.upper()}, got {response.status_code}"
+
+
+def test_afm_post_cluster_jobs_unknown_cluster_returns_404(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.post("/afm/clusters/non-existent-cluster/jobs")
+
+    assert response.status_code == 404
+    error = response.json()["error"]
+    assert error["code"] == "cluster_not_found"
+    assert "non-existent-cluster" in error["message"]
+
+
+def test_rbac_post_cluster_scan_and_jobs_accepted(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+        "/clusters/local/analysis/escalation": FakeResponse({"id": "job-afm-upstream-1", "status": "queued"}),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        res_scan = client.post("/api/rbac/clusters/local/scan", headers=bearer(token_for()))
+        assert res_scan.status_code == 202
+        assert res_scan.json()["cluster_id"] == "local"
+
+        res_jobs = client.post("/api/rbac/clusters/local/jobs", headers=bearer(token_for()))
+        assert res_jobs.status_code == 202
+        assert res_jobs.json()["cluster_id"] == "local"
+
+
+def test_rbac_post_cluster_scan_unknown_cluster_returns_404(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.post("/api/rbac/clusters/phantom/scan", headers=bearer(token_for()))
+
+    assert response.status_code == 404
+    error = response.json()["error"]
+    assert error["code"] == "cluster_not_found"
+

@@ -13,11 +13,10 @@ SHELL = /usr/bin/env bash -o pipefail
 CLUSTER_NAME ?= osramp
 
 KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml
-GOPATH ?= /tmp/gopath
-GONOSUMDB ?= *
-GOCACHE ?= /tmp/gocache
-GOMODCACHE ?= /tmp/gomodcache
-CGO_ENABLED ?= 0
+override GOPATH := /tmp/gopath
+override GOMODCACHE := /tmp/gomodcache
+override GOCACHE := /tmp/gocache
+override CGO_ENABLED := 0
 HELM_CACHE_HOME ?= /tmp/helm/cache
 HELM_CONFIG_HOME ?= /tmp/helm/config
 HELM_DATA_HOME ?= /tmp/helm/data

@@ -64,7 +64,7 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # after a merge: it turns the test green while leaving the database constraint
 # missing an event type. Point it at whichever migration runs LAST, and make
 # that migration enumerate every type.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "045_eap_audit_event_types.sql"
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "046_agent_stun_failed_event_type.sql"
 
 
 EVENT_TYPE_POSITION = 2
@@ -195,6 +195,15 @@ def _literal_values(expression: ast.expr | None) -> tuple[set[str], str | None]:
         return {expression.value}, None
     if isinstance(expression, ast.JoinedStr):
         return _expand_fstring(expression)
+    if isinstance(expression, ast.IfExp):
+        # ``"a" if cond else "b"``: both branches can be written, so both must
+        # resolve. One unresolvable branch makes the whole expression
+        # unresolved -- never half the answer.
+        body, body_reason = _literal_values(expression.body)
+        orelse, orelse_reason = _literal_values(expression.orelse)
+        if body_reason is not None or orelse_reason is not None:
+            return set(), ast.unparse(expression)
+        return body | orelse, None
     if expression is None:
         return set(), "MISSING"
     return set(), ast.unparse(expression)

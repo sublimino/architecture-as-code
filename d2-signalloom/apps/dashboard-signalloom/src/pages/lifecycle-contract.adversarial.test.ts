@@ -13,6 +13,11 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { splitBrainFrozenAgentFixture } from '../api/fakeData'
+
+// Pod labels a discovered, unregistered record carries as lifecycle_state.
+// Kept to exactly what the fakeData fixtures use; see the test below.
+const DISCOVERY_OBSERVED_LABELS = new Set(['idle'])
 
 // ─── Extract VALID_NEXT_STATES keys from AgentDetailPage.tsx ──────────────────
 
@@ -111,7 +116,19 @@ describe('Lifecycle state contract: fakeData <-> API', () => {
     // fakeData creates agents with lifecycle_state values. If any of them
     // are not in the API's vocabulary, the demo mode produces agents that
     // the transition validation would reject.
-    const invalid = fakeDataStates.filter(s => !API_VALID_LIFECYCLE_STATES.has(s))
+    const invalid = fakeDataStates.filter(
+      s => !API_VALID_LIFECYCLE_STATES.has(s) && !DISCOVERY_OBSERVED_LABELS.has(s),
+    )
     expect(invalid).toEqual([])
+  })
+
+  it('discovery labels appear only on a discovered, unregistered record', () => {
+    // An unregistered pod carries its signalloom.ai/state label verbatim as
+    // lifecycle_state (api_compat._agent_response_from_discovered). It is
+    // claimed, never transitioned, so the transition vocabulary does not apply.
+    // The exemption holds only while that label sits on such a record.
+    expect(splitBrainFrozenAgentFixture.lifecycle_state).toBe('idle')
+    expect(splitBrainFrozenAgentFixture.record_class).toBe('discovered')
+    expect(splitBrainFrozenAgentFixture.is_registry_linked).toBe(false)
   })
 })

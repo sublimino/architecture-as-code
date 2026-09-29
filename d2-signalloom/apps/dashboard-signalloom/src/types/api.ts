@@ -148,6 +148,8 @@ export interface EnrichedAgentRecord {
   timestamps: TimestampsMetadata
 }
 
+export type KernelState = 'frozen' | 'running' | 'unknown'
+
 export interface AgentResponse {
   id: string
   name: string
@@ -165,6 +167,15 @@ export interface AgentResponse {
   created_at: string | null
   credential_state?: AgentCredentialState | null
   kernel_telemetry?: SentinelKernelTelemetry | null
+  /**
+   * Kernel freezer truth from the stun-sentinel's cgroup annotations, carried
+   * by discovery. Absent or "unknown" means nobody observed the cgroup; the UI
+   * must not read it as running.
+   */
+  kernel_state?: KernelState | null
+  kernel_observed_at?: string | null
+  /** Named disagreements between kernel_state and the stun record. */
+  split_brain?: string[] | null
   protected_namespaces?: string[]
 
   // Workload / Kubernetes preserved discovery fields
@@ -970,6 +981,9 @@ export interface DiscoveryWorkload {
   last_seen_at?: string | null
   recommendations?: ControlRecommendations
   metadata?: Record<string, any>
+  kernel_state?: KernelState | null
+  kernel_observed_at?: string | null
+  split_brain?: string[] | null
 }
 
 export interface DiscoveryWorkloadsSummary {

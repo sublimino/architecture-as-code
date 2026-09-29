@@ -61,6 +61,20 @@ const (
 	consTestSPIFFE = "spiffe://signalloom.demo/ns/" + testNamespace + "/sa/" + consTestSA
 )
 
+// consRSName is the ReplicaSet every consPod is controlled by; newTestChecker
+// seeds it with a controller reference to the Deployment named consTestAgent,
+// the same pod -> ReplicaSet -> Deployment walk W1's pin uses.
+const consRSName = consTestAgent + "-bb57657"
+
+func isController() *bool { t := true; return &t }
+
+func consReplicaSet(name, deployment string) *appsv1.ReplicaSet {
+	return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+		Name: name, Namespace: testNamespace,
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "Deployment", Name: deployment, Controller: isController()}},
+	}}
+}
+
 func consPod(stunned bool, podPinned bool) *corev1.Pod {
 	state, mode, flag := "active", ContainmentModeNone, "false"
 	if stunned {
@@ -68,6 +82,7 @@ func consPod(stunned bool, podPinned bool) *corev1.Pod {
 	}
 	pod := agentPod(consTestAgent, state, map[string]string{ContainmentModeLabel: mode, StunnedLabel: flag})
 	pod.Spec.ServiceAccountName = consTestSA
+	pod.OwnerReferences = []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: consRSName, Controller: isController()}}
 	if podPinned {
 		pod.Annotations = map[string]string{consistencyPinAnnotation: consistencyPinValue}
 	}
@@ -97,7 +112,7 @@ func consDAG(t *testing.T, ids ...string) *DAG {
 
 func newTestChecker(t *testing.T, bao consistencyTokenCounter, spire consistencyEntryLister, objects ...runtime.Object) (*consistencyChecker, *bytes.Buffer) {
 	t.Helper()
-	kc := newK8sFleetClient(fake.NewSimpleClientset(objects...), testNamespace)
+	kc := newK8sFleetClient(fake.NewSimpleClientset(append(objects, consReplicaSet(consRSName, consTestAgent))...), testNamespace)
 	logBuf := &bytes.Buffer{}
 	c := newConsistencyChecker(consDAG(t, consTestAgent), kc, bao, spire)
 	c.logger = slog.New(slog.NewJSONHandler(logBuf, nil))
@@ -291,20 +306,39 @@ func TestConsistency_AbsentPodWithLiveTokens(t *testing.T) {
 	}
 }
 
-func TestConsistency_DeploymentResolvedThroughReplicaSetOwner(t *testing.T) {
+func TestConsistency_DeploymentFollowsControllerChainNotAgentName(t *testing.T) {
+	// Kusari shape: agent id and Deployment name differ. A Deployment that
+	// happens to carry the agent id but does not own the pod is a decoy; reading
+	// its pin would judge the wrong object (and disagree with W1's pin walk).
 	pod := consPod(true, true)
 	pod.Name = "agent-cardvault-bb57657-jlf8w"
-	pod.OwnerReferences = []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "cardvault-deploy-bb57657"}}
-	dep := consDeployment(true)
-	dep.Name = "cardvault-deploy"
+	pod.OwnerReferences = []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "cardvault-deploy-bb57657", Controller: isController()}}
+	owner := consDeployment(true)
+	owner.Name = "cardvault-deploy"
+	decoy := consDeployment(false) // named agent-cardvault, unpinned
 	bao := &fakeTokenCounter{configured: true, counts: map[string]int{}}
-	c, _ := newTestChecker(t, bao, &fakeEntryLister{entries: map[string]int{}}, pod, dep)
+	c, _ := newTestChecker(t, bao, &fakeEntryLister{entries: map[string]int{}}, pod, owner, decoy,
+		consReplicaSet("cardvault-deploy-bb57657", "cardvault-deploy"))
 	_, rep := getConsistency(t, c, consTestAgent)
 	if !rep.GitOps.DeploymentFound || rep.GitOps.Deployment != "cardvault-deploy" || !rep.GitOps.DeploymentPinned {
-		t.Fatalf("gitops = %+v, want deployment cardvault-deploy found and pinned", rep.GitOps)
+		t.Fatalf("gitops = %+v, want the controlling deployment cardvault-deploy, pinned", rep.GitOps)
 	}
-	if !rep.Consistent {
-		t.Fatalf("split_brain = %q", rep.SplitBrain)
+	if !rep.Consistent || len(rep.SplitBrain) != 0 {
+		t.Fatalf("consistent=%v split_brain=%q; the unpinned decoy must not be judged", rep.Consistent, rep.SplitBrain)
+	}
+}
+
+func TestConsistency_BarePodHasNoDeploymentEvenIfOneSharesItsName(t *testing.T) {
+	pod := consPod(true, true)
+	pod.OwnerReferences = nil // bare pod, like agent-sir-lancelot
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{}}
+	c, _ := newTestChecker(t, bao, &fakeEntryLister{entries: map[string]int{}}, pod, consDeployment(false))
+	code, rep := getConsistency(t, c, consTestAgent)
+	if code != http.StatusOK || rep.GitOps.DeploymentFound || rep.GitOps.Deployment != "" {
+		t.Fatalf("code=%d gitops=%+v, want 200 and no deployment for an uncontrolled pod", code, rep.GitOps)
+	}
+	if !rep.Consistent || len(rep.SplitBrain) != 0 {
+		t.Fatalf("split_brain = %q, want none: there is no deployment to pin", rep.SplitBrain)
 	}
 }
 

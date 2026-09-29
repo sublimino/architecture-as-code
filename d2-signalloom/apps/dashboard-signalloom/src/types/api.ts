@@ -35,8 +35,12 @@ export interface AgentCreateRequest {
  * never been touched, and every consumer treats absence as "nothing to say".
  */
 export interface AgentCredentialState {
-  /** Whether the agent can currently authenticate to the platform. */
-  status: 'active' | 'revoked'
+  /**
+   * Whether the agent can currently authenticate to the platform. "unknown"
+   * when a stun or revoked lifecycle suggests revocation but no stun audit
+   * row (bao and spire contained) or registry flag evidences it.
+   */
+  status: 'active' | 'revoked' | 'unknown'
   /**
    * Why the credentials are in this state, in plain language.
    *

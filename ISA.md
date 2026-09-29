@@ -3,10 +3,10 @@ task: Cross-Surface Multi-Domain UI and Protocol Remediation
 slug: slms-cross-surface-multi-domain-remediation
 effort: E4
 phase: build
-progress: 0/32
+progress: 32/32
 mode: algorithm
 started: 2026-09-29T19:55:00+01:00
-updated: 2026-09-29T19:55:00+01:00
+updated: 2026-09-29T20:40:00+01:00
 ---
 
 ## Problem
@@ -56,38 +56,38 @@ A completely reconciled, bulletproof Signal Loom multi-surface experience where:
 Deliver complete, verified cross-surface fixes across Discovery, Agents, Topology, Activity, FAIR Risk, Policy, RBAC Analysis, Collusion & Access, and Federated Services, validated by targeted Vitest and Playwright test suites.
 
 ## Criteria
-- [ ] ISC-1: In `DiscoveryPage.tsx`, clicking the 'Attention Required' banner header or badge filters/selects workloads that require attention.
-- [ ] ISC-2: In `DiscoveryPage.tsx`, clicking the 'unowned' alert in `AttentionPanel` filters to unowned workloads rather than resetting filters.
-- [ ] ISC-3: In `CodingAgentsTab.tsx`, when the telemetry list API returns 404, the inline error banner displays `Failed <n>s ago:Request failed with status code 404 Retry`.
-- [ ] ISC-4: In `CodingAgentsTab.tsx`, clicking 'Retry' on the 404 error banner re-invokes `fetchTelemetry`.
-- [ ] ISC-5: In `AgentTrustTopologyPage.tsx`, clicking the 'Runtime-observed' StatCard filters the diagram to observed evidence nodes and edges.
-- [ ] ISC-6: In `AgentTrustTopologyPage.tsx`, clicking the 'Modeled items' StatCard filters the diagram to modeled evidence nodes and edges.
-- [ ] ISC-7: In `AgentTrustTopologyPage.tsx`, clicking the 'Fixture-tested items' StatCard filters the diagram to fixture-tested evidence nodes and edges.
-- [ ] ISC-8: In `TrustGraph.tsx` and `toTrustTopology`, hierarchical DAG rank positioning is applied to live topology nodes preventing coordinate collision.
-- [ ] ISC-9: In `Sidebar.tsx`, the navigation entry for `/activity` or `/weave` displays the label 'Activity' instead of 'The Weave'.
-- [ ] ISC-10: In `App.tsx`, route titles for `/activity` and `/weave` are set to 'Activity'.
-- [ ] ISC-11: In `WeavePage.tsx`, the page heading and breadcrumb render 'Activity'.
-- [ ] ISC-12: In `AgentsPage.tsx`, the navigation action button displays 'View Activity'.
-- [ ] ISC-13: In `RiskExposurePage.tsx`, `DEFAULT_VERSIONS` includes active versions for EU AI Act, NIST 800-53, Cyber Resilience Act (CRA), and FINOS AIGF.
-- [ ] ISC-14: In `CompliancePolicyPage.tsx`, `DEFAULT_BUNDLES` includes realistic CEL rules for EU AI Act, NIST 800-53, CRA, and FINOS AIGF.
-- [ ] ISC-15: Author new reusable component `components/AgentSuperFilterTable.tsx` providing search, lifecycle state, connector source, namespace, and attention filters.
-- [ ] ISC-16: In `AgentSuperFilterTable.tsx`, columns for `last_assessed` and `lifecycle` are sortable.
-- [ ] ISC-17: In `AgentSuperFilterTable.tsx`, `last_assessed` displays full timestamps with tooltip or formatted date-time.
-- [ ] ISC-18: Integrate `AgentSuperFilterTable` into `DiscoveryPage.tsx`.
-- [ ] ISC-19: Integrate `AgentSuperFilterTable` into `AgentsPage.tsx`.
-- [ ] ISC-20: Integrate `AgentSuperFilterTable` into `RiskExposurePage.tsx` population breakdown table.
-- [ ] ISC-21: In `nginx.conf`, configure `location /dashboard/` with `X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'`.
-- [ ] ISC-22: Verify `/rbac-analysis` loads the embedded AFM iframe without CSP or X-Frame-Options blocking.
-- [ ] ISC-23: In `afmApi.ts`, update `triggerCollusionScan` to POST to `/clusters/{cluster_id}/analysis/escalation` instead of `/jobs`.
-- [ ] ISC-24: In `afmApi.ts`, parse `job_id` from the 202 response of `/clusters/{cluster_id}/analysis/escalation`.
-- [ ] ISC-25: In `FederatedServicesPage.tsx`, replace `localStorage.getItem('token') || 'demo-token'` with `useAuth0().getAccessTokenSilently()`.
-- [ ] ISC-26: Verify navigating to `/federated-services` in authenticated live mode does not redirect to login or sign-in.
-- [ ] ISC-27: Vitest: author and pass unit tests for `AgentSuperFilterTable.test.tsx`.
-- [ ] ISC-28: Vitest: author and pass unit tests in `afmApi.test.ts` verifying `triggerCollusionScan` endpoint and payload parsing.
-- [ ] ISC-29: Vitest: author and pass unit tests in `CodingAgentsTab.test.tsx` for 404 error rendering and retry.
-- [ ] ISC-30: Vitest: run all dashboard vitest suites and confirm 100% pass rate.
-- [ ] ISC-31: Playwright: author or update browser acceptance tests verifying AFM scan trigger and iframe embedding.
-- [ ] ISC-32: Anti: Zero em-dashes (`—`) or en-dashes (`–`) introduced across all modified source code, templates, and tests.
+- [x] ISC-1: In `DiscoveryPage.tsx`, clicking the 'Attention Required' banner header or badge filters/selects workloads that require attention.
+- [x] ISC-2: In `DiscoveryPage.tsx`, clicking the 'unowned' alert in `AttentionPanel` filters to unowned workloads rather than resetting filters.
+- [x] ISC-3: In `CodingAgentsTab.tsx`, when the telemetry list API returns 404, the inline error banner displays `Failed <n>s ago:Request failed with status code 404 Retry`.
+- [x] ISC-4: In `CodingAgentsTab.tsx`, clicking 'Retry' on the 404 error banner re-invokes `fetchTelemetry`.
+- [x] ISC-5: In `AgentTrustTopologyPage.tsx`, clicking the 'Runtime-observed' StatCard filters the diagram to observed evidence nodes and edges.
+- [x] ISC-6: In `AgentTrustTopologyPage.tsx`, clicking the 'Modeled items' StatCard filters the diagram to modeled evidence nodes and edges.
+- [x] ISC-7: In `AgentTrustTopologyPage.tsx`, clicking the 'Fixture-tested items' StatCard filters the diagram to fixture-tested evidence nodes and edges.
+- [x] ISC-8: In `TrustGraph.tsx` and `toTrustTopology`, hierarchical DAG rank positioning is applied to live topology nodes preventing coordinate collision.
+- [x] ISC-9: In `Sidebar.tsx`, the navigation entry for `/activity` or `/weave` displays the label 'Activity' instead of 'The Weave'.
+- [x] ISC-10: In `App.tsx`, route titles for `/activity` and `/weave` are set to 'Activity'.
+- [x] ISC-11: In `WeavePage.tsx`, the page heading and breadcrumb render 'Activity'.
+- [x] ISC-12: In `AgentsPage.tsx`, the navigation action button displays 'View Activity'.
+- [x] ISC-13: In `RiskExposurePage.tsx`, `DEFAULT_VERSIONS` includes active versions for EU AI Act, NIST 800-53, Cyber Resilience Act (CRA), and FINOS AIGF.
+- [x] ISC-14: In `CompliancePolicyPage.tsx`, `DEFAULT_BUNDLES` includes realistic CEL rules for EU AI Act, NIST 800-53, CRA, and FINOS AIGF.
+- [x] ISC-15: Author new reusable component `components/AgentSuperFilterTable.tsx` providing search, lifecycle state, connector source, namespace, and attention filters.
+- [x] ISC-16: In `AgentSuperFilterTable.tsx`, columns for `last_assessed` and `lifecycle` are sortable.
+- [x] ISC-17: In `AgentSuperFilterTable.tsx`, `last_assessed` displays full timestamps with tooltip or formatted date-time.
+- [x] ISC-18: Integrate `AgentSuperFilterTable` into `DiscoveryPage.tsx`.
+- [x] ISC-19: Integrate `AgentSuperFilterTable` into `AgentsPage.tsx`.
+- [x] ISC-20: Integrate `AgentSuperFilterTable` into `RiskExposurePage.tsx` population breakdown table.
+- [x] ISC-21: In `nginx.conf`, configure `location /dashboard/` with `X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'`.
+- [x] ISC-22: Verify `/rbac-analysis` loads the embedded AFM iframe without CSP or X-Frame-Options blocking.
+- [x] ISC-23: In `afmApi.ts`, update `triggerCollusionScan` to POST to `/clusters/{cluster_id}/analysis/escalation` instead of `/jobs`.
+- [x] ISC-24: In `afmApi.ts`, parse `job_id` from the 202 response of `/clusters/{cluster_id}/analysis/escalation`.
+- [x] ISC-25: In `FederatedServicesPage.tsx`, replace `localStorage.getItem('token') || 'demo-token'` with `useAuth0().getAccessTokenSilently()`.
+- [x] ISC-26: Verify navigating to `/federated-services` in authenticated live mode does not redirect to login or sign-in.
+- [x] ISC-27: Vitest: author and pass unit tests for `AgentSuperFilterTable.test.tsx`.
+- [x] ISC-28: Vitest: author and pass unit tests in `afmApi.test.ts` verifying `triggerCollusionScan` endpoint and payload parsing.
+- [x] ISC-29: Vitest: author and pass unit tests in `CodingAgentsTab.test.tsx` for 404 error rendering and retry.
+- [x] ISC-30: Vitest: run all dashboard vitest suites and confirm 100% pass rate.
+- [x] ISC-31: Playwright: author or update browser acceptance tests verifying AFM scan trigger and iframe embedding.
+- [x] ISC-32: Anti: Zero em-dashes (`—`) or en-dashes (`–`) introduced across all modified source code, templates, and tests.
 
 ## Test Strategy
 - ISC-1..2: Vitest in `DiscoveryPage.test.tsx` verifying 'Attention Required' filtering.
@@ -117,9 +117,19 @@ Deliver complete, verified cross-surface fixes across Discovery, Agents, Topolog
 - 2026-09-29: Root cause for AFM scan 405 identified as `afmApi.ts` calling `/clusters/{cluster_id}/jobs` instead of `/clusters/{cluster_id}/analysis/escalation`. Resolved by repointing to `/analysis/escalation` and parsing `job_id`.
 - 2026-09-29: Root cause for `/federated-services` sign-in redirect identified as hardcoded fallback to `'demo-token'`, prompting Axios 401 response interceptor. Resolved by using `useAuth0().getAccessTokenSilently()`.
 - 2026-09-29: Design System Agent Super Filter Table designed as a reusable generic container standardizing filter facets and sortable timestamps across Discovery, Agents, and Risk views.
+- 2026-09-29: Dex configuration reload BATS failure resolved by updating `signalloom.ai/dex-config-sha` to match the actual `config.yaml` digest, enabling seamless GitOps reconciliation.
 
 ## Changelog
 - 2026-09-29: Initialized ISA for SLMS cross-surface multi-domain UI and protocol remediation.
+- 2026-09-29: Delivered all 32 remediation criteria, full Vitest suite (3,511 tests passing), live cluster rollout, and Playwright acceptance suites.
 
 ## Verification
-- Pending execution.
+- Vitest Frontend Suite: 201/201 test files passed, 3,511 tests passed, 0 failures (`bun run test --run`).
+- TypeScript Typecheck: `tsc --noEmit` exited 0 with 0 errors.
+- Supply Chain & Image Rollout: `./scripts/build-sign-dashboard.sh` built, signed (Cosign + SLSA provenance + SPDX SBOM), and loaded image `sha256:0535e464...`. Pod `dashboard-signalloom-7f69bb6fd8-n8rg8` verified fresh (`./scripts/check-deployed-staleness.sh`).
+- Live Cluster & Flux Reconciliation: `make demo-signalloom-test` passed 602/602 tests, all 39 mutation falsifications killed, Dex configuration annotation synced and reconciled via Flux OCI.
+- Playwright Browser Acceptance:
+  - `smoke.spec.ts`: 24/24 tests passed across authenticated navigation, scroll contexts, and deep link interactions.
+  - `rbac-analysis.spec.ts`: 1/1 tests passed (iframe loads, YAML imports and submits cleanly without CSP blocking).
+  - `topology-graph.spec.ts`: 4/4 tests passed (interactive cards, SVG rendering, zero em-dashes).
+- Style & Quality Invariant: 0 em-dashes or en-dashes introduced across all modified source and test files.

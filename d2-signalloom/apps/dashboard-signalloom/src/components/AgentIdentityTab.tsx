@@ -66,8 +66,11 @@ export default function AgentIdentityTab({
   }, [identity?.selectors, namespace, serviceAccount, podUid, node, agent.name])
 
   // 5. Certificate Validity & Timestamps
-  const certValidFrom = identity?.cert_valid_from || agent.created_at || null
-  const certValidUntil = identity?.cert_valid_until || (agent.credential_state?.status === 'active' ? new Date(Date.now() + 14400000).toISOString() : null)
+  // Validity comes only from the SVID on record. An active credential state
+  // says nothing about when the SVID expires, and created_at is when the
+  // agent record was made, not when any certificate became valid.
+  const certValidFrom = identity?.cert_valid_from ?? null
+  const certValidUntil = identity?.cert_valid_until ?? null
   const certIssuer = identity?.cert_issuer || (isSpiffeLinked ? 'spiffe://signalloom.demo/spire/server' : '-')
   const isRevoked = agent.credential_state?.status === 'revoked'
 
@@ -80,7 +83,7 @@ export default function AgentIdentityTab({
       return { label: 'No active SVID', status: 'unlinked', color: 'var(--muted)' }
     }
     if (!certValidUntil) {
-      return { label: 'Valid (Active SVID)', status: 'valid', color: colors.tealLoom }
+      return { label: 'SVID linked, expiry unknown', status: 'unknown', color: 'var(--muted)' }
     }
     const untilMs = new Date(certValidUntil).getTime()
     const nowMs = Date.now()
@@ -309,9 +312,9 @@ export default function AgentIdentityTab({
                 {certIssuer}
               </span>
             </div>
-            {certValidFrom && (
-              <div style={{ fontSize: 10, color: 'var(--muted)' }}>
-                Valid: {fmtDate(certValidFrom)}{certValidUntil ? ` – ${fmtDate(certValidUntil)}` : ''}
+            {(certValidFrom || certValidUntil || isSpiffeLinked) && (
+              <div style={{ fontSize: 10, color: 'var(--muted)' }} data-testid="identity-cert-validity-window">
+                Valid: {certValidFrom ? fmtDate(certValidFrom) : 'start unknown'} to {certValidUntil ? fmtDate(certValidUntil) : 'expiry unknown'}
               </div>
             )}
           </div>

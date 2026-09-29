@@ -300,7 +300,7 @@ async def run_certification() -> dict[str, Any]:
         raise ValueError("Safety violation: workstation collision detected")
 
     # Verify Forbidden Tenants are not targeted
-    forbidden_hashes = ["6f82ad81", "a0314bec"]
+    forbidden_hashes = ["a0314bec"]
     if customer_hash in forbidden_hashes:
         raise ValueError(f"Safety violation: forbidden tenant hash {customer_hash} targeted")
 

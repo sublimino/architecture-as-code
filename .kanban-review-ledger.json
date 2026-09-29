@@ -3663,5 +3663,25 @@
     "verdict": "PASS",
     "model": null,
     "reason": "Collusion & Access Page typography scrub complete (zero em-dashes), scan triggers wired, recency badges added, 80 Vitest tests passing."
+  },
+  "dac96": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "dac96",
+        "reviewed_at": "2026-09-29T06:24:12.803Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "Fleet Demo live cluster streaming and offline demo fallback hardened, topology delineation doc created, duplicate SPIRE views removed, 62 Vitest tests passing."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "dac96",
+    "reviewed_at": "2026-09-29T06:24:12.803Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "Fleet Demo live cluster streaming and offline demo fallback hardened, topology delineation doc created, duplicate SPIRE views removed, 62 Vitest tests passing."
   }
 }

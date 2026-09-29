@@ -1,0 +1,15 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: stun-quarantine
+  namespace: kusari-liveness-lab
+spec:
+  endpointSelector:
+    matchLabels:
+      signalloom.io/stunned: "true"
+  # Ingress: default-deny with a single allow for the node (kubelet probes).
+  ingress:
+  - fromEntities: [host]
+  # Egress: explicit deny of everything, DNS included. Deny rules win over any allow.
+  egressDeny:
+  - toEntities: [all]

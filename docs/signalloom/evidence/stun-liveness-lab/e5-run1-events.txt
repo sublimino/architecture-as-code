@@ -1,0 +1,3 @@
+2026-09-29T21:53:39Z   Started     e5-agent-6cc5c479b9-s9ltg   Container started
+2026-09-29T21:53:40Z   Started     e5-agent-6cc5c479b9-s9ltg   Container started
+2026-09-29T21:53:40Z   Unhealthy   e5-agent-6cc5c479b9-s9ltg   Readiness probe failed: Get "http://10.0.0.121:8081/healthz": dial tcp 10.0.0.121:8081: connect: connection refused

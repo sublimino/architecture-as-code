@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e3-agent
+  namespace: kusari-liveness-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e3-agent}
+  template:
+    metadata:
+      labels: {app: e3-agent}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: agent
+        image: kusari-agent:latest
+        imagePullPolicy: Never
+        ports: [{name: http, containerPort: 8080}]
+        livenessProbe:
+          httpGet: {path: /healthz, port: http}
+          periodSeconds: 15
+          failureThreshold: 3
+          timeoutSeconds: 1
+        readinessProbe:
+          httpGet: {path: /healthz, port: http}
+          periodSeconds: 5
+          failureThreshold: 3
+          timeoutSeconds: 1
+        resources:
+          limits: {cpu: 100m, memory: 64Mi}
+          requests: {cpu: 5m, memory: 16Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: [{name: tmp, mountPath: /tmp}]
+      - name: shell   # test-only sidecar: shares the pod netns, used to originate "agent" egress
+        image: docker.io/bitnamilegacy/kubectl:1.31
+        imagePullPolicy: Never
+        command: [sleep, "3600"]
+        resources:
+          limits: {cpu: 50m, memory: 64Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: [{name: scripts, mountPath: /scripts}]
+      volumes:
+      - {name: tmp, emptyDir: {}}
+      - name: scripts
+        configMap: {name: lab-scripts}

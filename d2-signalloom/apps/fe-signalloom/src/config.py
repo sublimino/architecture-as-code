@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     api_attributable_operator_tenants: set[str] = {"tenant-agentmaxxing"}
     api_superadmin_emails: set[str] = {"demo-user@signalloom.local"}
     api_superadmin_subjects: set[str] = {"demo-user"}
+    policy_engine_url: str = "http://policy-engine:8081"
 
 
 settings = Settings()

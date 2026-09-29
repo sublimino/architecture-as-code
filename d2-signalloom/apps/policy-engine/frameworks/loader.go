@@ -6,12 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Load reads a framework definition from policyRoot/frameworks/<frameworkID>/<version>/.
-// It tries framework.json first (JSON format used by the compliance scanner), falling
-// back to framework.yaml (which must also be valid JSON — real YAML support would
-// require a third-party dependency).
+// It tries framework.json first, falling back to framework.yaml.
 func Load(policyRoot, frameworkID, version string) (*Framework, error) {
 	dir := filepath.Join(policyRoot, "frameworks", frameworkID, version)
 
@@ -31,7 +31,9 @@ func Load(policyRoot, frameworkID, version string) (*Framework, error) {
 
 	var fw Framework
 	if err := json.Unmarshal(data, &fw); err != nil {
-		return nil, fmt.Errorf("parsing framework %s/%s: %w", frameworkID, version, err)
+		if yamlErr := yaml.Unmarshal(data, &fw); yamlErr != nil {
+			return nil, fmt.Errorf("parsing framework %s/%s as JSON (%v) and YAML (%w)", frameworkID, version, err, yamlErr)
+		}
 	}
 
 	if fw.ID == "" {

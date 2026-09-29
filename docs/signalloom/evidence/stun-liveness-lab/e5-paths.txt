@@ -1,0 +1,9 @@
+run=2 (v2 client)
+pod=e5-agent-6cc5c479b9-s9ltg
+pod_slice=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-podd3caa341_fef8_477f_98dd_4b634f94ab2b.slice
+agent_scope=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-podd3caa341_fef8_477f_98dd_4b634f94ab2b.slice/cri-containerd-84b6a2127fe28881eeb2ec69eefe9f02c3bbd1398b04e8d761fcdf53a82df6d7.scope
+pod_ip=10.0.0.121
+restarts_before=0 0 ready_condition_before=2026-09-29T21:53:41Z
+FREEZE_AND_LABEL_EPOCH=1790718999.611159444 T=22:56:39.611159444
+THAW_EPOCH=1790719019.705081162 T=22:56:59.705081162 window=20.093921718s
+restarts_after=0 0 ready_condition_after=2026-09-29T21:53:41Z

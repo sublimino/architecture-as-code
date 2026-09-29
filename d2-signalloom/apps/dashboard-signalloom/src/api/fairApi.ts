@@ -31,6 +31,8 @@ import {
   normalizeFleetRisk,
   type AgentRisk,
   type FleetRisk,
+  type FrameworkVersion,
+  type LossExceedancePoint,
 } from '../types/fair'
 
 /**
@@ -40,6 +42,14 @@ import {
  */
 export const FAIR_API_PREFIX =
   ((import.meta.env.VITE_FAIR_API_PREFIX as string) ?? '/v1/risk').replace(/\/+$/, '')
+
+/**
+ * Base path for dynamic regulatory framework versions, WITHOUT the `/api` prefix.
+ *
+ * Default `/v1/fair/versions` → `/api/v1/fair/versions`.
+ */
+export const FAIR_VERSIONS_PREFIX =
+  ((import.meta.env.VITE_FAIR_VERSIONS_PREFIX as string) ?? '/v1/fair/versions').replace(/\/+$/, '')
 
 export const fairApi = {
   /**
@@ -68,6 +78,50 @@ export const fairApi = {
     return normalizeFleetRisk(raw)
   },
 
+  /** Dynamic regulatory framework and scenario versions from backend metadata. */
+  fetchFrameworkVersions: async (
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<FrameworkVersion[]> => {
+    const raw = await req<unknown>(FAIR_VERSIONS_PREFIX, token, { signal })
+    if (Array.isArray(raw)) {
+      return raw as FrameworkVersion[]
+    }
+    if (typeof raw === 'object' && raw !== null && 'versions' in raw && Array.isArray((raw as Record<string, unknown>).versions)) {
+      return (raw as Record<string, unknown>).versions as FrameworkVersion[]
+    }
+    return []
+  },
+
+  /**
+   * Calculate Loss Exceedance Curve dynamically.
+   * Interpolates from ALE (high probability) to TVaR (low probability)
+   * with defensive bounds against zero or NaN population risk.
+   */
+  calculateLossExceedance: (
+    ale: number,
+    tvar: number,
+    steps = 20,
+  ): LossExceedancePoint[] => {
+    if (!Number.isFinite(ale) || !Number.isFinite(tvar) || (ale === 0 && tvar === 0)) {
+      return []
+    }
+    const safeAle = Math.max(0, ale)
+    const safeTvar = Math.max(safeAle, tvar)
+    const points: LossExceedancePoint[] = []
+    for (let i = 0; i <= steps; i++) {
+      const probability = 1 - (i / steps)
+      const t = i / steps
+      const loss = Math.round(safeAle + (safeTvar - safeAle) * Math.pow(t, 1.8))
+      points.push({
+        probability: Math.round(probability * 100),
+        loss,
+        label: `${Math.round(probability * 100)}%`,
+      })
+    }
+    return points
+  },
+
   /**
    * Which data plane a risk figure is about to come from.
    *
@@ -76,3 +130,4 @@ export const fairApi = {
    */
   currentSource: (): 'fixture' | 'riskctl' => (isDemoMode() ? 'fixture' : 'riskctl'),
 }
+

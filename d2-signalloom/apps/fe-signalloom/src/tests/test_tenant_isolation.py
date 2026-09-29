@@ -827,6 +827,21 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/v1/external-agents/registrations/{agent_id}/token"),
     ("POST", "/api/external-agents/{agent_id}/token"),
     ("POST", "/api/v1/external-agents/{agent_id}/token"),
+    # Connector management and synchronization routes -- covered by test_connectors.py
+    ("GET", "/api/connectors"),
+    ("GET", "/api/connectors/providers"),
+    ("GET", "/api/connectors/status"),
+    ("GET", "/api/v1/connectors"),
+    ("GET", "/api/v1/connectors/providers"),
+    ("GET", "/api/v1/connectors/status"),
+    ("POST", "/api/connectors"),
+    ("POST", "/api/v1/connectors"),
+    ("POST", "/api/connectors/{connector_id}/toggle"),
+    ("POST", "/api/v1/connectors/{connector_id}/toggle"),
+    ("POST", "/api/connectors/{connector_id}/test"),
+    ("POST", "/api/v1/connectors/{connector_id}/test"),
+    ("DELETE", "/api/connectors/{connector_id}"),
+    ("DELETE", "/api/v1/connectors/{connector_id}"),
 ]
 
 

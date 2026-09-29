@@ -515,6 +515,12 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
         "A compliance scan record that cites an unverified policy version is a "
         "regulatory artefact asserting something the system never checked."
     ),
+    ("api_compat.py", "_db_policy_scan", "detail", "frameworks"): (
+        "Target compliance frameworks recorded in audit detail for policy compliance scan."
+    ),
+    ("api_compat.py", "_db_policy_scan", "detail", "namespace"): (
+        "Target namespace parameter recorded in audit detail for policy compliance scan."
+    ),
     # ---- EAP Routers (EAPR-P2-2 audit decisions) --------------------------
     ("environment_lifecycle.py", "api_register_lifecycle", "detail", "company_name"): (
         "EAP registration parameter recorded in audit detail as context for lifecycle creation."

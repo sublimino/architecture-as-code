@@ -44,12 +44,12 @@ describe('demo mode', () => {
   // +4 coding agent telemetry routes (SLCD-P5-1/SLCD-P5-2: GET list, GET aggregate, POST ordering, POST ingest) = 56.
   // +1 agent telemetry route (GET /agents/:id/telemetry) = 57.
   // +2 discovery aggregate & namespace autoclaim routes (SLMS-P1-2: GET /discovery/workloads, POST /agents/autoclaim-discovered) = 59.
+  // +7 fleet manager routes (SLMS-P4-2 Surface 12: topology, status, deploy, scan, stun, recover, reset) = 66.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
-  // This count is deliberately exact rather than a lower bound — it is the
-  // guard that notices a route silently disappearing in a merge, which is
-  // precisely what nearly happened to the stun route here.
-  it('covers the full 59-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(59)
+  // This count is deliberately exact rather than a lower bound, as it guards against
+  // routes disappearing in a merge.
+  it('covers the full 66-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(66)
   })
 
 

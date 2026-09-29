@@ -813,7 +813,7 @@ describe('the fleet roster', () => {
     renderPage()
     await waitFor(() => expect(rosterIds()).toHaveLength(5))
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(5100) })
 
     // Blanking a live demo on one dropped request is its own failure. The
     // estate stays; the LoadingState beside it carries the error.
@@ -886,7 +886,7 @@ describe('both fleet routes', () => {
     renderPage(true)
     await waitFor(() => expect(screen.getByTestId('fleet-topology')).toBeInTheDocument())
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(5100) })
 
     expect(screen.getByTestId('fleet-topology')).toBeInTheDocument()
     expect(screen.queryByTestId('fleet-audience-unreachable')).not.toBeInTheDocument()
@@ -959,3 +959,104 @@ describe('the hints read as one author', () => {
     }
   })
 })
+
+// ─── Live Heartbeat, Fallback Fixture & Architectural Boundary (SLMS-P4-2) ───
+
+describe('live cluster telemetry streaming & demo fallback', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+    mockSuperadmin.value = true
+    mockFetchFleetTopology.mockResolvedValue(TOPOLOGY)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('renders a pulsing heartbeat connection indicator in live mode', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-heartbeat-indicator')).toBeInTheDocument())
+
+    const label = screen.getByTestId('fleet-connection-label')
+    expect(label).toHaveTextContent('Live Cluster Connected')
+    const dot = screen.getByTestId('fleet-heartbeat-dot')
+    expect(dot.style.background).toBe('var(--cyan)')
+  })
+
+  it('polls the fleet cluster state every 5 seconds', async () => {
+    renderPage()
+    await waitFor(() => expect(mockFetchFleetTopology).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100)
+    })
+    expect(mockFetchFleetTopology).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100)
+    })
+    expect(mockFetchFleetTopology).toHaveBeenCalledTimes(3)
+  })
+
+  it('cleans up interval timer cleanly on component unmount', async () => {
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    const page = renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-demo-page')).toBeInTheDocument())
+
+    page.unmount()
+    expect(clearIntervalSpy).toHaveBeenCalled()
+  })
+
+  it('allows manual switching between Live Cluster and Demo Fixture modes', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-source-toggle')).toBeInTheDocument())
+
+    expect(screen.getByTestId('fleet-source-toggle')).toHaveTextContent('Use Demo Fixture')
+    expect(screen.getByTestId('fleet-connection-label')).toHaveTextContent('Live Cluster Connected')
+
+    // Switch to demo fixture
+    await user.click(screen.getByTestId('fleet-source-toggle'))
+    await waitFor(() => {
+      expect(screen.getByTestId('fleet-connection-label')).toHaveTextContent('Demo Fixture Active')
+    })
+    expect(screen.getByTestId('fleet-source-toggle')).toHaveTextContent('Use Live Cluster')
+    const dot = screen.getByTestId('fleet-heartbeat-dot')
+    expect(dot.style.background).toBe('var(--amber)')
+
+    // Switch back to live cluster
+    await user.click(screen.getByTestId('fleet-source-toggle'))
+    await waitFor(() => {
+      expect(screen.getByTestId('fleet-connection-label')).toHaveTextContent('Live Cluster Connected')
+    })
+    expect(screen.getByTestId('fleet-source-toggle')).toHaveTextContent('Use Demo Fixture')
+  })
+
+  it('renders prominent architectural boundary banner linking to Surface 4 Topology', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-boundary-banner')).toBeInTheDocument())
+
+    const banner = screen.getByTestId('fleet-boundary-banner')
+    expect(banner).toHaveTextContent('Architectural Boundary')
+    expect(banner).toHaveTextContent('Fleet Demo monitors operational cluster infrastructure')
+    expect(banner).toHaveTextContent('visit the Topology surface')
+
+    const links = within(banner).getAllByRole('link', { name: /topology/i })
+    expect(links.length).toBeGreaterThan(0)
+    expect(links[0]).toHaveAttribute('href', '/topology')
+  })
+
+  it('eliminates duplicate SPIRE agent and workload trust tables that belong to Topology', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-demo-page')).toBeInTheDocument())
+
+    // Ensures legacy duplicate tables/sections from Surface 4 are absent
+    expect(screen.queryByTestId('spire-server-table')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('workload-trust-domain-table')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('spiffe-svid-inventory')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /spire agent entries/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /spiffe trust domain/i })).not.toBeInTheDocument()
+  })
+})
+

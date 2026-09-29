@@ -135,6 +135,24 @@ spec:
       ports:
         - protocol: TCP
           port: 8081
+    # api_compat.py stun_agent calls FLEET_MANAGER_URL
+    # (http://fleet-manager.fe-signalloom.svc.cluster.local:8082) to run the
+    # stun containment cascade server-side. Same namespace, so a podSelector
+    # with no namespaceSelector is the whole rule.
+    #
+    # Egress half of a pair. The ingress half belongs in
+    # apps/fleet-manager/base/networkpolicy.yaml, whose `from` admits
+    # part-of=signalloom and the dashboard but not this pod (which carries
+    # neither), so it must also admit app.kubernetes.io/name: fe-signalloom.
+    # Without both halves the stun answers 502 "unreachable" after a 10 s
+    # connect timeout while fleet-manager is healthy.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fleet-manager
+      ports:
+        - protocol: TCP
+          port: 8082
 ---
 # Public exposure is permitted only through the selected gateway namespace;
 # direct cross-namespace access to the portal is denied by default.

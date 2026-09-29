@@ -310,7 +310,7 @@ class TestDoubleTransition:
 
 @pytest.fixture
 def stun_client(monkeypatch):
-    """Client with SUPERCRED_STUN_BASE_URL cleared so the simulated path runs
+    """Client with FLEET_MANAGER_URL cleared so the simulated path runs
     (no actual network call) and acted=True, exercising the state-change code."""
     monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test/dex")
     monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
@@ -318,7 +318,7 @@ def stun_client(monkeypatch):
     monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
     monkeypatch.setattr(settings, "api_subject_tenants", {"alice": "tenant-a"})
     monkeypatch.setattr(_api_compat_module, "_jwk_client", lambda _url: _TestJWKClient())
-    monkeypatch.setattr(_api_compat_module, "SUPERCRED_STUN_BASE_URL", "")
+    monkeypatch.setattr(_api_compat_module, "FLEET_MANAGER_URL", "")
 
     set_pool_for_testing(_ReadyPool())
     reset_tenant_state("tenant-a")
@@ -330,6 +330,7 @@ def stun_client(monkeypatch):
 def _stun(client, agent_id: str):
     return client.post(
         f"/api/agents/{agent_id}/stun",
+        json={"reason": "transition-graph probe"},
         headers=AUTH(),
     )
 

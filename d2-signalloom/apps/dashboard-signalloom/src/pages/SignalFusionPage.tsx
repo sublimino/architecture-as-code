@@ -98,17 +98,17 @@ export interface ActDescription {
 export const ACT_DESCRIPTIONS: Record<string, ActDescription> = {
   '1': {
     title: 'Inferred',
-    subtitle: 'Deploy, seed collectors, correlate — surface an actor no single layer identified',
+    subtitle: 'Deploy, seed collectors, correlate: surface an actor no single layer identified',
     hint: 'Deploys signal collectors across the estate, ingests observations from multiple layers, and runs correlation to surface provisional actors. Watch the actors panel for new entries with cross-layer evidence chains.',
   },
   '2': {
     title: 'Attested',
-    subtitle: 'Kernel observation — detect the agent the network and application layers cannot see',
+    subtitle: 'Kernel observation: detect the agent the network and application layers cannot see',
     hint: 'Activates eBPF-based kernel observation to detect behaviours invisible to network and application layers. The coverage panel updates to show the newly covered layer, and actor confidence scores rise as kernel evidence corroborates existing signals.',
   },
   '3': {
     title: 'Issued',
-    subtitle: 'Promote to issued identity, revoke — close the detection gap with accountability',
+    subtitle: 'Promote to issued identity, revoke: close the detection gap with accountability',
     hint: 'Promotes the highest-confidence provisional actor to an issued identity in the agent registry, then revokes its credentials. The actor moves from "actionable" to "promoted" and the coverage statement updates to reflect the closed gap.',
   },
 }
@@ -528,12 +528,12 @@ export default function SignalFusionPage() {
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
           Each act builds on the previous. They mutate a shared cluster, so they run one at a
-          time — every control is locked while an act is in flight.
+          time: every control is locked while an act is in flight.
         </p>
 
         {resetVerified && (
           <p data-testid="sf-clean-state" style={{ fontSize: 12, color: colors.tealLoom, margin: '0 0 12px', lineHeight: 1.5 }}>
-            Clean state verified — teardown completed; no act is currently active.
+            Clean state verified: teardown completed; no act is currently active.
           </p>
         )}
 
@@ -694,7 +694,7 @@ export default function SignalFusionPage() {
 
         {activeRun && (
           <div data-testid="sf-run-status" style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            {activeRun.kind === 'reset' ? 'Reset' : `Act ${activeRun.step_id}`} —{' '}
+            {activeRun.kind === 'reset' ? 'Reset' : `Act ${activeRun.step_id}`}:{' '}
             <strong style={{ color: runStatusTone(activeRun.status) }}>{activeRun.status}</strong>
             {activeRun.started_at && <> · started {activeRun.started_at}</>}
             {activeRun.finished_at && <> · finished {activeRun.finished_at}</>}
@@ -714,7 +714,7 @@ export default function SignalFusionPage() {
             <div>
               {activeRun.kind === 'reset' ? 'Reset' : `Act ${activeRun.step_id}`} {activeRun.status} with exit code{' '}
               <strong data-testid="sf-run-exit-code">{activeRun.exit_code ?? 'unknown'}</strong>
-              {activeRun.error ? ` — ${activeRun.error}` : ''}
+              {activeRun.error ? `: ${activeRun.error}` : ''}
             </div>
             <pre
               data-testid="sf-run-log-tail"

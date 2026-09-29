@@ -213,7 +213,11 @@ func TestConsistency_ActivePodExpectsTheOpposite(t *testing.T) {
 func TestConsistency_ActivePodLeftPinnedAndUncredentialled(t *testing.T) {
 	bao := &fakeTokenCounter{configured: true, counts: map[string]int{}}
 	spire := &fakeEntryLister{entries: map[string]int{}}
-	c, _ := newTestChecker(t, bao, spire, consPod(false, true), consDeployment(true))
+	// An OpenBao consumer (it runs the openbao-agent sidecar), so zero live
+	// tokens on an active pod IS a finding. See the scoping tests below.
+	pod := consPod(false, true)
+	pod.Spec.Containers = []corev1.Container{{Name: "agent"}, {Name: "openbao-agent"}}
+	c, _ := newTestChecker(t, bao, spire, pod, consDeployment(true))
 	_, rep := getConsistency(t, c, consTestAgent)
 	for _, want := range []string{
 		"pod active but 0 openbao tokens active",
@@ -441,5 +445,48 @@ func TestRegisterConsistencyRoutes_WiresRealClientPlanes(t *testing.T) {
 	code, rep := getConsistency(t, c2, consTestAgent)
 	if code != http.StatusServiceUnavailable || rep.Consistent || rep.Pod.Error == "" {
 		t.Fatalf("code=%d consistent=%v pod=%+v, want 503 with a pod-plane error", code, rep.Consistent, rep.Pod)
+	}
+}
+
+// ── Scope of the "active => tokens > 0" rule ─────────────────────────────────
+
+func TestConsistency_ActiveNonConsumerZeroTokensIsNotApplicable(t *testing.T) {
+	// Most swarm agents never talk to OpenBao. Zero tokens on them is the
+	// expected state, not a split brain.
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{}}
+	spire := &fakeEntryLister{entries: map[string]int{consTestSPIFFE: 1}}
+	c, _ := newTestChecker(t, bao, spire, consPod(false, false), consDeployment(false))
+	code, rep := getConsistency(t, c, consTestAgent)
+	if rep.Bao.Applicable {
+		t.Fatalf("bao.applicable = true for a pod with no openbao-agent container and no consumer label")
+	}
+	if code != http.StatusOK || !rep.Consistent || len(rep.SplitBrain) != 0 {
+		t.Fatalf("code=%d consistent=%v split_brain=%q, want 200 true []", code, rep.Consistent, rep.SplitBrain)
+	}
+}
+
+func TestConsistency_ActiveConsumerLabelZeroTokensIsSplitBrain(t *testing.T) {
+	pod := consPod(false, false)
+	pod.Labels[baoConsumerLabel] = "cardvault-agent"
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{}}
+	spire := &fakeEntryLister{entries: map[string]int{consTestSPIFFE: 1}}
+	c, _ := newTestChecker(t, bao, spire, pod, consDeployment(false))
+	_, rep := getConsistency(t, c, consTestAgent)
+	if !rep.Bao.Applicable {
+		t.Fatalf("bao.applicable = false for a pod carrying %s", baoConsumerLabel)
+	}
+	if len(rep.SplitBrain) != 1 || rep.SplitBrain[0] != "pod active but 0 openbao tokens active" {
+		t.Fatalf("split_brain = %q, want exactly the zero-token finding", rep.SplitBrain)
+	}
+}
+
+func TestConsistency_StunnedNonConsumerWithTokensStaysUniversal(t *testing.T) {
+	// Stunned => zero tokens applies to EVERY pod: a token for a non-consumer
+	// is still a live credential behind a contained agent.
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{consTestSPIFFE: 1}}
+	c, _ := newTestChecker(t, bao, &fakeEntryLister{entries: map[string]int{}}, consPod(true, true), consDeployment(true))
+	_, rep := getConsistency(t, c, consTestAgent)
+	if !rep.Bao.Applicable || len(rep.SplitBrain) != 1 || rep.SplitBrain[0] != "pod stunned but 1 openbao tokens active" {
+		t.Fatalf("applicable=%v split_brain=%q, want true and the stunned token finding", rep.Bao.Applicable, rep.SplitBrain)
 	}
 }

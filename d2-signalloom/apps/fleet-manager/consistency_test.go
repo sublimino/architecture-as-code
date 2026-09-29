@@ -66,7 +66,6 @@ const (
 // the same pod -> ReplicaSet -> Deployment walk W1's pin uses.
 const consRSName = consTestAgent + "-bb57657"
 
-func isController() *bool { t := true; return &t }
 
 func consReplicaSet(name, deployment string) *appsv1.ReplicaSet {
 	return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{

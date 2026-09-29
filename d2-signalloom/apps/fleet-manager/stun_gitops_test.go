@@ -52,10 +52,10 @@ type credOKClient struct {
 
 func (c credOKClient) RevokeCredentials(context.Context, string) error { return nil }
 
-// RevokeCredentialsPlanes shadows the promoted real method, which the
+// RevokeCredentialsPlanesIn shadows the promoted real method, which the
 // orchestrator prefers over RevokeCredentials; without it the stub above would
 // be bypassed and the real (unconfigured) credential planes would run.
-func (c credOKClient) RevokeCredentialsPlanes(context.Context, string) ([]PlaneResult, error) {
+func (c credOKClient) RevokeCredentialsPlanesIn(context.Context, string, string) ([]PlaneResult, error) {
 	return nil, nil
 }
 func (c credOKClient) RestoreCredentials(context.Context, string) error {

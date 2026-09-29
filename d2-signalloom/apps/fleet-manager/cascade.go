@@ -189,9 +189,10 @@ type GitOpsPlane interface {
 // revocation that reports one PlaneResult per credential plane (bao, spire)
 // instead of collapsing them into one error. Stun uses it when present so
 // CascadeResult.planes[] carries the per-plane truth; a client without it gets
-// RevokeCredentials and contributes no credential planes.
+// RevokeCredentials and contributes no credential planes. The namespace is the
+// target's DAG namespace, bound once per target like every other step.
 type CredentialPlaneRevoker interface {
-	RevokeCredentialsPlanes(ctx context.Context, agentID string) ([]PlaneResult, error)
+	RevokeCredentialsPlanesIn(ctx context.Context, namespace, agentID string) ([]PlaneResult, error)
 }
 
 // PodNameResolver is an optional FleetClient capability that names the pod an
@@ -448,7 +449,7 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 		var credPlanes []PlaneResult
 		var credErr error
 		if cp, ok := o.client.(CredentialPlaneRevoker); ok {
-			credPlanes, credErr = cp.RevokeCredentialsPlanes(ctx, id)
+			credPlanes, credErr = cp.RevokeCredentialsPlanesIn(ctx, namespace, id)
 			credPlanes = orderCredentialPlanes(credPlanes)
 			if credErr == nil {
 				for _, p := range credPlanes {

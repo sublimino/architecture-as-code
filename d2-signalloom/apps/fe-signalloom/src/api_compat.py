@@ -423,6 +423,12 @@ class ClaimListResponse(BaseModel):
     total: int
 
 
+class AutoclaimDiscoveredRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    namespace: str | None = None
+
+
 class AutoclaimDiscoveredResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2314,6 +2320,7 @@ _VIOLATIONS: dict[str, dict[str, dict[str, Any]]] = {}
 _NHI_ACCOUNTS: dict[str, dict[str, dict[str, Any]]] = {}
 _TENANT_FRAMEWORKS: dict[str, list[str]] = {}
 _TENANT_PREFERENCES: dict[str, dict[str, Any]] = {}
+_TENANT_CONNECTORS: dict[str, dict[str, bool]] = {}
 # Per-user display currency for the no-pool path, keyed tenant -> actor.
 # Nested by tenant so _reset_tenant can drop it with the rest.
 _USER_PREFERENCES: dict[str, dict[str, str]] = {}
@@ -2391,7 +2398,7 @@ def reset_tenant_state(tenant_id: str) -> None:
     with _STORE_LOCK:
         for store in (
             _AGENTS, _AGENT_CREDENTIALS, _VIOLATIONS, _NHI_ACCOUNTS,
-            _TENANT_FRAMEWORKS, _TENANT_PREFERENCES, _COOKIE_PREFS,
+            _TENANT_FRAMEWORKS, _TENANT_PREFERENCES, _TENANT_CONNECTORS, _COOKIE_PREFS,
             _CONSENT, _CLAIMS, _AUDIT_EVENTS, _USER_PREFERENCES,
         ):
             store.pop(tenant_id, None)
@@ -2760,12 +2767,24 @@ def _ensure_seeded(tenant_id: str) -> None:
                 ["legacy-exception"],
                 "2026-07-27T00:25:00Z",
             ),
+            f"{tenant_id}:nhi-3": _make_nhi_account(
+                f"{tenant_id}:nhi-3",
+                f"{tenant_id}:scan-1",
+                "svc-signalloom-ingest",
+                "entra",
+                "secops@signalloom.local",
+                "standard",
+                "discovered",
+                ["unrotated_secret"],
+                "2026-07-27T00:30:00Z",
+            ),
         }
         _NHI_ACCOUNTS[tenant_id][f"{tenant_id}:nhi-2"]["dismissed_at"] = "2026-07-27T01:30:00Z"
         _NHI_ACCOUNTS[tenant_id][f"{tenant_id}:nhi-2"]["dismissed_by"] = "demo-actor"
         _AGENT_CREDENTIALS[tenant_id] = {}
         _TENANT_FRAMEWORKS[tenant_id] = ["eu-ai-act"]
         _TENANT_PREFERENCES[tenant_id] = _default_scan_preferences()
+
         _COOKIE_PREFS[tenant_id] = {"strictly_necessary": True, "analytics": False}
 
 
@@ -4063,15 +4082,18 @@ async def claim_agent(
     return await _execute_claim(principal.tenant, principal.actor, body)
 
 
+@router.post("/api/v1/agents/autoclaim-discovered", response_model=AutoclaimDiscoveredResponse, responses=ERROR_RESPONSES)
 @router.post("/v1/agents/autoclaim-discovered", response_model=AutoclaimDiscoveredResponse, responses=ERROR_RESPONSES)
 @router.post("/agents/autoclaim-discovered", response_model=AutoclaimDiscoveredResponse, responses=ERROR_RESPONSES)
 async def autoclaim_discovered(
     principal: Annotated[Principal, Depends(authenticated_principal)],
+    body: AutoclaimDiscoveredRequest | None = None,
 ) -> AutoclaimDiscoveredResponse:
     """Reconcile and batch auto-claim all unlinked discovered workloads in the cluster."""
     raw_discovered = await _fetch_discovered_agents()
     claimed_records: list[ClaimRecord] = []
     tenant_id = principal.tenant
+    target_ns = body.namespace if body and body.namespace else None
 
     discovered_list = list(raw_discovered)
     if not discovered_list:
@@ -4083,15 +4105,17 @@ async def autoclaim_discovered(
                         "namespace": a.get("namespace", "fe-signalloom-agents"),
                         "id": a.get("id"),
                     })
+    if target_ns:
+        discovered_list = [d for d in discovered_list if d.get("namespace") == target_ns]
     if not discovered_list:
         discovered_list.append({
-            "name": "agent-discovered",
-            "namespace": "fe-signalloom-agents",
+            "name": f"agent-{target_ns}" if target_ns else "agent-discovered",
+            "namespace": target_ns or "fe-signalloom-agents",
         })
 
     for d in discovered_list:
         name = str(d.get("name") or "agent-discovered")
-        ns = str(d.get("namespace") or "fe-signalloom-agents")
+        ns = str(d.get("namespace") or target_ns or "fe-signalloom-agents")
         req = AgentClaimRequest(
             pod_name=name,
             namespace=ns,
@@ -6413,6 +6437,8 @@ async def nhi_discovered(
     )
 
 
+@router.post("/api/v1/nhi/discovered/{account_id}/enroll", responses=ERROR_RESPONSES)
+@router.post("/v1/nhi/discovered/{account_id}/enroll", responses=ERROR_RESPONSES)
 @router.post("/nhi/discovered/{account_id}/enroll", responses=ERROR_RESPONSES)
 async def enroll_nhi_account(
     account_id: str,
@@ -6445,6 +6471,8 @@ async def enroll_nhi_account(
     return {"account_id": account_id, "status": "enrollment_requested"}
 
 
+@router.post("/api/v1/nhi/discovered/{account_id}/dismiss", responses=ERROR_RESPONSES)
+@router.post("/v1/nhi/discovered/{account_id}/dismiss", responses=ERROR_RESPONSES)
 @router.post("/nhi/discovered/{account_id}/dismiss", responses=ERROR_RESPONSES)
 async def dismiss_nhi_account(
     account_id: str,
@@ -7182,6 +7210,561 @@ async def patch_cookie_preferences(
     return CookiePreferencesResponse(
         cookie_preferences=CookiePreferences(strictly_necessary=True, analytics=body.analytics),
     )
+
+
+# ---------------------------------------------------------------------------
+# Discovery Super Datatable Endpoints (SLMS-P1-2)
+# ---------------------------------------------------------------------------
+
+class ControlRecommendationsModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    config: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
+    content: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
+    supply_chain: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
+    eu_ai_act: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
+
+
+class DiscoveryWorkloadModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    tenant_id: str | None = None
+    source: Literal["idp", "local_k8s", "external_k8s", "external_services"]
+    source_label: str
+    namespace: str | None = None
+    status: Literal["discovered", "in_review", "ignored", "revoked", "governed"] = "discovered"
+    discovery_state: Literal["discovered", "in_review", "ignored", "revoked", "governed"] = "discovered"
+    owner: str | None = None
+    spiffe_id: str | None = None
+    model: str | None = None
+    last_seen_at: str | None = None
+    recommendations: ControlRecommendationsModel = Field(default_factory=ControlRecommendationsModel)
+    control_recommendations: ControlRecommendationsModel = Field(default_factory=ControlRecommendationsModel)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiscoveryWorkloadsSummaryModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    total: int = 0
+    total_discovered: int = 0
+    in_review: int = 0
+    ignored: int = 0
+    revoked: int = 0
+    governed: int = 0
+    by_source: dict[str, int] = Field(default_factory=dict)
+    by_state: dict[str, int] = Field(default_factory=dict)
+
+
+class DiscoveryWorkloadsResponseModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    workloads: list[DiscoveryWorkloadModel]
+    total: int
+    summary: DiscoveryWorkloadsSummaryModel
+
+
+
+def set_tenant_connectors_for_testing(tenant_id: str, connectors: dict[str, bool]) -> None:
+    with _STORE_LOCK:
+        _TENANT_CONNECTORS[tenant_id] = dict(connectors)
+
+
+def reset_tenant_connectors(tenant_id: str | None = None) -> None:
+    with _STORE_LOCK:
+        if tenant_id:
+            _TENANT_CONNECTORS.pop(tenant_id, None)
+        else:
+            _TENANT_CONNECTORS.clear()
+
+
+@router.get("/api/v1/discovery/workloads", response_model=DiscoveryWorkloadsResponseModel, responses=ERROR_RESPONSES)
+@router.get("/v1/discovery/workloads", response_model=DiscoveryWorkloadsResponseModel, responses=ERROR_RESPONSES)
+@router.get("/discovery/workloads", response_model=DiscoveryWorkloadsResponseModel, responses=ERROR_RESPONSES)
+async def list_discovery_workloads(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    source: str | None = None,
+    status: str | None = None,
+    namespace: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> DiscoveryWorkloadsResponseModel:
+    """Aggregate multi-source discovered workloads strictly isolated to caller's tenant."""
+    pool = await _get_pool()
+
+    # Determine enabled connectors for this tenant
+    enabled_connectors = {"idp": True, "local_k8s": True, "external_k8s": True, "external_services": True}
+    with _STORE_LOCK:
+        if tenant_id in _TENANT_CONNECTORS:
+            enabled_connectors.update(_TENANT_CONNECTORS[tenant_id])
+
+    workloads: list[DiscoveryWorkloadModel] = []
+
+    if pool is not None:
+        # DB Mode
+        # 1. IDP (NHI discovered accounts)
+        if enabled_connectors.get("idp", True):
+            nhi_rows = await pool.fetch(
+                """SELECT id, account_name, directory_source, owner_email, privilege_level,
+                          status, findings, scan_count, first_discovered_at, last_seen_at
+                     FROM nhi_discovered_accounts
+                    WHERE tenant_id = $1
+                 ORDER BY first_discovered_at DESC""",
+                tenant_id,
+            )
+            for r in nhi_rows:
+                raw_st = r["status"]
+                st: Literal["discovered", "in_review", "ignored", "revoked", "governed"] = "discovered"
+                if raw_st == "dismissed":
+                    st = "ignored"
+                elif raw_st in ("enrollment_requested", "needs_triage", "in_review"):
+                    st = "in_review"
+                elif raw_st in ("governed", "enrolled", "active"):
+                    st = "governed"
+
+                findings = list(r["findings"]) if r["findings"] else []
+                dir_source = r["directory_source"] or "idp"
+                source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
+                privilege = r["privilege_level"] or "standard"
+
+                config_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "warning" if "stale_credential" in findings or privilege in ("high", "elevated", "domain_admin") else "pass"
+                supply_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended" if "unrotated_secret" in findings else "pass"
+
+                workloads.append(
+                    DiscoveryWorkloadModel(
+                        id=str(r["id"]),
+                        name=r["account_name"],
+                        source="idp",
+                        source_label=source_label,
+                        namespace=f"identity-{dir_source.lower()}",
+                        status=st,
+                        owner=r["owner_email"],
+                        spiffe_id=None,
+                        model=None,
+                        last_seen_at=_ts(r["last_seen_at"]) or _ts(r["first_discovered_at"]),
+                        recommendations=ControlRecommendationsModel(
+                            config=config_rec,
+                            content="not_applicable",
+                            supply_chain=supply_rec,
+                            eu_ai_act="pass",
+                        ),
+                        metadata={
+                            "privilege_level": privilege,
+                            "findings": findings,
+                            "scan_count": r["scan_count"],
+                            "directory_source": dir_source,
+                        },
+                    )
+                )
+
+        # 2. Local K8s (unlinked pods / agent discovery)
+        if enabled_connectors.get("local_k8s", True):
+            agent_rows = await pool.fetch(
+                """SELECT id, name, type, lifecycle_state, owner, service_account, namespace,
+                          model_name, created_at, is_registry_linked
+                     FROM agent_registry
+                    WHERE tenant_id = $1""",
+                tenant_id,
+            )
+            for r in agent_rows:
+                is_linked = r["is_registry_linked"]
+                lc = r["lifecycle_state"] or "active"
+                st = "governed" if is_linked or lc in ("registered", "enrolled", "active") else ("revoked" if lc in ("suspended", "revoked", "decommissioned") else "discovered")
+                ns = r["namespace"] or "fe-signalloom-agents"
+                spiffe = f"spiffe://signalloom.svc.cluster.local/ns/{ns}/sa/{r['service_account'] or r['name']}" if is_linked else None
+                workloads.append(
+                    DiscoveryWorkloadModel(
+                        id=str(r["id"]),
+                        name=r["name"],
+                        source="local_k8s",
+                        source_label="Local K8s",
+                        namespace=ns,
+                        status=st,
+                        owner=r["owner"],
+                        spiffe_id=spiffe,
+                        model=r["model_name"] or "claude-3-5-sonnet",
+                        last_seen_at=_ts(r["created_at"]),
+                        recommendations=ControlRecommendationsModel(
+                            config="pass" if st == "governed" else "recommended",
+                            content="recommended",
+                            supply_chain="pass" if st == "governed" else "warning",
+                            eu_ai_act="pass" if st == "governed" else "recommended",
+                        ),
+                        metadata={
+                            "service_account": r["service_account"],
+                            "namespace": ns,
+                            "cluster_id": "cluster-local",
+                        },
+                    )
+                )
+
+        # 3. External Services (external agent registrations)
+        if enabled_connectors.get("external_services", True):
+            ext_rows = await pool.fetch(
+                """SELECT agent_id, host_id, host_os, runtime_profile, enrollment_status,
+                          metadata, spiffe_id_pattern, created_at, last_observed_at, revoked_at
+                     FROM public.external_agent_registrations
+                    WHERE tenant_id = $1
+                 ORDER BY created_at DESC""",
+                tenant_id,
+            )
+            for r in ext_rows:
+                meta = r["metadata"] if isinstance(r["metadata"], dict) else {}
+                if isinstance(r["metadata"], str):
+                    try:
+                        meta = json.loads(r["metadata"])
+                    except Exception:
+                        meta = {}
+                is_revoked = r["revoked_at"] is not None
+                enrolled = r["enrollment_status"] == "enrolled"
+                st = "revoked" if is_revoked else ("governed" if enrolled else ("in_review" if r["enrollment_status"] == "pending" else "discovered"))
+                agent_name = r["agent_id"]
+                source_label = "Cloud Run" if "cloudrun" in agent_name.lower() or meta.get("runtime") == "cloud_run" else ("n8n" if "n8n" in agent_name.lower() else "External Service")
+                ns = meta.get("namespace") or meta.get("region") or "external-services"
+
+                workloads.append(
+                    DiscoveryWorkloadModel(
+                        id=f"{tenant_id}:{agent_name}",
+                        name=agent_name,
+                        source="external_services",
+                        source_label=source_label,
+                        namespace=ns,
+                        status=st,
+                        owner=meta.get("owner"),
+                        spiffe_id=f"spiffe://signalloom.demo/ext/{agent_name}" if enrolled else None,
+                        model=meta.get("model") or "gemini-1.5-pro",
+                        last_seen_at=_ts(r["last_observed_at"]) or _ts(r["created_at"]),
+                        recommendations=ControlRecommendationsModel(
+                            config="recommended",
+                            content="recommended",
+                            supply_chain="pass",
+                            eu_ai_act="recommended",
+                        ),
+                        metadata={
+                            "host_id": r["host_id"],
+                            "host_os": r["host_os"],
+                            "runtime_profile": r["runtime_profile"],
+                            "enrollment_status": r["enrollment_status"],
+                            **meta,
+                        },
+                    )
+                )
+
+        # 4. External K8s (AFM imported clusters)
+        if enabled_connectors.get("external_k8s", True):
+            workloads.append(
+                DiscoveryWorkloadModel(
+                    id=f"{tenant_id}:afm-staging-collector",
+                    name="afm-staging-collector",
+                    source="external_k8s",
+                    source_label="AFM Cluster",
+                    namespace="staging-workloads",
+                    status="in_review",
+                    owner=f"security@{tenant_id}.local",
+                    spiffe_id="spiffe://afm.remote.io/ns/staging/sa/collector",
+                    model="llama-3.3-70b",
+                    last_seen_at=_now_iso(),
+                    recommendations=ControlRecommendationsModel(
+                        config="recommended",
+                        content="pass",
+                        supply_chain="recommended",
+                        eu_ai_act="pass",
+                    ),
+                    metadata={"cluster_name": "afm-staging", "imported_from": "kubesec-afm"},
+                )
+            )
+            workloads.append(
+                DiscoveryWorkloadModel(
+                    id=f"{tenant_id}:prod-eu-validator",
+                    name="prod-eu-validator",
+                    source="external_k8s",
+                    source_label="AFM Cluster",
+                    namespace="prod-eu",
+                    status="revoked",
+                    owner=f"compliance@{tenant_id}.local",
+                    spiffe_id="spiffe://prod-eu.remote.io/ns/prod-eu/sa/validator",
+                    model="mistral-large",
+                    last_seen_at="2026-07-20T10:00:00Z",
+                    recommendations=ControlRecommendationsModel(
+                        config="warning",
+                        content="warning",
+                        supply_chain="warning",
+                        eu_ai_act="warning",
+                    ),
+                    metadata={"cluster_name": "prod-eu-cluster", "revocation_reason": "unauthorized_network_access"},
+                )
+            )
+
+    else:
+        # In-Memory Mode
+        _ensure_seeded(tenant_id)
+        # 1. IDP
+        if enabled_connectors.get("idp", True):
+            with _STORE_LOCK:
+                nhi_map = _NHI_ACCOUNTS.get(tenant_id, {})
+                for a_id, a in nhi_map.items():
+                    raw_st = a.get("status", "discovered")
+                    st = "ignored" if raw_st == "dismissed" else ("in_review" if raw_st in ("enrollment_requested", "needs_triage", "in_review") else ("governed" if raw_st in ("governed", "enrolled", "active") else "discovered"))
+                    dir_source = a.get("directory_source") or "idp"
+                    source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
+                    findings = a.get("findings", [])
+                    privilege = a.get("privilege_level", "standard")
+                    recs = ControlRecommendationsModel(
+                        config="warning" if "stale_credential" in findings or privilege in ("high", "elevated") else "pass",
+                        content="not_applicable",
+                        supply_chain="recommended" if "unrotated_secret" in findings else "pass",
+                        eu_ai_act="pass",
+                    )
+                    workloads.append(
+                        DiscoveryWorkloadModel(
+                            id=a_id,
+                            name=a.get("account_name", a_id),
+                            tenant_id=tenant_id,
+                            source="idp",
+                            source_label=source_label,
+                            namespace=f"identity-{dir_source.lower()}",
+                            status=st,
+                            discovery_state=st,
+                            owner=a.get("owner_email"),
+                            spiffe_id=None,
+                            model=None,
+                            last_seen_at=a.get("last_seen_at") or a.get("first_discovered_at"),
+                            recommendations=recs,
+                            control_recommendations=recs,
+                            metadata={"privilege_level": privilege, "findings": findings, "scan_count": a.get("scan_count", 1)},
+                        )
+                    )
+
+        # 2. Local K8s
+        if enabled_connectors.get("local_k8s", True):
+            with _STORE_LOCK:
+                agents_map = _AGENTS.get(tenant_id, {})
+                for ag_id, ag in agents_map.items():
+                    is_linked = ag.get("is_registry_linked", False)
+                    lc = ag.get("lifecycle_state", "active")
+                    st = "governed" if is_linked or lc in ("registered", "enrolled", "active") else ("revoked" if lc in ("suspended", "revoked", "decommissioned") else "discovered")
+                    ns = ag.get("namespace", "fe-signalloom-agents")
+                    recs = ControlRecommendationsModel(
+                        config="pass" if st == "governed" else "recommended",
+                        content="recommended",
+                        supply_chain="pass" if st == "governed" else "warning",
+                        eu_ai_act="pass" if st == "governed" else "recommended",
+                    )
+                    workloads.append(
+                        DiscoveryWorkloadModel(
+                            id=ag_id,
+                            name=ag.get("name", ag_id),
+                            tenant_id=tenant_id,
+                            source="local_k8s",
+                            source_label="Local K8s",
+                            namespace=ns,
+                            status=st,
+                            discovery_state=st,
+                            owner=ag.get("owner"),
+                            spiffe_id=f"spiffe://signalloom.svc.cluster.local/ns/{ns}/sa/{ag.get('name')}" if is_linked else None,
+                            model=ag.get("model_name") or "claude-3-5-sonnet",
+                            last_seen_at=ag.get("created_at"),
+                            recommendations=recs,
+                            control_recommendations=recs,
+                            metadata={"namespace": ns, "cluster_id": "cluster-local"},
+                        )
+                    )
+
+        # 3. External Services
+        if enabled_connectors.get("external_services", True):
+            from external_agent_registration import _EXTERNAL_REGISTRATIONS, _REG_LOCK
+            with _REG_LOCK:
+                ext_map = _EXTERNAL_REGISTRATIONS.get(tenant_id, {})
+                for ag_id, reg in ext_map.items():
+                    is_revoked = reg.get("revoked_at") is not None
+                    enrolled = reg.get("enrollment_status") == "enrolled"
+                    st = "revoked" if is_revoked else ("governed" if enrolled else ("in_review" if reg.get("enrollment_status") == "pending" else "discovered"))
+                    meta = reg.get("metadata", {})
+                    source_label = "Cloud Run" if "cloudrun" in ag_id.lower() or meta.get("runtime") == "cloud_run" else ("n8n" if "n8n" in ag_id.lower() else "External Service")
+                    ns = meta.get("namespace") or meta.get("region") or "external-services"
+                    recs = ControlRecommendationsModel(
+                        config="recommended",
+                        content="recommended",
+                        supply_chain="pass",
+                        eu_ai_act="recommended",
+                    )
+                    workloads.append(
+                        DiscoveryWorkloadModel(
+                            id=f"{tenant_id}:{ag_id}",
+                            name=ag_id,
+                            tenant_id=tenant_id,
+                            source="external_services",
+                            source_label=source_label,
+                            namespace=ns,
+                            status=st,
+                            discovery_state=st,
+                            owner=meta.get("owner"),
+                            spiffe_id=f"spiffe://signalloom.demo/ext/{ag_id}" if enrolled else None,
+                            model=meta.get("model") or "gemini-1.5-pro",
+                            last_seen_at=reg.get("last_observed_at") or reg.get("created_at"),
+                            recommendations=recs,
+                            control_recommendations=recs,
+                            metadata=meta,
+                        )
+                    )
+            # Default seeded external service if none exists in in-memory dict for this tenant
+            if not any(w.source == "external_services" for w in workloads):
+                cr_recs = ControlRecommendationsModel(
+                    config="recommended",
+                    content="recommended",
+                    supply_chain="pass",
+                    eu_ai_act="recommended",
+                )
+                workloads.append(
+                    DiscoveryWorkloadModel(
+                        id=f"{tenant_id}:cloudrun-prompt-processor",
+                        name="cloudrun-prompt-processor",
+                        tenant_id=tenant_id,
+                        source="external_services",
+                        source_label="Cloud Run",
+                        namespace="gcp-europe-west1",
+                        status="discovered",
+                        discovery_state="discovered",
+                        owner=f"ai-ops@{tenant_id}.local",
+                        spiffe_id=None,
+                        model="gemini-1.5-pro",
+                        last_seen_at=_now_iso(),
+                        recommendations=cr_recs,
+                        control_recommendations=cr_recs,
+                        metadata={"service_url": "https://prompt-processor-xyz.a.run.app", "runtime": "cloud_run"},
+                    )
+                )
+                n8n_recs = ControlRecommendationsModel(
+                    config="pass",
+                    content="warning",
+                    supply_chain="pass",
+                    eu_ai_act="recommended",
+                )
+                workloads.append(
+                    DiscoveryWorkloadModel(
+                        id=f"{tenant_id}:n8n-support-router",
+                        name="n8n-support-router",
+                        tenant_id=tenant_id,
+                        source="external_services",
+                        source_label="n8n",
+                        namespace="automation-prod",
+                        status="ignored",
+                        discovery_state="ignored",
+                        owner=f"support@{tenant_id}.local",
+                        spiffe_id=None,
+                        model="gpt-4o-mini",
+                        last_seen_at=_now_iso(),
+                        recommendations=n8n_recs,
+                        control_recommendations=n8n_recs,
+                        metadata={"webhook_url": "https://n8n.internal.net/webhook/support", "dismiss_reason": "internal_automation_exempt"},
+                    )
+                )
+
+        # 4. External K8s (AFM)
+        if enabled_connectors.get("external_k8s", True):
+            afm_recs = ControlRecommendationsModel(
+                config="recommended",
+                content="pass",
+                supply_chain="recommended",
+                eu_ai_act="pass",
+            )
+            workloads.append(
+                DiscoveryWorkloadModel(
+                    id=f"{tenant_id}:afm-staging-collector",
+                    name="afm-staging-collector",
+                    tenant_id=tenant_id,
+                    source="external_k8s",
+                    source_label="AFM Cluster",
+                    namespace="staging-workloads",
+                    status="in_review",
+                    discovery_state="in_review",
+                    owner=f"security@{tenant_id}.local",
+                    spiffe_id="spiffe://afm.remote.io/ns/staging/sa/collector",
+                    model="llama-3.3-70b",
+                    last_seen_at=_now_iso(),
+                    recommendations=afm_recs,
+                    control_recommendations=afm_recs,
+                    metadata={"cluster_name": "afm-staging", "imported_from": "kubesec-afm"},
+                )
+            )
+            val_recs = ControlRecommendationsModel(
+                config="warning",
+                content="warning",
+                supply_chain="warning",
+                eu_ai_act="warning",
+            )
+            workloads.append(
+                DiscoveryWorkloadModel(
+                    id=f"{tenant_id}:prod-eu-validator",
+                    name="prod-eu-validator",
+                    tenant_id=tenant_id,
+                    source="external_k8s",
+                    source_label="AFM Cluster",
+                    namespace="prod-eu",
+                    status="revoked",
+                    discovery_state="revoked",
+                    owner=f"compliance@{tenant_id}.local",
+                    spiffe_id="spiffe://prod-eu.remote.io/ns/prod-eu/sa/validator",
+                    model="mistral-large",
+                    last_seen_at="2026-07-20T10:00:00Z",
+                    recommendations=val_recs,
+                    control_recommendations=val_recs,
+                    metadata={"cluster_name": "prod-eu-cluster", "revocation_reason": "unauthorized_network_access"},
+                )
+            )
+
+    # Apply Filters
+    filtered = workloads
+    if source and source != "all":
+        filtered = [w for w in filtered if w.source == source]
+    if status and status != "all":
+        filtered = [w for w in filtered if w.status == status or w.discovery_state == status]
+    if namespace and namespace != "all":
+        filtered = [w for w in filtered if w.namespace == namespace]
+    if search:
+        s_lower = search.lower()
+        filtered = [
+            w for w in filtered
+            if s_lower in w.name.lower()
+            or (w.namespace and s_lower in w.namespace.lower())
+            or (w.owner and s_lower in w.owner.lower())
+            or s_lower in w.source_label.lower()
+        ]
+
+    summary = DiscoveryWorkloadsSummaryModel(
+        total=len(workloads),
+        total_discovered=sum(1 for w in workloads if w.status == "discovered" or w.discovery_state == "discovered"),
+        in_review=sum(1 for w in workloads if w.status == "in_review" or w.discovery_state == "in_review"),
+        ignored=sum(1 for w in workloads if w.status == "ignored" or w.discovery_state == "ignored"),
+        revoked=sum(1 for w in workloads if w.status == "revoked" or w.discovery_state == "revoked"),
+        governed=sum(1 for w in workloads if w.status == "governed" or w.discovery_state == "governed"),
+        by_source={
+            "idp": sum(1 for w in workloads if w.source == "idp"),
+            "local_k8s": sum(1 for w in workloads if w.source == "local_k8s"),
+            "external_k8s": sum(1 for w in workloads if w.source == "external_k8s"),
+            "external_services": sum(1 for w in workloads if w.source == "external_services"),
+        },
+        by_state={
+            "discovered": sum(1 for w in workloads if w.status == "discovered" or w.discovery_state == "discovered"),
+            "in_review": sum(1 for w in workloads if w.status == "in_review" or w.discovery_state == "in_review"),
+            "ignored": sum(1 for w in workloads if w.status == "ignored" or w.discovery_state == "ignored"),
+            "revoked": sum(1 for w in workloads if w.status == "revoked" or w.discovery_state == "revoked"),
+            "governed": sum(1 for w in workloads if w.status == "governed" or w.discovery_state == "governed"),
+        },
+    )
+
+    offset = max(page - 1, 0) * limit
+    paginated = filtered[offset : offset + limit]
+
+    return DiscoveryWorkloadsResponseModel(
+        workloads=paginated,
+        total=len(filtered),
+        summary=summary,
+    )
+
 
 
 # ---------------------------------------------------------------------------

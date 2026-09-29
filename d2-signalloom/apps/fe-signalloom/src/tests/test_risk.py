@@ -45,9 +45,19 @@ class TestRiskRouterMounting:
             "/api/v1/risk/fleet",
             "/v1/risk/agents/{agent_id:path}",
             "/v1/risk/fleet",
+            "/api/v1/fair/versions",
+            "/v1/fair/versions",
         }
         missing = expected - route_paths
         assert not missing, f"Missing risk routes: {missing}"
+
+    def test_fair_versions_route(self, client: TestClient):
+        resp = client.get("/api/v1/fair/versions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) > 0
+        assert any(item.get("status") == "active" for item in data)
 
 
 class TestRiskProxyBehavior:

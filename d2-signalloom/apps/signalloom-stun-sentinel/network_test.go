@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"net"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestLivePIDFromCgroupFindsRecursiveLiveProcess(t *testing.T) {
@@ -99,18 +102,21 @@ func TestPodInterfacePeerIndexRestoresHostNamespace(t *testing.T) {
 			setnsCalls = append(setnsCalls, fd)
 			return nil
 		},
-		readFile: func(path string) ([]byte, error) {
-			if path != "/sys/class/net/eth0/iflink" {
-				t.Fatalf("iflink path = %q", path)
+		linkPeer: func(iface string) (int, error) {
+			if iface != "eth0" {
+				t.Fatalf("linkPeer iface = %q", iface)
 			}
-			return []byte("42\n"), nil
+			// Record the query between the two setns calls: it must run while
+			// the thread is inside the pod netns.
+			setnsCalls = append(setnsCalls, -1)
+			return 42, nil
 		},
 	})
 	if err != nil || peerIndex != 42 {
 		t.Fatalf("podInterfacePeerIndex = %d, %v; want 42, nil", peerIndex, err)
 	}
-	if !reflect.DeepEqual(setnsCalls, []int{20, 10}) {
-		t.Fatalf("setns calls = %v; want enter pod then restore host", setnsCalls)
+	if !reflect.DeepEqual(setnsCalls, []int{20, -1, 10}) {
+		t.Fatalf("setns/query order = %v; want enter pod, query link, restore host", setnsCalls)
 	}
 }
 
@@ -130,7 +136,7 @@ func TestPodInterfacePeerIndexFailsClosedWhenHostRestoreFails(t *testing.T) {
 			}
 			return nil
 		},
-		readFile: func(string) ([]byte, error) { return []byte("42\n"), nil },
+		linkPeer: func(string) (int, error) { return 42, nil },
 	})
 	if err == nil || !strings.Contains(err.Error(), "restore host network namespace") {
 		t.Fatalf("error = %v; want restoration failure", err)
@@ -212,5 +218,93 @@ func TestDetachMissingTCObjectsAreIgnored(t *testing.T) {
 
 	if err := tc.detachDrop("veth-gone"); err != nil {
 		t.Fatalf("detachDrop on missing object returned unexpected error: %v", err)
+	}
+}
+
+// The W6 bug shape: after setns the sentinel read /sys/class/net/<if>/iflink.
+// sysfs stays bound to the netns that mounted it (the node's, hostNetwork),
+// so that read returned the NODE's eth0 iflink and no host veth ever matched.
+// The pod link must come from a netlink socket created inside the pod netns.
+func TestPeerIndexNeverConsultsSysfs(t *testing.T) {
+	src, err := os.ReadFile("network.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, banned := range []string{"/sys/class/net", "iflink\")", "ops.readFile", "os.ReadFile(filepath.Join(\"/sys"} {
+		if strings.Contains(string(src), banned) {
+			t.Fatalf("network.go contains %q: the pod peer index must come from netlink inside the pod netns, never host sysfs", banned)
+		}
+	}
+}
+
+func TestPodInterfacePeerIndexRejectsNonPositivePeer(t *testing.T) {
+	_, err := podInterfacePeerIndexWithOps(123, "eth0", namespaceOps{
+		open:     func(string) (namespaceHandle, error) { return fakeNamespaceHandle{fd: 10}, nil },
+		setns:    func(int, int) error { return nil },
+		linkPeer: func(string) (int, error) { return 0, nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid peer index") {
+		t.Fatalf("error = %v; want invalid peer index", err)
+	}
+}
+
+// rtmNewLink builds one RTM_NEWLINK reply for parseLinkPeer.
+func rtmNewLink(index int32, name string, link int32, withLink bool) []byte {
+	attr := func(typ uint16, payload []byte) []byte {
+		l := unix.SizeofRtAttr + len(payload)
+		b := make([]byte, (l+3)&^3)
+		binary.NativeEndian.PutUint16(b[0:2], uint16(l))
+		binary.NativeEndian.PutUint16(b[2:4], typ)
+		copy(b[unix.SizeofRtAttr:], payload)
+		return b
+	}
+	body := make([]byte, unix.SizeofIfInfomsg)
+	binary.NativeEndian.PutUint32(body[4:8], uint32(index))
+	body = append(body, attr(unix.IFLA_IFNAME, append([]byte(name), 0))...)
+	if withLink {
+		v := make([]byte, 4)
+		binary.NativeEndian.PutUint32(v, uint32(link))
+		body = append(body, attr(unix.IFLA_LINK, v)...)
+	}
+	hdr := make([]byte, unix.SizeofNlMsghdr)
+	binary.NativeEndian.PutUint32(hdr[0:4], uint32(unix.SizeofNlMsghdr+len(body)))
+	binary.NativeEndian.PutUint16(hdr[4:6], unix.RTM_NEWLINK)
+	return append(hdr, body...)
+}
+
+func TestParseLinkPeer(t *testing.T) {
+	if got, err := parseLinkPeer(rtmNewLink(3, "eth0", 1245, true)); err != nil || got != 1245 {
+		t.Fatalf("veth reply: got %d, %v; want IFLA_LINK 1245", got, err)
+	}
+	// No IFLA_LINK: the kernel omits it when iflink == ifindex, the same
+	// value sysfs iflink reports.
+	if got, err := parseLinkPeer(rtmNewLink(1, "lo", 0, false)); err != nil || got != 1 {
+		t.Fatalf("no IFLA_LINK: got %d, %v; want ifindex 1", got, err)
+	}
+	errMsg := make([]byte, unix.SizeofNlMsghdr+4)
+	binary.NativeEndian.PutUint32(errMsg[0:4], uint32(len(errMsg)))
+	binary.NativeEndian.PutUint16(errMsg[4:6], unix.NLMSG_ERROR)
+	enodev := -int32(unix.ENODEV)
+	binary.NativeEndian.PutUint32(errMsg[unix.SizeofNlMsghdr:], uint32(enodev))
+	if _, err := parseLinkPeer(errMsg); err == nil || !strings.Contains(err.Error(), "no such device") {
+		t.Fatalf("NLMSG_ERROR ENODEV: err = %v", err)
+	}
+}
+
+// Real netlink round-trip in the test's own netns: lo's peer is itself.
+func TestNetlinkLinkPeerLoopback(t *testing.T) {
+	lo, err := net.InterfaceByName("lo")
+	if err != nil {
+		t.Skipf("no loopback interface visible: %v", err)
+	}
+	got, err := netlinkLinkPeer("lo")
+	if err != nil {
+		t.Fatalf("netlinkLinkPeer(lo): %v", err)
+	}
+	if got != lo.Index {
+		t.Fatalf("netlinkLinkPeer(lo) = %d; want %d", got, lo.Index)
+	}
+	if _, err := netlinkLinkPeer("fixc-no-such-if0"); err == nil {
+		t.Fatal("missing interface returned no error")
 	}
 }

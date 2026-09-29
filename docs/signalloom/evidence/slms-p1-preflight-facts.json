@@ -1,0 +1,170 @@
+{
+  "artifact": "slms-p1-preflight-facts",
+  "phase": "P1",
+  "card": "SLMS-P1-PRE",
+  "title": "Phase 1 Pre-Flight Check: Navigation Shell, Discovery Super Datatable, and Agent Governance State Audit",
+  "generated": "2026-09-29T04:09:34.745401+01:00",
+  "role_boundary": "audit and pre-flight verification only; no Phase 1 production deliverables modified",
+  "repository": {
+    "worktree": "/home/andy/src/.worktrees/c464f/osramp-demo",
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "base_commit_sha": "256d85a8165a2ab90f59cd44fd2d509561eebe3f",
+    "current_commit_sha": "bed62724c5e5fedd60d67fde2d87d69a99f1eb65",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean": true
+  },
+  "baseline_test_results": {
+    "dashboard_vitest": {
+      "command": "bun run test --run",
+      "passed": 3455,
+      "skipped": 3,
+      "failed": 0,
+      "total": 3458,
+      "files_passed": 192,
+      "files_total": 192,
+      "duration_seconds": 14.27,
+      "status": "PASS"
+    },
+    "backend_pytest": {
+      "command": "uv run pytest tests -q --disable-warnings",
+      "passed": 2030,
+      "skipped": 94,
+      "xfailed": 1,
+      "failed": 0,
+      "total": 2125,
+      "duration_seconds": 264.02,
+      "status": "PASS"
+    },
+    "typecheck": {
+      "command": "bun run typecheck",
+      "errors": 0,
+      "status": "PASS"
+    }
+  },
+  "surface_1_navigation_audit": {
+    "sidebar_file": "d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx",
+    "current_nav_sections": [
+      "View",
+      "Control",
+      "Design"
+    ],
+    "current_superadmin_block_lines": "476-488",
+    "target_nav_sections": [
+      "View",
+      "Control",
+      "Design",
+      "Demos",
+      "Development"
+    ],
+    "demos_relocation_targets": [
+      "/supercred",
+      "/demos/agentmaxxing",
+      "/signal-fusion",
+      "/distance-latency",
+      "/fleet",
+      "/fleet/audience"
+    ],
+    "development_relocation_targets": [
+      "/design-system",
+      "/design-system/headers"
+    ],
+    "fleet_governance_change": "/fleet route moved from public Design to superadmin-only Demos",
+    "typography_issue": "Design System \u2014 Headers contains em-dash at Sidebar.tsx:75",
+    "superadmin_rbac_file": "d2-signalloom/apps/dashboard-signalloom/src/auth/superadmin.ts",
+    "superadmin_claims_evaluated": [
+      "email: demo-user@signalloom.local",
+      "preferred_username: demo-user",
+      "name: demo-user"
+    ],
+    "superadmin_test_file": "d2-signalloom/apps/dashboard-signalloom/src/auth/superadmin.test.ts",
+    "superadmin_rbac_status": "VERIFIED"
+  },
+  "surface_2_discovery_audit": {
+    "page_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/DiscoveryPage.tsx",
+    "datatable_components": [
+      "d2-signalloom/apps/dashboard-signalloom/src/components/DataTable.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/components/DataTableToolbar.tsx"
+    ],
+    "current_sources": [
+      "ad_entra (IDP / Entra ID)",
+      "Local Kubernetes workloads"
+    ],
+    "current_actions": [
+      "enroll (/nhi/enroll)",
+      "dismiss (/nhi/dismiss)",
+      "view dossier"
+    ],
+    "p1_2_planned_sources": [
+      "IDP (/nhi/scans, /nhi/discovered)",
+      "Local K8s (autoclaim-discovered)",
+      "External K8s (AFM cluster import)",
+      "Cloud Run / External Services (external_agent_registration.py)"
+    ],
+    "p1_2_planned_states": [
+      "Discovered",
+      "In Review",
+      "Ignored",
+      "Revoked"
+    ],
+    "p1_2_live_endpoints": "GET /api/v1/discovery/workloads, POST /agents/autoclaim-discovered",
+    "discovery_audit_status": "VERIFIED"
+  },
+  "surface_3_agents_governance_audit": {
+    "page_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/AgentsPage.tsx",
+    "types_file": "d2-signalloom/apps/dashboard-signalloom/src/types/api.ts",
+    "backend_compat_file": "d2-signalloom/apps/fe-signalloom/src/api_compat.py",
+    "legacy_status_catalog": [
+      {
+        "source": "api_compat.py:663-686",
+        "states": [
+          "registered",
+          "enrolled",
+          "active",
+          "suspended",
+          "revoked",
+          "decommissioned"
+        ]
+      },
+      {
+        "source": "api_compat.py:1920",
+        "states": [
+          "stunned"
+        ]
+      },
+      {
+        "source": "AgentsPage.tsx:516",
+        "states": [
+          "all",
+          "registered",
+          "enrolled",
+          "active",
+          "suspended",
+          "revoked"
+        ]
+      }
+    ],
+    "canonical_state_consolidation": {
+      "Governed": [
+        "registered",
+        "enrolled",
+        "active"
+      ],
+      "Suspended": [
+        "suspended",
+        "stunned"
+      ],
+      "Revoked": [
+        "revoked",
+        "decommissioned"
+      ]
+    },
+    "planned_type_refactor": "Add AgentLifecycleState union to src/types/api.ts and map in fe-signalloom serializer without mutating storage values",
+    "agents_audit_status": "VERIFIED"
+  },
+  "preflight_verdict": {
+    "status": "PASS",
+    "proceed": true,
+    "blocking_drift": false,
+    "summary": "Phase 1 baseline verified green (3,455 Vitest passing, 2,030 Pytest passing, 0 failures). Component surfaces, RBAC claims, and state mappings audited and ready for P1-1, P1-2, P1-3."
+  }
+}

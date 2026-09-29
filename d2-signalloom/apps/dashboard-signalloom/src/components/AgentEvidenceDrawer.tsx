@@ -579,22 +579,26 @@ export default function AgentEvidenceDrawer({
                     <KernelStateBadge view={agent} testId="drawer-kernel-split-brain" />
                   ) : isTelemetryFrozenOrDrop ? (
                     <>
-                      <span
-                        data-testid="drawer-kernel-cgroup"
-                        className="tag"
-                        title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
-                        style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                      >
-                        cgroup: FROZEN
-                      </span>
-                      <span
-                        data-testid="drawer-kernel-tc"
-                        className="tag"
-                        title="TC matchall drop active: Network isolated by Sentinel"
-                        style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                      >
-                        TC: DROP
-                      </span>
+                      {agent.kernel_telemetry?.cgroup_state === 'frozen' && (
+                        <span
+                          data-testid="drawer-kernel-cgroup"
+                          className="tag"
+                          title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
+                          style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                        >
+                          cgroup: FROZEN
+                        </span>
+                      )}
+                      {agent.kernel_telemetry?.traffic_control_state === 'drop' && (
+                        <span
+                          data-testid="drawer-kernel-tc"
+                          className="tag"
+                          title="TC matchall drop active: Network isolated by Sentinel"
+                          style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                        >
+                          TC: DROP
+                        </span>
+                      )}
                     </>
                   ) : isContainmentRequested ? (
                     <span
@@ -607,22 +611,26 @@ export default function AgentEvidenceDrawer({
                     </span>
                   ) : (
                     <>
-                      <span
-                        data-testid="drawer-kernel-cgroup"
-                        className="tag"
-                        title="cgroup.freeze: 0 (THAWED)"
-                        style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                      >
-                        cgroup: THAWED
-                      </span>
-                      <span
-                        data-testid="drawer-kernel-tc"
-                        className="tag"
-                        title="TC drop: INACTIVE"
-                        style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                      >
-                        TC: PASS
-                      </span>
+                      {agent.kernel_telemetry?.cgroup_state === 'thawed' && (
+                        <span
+                          data-testid="drawer-kernel-cgroup"
+                          className="tag"
+                          title="cgroup.freeze: 0 (THAWED)"
+                          style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                        >
+                          cgroup: THAWED
+                        </span>
+                      )}
+                      {agent.kernel_telemetry?.traffic_control_state === 'allow' && (
+                        <span
+                          data-testid="drawer-kernel-tc"
+                          className="tag"
+                          title="TC drop: INACTIVE"
+                          style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                        >
+                          TC: PASS
+                        </span>
+                      )}
                     </>
                   )}
                 </div>

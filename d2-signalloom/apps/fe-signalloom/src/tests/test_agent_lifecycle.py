@@ -134,13 +134,15 @@ class TestAgentLifecycleMapping:
         assert resp.credential_state.reason == "Process anomaly detected by Sentinel"
 
     def test_ebpf_kernel_telemetry_included_for_suspended_and_stunned(self) -> None:
-        # Suspended agent has eBPF telemetry
+        # Suspended agent reports telemetry, but with no sentinel annotation the
+        # kernel outcome is unknown; the lifecycle alone may not claim a freeze.
         suspended_row = _make_db_row(lifecycle_state="suspended")
         resp_suspended = _agent_response_from_row(suspended_row, _dummy_compliance())
         assert resp_suspended.kernel_telemetry is not None
-        assert resp_suspended.kernel_telemetry.cgroup_state == "frozen"
-        assert resp_suspended.kernel_telemetry.traffic_control_state == "drop"
-        assert resp_suspended.kernel_telemetry.ebpf_active is True
+        assert resp_suspended.kernel_telemetry.cgroup_state == "unknown"
+        assert resp_suspended.kernel_telemetry.source == "unavailable"
+        assert resp_suspended.kernel_telemetry.traffic_control_state == "unknown"
+        assert resp_suspended.kernel_telemetry.ebpf_active is False
         assert resp_suspended.operational_state is not None
         assert resp_suspended.operational_state.containment.process_freeze == "active"
         assert resp_suspended.operational_state.containment.network_isolation == "active"

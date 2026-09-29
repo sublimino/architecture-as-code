@@ -203,3 +203,52 @@ def test_discovery_workloads_overlay_kernel_state(monkeypatch, frozen_discovery)
     assert lancelot["split_brain"] == [FROZEN_NO_STUN]
     others = [w for w in body["workloads"] if w["id"] != "agent-sir-lancelot"]
     assert others and all(w["kernel_state"] == "unknown" and w["split_brain"] == [] for w in others)
+
+
+class TestKernelTelemetryFromKernelState:
+    """kernel_telemetry.cgroup_state is the sentinel annotation, not the lifecycle.
+
+    A suspended row used to report cgroup frozen, TC drop, a sentinel ACK and
+    142 dropped packets with no observation behind any of it.
+    """
+
+    def test_suspended_row_with_unknown_kernel_does_not_claim_frozen(self) -> None:
+        resp = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=None)
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.cgroup_state == "unknown"
+        assert t.source == "unavailable"
+        assert t.traffic_control_state == "unknown"
+        assert t.sentinel_ack is False
+        assert t.sentinel_drop_count is None
+        assert t.ebpf_active is False
+
+    def test_suspended_row_with_frozen_annotation_reports_frozen(self) -> None:
+        resp = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=_disc())
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.cgroup_state == "frozen"
+        assert t.source == "sentinel-annotation"
+        assert t.observed_at == OBSERVED
+        assert t.traffic_control_state == "unknown"
+
+    def test_running_annotation_reports_thawed(self) -> None:
+        resp = _agent_response_from_discovered(_disc(kernel_state="running"), tenant_id="tenant-a")
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.cgroup_state == "thawed"
+        assert t.source == "sentinel-annotation"
+
+    def test_stunned_discovered_with_unknown_kernel_does_not_claim_frozen(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", kernel_state=None, stunned_at="2026-09-01T00:00:00Z"),
+            tenant_id="tenant-a",
+        )
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.cgroup_state == "unknown"
+        assert t.source == "unavailable"
+
+    def test_active_row_with_unknown_kernel_has_no_telemetry(self) -> None:
+        resp = _agent_response_from_row(_row("active"), _compliance(), discovered_overlay=None)
+        assert resp.kernel_telemetry is None

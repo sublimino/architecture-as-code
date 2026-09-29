@@ -62,6 +62,8 @@ export interface SentinelKernelTelemetry {
   sentinel_drop_count?: number
   sentinel_last_ack_at?: string | null
   containment_probe_state?: 'confirmed' | 'pending' | 'unconfirmed'
+  /** Where cgroup_state came from; "unavailable" means nobody observed the cgroup. */
+  source?: 'sentinel-annotation' | 'unavailable' | null
 }
 
 export interface RuntimeMetadata {

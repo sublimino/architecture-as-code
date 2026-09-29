@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import AgentsPage from './AgentsPage'
 import DiscoveryPage from './DiscoveryPage'
+import AgentOverviewTab from '../components/AgentOverviewTab'
 import { api } from '../api/client'
 import { weaveApi } from '../api/weaveApi'
 import { splitBrainFrozenAgentFixture } from '../api/fakeData'
@@ -238,5 +239,76 @@ describe('DiscoveryPage kernel freeze state', () => {
     await userEvent.click(screen.getByTestId('discovery-attention-facet-btn'))
     expect(screen.getByTestId('discovery-row-agent-sir-lancelot')).toBeInTheDocument()
     expect(screen.queryByTestId('discovery-row-agent-clean')).not.toBeInTheDocument()
+  })
+})
+
+describe('kernel telemetry tags read cgroup_state from the sentinel annotation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    ;(weaveApi as any).getObservations.mockResolvedValue([])
+    ;(weaveApi as any).getActors.mockResolvedValue([])
+  })
+
+  const suspendedUnknown = makeAgent({
+    id: 'agent-suspended-unknown',
+    name: 'Suspended Unknown',
+    lifecycle_state: 'suspended',
+    kernel_state: 'unknown',
+    kernel_telemetry: { cgroup_state: 'unknown', traffic_control_state: 'unknown', source: 'unavailable' },
+  })
+  const frozenNoTc = makeAgent({
+    id: 'agent-frozen-no-tc',
+    name: 'Frozen No TC',
+    lifecycle_state: 'stunned',
+    kernel_state: 'frozen',
+    kernel_telemetry: { cgroup_state: 'frozen', traffic_control_state: 'unknown', source: 'sentinel-annotation' },
+  })
+  const thawedNoTc = makeAgent({
+    id: 'agent-thawed-no-tc',
+    name: 'Thawed No TC',
+    kernel_state: 'running',
+    kernel_telemetry: { cgroup_state: 'thawed', traffic_control_state: 'unknown', source: 'sentinel-annotation' },
+  })
+  const noTelemetry = makeAgent({ id: 'agent-no-telemetry', name: 'No Telemetry', kernel_state: 'unknown', kernel_telemetry: null })
+
+  it('a suspended agent with unknown kernel state shows neither FROZEN nor THAWED', async () => {
+    listOf([suspendedUnknown])
+    renderAgents()
+    const row = await screen.findByTestId(`agent-row-${suspendedUnknown.id}`)
+    expect(within(row).queryByText(/cgroup: FROZEN/)).not.toBeInTheDocument()
+    expect(within(row).queryByText(/THAWED/)).not.toBeInTheDocument()
+    expect(within(row).queryByText(/TC: DROP/)).not.toBeInTheDocument()
+  })
+
+  it('a sentinel-observed freeze shows cgroup FROZEN but claims nothing about TC', async () => {
+    listOf([frozenNoTc])
+    renderAgents()
+    const row = await screen.findByTestId(`agent-row-${frozenNoTc.id}`)
+    expect(within(row).getByText('cgroup: FROZEN')).toBeInTheDocument()
+    expect(within(row).queryByText(/TC: DROP/)).not.toBeInTheDocument()
+  })
+
+  it('an observed thaw shows THAWED but not TC PASS', async () => {
+    listOf([thawedNoTc])
+    renderAgents()
+    const row = await screen.findByTestId(`agent-row-${thawedNoTc.id}`)
+    expect(within(row).getByText('cgroup: THAWED')).toBeInTheDocument()
+    expect(within(row).queryByText(/TC: PASS/)).not.toBeInTheDocument()
+  })
+
+  it('no telemetry renders no THAWED or PASS in the row, the drawer or the overview tab', async () => {
+    listOf([noTelemetry])
+    renderAgents()
+    const row = await screen.findByTestId(`agent-row-${noTelemetry.id}`)
+    expect(within(row).queryByText(/THAWED|TC: PASS/)).not.toBeInTheDocument()
+    await userEvent.click(row)
+    const drawer = await screen.findByTestId('agent-evidence-drawer')
+    expect(within(drawer).queryByText(/THAWED|TC: PASS/)).not.toBeInTheDocument()
+  })
+
+  it('the overview tab renders nothing for unknown telemetry', () => {
+    render(<MemoryRouter><AgentOverviewTab agent={noTelemetry} /></MemoryRouter>)
+    expect(screen.queryByText(/THAWED|TC: PASS/)).not.toBeInTheDocument()
   })
 })

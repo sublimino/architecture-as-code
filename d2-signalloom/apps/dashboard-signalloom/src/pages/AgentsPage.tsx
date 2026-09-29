@@ -730,22 +730,26 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {splitBrainFrozen ? null : isTelemetryFrozenOrDrop ? (
                 <>
-                  <span
-                    data-testid={`kernel-telemetry-cgroup-${agent.id}`}
-                    className="tag"
-                    title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                  >
-                    cgroup: FROZEN
-                  </span>
-                  <span
-                    data-testid={`kernel-telemetry-tc-${agent.id}`}
-                    className="tag"
-                    title="TC matchall drop active: Network isolated by Sentinel"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
-                  >
-                    TC: DROP
-                  </span>
+                  {agent.kernel_telemetry?.cgroup_state === 'frozen' && (
+                    <span
+                      data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                      className="tag"
+                      title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                    >
+                      cgroup: FROZEN
+                    </span>
+                  )}
+                  {agent.kernel_telemetry?.traffic_control_state === 'drop' && (
+                    <span
+                      data-testid={`kernel-telemetry-tc-${agent.id}`}
+                      className="tag"
+                      title="TC matchall drop active: Network isolated by Sentinel"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                    >
+                      TC: DROP
+                    </span>
+                  )}
                 </>
               ) : isContainmentRequested ? (
                 <span
@@ -758,22 +762,26 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                 </span>
               ) : (
                 <>
-                  <span
-                    data-testid={`kernel-telemetry-cgroup-${agent.id}`}
-                    className="tag"
-                    title="cgroup.freeze: 0 (THAWED)"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                  >
-                    cgroup: THAWED
-                  </span>
-                  <span
-                    data-testid={`kernel-telemetry-tc-${agent.id}`}
-                    className="tag"
-                    title="TC drop: INACTIVE"
-                    style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
-                  >
-                    TC: PASS
-                  </span>
+                  {agent.kernel_telemetry?.cgroup_state === 'thawed' && (
+                    <span
+                      data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                      className="tag"
+                      title="cgroup.freeze: 0 (THAWED)"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                    >
+                      cgroup: THAWED
+                    </span>
+                  )}
+                  {agent.kernel_telemetry?.traffic_control_state === 'allow' && (
+                    <span
+                      data-testid={`kernel-telemetry-tc-${agent.id}`}
+                      className="tag"
+                      title="TC drop: INACTIVE"
+                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                    >
+                      TC: PASS
+                    </span>
+                  )}
                 </>
               )}
             </div>

@@ -72,6 +72,7 @@ class SentinelKernelTelemetry(BaseModel):
     cgroup_path: str | None = None
     veth_interface: str | None = None
     sentinel_ack: bool = False
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
     sentinel_ack_id: str | None = None
     sentinel_drop_count: int | None = None
     sentinel_last_ack_at: str | None = None

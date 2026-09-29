@@ -149,6 +149,9 @@ class SentinelKernelTelemetry(BaseModel):
     sentinel_drop_count: int | None = None
     sentinel_last_ack_at: str | None = None
     containment_probe_state: Literal["confirmed", "pending", "unconfirmed"] = "unconfirmed"
+    # Where cgroup_state came from. None for producers that predate the field
+    # (the stun response); the agent mappers always set it.
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
 
 
 class RuntimeMetadata(BaseModel):
@@ -1982,6 +1985,33 @@ def _kernel_view(discovered: dict[str, Any] | None, stunned: bool) -> dict[str, 
     }
 
 
+def _kernel_telemetry(kernel: dict[str, Any], containment_requested: bool) -> SentinelKernelTelemetry | None:
+    """Sentinel telemetry built only from the kernel view.
+
+    cgroup_state mirrors kernel_state (frozen, thawed, unknown). The sentinel
+    annotation says nothing about traffic control, eBPF attachment, ACKs or
+    drop counts, so those stay unknown or unset rather than being filled in
+    from the lifecycle. Returns None when there is neither an observation nor
+    a containment request to report against.
+    """
+    kernel_state = kernel["kernel_state"]
+    if kernel_state == "unknown" and not containment_requested:
+        return None
+    observed = kernel["kernel_observed_at"]
+    return SentinelKernelTelemetry(
+        cgroup_frozen=kernel_state == "frozen",
+        cgroup_state={"frozen": "frozen", "running": "thawed"}.get(kernel_state, "unknown"),
+        traffic_control_state="unknown",
+        ebpf_active=False,
+        ebpf_program_attached=None,
+        observed_at=observed,
+        last_observed_at=observed,
+        sentinel_ack=False,
+        containment_probe_state="confirmed" if kernel_state == "frozen" else "unconfirmed",
+        source="unavailable" if kernel_state == "unknown" else "sentinel-annotation",
+    )
+
+
 def _agent_response_from_row(
     row: asyncpg.Record | dict[str, Any],
     compliance: ComplianceSummaryInline | dict[str, Any],
@@ -2139,21 +2169,10 @@ def _agent_response_from_row(
             revoked_at=stunned_at or last_transition_at,
         )
 
-    telemetry = None
-    if is_frozen or canonical_state == "Suspended":
-        telemetry = SentinelKernelTelemetry(
-            cgroup_state="frozen",
-            traffic_control_state="drop",
-            ebpf_active=True,
-            ebpf_program_attached=True,
-            observed_at=stunned_at or last_transition_at,
-            last_observed_at=stunned_at or last_transition_at,
-            sentinel_ack=True,
-            sentinel_ack_id=f"ack-{row_id}-ebpf-sentinel",
-            sentinel_drop_count=142,
-            sentinel_last_ack_at=stunned_at or last_transition_at,
-            containment_probe_state="confirmed",
-        )
+    telemetry = _kernel_telemetry(
+        _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended"),
+        containment_requested=is_frozen or canonical_state == "Suspended",
+    )
 
     origin_metadata = OriginVerificationMetadata(
         verified=True,
@@ -2338,42 +2357,10 @@ def _agent_response_from_discovered(
             revoked_at=stunned_at,
         )
 
-    telemetry = None
-    if is_frozen or discovered.get("cgroup_state") or discovered.get("cgroup_frozen") is not None or discovered.get("traffic_control_state"):
-        cgroup_st = discovered.get("cgroup_state") or ("frozen" if (is_frozen or discovered.get("cgroup_frozen")) else "thawed")
-        tc_st = discovered.get("traffic_control_state") or ("drop" if (is_frozen or discovered.get("tc_drop_active")) else "allow")
-        ebpf_act = discovered.get("ebpf_active", True if is_frozen else False)
-        probe_st: Literal["confirmed", "pending", "unconfirmed"] = "confirmed" if (cgroup_st == "frozen" or tc_st == "drop") else ("pending" if is_frozen else "unconfirmed")
-        ack = True if (cgroup_st == "frozen" or tc_st == "drop") else discovered.get("sentinel_ack", False)
-        drop_cnt = discovered.get("sentinel_drop_count") if discovered.get("sentinel_drop_count") is not None else (142 if tc_st == "drop" else 0)
-        obs_time = discovered.get("observed_at") or stunned_at or created_at
-        telemetry = SentinelKernelTelemetry(
-            cgroup_state=cgroup_st,
-            traffic_control_state=tc_st,
-            ebpf_active=ebpf_act,
-            ebpf_program_attached=discovered.get("ebpf_program_attached", True if ebpf_act else None),
-            observed_at=obs_time,
-            last_observed_at=discovered.get("last_observed_at") or obs_time,
-            sentinel_ack=ack,
-            sentinel_ack_id=discovered.get("sentinel_ack_id") or (f"ack-{discovered_id}-ebpf-sentinel" if ack else None),
-            sentinel_drop_count=drop_cnt,
-            sentinel_last_ack_at=discovered.get("sentinel_last_ack_at") or (obs_time if ack else None),
-            containment_probe_state=probe_st,
-        )
-    elif is_frozen:
-        telemetry = SentinelKernelTelemetry(
-            cgroup_state="frozen",
-            traffic_control_state="drop",
-            ebpf_active=True,
-            ebpf_program_attached=True,
-            observed_at=stunned_at,
-            last_observed_at=stunned_at,
-            sentinel_ack=True,
-            sentinel_ack_id=f"ack-{discovered_id}-ebpf-sentinel",
-            sentinel_drop_count=142,
-            sentinel_last_ack_at=stunned_at,
-            containment_probe_state="confirmed",
-        )
+    telemetry = _kernel_telemetry(
+        _kernel_view(discovered, stunned=is_frozen or state in ("stunned", "suspended", "frozen")),
+        containment_requested=is_frozen,
+    )
 
     origin_verified = bool(spiffe_id)
     origin_metadata = OriginVerificationMetadata(

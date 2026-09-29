@@ -177,17 +177,13 @@ describe('SwarmAgentsPage — demo mode agent rendering', () => {
     }
   })
 
-  it('renders Sentinel kernel telemetry badges on swarm agent rows', async () => {
+  it('renders no THAWED or PASS badge for swarm agents with no kernel observation', async () => {
+    // Absent telemetry means nobody observed the cgroup. It used to default to
+    // THAWED / PASS, which asserted a kernel state that was never measured.
     renderPage()
-    await waitFor(() => {
-      const cgroupBadges = screen.getAllByTestId(/^kernel-telemetry-cgroup-/)
-      const tcBadges = screen.getAllByTestId(/^kernel-telemetry-tc-/)
-      expect(cgroupBadges.length).toBeGreaterThanOrEqual(1)
-      expect(tcBadges.length).toBeGreaterThanOrEqual(1)
-      // For active agents, default telemetry shows thawed / pass
-      expect(cgroupBadges[0].textContent).toContain('cgroup: THAWED')
-      expect(tcBadges[0].textContent).toContain('TC: PASS')
-    })
+    await screen.findAllByTestId(/^agent-row-/)
+    expect(screen.queryAllByTestId(/^kernel-telemetry-cgroup-/)).toHaveLength(0)
+    expect(screen.queryAllByTestId(/^kernel-telemetry-tc-/)).toHaveLength(0)
   })
 
   it('renders Sentinel kernel containment badges when an agent has observed frozen/drop telemetry', async () => {
@@ -201,7 +197,10 @@ describe('SwarmAgentsPage — demo mode agent rendering', () => {
           last_observed_at: '2026-08-01T10:00:00Z',
         },
       }),
-      makeSwarmAgent('prompt-commit-summarizer', { lifecycle_state: 'active' }),
+      makeSwarmAgent('prompt-commit-summarizer', {
+        lifecycle_state: 'active',
+        kernel_telemetry: { cgroup_state: 'thawed', traffic_control_state: 'allow', source: 'sentinel-annotation' },
+      }),
     ]
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents,

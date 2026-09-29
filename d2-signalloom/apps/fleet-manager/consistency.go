@@ -49,6 +49,11 @@ const (
 	// baoConsumerLabel admits a pod to OpenBao through inf-bao's NetworkPolicy;
 	// it is also how a pod declares itself an OpenBao consumer.
 	baoConsumerLabel = "bao.controlplane.io/consumer"
+	// The stun sentinel reads <pod cgroup>/cgroup.events on every reconcile and
+	// publishes the kernel's own answer here. This file only reads it.
+	kernelFrozenAnnotation     = "signalloom.io/kernel-frozen"
+	kernelObservedAtAnnotation = "signalloom.io/kernel-observed-at"
+	kernelSourceAnnotation     = "sentinel-annotation"
 )
 
 // ConsistencyReport is the wire shape of GET /api/v1/fleet/consistency/{id}.
@@ -60,6 +65,7 @@ type ConsistencyReport struct {
 	Bao        ConsistencyBao    `json:"bao"`
 	Spire      ConsistencySpire  `json:"spire"`
 	GitOps     ConsistencyGitOps `json:"gitops"`
+	Kernel     ConsistencyKernel `json:"kernel"`
 	Consistent bool              `json:"consistent"`
 	SplitBrain []string          `json:"split_brain"`
 
@@ -97,6 +103,37 @@ type ConsistencyGitOps struct {
 	DeploymentFound  bool   `json:"deployment_found"`
 	Deployment       string `json:"deployment,omitempty"`
 	Error            string `json:"error,omitempty"`
+}
+
+// ConsistencyKernel is the cgroup freeze state as last observed by the node's
+// stun sentinel. Frozen is null when the annotation is absent or malformed:
+// unknown is never read as "not frozen". It does not gate `queried` — the
+// annotation is a published observation, not a plane this service can query.
+type ConsistencyKernel struct {
+	Frozen     *bool   `json:"frozen"`
+	ObservedAt *string `json:"observed_at"`
+	Source     string  `json:"source"`
+}
+
+func readKernelAnnotation(pod *corev1.Pod) ConsistencyKernel {
+	k := ConsistencyKernel{Source: kernelSourceAnnotation}
+	if pod == nil {
+		return k
+	}
+	var frozen bool
+	switch pod.Annotations[kernelFrozenAnnotation] {
+	case "true":
+		frozen = true
+	case "false":
+		frozen = false
+	default:
+		return k
+	}
+	k.Frozen = &frozen
+	if at, ok := pod.Annotations[kernelObservedAtAnnotation]; ok {
+		k.ObservedAt = &at
+	}
+	return k
 }
 
 // consistencyTokenCounter is the read half of *OpenBaoClient this file needs.
@@ -304,6 +341,7 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 				state, stunnedFlag, rep.Pod.ContainmentMode))
 		}
 	}
+	rep.Kernel = readKernelAnnotation(pod)
 	rep.SPIFFEID = fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", consistencyTrustDomain, namespace, serviceAccount)
 	rep.Bao.Applicable = pod == nil || rep.Pod.Stunned || isBaoConsumer(pod)
 
@@ -363,6 +401,9 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 		if !rep.GitOps.PodPinned {
 			rep.SplitBrain = append(rep.SplitBrain, "pod stunned but pod not pinned")
 		}
+		if rep.Kernel.Frozen != nil && !*rep.Kernel.Frozen {
+			rep.SplitBrain = append(rep.SplitBrain, "pod stunned but kernel not frozen")
+		}
 	case pod != nil:
 		if baoQueried && rep.Bao.Applicable && rep.Bao.ActiveTokens == 0 {
 			rep.SplitBrain = append(rep.SplitBrain, "pod active but 0 openbao tokens active")
@@ -375,6 +416,9 @@ func (c *consistencyChecker) checkAgent(ctx context.Context, agent *Agent, bao b
 		}
 		if rep.GitOps.PodPinned {
 			rep.SplitBrain = append(rep.SplitBrain, "pod active but pod pinned")
+		}
+		if rep.Kernel.Frozen != nil && *rep.Kernel.Frozen {
+			rep.SplitBrain = append(rep.SplitBrain, "kernel frozen but pod not stunned")
 		}
 	}
 

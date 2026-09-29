@@ -819,6 +819,22 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "Multi-stage network teardown pipeline emits structured audit events via build_audit_event "
         "and the dedicated audit_logger stream for each individual stage transition."
     ),
+    ("connectors.py", "toggle_connector"): (
+        "Connector status toggle emits structured audit events directly to "
+        "audit_events with event type CONNECTOR_STATUS_CHANGED instead of using "
+        "the _audit_log helper."
+    ),
+    ("connectors.py", "create_connector"): (
+        "Tenant connector provisioning and credential configuration. Tenant "
+        "connector state is persisted in tenant_connectors and verified via diagnostic probes."
+    ),
+    ("connectors.py", "delete_connector"): (
+        "Tenant connector removal. Removes connector registration from tenant_connectors."
+    ),
+    ("connectors.py", "test_connector"): (
+        "Stateless diagnostic reachability and credentials probe for tenant connector; "
+        "updates connector test timestamp and health status without creating separate audit trail entries."
+    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate

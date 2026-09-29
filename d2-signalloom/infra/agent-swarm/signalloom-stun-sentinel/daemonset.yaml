@@ -79,6 +79,9 @@ spec:
               add:
                 - SYS_ADMIN
                 - NET_ADMIN
+                # open /proc/<pid>/ns/net of a cross-uid agent is a
+                # PTRACE_MODE_READ check (network.go findHostVeth).
+                - SYS_PTRACE
               drop:
                 - ALL
           volumeMounts:

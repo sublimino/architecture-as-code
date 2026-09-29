@@ -1,47 +1,13 @@
-# eBPF Stun Sentinel RBAC — the DaemonSet that monitors agent pods for
-# policy violations and triggers the stun sequence.
+# eBPF Stun Sentinel RBAC, cluster-scoped half only.
 #
-# The sentinel needs:
-#   - PATCH on pods (to set signalloom.ai/state=stunned)
-#   - GET/LIST on pods (to discover agent pods by label)
-#   - GET on nodes (to read cgroup paths for eBPF attachment)
-#   - CREATE on events (to emit Kubernetes events on stun actions)
-#
-# This is deliberately scoped to fe-signalloom-agents only — the sentinel
-# has no business touching pods in other namespaces.
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: stun-sentinel
-  namespace: fe-signalloom-agents
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/part-of: signalloom-swarm
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch", "patch"]
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: stun-sentinel
-  namespace: fe-signalloom-agents
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/part-of: signalloom-swarm
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: stun-sentinel
-subjects:
-  - kind: ServiceAccount
-    name: signalloom-stun-sentinel
-    namespace: fe-signalloom-agents
+# The namespaced Role and RoleBinding "stun-sentinel" live in exactly one
+# place: signalloom-stun-sentinel/rbac.yaml, next to the DaemonSet and its
+# ServiceAccount (Flux Kustomization agent-signalloom-stun-sentinel). They
+# were also declared here, applied by agent-swarm-base, and last writer won:
+# the RoleBinding flapped between SA stun-sentinel (the one the DaemonSet runs
+# as) and SA signalloom-stun-sentinel (declared in rbac.yaml, used by no
+# workload). test/stun-sentinel-daemonset.bats pins one owner per RBAC object
+# and that every stun-sentinel binding names the DaemonSet's SA.
 ---
 # Cluster-scoped: the sentinel reads node cgroup paths for eBPF program
 # attachment points. This is read-only and cannot be namespace-scoped.
@@ -70,5 +36,5 @@ roleRef:
   name: stun-sentinel-node-reader
 subjects:
   - kind: ServiceAccount
-    name: signalloom-stun-sentinel
+    name: stun-sentinel
     namespace: fe-signalloom-agents

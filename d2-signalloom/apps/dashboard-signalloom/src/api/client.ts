@@ -58,6 +58,11 @@ import type {
   FrameworkSummary,
   PostureSummary,
 } from '../types/compliance'
+import type {
+  PolicyBundleSummary,
+  PolicyBundle,
+  RollbackRequest,
+} from '../types/policies'
 import type { Money } from '../money/money'
 import type { CurrencyCode } from '../money/currency'
 
@@ -721,6 +726,34 @@ export const api = {
         summary: normalizePostureSummary(res?.summary),
       }
     },
+  },
+
+  policies: {
+    list: (token: string, tenantId?: string, signal?: AbortSignal) =>
+      req<PolicyBundleSummary[]>(`/policies${tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''}`, token, {
+        signal,
+      }),
+
+    registerBundle: (token: string, bundle: Partial<PolicyBundle>, signal?: AbortSignal) =>
+      req<PolicyBundle>('/policies/bundles', token, {
+        method: 'POST',
+        data: bundle,
+        signal,
+      }),
+
+    evaluate: (token: string, payload: unknown, signal?: AbortSignal) =>
+      req<unknown>('/policies/evaluate', token, {
+        method: 'POST',
+        data: payload,
+        signal,
+      }),
+
+    rollback: (token: string, body: RollbackRequest, signal?: AbortSignal) =>
+      req<{ message: string; active_bundle: PolicyBundle }>('/policies/rollback', token, {
+        method: 'POST',
+        data: body,
+        signal,
+      }),
   },
 
   consent: {

@@ -5,38 +5,8 @@
   "controlSets": [
     {
       "id": "ac-access-control",
-      "name": "AC - Access Control",
+      "name": "AC: Access Control",
       "controls": [
-        {
-          "id": "AC-6",
-          "name": "AC-6 Least Privilege",
-          "checks": [
-            {
-              "id": "container-run-as-non-root",
-              "name": "Container runs as non-root",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
-              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
-              "freqTriple": {"min": 0.5, "mode": 2.0, "max": 6.0},
-              "policyVersions": ["v2.0.0", "v2.1.0"]
-            },
-            {
-              "id": "no-privilege-escalation",
-              "name": "Privilege escalation disabled",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
-              "riskTriple": {"min": 15000, "mode": 70000, "max": 280000},
-              "freqTriple": {"min": 0.3, "mode": 1.5, "max": 4.0},
-              "policyVersions": ["v2.0.0", "v2.1.0"]
-            },
-            {
-              "id": "no-privileged-mode",
-              "name": "Privileged mode disabled",
-              "celExpression": "object.spec.containers.all(c, !c.securityContext.privileged)",
-              "riskTriple": {"min": 20000, "mode": 90000, "max": 350000},
-              "freqTriple": {"min": 0.2, "mode": 1.0, "max": 3.0},
-              "policyVersions": ["v2.0.0", "v2.1.0"]
-            }
-          ]
-        },
         {
           "id": "AC-3",
           "name": "AC-3 Access Enforcement",
@@ -44,18 +14,247 @@
             {
               "id": "no-automount-sa-token",
               "name": "Service account token auto-mount disabled",
+              "description": "Prevents automatic injection of default API credentials into container pods.",
               "celExpression": "object.spec.automountServiceAccountToken == false",
-              "riskTriple": {"min": 5000, "mode": 25000, "max": 100000},
-              "freqTriple": {"min": 0.5, "mode": 1.5, "max": 4.0},
-              "policyVersions": ["v2.0.0", "v2.1.0"]
+              "severity": "high",
+              "remediation": "Set automountServiceAccountToken: false in pod spec.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
             },
             {
-              "id": "pod-security-context",
-              "name": "Pod security context present",
-              "celExpression": "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true",
-              "riskTriple": {"min": 8000, "mode": 40000, "max": 160000},
-              "freqTriple": {"min": 1.0, "mode": 3.0, "max": 7.0},
-              "policyVersions": ["v2.0.0", "v2.1.0"]
+              "id": "spiffe-peer-authorization",
+              "name": "SPIFFE peer workload identity authorization",
+              "description": "Enforces cryptographically verifiable SPIFFE SVID peer authentication.",
+              "celExpression": "has(request.peer.spiffe_id) && request.peer.spiffe_id.startsWith('spiffe://signalloom.demo/ns/')",
+              "severity": "critical",
+              "remediation": "Present valid SPIFFE SVID rooted in the Signal Loom trust domain.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 45000,
+                "max": 180000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AC-4",
+          "name": "AC-4 Information Flow Enforcement",
+          "checks": [
+            {
+              "id": "cross-namespace-egress-authorization",
+              "name": "Cross-namespace network egress authorization",
+              "description": "Restricts inter-agent communication across namespace boundaries without explicit egress grant.",
+              "celExpression": "has(request.destination.namespace) && (request.destination.namespace == request.source.namespace || request.context.egress_authorized == true)",
+              "severity": "high",
+              "remediation": "Obtain cross-namespace authorization grant or isolate within local namespace.",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 35000,
+                "max": 150000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.2,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AC-6",
+          "name": "AC-6 Least Privilege",
+          "checks": [
+            {
+              "id": "container-run-as-non-root",
+              "name": "Container runs as non-root",
+              "description": "Enforces least privilege execution preventing root user execution.",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
+              "severity": "high",
+              "remediation": "Configure runAsNonRoot: true in container securityContext.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 2,
+                "max": 6
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-privilege-escalation",
+              "name": "Privilege escalation disabled",
+              "description": "Blocks privilege escalation flag across all containers in the pod.",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
+              "severity": "critical",
+              "remediation": "Set allowPrivilegeEscalation: false in container securityContext.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 70000,
+                "max": 280000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-privileged-mode",
+              "name": "Privileged mode disabled",
+              "description": "Strictly forbids container execution with privileged host device access.",
+              "celExpression": "object.spec.containers.all(c, !c.securityContext.privileged)",
+              "severity": "critical",
+              "remediation": "Remove privileged: true from container securityContext.",
+              "riskTriple": {
+                "min": 20000,
+                "mode": 90000,
+                "max": 350000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "au-audit-accountability",
+      "name": "AU: Audit and Accountability",
+      "controls": [
+        {
+          "id": "AU-2",
+          "name": "AU-2 Event Logging",
+          "checks": [
+            {
+              "id": "immutable-audit-sink",
+              "name": "Immutable event logging sink active",
+              "description": "Ensures security-relevant agent lifecycle and access events are forwarded to audit sink.",
+              "celExpression": "has(agent.audit_config) && agent.audit_config.event_logging_enabled == true",
+              "severity": "high",
+              "remediation": "Configure event_logging_enabled: true in agent audit configuration.",
+              "riskTriple": {
+                "min": 7000,
+                "mode": 30000,
+                "max": 120000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cm-configuration-mgmt",
+      "name": "CM: Configuration Management",
+      "controls": [
+        {
+          "id": "CM-7",
+          "name": "CM-7 Least Functionality",
+          "checks": [
+            {
+              "id": "read-only-rootfs",
+              "name": "Read-only root filesystem",
+              "description": "Configures containers with read-only root filesystems to prevent runtime tampering.",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)",
+              "severity": "medium",
+              "remediation": "Enable readOnlyRootFilesystem: true in container securityContext.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ia-identification-auth",
+      "name": "IA: Identification and Authentication",
+      "controls": [
+        {
+          "id": "IA-2",
+          "name": "IA-2 Identification and Authentication",
+          "checks": [
+            {
+              "id": "mfa-spiffe-svid-required",
+              "name": "Cryptographic SVID identity presentation",
+              "description": "Requires valid cryptographic SVID presentation for all inter-service communications.",
+              "celExpression": "has(request.auth.svid_presented) && request.auth.svid_presented == true",
+              "severity": "critical",
+              "remediation": "Authenticate using an issued X.509 or JWT SPIFFE SVID credential.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 50000,
+                "max": 210000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.9,
+                "max": 2.8
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
             }
           ]
         }
@@ -63,7 +262,7 @@
     },
     {
       "id": "sc-system-comms",
-      "name": "SC - System and Communications Protection",
+      "name": "SC: System and Communications Protection",
       "controls": [
         {
           "id": "SC-7",
@@ -72,18 +271,46 @@
             {
               "id": "drop-all-capabilities",
               "name": "All capabilities dropped",
+              "description": "Strips Linux kernel capabilities to establish strict container isolation boundary.",
               "celExpression": "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
-              "riskTriple": {"min": 8000, "mode": 40000, "max": 160000},
-              "freqTriple": {"min": 0.5, "mode": 2.0, "max": 5.0},
-              "policyVersions": ["v2.0.0", "v2.1.0"]
+              "severity": "high",
+              "remediation": "Add ALL to securityContext.capabilities.drop.",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 40000,
+                "max": 160000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 2,
+                "max": 5
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
             },
             {
-              "id": "read-only-rootfs",
-              "name": "Read-only root filesystem",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)",
-              "riskTriple": {"min": 5000, "mode": 25000, "max": 100000},
-              "freqTriple": {"min": 0.3, "mode": 1.0, "max": 3.0},
-              "policyVersions": ["v2.1.0"]
+              "id": "network-boundary-enforcement",
+              "name": "Network boundary ingress isolation",
+              "description": "Verifies NetworkPolicy isolation is active for workload boundaries.",
+              "celExpression": "has(request.network_policy) && request.network_policy.ingress_isolated == true",
+              "severity": "high",
+              "remediation": "Attach default-deny ingress NetworkPolicy to agent namespace.",
+              "riskTriple": {
+                "min": 9000,
+                "mode": 42000,
+                "max": 170000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.3,
+                "max": 3.8
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
             }
           ]
         }
@@ -91,27 +318,81 @@
     },
     {
       "id": "si-system-integrity",
-      "name": "SI - System and Information Integrity",
+      "name": "SI: System and Information Integrity",
       "controls": [
+        {
+          "id": "SI-4",
+          "name": "SI-4 System Monitoring",
+          "checks": [
+            {
+              "id": "anomaly-detection-telemetry",
+              "name": "Continuous runtime anomaly monitoring",
+              "description": "Monitors runtime telemetry streams for anomalous tool invocation patterns.",
+              "celExpression": "has(agent.telemetry) && agent.telemetry.monitoring_active == true",
+              "severity": "medium",
+              "remediation": "Enable telemetry streaming agent monitor.",
+              "riskTriple": {
+                "min": 6000,
+                "mode": 30000,
+                "max": 120000
+              },
+              "freqTriple": {
+                "min": 0.6,
+                "mode": 2,
+                "max": 5
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        },
         {
           "id": "SI-7",
           "name": "SI-7 Software, Firmware, and Information Integrity",
           "checks": [
             {
-              "id": "image-digest-required",
-              "name": "Image uses sha256 digest",
+              "id": "image-digest",
+              "name": "Immutable container image digest",
+              "description": "Ensures container images are pinned by immutable cryptographic SHA-256 digest.",
               "celExpression": "object.spec.containers.all(c, c.image.contains('@sha256:'))",
-              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
-              "freqTriple": {"min": 0.5, "mode": 2.0, "max": 5.0},
-              "policyVersions": ["v2.1.0"]
+              "severity": "high",
+              "remediation": "Reference images by immutable sha256 digest.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 45000,
+                "max": 180000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.1.0"
+              ]
             },
             {
               "id": "trusted-registry",
               "name": "Image from trusted registry",
-              "celExpression": "object.spec.containers.all(c, c.image.startsWith('ghcr.io/') || c.image.startsWith('registry.internal/'))",
-              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
-              "freqTriple": {"min": 0.2, "mode": 1.0, "max": 3.0},
-              "policyVersions": ["v2.1.0"]
+              "description": "Permits images only from verified and signed OCI registry domains.",
+              "celExpression": "object.spec.containers.all(c, c.image.startsWith('zot.local/') || c.image.startsWith('ghcr.io/') || c.image.startsWith('gcr.io/'))",
+              "severity": "high",
+              "remediation": "Deploy images sourced exclusively from trusted registries.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.8,
+                "max": 2.5
+              },
+              "policyVersions": [
+                "v2.1.0"
+              ]
             }
           ]
         }

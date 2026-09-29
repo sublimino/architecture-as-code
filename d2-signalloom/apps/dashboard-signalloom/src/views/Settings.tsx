@@ -575,6 +575,29 @@ export default function Settings() {
         </SectionCard>
       )}
 
+      {/* Policy-as-Code & CEL Rules */}
+      <SectionCard title="Policy-as-Code & CEL Rules">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+            Configure and author Common Expression Language (CEL) policy bundles for EU AI Act, NIST SP 800-53, CRA, and FINOS AIGF with client-side syntax diagnostics and authoritative Go policy evaluation.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--text)' }}>
+              Manage versioned regulatory rules, syntax checking, and one-click rollbacks.
+            </span>
+            <button
+              data-testid="settings-goto-policies-btn"
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => navigate('/policies')}
+              style={{ fontSize: 12, padding: '6px 14px' }}
+            >
+              Open CEL Policy Editor
+            </button>
+          </div>
+        </div>
+      </SectionCard>
+
       {/* Display
           Deliberately its own card rather than a fourth field inside Scan
           Preferences. Everything in that card is tenant state behind a Save

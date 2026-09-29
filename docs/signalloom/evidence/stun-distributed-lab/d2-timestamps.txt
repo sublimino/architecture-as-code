@@ -1,0 +1,8 @@
+old_pod kusari-agent-59679655c4-xkszt b6b08f67-905d-4831-a2a8-24df43752aa1 osramp-dist-worker
+cordon_A 23:33:13.353755531
+delete_issued 23:33:13.354549733
+replacement_bound 23:33:13.453501652 kusari-agent-59679655c4-cd2gf 74bc5f1e-0632-49c7-9cfb-a8ec66aea2fb
+podslice_exists 23:33:13.536356091 /sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod74bc5f1e_0632_49c7_9cfb_a8ec66aea2fb.slice
+replacement_ready 23:33:14.145711068
+replacement_labels {"app":"kusari-agent","pod-template-hash":"59679655c4","signalloom.ai/agent":"true"}
+observation_end 23:33:59.178840364

@@ -1,0 +1,9 @@
+api_ip 172.18.0.9 veth vethf80a9cbf
+precheck 23:57:04.992135539 cgroup=populated 1 frozen 1  drops=
+partition_insert_bidirectional 23:57:05.315775824
+probe_B_to_api 000FAIL
+labels_removed_via_api 23:57:07.769327498
+during_partition_check 23:57:52.884766214 cgroup=populated 1 frozen 1  drops= node_ready=True
+rule_counters:  187 67267 DROP tcp -- * * 0.0.0.0/0 172.18.0.9 tcp dpt:6443| 38 51216 DROP tcp -- * * 172.18.0.9 0.0.0.0/0 tcp spt:6443|
+heal 23:57:53.072317751
+post_heal_check 23:58:08.224597865 cgroup=populated 1 frozen 0  drops=0

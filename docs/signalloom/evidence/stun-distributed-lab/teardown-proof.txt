@@ -1,0 +1,19 @@
+teardown_start 23:46:15.204430468
+Deleting cluster "osramp-dist" ...
+Deleted nodes: ["osramp-dist-worker2" "osramp-dist-control-plane" "osramp-dist-worker"]
+teardown_end 23:46:17.182224471
+$ kind get clusters
+osramp
+osramp-scaffold
+$ docker ps -a --filter name=osramp-dist -q | wc -l
+0
+$ kubectl config get-contexts -o name
+arn:aws:eks:eu-west-2:509731522260:cluster/flux-d2
+kind-260163f3483d835c7401ed768861a9d9
+kind-330b5940
+kind-ai-sec-arch
+kind-b81de499
+kind-osramp
+kind-osramp-scaffold
+kubernetes-admin@kubernetes
+current-context: kind-osramp

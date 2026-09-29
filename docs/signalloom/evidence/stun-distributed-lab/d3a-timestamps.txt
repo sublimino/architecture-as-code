@@ -1,0 +1,4 @@
+annotate_deploy 23:34:12.076958174
+pod_annotations 
+pod_labels {"app":"kusari-agent","pod-template-hash":"59679655c4","signalloom.ai/agent":"true"}
+observation_end 23:34:52.194654903

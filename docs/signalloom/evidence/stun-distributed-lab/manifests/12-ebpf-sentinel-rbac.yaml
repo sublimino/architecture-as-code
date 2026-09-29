@@ -1,0 +1,74 @@
+# eBPF Stun Sentinel RBAC — the DaemonSet that monitors agent pods for
+# policy violations and triggers the stun sequence.
+#
+# The sentinel needs:
+#   - PATCH on pods (to set signalloom.ai/state=stunned)
+#   - GET/LIST on pods (to discover agent pods by label)
+#   - GET on nodes (to read cgroup paths for eBPF attachment)
+#   - CREATE on events (to emit Kubernetes events on stun actions)
+#
+# This is deliberately scoped to fe-signalloom-agents only — the sentinel
+# has no business touching pods in other namespaces.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: stun-sentinel
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/part-of: signalloom-swarm
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: stun-sentinel
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/part-of: signalloom-swarm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: stun-sentinel
+subjects:
+  - kind: ServiceAccount
+    name: signalloom-stun-sentinel
+    namespace: fe-signalloom-agents
+---
+# Cluster-scoped: the sentinel reads node cgroup paths for eBPF program
+# attachment points. This is read-only and cannot be namespace-scoped.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: stun-sentinel-node-reader
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/part-of: signalloom-swarm
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: stun-sentinel-node-reader
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/part-of: signalloom-swarm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: stun-sentinel-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: signalloom-stun-sentinel
+    namespace: fe-signalloom-agents

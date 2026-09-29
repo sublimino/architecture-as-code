@@ -1,0 +1,8 @@
+veth vethf80a9cbf
+precheck 23:55:22.513568638 cgroup=populated 1 frozen 1  drops=2
+partition_insert_bidirectional 23:55:22.608377349
+probe_B_to_api 000FAIL
+labels_removed_via_api 23:55:24.695181501
+during_partition_check 23:56:09.740805322 cgroup=populated 1 frozen 0  drops= node_ready=True
+heal 23:56:09.876470388
+post_heal_check 23:56:20.015341281 cgroup=populated 1 frozen 0  drops=0

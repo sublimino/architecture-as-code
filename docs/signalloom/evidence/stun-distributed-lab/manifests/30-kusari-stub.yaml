@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kusari-agent
+  namespace: fe-signalloom-agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kusari-agent}
+  template:
+    metadata:
+      labels:
+        app: kusari-agent
+        signalloom.ai/agent: "true"
+    spec:
+      terminationGracePeriodSeconds: 2
+      containers:
+        - name: agent
+          image: kusari-agent:latest
+          imagePullPolicy: Never
+          env:
+            - {name: QUOTE_URL, value: "http://127.0.0.1:1/unreachable"}
+            - {name: QUOTE_TIMEOUT, value: "200ms"}
+          ports: [{containerPort: 8080, name: http}]
+          # readiness only: no livenessProbe, so the kubelet never restarts a frozen container
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5, failureThreshold: 1, timeoutSeconds: 1}
+          securityContext: {readOnlyRootFilesystem: true, allowPrivilegeEscalation: false}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]

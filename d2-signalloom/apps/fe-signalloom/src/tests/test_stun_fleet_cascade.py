@@ -316,7 +316,7 @@ def test_the_fake_proxy_is_no_longer_called(client: TestClient) -> None:
 
 @pytest.mark.parametrize(
     "caller_id",
-    ["agent-cardvault", "agent-kusari-agent", "cardvault", "kusari-agent", "cardvault-7d9f8b6c4-x2k9q"],
+    ["agent-cardvault", "agent-kusari-agent", "cardvault", "kusari-agent", "agent-kusari-5685ff664b-46q85"],
 )
 def test_the_fleet_id_is_the_callers_id_unchanged(caller_id: str) -> None:
     """fleet-manager resolves pod names and stems itself; fe does not rewrite."""
@@ -324,9 +324,9 @@ def test_the_fleet_id_is_the_callers_id_unchanged(caller_id: str) -> None:
 
 
 def test_a_pod_name_reaches_fleet_manager_unchanged(client: TestClient) -> None:
-    """The dashboard posts pod names. They used to gain an ``agent-`` prefix
-    here, turning a name fleet-manager can resolve into one it cannot."""
-    pod = "cardvault-7d9f8b6c4-x2k9q"
+    """The dashboard posts real pod names; fleet-manager resolves them through
+    the pod's agent-name label. fe must not rewrite them on the way."""
+    pod = "agent-kusari-5685ff664b-46q85"
     with respx.mock() as mock:
         route = mock.post(_stun_url(pod)).mock(
             return_value=httpx.Response(200, json=_cascade(pod, "contained", CONTAINED_PLANES)),
@@ -551,20 +551,116 @@ def test_a_contained_summary_with_a_failed_freeze_is_still_a_502(client: TestCli
     assert _stun_rows(client)[0]["event_type"] == "agent.stun_failed"
 
 
-def test_one_failed_freeze_among_several_targets_fails_closed(client: TestClient) -> None:
+TARGET = "agent-cardvault"
+DOWNSTREAM = "agent-ledger"
+
+
+def _multi_target_cascade(overall: str, planes: list[dict[str, Any]]) -> dict[str, Any]:
+    body = _cascade(TARGET, overall, planes)
+    body["affected_agents"] = [TARGET, DOWNSTREAM]
+    body["targets"] = [_target(TARGET), _target(DOWNSTREAM, "partial")]
+    return body
+
+
+def test_a_downstream_freeze_failure_is_partial_not_a_502(client: TestClient) -> None:
+    """Success is the TARGET's freeze. A cascade target further down the DAG
+    that failed to freeze is a partial containment, reported, not a failure."""
     planes = [
-        _plane("freeze", "contained"),
-        _plane("freeze", "failed", error="second target freeze timed out"),
+        _plane("freeze", "contained", details={"agent_id": TARGET, "pod": "agent-cardvault-bb57657-jlf8w"}),
+        _plane("freeze", "failed", error="downstream freeze timed out", details={"agent_id": DOWNSTREAM}),
         _plane("bao", "contained"),
     ]
     with respx.mock() as mock:
-        mock.post(_stun_url("agent-cardvault")).mock(
-            return_value=httpx.Response(207, json=_cascade("agent-cardvault", "partial", planes)),
+        mock.post(_stun_url(TARGET)).mock(
+            return_value=httpx.Response(207, json=_multi_target_cascade("partial", planes)),
         )
-        response = _post_stun(client, "agent-cardvault")
+        response = _post_stun(client, TARGET)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["overall_outcome"] == "partial"
+    assert ("freeze", "failed", "downstream freeze timed out") in [
+        (p["plane"], p["outcome"], p["error"]) for p in body["planes"]
+    ]
+    assert body["event"]["event_type"] == "agent.stunned"
+    assert body["sentinel_telemetry"]["agent_id"] == TARGET, "telemetry is the target's freeze, not the first one"
+
+
+def test_a_contained_summary_with_a_failed_downstream_freeze_reads_partial(client: TestClient) -> None:
+    planes = [
+        _plane("freeze", "contained", details={"agent_id": TARGET}),
+        _plane("freeze", "failed", error="downstream freeze timed out", details={"agent_id": DOWNSTREAM}),
+    ]
+    with respx.mock() as mock:
+        mock.post(_stun_url(TARGET)).mock(
+            return_value=httpx.Response(200, json=_multi_target_cascade("contained", planes)),
+        )
+        response = _post_stun(client, TARGET)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["overall_outcome"] == "partial"
+    assert _stun_rows(client)[0]["detail"]["overall_outcome"] == "partial"
+
+
+def test_the_targets_failed_freeze_is_a_502_even_if_downstream_froze(client: TestClient) -> None:
+    planes = [
+        _plane("freeze", "contained", details={"agent_id": DOWNSTREAM}),
+        _plane("freeze", "failed", error="target freezer write EPERM", details={"agent_id": TARGET}),
+    ]
+    with respx.mock() as mock:
+        mock.post(_stun_url(TARGET)).mock(
+            return_value=httpx.Response(207, json=_multi_target_cascade("partial", planes)),
+        )
+        response = _post_stun(client, TARGET)
 
     assert response.status_code == 502, response.text
-    assert "second target freeze timed out" in response.json()["error"]["message"]
+    assert "target freezer write EPERM" in response.json()["error"]["message"]
+    assert _stun_rows(client)[0]["event_type"] == "agent.stun_failed"
+
+
+def test_the_targets_freeze_is_matched_by_pod_when_the_caller_sent_a_pod_name(client: TestClient) -> None:
+    pod = "agent-kusari-5685ff664b-46q85"
+    planes = [
+        _plane("freeze", "failed", error="downstream freeze timed out", details={"pod": "agent-ledger-7f7c9d9b8-q2x4z"}),
+        _plane("freeze", "contained", details={"pod": pod, "cgroup_path": "/sys/fs/cgroup/kusari"}),
+    ]
+    body = _cascade("agent-kusari-agent", "partial", planes)
+    body["targets"] = [_target("agent-kusari-agent"), _target(DOWNSTREAM, "partial")]
+    with respx.mock() as mock:
+        mock.post(_stun_url(pod)).mock(return_value=httpx.Response(207, json=body))
+        response = _post_stun(client, pod)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["sentinel_telemetry"]["pod"] == pod
+
+
+def test_multiple_targets_with_no_freeze_plane_for_the_target_fail_closed(client: TestClient) -> None:
+    planes = [
+        _plane("freeze", "contained", details={"agent_id": DOWNSTREAM}),
+        _plane("bao", "contained"),
+    ]
+    with respx.mock() as mock:
+        mock.post(_stun_url(TARGET)).mock(
+            return_value=httpx.Response(200, json=_multi_target_cascade("contained", planes)),
+        )
+        response = _post_stun(client, TARGET)
+
+    assert response.status_code == 502, response.text
+    assert "no freeze plane" in response.json()["error"]["message"]
+
+
+def test_unattributed_freeze_planes_among_several_targets_fail_closed(client: TestClient) -> None:
+    """Two freezes that do not say whose they are cannot be assigned to the
+    target, so neither can prove it froze."""
+    planes = [_plane("freeze", "contained"), _plane("freeze", "contained")]
+    with respx.mock() as mock:
+        mock.post(_stun_url(TARGET)).mock(
+            return_value=httpx.Response(200, json=_multi_target_cascade("contained", planes)),
+        )
+        response = _post_stun(client, TARGET)
+
+    assert response.status_code == 502, response.text
+    assert "no freeze plane" in response.json()["error"]["message"]
 
 
 @pytest.mark.parametrize(
@@ -670,12 +766,12 @@ def test_an_unknown_agent_is_recorded_then_answered_404(client: TestClient) -> N
 
 def test_a_404_names_the_ids_fleet_manager_tried(client: TestClient) -> None:
     """fleet-manager's real 404 body: which candidate ids it looked up."""
-    tried = ["cardvault-7d9f8b6c4-x2k9q", "agent-cardvault-7d9f8b6c4-x2k9q", "agent-cardvault"]
+    tried = ["agent-kusari-5685ff664b-46q85", "fe-signalloom-agents/agent-kusari-5685ff664b-46q85", "agent-kusari"]
     with respx.mock() as mock:
-        mock.post(_stun_url("cardvault-7d9f8b6c4-x2k9q")).mock(
+        mock.post(_stun_url("agent-kusari-5685ff664b-46q85")).mock(
             return_value=httpx.Response(404, json={"error": "unknown agent", "tried": tried}),
         )
-        response = _post_stun(client, "cardvault-7d9f8b6c4-x2k9q")
+        response = _post_stun(client, "agent-kusari-5685ff664b-46q85")
 
     assert response.status_code == 404, response.text
     message = response.json()["error"]["message"]
@@ -806,12 +902,33 @@ def test_an_empty_fleet_manager_url_is_simulated_and_says_so(
     assert body["fleet_manager_status"] is None
     assert body["planes"] == []
     assert body["proxy"]["observed"] is False
-    detail = _stun_rows(client)[0]["detail"]
+    assert body["to_state"] == "unchanged"
+    assert "simulated" in body["notice"] and "not isolated" in body["notice"]
+    # No fleet-manager was asked, so there is no telemetry source at all.
+    assert body["sentinel_telemetry"] is None
+    assert body["event"]["event_type"] == "agent.stun_simulated"
+    rows = client.get("/api/audit", params={"type": "agent.stun_simulated"}, headers=_bearer()).json()["events"]
+    assert len(rows) == 1
+    detail = rows[0]["detail"]
     assert detail["overall_outcome"] == "simulated"
     assert detail["reason"] == REASON
     assert detail["planes"] == []
-    # No fleet-manager was asked, so there is no telemetry source at all.
-    assert body["sentinel_telemetry"] is None
+    assert detail["to_state"] == "unchanged"
+    assert _stun_rows(client) == [], "a simulated stun is neither a stun nor a failed one"
+
+
+def test_a_simulated_stun_never_suspends_a_registry_agent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing that did not happen may change lifecycle state."""
+    monkeypatch.setattr(api_compat, "FLEET_MANAGER_URL", "")
+    response = _post_stun(client, REGISTRY_AGENT)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["from_state"] == "active"
+    assert response.json()["to_state"] == "unchanged"
+    agent = client.get(f"/api/agents/{REGISTRY_AGENT}", headers=_bearer()).json()
+    assert agent["lifecycle_state"].lower() != "suspended"
 
 
 # ---------------------------------------------------------------------------

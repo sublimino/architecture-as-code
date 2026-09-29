@@ -120,7 +120,7 @@ function ViolationBadge({ status }: { status: string }) {
 }
 
 const EVENT_TYPES = [
-  'agent.created', 'agent.transitioned', 'agent.stunned', 'agent.stun_failed',
+  'agent.created', 'agent.transitioned', 'agent.stunned', 'agent.stun_failed', 'agent.stun_simulated',
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged', 'compliance.reassess_requested',
   // Legacy vocabulary from migration 007, retained for historical rows.

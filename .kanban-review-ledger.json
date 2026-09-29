@@ -3463,5 +3463,25 @@
     "reason": "SLMS-P2-3 verified: CEL Policy Editor UI, regulatory framework schemas (CRA, FINOS, DORA, NIS2), Go tests and Vitest suites passed",
     "test_evidence_found": false,
     "unmet_deliverables": []
+  },
+  "9663f": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "9663f",
+        "reviewed_at": "2026-09-29T05:04:19.238Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "SLMS-P2-4 verified: posture score arithmetic fix in api_compat.py, ComplianceDrawer drill-down UI in Compliance.tsx, vitest and pytest passed, zero em-dashes"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "9663f",
+    "reviewed_at": "2026-09-29T05:04:19.238Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "SLMS-P2-4 verified: posture score arithmetic fix in api_compat.py, ComplianceDrawer drill-down UI in Compliance.tsx, vitest and pytest passed, zero em-dashes"
   }
 }

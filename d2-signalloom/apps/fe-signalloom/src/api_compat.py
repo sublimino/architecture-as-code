@@ -7973,11 +7973,13 @@ def install_compatibility_api(app: FastAPI) -> None:
     )
     from host_credential import host_router, host_compat_router, HostCredentialScopeMiddleware
     from routers.policy_engine import router as policy_engine_router
+    from routers.federation import router as federation_router
 
     app.add_middleware(HostCredentialScopeMiddleware)
     app.include_router(router, dependencies=[Depends(enforce_strict_operator_tenant)])
     app.include_router(operator_identity_router)
     app.include_router(policy_engine_router)
+    app.include_router(federation_router)
     app.include_router(host_router)
     app.include_router(host_compat_router)
     app.include_router(host_enrollment_router)

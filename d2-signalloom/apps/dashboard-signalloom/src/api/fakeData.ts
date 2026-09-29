@@ -45,6 +45,29 @@ import { demoActivityEvents, recordDemoActivity } from './demoActivity'
 import { simulatedAgentIdentity } from './supercredTypes'
 import { FAKE_CODING_AGENT_TELEMETRY, FAKE_CODING_AGENT_AGGREGATE } from './fakeCodingAgentData'
 import type { FleetTopology } from './fleetApi'
+import {
+  TRUST_ZONES,
+  FEDERATIONS,
+  FEDERATED_SERVICES,
+  POLICIES,
+  SPIFFE_IDS,
+  FEDERATION_EVENTS,
+  SDK_SNIPPET,
+  FEDERATION_SUMMARY,
+  FEDERATION_ROUTES,
+} from './fakeFederationData'
+
+export {
+  TRUST_ZONES,
+  FEDERATIONS,
+  FEDERATED_SERVICES,
+  POLICIES,
+  SPIFFE_IDS,
+  FEDERATION_EVENTS,
+  SDK_SNIPPET,
+  FEDERATION_SUMMARY,
+  FEDERATION_ROUTES,
+}
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
@@ -1399,6 +1422,8 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/v1\/telemetry\/coding-agents$/), data: () => ({ status: 'ingested', session_id: 'demo-session', duplicate: false }) },
   // fleet manager routes (Surface 12: Fleet Demo offline fallback)
   ...FLEET_ROUTES,
+  // federated services routes (Surface 11 / SLMS-P4-1)
+  ...FEDERATION_ROUTES,
 ]
 
 /** Number of distinct demo routes. Asserted by vitest to match client surface. */

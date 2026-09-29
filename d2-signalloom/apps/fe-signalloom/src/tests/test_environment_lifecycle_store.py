@@ -11,7 +11,7 @@ from environment_teardown_contract import ORDERED_STAGES
 
 
 NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
-HASH = "6f82ad81"
+HASH = "a0314bec"
 
 
 def async_test(function):
@@ -24,7 +24,7 @@ def async_test(function):
 def draining_row() -> LifecycleRow:
     return LifecycleRow(
         customer_hash=HASH,
-        company_name="kurasi",
+        company_name="kusari",
         state="draining",
         created_at=NOW - timedelta(hours=1),
         last_heartbeat_at=NOW - timedelta(minutes=30),

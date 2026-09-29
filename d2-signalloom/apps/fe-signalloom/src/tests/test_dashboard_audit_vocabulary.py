@@ -82,6 +82,17 @@ LEGACY_FILTER_ONLY_EVENT_TYPES = {
     "user_provisioned",
     "directory_connected",
     "discovery_enroll_requested",
+    # EAP scenario and environment lifecycle events permitted by 045_eap_audit_event_types.sql
+    "eap_environment.lease_extended",
+    "eap_environment.provisioned",
+    "eap_environment.reaping_triggered",
+    "eap_environment.registered",
+    "eap_environment.teardown_requested",
+    "eap_environment.ttl_extended",
+    "eap_environment.webhook_triggered",
+    "eap_scenario.executed",
+    "eap_tenant.isolation_provisioned",
+    "eap_tenant.isolation_torn_down",
 }
 
 

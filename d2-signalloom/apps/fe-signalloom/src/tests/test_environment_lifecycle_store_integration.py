@@ -55,7 +55,7 @@ if pytest_asyncio is not None:
 
 def _row(now):
     return LifecycleRow(
-        customer_hash="6f82ad81", company_name="kurasi", state="draining",
+        customer_hash="a0314bec", company_name="kusari", state="draining",
         created_at=now - timedelta(hours=1), last_heartbeat_at=now,
         last_activity_at=now, expires_at=now - timedelta(minutes=5),
         max_lifetime_expires_at=now + timedelta(hours=7),
@@ -113,7 +113,7 @@ async def test_postgres_rejects_expired_and_stale_fenced_claim_mutations(lifecyc
     # Attempt mutation with stale fencing token
     with pytest.raises(ValueError, match="fencing"):
         await store.checkpoint_stage(
-            "6f82ad81", "worker-a", claim.teardown_id, claim.claim_fencing_token + 999,
+            "a0314bec", "worker-a", claim.teardown_id, claim.claim_fencing_token + 999,
             ORDERED_STAGES[0].value, expected_completed=(), event={},
         )
 
@@ -121,7 +121,7 @@ async def test_postgres_rejects_expired_and_stale_fenced_claim_mutations(lifecyc
     await __import__("asyncio").sleep(2.1)
     with pytest.raises(ValueError, match="expired"):
         await store.checkpoint_stage(
-            "6f82ad81", "worker-a", claim.teardown_id, claim.claim_fencing_token,
+            "a0314bec", "worker-a", claim.teardown_id, claim.claim_fencing_token,
             ORDERED_STAGES[0].value, expected_completed=(), event={},
         )
 
@@ -348,7 +348,7 @@ asyncio.run(main())
 @async_test
 async def test_restart_recovery_resumes_crashed_process_from_durable_checkpoint(lifecycle_database, crash_at):
     dsn, pool = lifecycle_database
-    customer_hash = "6f82ad81"
+    customer_hash = "a0314bec"
     now = datetime.now(timezone.utc)
     await PostgresLifecycleStore(pool).create(_due_row(customer_hash, now), {})
 
@@ -403,7 +403,7 @@ async def test_restart_recovery_resumes_crashed_process_from_durable_checkpoint(
 @async_test
 async def test_transactional_outbox_emits_one_terminal_event_when_two_managers_race(lifecycle_database):
     dsn, pool = lifecycle_database
-    customer_hash = "6f82ad81"
+    customer_hash = "a0314bec"
     now = datetime.now(timezone.utc)
     await PostgresLifecycleStore(pool).create(_due_row(customer_hash, now), {})
     executor = RecordingExecutor()
@@ -435,7 +435,7 @@ async def test_transactional_outbox_emits_one_terminal_event_when_two_managers_r
 @async_test
 async def test_transactional_outbox_emits_one_terminal_event_when_stale_worker_completes_after_takeover(lifecycle_database):
     dsn, pool = lifecycle_database
-    customer_hash = "6f82ad81"
+    customer_hash = "a0314bec"
     now = datetime.now(timezone.utc)
     store = PostgresLifecycleStore(pool)
     await store.create(_due_row(customer_hash, now), {})
@@ -485,7 +485,7 @@ async def test_transactional_outbox_emits_one_terminal_event_when_stale_worker_c
 @async_test
 async def test_transactional_outbox_rolls_back_terminal_state_when_outbox_insert_fails(lifecycle_database):
     dsn, pool = lifecycle_database
-    customer_hash = "6f82ad81"
+    customer_hash = "a0314bec"
     now = datetime.now(timezone.utc)
     store = PostgresLifecycleStore(pool)
     await store.create(_due_row(customer_hash, now), {})

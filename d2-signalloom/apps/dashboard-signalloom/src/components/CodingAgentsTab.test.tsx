@@ -89,4 +89,21 @@ describe('CodingAgentsTab', () => {
 
     expect(screen.getByText(/No coding agents found/i)).toBeInTheDocument()
   })
+
+  it('renders exact 404 error banner and retries on affordance click', async () => {
+    mockList.mockRejectedValueOnce(new Error('Request failed with status code 404'))
+    render(<CodingAgentsTab />)
+
+    const errorEl = await screen.findByTestId('coding-agents-load-state')
+    expect(errorEl).toBeInTheDocument()
+    expect(errorEl.textContent).toMatch(/Failed (just now|\d+s ago):Request failed with status code 404\s*Retry/)
+
+    mockList.mockResolvedValueOnce(FAKE_CODING_AGENT_TELEMETRY)
+    const retryBtn = screen.getByRole('button', { name: /Retry/i })
+    fireEvent.click(retryBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('claude')).toBeInTheDocument()
+    })
+  })
 })

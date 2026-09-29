@@ -49,6 +49,26 @@ export const RANK_ORDER: Record<string, number> = {
  * Computes non-overlapping positions based on hierarchy tiers (platform -> services -> tenants -> projects -> agents -> external).
  */
 export function layoutNodes(nodes: TrustNode[], _edges: TrustEdge[] = []): TrustNode[] {
+  // If all nodes have explicit non-colliding coordinates (e.g. curated demo fixture), preserve them
+  const coordSet = new Set<string>()
+  let hasCollisionOrMissing = false
+  for (const n of nodes) {
+    if (n.x === undefined || n.y === undefined) {
+      hasCollisionOrMissing = true
+      break
+    }
+    const key = `${n.x},${n.y}`
+    if (coordSet.has(key)) {
+      hasCollisionOrMissing = true
+      break
+    }
+    coordSet.add(key)
+  }
+
+  if (!hasCollisionOrMissing && nodes.length > 0) {
+    return nodes
+  }
+
   // Group nodes by hierarchy rank
   const groups = new Map<string, TrustNode[]>()
   for (const node of nodes) {
@@ -60,6 +80,8 @@ export function layoutNodes(nodes: TrustNode[], _edges: TrustEdge[] = []): Trust
   const result: TrustNode[] = []
   const centerX = 550
   const spacingX = 260
+  const maxCols = 4
+  const rowSpacingY = 130
 
   // Layout each rank group deterministically
   for (const [kind, groupNodes] of groups.entries()) {
@@ -71,14 +93,15 @@ export function layoutNodes(nodes: TrustNode[], _edges: TrustEdge[] = []): Trust
     })
 
     const total = sorted.length
-    const startX = centerX - ((total - 1) * spacingX) / 2
     const targetY = RANK_Y[kind] ?? 530
 
     sorted.forEach((node, index) => {
-      // If node already has explicit layout coordinates from contract fixture and total == 1,
-      // preserve it if valid, otherwise compute deterministic grid spacing
-      const computedX = total === 1 && node.x ? node.x : Math.round(startX + index * spacingX)
-      const computedY = node.y ? node.y : targetY
+      const col = index % maxCols
+      const row = Math.floor(index / maxCols)
+      const rowTotal = Math.min(maxCols, total - row * maxCols)
+      const rowStartX = centerX - ((rowTotal - 1) * spacingX) / 2
+      const computedX = Math.round(rowStartX + col * spacingX)
+      const computedY = targetY + row * rowSpacingY
 
       result.push({
         ...node,

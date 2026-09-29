@@ -22,7 +22,7 @@ const CADENCE_OPTIONS = [
 
 // Screen 4 of the onboarding wizard (86cajpvar QA item 4, Slice 1b). Cadence
 // applies to connectors created from this point forward (see
-// connectors.py::create_connector) — it's not retroactive. Alert email falls
+// connectors.py::create_connector): it's not retroactive. Alert email falls
 // back to the tenant's contact email server-side if left blank here.
 export default function PreferencesStep({ initialValues, submitting, error, onSubmit, onBack }: Props) {
   const [cadence, setCadence] = useState(initialValues.preferred_scan_cadence_hours)
@@ -72,7 +72,7 @@ export default function PreferencesStep({ initialValues, submitting, error, onSu
               ))}
             </select>
             <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-              Applies to providers you connect from here on — doesn't change providers you've already connected.
+              Applies to providers you connect from here on (doesn't change providers you've already connected).
             </p>
           </div>
 

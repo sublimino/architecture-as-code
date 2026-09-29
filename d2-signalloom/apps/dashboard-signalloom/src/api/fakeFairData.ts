@@ -4,8 +4,8 @@
  * ─── Provenance of these numbers ───────────────────────────────────────────
  *
  * The base figures are lifted verbatim from the repo's own checked-in riskctl
- * output, `risk/out/baseline-acme-olly-2.1.0.json` — a real 200,000-iteration
- * run at seed 20260801 with a 0.15 risk load. `fair.test.ts` reads that same
+ * output, `risk/out/baseline-acme-olly-2.1.0.json` (a real 200,000-iteration
+ * run at seed 20260801 with a 0.15 risk load). `fair.test.ts` reads that same
  * file from disk and asserts the fixture agrees with it, so this file cannot
  * drift away from the tool without a red test.
  *
@@ -21,7 +21,7 @@
  * Rule SP-3: with the toggle ON, every screen renders from fixtures and none of
  * them may fail. req() throws a 501 for a path with no demo route, so omitting
  * these routes would make the risk widget the one panel that breaks the offline
- * presentation — the exact opposite of what the toggle is for.
+ * presentation: the exact opposite of what the toggle is for.
  */
 
 import type { CurrencyCode } from '../money/currency'
@@ -86,7 +86,7 @@ const AGENT_PROFILES: Record<string, { factor: number; tier: string }> = {
   'agent-reporter': { factor: 0.37, tier: 'monitored' },
 }
 
-/** Unknown ids still get a figure — the demo must never show a broken panel. */
+/** Unknown ids still get a figure: the demo must never show a broken panel. */
 const DEFAULT_PROFILE = { factor: 0.75, tier: 'monitored' }
 
 function profileFor(agentId: string) {
@@ -157,7 +157,7 @@ export function fakeFleetRisk() {
  *
  * The `(?:\/v1)?` is not decoration: FAIR_API_PREFIX is configurable
  * (VITE_FAIR_API_PREFIX), and a deployment that drops the version segment must
- * not silently lose its demo fixtures — that would present as "demo mode is
+ * not silently lose its demo fixtures: that would present as "demo mode is
  * broken on this build" long after the values change that caused it.
  *
  * Fleet is listed before the agent route because `/risk/fleet` would otherwise

@@ -1,14 +1,14 @@
 // The currency vocabulary, and the one place a new currency gets added.
 //
 // Scope note: this file owns the SET of currencies and the per-user default.
-// It deliberately owns no arithmetic — conversion lives in convert.ts behind
+// It deliberately owns no arithmetic: conversion lives in convert.ts behind
 // the rate table in rates.ts, because the rate table is checked in with an
 // effective date and the figures it produces have to be defensible in a
 // regulatory review. Anything that multiplies a number by a rate belongs
 // there, not here.
 
 /**
- * ISO 4217 alphabetic code — three uppercase letters.
+ * ISO 4217 alphabetic code: three uppercase letters.
  *
  * Kept as a closed union rather than a bare `string` because `Intl` does NOT
  * validate: `new Intl.NumberFormat('en-GB', {currency: 'ZZZ'}).format(1)`
@@ -25,7 +25,7 @@ export type CurrencyCode =
  * Selection order in the Settings dropdown.
  *
  * The four the product actually reports in lead; the rest follow alphabetically.
- * This list must stay a subset of the pairs matrix in risk/fx/rates.json — a
+ * This list must stay a subset of the pairs matrix in risk/fx/rates.json: a
  * currency offered here with no rate renders every figure as Unavailable, which
  * is honest but useless. ratesTable.staleness.test.ts asserts the containment.
  */
@@ -71,7 +71,7 @@ export function minorUnits(currency: CurrencyCode): number {
 
 /**
  * What a user sees before they have ever chosen, which is also what a user with
- * no `user_preferences` row at all resolves to — and that is every user until
+ * no `user_preferences` row at all resolves to, and that is every user until
  * the first time they change something.
  *
  * USD despite the source data being GBP: this is a deliberate product call, and

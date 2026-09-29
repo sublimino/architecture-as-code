@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { LONG_WAIT_MS, useLoadTimes, type LoadTimesSetting } from '../api/loadTimes'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PIXEL LOADER — for work that takes long enough that a spinner stops helping.
+// PIXEL LOADER: for work that takes long enough that a spinner stops helping.
 //
 // A demo step against a live cluster runs for minutes. A spinner says "still
 // going" and nothing else; after ninety seconds the instructor cannot tell a
@@ -16,11 +16,11 @@ import { LONG_WAIT_MS, useLoadTimes, type LoadTimesSetting } from '../api/loadTi
 // to keep quiet when the host is already a live region, and `labelTestId` so
 // the host keeps its own testid convention.
 //
-// THE DEFAULT VARIANT IS `Loom` — the brand mark. That is a product decision,
+// THE DEFAULT VARIANT IS `Loom`: the brand mark. That is a product decision,
 // not an implementation detail: the loader is the thing users stare at while
 // they wait, so it should be the Signal Loom diamond rather than an anonymous
 // pixel grid. No caller in the app passes `variant`, so this default is what
-// every loading surface renders — LoadingState's twenty-odd pages, Instructor
+// every loading surface renders: LoadingState's twenty-odd pages, Instructor
 // Controls, and the in-button loaders. `Drive`, `Dots` and `Orbit` are
 // unchanged and still available by asking for them. There is a test pinning
 // the default so it cannot be flipped back by accident.
@@ -28,14 +28,14 @@ import { LONG_WAIT_MS, useLoadTimes, type LoadTimesSetting } from '../api/loadTi
 // Variants (design intent, preserved from the source):
 //   Drive  square cells, chevron wavefront driving right. The 650ms cycle is
 //          deliberately SHORTER than the sweep across the grid, so two fronts
-//          are in flight at once — that overlap is the whole look.
+//          are in flight at once: that overlap is the whole look.
 //   Dots   the same wavefront with circular cells.
 //   Orbit  a comet lapping the perimeter on 950ms; the centre cell stays dark.
-//   Loom   the brand mark, woven. Not a 3x3 grid — see LOOM_BARS below.
+//   Loom   the brand mark, woven. Not a 3x3 grid: see LOOM_BARS below.
 //
 // PORTING NOTE. The source was a Next.js + Tailwind component and none of it
 // ran here. `"use client"` is a Next directive with no meaning under Vite.
-// This app has no Tailwind — no config, no PostCSS step, no dependency — so
+// This app has no Tailwind (no config, no PostCSS step, no dependency), so
 // every utility class (`grid-cols-[repeat(3,4px)]`, `size-[4px]`, `bg-ink`,
 // `tabular-nums`, …) was inert text on an attribute. And `--ink` / `--ink-3`
 // are Beautiful-UI tokens that no theme here declares; referencing them would
@@ -45,7 +45,7 @@ import { LONG_WAIT_MS, useLoadTimes, type LoadTimesSetting } from '../api/loadTi
 // tokens: --ink → --text, --ink-3 → --muted. src/styles/cssVarUsage.test.ts
 // enforces that; do not reach for a token that is not in CSS_VAR_NAMES.
 //
-// THE ELAPSED FIGURE IS A USER SETTING — `all` / `long` / `none`, defaulting
+// THE ELAPSED FIGURE IS A USER SETTING: `all` / `long` / `none`, defaulting
 // to `all`, read from api/loadTimes.ts. THE LABEL IS NOT. In every mode the
 // wording next to the mark is rendered; only the figure is conditional. An
 // unlabelled spinner is the exact failure this component was built to escape,
@@ -65,7 +65,7 @@ export type PixelLoaderVariant = 'Drive' | 'Dots' | 'Orbit' | 'Loom'
 
 /**
  * The three that are a 3x3 grid of cells. `Loom` is not, so it is not in
- * PATTERNS — see LOOM_BARS. Branching beats forcing a diamond of eight bars
+ * PATTERNS: see LOOM_BARS. Branching beats forcing a diamond of eight bars
  * into a shape that means "nine cells and a delay each".
  */
 type GridVariant = Exclude<PixelLoaderVariant, 'Loom'>
@@ -95,7 +95,7 @@ const PATTERNS: Record<
 
 // ─── Loom ────────────────────────────────────────────────────────────────────
 //
-// The brand mark is a diamond — a square rotated 45° — woven from interlaced
+// The brand mark is a diamond (a square rotated 45°) woven from interlaced
 // bars, with a hollow square at each of the four corners and one at the
 // centre. Full-size it is roughly two dozen bars crossing over and under each
 // other. That does not survive being drawn at 15px, and it is not what this
@@ -104,14 +104,14 @@ const PATTERNS: Record<
 //
 // The reduction here is FOUR bars in each direction, evenly spaced. The outer
 // bar of each direction is an edge of the diamond, so the four outermost bars
-// ARE the frame — no separate outline element, the frame is just the weave's
+// ARE the frame: no separate outline element, the frame is just the weave's
 // selvedge. The two interior bars per direction cross to make a 3x3 lattice,
 // which leaves hollow cells at the four corners and at the centre: the same
 // five holes the real mark has, and a pleasing echo of the 3x3 grid the other
 // three variants draw.
 //
 // Interlacing is real, not implied. At crossing (i, j) the warp passes over
-// iff i + j is even — a plain weave. A bar goes UNDER by having a gap in it at
+// iff i + j is even: a plain weave. A bar goes UNDER by having a gap in it at
 // that crossing, expressed as a stroke-dasharray, so whatever is behind shows
 // through. That matters more than it sounds: the alternative (drawing a
 // background-coloured casing under the bar on top) needs to know the page
@@ -123,7 +123,7 @@ const PATTERNS: Record<
 // all four. Eight bars, one hole each on the inner four.
 //
 // Colour is the brand gradient rather than --text, because the gradient is
-// most of what makes the mark recognisable — a monochrome diamond is just a
+// most of what makes the mark recognisable: a monochrome diamond is just a
 // diamond. Values sampled off public/brand/signal-loom-logo.png.
 
 /** Sampled from the shipped mark: left vertex, top vertex, right vertex. */
@@ -157,7 +157,7 @@ const LOOM_DASH_FAR = `13 ${LOOM_GAP} 5`
  * chops each interior bar into two ~1.4px stubs that antialias to grey fog and
  * take the diamond's silhouette down with them. Rasterised at 1x and magnified,
  * the woven mark at 11px is a coloured smudge while the same mark with solid
- * bars still reads as a lattice — measured, not assumed.
+ * bars still reads as a lattice: measured, not assumed.
  *
  * So below the threshold the mark reduces to the diamond outline plus the
  * crossing strokes, which is exactly the reduction the favicon work landed on
@@ -221,7 +221,7 @@ const LOOM_BARS: LoomBar[] = [
 
 /**
  * The mark. Rotation is a group transform rather than a CSS transform on the
- * <svg> so the gradient rotates with it — which is the whole trick for getting
+ * <svg> so the gradient rotates with it, which is the whole trick for getting
  * the brand's left-to-right purple→blue→teal onto a shape whose left-to-right
  * axis is a diagonal in the coordinates the bars are written in. rotate(45)
  * maps the vector (1, −1) onto +x, so a userSpaceOnUse gradient run from the
@@ -231,7 +231,7 @@ const LOOM_BARS: LoomBar[] = [
  * purple at the bottom.
  */
 function LoomMark({ px, frozen }: { px: number; frozen: boolean }) {
-  // Two of these on one page must not share a gradient id — the second
+  // Two of these on one page must not share a gradient id: the second
   // definition would win for both. useId emits colons, which are legal in an
   // HTML id but not in a CSS identifier, so they come out.
   const gradientId = `sl-loom-${useId().replace(/:/g, '')}`
@@ -305,7 +305,7 @@ export type PixelLoaderSize = 'sm' | 'md'
  *
  * `md` is the original and the default: a loader that owns its own line,
  * used by Instructor Controls while a demo phase runs. Every number here is
- * the shipped one and must not drift — that panel is what gets demoed.
+ * the shipped one and must not drift: that panel is what gets demoed.
  *
  * `sm` is for sitting inside a line of 12px text, which is what LoadingState's
  * inline variant is. It scales as a unit rather than just shrinking the grid:
@@ -318,12 +318,12 @@ export type PixelLoaderSize = 'sm' | 'md'
  * fill a box the same way. The grid fills it; the diamond is inscribed in it,
  * touching only the four edge midpoints, so it covers half the area and puts
  * four bars across a 45° span instead of three cells across a straight one. At
- * matched footprints the mark is systematically the smaller, denser drawing —
+ * matched footprints the mark is systematically the smaller, denser drawing,
  * fine when Loom was opt-in, not fine now it is the default.
  *
  * At `md` it stays 15, exactly the grid's footprint: that is the shipped
  * Instructor Controls rendering and it must not move. At `sm` it is 14 rather
- * than 11, which is free — the 12px label's line box measures 14px, so the
+ * than 11, which is free: the 12px label's line box measures 14px, so the
  * loader's height is 14 for any mark up to 14 and only grows at 15. Three more
  * pixels of mark, no reflow. Nothing at `sm` sets a width (the fixed 78/124/144
  * widths in the panels are all `md`), so the extra 3px of width just moves the
@@ -342,8 +342,8 @@ const DIM_OPACITY = 0.15
 const DARK_OPACITY = 0.07
 
 // The keyframes live with the component rather than in global.css. Two
-// reasons: the component stays portable — dropping the file into a page
-// cannot leave it silently motionless because someone forgot the CSS — and
+// reasons: the component stays portable (dropping the file into a page
+// cannot leave it silently motionless because someone forgot the CSS) and
 // global.css is a shared file that concurrent work is editing, so an edit
 // there is a merge conflict waiting to happen for no gain. Names are
 // `sl-` prefixed because the unprefixed `pixel-on` / `shimmer-text` from the
@@ -373,7 +373,7 @@ function readsReducedMotion(): boolean {
   try {
     return window.matchMedia(REDUCED_MOTION_QUERY).matches
   } catch {
-    // No matchMedia (older jsdom, exotic embed) — assume motion is fine.
+    // No matchMedia (older jsdom, exotic embed): assume motion is fine.
     return false
   }
 }
@@ -421,8 +421,8 @@ const TICK_MS = 100
  * tenths while looking completely plausible. The source snippet counted.
  *
  * It mutates textContent instead of holding React state. A 10Hz setState
- * re-renders this subtree ten times a second for a string nobody diffs, and —
- * because these intervals fire outside `act()` — it buries every consuming
+ * re-renders this subtree ten times a second for a string nobody diffs, and (
+ * because these intervals fire outside `act()`) it buries every consuming
  * test suite in act warnings; wiring it into SuperCredInstructorPanel took
  * that suite from 16 warnings to 30 before this. The node is rendered with no
  * React children, so React has nothing to clobber and this owns its text
@@ -492,7 +492,7 @@ function useCrossedLongWait(armed: boolean, startedAt: number): boolean {
 }
 
 export interface PixelLoaderProps {
-  /** What is running. Announced; keep it specific — "Deploy", not "Loading". */
+  /** What is running. Announced; keep it specific: "Deploy", not "Loading". */
   label?: string
   variant?: PixelLoaderVariant
   /** `md` owns its own line; `sm` sits inside one. See SIZES. */
@@ -503,7 +503,7 @@ export interface PixelLoaderProps {
    * Whether to own a live region. Default true: standalone, this element is
    * the only thing announcing, so it has to.
    *
-   * Pass false when the host is ALREADY a live region — LoadingState is, and
+   * Pass false when the host is ALREADY a live region: LoadingState is, and
    * has been for twenty-odd pages. Two nested regions is not "more
    * accessible"; a screen reader hits both and reads the same sentence twice.
    * The host's region wins rather than this one, because the host's survives
@@ -515,7 +515,7 @@ export interface PixelLoaderProps {
   testId?: string
   /**
    * Override for the label's test id. A host that embeds this loader in place
-   * of its own text keeps its own `data-testid` convention that way — pages
+   * of its own text keeps its own `data-testid` convention that way: pages
    * query LoadingState's message as `${testId}-message` and should not have to
    * learn that a loader moved in underneath it.
    */
@@ -579,7 +579,7 @@ export default function PixelLoader({
   // A span, not a div, so this is legal phrasing content and can be dropped
   // inside a <span> host (LoadingState's inline variant is one) without
   // producing invalid nesting. display:inline-flex was already set, so the box
-  // model — and therefore the shipped Instructor Controls rendering — is
+  // model (and therefore the shipped Instructor Controls rendering) is
   // unchanged by the tag.
   return (
     <span

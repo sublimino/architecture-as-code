@@ -14,7 +14,7 @@
  *    reader who cannot separate the amber from the red loses nothing.
  *
  * 2. An accessible name contains the visible label. WCAG 2.5.3, and in this
- *    codebase a CI stage — an aria-label of "Open help and support" on a
+ *    codebase a CI stage: an aria-label of "Open help and support" on a
  *    button reading "Help & Support" made the control unsayable, which is
  *    what components/sidebarLabelInName.test.tsx now guards. Icon-only
  *    controls here take a name a person would plausibly speak, and every
@@ -87,7 +87,7 @@ export function ArrowIcon() {
 // ── Severity ─────────────────────────────────────────────────────────────────
 
 /**
- * The severity mark. Decorative by construction — the word is always rendered
+ * The severity mark. Decorative by construction: the word is always rendered
  * or spoken beside it.
  *
  * Sized 8px and drawn in the severity's own token, which clears the 3:1
@@ -132,7 +132,7 @@ export function SeverityTag({ severity }: { severity: Severity }) {
  * it is a decoration that looks like information.
  *
  * So the urgency is carried by a red-tinted surface and a red hairline, and
- * the numeral is `--text` — near-white on the dark themes, near-black on
+ * the numeral is `--text`, near-white on the dark themes, near-black on
  * Light, above 10:1 against the tint in all three. The colour still shouts;
  * the number is still readable; and the count is in the accessible name of
  * whatever control this sits inside, so it is not colour-only either.
@@ -162,7 +162,7 @@ export function UnreadPill({ count, testId }: { count: number; testId?: string }
 
 // ── Chrome ───────────────────────────────────────────────────────────────────
 
-/** A small piece of standing state — cluster, tenant, data mode. */
+/** A small piece of standing state: cluster, tenant, data mode. */
 export function Chip({
   label,
   value,
@@ -200,7 +200,7 @@ export function Chip({
  * The frame every candidate is shown inside.
  *
  * The three inert bars underneath are not filler. A header cannot be judged in
- * isolation — the whole question is how much of the reader's screen and
+ * isolation: the whole question is how much of the reader's screen and
  * attention it takes before the work starts, and a header floating on its own
  * always looks reasonable. They are drawn in `--border` against `--surface`,
  * far below text contrast on purpose: they are furniture, and they carry an
@@ -250,7 +250,7 @@ export function Mark({ label = 'Signal Loom' }: { label?: string }) {
   )
 }
 
-/** The operator's avatar. Initial, not a photo — there are no photos in a fixture. */
+/** The operator's avatar. Initial, not a photo: there are no photos in a fixture. */
 export function Avatar({ initial, size = 26 }: { initial: string; size?: number }) {
   return (
     <span
@@ -286,7 +286,7 @@ export function Avatar({ initial, size = 26 }: { initial: string; size?: number 
  * one actually does is to read the URL it produces. When one of these is
  * adopted the `showHref` prop goes away and nothing else changes.
  *
- * The anchor's accessible name is `title — open <destination>`, so it opens
+ * The anchor's accessible name is `title: open <destination>`, so it opens
  * with the visible headline (a speech-input user can still say what they see)
  * and then answers the question the headline does not: where does this land.
  */
@@ -381,8 +381,8 @@ export function AlertLink({
  * Scoped to the element rather than to `window` for the keydown, so five
  * specimens on one page cannot close each other, and so this page never
  * competes with KeyboardShortcutsOverlay's global `?`/Escape handler. The
- * outside-click listener has to be on the document — that is what "outside"
- * means — but it is only mounted while something is open.
+ * outside-click listener has to be on the document (that is what "outside"
+ * means), but it is only mounted while something is open.
  */
 export function useDismissable(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null)

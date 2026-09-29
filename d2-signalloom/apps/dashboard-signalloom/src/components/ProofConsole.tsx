@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react'
 import PixelLoader from './PixelLoader'
 
 /**
- * The "how do we know?" console — one or more commands, and what they printed.
+ * The "how do we know?" console: one or more commands, and what they printed.
  *
  * Shared deliberately. The Credential Lifecycle card and the Credential
  * Inventory page both make claims about the same credential chain at different
@@ -14,13 +14,13 @@ import PixelLoader from './PixelLoader'
  * three commands has a PRIMARY one (the mechanism) and the rest corroborate it,
  * and a stack flattens that ordering into "here is a wall of output". The first
  * tab is the primary proof and opens selected. With a single proof there are no
- * tabs at all — a tab strip with one tab is furniture, not information.
+ * tabs at all: a tab strip with one tab is furniture, not information.
  *
  * INCREMENTAL OUTPUT. A proof whose command is still running is a different
  * claim from one that finished, and rendering them identically is the failure
  * worth designing against: a half-collected proof that looks complete is a
  * viewer reading a partial answer as the whole answer. `Proof.stream` says
- * which, and it is optional — omit it and this renders exactly what it always
+ * which, and it is optional. Omit it and this renders exactly what it always
  * did, which is what every current caller gets. There is deliberately no
  * transport in here: this component is handed a string that grew, and does not
  * care whether the caller grew it by polling, by a socket or from a fixture.
@@ -33,8 +33,8 @@ import PixelLoader from './PixelLoader'
  * Where a streaming proof is up to.
  *
  * Three, not four. `stalled` covers every way output stops arriving without
- * finishing — the process died, the poll 404'd, nothing has been emitted for
- * long enough that we will not claim it is still working — because the
+ * finishing: the process died, the poll 404'd, nothing has been emitted for
+ * long enough that we will not claim it is still working, because the
  * treatment is identical in all of them and `streamNote` says which one it was.
  * Splitting it into `failed` and `stalled` would be two near-identical branches
  * that drift, which is the mistake this codebase has already paid for twice.
@@ -42,7 +42,7 @@ import PixelLoader from './PixelLoader'
 export type ProofStreamPhase = 'streaming' | 'complete' | 'stalled'
 
 export interface Proof {
-  /** Short name for the tab — what this command is evidence OF. */
+  /** Short name for the tab: what this command is evidence OF. */
   label: string
   /** The literal command, verbatim and un-truncated, so it can be pasted. */
   command: string
@@ -74,7 +74,7 @@ export function ProofConsole({
    * never a live region under any setting, because an auto-appending log
    * wrapped in one is read out line by line over whatever the user was doing.
    * What this opts into is a single polite region carrying the phase word and
-   * nothing else, which is the one part a caret cannot convey — a stream that
+   * nothing else, which is the one part a caret cannot convey. A stream that
    * quietly stops looks, without sound, exactly like one that is still going.
    *
    * Off by default so that adding streaming to a page is never accidentally
@@ -134,7 +134,7 @@ export function ProofConsole({
           style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text)' }}
         >
           {/* While a stream is open, empty means "nothing yet", not "this
-              command printed nothing" — and "(no output)" is a verdict. */}
+              command printed nothing", and "(no output)" is a verdict. */}
           {current.detail || (current.stream === 'streaming' ? '' : '(no output)')}
         </pre>
         {current.stream && <StreamStatus phase={current.stream} note={current.streamNote} testId={testId} />}
@@ -144,7 +144,7 @@ export function ProofConsole({
         // the phase word above already say this to anyone who can see them, and
         // a duplicate sentence is clutter. It is a SIBLING of the status row,
         // not a wrapper around it, because PixelLoader rewrites its elapsed
-        // figure ten times a second — a region wrapping that announces ten
+        // figure ten times a second: a region wrapping that announces ten
         // times a second. And it is mounted for every phase rather than created
         // on completion: a live region born at the same instant as its content
         // is announced unreliably or not at all.
@@ -169,7 +169,7 @@ const ANNOUNCEMENTS: Record<ProofStreamPhase, string> = {
  * principle. Measured against themes.ts on this console's --surface2 body:
  * --teal is 5.77 / 5.01 / 7.45 across Dark, Light and Andy and clears AA
  * everywhere, but --error is 5.91 in Light and 4.89 in Andy and only 3.03:1 in
- * Dark — under AA for a 10px bold word, on the one state a viewer must not
+ * Dark, under AA for a 10px bold word, on the one state a viewer must not
  * miss. That figure is a property of the palette, not of this file: --cyan on
  * the same surface is 3.79:1 in Andy, so the command line directly above has
  * always sat there too, and StreamingLogBlock records the same residual after
@@ -189,7 +189,7 @@ function StreamStatus({ phase, note, testId }: { phase: ProofStreamPhase; note?:
         // counts elapsed seconds, which is the entire reason it beats a caret
         // here: a stream that has produced nothing for ninety seconds is
         // probably not going to, and the figure is what tells you that.
-        // announce={false} without exception — this component's own region
+        // announce={false} without exception: this component's own region
         // above is the one that speaks, and two nested regions read twice.
         <PixelLoader
           size="sm"
@@ -231,7 +231,7 @@ const tab: CSSProperties = {
   fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
   // Long-hand, not the `border` shorthand: the selected tab overrides only the
   // colour, and React warns (correctly) that mixing the two drops the shorthand
-  // on re-render — which would leave a tab with no border at all mid-switch.
+  // on re-render, which would leave a tab with no border at all mid-switch.
   borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border)',
   background: 'transparent', color: 'var(--muted)', fontFamily: 'inherit',
 }

@@ -1,5 +1,5 @@
 /**
- * EvidenceDrawer — slide-out panel showing the full evidence chain for a
+ * EvidenceDrawer: slide-out panel showing the full evidence chain for a
  * provisional actor. Displays observations ordered by timestamp with layer
  * and fidelity badges, connecting the dots from first signal to correlation.
  */
@@ -82,7 +82,7 @@ export default function EvidenceDrawer({ actor, onClose }: EvidenceDrawerProps) 
               {actor.display_name ?? actor.id}
             </h2>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-              Evidence Chain — {sorted.length} observations across {layerCount} layers
+              Evidence Chain: {sorted.length} observations across {layerCount} layers
             </div>
           </div>
           <button

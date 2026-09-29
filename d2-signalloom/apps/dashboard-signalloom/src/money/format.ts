@@ -10,7 +10,7 @@
 //
 // So: no symbol table, no placement logic, no `toFixed`. `Intl.NumberFormat`
 // already encodes every one of those rules per locale × currency, and it ships
-// in the platform — this file adds no dependency.
+// in the platform: this file adds no dependency.
 
 import type { CurrencyCode } from './currency'
 import type { Converted, Money } from './money'
@@ -30,7 +30,7 @@ export const FALLBACK_LOCALE = 'en-GB'
  * Above this, figures abbreviate (`US$2.5M`). Below it they group in full
  * (`US$847,000`).
  *
- * The threshold is not new — it reproduces the behaviour FleetRiskGauge already
+ * The threshold is not new: it reproduces the behaviour FleetRiskGauge already
  * had, so switching that component onto `Intl` changes the currency and nothing
  * else. A gauge that silently restyled every figure under a million at the same
  * time as changing currency would make any visual regression impossible to
@@ -58,8 +58,8 @@ export interface FormatOptions {
  *
  * Keyed off the browser's `navigator.language`, falling back to `en-GB`. The
  * fallback is en-GB rather than en-US because this product's users and every
- * existing date format in the dashboard are British — `toLocaleString('en-GB')`
- * appears in a dozen files.
+ * existing date format in the dashboard are British (`toLocaleString('en-GB')`
+ * appears in a dozen files).
  *
  * Note the division of labour: the LOCALE decides grouping and placement, the
  * CURRENCY decides symbol and how many decimal places exist. They are separate
@@ -70,7 +70,7 @@ export function resolveLocale(): string {
   try {
     return navigator.language || FALLBACK_LOCALE
   } catch {
-    // No navigator (SSR, some test runners) — deterministic fallback.
+    // No navigator (SSR, some test runners): deterministic fallback.
     return FALLBACK_LOCALE
   }
 }
@@ -80,7 +80,7 @@ export function resolveLocale(): string {
  *
  * Exported because the options ARE the behaviour. Which digits a reader sees
  * is decided here and nowhere else, so a test that hand-copies these options
- * to build its expected value is not checking this decision — it is restating
+ * to build its expected value is not checking this decision; it is restating
  * it, and it will agree with production even when production is wrong.
  *
  * BOTH fraction-digit bounds are pinned on BOTH branches, and that is the
@@ -88,13 +88,13 @@ export function resolveLocale(): string {
  * "no minimum": ECMA-402 fills it with `min(currencyDigits, maximumFractionDigits)`,
  * which for a two-decimal currency capped at one digit is a minimum of ONE.
  * The compact branch used to set only the maximum, and the gap resolved
- * differently per runtime — minimum 1 on Node 22 / ICU 78.2, minimum 0 on
+ * differently per runtime: minimum 1 on Node 22 / ICU 78.2, minimum 0 on
  * Node 25.9 / ICU 78.3. The same source rendered `£1.0m` in CI and `£1m` on
  * the machine the demo is given from, and browsers vary the same way, so this
  * was a live difference between what a bank saw and what we had reviewed.
  *
  * The product decision, stated rather than inherited: whole units where the
- * fraction is zero, one digit where it is not — `£1m`, `£2.5m`. A trailing
+ * fraction is zero, one digit where it is not (`£1m`, `£2.5m`). A trailing
  * `.0` is not a rounding artefact, it claims a tenth was resolved and came out
  * zero, which is the same overclaim of precision that keeps pence off the
  * grouped branch. It lands hardest on the chart axis, where
@@ -138,7 +138,7 @@ export function formatAmount(
 ): string {
   // Non-finite values (NaN, Infinity, -Infinity) are not money and must never
   // reach Intl.NumberFormat, which renders them as currency-prefixed garbage
-  // ("£NaN", "£∞") — plausible-looking strings that a reader cannot tell apart
+  // ("£NaN", "£∞"): plausible-looking strings that a reader cannot tell apart
   // from a formatting artefact. Returning MONEY_UNAVAILABLE makes the absence
   // of a figure visually distinct from a real zero.
   if (!Number.isFinite(amount)) return MONEY_UNAVAILABLE
@@ -154,7 +154,7 @@ export function formatAmount(
   return formatterFor(currency, locale, compact).format(safeAmount)
 }
 
-/** Format a `Money` in its own currency — no conversion implied. */
+/** Format a `Money` in its own currency: no conversion implied. */
 export function formatMoney(m: Money | number | null | undefined, options: FormatOptions = {}): string {
   if (m === null || m === undefined) return MONEY_UNAVAILABLE
   if (typeof m === 'number') return formatAmount(m, 'GBP', options)

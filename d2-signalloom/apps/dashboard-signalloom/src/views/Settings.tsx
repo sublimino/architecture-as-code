@@ -21,7 +21,7 @@ function Field({ label, value, mono }: { label: string; value: string | number |
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <span style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
       <span style={{ fontSize: 14, fontWeight: 500, color: value != null ? 'var(--text)' : 'var(--muted)', fontFamily: mono ? 'monospace' : undefined }}>
-        {value ?? '—'}
+        {value ?? '-'}
       </span>
     </div>
   )
@@ -78,7 +78,7 @@ function ApiKeyStatus({ status }: { status: string | null | undefined }) {
     revoked: { color: 'var(--error)', label: 'Revoked' },
     expired: { color: 'var(--amber)', label: 'Expired' },
   }
-  const info = status ? (statusMap[status] ?? { color: 'var(--muted)', label: status }) : { color: 'var(--muted)', label: '—' }
+  const info = status ? (statusMap[status] ?? { color: 'var(--muted)', label: status }) : { color: 'var(--muted)', label: '-' }
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: info.color }} />
@@ -174,7 +174,7 @@ export default function Settings() {
     } catch (e: unknown) {
       const status = (e as { response?: { status?: number } })?.response?.status
       if (status === 410) {
-        // Already revealed once — the plaintext key can never be shown
+        // Already revealed once: the plaintext key can never be shown
         // again, so the only way to see a working key now is to rotate.
         setRevealAlreadyUsed(true)
         setRotateModalOpen(true)
@@ -220,7 +220,7 @@ export default function Settings() {
           c.connector_id === disconnectTarget.connector_id ? { ...c, status: 'disconnected' as const } : c,
         ),
       )
-      refreshOnboardingState() // a connector just dropped — re-check the auto-trigger gate/banner
+      refreshOnboardingState() // a connector just dropped: re-check the auto-trigger gate/banner
     } finally {
       setDisconnecting(false)
       setDisconnectTarget(null)
@@ -273,7 +273,7 @@ export default function Settings() {
         </p>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
           We never store your key in plaintext, so it can only be shown once. If you haven't seen it yet,
-          reveal it below; if you have, revealing it again requires rotating — your old key is revoked
+          reveal it below; if you have, revealing it again requires rotating: your old key is revoked
           immediately and a new one takes its place.
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -295,7 +295,7 @@ export default function Settings() {
         </div>
         {revealAlreadyUsed && (
           <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-            Your key was already revealed once and can't be shown again — rotate to get a new one.
+            Your key was already revealed once and can't be shown again: rotate to get a new one.
           </p>
         )}
         {rotateModalOpen && settings && (
@@ -358,7 +358,7 @@ export default function Settings() {
         {disconnectTarget && (
           <ConfirmDialog
             title="Disconnect provider?"
-            body={`This stops future scans from ${disconnectTarget.display_name || disconnectTarget.provider_id}. Previously discovered NHI records stay in your history, marked as source-disconnected — nothing is deleted.`}
+            body={`This stops future scans from ${disconnectTarget.display_name || disconnectTarget.provider_id}. Previously discovered NHI records stay in your history, marked as source-disconnected: nothing is deleted.`}
             confirmLabel="Disconnect"
             loading={disconnecting}
             onConfirm={handleConfirmDisconnect}
@@ -551,7 +551,7 @@ export default function Settings() {
                 <div style={{ overflow: 'hidden', minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {m.display_name}
-                    {m.title && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> — {m.title}</span>}
+                    {m.title && <span style={{ color: 'var(--muted)', fontWeight: 400 }}>: {m.title}</span>}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                     {m.email}{m.department ? ` · ${m.department}` : ''}

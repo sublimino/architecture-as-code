@@ -44,7 +44,7 @@ describe('SignalBadge', () => {
     const badge = screen.getByTestId('badge')
     expect(badge).toHaveAttribute(
       'title',
-      '8 signal observations from 5 layers — highest fidelity: Definitive',
+      '8 signal observations from 5 layers, highest fidelity: Definitive',
     )
   })
 

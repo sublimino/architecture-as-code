@@ -1,10 +1,10 @@
 /**
- * RBAC Explorer — native Signal Loom view of KubeSec-AFM analysis data.
+ * RBAC Explorer: native Signal Loom view of KubeSec-AFM analysis data.
  *
  * Pulls correlated RBAC + escalation + conformance + shared-role data from the
  * intermediate `/api/rbac/*` layer (see `rbac_correlation.py`), which itself
  * fetches from KubeSec-AFM server-side and joins the four AFM endpoints
- * together — the frontend used to do that stitching itself, against wire
+ * together: the frontend used to do that stitching itself, against wire
  * shapes (`escalation_paths`, top-level conformance `namespace`, shared-role
  * `shared_by`/`risk`) that AFM never actually sends. See
  * docs/signalloom/rbac-live-wiring.md and rbac_correlation.py's module
@@ -16,11 +16,11 @@
  *
  * All five tables are DataTable, each with the Design System's `toolbar` and
  * `emptyState` slots. The page keeps every predicate and hands DataTable an
- * already-narrowed array — see DataTable.tsx's "ONE COMPONENT, NOT TWO" note
+ * already-narrowed array: see DataTable.tsx's "ONE COMPONENT, NOT TWO" note
  * for why the search lives here and not in the component.
  *
  * WHAT A COUNT ON THIS PAGE MEANS. The stat cards and the Section hints are
- * computed from the correlated response and the namespace selector only —
+ * computed from the correlated response and the namespace selector only:
  * never from a table's own search box. A page whose headline "Escalation
  * Paths: 0" could be produced by typing in a search field would be the same
  * class of failure as the one rbac_correlation.py exists to prevent: a
@@ -81,8 +81,8 @@ class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 
 // ─── "How do we know?" ───────────────────────────────────────────────────────
 //
-// Every finding on this page is a claim about someone else's cluster —
-// "this ServiceAccount can become admin", "this role is non-conformant" — and
+// Every finding on this page is a claim about someone else's cluster (
+// "this ServiceAccount can become admin", "this role is non-conformant") and
 // the analysis that produced it ran two systems away, inside AFM's Z3 model
 // checker. A reader cannot re-run Z3 from here, and pretending otherwise by
 // printing an invented `kubectl auth can-i` would be the fabricated-probe
@@ -92,13 +92,13 @@ class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 // page rendered or reworded it.
 //
 // The projections below are restricted to fields whose client-side parse maps
-// a missing value to `undefined` — every one is `asOptionalString`, a
+// a missing value to `undefined`: every one is `asOptionalString`, a
 // validated enum, or `typeof === 'number' ? v : undefined` (see
 // rbacCorrelationApi.ts). That restriction is what makes the printed object
 // byte-identical to what the command prints: a field parsed with a `?? 0` or
 // `?? []` default would read as 0 or [] here where jq reads null, and there is
 // no honest way to show that under a jq command. It is also why the
-// shared-role and role tables carry no proof — see the report; their
+// shared-role and role tables carry no proof: see the report; their
 // substantive fields go through exactly those defaulting parses.
 
 /** Matches `fetchCorrelatedRbac`, so the command names the route really called. */
@@ -115,7 +115,7 @@ function jqKey(value: string | undefined): string {
  * Proof for one escalation finding: the wire record AFM's analysis produced.
  *
  * Keyed on `subject` and printing EVERY match, because a subject can carry
- * more than one route and `select` is a stream — showing only the clicked row
+ * more than one route and `select` is a stream: showing only the clicked row
  * would be a truthful object under a command that prints two.
  */
 export function escalationProofs(
@@ -149,7 +149,7 @@ export function escalationProofs(
 }
 
 /**
- * Proof for one conformance issue — and for every other issue against the same
+ * Proof for one conformance issue, and for every other issue against the same
  * role, which is the point rather than a side effect: a role's full
  * conformance record is more use than the single line the row happened to show.
  */
@@ -194,7 +194,7 @@ const proofButton: CSSProperties = {
 // ─── Toolbar idiom ───────────────────────────────────────────────────────────
 //
 // One implementation for all five tables, lifted from the Design System's
-// "Realistic — the shape AgentsPage needs" specimen. Five hand-rolled strips
+// "Realistic: the shape AgentsPage needs" specimen. Five hand-rolled strips
 // would drift from each other within a release; this one drifts as a unit or
 // not at all.
 
@@ -206,7 +206,7 @@ const searchInput: CSSProperties = {
 
 /**
  * A selected chip is a tinted fill plus a full-strength border, never a solid
- * accent fill — text on solid cyan fails AA in at least one of the three
+ * accent fill: text on solid cyan fails AA in at least one of the three
  * themes, and this page is read in all three.
  */
 function chipStyle(selected: boolean): CSSProperties {
@@ -306,7 +306,7 @@ function TableToolbar({
  *
  * "The filter hid them" and "there are none" are different facts about the
  * cluster, and the second one is a security claim. They get different words
- * and different tones, and only the first offers a control — there is nothing
+ * and different tones, and only the first offers a control: there is nothing
  * to clear when no filter is set. The third possibility, "AFM never answered",
  * cannot reach here at all: an unreachable upstream fails the whole panel
  * upstream of every table (see the ErrorState branch below), which is the
@@ -324,7 +324,7 @@ function TableEmptyState({ filtered, onClear, kicker, body, clearTestId }: {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <EmptyState
         kicker="Nothing matches those filters"
-        body="The rows are still here — the search box or a chip above is hiding them."
+        body="The rows are still here: the search box or a chip above is hiding them."
         tone="cyan"
       />
       {/* EmptyState has no action slot, and this control has to stay attached
@@ -351,7 +351,7 @@ function TableEmptyState({ filtered, onClear, kicker, body, clearTestId }: {
 
 interface RoleRow extends RbacRole {
   ruleCount: number
-  /** Distinct verbs in first-seen order — the same walk the cell used to do inline. */
+  /** Distinct verbs in first-seen order: the same walk the cell used to do inline. */
   verbs: string[]
 }
 
@@ -387,7 +387,7 @@ const ESCALATION_COLUMNS: Column<EscalationFinding>[] = [
   },
   {
     key: 'riskScore', label: 'Risk', sortable: true,
-    help: 'How much damage this path allows if someone walks it — derived by the analyser from what the subject could actually reach, not from a severity field a human typed in. A finding is a route that exists, not a breach that happened. Sorting this column ranks by the analyser’s underlying numeric score, so high sits above medium rather than below it alphabetically.',
+    help: 'How much damage this path allows if someone walks it (derived by the analyser from what the subject could actually reach, not from a severity field a human typed in). A finding is a route that exists, not a breach that happened. Sorting this column ranks by the analyser’s underlying numeric score, so high sits above medium rather than below it alphabetically.',
   },
   { key: 'summary', label: 'Detail' },
 ]
@@ -398,7 +398,7 @@ const CONFORMANCE_COLUMNS: Column<ConformanceFinding>[] = [
   // "low" and "low" under "medium". The chips are the honest affordance.
   {
     key: 'severity', label: 'Severity',
-    help: 'How far the role departs from least privilege, as the conformance check graded it. It says nothing about whether anyone holds the role — a high-severity role nobody is bound to is still high.',
+    help: 'How far the role departs from least privilege, as the conformance check graded it. It says nothing about whether anyone holds the role: a high-severity role nobody is bound to is still high.',
   },
   { key: 'roleName', label: 'Role', sortable: true },
   {
@@ -423,7 +423,7 @@ const ROLE_COLUMNS: Column<RoleRow>[] = [
   { key: 'name', label: 'Name', sortable: true },
   {
     key: 'scope', label: 'Scope', sortable: true,
-    help: 'Cluster means a ClusterRole — it applies in every namespace at once, and stays listed here whatever namespace filter is set, because a namespace boundary does not contain it. Namespace means a Role, which grants nothing outside the namespace it lives in.',
+    help: 'Cluster means a ClusterRole: it applies in every namespace at once, and stays listed here whatever namespace filter is set, because a namespace boundary does not contain it. Namespace means a Role, which grants nothing outside the namespace it lives in.',
   },
   { key: 'namespace', label: 'Namespace', sortable: true },
   {
@@ -432,7 +432,7 @@ const ROLE_COLUMNS: Column<RoleRow>[] = [
   },
   {
     key: 'verbs', label: 'Verbs',
-    help: 'The actions this role permits. Verbs shown in red are the ones that let whoever holds the role change the cluster or take more power in it — create, delete, patch, update, bind, escalate, impersonate. The wildcard * is not coloured because it is not one verb: it grants every verb, including the red ones and every verb added by a future Kubernetes release.',
+    help: 'The actions this role permits. Verbs shown in red are the ones that let whoever holds the role change the cluster or take more power in it: create, delete, patch, update, bind, escalate, impersonate. The wildcard * is not coloured because it is not one verb: it grants every verb, including the red ones and every verb added by a future Kubernetes release.',
   },
   {
     key: 'conformanceIssueCount', label: 'Findings', sortable: true,
@@ -444,12 +444,12 @@ const SUBJECT_COLUMNS: Column<SubjectRow>[] = [
   { key: 'name', label: 'Name', sortable: true },
   {
     key: 'kind', label: 'Kind', sortable: true,
-    help: 'ServiceAccount is an in-cluster identity Kubernetes issues a token for, and always lives in a namespace. User and Group come from outside — the API server trusts them from a certificate or an OIDC token and never stores them, which is why they have no namespace and cannot be listed from the cluster itself.',
+    help: 'ServiceAccount is an in-cluster identity Kubernetes issues a token for, and always lives in a namespace. User and Group come from outside (the API server trusts them from a certificate or an OIDC token and never stores them, which is why they have no namespace and cannot be listed from the cluster itself).',
   },
   { key: 'namespace', label: 'Namespace', sortable: true },
   {
     key: 'boundRoles', label: 'Bound Roles',
-    help: 'The roles reaching this subject through the bindings currently in view. A binding carries its own scope, so a cluster-scoped binding keeps granting across every namespace while a namespace filter is set — which is why this column can change without the subject changing.',
+    help: 'The roles reaching this subject through the bindings currently in view. A binding carries its own scope, so a cluster-scoped binding keeps granting across every namespace while a namespace filter is set, which is why this column can change without the subject changing.',
   },
   {
     key: 'flags', label: 'Flags',
@@ -458,7 +458,7 @@ const SUBJECT_COLUMNS: Column<SubjectRow>[] = [
 ]
 
 // ─── Demo-mode fallback fixtures ─────────────────────────────────────────────
-// When demo mode is on, this data is used directly — no network call is made
+// When demo mode is on, this data is used directly: no network call is made
 // at all (demo mode must stay offline and deterministic; live mode must never
 // silently fall back to this).
 
@@ -572,7 +572,7 @@ export default function RbacExplorerPage() {
   /** Which proof consoles are open, keyed `table:index`. */
   const [openProof, setOpenProof] = useState<Record<string, boolean>>({})
 
-  // Per-table filters. Each pair narrows exactly one table and nothing else —
+  // Per-table filters. Each pair narrows exactly one table and nothing else:
   // in particular not the stat cards, which read the cluster, not the view.
   const [escalationSearch, setEscalationSearch] = useState('')
   const [escalationRisk, setEscalationRisk] = useState('all')
@@ -666,7 +666,7 @@ export default function RbacExplorerPage() {
       return
     }
 
-    // Live mode fetches the real intermediate API and fails visibly on error —
+    // Live mode fetches the real intermediate API and fails visibly on error:
     // it must never silently substitute demo fixtures for a live cluster.
     try {
       const token = await getAccessTokenSilently()
@@ -842,7 +842,7 @@ export default function RbacExplorerPage() {
   const clearRoles = () => { setRoleSearch(''); setRoleScope('all') }
   const clearSubjects = () => { setSubjectSearch(''); setSubjectKind('all'); setSubjectFlag('all') }
 
-  // Stats — from the cluster and the namespace selector only. See the file header.
+  // Stats: from the cluster and the namespace selector only. See the file header.
   const adminCount = data?.adminCount ?? 0
   const nonAdminCount = data?.nonAdminCount ?? 0
   const escalationCount = data?.escalations.length ?? 0
@@ -867,7 +867,7 @@ export default function RbacExplorerPage() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>RBAC Explorer</h1>
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
-            Native view of KubeSec-AFM RBAC analysis — privilege escalation, conformance, and shared-role pivot points
+            Native view of KubeSec-AFM RBAC analysis: privilege escalation, conformance, and shared-role pivot points
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -897,7 +897,7 @@ export default function RbacExplorerPage() {
             ))}
           </select>
           <HelpHint label="What the Namespace filter does" testId="rbac-namespace-help">
-            Narrows the tables to one namespace — but cluster-scoped objects stay listed whatever is picked, because a ClusterRole or a ClusterRoleBinding applies in every namespace at once and a namespace boundary does not contain it. Escalation findings are never narrowed: a route that starts in one namespace can end at cluster scope.
+            Narrows the tables to one namespace (but cluster-scoped objects stay listed whatever is picked, because a ClusterRole or a ClusterRoleBinding applies in every namespace at once and a namespace boundary does not contain it). Escalation findings are never narrowed: a route that starts in one namespace can end at cluster scope.
           </HelpHint>
           <button
             className="btn btn-secondary"
@@ -923,7 +923,7 @@ export default function RbacExplorerPage() {
 
       {loading && <LoadingState variant="block" status="loading" label="RBAC data" testId="rbac-loading" />}
 
-      {/* Live-mode failure — never silently substitutes demo data, and never
+      {/* Live-mode failure: never silently substitutes demo data, and never
           degrades into a table of zeroes. ErrorState owns the 401 branch: a
           401 is not unreachability, the service answered and refused, so Retry
           cannot fix it and is not offered. */}
@@ -937,7 +937,7 @@ export default function RbacExplorerPage() {
         <div data-testid="rbac-no-data">
           <EmptyState
             kicker={`No RBAC data for ${clusterId}`}
-            body="KubeSec-AFM answered for this cluster and had nothing to correlate — this is an empty cluster, not an unreachable one. Seed it with scripts/rbac-to-afm.py, then retry."
+            body="KubeSec-AFM answered for this cluster and had nothing to correlate: this is an empty cluster, not an unreachable one. Seed it with scripts/rbac-to-afm.py, then retry."
             tone="cyan"
           />
           <div style={{ textAlign: 'center', marginTop: -34 }}>
@@ -965,13 +965,13 @@ export default function RbacExplorerPage() {
               />
               <span style={{ position: 'absolute', top: 14, right: 14 }}>
                 <HelpHint label="What Escalation Paths counts" testId="rbac-escalation-stat-help">
-                  Counted from the escalation records AFM&rsquo;s Z3 engine returned for this cluster — its single_escalations and group_escalations, correlated server-side. A zero here means AFM answered and reported none: had AFM been unreachable this panel would not be on screen at all, because the page fails visibly instead of reporting zero.
+                  Counted from the escalation records AFM&rsquo;s Z3 engine returned for this cluster (its single_escalations and group_escalations, correlated server-side). A zero here means AFM answered and reported none: had AFM been unreachable this panel would not be on screen at all, because the page fails visibly instead of reporting zero.
                 </HelpHint>
               </span>
             </div>
           </div>
 
-          {/* Escalation findings — correlated server-side from AFM's Z3 engine */}
+          {/* Escalation findings: correlated server-side from AFM's Z3 engine */}
           {escalationSource.length > 0 && (
             <Section title="Escalation Findings" hint={`${escalationSource.length} findings`}>
               <DataTable
@@ -1016,9 +1016,9 @@ export default function RbacExplorerPage() {
                   <tr style={{ borderBottom: open ? undefined : '1px solid var(--border)' }}>
                     <td style={DataTable.td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{finding.subjectDisplay ?? finding.subject}</code></td>
                     <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{finding.escalationType ?? finding.kind}</td>
-                    <td style={DataTable.td}>{finding.riskLevel ? <Pill label={finding.riskLevel} /> : '—'}</td>
+                    <td style={DataTable.td}>{finding.riskLevel ? <Pill label={finding.riskLevel} /> : '-'}</td>
                     <td style={{ ...DataTable.td, color: 'var(--muted)', whiteSpace: 'normal', maxWidth: 350 }}>
-                      {finding.summary ?? '—'}
+                      {finding.summary ?? '-'}
                       <div>
                         <button
                           type="button"
@@ -1097,7 +1097,7 @@ export default function RbacExplorerPage() {
                   <Fragment key={key}>
                   <tr style={{ borderBottom: open ? undefined : '1px solid var(--border)' }}>
                     <td style={{ ...DataTable.td, whiteSpace: 'normal', maxWidth: 300 }}>
-                      {c.reason ?? '—'}
+                      {c.reason ?? '-'}
                       <div>
                         <button
                           type="button"
@@ -1110,7 +1110,7 @@ export default function RbacExplorerPage() {
                       </div>
                     </td>
                     <td style={DataTable.td}><Pill label={c.severity ?? 'info'} /></td>
-                    <td style={DataTable.td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{c.roleName ?? '—'}</code></td>
+                    <td style={DataTable.td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{c.roleName ?? '-'}</code></td>
                     <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{c.roleNamespace ?? 'cluster'}</td>
                   </tr>
                   {open && (
@@ -1175,7 +1175,7 @@ export default function RbacExplorerPage() {
                   <tr key={`${sr.roleName}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={DataTable.td}><code style={{ color: 'var(--violet)', fontSize: 12 }}>{sr.roleName}</code></td>
                     <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{sr.sharedBy} subjects</td>
-                    <td style={DataTable.td}>{sr.privilegedSubjectCount > 0 ? <Pill label={`${sr.privilegedSubjectCount} privileged`} /> : '—'}</td>
+                    <td style={DataTable.td}>{sr.privilegedSubjectCount > 0 ? <Pill label={`${sr.privilegedSubjectCount} privileged`} /> : '-'}</td>
                   </tr>
                 )}
               />
@@ -1224,7 +1224,7 @@ export default function RbacExplorerPage() {
                   <tr key={`${r.name}-${r.namespace}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ ...DataTable.td, fontWeight: 500 }}>{r.name}</td>
                     <td style={DataTable.td}><Pill label={r.scope === 'Cluster' ? 'cluster' : 'namespace'} /></td>
-                    <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{r.namespace ?? '—'}</td>
+                    <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{r.namespace ?? '-'}</td>
                     <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{r.ruleCount}</td>
                     <td style={DataTable.td}>
                       <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
@@ -1232,7 +1232,7 @@ export default function RbacExplorerPage() {
                           // `${colors.red}20` was DashKit.hex()'s bug open-coded:
                           // colors.red has been `var(--error)` since the palette
                           // moved to tokens, so the concatenation produced
-                          // `var(--error)20` — not a colour, silently dropped by
+                          // `var(--error)20`: not a colour, silently dropped by
                           // every browser. The red verbs have been rendering
                           // with NO fill at all, while the Verbs help hint on
                           // this very table tells the reader red means dangerous.
@@ -1353,7 +1353,7 @@ export default function RbacExplorerPage() {
                       )}
                     </td>
                     <td style={DataTable.td}><Pill label={s.kind.toLowerCase()} /></td>
-                    <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{s.namespace ?? '—'}</td>
+                    <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{s.namespace ?? '-'}</td>
                     <td style={DataTable.td}>
                       <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                         {s.boundRoles.slice(0, 4).map((r, j) => (

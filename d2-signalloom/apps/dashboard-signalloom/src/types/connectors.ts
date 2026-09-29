@@ -1,7 +1,7 @@
 // Connector framework types (US-ENHC-011).
 //
 // ADR-ENHC-012 §2 defines `plugin.wizard_config() -> dict` and says the shape
-// is "intentionally untyped" — this ticket owns the schema. Stream A's shipped
+// is "intentionally untyped": this ticket owns the schema. Stream A's shipped
 // code (PR #19, feat/enhc-012-connector-framework) already has a working
 // assumption baked into its docstrings/test fixture, so this schema aligns to
 // that precedent rather than picking something new:
@@ -54,7 +54,7 @@ export interface ConnectorProvidersResponse {
 export type ConnectorStatus = 'connected' | 'disconnected' | 'error'
 
 // Mirrors the GET /connectors row shape from routers/connectors.py exactly
-// (field names match the wire format, not the DB column names — e.g. `id` on
+// (field names match the wire format, not the DB column names: e.g. `id` on
 // the table is serialized as `connector_id`).
 export interface TenantConnector {
   connector_id: string
@@ -80,7 +80,7 @@ export interface ConnectorCreateRequest {
   metadata?: Record<string, unknown>
 }
 
-// POST /connectors response — deliberately thin (routers/connectors.py
+// POST /connectors response: deliberately thin (routers/connectors.py
 // returns only these four fields, not a full TenantConnector row).
 export interface ConnectorCreateResponse {
   connector_id: string
@@ -95,7 +95,7 @@ export interface ConnectorDeleteResponse {
   status: ConnectorStatus
 }
 
-// POST /connectors/{id}/test response. Note: no `days_until_expiry` field —
+// POST /connectors/{id}/test response. Note: no `days_until_expiry` field;
 // the route only returns `credential_expires_at` (an ISO timestamp or null);
 // derive a day count client-side if needed.
 export interface ConnectorTestResult {
@@ -120,7 +120,7 @@ export interface OnboardingStatus {
 }
 
 // GET/PUT /onboarding/state (routers/onboarding.py, Slice 1a). Server-side
-// mirror of the wizard's in-progress navigation state — replaces the
+// mirror of the wizard's in-progress navigation state: replaces the
 // localStorage-only persistence from US-ENHC-011 so a customer who starts
 // the wizard on one device resumes at the same step on another.
 export interface OnboardingWizardState {

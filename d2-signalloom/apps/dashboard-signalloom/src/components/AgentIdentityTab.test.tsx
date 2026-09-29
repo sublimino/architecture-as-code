@@ -258,7 +258,7 @@ describe('AgentIdentityTab — Truthful State Language & Error Handling', () => 
     renderTab(<AgentIdentityTab agent={agent} />)
 
     expect(screen.getByTestId('identity-spiffe-status')).toHaveTextContent('Identity unlinked')
-    expect(screen.getByTestId('identity-spiffe-id')).toHaveTextContent('—')
+    expect(screen.getByTestId('identity-spiffe-id')).toHaveTextContent('-')
     expect(screen.getByTestId('identity-unlinked-banner')).toBeInTheDocument()
     expect(screen.getByTestId('identity-cert-validity')).toHaveTextContent('No active SVID')
   })

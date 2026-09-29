@@ -66,7 +66,7 @@ describe('ConsentModal', () => {
     expect(screen.getAllByText(/Cookie preferences/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/Strictly necessary/i).length).toBeGreaterThanOrEqual(1)
 
-    const locked = screen.getByLabelText(/Strictly necessary cookies — always on/i)
+    const locked = screen.getByLabelText(/Strictly necessary cookies: always on/i)
     expect(locked).toBeChecked()
     expect(locked).toBeDisabled()
   })

@@ -2,8 +2,8 @@
 //
 // The runner workload executes scripts/supercred-demo.sh inside the cluster and
 // exposes each execution as a run resource under /demo-api. Only one run exists
-// at a time — the demo mutates a shared cluster, so the workload serialises them
-// — which is why every control on the instructor panel is disabled while a run
+// at a time: the demo mutates a shared cluster, so the workload serialises them,
+// which is why every control on the instructor panel is disabled while a run
 // is active rather than queueing behind it.
 //
 // Distinct from /supercred-api (fake-integration-proxy, read + stun) and from
@@ -44,7 +44,7 @@ export interface DemoRunnerStatus {
   /**
    * Whether the runner can actually execute the demo script.
    *
-   * False when the workload is up but the script is not mounted — the runner
+   * False when the workload is up but the script is not mounted; the runner
    * answers, but pressing a phase button would fail. The panel disables the
    * controls and shows the equivalent make target instead.
    */
@@ -52,7 +52,7 @@ export interface DemoRunnerStatus {
 }
 
 /**
- * Every demo-runner call must go through this prefix — nothing may hardcode
+ * Every demo-runner call must go through this prefix; nothing may hardcode
  * `/api/demo/supercred`.
  *
  * The two look interchangeable and are not. nginx routes `/demo-api/` to the
@@ -63,7 +63,7 @@ export interface DemoRunnerStatus {
  *
  * The credential-evidence module used the `/api/demo/supercred` form directly.
  * The router is mounted in BOTH pods, so the call was accepted rather than
- * 404'd — and then died in fe-signalloom with `IndexError: 4`, because
+ * 404'd, and then died in fe-signalloom with `IndexError: 4`, because
  * `_repo_root()` resolves `parents[4]` of `/app/demo_runner.py`, which has two.
  * The browser saw a bare HTTP 500 and the Credential Lifecycle card rendered
  * empty. Exported so there is one spelling of this prefix in the codebase.
@@ -92,7 +92,7 @@ export function makeCommandForStep(stepId: string): string {
 
 async function describeFailure(res: Response): Promise<string> {
   const body = await res.text().catch(() => '')
-  return `${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`
+  return `${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`
 }
 
 function authHeaders(token?: string): HeadersInit | undefined {
@@ -131,7 +131,7 @@ export async function fetchDemoStatus(token?: string): Promise<DemoRunnerStatus>
   }
 }
 
-/** POST /demo-api/runs — 202 with the run that was accepted. */
+/** POST /demo-api/runs: 202 with the run that was accepted. */
 export async function startDemoRun(stepId: string, token?: string): Promise<DemoRunView> {
   return postJson<DemoRunView>('/runs', `Demo step ${stepId}`, { step: stepId }, token)
 }
@@ -141,13 +141,13 @@ export async function fetchDemoRun(runId: string, token?: string): Promise<DemoR
 }
 
 /**
- * Incremental log read — pass the previous chunk's `next_offset`.
+ * Incremental log read: pass the previous chunk's `next_offset`.
  *
  * `waitSeconds` turns it into a long poll: when the caller is already at the
  * end of the buffer the runner holds the request open until new bytes arrive,
  * the run finishes, or the deadline passes, then answers normally. Delivery is
  * then within milliseconds of the script printing, while the request stays an
- * ordinary short HTTP response — which is the entire point. Every layer
+ * ordinary short HTTP response, which is the entire point. Every layer
  * between the browser and the runner can silently swallow an event-stream
  * (nginx buffers proxied responses by default, gzip fills blocks before
  * flushing, an HTTP/1.0 upstream cannot chunk, ngrok's inspector reassembles,
@@ -156,7 +156,7 @@ export async function fetchDemoRun(runId: string, token?: string): Promise<DemoR
  *
  * The parameter is optional on both sides. A runner image that predates it
  * ignores an unknown query parameter and answers immediately, which is exactly
- * today's behaviour — so this can never make the log worse, only slower.
+ * today's behaviour, so this can never make the log worse, only slower.
  */
 export async function fetchDemoRunLog(
   runId: string,
@@ -171,12 +171,12 @@ export async function fetchDemoRunLog(
   )
 }
 
-/** POST /demo-api/reset — the runner implements reset as demo step 5. */
+/** POST /demo-api/reset: the runner implements reset as demo step 5. */
 export async function resetDemo(token?: string): Promise<DemoRunView> {
   return postJson<DemoRunView>('/reset', 'Demo reset', undefined, token)
 }
 
-// ─── Live log stream (SSE) — OPT-IN, NOT THE DEFAULT ──────────────────────────
+// ─── Live log stream (SSE): OPT-IN, NOT THE DEFAULT ──────────────────────────
 //
 // GET /demo-api/runs/{id}/stream pushes the same chunks the log endpoint
 // serves, as they are written. It is real, it is tested, and it is deliberately
@@ -184,21 +184,21 @@ export async function resetDemo(token?: string): Promise<DemoRunView> {
 //
 // WHY IT LOST. The failure this whole exercise exists to prevent is a blank log
 // on stage, and SSE's characteristic failure produces exactly that with no
-// error to react to. Any intermediary that buffers — nginx (proxy_buffering is
-// ON by default and the /demo-api/ block does not turn it off), a Kubernetes
-// Gateway compressor filter, ngrok, venue wifi running a transparent proxy —
+// error to react to. Any intermediary that buffers (nginx where proxy_buffering is
+// ON by default and the /demo-api/ block does not turn it off, a Kubernetes
+// Gateway compressor filter, ngrok, venue wifi running a transparent proxy)
 // accepts the connection, answers the headers, and then holds every byte until
 // the response completes. Nothing errors. `onerror` never fires. The log sits
 // empty for the length of the phase and the panel has no way to know. A
 // waiting read cannot fail that way: it is an ordinary short response, so a
 // buffering proxy has nothing to buffer.
 //
-// So the stream is kept behind `sseLogStreamEnabled()` for deliberate use —
-// the pattern is worth being able to demonstrate and judge — and it carries a
+// So the stream is kept behind `sseLogStreamEnabled()` for deliberate use
+// (the pattern is worth being able to demonstrate and judge) and it carries a
 // first-byte watchdog rather than trusting an error that will not come.
 //
 // WHY NOT EventSource, for two reasons. It cannot set a single request header,
-// so authenticating it means putting the bearer token in the query string —
+// so authenticating it means putting the bearer token in the query string:
 // into the nginx access log, into every proxy log in between, and into the
 // browser's own history, three places that outlive the session the token
 // belongs to. It also cannot send `ngrok-skip-browser-warning`, which the free
@@ -214,8 +214,8 @@ export async function resetDemo(token?: string): Promise<DemoRunView> {
  * Whether this browser has asked for the SSE log transport.
  *
  * Two ways in, both deliberate and neither reachable by accident:
- *   * `?logTransport=sse` on the page URL — one demo, no residue;
- *   * `localStorage['signalloom.logTransport'] = 'sse'` — sticky for a machine.
+ *   * `?logTransport=sse` on the page URL: one demo, no residue;
+ *   * `localStorage['signalloom.logTransport'] = 'sse'`: sticky for a machine.
  *
  * There is no UI for this and there should not be. An instructor picking a
  * transport mid-demo is a decision they cannot evaluate; the waiting read is
@@ -263,7 +263,7 @@ export interface SseFrame {
 export function parseSseFrames(buffer: string): { frames: SseFrame[]; rest: string } {
   // A trailing CR may be the first half of a CRLF that the next read finishes.
   // Normalising it now would end a line that has not ended, and every frame
-  // after it would be misparsed — so it is held back verbatim.
+  // after it would be misparsed, so it is held back verbatim.
   const heldCarriageReturn = buffer.endsWith('\r')
   const body = heldCarriageReturn ? buffer.slice(0, -1) : buffer
   const parts = body.replace(/\r\n|\r/g, '\n').split('\n\n')
@@ -303,7 +303,7 @@ export interface DemoRunStreamHandlers {
    *
    * Return false to say the chunk did not begin at the caller's cursor. Unlike
    * a poll, a stream cannot be re-asked for a different offset, so that is
-   * unrecoverable here and the stream is torn down — see the throw below.
+   * unrecoverable here and the stream is torn down (see the throw below).
    */
   onChunk: (chunk: DemoRunLogChunk) => boolean | void
   onEnd?: (end: DemoRunStreamEnd) => void
@@ -312,9 +312,9 @@ export interface DemoRunStreamHandlers {
 /**
  * Follow a run's log over SSE until it ends, the caller aborts, or it breaks.
  *
- * Rejects on anything that means "this transport is not usable" — a runner with
+ * Rejects on anything that means "this transport is not usable" (a runner with
  * no /stream route, a response with no body, a malformed frame, a chunk the
- * caller could not place. The caller is expected to answer every one of those
+ * caller could not place). The caller is expected to answer every one of those
  * the same way: say nothing to the user and fall back to polling. There is no
  * failure mode here worth an error banner, because there is nothing the
  * instructor could do about it and the log arrives either way.
@@ -359,7 +359,7 @@ export async function streamDemoRunLog(
     ? new Promise<never>((_, reject) => {
         firstByteTimer = setTimeout(
           () => reject(new Error(
-            `Run log stream failed: nothing arrived within ${firstByteMs}ms — an intermediary is buffering it`,
+            `Run log stream failed: nothing arrived within ${firstByteMs}ms (an intermediary is buffering it)`,
           )),
           firstByteMs,
         )
@@ -382,7 +382,7 @@ export async function streamDemoRunLog(
       }
       if (done) return
       // `stream: true` so a multi-byte character split across two reads is
-      // held rather than decoded into a replacement character — the runner's
+      // held rather than decoded into a replacement character; the runner's
       // output contains ✓ and ✗, which are three bytes each.
       buffer += decoder.decode(value, { stream: true })
       const parsed = parseSseFrames(buffer)
@@ -407,8 +407,8 @@ export async function streamDemoRunLog(
     }
   } finally {
     if (firstByteTimer !== undefined) clearTimeout(firstByteTimer)
-    // Without this the response body stays open on every early return — the
-    // `end` frame, an abort, a rejected chunk, the watchdog — and a demo that
+    // Without this the response body stays open on every early return (the
+    // `end` frame, an abort, a rejected chunk, the watchdog) and a demo that
     // runs five phases leaks five readers.
     void reader.cancel().catch(() => {})
   }

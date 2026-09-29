@@ -15,7 +15,7 @@ interface Props {
 // nginx proxying /dex to the in-cluster Dex. Dex's issuer is set to this origin
 // so the browser reaches every endpoint here. We supply the OIDC metadata
 // explicitly (instead of relying on discovery) so signinRedirect builds the
-// authorization URL synchronously — discovery-on-load was intermittently hanging.
+// authorization URL synchronously: discovery-on-load was intermittently hanging.
 const AUTHORITY = `${window.location.origin}/dex`
 export const oidcConfig = {
   authority: AUTHORITY,
@@ -25,7 +25,7 @@ export const oidcConfig = {
     token_endpoint: `${AUTHORITY}/token`,
     jwks_uri: `${AUTHORITY}/keys`,
     userinfo_endpoint: `${AUTHORITY}/userinfo`,
-    // Dex does not implement OIDC RP-Initiated Logout — omit end_session_endpoint
+    // Dex does not implement OIDC RP-Initiated Logout; omit end_session_endpoint
     // so signoutRedirect() falls back to the client-side session clear below.
   },
   client_id: 'signalloom-dashboard',
@@ -52,7 +52,7 @@ export const oidcConfig = {
 }
 
 // Automatically start the Dex login when the user is not authenticated. This is
-// the documented react-oidc-context SPA pattern — the library does not redirect
+// the documented react-oidc-context SPA pattern: the library does not redirect
 // on its own, and relying on a route guard fails when a loading gate keeps the
 // guard unmounted. Mounted alongside the app so it always runs.
 const PUBLIC_PATHS = ['/redeem-invite', '/signup', '/login', '/callback']

@@ -10,7 +10,7 @@ import LoadingState from '../components/LoadingState'
 import { findMatchingAgent } from '../data/agentMatching'
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
@@ -269,8 +269,8 @@ export default function DiscoveryAccountDetailPage() {
           {isDismissed && (
             <>
               <Field label="Dismissed">{fmtDate(account.dismissed_at)}</Field>
-              <Field label="Dismissed by">{account.dismissed_by ?? '—'}</Field>
-              <Field label="Dismiss reason">{account.dismiss_reason ?? '—'}</Field>
+              <Field label="Dismissed by">{account.dismissed_by ?? '-'}</Field>
+              <Field label="Dismiss reason">{account.dismiss_reason ?? '-'}</Field>
             </>
           )}
         </div>

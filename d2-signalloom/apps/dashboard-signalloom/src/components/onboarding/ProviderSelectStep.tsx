@@ -8,11 +8,11 @@ interface Props {
   onToggle: (providerId: string) => void
 }
 
-// Renders every provider returned by GET /connectors/providers — no
+// Renders every provider returned by GET /connectors/providers: no
 // per-provider branching. New providers (e.g. a 6th identity source) show up
 // automatically once Stream A's plugin registers itself.
 //
-// Grid, not a stacked list — a vertical stack of 5 full-width rows forced
+// Grid, not a stacked list: a vertical stack of 5 full-width rows forced
 // unnecessary scrolling in a centered column; a responsive grid uses the
 // available width and fits everything above the fold on most screens.
 export default function ProviderSelectStep({
@@ -29,7 +29,7 @@ export default function ProviderSelectStep({
       <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 28 }}>
         Signal Loom scans each connected provider for non-human identities (service
         accounts, API keys, bots) so we can surface stale credentials and privilege
-        risk. Pick as many as apply — you can add more later from Settings.
+        risk. Pick as many as apply: you can add more later from Settings.
       </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>

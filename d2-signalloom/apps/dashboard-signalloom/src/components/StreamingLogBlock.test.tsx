@@ -516,7 +516,7 @@ describe('the block is reachable without a mouse', () => {
 
   it('adds the run to the region name when there is one', () => {
     render(<StreamingLogBlock log={'one\n'} label="Run log" title="Phase 4 · Stun" />)
-    expect(screen.getByRole('region', { name: 'Run log — Phase 4 · Stun' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Run log: Phase 4 · Stun' })).toBeInTheDocument()
   })
 
   it('gives Copy a label that says what it copies', () => {

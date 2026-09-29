@@ -111,7 +111,7 @@ describe('CryptographyPage', () => {
     for (const badge of eolBadges) {
       expect(badge).toHaveAttribute('title', expect.stringContaining('NIST IR 8547'))
     }
-    expect(table.getAllByText('Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)').length).toBe(5)
+    expect(table.getAllByText('Quantum-vulnerable: disallowed after 2035 (NIST IR 8547 IPD)').length).toBe(5)
     // Quantum-resistant symmetric — no EOL
     expect(table.getByText('AES-256')).toBeInTheDocument()
     expect(table.getAllByText('None').length).toBeGreaterThanOrEqual(4) // 3 PQC algorithms + AES-256

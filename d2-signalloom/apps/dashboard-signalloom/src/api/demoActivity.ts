@@ -3,7 +3,7 @@
 // In live mode a mutation and its audit row are written together by
 // fe-signalloom (api_compat._write + _audit_log), and the Audit Trail page
 // reads them back over GET /api/audit. Demo mode has no backend, so a
-// demo-mode action used to leave no trace at all — the operator pressed Stun,
+// demo-mode action used to leave no trace at all: the operator pressed Stun,
 // the agent changed state, and the audit trail showed nothing. For a product
 // whose output is regulatory evidence, an action with no record is the one
 // thing a demo must never show.
@@ -54,7 +54,7 @@ export function recordDemoActivity(input: DemoActivityInput): AuditEventResponse
   return event
 }
 
-/** Recorded events, newest first — the order the Audit Trail table expects. */
+/** Recorded events, newest first: the order the Audit Trail table expects. */
 export function demoActivityEvents(): AuditEventResponse[] {
   return [...log].reverse()
 }

@@ -5,7 +5,7 @@ import { colors } from '../styles/tokens'
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -16,7 +16,7 @@ function fmtDate(iso: string | null) {
 }
 
 function fmtRelative(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'just now'
@@ -66,11 +66,11 @@ export default function AgentOverviewTab({
   const namespace = agent.runtime?.namespace || agent.namespace || 'default'
   const clusterId = agent.runtime?.cluster_id || 'cluster-local'
   const framework = agent.runtime?.framework || agent.framework || agent.type || 'Custom'
-  const executionMode = agent.runtime?.execution_mode || agent.type || '—'
+  const executionMode = agent.runtime?.execution_mode || agent.type || '-'
   const model = agent.runtime?.model || agent.model_name || 'Not specified'
   const node = agent.runtime?.node || agent.node || 'Not assigned'
-  const podUid = agent.runtime?.pod_uid || agent.pod_uid || '—'
-  const serviceAccount = agent.runtime?.service_account || agent.service_account || '—'
+  const podUid = agent.runtime?.pod_uid || agent.pod_uid || '-'
+  const serviceAccount = agent.runtime?.service_account || agent.service_account || '-'
   const phase = agent.runtime?.phase || agent.state || 'Running'
 
   // 3. Responsibility metadata (Truthful language dictionary)
@@ -94,7 +94,7 @@ export default function AgentOverviewTab({
     : null
 
   // 5. Identity & Telemetry (Truthful language dictionary)
-  const spiffeId = agent.identity?.spiffe_id || '—'
+  const spiffeId = agent.identity?.spiffe_id || '-'
   const isSpiffeLinked = agent.identity?.spiffe_status === 'linked' ||
     (!!agent.identity?.spiffe_id && agent.record_class !== 'discovered' && agent.is_registry_linked !== false)
   const aliases = agent.identity?.aliases ?? []
@@ -317,7 +317,7 @@ export default function AgentOverviewTab({
                   <span
                     data-testid="overview-kernel-cgroup"
                     className="tag"
-                    title="cgroup.freeze: 1 (FROZEN) — Processes suspended by Sentinel"
+                    title="cgroup.freeze: 1 (FROZEN): Processes suspended by Sentinel"
                     style={{
                       fontSize: 10,
                       padding: '3px 8px',
@@ -332,7 +332,7 @@ export default function AgentOverviewTab({
                   <span
                     data-testid="overview-kernel-tc"
                     className="tag"
-                    title="TC matchall drop active — Network isolated by Sentinel"
+                    title="TC matchall drop active: Network isolated by Sentinel"
                     style={{
                       fontSize: 10,
                       padding: '3px 8px',
@@ -481,7 +481,7 @@ export default function AgentOverviewTab({
             <div>
               <span style={{ color: 'var(--muted)' }}>Team</span>
               <div data-testid="overview-responsibility-team" style={{ color: 'var(--text)', marginTop: 2 }}>
-                {team || '—'}
+                {team || '-'}
               </div>
             </div>
             <div>

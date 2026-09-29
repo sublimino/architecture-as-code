@@ -4,8 +4,8 @@
  *
  * WHY THIS FILE EXISTS SEPARATELY. The five headers are five arguments about
  * chrome, not five sets of data. If each carried its own alert list they would
- * be comparing different worlds, and the page's only real question — "which
- * arrangement handles the same six alerts best?" — would go unanswered. One
+ * be comparing different worlds, and the page's only real question ("which
+ * arrangement handles the same six alerts best?") would go unanswered. One
  * fixture, five presentations.
  *
  * THE DEEP-LINK CONTRACT is the load-bearing part and it is the thing most
@@ -14,7 +14,7 @@
  * handed them a search problem. A target here is three separate pieces, each
  * doing a job the other two cannot:
  *
- *   path    which resource. The route with the id already substituted —
+ *   path    which resource. The route with the id already substituted:
  *           /compliance/eu-ai-act, never /compliance.
  *   query   what must be true for the row to be on screen at all. This is the
  *           piece that gets dropped, and dropping it is why deep links "work"
@@ -29,7 +29,7 @@
  * href>, and the test asserts the string. In the real app these become
  * <Link to={toHref(target)}>; the payload is identical either way, and keeping
  * the gallery router-free is what lets DesignSystemHeadersPage.test.tsx render
- * it with no providers at all — the same discipline DesignSystemPage keeps.
+ * it with no providers at all, the same discipline DesignSystemPage keeps.
  */
 
 /** Ordered worst-first. Sort keys, drawer grouping and the "highest" helper all rely on this order. */
@@ -47,7 +47,7 @@ export const SEVERITY_LABELS: Record<Severity, string> = {
  * The token each severity paints with.
  *
  * Named as tokens rather than colours because these are read straight into
- * `var(...)` at the call site — styles/cssVarUsage.test.ts fails the build for
+ * `var(...)` at the call site: styles/cssVarUsage.test.ts fails the build for
  * a bare hex in an inline style, and for a `var(--x)` no theme declares.
  *
  * Colour is never the only carrier: every place one of these is used, the
@@ -73,7 +73,7 @@ export interface HeaderAlert {
   severity: Severity
   /** What happened, in the reader's language. No error codes in the headline. */
   title: string
-  /** The specific resource this is about — shown, so the link is checkable before it is followed. */
+  /** The specific resource this is about: shown, so the link is checkable before it is followed. */
   resource: string
   /** Relative age. Fixed strings, not computed: a gallery that drifts by the minute is untestable. */
   age: string
@@ -84,7 +84,7 @@ export interface HeaderAlert {
 
 /**
  * Six alerts: two of each severity, so every grouping in every variant has
- * something to group. Deliberately spread across four different routes —
+ * something to group. Deliberately spread across four different routes:
  * a fixture where everything lands on one page would make the deep-link
  * machinery look like decoration.
  */
@@ -172,7 +172,7 @@ export const ALERTS: HeaderAlert[] = [
  * This is the link every product ships first: correct, useless, and impossible
  * to argue with in review because it does navigate somewhere. Rendered next to
  * its deep equivalent in the Deep-linking section, which is the only way to
- * make the difference land — the two are one word apart in the markup and a
+ * make the difference land: the two are one word apart in the markup and a
  * different job entirely for the reader.
  */
 export const SHALLOW_TARGET: AlertTarget = { path: '/compliance' }
@@ -197,7 +197,7 @@ export function toHref(target: AlertTarget): string {
  * link points is "where will this take me?".
  *
  * The order is not decoration. The visible headline comes first, so the name
- * still opens with the words a speech-input user can see and would say — the
+ * still opens with the words a speech-input user can see and would say, the
  * WCAG 2.5.3 rule that components/sidebarLabelInName.test.tsx exists to
  * enforce elsewhere in this app. The severity word is second because some call
  * sites render it inside the link (the command palette does), and a visible
@@ -205,7 +205,7 @@ export function toHref(target: AlertTarget): string {
  * The destination is last because it is the only part the reader cannot see.
  */
 export function alertLinkName(alert: HeaderAlert): string {
-  return `${alert.title} — ${SEVERITY_LABELS[alert.severity]}, open ${alert.destination}`
+  return `${alert.title}: ${SEVERITY_LABELS[alert.severity]}, open ${alert.destination}`
 }
 
 /** Worst-first, then newest-first within a severity. Stable, so the tests can assert order. */

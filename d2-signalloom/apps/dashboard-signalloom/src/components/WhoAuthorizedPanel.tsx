@@ -269,7 +269,7 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = memo(({
                 fontWeight: 600,
               }}
             >
-              Resolution Fidelity: {chain ? `${Math.round(chain.confidence * 100)}%` : '—'}
+              Resolution Fidelity: {chain ? `${Math.round(chain.confidence * 100)}%` : '-'}
             </span>
           </div>
         )}

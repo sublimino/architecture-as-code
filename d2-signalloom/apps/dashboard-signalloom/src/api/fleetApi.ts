@@ -105,7 +105,7 @@ async function fleetFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const contentType = res.headers.get('content-type') ?? ''
   if (!contentType.includes('json')) {
     throw new FleetUnreachableError(
-      'Fleet Manager did not respond — the request was answered by the dashboard ' +
+      'Fleet Manager did not respond: the request was answered by the dashboard ' +
         'itself, which means the fleet-manager service is not deployed or /fleet-api/ ' +
         'is not proxied. Run `make demo-signalloom-fleet-up` to deploy it.',
     )

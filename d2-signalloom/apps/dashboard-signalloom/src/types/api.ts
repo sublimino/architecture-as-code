@@ -46,7 +46,7 @@ export interface AgentCredentialState {
   reason?: string | null
   /** When the revocation took effect. */
   revoked_at?: string | null
-  /** What performed the revocation — a platform component or an operator. */
+  /** What performed the revocation: a platform component or an operator. */
   revoked_by?: string | null
 }
 
@@ -409,13 +409,13 @@ export interface TrustTopologyResponse {
 export interface IssueCredentialResponse {
   agent_id: string
   name: string
-  identity_token: string   // raw JWT — shown once, then gone
+  identity_token: string   // raw JWT (shown once, then gone)
   token_expires_at: string
   token_note: string
   simulated?: boolean
 }
 
-// Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
+// Self-serve revoke: revokes ALL active credentials for the agent (ClickUp 86cak75u7).
 export interface RevokeCredentialResponse {
   agent_id: string
   name: string
@@ -423,7 +423,7 @@ export interface RevokeCredentialResponse {
   simulated?: boolean
 }
 
-// Stun — the operator isolates a non-compliant agent. The k8s side-effect
+// Stun: the operator isolates a non-compliant agent. The k8s side-effect
 // (pod relabel, credential revocation) belongs to the SuperCred proxy; this
 // endpoint owns the RECORD of it: the agent's lifecycle state and the audit
 // event, written in one transaction. The response echoes the audit row so the
@@ -450,7 +450,7 @@ export interface RevokeCredentialResponse {
  * the writer verified and which it is relaying. Flattening these into the
  * response would merge "fe-signalloom read this under FOR UPDATE" with "the
  * proxy said this" into one namespace, and nothing afterwards could separate
- * them. Note `stunned_at` appears on both — deliberately. One is when the
+ * them. Note `stunned_at` appears on both, deliberately. One is when the
  * record was committed, the other when the pod was relabelled, and they are
  * different facts asserted by different writers.
  *
@@ -462,7 +462,7 @@ export interface StunProxyReport {
    *  distinct from the lifecycle `to_state` below. */
   state?: string | null
   stunned_at?: string | null
-  /** The proxy's own wording. Display only — the audit record is `event`. */
+  /** The proxy's own wording. Display only: the audit record is `event`. */
   message?: string | null
 }
 
@@ -710,7 +710,7 @@ export interface NHIDiscoveredResponse {
   summary: NHIDiscoveredSummary
 }
 
-// Response shape of GET /nhi/discovered/{id} — richer than the list endpoint
+// Response shape of GET /nhi/discovered/{id}: richer than the list endpoint
 // (adds dismiss_reason, scan_id, last_seen_at) and uses last_rotated (not
 // last_credential_rotation) to match the backend's field name exactly.
 export interface NHIAccountDetail {
@@ -758,13 +758,13 @@ export interface PreferencesUpdateRequest {
 // ─── API Key Delivery & Rotation (Q6 / Q6 follow-on) ───────────────────────
 
 export interface InitialApiKeyResponse {
-  key: string           // Plaintext — shown exactly once, never re-fetchable
+  key: string           // Plaintext (shown exactly once, never re-fetchable)
   prefix_hint: string   // First 14 chars (e.g. "sl_live_xbc1ab") for later reference
   revealed_at: string
 }
 
 export interface RotateApiKeyResponse {
-  key: string           // New plaintext key — shown once, then gone
+  key: string           // New plaintext key (shown once, then gone)
   prefix_hint: string
   revealed_at: string
   scope: string         // Inherited from the revoked key

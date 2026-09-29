@@ -8,7 +8,7 @@ import WhoAuthorizedPanel from './WhoAuthorizedPanel'
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -46,9 +46,9 @@ export default function AgentIdentityTab({
 
   // 3. Runtime metadata for selectors
   const namespace = agent.runtime?.namespace || agent.namespace || 'default'
-  const serviceAccount = agent.runtime?.service_account || agent.service_account || '—'
+  const serviceAccount = agent.runtime?.service_account || agent.service_account || '-'
   const node = agent.runtime?.node || agent.node || 'Not assigned'
-  const podUid = agent.runtime?.pod_uid || agent.pod_uid || '—'
+  const podUid = agent.runtime?.pod_uid || agent.pod_uid || '-'
   const clusterId = agent.runtime?.cluster_id || 'cluster-local'
 
   // 4. Selectors
@@ -57,9 +57,9 @@ export default function AgentIdentityTab({
       return identity.selectors
     }
     const derived: string[] = []
-    if (namespace && namespace !== '—') derived.push(`k8s:ns:${namespace}`)
-    if (serviceAccount && serviceAccount !== '—') derived.push(`k8s:sa:${serviceAccount}`)
-    if (podUid && podUid !== '—') derived.push(`k8s:pod-uid:${podUid}`)
+    if (namespace && namespace !== '-') derived.push(`k8s:ns:${namespace}`)
+    if (serviceAccount && serviceAccount !== '-') derived.push(`k8s:sa:${serviceAccount}`)
+    if (podUid && podUid !== '-') derived.push(`k8s:pod-uid:${podUid}`)
     if (node && node !== 'Not assigned') derived.push(`k8s:node:${node}`)
     if (agent.name) derived.push(`container:name:${agent.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`)
     return derived
@@ -68,7 +68,7 @@ export default function AgentIdentityTab({
   // 5. Certificate Validity & Timestamps
   const certValidFrom = identity?.cert_valid_from || agent.created_at || null
   const certValidUntil = identity?.cert_valid_until || (agent.credential_state?.status === 'active' ? new Date(Date.now() + 14400000).toISOString() : null)
-  const certIssuer = identity?.cert_issuer || (isSpiffeLinked ? 'spiffe://signalloom.demo/spire/server' : '—')
+  const certIssuer = identity?.cert_issuer || (isSpiffeLinked ? 'spiffe://signalloom.demo/spire/server' : '-')
   const isRevoked = agent.credential_state?.status === 'revoked'
 
   // Certificate status description
@@ -103,7 +103,7 @@ export default function AgentIdentityTab({
   const delegationHops = identity?.delegation_hops ?? ((identity as any)?.delegation?.delegation_depth ?? (authorizingPrincipal ? 1 : 0))
 
   // 7. OpenBao & Key Custody
-  const openbaoRole = identity?.openbao_role || `agent-trust-${serviceAccount !== '—' ? serviceAccount : agent.id}`
+  const openbaoRole = identity?.openbao_role || `agent-trust-${serviceAccount !== '-' ? serviceAccount : agent.id}`
   const openbaoPath = identity?.openbao_path || `kv/data/signalloom/agent-trust/${namespace}/*`
 
   // 8. Source Health
@@ -249,7 +249,7 @@ export default function AgentIdentityTab({
                 lineHeight: 1.4,
               }}
             >
-              {spiffeId || '—'}
+              {spiffeId || '-'}
             </div>
           </div>
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

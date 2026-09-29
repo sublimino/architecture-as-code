@@ -12,7 +12,7 @@ import EmptyState from './EmptyState'
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -296,7 +296,7 @@ export default function AgentAssessmentsTab({
     fail: '✗',
     non_compliant: '✗',
     pending: '○',
-    not_assessed: '—',
+    not_assessed: '-',
     reassessment_requested: '↻',
   }
 
@@ -519,7 +519,7 @@ export default function AgentAssessmentsTab({
               </span>
             </div>
             <div data-testid="assessments-last-assessed" style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
-              {lastAssessedIso ? fmtDate(lastAssessedIso) : '—'}
+              {lastAssessedIso ? fmtDate(lastAssessedIso) : '-'}
             </div>
             {!lastAssessedIso && (
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Pending assessment</div>
@@ -549,7 +549,7 @@ export default function AgentAssessmentsTab({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>
-                EU AI Act Article 9 — Risk Management System
+                EU AI Act Article 9: Risk Management System
               </h2>
               <span
                 className="tag"

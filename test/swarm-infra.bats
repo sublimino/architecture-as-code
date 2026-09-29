@@ -98,7 +98,8 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
     prod-deploy-gate
     agent-cardvault
     nono-containment-probe
-    signalloom-stun-sentinel
+    # The stun sentinel's SA (stun-sentinel) is declared beside its DaemonSet,
+    # not in this file; d2-signalloom/test/stun-sentinel-daemonset.bats pins it.
   )
   for sa in "${agents[@]}"; do
     grep -q "name: ${sa}" "${rbac}"

@@ -139,11 +139,28 @@ func PodStateLabelValue(state string) string {
 	return state
 }
 
-// StunReason is written into the provenance annotations on containment. It is a
-// constant rather than a parameter because SLER-P1-1 does not change the
-// FleetClient method signatures beyond adding Health; a caller-supplied reason
-// arrives with the ContainmentReason type in a later phase.
+// StunReason is the provenance reason written when a caller supplies none.
+// A caller-supplied reason reaches the pod through SetPodStateWithReason, an
+// optional capability, so the FleetClient interface and every fake that
+// implements it stay unchanged.
 const StunReason = "fleet-manager cascade containment"
+
+// MaxStunReasonRunes bounds a caller-supplied stun reason. The reason is
+// written verbatim into two annotations and echoed in the response, so it has
+// to be short enough to read in an incident timeline.
+const MaxStunReasonRunes = 256
+
+// Flux kustomize-controller skips any in-cluster object carrying this
+// annotation. The gitops plane sets it on a contained workload so a reconcile
+// cannot roll the frozen pod away, and removes it on recovery.
+//
+// It is removed rather than blanked, unlike the six stun fields. Those six sit
+// in the Kustomization's spec.ignore list, which only preserves declared paths.
+// This annotation is in no ignore list and must vanish when containment ends.
+const (
+	FluxReconcileAnnotation = "kustomize.toolkit.fluxcd.io/reconcile"
+	FluxReconcileDisabled   = "disabled"
+)
 
 // PodPatchFieldManager matches every other writer of these fields in the repo
 // (the three demo scripts and the integration proxy), a convention

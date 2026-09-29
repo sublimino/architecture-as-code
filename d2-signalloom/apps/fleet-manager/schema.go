@@ -59,12 +59,23 @@ const (
 	PlaneAdmission EnforcementPlane = "admission"
 	// PlaneFreeze freezes container processes in-place using cgroup v2 or SIGSTOP (stun-sentinel).
 	PlaneFreeze EnforcementPlane = "freeze"
+	// PlaneGitOps pauses Flux reconciliation of the contained workload by
+	// annotating the pod and its owning Deployment with
+	// kustomize.toolkit.fluxcd.io/reconcile=disabled.
+	//
+	// It is a valid wire value but deliberately NOT a member of
+	// AllEnforcementPlanes(). That list is the frozen five-plane dispatch set
+	// that ContainAllPlanes fans out to. The gitops plane contains nothing on
+	// its own. It stops GitOps from undoing a containment, so the cascade runs
+	// it only after a successful freeze. Adding it to the dispatch set would be
+	// a frozen-contract change that P1-GOV has not approved.
+	PlaneGitOps EnforcementPlane = "gitops"
 )
 
 // IsValid checks if the EnforcementPlane is one of the recognized planes.
 func (p EnforcementPlane) IsValid() bool {
 	switch p {
-	case PlaneMesh, PlaneBao, PlaneSpire, PlaneAdmission, PlaneFreeze:
+	case PlaneMesh, PlaneBao, PlaneSpire, PlaneAdmission, PlaneFreeze, PlaneGitOps:
 		return true
 	default:
 		return false

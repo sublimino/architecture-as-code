@@ -1,0 +1,42 @@
+{
+  "id": "nis2",
+  "name": "Network and Information Systems Directive (NIS2)",
+  "version": "v1.0.0",
+  "status": "placeholder",
+  "controlSets": [
+    {
+      "id": "nis2-cybersecurity",
+      "name": "NIS2: Cybersecurity Risk Management",
+      "controls": [
+        {
+          "id": "NIS2-1.0",
+          "name": "NIS2-1.0 Cybersecurity Risk Management Measures",
+          "checks": [
+            {
+              "id": "nis2-supply-chain-risk",
+              "name": "NIS2 Supply Chain Security Measures Placeholder",
+              "description": "Placeholder control for NIS2 directive compliance evaluation.",
+              "celExpression": "false",
+              "status": "placeholder",
+              "severity": "medium",
+              "remediation": "NIS2 automated evaluation is deferred in this release.",
+              "riskTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

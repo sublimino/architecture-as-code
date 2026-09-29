@@ -112,7 +112,11 @@ func (s *PolicyStore) LoadFrameworks(policyRoot string) error {
 				rules = append(rules, PolicyRule{
 					ID:            c.Check.ID,
 					Name:          c.Check.Name,
+					Description:   c.Check.Description,
 					CELExpression: c.Check.CELExpression,
+					Severity:      c.Check.Severity,
+					Remediation:   c.Check.Remediation,
+					Status:        c.Check.Status,
 					RiskTriple:    c.Check.RiskTriple,
 					FreqTriple:    c.Check.FreqTriple,
 				})
@@ -136,6 +140,7 @@ func (s *PolicyStore) LoadFrameworks(policyRoot string) error {
 				Author:      "system",
 				Description: fmt.Sprintf("Built-in regulatory framework bundle for %s", fw.Name),
 				CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+				Status:      fw.Status,
 				Rules:       rules,
 			}
 
@@ -175,6 +180,9 @@ func (s *PolicyStore) RegisterBundle(tenantID string, bundle *PolicyBundle) erro
 
 	// 1. Atomic CEL validation: Compile all rules upfront before acquiring write lock.
 	for i, rule := range bundle.Rules {
+		if bundle.Status == "placeholder" || rule.Status == "placeholder" {
+			continue
+		}
 		if strings.TrimSpace(rule.CELExpression) == "" {
 			return fmt.Errorf("rule %d (%s) has empty cel_expression", i, rule.ID)
 		}
@@ -383,6 +391,21 @@ func (s *PolicyStore) EvaluateBundle(ctx context.Context, bundle *PolicyBundle, 
 	results := make([]RuleEvaluationResult, 0, len(bundle.Rules))
 
 	for _, rule := range bundle.Rules {
+		if bundle.Status == "placeholder" || rule.Status == "placeholder" {
+			results = append(results, RuleEvaluationResult{
+				RuleID:      rule.ID,
+				Name:        rule.Name,
+				Passed:      false,
+				Status:      "NOT_EVALUATED",
+				Severity:    rule.Severity,
+				Remediation: rule.Remediation,
+				Error:       "NOT_EVALUATED",
+				Cost:        0,
+				LatencyMs:   0,
+			})
+			continue
+		}
+
 		rStart := time.Now()
 		passed, cost, err := s.celEngine.Evaluate(ctx, rule.CELExpression, inputMap)
 		rLatency := float64(time.Since(rStart).Microseconds()) / 1000.0
@@ -410,6 +433,7 @@ func (s *PolicyStore) EvaluateBundle(ctx context.Context, bundle *PolicyBundle, 
 			RuleID:      rule.ID,
 			Name:        rule.Name,
 			Passed:      passed,
+			Status:      "EVALUATED",
 			Severity:    rule.Severity,
 			Remediation: rule.Remediation,
 			Error:       errStr,

@@ -124,9 +124,9 @@ export async function startLogSampler(
         const last = lineNodes[lineNodes.length - 1] as HTMLElement | undefined;
         const scroll = document.querySelector(`[data-testid="${testId}-scroll"]`) as HTMLElement | null;
         const statusNode = document.querySelector('[data-testid="supercred-run-status"]');
-        // "Step 1 (step) — running · started …". The em dash is the panel's own
-        // separator and the word after it is DemoRunView.status verbatim.
-        const status = statusNode?.textContent?.match(/—\s*([a-z_]+)/)?.[1] ?? "";
+        // "Step 1 (step): running · started …". The colon or em dash is the panel's separator
+        // and the word after it is DemoRunView.status verbatim.
+        const status = statusNode?.textContent?.match(/[:\u2014]\s*([a-z_]+)/)?.[1] ?? "";
         samples.push({
           t: Math.round(performance.now() - started),
           lines: lineNodes.length,

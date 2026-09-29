@@ -84,9 +84,9 @@ declared_attacks() {
 	# --collect-only, and NOT a run: this asks the question that matters
 	# (is it selected?) without paying for execution, and it answers it even
 	# when a test would fail for an unrelated reason.
-	run bash -c "cd '$src' && uv run --python 3.12 --with pytest --with pytest-asyncio \
+	run bash -c "cd '$src' && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=\${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with respx \
 		--with-requirements requirements.txt \
-		python -m pytest tests --collect-only -q -o addopts=\"\" 2>&1"
+		python -m pytest tests --collect-only -q -o addopts=\"\" -o cache_dir=/tmp/.pytest_cache 2>&1"
 	if [ "$status" -ne 0 ]; then
 		echo "pytest --collect-only failed; cannot verify the suite is live:"
 		echo "$output"

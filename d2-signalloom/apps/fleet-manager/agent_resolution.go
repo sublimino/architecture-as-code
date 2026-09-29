@@ -26,7 +26,8 @@ type AgentPodLookup interface {
 type agentResolution struct {
 	ID        string
 	Requested string
-	// By names the branch that resolved it: exact, label or replicaset-pattern.
+	// By names the branch that resolved it: exact, prefixed, label or
+	// replicaset-pattern.
 	By    string
 	Tried []string
 }
@@ -34,6 +35,7 @@ type agentResolution struct {
 // Resolution branch names, as reported in freeze-plane details.resolved_by.
 const (
 	resolvedByExact      = "exact"
+	resolvedByPrefixed   = "prefixed"
 	resolvedByLabel      = "label"
 	resolvedByReplicaSet = "replicaset-pattern"
 )
@@ -87,6 +89,7 @@ func replicaSetBase(podName string) (string, bool) {
 // dashboard and the integration proxy use) onto a DAG agent id:
 //
 //	(a) an exact DAG id is used as is, with no API call;
+//	(a') else agent-<requested>, when that is a DAG id, also with no API call;
 //	(b) else the pod AGENT_NAMESPACE/<requested> is read; if it carries
 //	    signalloom.ai/agent-name=<n> and agent-<n> is in the DAG, that;
 //	(c) else, if the pod exists, the pod name minus its two trailing -<hash>
@@ -106,6 +109,19 @@ func (s *server) resolveAgentID(ctx context.Context, requested string) (agentRes
 	}
 	if s.dag == nil {
 		return res, errUnknownAgent
+	}
+
+	// (a') A bare agent name (kusari-agent) is the DAG id without its agent-
+	// prefix. fe passes ids through unchanged, so this is resolved here and
+	// needs no API call.
+	if !strings.HasPrefix(requested, "agent-") {
+		prefixed := "agent-" + requested
+		res.Tried = append(res.Tried, "prefixed:"+prefixed)
+		if s.dag.GetAgent(prefixed) != nil {
+			res.ID = prefixed
+			res.By = resolvedByPrefixed
+			return res, nil
+		}
 	}
 
 	lookup := s.podLookup()

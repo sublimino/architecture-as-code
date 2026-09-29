@@ -1,0 +1,96 @@
+{
+  "artifact": "slms-p1-governor-facts",
+  "phase": "P1",
+  "card": "SLMS-P1-GOV",
+  "title": "Phase 1 Governor: Navigation, Discovery & Agents Reconciliation and Quality Gate Certification",
+  "generated": "2026-09-29T04:54:00+01:00",
+  "role_boundary": "Governor quality gate and integration merge",
+  "repository": {
+    "worktree": "/home/andy/src/.worktrees/3366e/osramp-demo",
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "base_commit_sha": "256d85a8165a2ab90f59cd44fd2d509561eebe3f",
+    "merge_commit_sha": "bcbfe769f3b959c8e2ed79455a7def1c7ea8c6f2",
+    "integration_tag": "integration/slms-v0.1.0-p1",
+    "is_ancestor_of_base_ref": false,
+    "working_tree_clean": true
+  },
+  "constituent_tasks": {
+    "P1-PRE": {
+      "title": "Phase 1 Pre-Flight Check",
+      "commit_sha": "8d70c732cd988424d9ee5d51c60bbce51de7fb81",
+      "status": "PASS"
+    },
+    "P1-1": {
+      "title": "Sidebar Navigation Refactor & Superadmin Gating",
+      "commit_sha": "0963af6611ea73d9cce667dca2078550216e01cb",
+      "status": "PASS"
+    },
+    "P1-2": {
+      "title": "Discovery Super Datatable & Namespace Auto-Claim",
+      "commit_sha": "c2d800670da89f237344a47fbddb8149a2a9d9b8",
+      "status": "PASS"
+    },
+    "P1-3": {
+      "title": "Agents Page Governance State Consolidation",
+      "commit_sha": "726b1e9b2e71271b5a994d94b3b2cc6debb34845",
+      "status": "PASS"
+    }
+  },
+  "merge_reconciliation": {
+    "commit_sha": "bcbfe769f3b959c8e2ed79455a7def1c7ea8c6f2",
+    "reconciled_files": [
+      "d2-signalloom/apps/fe-signalloom/src/api_compat.py",
+      "d2-signalloom/apps/fe-signalloom/src/tests/test_agent_claim.py",
+      "d2-signalloom/apps/fe-signalloom/src/tests/test_agent_stun.py",
+      "d2-signalloom/apps/fe-signalloom/src/tests/test_dashboard_lifecycle_vocabulary.py",
+      "d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py"
+    ]
+  },
+  "verified_test_results": {
+    "dashboard_vitest": {
+      "command": "bun run test --run",
+      "passed": 3471,
+      "skipped": 3,
+      "failed": 0,
+      "total": 3474,
+      "files_passed": 193,
+      "files_total": 193,
+      "baseline_floor": 3455,
+      "duration_seconds": 13.99,
+      "status": "PASS"
+    },
+    "backend_pytest": {
+      "command": "uv run pytest tests -q --disable-warnings",
+      "passed": 2076,
+      "skipped": 94,
+      "xfailed": 1,
+      "failed": 0,
+      "total": 2171,
+      "baseline_floor": 2028,
+      "duration_seconds": 271.85,
+      "status": "PASS"
+    },
+    "frontend_typecheck": {
+      "command": "bun run typecheck",
+      "errors": 0,
+      "status": "PASS"
+    },
+    "policy_engine_go": {
+      "command": "go test -mod=mod -buildvcs=false ./...",
+      "packages_passed": 4,
+      "status": "PASS"
+    }
+  },
+  "typography_audit": {
+    "modified_files_count": 26,
+    "new_em_dashes_added": 0,
+    "status": "ZERO_NEW_EM_DASHES_VERIFIED"
+  },
+  "governor_verdict": {
+    "status": "PASS",
+    "proceed": true,
+    "blocking_drift": false,
+    "unblocked_task": "SLMS-P2-PRE",
+    "summary": "Phase 1 quality gate fully verified. All constituent task branches merged cleanly into integration/slms-v0.1.0 with test floors exceeded (3,471 Vitest, 2,076 Pytest, 0 failures, 0 regressions, 0 new em-dashes). Tag integration/slms-v0.1.0-p1 created."
+  }
+}

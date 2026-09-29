@@ -55,6 +55,8 @@ stringData:
           # Wherever the demo is published right now. Same default as the
           # issuer, so this is a harmless duplicate when PUBLIC_ORIGIN is unset.
           - ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/callback
+          - https://ftna-signalloom.taild4da3.ts.net/callback
+          - https://fortuna.taild4da3.ts.net/callback
           # Wherever the demo is currently published. Same default as the
           # issuer above, so this is a harmless duplicate when unset.
       - id: signalloom-api

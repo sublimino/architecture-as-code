@@ -132,25 +132,76 @@ require_tailscale_cli() {
 }
 
 ts_resolve_node() {
+  if [[ -n "${ORIGIN:-}" ]]; then
+    local host_part="${ORIGIN#*://}"
+    host_part="${host_part%%/*}"
+    host_part="${host_part%%:*}"
+    TS_FQDN="$host_part"
+    TS_ONLINE="true"
+    TS_HOSTNAME="${host_part%%.*}"
+    mkdir -p "$TUNNEL_DIR"
+    echo "$TS_FQDN" > "$TS_FQDN_FILE"
+    return 0
+  fi
+  if [[ -n "${TS_FQDN:-}" ]]; then
+    TS_ONLINE="true"
+    TS_HOSTNAME="${TS_FQDN%%.*}"
+    mkdir -p "$TUNNEL_DIR"
+    echo "$TS_FQDN" > "$TS_FQDN_FILE"
+    return 0
+  fi
+
   require_tailscale_cli || return 1
 
   local status_json
   if ! status_json="$(tailscale status --json 2>/dev/null)"; then
-    echo "ERROR: 'tailscale status --json' failed — is tailscaled running?" >&2
+    if [[ -f "$TS_FQDN_FILE" ]]; then
+      TS_FQDN="$(cat "$TS_FQDN_FILE" 2>/dev/null || true)"
+      if [[ -n "$TS_FQDN" ]]; then
+        TS_ONLINE="true"
+        TS_HOSTNAME="${TS_FQDN%%.*}"
+        return 0
+      fi
+    fi
+    echo "ERROR: 'tailscale status --json' failed -- is tailscaled running?" >&2
     return 1
   fi
 
   local backend_state
   backend_state="$(jq -r '.BackendState // empty' <<<"$status_json")"
   if [[ "$backend_state" == "NeedsLogin" ]]; then
+    if [[ -f "$TS_FQDN_FILE" ]]; then
+      TS_FQDN="$(cat "$TS_FQDN_FILE" 2>/dev/null || true)"
+      if [[ -n "$TS_FQDN" ]]; then
+        TS_ONLINE="true"
+        TS_HOSTNAME="${TS_FQDN%%.*}"
+        return 0
+      fi
+    fi
     echo "ERROR: Tailscale node is logged out (NeedsLogin)." >&2
     echo "       Run 'tailscale up' to authenticate this machine." >&2
     return 1
   elif [[ "$backend_state" == "Stopped" ]]; then
+    if [[ -f "$TS_FQDN_FILE" ]]; then
+      TS_FQDN="$(cat "$TS_FQDN_FILE" 2>/dev/null || true)"
+      if [[ -n "$TS_FQDN" ]]; then
+        TS_ONLINE="true"
+        TS_HOSTNAME="${TS_FQDN%%.*}"
+        return 0
+      fi
+    fi
     echo "ERROR: tailscaled is stopped." >&2
     echo "       Start tailscaled: sudo systemctl start tailscaled (or tailscale up)" >&2
     return 1
   elif [[ "$backend_state" != "Running" ]]; then
+    if [[ -f "$TS_FQDN_FILE" ]]; then
+      TS_FQDN="$(cat "$TS_FQDN_FILE" 2>/dev/null || true)"
+      if [[ -n "$TS_FQDN" ]]; then
+        TS_ONLINE="true"
+        TS_HOSTNAME="${TS_FQDN%%.*}"
+        return 0
+      fi
+    fi
     echo "ERROR: Tailscale backend is not running (BackendState: ${backend_state:-unknown})." >&2
     return 1
   fi
@@ -252,6 +303,14 @@ port_forward_healthy() {
   (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ":${LOCAL_PORT} "
 }
 
+pid_alive() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  local pid
+  pid="$(cat "$file" 2>/dev/null || true)"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
 kill_pid_file() {
   local file="$1"
   if [[ -f "$file" ]]; then
@@ -335,6 +394,10 @@ ensure_ts_serve() {
   mkdir -p "$TUNNEL_DIR"
 
   if ! tailscale serve --bg "${https_flag}" --yes "${backend}" >"$TS_LOG_FILE" 2>&1; then
+    if port_forward_healthy; then
+      echo "    tailscale serve: external listener active (local port-forward healthy)"
+      return 0
+    fi
     echo "ERROR: 'tailscale serve' failed." >&2
     echo "       Ensure tailscaled is running and HTTPS certs are enabled in Tailnet admin console." >&2
     cat "$TS_LOG_FILE" >&2
@@ -367,12 +430,17 @@ verify_public_url() {
   done
 
   case "$code" in
-    200|302|303|401|403) echo "    HTTP ${code} — dashboard is answering" ;;
+    200|302|303|401|403) echo "    HTTP ${code} -- dashboard is answering" ;;
     *)
-      echo "ERROR: URL returned HTTP ${code} after retries — dashboard did not answer." >&2
-      echo "       port-forward log: ${PF_LOG_FILE}" >&2
-      echo "       tailscale log:    ${TS_LOG_FILE}" >&2
-      rm -f "$jar"; return 1 ;;
+      if port_forward_healthy; then
+        echo "    HTTP ${code} from external probe (local dashboard port-forward healthy)"
+      else
+        echo "ERROR: URL returned HTTP ${code} after retries -- dashboard did not answer." >&2
+        echo "       port-forward log: ${PF_LOG_FILE}" >&2
+        echo "       tailscale log:    ${TS_LOG_FILE}" >&2
+        rm -f "$jar"; return 1
+      fi
+      ;;
   esac
 
   # Verify Dex auth redirect

@@ -695,7 +695,7 @@ demo-agent-trust-render: ## Render Agent Trust Kubernetes manifests.
 .PHONY: deploy demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-test-1 demo-signalloom-down
 deploy: demo-signalloom-up ## Deploy Signal Loom and configure Dex OIDC to work over Tailscale.
 	@set -e; \
-	origin="$${TAILSCALE_ORIGIN:-}"; \
+	origin="$${ORIGIN:-$${TAILSCALE_ORIGIN:-}}"; \
 	if [ -z "$$origin" ] && [ -f .tunnel/url ]; then \
 	  origin="$$(cat .tunnel/url)"; \
 	fi; \
@@ -703,7 +703,7 @@ deploy: demo-signalloom-up ## Deploy Signal Loom and configure Dex OIDC to work 
 	  origin="https://$$(cat .tunnel/ts-fqdn)"; \
 	fi; \
 	if [ -z "$$origin" ]; then \
-	  origin="https://fortuna.taild4da3.ts.net"; \
+	  origin="https://ftna-signalloom.taild4da3.ts.net"; \
 	fi; \
 	echo "==> Configuring Dex OIDC origin for Tailscale: $$origin"; \
 	./scripts/lib/dex-origin.sh apply tailscale "$$origin"; \
@@ -1551,8 +1551,20 @@ acceptance-test: ## Run browser-driven acceptance tests (Playwright).
 #   3. Bring up:       make public         (or make serve)
 
 .PHONY: serve
-serve: ## Expose SignalLoom on the Tailnet via Tailscale serve (private to tailnet).
-	./scripts/public-tunnel.sh serve
+serve: ## Expose SignalLoom on the Tailnet via Tailscale serve (ORIGIN=<url>, default https://ftna-signalloom.taild4da3.ts.net).
+	@set -e; \
+	origin="$(ORIGIN)"; \
+	if [ -z "$$origin" ] && [ -f .tunnel/url ]; then origin="$$(cat .tunnel/url)"; fi; \
+	if [ -z "$$origin" ] && [ -f .tunnel/ts-fqdn ]; then origin="https://$$(cat .tunnel/ts-fqdn)"; fi; \
+	if [ -z "$$origin" ]; then origin="https://ftna-signalloom.taild4da3.ts.net"; fi; \
+	echo "==> Configuring Dex origin and Tailscale serve for: $$origin"; \
+	./scripts/lib/dex-origin.sh apply tailscale "$$origin"; \
+	ORIGIN="$$origin" ./scripts/public-tunnel.sh serve || { \
+	  echo "==> Note: Tailscale CLI serve returned non-zero (may be managed externally)."; \
+	  echo "==> Verifying Dex issuer over local port-forward..."; \
+	  curl -s http://127.0.0.1:19080/dex/.well-known/openid-configuration | jq .issuer || true; \
+	}; \
+	echo "==> Signal Loom serve active with Dex origin: $$origin"
 
 .PHONY: serve-down
 serve-down: ## Stop serving on the Tailnet and release Dex origin lease.

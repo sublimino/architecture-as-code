@@ -6,8 +6,8 @@
 # from flux-runtime-info.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: fe-signalloom
 resources:
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml
+

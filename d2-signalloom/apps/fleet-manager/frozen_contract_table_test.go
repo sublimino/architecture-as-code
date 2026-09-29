@@ -244,6 +244,7 @@ var frozenStructs = []frozenStruct{
 		{GoName: "DurationMs", JSONName: "duration_ms", GoType: "int64", OmitEmpty: false},
 		{GoName: "RecoveryOrder", JSONName: "recovery_order", GoType: "[]string", OmitEmpty: true},
 		{GoName: "OverallOutcome", JSONName: "overall_outcome", GoType: "main.PlaneOutcome", OmitEmpty: true},
+		{GoName: "Details", JSONName: "details", GoType: "map[string]interface {}", OmitEmpty: true},
 	}},
 	{Name: "DegradedTarget", Fields: []frozenField{
 		{GoName: "Target", JSONName: "target", GoType: "main.TargetRef", OmitEmpty: false},

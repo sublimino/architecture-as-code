@@ -1498,3 +1498,18 @@ func (c *k8sFleetClient) revokeSpireForIdentity(ctx context.Context, namespace, 
 	}
 	return res, err
 }
+
+// LookupAgentPod reads one pod by name from the agent namespace. A NotFound
+// is reported as found=false with a nil error; any other API failure is
+// returned so the caller can say the lookup failed rather than that the pod
+// is absent.
+func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, bool, error) {
+	pod, err := c.clientset.CoreV1().Pods(c.defaultNamespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return pod.Labels, true, nil
+}

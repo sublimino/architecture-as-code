@@ -591,6 +591,20 @@ class TrustTopologyItem(TopologyEvidence):
     spiffe_id: str | None = None
     x: int | None = None
     y: int | None = None
+    lifecycle_state: str | None = None
+    trust_domain: str | None = None
+    verified: bool | None = None
+    tool_permissions: list[str] | None = None
+    egress_allowlist: list[str] | None = None
+    metadata: dict[str, Any] | None = None
+    custom_attributes: dict[str, Any] | None = None
+    status: str | None = None
+    selectors: list[str] | None = None
+    bao_role: str | None = None
+    bao_path: str | None = None
+    audience: str | None = None
+    ttl: str | None = None
+    policy_ref: str | None = None
 
 
 class TrustTopologyEdge(TopologyEvidence):
@@ -609,6 +623,13 @@ class TrustTopologyEdge(TopologyEvidence):
     renewable: bool | None = None
     lease_duration: int | None = None
     token_type: str | None = None
+    throughput_pps: float | None = None
+    latency_ms: float | None = None
+    mtls_enforced: bool | None = None
+    bao_role: str | None = None
+    bao_path: str | None = None
+    audience: str | None = None
+    ttl: str | None = None
 
 
 class TrustTopologyResponse(BaseModel):
@@ -3540,28 +3561,60 @@ def _derived_topology(tenant_id: str, available, reason: str) -> TrustTopologyRe
                           tenant=None, **ev("Platform root implied by the authenticated principal")),
         TrustTopologyItem(id=tenant_id, kind="tenant", label=f"{tenant_id} tenant", parent_id="platform",
                           tenant=tenant_id, **ev("Tenant derived from the verified bearer-token subject")),
+        TrustTopologyItem(id="spire", kind="service", label="SPIRE issuer", parent_id="platform",
+                          tenant="shared", location="in-cluster", **ev("Modeled SPIFFE issuer")),
+        TrustTopologyItem(id="openbao", kind="service", label="OpenBao", parent_id="platform",
+                          tenant="shared", location="in-cluster", **ev("Modeled SuperCredential exchange broker")),
     ]
     edges = [
         TrustTopologyEdge(id=f"platform-{tenant_id}", from_id="platform", to_id=tenant_id,
                           verb="scopes authenticated tenant", plane="identity", decision="allowed",
-                          tenant=tenant_id, **ev("Tenant comes from the verified bearer-token subject mapping")),
+                          tenant=tenant_id, mtls_enforced=True, throughput_pps=50.0, latency_ms=0.5,
+                          **ev("Tenant comes from the verified bearer-token subject mapping")),
+        TrustTopologyEdge(id=f"spire-{tenant_id}", from_id="spire", to_id=tenant_id,
+                          verb="issues tenant trust bundles", plane="identity", decision="allowed",
+                          tenant="shared", mtls_enforced=True, throughput_pps=10.0, latency_ms=1.1,
+                          **ev("Modeled SPIFFE issuance")),
     ]
     for agent in available:
+        spiffe_id = getattr(agent, "spiffe_id", None) if hasattr(agent, "spiffe_id") else (agent.get("spiffe_id") if isinstance(agent, dict) else None)
+        verified = bool(spiffe_id)
+        lifecycle = getattr(agent, "lifecycle_state", None) if hasattr(agent, "lifecycle_state") else (agent.get("lifecycle_state") if isinstance(agent, dict) else "registered")
+        if not lifecycle:
+            lifecycle = "registered"
+        name = getattr(agent, "name", None) if hasattr(agent, "name") else (agent.get("name") if isinstance(agent, dict) else None)
+        agent_id = getattr(agent, "id", None) if hasattr(agent, "id") else (agent.get("id") if isinstance(agent, dict) else str(agent))
+        namespace = getattr(agent, "namespace", None) if hasattr(agent, "namespace") else (agent.get("namespace") if isinstance(agent, dict) else f"tenant-{tenant_id}")
+        trust_domain = getattr(agent, "trust_domain", None) if hasattr(agent, "trust_domain") else (agent.get("trust_domain") if isinstance(agent, dict) else f"{tenant_id}.signalloom.demo")
+        tool_perms = getattr(agent, "tool_permissions", None) if hasattr(agent, "tool_permissions") else (agent.get("tool_permissions") if isinstance(agent, dict) else ["read", "write"])
+        egress = getattr(agent, "egress_allowlist", None) if hasattr(agent, "egress_allowlist") else (agent.get("egress_allowlist") if isinstance(agent, dict) else ["in-cluster"])
+        custom_attrs = getattr(agent, "custom_attributes", None) if hasattr(agent, "custom_attributes") else (agent.get("custom_attributes") if isinstance(agent, dict) else {})
+        meta = getattr(agent, "metadata", None) if hasattr(agent, "metadata") else (agent.get("metadata") if isinstance(agent, dict) else custom_attrs)
+
         nodes.append(TrustTopologyItem(
-            id=agent.id, kind="agent", label=agent.name, parent_id=tenant_id, tenant=tenant_id,
-            location="in-cluster", **ev(f"Agent lifecycle state: {agent.lifecycle_state}")))
+            id=agent_id, kind="agent", label=name or agent_id, parent_id=tenant_id, tenant=tenant_id,
+            location="in-cluster", namespace=namespace,
+            spiffe_id=spiffe_id, lifecycle_state=lifecycle,
+            trust_domain=trust_domain, verified=verified,
+            tool_permissions=tool_perms, egress_allowlist=egress,
+            metadata=meta, custom_attributes=custom_attrs,
+            **ev(f"Agent lifecycle state: {lifecycle}")
+        ))
         edges.append(TrustTopologyEdge(
-            id=f"{tenant_id}-{agent.id}", from_id=tenant_id, to_id=agent.id,
-            verb=f"governs {agent.lifecycle_state} agent", plane="authorization",
-            decision="denied" if agent.lifecycle_state in {"suspended", "stunned"} else "allowed",
-            tenant=tenant_id, **ev(f"Lifecycle state {agent.lifecycle_state} derived from tenant state")))
+            id=f"{tenant_id}-{agent_id}", from_id=tenant_id, to_id=agent_id,
+            verb=f"governs {lifecycle} agent", plane="authorization",
+            decision="denied" if lifecycle in {"suspended", "stunned", "revoked", "quarantined"} else "allowed",
+            tenant=tenant_id,
+            throughput_pps=125.0, latency_ms=1.2, mtls_enforced=verified,
+            **ev(f"Lifecycle state {lifecycle} derived from tenant state")
+        ))
     return TrustTopologyResponse(
         generated_at=now, version="v1",
         collectors={"kubernetes": TopologyCollector(status="unavailable", observed_at=now, reason=reason)},
         nodes=nodes, edges=edges,
         modeled_gaps=[TrustTopologyItem(
             id="gap-live-collector", kind="gap", label="Live topology collector unreachable",
-            **ev(reason))],
+            tenant=None, **ev(reason))],
     )
 
 
@@ -3629,15 +3682,22 @@ async def trust_topology(
                 available = [AgentResponse(**agent) for agent in _AGENTS[tenant_id].values()]
         return _derived_topology(tenant_id, available, fallback_reason)
 
-    nodes = [node for node in topology.nodes if node.tenant in {None, tenant_id}]
+    allowed_tenants = {None, "shared", "", tenant_id}
+    nodes = [
+        node for node in topology.nodes
+        if node.tenant in allowed_tenants or node.kind in {"platform", "service", "external", "gap", "probe"}
+    ]
     visible = {node.id for node in nodes}
     edges = [
         edge for edge in topology.edges
-        if edge.tenant in {None, tenant_id}
+        if (edge.tenant in allowed_tenants or edge.tenant is None)
         and edge.from_id in visible
         and edge.to_id in visible
     ]
-    modeled_gaps = [gap for gap in topology.modeled_gaps if gap.tenant in {None, tenant_id}]
+    modeled_gaps = [
+        gap for gap in topology.modeled_gaps
+        if gap.tenant in allowed_tenants or gap.tenant is None
+    ]
     # model_copy preserves shared-object names and labels; filtering never
     # rewrites an object to impersonate the requesting tenant.
     return topology.model_copy(update={

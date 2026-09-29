@@ -355,6 +355,20 @@ export interface TrustTopologyNode extends TopologyEvidence {
   spiffe_id?: string | null
   x?: number | null
   y?: number | null
+  lifecycle_state?: string | null
+  trust_domain?: string | null
+  verified?: boolean | null
+  tool_permissions?: string[] | null
+  egress_allowlist?: string[] | null
+  metadata?: Record<string, unknown> | null
+  custom_attributes?: Record<string, unknown> | null
+  status?: string | null
+  selectors?: string[] | null
+  bao_role?: string | null
+  bao_path?: string | null
+  audience?: string | null
+  ttl?: string | null
+  policy_ref?: string | null
 }
 
 export interface TrustTopologyEdge extends TopologyEvidence {
@@ -369,6 +383,13 @@ export interface TrustTopologyEdge extends TopologyEvidence {
   project?: string | null
   policy_ref?: string | null
   spiffe_id?: string | null
+  throughput_pps?: number | null
+  latency_ms?: number | null
+  mtls_enforced?: boolean | null
+  bao_role?: string | null
+  bao_path?: string | null
+  audience?: string | null
+  ttl?: string | null
 }
 
 export interface TrustTopologyResponse {

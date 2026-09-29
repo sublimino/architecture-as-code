@@ -10,7 +10,7 @@ export type EnforcementPlane = 'identity' | 'authorization' | 'network' | 'exter
 export type TopologyPlane = EnforcementPlane | 'evidence'
 export type Location = 'in-cluster' | 'external'
 export type Decision = 'allowed' | 'denied' | 'neutral'
-export type NodeKind = 'platform' | 'tenant' | 'project' | 'agent' | 'service'
+export type NodeKind = 'platform' | 'tenant' | 'project' | 'agent' | 'service' | 'external' | 'probe' | 'gap'
 
 export type Provenance = {
   evidence: EvidenceState
@@ -35,12 +35,25 @@ export type TrustNode = Provenance & ExternalTrust & {
   parentId?: string; tenant: string; location: Location; spiffeId?: string; namespace?: string
   serviceAccount?: string; selectors?: string[]; baoRole?: string; baoPath?: string; audience?: string
   ttl?: string; policyRef?: string; x: number; y: number
+  lifecycleState?: string
+  lifecycle_state?: string
+  trustDomain?: string
+  verified?: boolean
+  toolPermissions?: string[]
+  egressAllowlist?: string[]
+  attestationHash?: string
+  metadata?: Record<string, unknown>
+  customAttributes?: Record<string, unknown>
+  status?: string
 }
 
 export type TrustEdge = Provenance & {
   id: string; from: string; to: string; verb: string; plane: EnforcementPlane; decision: Decision
   denialKind?: 'network-block' | 'application-authorization-rejection'
   baoRole?: string; baoPath?: string; audience?: string; ttl?: string; policyRef?: string
+  throughputPps?: number
+  latencyMs?: number
+  mtlsEnforced?: boolean
 }
 
 /** What the page currently has pinned in the inspector. */

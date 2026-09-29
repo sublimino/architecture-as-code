@@ -21,7 +21,14 @@ test("user can log out and is returned to the Dex login page", async ({ page }) 
   // Click the sign-out button in the sidebar.
   await page.getByTitle("Sign out").click();
 
-  // After logout the session is cleared and AutoSignIn redirects to Dex.
+  // If the dashboard lands on /login (the signed-out page), click "Sign in with Dex"
+  // to proceed to Dex.
+  const dexBtn = page.getByRole("button", { name: /sign in with dex/i });
+  if (await dexBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await dexBtn.click();
+  }
+
+  // After logout the session is cleared and AutoSignIn/Dex button redirects to Dex.
   const loginInput = page.locator('input[name="login"]');
   await expect(loginInput).toBeVisible({ timeout: 15_000 });
   expect(page.url()).toContain("/dex/auth");
@@ -42,6 +49,10 @@ test("full login → logout → re-login cycle works without errors", async ({ p
 
   // Logout.
   await page.getByTitle("Sign out").click();
+  const dexBtn = page.getByRole("button", { name: /sign in with dex/i });
+  if (await dexBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await dexBtn.click();
+  }
   await expect(page.locator('input[name="login"]')).toBeVisible({ timeout: 15_000 });
 
   // Re-login — proves the session was fully cleared and a fresh login works.

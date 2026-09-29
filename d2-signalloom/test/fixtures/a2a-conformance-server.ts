@@ -99,7 +99,7 @@ function reply(id: string, echoed: string): { status: number; body: unknown } {
   }
 }
 
-Bun.serve({
+const server = Bun.serve({
   port,
   hostname: "127.0.0.1",
   async fetch(req) {
@@ -148,4 +148,5 @@ Bun.serve({
   },
 });
 
-console.log(`a2a-conformance-server listening on 127.0.0.1:${port} scenario=${scenario}`);
+card.url = `http://127.0.0.1:${server.port}/api/a2a/fe-signalloom-agents/kagent-k8s-reader/`;
+console.log(`a2a-conformance-server listening on 127.0.0.1:${server.port} scenario=${scenario}`);

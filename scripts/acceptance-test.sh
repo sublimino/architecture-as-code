@@ -5,6 +5,8 @@
 set -uo pipefail
 
 export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+export PW_CHANNEL="${PW_CHANNEL:-chromium}"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/tmp/ms-playwright}"
 DASHBOARD_URL="${DASHBOARD_URL:-}"
 DASHBOARD_URL="${DASHBOARD_URL%/}"
 

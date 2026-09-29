@@ -3743,5 +3743,25 @@
     "verdict": "PASS",
     "model": null,
     "reason": "Phase 5 Pre-Flight verified: connectors router requirements mapped, baseline 1,305 em-dashes across 140 files recorded, preflight facts and inventory committed as e03ac07a"
+  },
+  "8b9f5": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "8b9f5",
+        "reviewed_at": "2026-09-29T09:34:30.062Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "Reconciled Settings view, implemented connectors router with discovery dynamic sync, 7/7 pytest passed, 19/19 vitest passed, typecheck clean, zero em-dashes"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "8b9f5",
+    "reviewed_at": "2026-09-29T09:34:30.062Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "Reconciled Settings view, implemented connectors router with discovery dynamic sync, 7/7 pytest passed, 19/19 vitest passed, typecheck clean, zero em-dashes"
   }
 }

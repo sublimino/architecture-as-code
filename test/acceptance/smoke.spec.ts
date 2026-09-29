@@ -234,7 +234,7 @@ test.describe("authenticated dashboard", () => {
     // while /design-system was not, so testing only the broken one would have
     // let a fix that merely moved the problem pass.
     { route: "/design-system", heading: "Design System & Component Library" },
-    { route: "/design-system/headers", heading: "Design System — Headers" },
+    { route: "/design-system/headers", heading: "Design System: Headers" },
   ];
 
   for (const { route, heading } of SCROLL_CONTEXT_ROUTES) {

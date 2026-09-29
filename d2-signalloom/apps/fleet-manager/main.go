@@ -58,14 +58,16 @@ type Edge struct {
 	To   string `json:"to"`
 }
 
-// StunRequest is the optional body of POST /api/v1/fleet/stun/{agentId}. An
-// empty body is valid and means "no reason given".
+// StunRequest is the REQUIRED body of POST /api/v1/fleet/stun/{agentId}. An
+// empty body, or one without a non-blank reason, is refused with 400: the
+// reason is written to the provenance annotations, and a canned default there
+// records a reason nobody gave.
 type StunRequest struct {
 	// AgentID, when present, must equal the agent in the URL path. The path is
 	// authoritative; a body naming a different agent is a caller bug.
 	AgentID string `json:"agent_id"`
-	// Reason is written to the stun-reason annotations. At most
-	// MaxStunReasonRunes printable runes; empty means StunReason.
+	// Reason is written to the stun-reason annotations. Required; at most
+	// MaxStunReasonRunes printable runes.
 	Reason string `json:"reason"`
 }
 
@@ -73,7 +75,7 @@ type StunRequest struct {
 // UTF-8; the rest is JSON framing and an agent id.
 const maxStunBodyBytes = 4 << 10
 
-// decodeStunRequest reads the optional stun body and returns the effective
+// decodeStunRequest reads the stun body and returns the effective
 // reason. Every rejection is a 400 before any enforcement call is made.
 func decodeStunRequest(r *http.Request, pathAgentID string) (string, error) {
 	var req StunRequest
@@ -87,13 +89,16 @@ func decodeStunRequest(r *http.Request, pathAgentID string) (string, error) {
 	return validateStunReason(req.Reason)
 }
 
-// validateStunReason bounds a caller-supplied reason. It rejects rather than
+// errStunReasonRequired is the exact wire error for a stun without a reason.
+var errStunReasonRequired = errors.New("reason is required")
+
+// validateStunReason requires and bounds a caller-supplied reason. It rejects rather than
 // sanitises: a reason that was silently rewritten is a provenance record that
 // no longer says what the caller said.
 func validateStunReason(reason string) (string, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
-		return StunReason, nil
+		return "", errStunReasonRequired
 	}
 	if !utf8.ValidString(reason) {
 		return "", errors.New("reason is not valid UTF-8")

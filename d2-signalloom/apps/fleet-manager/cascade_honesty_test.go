@@ -553,7 +553,7 @@ func TestHandleStun_RevokeFailure_DoesNotReturn200(t *testing.T) {
 	client.revokeErr = fmt.Errorf("openbao unreachable")
 	s := serverWithClient(t, dag, client)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", strings.NewReader(`{"reason":"cascade_honesty_test: status mapping"}`))
 	w := httptest.NewRecorder()
 	s.handleStun(w, req)
 
@@ -586,7 +586,7 @@ func TestHandleStun_TotalFailure_Returns500(t *testing.T) {
 	client.setStateErr = fmt.Errorf("patch refused")
 	s := serverWithClient(t, dag, client)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", strings.NewReader(`{"reason":"cascade_honesty_test: status mapping"}`))
 	w := httptest.NewRecorder()
 	s.handleStun(w, req)
 

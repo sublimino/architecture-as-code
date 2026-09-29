@@ -194,17 +194,37 @@ func TestHandleStun_BodyReasonIsWrittenToAllThreeProvenanceAnnotations(t *testin
 	}
 }
 
-func TestHandleStun_EmptyBodyKeepsTheDefaultReason(t *testing.T) {
-	// Regression guard: callers that send no body (every caller before this
-	// change) must see exactly the old annotation value.
-	s, cs, _ := newGitopsServer(t, ownedChain("active", nil, nil)...)
+// stunBody is the minimal valid stun request: the wire requires a reason.
+const stunBody = `{"reason":"stun_gitops_test: gitops plane"}`
 
-	w, _ := postStun(t, s, "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for an empty body, got %d: %s", w.Code, w.Body.String())
+func TestHandleStun_ReasonIsRequired(t *testing.T) {
+	// The canned StunReason used to be written whenever a caller sent no body,
+	// so the provenance annotations recorded a reason nobody gave. Every stun
+	// must now say why, and a missing reason is refused before any write.
+	cases := map[string]string{
+		"empty body":          "",
+		"empty object":        `{}`,
+		"empty reason":        `{"reason":""}`,
+		"whitespace reason":   `{"reason":"   "}`,
+		"agent_id, no reason": `{"agent_id":"` + gitopsAgent + `"}`,
 	}
-	if got := getPod(t, cs).Annotations[StunReasonAnnotationAI]; got != StunReason {
-		t.Fatalf("empty body must default to %q, got %q", StunReason, got)
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, cs, _ := newGitopsServer(t, ownedChain("active", nil, nil)...)
+			w, _ := postStun(t, s, body)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+			var e ErrorResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || e.Error != "reason is required" {
+				t.Fatalf("body = %s, want {\"error\":\"reason is required\"}", w.Body.String())
+			}
+			for _, a := range cs.Actions() {
+				if a.GetVerb() == "patch" {
+					t.Fatalf("a rejected request must not patch anything, saw %s %s", a.GetVerb(), a.GetResource().Resource)
+				}
+			}
+		})
 	}
 }
 
@@ -250,7 +270,7 @@ func TestHandleStun_RejectsMalformedBodiesWithoutTouchingThePod(t *testing.T) {
 func TestStun_GitOpsPlaneDisablesFluxOnPodAndOwningDeployment(t *testing.T) {
 	s, cs, _ := newGitopsServer(t, ownedChain("active", nil, nil)...)
 
-	w, res := postStun(t, s, "")
+	w, res := postStun(t, s, stunBody)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -293,7 +313,7 @@ func TestStun_GitOpsPlaneDisablesFluxOnPodAndOwningDeployment(t *testing.T) {
 func TestStun_GitOpsPlaneOnABarePodAnnotatesThePodAndSaysThereIsNoDeployment(t *testing.T) {
 	s, cs, _ := newGitopsServer(t, agentPod(gitopsAgent, "active", nil))
 
-	_, res := postStun(t, s, "")
+	_, res := postStun(t, s, stunBody)
 
 	if got := getPod(t, cs).Annotations[fluxReconcileKey]; got != "disabled" {
 		t.Errorf("bare pod must still be annotated, got %q", got)
@@ -317,7 +337,7 @@ func TestStun_GitOpsDeploymentPatchFailureIsPartialNeverSilent(t *testing.T) {
 		return true, nil, errors.New(injected)
 	})
 
-	w, res := postStun(t, s, "")
+	w, res := postStun(t, s, stunBody)
 
 	g := soleGitops(t, res)
 	if g.Outcome != OutcomePartial {
@@ -342,7 +362,7 @@ func TestStun_GitOpsIsNotAttemptedWhenTheFreezeFailed(t *testing.T) {
 	delete(objs[2].(*corev1.Pod).Labels, AgentLabel)
 	s, cs, _ := newGitopsServer(t, objs...)
 
-	_, res := postStun(t, s, "")
+	_, res := postStun(t, s, stunBody)
 
 	if _, ok := getDeployment(t, cs).Annotations[fluxReconcileKey]; ok {
 		t.Error("deployment must not be annotated when the freeze failed")

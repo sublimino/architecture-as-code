@@ -252,3 +252,16 @@ func assertRequestedID(t *testing.T, w *httptest.ResponseRecorder, want, wantBy 
 		t.Fatalf("no freeze plane in %+v", res.Planes)
 	}
 }
+
+func TestResolveAgentID_PrefixedBareName(t *testing.T) {
+	// fe passes ids through unchanged, so a bare agent name must resolve to its
+	// agent-<name> DAG id without an API call.
+	s, cs := resolutionServer(t)
+	got, err := s.resolveAgentID(context.Background(), "kusari-agent")
+	if err != nil || got.ID != kusariAgentID || got.By != "prefixed" {
+		t.Fatalf("resolve = %+v, %v; want %s resolved_by=prefixed", got, err, kusariAgentID)
+	}
+	if n := len(cs.Actions()); n != 0 {
+		t.Fatalf("a prefixed DAG id must not touch the API server, saw %d actions", n)
+	}
+}

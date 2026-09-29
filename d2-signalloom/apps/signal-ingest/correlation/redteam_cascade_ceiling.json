@@ -1,6 +1,6 @@
 {
   "schema_version": "v2",
-  "generated_at": "2026-09-29T18:55:18Z",
+  "generated_at": "2026-09-29T19:00:38Z",
   "total_injected": 24,
   "total_caught": 24,
   "total_missed": 0,
@@ -52,9 +52,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 16,
+      "cycle_latency_us": 14,
       "quarantine_triggered": false,
-      "details": "cycle detected in 16µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+      "details": "cycle detected in 14µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
     },
     {
       "case_id": "ADV-CD-02",
@@ -70,9 +70,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 11,
+      "cycle_latency_us": 16,
       "quarantine_triggered": false,
-      "details": "cycle detected in 11µs (\u003c5ms SLA); hops=3, distinct_nodes=3, false-merge=0"
+      "details": "cycle detected in 16µs (\u003c5ms SLA); hops=3, distinct_nodes=3, false-merge=0"
     },
     {
       "case_id": "ADV-CD-03",
@@ -86,9 +86,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 2,
+      "cycle_latency_us": 3,
       "quarantine_triggered": false,
-      "details": "reflexive cycle caught at boundary in 2µs (\u003c5ms SLA): structural never-merge invariant violated: self-delegation agent-self-ref is forbidden"
+      "details": "reflexive cycle caught at boundary in 3µs (\u003c5ms SLA): structural never-merge invariant violated: self-delegation agent-self-ref is forbidden"
     },
     {
       "case_id": "ADV-CD-04",
@@ -103,9 +103,9 @@
       "status": "CAUGHT",
       "false_merge": false,
       "cycle_detected": true,
-      "cycle_latency_us": 7,
+      "cycle_latency_us": 20,
       "quarantine_triggered": false,
-      "details": "cycle detected in 7µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
+      "details": "cycle detected in 20µs (\u003c5ms SLA); hops=2, distinct_nodes=2, false-merge=0"
     },
     {
       "case_id": "ADV-CD-05",

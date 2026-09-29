@@ -169,7 +169,7 @@ function routeLiveFetch(overrides: RouteOverrides = {}) {
     const url = String(input)
     const method = init?.method?.toUpperCase() ?? 'GET'
 
-    if (method === 'POST' && url === '/afm/clusters/prod/jobs') {
+    if (method === 'POST' && (url === '/afm/clusters/prod/jobs' || url === '/afm/clusters/prod/analysis/escalation')) {
       return overrides.collusionTrigger
         ? overrides.collusionTrigger()
         : Promise.resolve(response(true, {
@@ -310,7 +310,7 @@ describe('CollusionAccessPage — scan triggers and job creation', () => {
     await userEvent.click(collusionBtn)
 
     await waitFor(() => {
-      expect(requestedUrls()).toContain('/afm/clusters/prod/jobs')
+      expect(requestedUrls()).toContain('/afm/clusters/prod/analysis/escalation')
     })
     expect(await screen.findByTestId('scan-feedback-alert')).toHaveTextContent(/Collusion scan started/i)
   })

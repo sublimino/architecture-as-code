@@ -48,6 +48,8 @@ vi.mock('../api/connectorsClient', () => ({
     deleteConnector: vi.fn(),
     createConnector: vi.fn(),
     testConnector: vi.fn(),
+    toggleConnector: vi.fn(),
+    getStatus: vi.fn(),
   },
 }))
 
@@ -106,7 +108,7 @@ function renderSettings() {
   )
 }
 
-describe('Settings — Service Connectors', () => {
+describe('Settings: Service Connectors', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
@@ -206,12 +208,12 @@ describe('Settings — Service Connectors', () => {
  * The Display card: whether loaders show how long they have been waiting.
  *
  * Unlike everything else on this page, this setting is browser-local and takes
- * effect the moment it changes — there is no Save Preferences button behind it
+ * effect the moment it changes: there is no Save Preferences button behind it
  * and no PATCH. So the tests here are not "does the select hold a value" but
  * "does changing the select move the loaders", which is the only claim worth
  * making: the whole feature is one choice reaching every loader in the app.
  */
-describe('Settings — Display, load times', () => {
+describe('Settings: Display, load times', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.settings).mockResolvedValue(makeSettings())

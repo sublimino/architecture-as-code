@@ -1,0 +1,159 @@
+id: dora
+name: Digital Operational Resilience Act (DORA)
+version: v1.0.0
+status: placeholder
+controlSets:
+- id: dora-resilience
+  name: "DORA: ICT Risk Management"
+  controls:
+  - id: DORA-1.0
+    name: DORA-1.0 ICT Risk Management Framework
+    checks:
+    - id: dora-ict-risk-management
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0
+
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0
+
+    name: DORA-1.0 ICT Risk Management Framework
+    checks:
+    - id: dora-ict-risk-management
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0
+
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0
+
+  name: "DORA: ICT Risk Management"
+  controls:
+  - id: DORA-1.0
+    name: DORA-1.0 ICT Risk Management Framework
+    checks:
+    - id: dora-ict-risk-management
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0
+
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0
+
+    name: DORA-1.0 ICT Risk Management Framework
+    checks:
+    - id: dora-ict-risk-management
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0
+
+      name: DORA ICT Risk Management Framework Placeholder
+      description: Placeholder control for Digital Operational Resilience Act compliance evaluation.
+      celExpression: false
+      status: placeholder
+      severity: medium
+      remediation: DORA automated evaluation is deferred in this release.
+      riskTriple:
+        min: 0
+        mode: 0
+        max: 0
+      freqTriple:
+        min: 0
+        mode: 0
+        max: 0
+      policyVersions:
+      - v1.0.0

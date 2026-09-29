@@ -1,6 +1,6 @@
 {
   "id": "eu-ai-act",
-  "name": "EU AI Act - High-Risk AI System Requirements",
+  "name": "EU AI Act: High-Risk AI System Requirements",
   "version": "v2.1.0",
   "controlSets": [
     {
@@ -8,24 +8,222 @@
       "name": "ART-9 Risk Management System",
       "controls": [
         {
-          "id": "ART-9-2",
+          "id": "ART-9.2",
           "name": "ART-9(2) Risk Identification and Analysis",
           "checks": [
             {
               "id": "container-run-as-non-root",
               "name": "AI system container runs as non-root",
+              "description": "Ensures high-risk AI system workloads do not execute with root UID privileges.",
               "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
-              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
-              "freqTriple": {"min": 0.5, "mode": 1.5, "max": 4.0},
-              "policyVersions": ["v1.0.0", "v2.1.0"]
+              "severity": "high",
+              "remediation": "Configure securityContext.runAsNonRoot to true in all container specifications.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
             },
             {
               "id": "no-privilege-escalation",
               "name": "No privilege escalation in AI workloads",
+              "description": "Prohibits processes within AI workloads from gaining more privileges than their parent process.",
               "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
-              "riskTriple": {"min": 10000, "mode": 60000, "max": 250000},
-              "freqTriple": {"min": 0.3, "mode": 1.0, "max": 3.0},
-              "policyVersions": ["v1.0.0", "v2.1.0"]
+              "severity": "critical",
+              "remediation": "Set securityContext.allowPrivilegeEscalation to false in pod specifications.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 60000,
+                "max": 250000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art10-data-gov",
+      "name": "ART-10 Data Governance and Training Validation",
+      "controls": [
+        {
+          "id": "ART-10.2",
+          "name": "ART-10(2) Training, Validation and Testing Data Quality",
+          "checks": [
+            {
+              "id": "training-data-provenance",
+              "name": "Training data provenance and validation",
+              "description": "Validates that training and validation data sets have verified provenance records.",
+              "celExpression": "has(agent.training_data_provenance) && agent.training_data_provenance.validated == true",
+              "severity": "high",
+              "remediation": "Attach verified data provenance metadata and validation certificates to agent definition.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 55000,
+                "max": 220000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.2,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art11-tech-doc",
+      "name": "ART-11 Technical Documentation",
+      "controls": [
+        {
+          "id": "ART-11.1",
+          "name": "ART-11(1) Annex IV Technical Documentation",
+          "checks": [
+            {
+              "id": "annex-iv-technical-documentation",
+              "name": "Annex IV Technical Documentation Compliance",
+              "description": "Requires comprehensive Annex IV technical documentation prior to deployment.",
+              "celExpression": "has(agent.technical_documentation) && agent.technical_documentation.annex_iv_compliant == true",
+              "severity": "medium",
+              "remediation": "Publish Annex IV technical documentation manifest in the agent governance registry.",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 35000,
+                "max": 120000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art12-record-keeping",
+      "name": "ART-12 Event Logging and Record-Keeping",
+      "controls": [
+        {
+          "id": "ART-12.1",
+          "name": "ART-12(1) Automatic Event Logging",
+          "checks": [
+            {
+              "id": "automatic-record-keeping",
+              "name": "Automatic logging of operational events",
+              "description": "Ensures autonomous agent operations and decisions are logged automatically to an immutable audit sink.",
+              "celExpression": "has(agent.logging_config) && agent.logging_config.automatic_record_keeping == true",
+              "severity": "high",
+              "remediation": "Enable automated event logging with immutable telemetry forwarding in agent config.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 48000,
+                "max": 190000
+              },
+              "freqTriple": {
+                "min": 0.6,
+                "mode": 2,
+                "max": 5
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art13-transparency",
+      "name": "ART-13 Transparency and Instructions for Use",
+      "controls": [
+        {
+          "id": "ART-13.1",
+          "name": "ART-13(1) Clear User Instructions and Transparency",
+          "checks": [
+            {
+              "id": "user-instructions-transparency",
+              "name": "Operator transparency and instruction manual",
+              "description": "Mandates clear operational characteristics, intended purpose, and limitations documentation.",
+              "celExpression": "has(agent.transparency) && agent.transparency.user_instructions_available == true",
+              "severity": "medium",
+              "remediation": "Provide accessible model transparency card and operator instruction manual.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 90000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art14-human-oversight",
+      "name": "ART-14 Human Oversight Mechanisms",
+      "controls": [
+        {
+          "id": "ART-14.4",
+          "name": "ART-14(4) Human-in-the-Loop Authorization",
+          "checks": [
+            {
+              "id": "block-unauthorized-host-exec",
+              "name": "Privileged action human authorization SVID",
+              "description": "Mandates human approval credential for sensitive host execution or IAM modification actions.",
+              "celExpression": "request.tool_call.action in ['exec', 'write_file', 'modify_iam'] ? (has(request.context.claims) && request.context.claims.exists(c, c.type == 'human_approval_svid' && c.valid == true)) : true",
+              "severity": "critical",
+              "remediation": "Obtain valid human approval SVID prior to executing privileged host operations.",
+              "riskTriple": {
+                "min": 20000,
+                "mode": 80000,
+                "max": 300000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.8,
+                "max": 2.5
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
             }
           ]
         }
@@ -36,24 +234,120 @@
       "name": "ART-15 Accuracy, Robustness and Cybersecurity",
       "controls": [
         {
-          "id": "ART-15-4",
+          "id": "ART-15.4",
           "name": "ART-15(4) Cybersecurity Measures",
           "checks": [
             {
               "id": "drop-all-capabilities",
               "name": "Drop all capabilities for AI workloads",
+              "description": "Strips all default Linux capabilities from container runtime processes.",
               "celExpression": "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
-              "riskTriple": {"min": 15000, "mode": 70000, "max": 280000},
-              "freqTriple": {"min": 0.3, "mode": 1.0, "max": 3.0},
-              "policyVersions": ["v1.0.0", "v2.1.0"]
+              "severity": "high",
+              "remediation": "Add ALL to securityContext.capabilities.drop in all container definitions.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 70000,
+                "max": 280000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
             },
             {
               "id": "resource-limits-set",
               "name": "AI system has resource limits set",
+              "description": "Enforces compute resource limits to protect against denial of service or resource exhaustion.",
               "celExpression": "object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))",
-              "riskTriple": {"min": 10000, "mode": 40000, "max": 150000},
-              "freqTriple": {"min": 1.0, "mode": 3.0, "max": 7.0},
-              "policyVersions": ["v1.0.0", "v2.1.0"]
+              "severity": "medium",
+              "remediation": "Specify CPU and memory limits in container resource specifications.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 40000,
+                "max": 150000
+              },
+              "freqTriple": {
+                "min": 1,
+                "mode": 3,
+                "max": 7
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art26-deployer-obligations",
+      "name": "ART-26 Deployer Obligations",
+      "controls": [
+        {
+          "id": "ART-26.1",
+          "name": "ART-26(1) Operational Oversight and Monitoring",
+          "checks": [
+            {
+              "id": "deployer-monitoring-active",
+              "name": "Continuous deployer monitoring system",
+              "description": "Ensures deployers monitor system operations based on the instructions of use.",
+              "celExpression": "has(agent.deployer_oversight) && agent.deployer_oversight.continuous_monitoring == true",
+              "severity": "high",
+              "remediation": "Activate continuous deployer telemetry and health monitoring in platform settings.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.2,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art50-genai-transparency",
+      "name": "ART-50 Transparency for Generative AI Models",
+      "controls": [
+        {
+          "id": "ART-50.1",
+          "name": "ART-50(1) Synthetic Content Marking and AI Disclosure",
+          "checks": [
+            {
+              "id": "synthetic-content-marking",
+              "name": "Synthetic content watermarking and disclosure",
+              "description": "Verifies that generative AI models mark synthetic outputs in a machine-readable format.",
+              "celExpression": "has(agent.model_type) && agent.model_type == 'generative' ? (has(agent.transparency) && agent.transparency.synthetic_content_watermarking == true) : true",
+              "severity": "high",
+              "remediation": "Enable cryptographic synthetic content watermarking in generative model pipelines.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 60000,
+                "max": 250000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
             }
           ]
         }

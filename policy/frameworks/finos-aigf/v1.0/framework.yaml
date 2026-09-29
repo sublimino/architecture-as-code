@@ -1,0 +1,442 @@
+id: finos-aigf
+name: FINOS AI Governance Framework (AIGF)
+version: v1.0.0
+controlSets:
+- id: aigf-inventory
+  name: "AIGF: Model Inventory and Registration"
+  controls:
+  - id: AIGF-1.1
+    name: AIGF-1.1 Registered Enterprise Model Catalog
+    checks:
+    - id: registered-model-registry-entry
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+
+    name: AIGF-1.1 Registered Enterprise Model Catalog
+    checks:
+    - id: registered-model-registry-entry
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+
+  name: "AIGF: Model Inventory and Registration"
+  controls:
+  - id: AIGF-1.1
+    name: AIGF-1.1 Registered Enterprise Model Catalog
+    checks:
+    - id: registered-model-registry-entry
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+
+    name: AIGF-1.1 Registered Enterprise Model Catalog
+    checks:
+    - id: registered-model-registry-entry
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+
+      name: Model catalog registration and approval
+      description: Verifies AI agent model is registered and actively approved in the enterprise model catalog.
+      celExpression: has(agent.registry) && agent.registry.model_registered == true
+      severity: high
+      remediation: Register model in the centralized enterprise AI model registry.
+      riskTriple:
+        min: 8000
+        mode: 35000
+        max: 140000
+      freqTriple:
+        min: 0.5
+        mode: 1.5
+        max: 4
+      policyVersions:
+      - v1.0.0
+- id: aigf-security
+  name: "AIGF: Prompt Injection and Boundary Defense"
+  controls:
+  - id: AIGF-2.1
+    name: AIGF-2.1 Adversarial Input and Guardrail Protection
+    checks:
+    - id: prompt-injection-guardrail-active
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+
+    name: AIGF-2.1 Adversarial Input and Guardrail Protection
+    checks:
+    - id: prompt-injection-guardrail-active
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+
+  name: "AIGF: Prompt Injection and Boundary Defense"
+  controls:
+  - id: AIGF-2.1
+    name: AIGF-2.1 Adversarial Input and Guardrail Protection
+    checks:
+    - id: prompt-injection-guardrail-active
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+
+    name: AIGF-2.1 Adversarial Input and Guardrail Protection
+    checks:
+    - id: prompt-injection-guardrail-active
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+
+      name: Active prompt injection filter guardrail
+      description: Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.
+      celExpression: has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true
+      severity: critical
+      remediation: Enable prompt injection detection filter in agent inference pipeline.
+      riskTriple:
+        min: 18000
+        mode: 75000
+        max: 300000
+      freqTriple:
+        min: 0.4
+        mode: 1.4
+        max: 4.2
+      policyVersions:
+      - v1.0.0
+- id: aigf-governance
+  name: "AIGF: Auditability and Explainability"
+  controls:
+  - id: AIGF-3.1
+    name: AIGF-3.1 Decision Explainability and Audit Trail
+    checks:
+    - id: decision-explainability-metadata
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0
+
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0
+
+    name: AIGF-3.1 Decision Explainability and Audit Trail
+    checks:
+    - id: decision-explainability-metadata
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0
+
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0
+
+  name: "AIGF: Auditability and Explainability"
+  controls:
+  - id: AIGF-3.1
+    name: AIGF-3.1 Decision Explainability and Audit Trail
+    checks:
+    - id: decision-explainability-metadata
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0
+
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0
+
+    name: AIGF-3.1 Decision Explainability and Audit Trail
+    checks:
+    - id: decision-explainability-metadata
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0
+
+      name: Decision explainability and reasoning trace
+      description: Requires recorded reasoning traces and explainability metadata for compliance auditing.
+      celExpression: has(agent.governance) && agent.governance.decision_explainability == true
+      severity: medium
+      remediation: Record structured reasoning traces and explainability metadata on tool invocations.
+      riskTriple:
+        min: 7000
+        mode: 32000
+        max: 130000
+      freqTriple:
+        min: 0.5
+        mode: 1.6
+        max: 4.5
+      policyVersions:
+      - v1.0.0

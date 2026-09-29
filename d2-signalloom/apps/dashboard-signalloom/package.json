@@ -13,6 +13,7 @@
     "generate:manifest": "node ../../../scripts/generate-agentmaxxing-allowlist-manifest.mjs"
   },
   "dependencies": {
+    "@marcbachmann/cel-js": "^8.0.0",
     "@xyflow/react": "^12.11.2",
     "axios": "^1.16.0",
     "oidc-client-ts": "^3.1.0",

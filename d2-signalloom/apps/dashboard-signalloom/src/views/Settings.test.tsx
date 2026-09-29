@@ -326,3 +326,22 @@ describe('Settings — Display, load times', () => {
     expect(screen.getByTestId('probe')).toHaveAttribute('data-load-times', 'long')
   })
 })
+
+describe('Settings: Policy-as-Code Navigation Card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    vi.mocked(connectorsApi.listProviders).mockResolvedValue(MOCK_PROVIDERS)
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([])
+  })
+
+  it('renders the Policy-as-Code & CEL Rules card and navigates to /policies on button click', async () => {
+    renderSettings()
+    expect(await screen.findByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
+    const policyBtn = screen.getByTestId('settings-goto-policies-btn')
+    expect(policyBtn).toBeInTheDocument()
+    await userEvent.click(policyBtn)
+    expect(mockNavigate).toHaveBeenCalledWith('/policies')
+  })
+})
+

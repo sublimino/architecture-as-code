@@ -1,0 +1,106 @@
+{
+  "id": "cra",
+  "name": "Cyber Resilience Act (CRA)",
+  "version": "v1.0.0",
+  "controlSets": [
+    {
+      "id": "cra-sec-design",
+      "name": "CRA: Security by Design and Default",
+      "controls": [
+        {
+          "id": "CRA-1.1",
+          "name": "CRA-1.1 Security by Default Configuration",
+          "checks": [
+            {
+              "id": "default-secure-configuration",
+              "name": "Secure-by-default runtime profile",
+              "description": "Ensures system components ship and run with hardened security configurations by default.",
+              "celExpression": "has(agent.security_profile) && agent.security_profile.secure_by_default == true",
+              "severity": "high",
+              "remediation": "Enable default hardened security profile in agent manifest.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 40000,
+                "max": 160000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.2,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cra-vuln-handling",
+      "name": "CRA: Vulnerability Handling and SBOM",
+      "controls": [
+        {
+          "id": "CRA-2.1",
+          "name": "CRA-2.1 Verified SBOM and Vulnerability Management",
+          "checks": [
+            {
+              "id": "sbom-verified-provenance",
+              "name": "Verified Software Bill of Materials (SBOM)",
+              "description": "Requires machine-readable CycloneDX or SPDX SBOM with verified supply chain provenance.",
+              "celExpression": "has(agent.sbom) && (agent.sbom.format == 'CycloneDX' || agent.sbom.format == 'SPDX') && agent.sbom.verified == true",
+              "severity": "critical",
+              "remediation": "Attach signed CycloneDX or SPDX SBOM metadata to agent workload.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 65000,
+                "max": 260000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cra-integrity",
+      "name": "CRA: Software Integrity and Updates",
+      "controls": [
+        {
+          "id": "CRA-3.1",
+          "name": "CRA-3.1 Cryptographic Integrity and Signed Updates",
+          "checks": [
+            {
+              "id": "signed-cryptographic-updates",
+              "name": "Cryptographically signed software provenance",
+              "description": "Verifies SLSA Level 3 provenance and cosign signatures for all deployed binaries.",
+              "celExpression": "has(agent.provenance) && agent.provenance.slsa_level == 'SLSA_LEVEL_3'",
+              "severity": "high",
+              "remediation": "Build and sign artifacts satisfying SLSA Level 3 provenance criteria.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.8,
+                "max": 2.5
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

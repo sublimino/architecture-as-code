@@ -150,3 +150,35 @@ async def test_policy_engine_not_called_for_policies():
             assert summary["failed"] == 1
             assert summary["totalAle"] == 15000.0
             assert summary["totalCarriedGbp"] == 15000.0
+
+
+def test_posture_score_double_scaling_latent_defect():
+    """Latent defect #1 verification:
+
+    Prior defect: api_compat.py divided compliance.posture_score (which is already a 0..1 float)
+    by 100.0 in _agent_response_from_row (line 2005), scaling 0.85 down to 0.0085.
+    Fix: normalized_score in assessment_summary preserves the 0..1 float ratio (0.85).
+    """
+    row = {
+        "id": "11111111-2222-3333-4444-555555555555",
+        "name": "Audit Sentinel",
+        "tenant_id": "tenant-a",
+        "lifecycle_state": "active",
+        "origin": "Custom",
+        "owner": "alice",
+    }
+    compliance = {
+        "total_controls": 10,
+        "passing": 8,
+        "failing": 2,
+        "pending": 0,
+        "posture_score": 0.8,
+    }
+    resp = api_compat._agent_response_from_row(row, compliance)
+    assert resp.assessment_summary.status == "assessed"
+    assert resp.assessment_summary.total_controls == 10
+    assert resp.assessment_summary.passed_controls == 8
+    assert resp.assessment_summary.failed_controls == 2
+    assert resp.assessment_summary.normalized_score == 0.8
+    assert resp.compliance_summary.posture_score == 0.8
+

@@ -14,16 +14,18 @@ import EmptyState from '../components/EmptyState'
 import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 import DataTable, { type Column } from '../components/DataTable'
+import ComplianceDrawer, { type ComplianceDrawerItem } from '../components/ComplianceDrawer'
 
-// Watched by the demo audience in a second window — see api/pollInterval.ts.
+// Watched by the demo audience in a second window: see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
 
 type PostureCategory = 'good' | 'warning' | 'critical' | 'pending'
 
 function categorize(score: number | null): PostureCategory {
   if (score === null) return 'pending'
-  if (score >= 80) return 'good'
-  if (score >= 50) return 'warning'
+  const normalized = score <= 1.0 ? score * 100 : score
+  if (normalized >= 80) return 'good'
+  if (normalized >= 50) return 'warning'
   return 'critical'
 }
 
@@ -41,13 +43,13 @@ const CAT_COLOR: Record<PostureCategory, string> = {
  * a snapshot from that moment, not a live reading, and a stale timestamp on a
  * green row is the single easiest thing to misread on this page.
  *
- * The framework columns are deliberately not hinted — their names come from the
+ * The framework columns are deliberately not hinted: their names come from the
  * API and each already links through to its own detail page.
  */
 const COLUMN_HELP = {
-  lifecycle: 'Where the agent sits in its governed life: enrolled, active, non-compliant, stunned or retired. Stunned means the platform revoked its credentials — the workload may still be running, but it can no longer authenticate to anything.',
+  lifecycle: 'Where the agent sits in its governed life: enrolled, active, non-compliant, stunned or retired. Stunned means the platform revoked its credentials: the workload may still be running, but it can no longer authenticate to anything.',
   postureScore: 'How much of the policy in force this agent satisfies, as a percentage. Higher is better: 80 and above is good, 50 to 79 needs attention, below 50 is critical. It only moves when an assessment runs.',
-  lastAssessed: 'When the score beside it was last computed. This page shows the result of that assessment, not a live reading — an old timestamp means the row may no longer describe the agent.',
+  lastAssessed: 'When the score beside it was last computed. This page shows the result of that assessment, not a live reading; an old timestamp means the row may no longer describe the agent.',
 } as const
 
 const CAT_LABEL: Record<PostureCategory, string> = {
@@ -58,7 +60,7 @@ const CAT_LABEL: Record<PostureCategory, string> = {
 }
 
 function PostureBar({ score }: { score: number | null }) {
-  const pct = score ?? 0
+  const pct = score !== null ? Math.round(score <= 1.0 ? score * 100 : score) : 0
   const color = CAT_COLOR[categorize(score)]
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 140 }}>
@@ -66,7 +68,7 @@ function PostureBar({ score }: { score: number | null }) {
         <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
       </div>
       <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 28, textAlign: 'right' }}>
-        {score !== null ? `${score}%` : '—'}
+        {score !== null ? `${pct}%` : 'N/A'}
       </span>
     </div>
   )
@@ -108,6 +110,7 @@ export default function Compliance() {
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportNote, setExportNote] = useState<string | null>(null)
+  const [selectedDrawerItem, setSelectedDrawerItem] = useState<ComplianceDrawerItem | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -168,10 +171,112 @@ export default function Compliance() {
     }
   }
 
+  const agents = posture?.agents ?? []
+
+  function handleOpenFrameworkDrawer(fw: FrameworkResponse) {
+    const allResults = agents.flatMap(a => a.results.filter(r => r.framework_name === fw.name))
+    const passing = allResults.filter(r => r.status === 'pass').length
+    const failing = allResults.filter(r => r.status === 'fail').length
+    const pending = allResults.filter(r => r.status === 'pending' || r.status === 'reassessment_requested').length
+    const total = allResults.length || fw.control_count
+    const score = total > 0 ? passing / total : null
+
+    setSelectedDrawerItem({
+      frameworkId: fw.id,
+      frameworkName: fw.name,
+      frameworkVersion: fw.version,
+      regulatoryBody: fw.regulatory_body,
+      description: `Governance controls and automated assessments for ${fw.name}.`,
+      totalChecks: total,
+      passedChecks: passing,
+      failedChecks: failing,
+      pendingChecks: pending,
+      postureScore: score,
+      status: failing > 0 ? 'fail' : (passing > 0 ? 'pass' : 'pending'),
+      checks: fw.controls.map(c => {
+        const matchingResults = allResults.filter(r => r.control_id === c.id || r.control_name === c.name)
+        const isPass = matchingResults.length > 0 && matchingResults.every(r => r.status === 'pass')
+        const isFail = matchingResults.some(r => r.status === 'fail')
+        return {
+          controlId: c.id,
+          controlName: c.name,
+          check: c.name,
+          passed: isPass || (!isFail && matchingResults.length > 0),
+          remediation: isFail ? `Review configuration for ${c.name} and re-evaluate compliance policy.` : undefined,
+          payload: { controlId: c.id, controlOrder: c.control_order, description: c.description },
+        }
+      }),
+    })
+  }
+
+  function handleOpenAgentPostureDrawer(a: AgentPosture) {
+    const agent = agentMap.get(a.agent_id)
+    const passing = a.results.filter(r => r.status === 'pass').length
+    const failing = a.results.filter(r => r.status === 'fail').length
+    const pending = a.results.filter(r => r.status !== 'pass' && r.status !== 'fail').length
+    const total = a.results.length || (agent?.compliance_summary.total_controls ?? 0)
+
+    setSelectedDrawerItem({
+      agentId: a.agent_id,
+      agentName: a.agent_name,
+      frameworkName: a.results[0]?.framework_name || 'Agent Compliance Posture',
+      status: failing > 0 ? 'fail' : (passing > 0 ? 'pass' : 'pending'),
+      totalChecks: total,
+      passedChecks: passing,
+      failedChecks: failing,
+      pendingChecks: pending,
+      postureScore: a.posture_score,
+      description: `Evaluated compliance checks and backing evidence for ${a.agent_name}.`,
+      remediation: failing > 0 ? `${failing} check(s) failing compliance policies for ${a.agent_name}. Inspect failed checks and remediate policy violations.` : null,
+      checks: a.results.map(r => ({
+        controlId: r.control_id,
+        controlName: r.control_name,
+        check: `${r.framework_name}: ${r.control_name}`,
+        passed: r.status === 'pass',
+        evidenceHash: r.evidence_ref || undefined,
+        remediation: r.status === 'fail' ? `Remediate ${r.control_name} on agent ${a.agent_name}.` : undefined,
+        payload: { agentId: r.agent_id, controlId: r.control_id, status: r.status, assessedAt: r.assessed_at, evidenceRef: r.evidence_ref },
+      })),
+    })
+  }
+
+  function handleOpenControlDrawer(a: AgentPosture, fw: FrameworkResponse) {
+    const matchingResults = a.results.filter(r => r.framework_name === fw.name)
+    const passing = matchingResults.filter(r => r.status === 'pass').length
+    const failing = matchingResults.filter(r => r.status === 'fail').length
+    const pending = matchingResults.filter(r => r.status !== 'pass' && r.status !== 'fail').length
+    const total = matchingResults.length || fw.control_count
+    const score = total > 0 ? passing / total : null
+    const st = agentFrameworkStatus(a, fw.name) || 'pending'
+
+    setSelectedDrawerItem({
+      frameworkId: fw.id,
+      frameworkName: fw.name,
+      frameworkVersion: fw.version,
+      agentId: a.agent_id,
+      agentName: a.agent_name,
+      status: st,
+      totalChecks: total,
+      passedChecks: passing,
+      failedChecks: failing,
+      pendingChecks: pending,
+      postureScore: score,
+      description: `Evaluation of ${fw.name} controls for ${a.agent_name}.`,
+      remediation: failing > 0 ? `One or more controls in ${fw.name} failed for ${a.agent_name}. Remediate failing policies.` : null,
+      checks: matchingResults.map(r => ({
+        controlId: r.control_id,
+        controlName: r.control_name,
+        check: r.control_name,
+        passed: r.status === 'pass',
+        evidenceHash: r.evidence_ref || undefined,
+        remediation: r.status === 'fail' ? `Remediate ${r.control_name} on agent ${a.agent_name}.` : undefined,
+        payload: { agentId: r.agent_id, controlId: r.control_id, status: r.status, assessedAt: r.assessed_at, evidenceRef: r.evidence_ref },
+      })),
+    })
+  }
+
   if (loading) return <LoadingState variant="block" status="loading" label="compliance data" testId="compliance-load-state" />
   if (error) return <LoadingState variant="block" status="error" label="compliance data" error={error} onRetry={load} testId="compliance-load-state" />
-
-  const agents = posture?.agents ?? []
 
   const catCounts: Record<PostureCategory, number> = { good: 0, warning: 0, critical: 0, pending: 0 }
   for (const a of agents) catCounts[categorize(a.posture_score)]++
@@ -260,18 +365,30 @@ export default function Compliance() {
                 const passing = allResults.filter(r => r.status === 'pass').length
                 const total = allResults.length || fw.control_count
                 return (
-                  <button
+                  <div
                     key={fw.id}
-                    onClick={() => navigate(`/compliance/${fw.id}`)}
+                    data-testid={`compliance-framework-card-${fw.id}`}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Inspect evidence for ${fw.name}`}
+                    onClick={() => handleOpenFrameworkDrawer(fw)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleOpenFrameworkDrawer(fw)
+                      }
+                    }}
                     style={{
                       padding: '14px 16px', textAlign: 'left', cursor: 'pointer',
                       border: '1px solid var(--border)', background: 'var(--surface)',
-                      borderRadius: 8, width: '100%', transition: 'border-color 0.15s',
+                      borderRadius: 8, width: '100%', transition: 'border-color 0.15s, transform 0.1s',
                     }}
                     onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--cyan)')}
                     onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
                   >
-                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>{fw.name}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>{fw.name}</div>
+                    </div>
                     {(fw.version || fw.regulatory_body) && (
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
                         {[fw.version && `v${fw.version}`, fw.regulatory_body].filter(Boolean).join(' · ')}
@@ -286,8 +403,28 @@ export default function Compliance() {
                         Due {new Date(fw.compliance_deadline).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </div>
                     )}
-                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--cyan)' }}>View details →</div>
-                  </button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                      <span style={{ fontSize: 11, color: 'var(--cyan)' }}>Inspect evidence →</span>
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation()
+                          navigate(`/compliance/${fw.id}`)
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          fontSize: 11,
+                          color: 'var(--muted)',
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Details
+                      </button>
+                    </div>
+                  </div>
                 )
               })}
             </div>
@@ -295,7 +432,7 @@ export default function Compliance() {
         </div>
       </div>
 
-      {/* Open findings — named, so the page states its own bad news */}
+      {/* Open findings: named, so the page states its own bad news */}
       <OpenFindingsPanel agents={agents} />
 
       {/* Table toolbar */}
@@ -375,11 +512,32 @@ export default function Compliance() {
             const agent = agentMap.get(a.agent_id)
             const assessed = lastAssessed(a)
             return (
-              <tr key={a.agent_id} style={{ borderBottom: '1px solid var(--border)' }}>
+              <tr
+                key={a.agent_id}
+                data-testid={`compliance-row-${a.agent_id}`}
+                tabIndex={0}
+                role="button"
+                aria-label={`View compliance evidence for ${a.agent_name}`}
+                onClick={() => handleOpenAgentPostureDrawer(a)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleOpenAgentPostureDrawer(a)
+                  }
+                }}
+                style={{
+                  borderBottom: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
                 <td style={DataTable.td}>
                   <Link
                     to={`/agents/${a.agent_id}?tab=overview`}
                     style={{ color: 'var(--text)', fontWeight: 500, textDecoration: 'none' }}
+                    onClick={e => e.stopPropagation()}
                     onMouseEnter={e => (e.currentTarget.style.color = 'var(--cyan)')}
                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--text)')}
                   >
@@ -389,7 +547,7 @@ export default function Compliance() {
                 <td style={DataTable.td}>
                   {agent
                     ? <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
-                    : <span style={{ color: 'var(--muted)' }}>—</span>}
+                    : <span style={{ color: 'var(--muted)' }}>N/A</span>}
                   {agent?.credential_state?.status === 'revoked' && (
                     <div style={{ marginTop: 6 }}>
                       <CredentialStateNotice
@@ -406,19 +564,33 @@ export default function Compliance() {
                 {frameworks.map(fw => {
                   const st = agentFrameworkStatus(a, fw.name)
                   return (
-                    <td key={fw.id} style={DataTable.td}>
-                      {st ? <StatusBadge status={st} variant="compliance" /> : <span style={{ color: 'var(--muted)' }}>—</span>}
+                    <td
+                      key={fw.id}
+                      style={DataTable.td}
+                      onClick={e => {
+                        e.stopPropagation()
+                        handleOpenControlDrawer(a, fw)
+                      }}
+                    >
+                      {st ? <StatusBadge status={st} variant="compliance" /> : <span style={{ color: 'var(--muted)' }}>N/A</span>}
                     </td>
                   )
                 })}
                 <td style={{ ...DataTable.td, color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                  {fmtDate(assessed) ?? '—'}
+                  {fmtDate(assessed) ?? 'N/A'}
                 </td>
               </tr>
             )
           }}
         />
       )}
+
+      {/* Slide-over Compliance Drawer */}
+      <ComplianceDrawer
+        open={Boolean(selectedDrawerItem)}
+        item={selectedDrawerItem}
+        onClose={() => setSelectedDrawerItem(null)}
+      />
     </div>
   )
 }

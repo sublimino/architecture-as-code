@@ -375,7 +375,7 @@ test("a phase's output is rendered as it arrives, not in one frame at the end", 
   await startLogSampler(page);
   await page.locator(RUN_STEP_1).click();
 
-  await expect(page.locator(RUN_STATUS)).toContainText(/—\s*succeeded/, { timeout: 60_000 });
+  await expect(page.locator(RUN_STATUS)).toContainText(/[:\u2014]\s*succeeded/, { timeout: 60_000 });
   // The post-run drain lands after the status flips; wait for the block to be
   // present so the recording covers the whole arrival, not just the part of it
   // that happened to precede the status change.
@@ -408,7 +408,7 @@ test("batched output must FAIL the progressive-arrival assertions", async ({
   await startLogSampler(page);
   await page.locator(RUN_STEP_1).click();
 
-  await expect(page.locator(RUN_STATUS)).toContainText(/—\s*succeeded/, { timeout: 60_000 });
+  await expect(page.locator(RUN_STATUS)).toContainText(/[:\u2014]\s*succeeded/, { timeout: 60_000 });
   await expect(page.locator(RUN_LOG)).toBeVisible({ timeout: 15_000 });
   // First: the harness is not simply broken. The whole log DID arrive, all of
   // it, and the panel rendered it correctly. This is the sentence that makes
@@ -489,7 +489,7 @@ test("scrolling up stops new output yanking the view, and scrolling back down re
   );
   const afterScrollDown = await sampleCursor(page);
 
-  await expect(page.locator(RUN_STATUS)).toContainText(/—\s*succeeded/, { timeout: 60_000 });
+  await expect(page.locator(RUN_STATUS)).toContainText(/[:\u2014]\s*succeeded/, { timeout: 60_000 });
   const samples = await readLogSamples(page);
   test.info().attach("scroll-timeline", { body: formatSamples(samples), contentType: "text/plain" });
 
@@ -527,7 +527,7 @@ test("SSE, when explicitly opted into, delivers the same progressive arrival", a
   await startLogSampler(page);
   await page.locator(RUN_STEP_1).click();
 
-  await expect(page.locator(RUN_STATUS)).toContainText(/—\s*succeeded/, { timeout: 60_000 });
+  await expect(page.locator(RUN_STATUS)).toContainText(/[:\u2014]\s*succeeded/, { timeout: 60_000 });
   await expect(page.locator(RUN_LOG)).toBeVisible({ timeout: 15_000 });
 
   const samples = await readLogSamples(page);

@@ -1,0 +1,5 @@
+delete_issued 23:51:22.428208474
+replacement_bound 23:51:22.633075726 kusari-agent-59679655c4-c6s22 c931a009-d5b1-451c-9d86-65b4ce2fbd9d osramp-dist-worker2
+slice_seen 23:51:22.691014839
+check 23:51:42.715422066 state={"waiting":{"reason":"ContainerCreating"}} ready=false
+old_pod_after_delete Error from server (NotFound): pods "kusari-agent-59679655c4-l77f6" not found

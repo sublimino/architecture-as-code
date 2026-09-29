@@ -1,0 +1,10 @@
+api_ip 172.18.0.9 veth vethf80a9cbf
+manual_lab_step_del_clsact 23:58:46.682043327
+qdisc_after_del qdisc noqueue 0: root refcnt 2 |
+precheck 23:58:46.730175552 cgroup=populated 1 frozen 0 
+partition_insert_bidirectional 23:58:47.406658454
+labels_applied_via_api 23:58:47.507739376
+during_partition_check 23:59:32.568658469 cgroup=populated 1 frozen 0  drops=0
+rule_counters:  144 36118 DROP tcp -- * * 0.0.0.0/0 172.18.0.9 tcp dpt:6443| 40 54278 DROP tcp -- * * 172.18.0.9 0.0.0.0/0 tcp spt:6443|
+heal 23:59:32.668620126
+post_heal_check 23:59:42.771087251 cgroup=populated 1 frozen 1  drops=2

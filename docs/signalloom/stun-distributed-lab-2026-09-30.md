@@ -14,7 +14,7 @@ Short answer: **no**. The freeze is node-local kernel state and survives nothing
 - Freeze truth comes from `cgroup.events` on the pod slice (`kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod<uid_>.slice`). It is read by a 50 ms poll loop that runs inside the node container and logs each transition (`manifests/lab.sh`, `poll`). Resolution is roughly 50 to 100 ms.
 - **Clocks.** Host-side stamps (`*-timestamps.txt`) are BST. Node pollers and sentinel logs are UTC. All tables below are in **UTC**, with host stamps converted by subtracting one hour. Every container shares the host clock.
 
-## Results
+## Results before fix (`stun-sentinel:lab`, merged tree `9c08846c`)
 
 ### D1 Baseline: stun on A, sentinel on B stays out
 
@@ -129,18 +129,54 @@ iptables -I INPUT  -s 172.18.0.8 -p tcp --sport 6443 -j DROP   # needed; see D5a
 
 Resolution fails before any mutation, so the wrong-node sentinel is safe. The cost is noise. Every sentinel watches every agent pod in the namespace, with no `spec.nodeName` field selector, and requeues the failure indefinitely, backing off and then retrying on each 30 s resync. The first line is at 22:38:10.485 in `d6-summary.txt`.
 
+## Results after fix (`stun-sentinel:lab2`, FIX-C tip `1c3dd8b8`)
+
+The sentinel was rebuilt from `feat/kusari-e2e/fix-c-kernel-truth` at `1c3dd8b8`, using a detached worktree that was removed afterwards. That tip contains the netlink peer-index read (`192f26c8`), the owner stun record (`fe7efcef`), and `SYS_PTRACE` plus owner-chain `get` (`f2939e5d`). The image is `sha256:ae7bf780…`. It was deployed with FIX-C's own `infra/agent-swarm/signalloom-stun-sentinel/` manifests, changing only the image. The cluster `osramp-dist` was recreated with the same `kind.yaml`, created at 23:48 and deleted at 00:00:03 BST. Its node IPs differ from the first run: control-plane 172.18.0.9, A 172.18.0.8, B 172.18.0.10.
+
+A drop filter counts as attached when `tc filter show dev <veth> ingress|egress` on the node shows the sentinel's `pref 49152` and `pref 49153` `matchall ... gact action drop`. The veth is found independently of the sentinel, from the pod's eth0 peer index read with `ip -o link` inside the pod netns (`vethof`/`tcshow` in `after-fix/manifests/lab2.sh`). Raw files are in `evidence/stun-distributed-lab/after-fix/`.
+
+| Exp | Metric | Value | Timestamp (UTC) | tc drop attached | Raw |
+|---|---|---|---|---|---|
+| D1 | label → `frozen 1` on A | 203 ms | 22:49:37.948 → 22:49:38.151 | **yes**, ingress and egress on `veth9073a330`, which matches the sentinel's `host_veth`; `curl` from B gets 000 | `d1-*` |
+| D1 | sentinel on B for A's pod | `freezer path not found`, no action | 22:49:29 onward | n/a | `d1-sentinel-osramp-dist-worker2.log` |
+| D2 | pod-only record: replacement Ready | +1.41 s after delete | 22:50:01.752 → 22:50:03.166 | no, 0 filters | `d2-*` |
+| D2 | replacement ever frozen | **never** in 36.4 s | to 22:50:38.168 | no | `d2-poll.log`, `d2-tc.txt` |
+| D3 | Deployment annotated → running pod `frozen 1` | **25.9 s** (next 30 s resync; there is no Deployment/ReplicaSet informer) | 22:50:46.909 → 22:51:12.819 | **yes** on `vetha0a321d9` | `d3a-*` |
+| D3 | label-free replacement first observed | already `frozen=1`, ≤288 ms after delete | 22:51:22.428 → 22:51:22.716 | **no**: born frozen, no pod netns yet (below) | `d3b-*` |
+| D3 | replacement Ready | never, `ContainerCreating` at +20 s | 22:51:42.715 | no | `d3b-timestamps.txt` |
+| D3 | annotation removed from the Deployment | pod still frozen 46 s later; the ReplicaSet keeps `signalloom.io/stunned: "true"` | 22:52:08.303 → 22:52:54.806 | no | `d3c-*`, `d3c-owner-annotations.txt` |
+| D3 | annotation removed from the ReplicaSet | sentinel `frozen_unlabelled` +29.1 s, then unstun fails `find veth before unfreezing pod`; still frozen | 22:53:12.375 → 22:53:41.507 → 22:53:58.047 | no | `d3d-*` |
+| D3 | manual `cgroup.freeze=0` (lab step) → Ready | 0.50 s | 22:54:08.641 → 22:54:09.139 | n/a | `d3e-manual-thaw.txt` |
+| D4 | label → `frozen 1` on B | 68 ms | 22:54:18.486 → 22:54:18.554 | yes, 2 filters | `d4-pre-poll.log`, `d4-tc-before-restart.txt` |
+| D4 | restart → slice back **unfrozen** | | 22:54:26.689 (agent procs 22:54:27.745) | the veth is new, so the old filters are gone with it | `d4-poll-hostside.log` |
+| D4 | sentinel `started` → first list times out after 30 s → `stun` | | 22:54:27.845 → 22:54:57.855 → 22:54:59.271 | **yes**, re-attached on the new `vethf80a9cbf` | `d4-sentinel-B-after-restart.log`, `d4-tc-after-restart.txt` |
+| D4 | **unfrozen window** | **32.7 s** (slice), **31.6 s** with agent processes | | | |
+| D5-0 | connected revoke (partition rule targeted a stale IP; relabelled, not a partition) | unstun +49 ms, `frozen 0` **+63 ms** | 22:55:24.695 → 22:55:24.758 | removed, 0 filters | `d5-connected-revoke-*`, `d5-kind-network-ips.txt` |
+| D5a | re-stun of the same pod | freeze ok; **tc failed** `tc add clsact ... Exclusivity flag on, cannot modify`, retried 53 s | 22:57:01.287 → 22:57:54 | **no** | `d5a-restun-sentinel-B.log`, `d5a-restun-qdisc.txt` |
+| D5a | bidirectional partition to 172.18.0.9 (counters 187 out / 38 in dropped), revoke during it | freeze **held** 45.1 s | 22:57:05.316 / 22:57:07.769 → 22:57:52.885 | no (see previous row) | `d5a-timestamps.txt` |
+| D5a | heal → unstun → `frozen 0` | **1.27 s** after heal | 22:57:53.072 → 22:57:54.305 → 22:57:54.343 | 0 filters after | `d5a-poll.log`, `d5a-sentinel-B.log` |
+| D5b | stale `clsact` deleted by hand (lab step), partition (144 out / 40 in dropped), stun applied during it | `frozen 0`, 0 filters for 45 s | 22:58:47.407 / 22:58:47.508 → 22:59:32.569 | no | `d5b-timestamps.txt` |
+| D5b | heal → `stun` → `frozen 1` | **7.66 s** after heal, 52.8 s after the API accepted the stun | 22:59:32.669 → 22:59:40.297 → 22:59:40.333 | **yes**, 2 filters at 22:59:42.771 | `d5b-poll.log`, `d5b-sentinel-B.log` |
+| D6 | sentinels on A and control-plane for B's pod | 59 and 59 lines, all `freezer path not found`; 0 stun, unstun or `kernel_state` | | n/a | `d6-summary.txt` |
+
+**Verdict on the netlink fix.** It passes every case where the pod has a network namespace: first stun, re-stun after a node restart on a new veth, stun after a partition, and unstun including thaw and filter removal. Three defects remain, all on FIX-C's branch:
+
+1. **Re-stun of a previously released pod never attaches the drop.** `network.go:299` runs `tc qdisc add dev X clsact` and tolerates only `File exists`. Unstun deliberately leaves `clsact` in place, and the iproute2 in the sentinel image reports `Error: Exclusivity flag on, cannot modify. (exit status 2)` for an existing clsact. Result: freeze without network drop, retried indefinitely. The fix is to tolerate that message as well, or use `tc qdisc replace`.
+2. **A born-frozen pod has no network, and it cannot be released.** When the owner record freezes a replacement before the sandbox exists, the slice's only process is the runtime init (`comm 6`, state `S`), still in the node netns (`net:[4026540144]`, same as PID 1). The netlink read therefore returns the node's eth0 peer (1269), which is correct behaviour for that process. Unstun still looks up the veth before unfreezing, so the pod stays frozen and `ContainerCreating` after the stun is revoked (`d3b-slice-procs.txt`, `d3d-*`). The fix is to unfreeze first, or to treat "PID in host netns" as "no pod network; skip tc".
+3. **The owner stun is sticky on the ReplicaSet, and the owner path is resync-bound.** The Deployment controller copies `signalloom.io/stunned` onto the ReplicaSet and does not remove it when the Deployment annotation is removed. Changes to the owner record are seen only on the 30 s pod resync (25.9 s and 29.1 s measured), because the sentinel watches pods only.
+
 ## What state is authoritative and what is not
 
 1. **The kernel freeze is not authoritative.** It is a cache of intent on one node. It vanished on node restart (D4: 32.2 s unfrozen), and it does not follow a pod to another node (D2).
 2. **The Pod label is authoritative only for that pod UID.** It survived the restart and was re-applied (D4). A replacement pod starts without it and runs free with no bound (D2: ≥45.6 s observed, Ready in 0.79 s).
 3. **An owner record is needed for "the agent stays stunned".** The Deployment annotation is ignored by the merged tree (D3a). With a lab patch it froze a label-free replacement within 160 ms of the delete (D3b). It also wedges the pod in `ContainerCreating` and blocks its deletion.
 4. **During an API partition, the node keeps its last-known intent.** The freeze held for 45 s with the stun already revoked, and resyncs re-asserted it from the stale cache (D5a-2). A new stun issued during the partition did not land until 0.82 s after the heal (D5b: 46 s after the API accepted it). A partitioned node can neither be stunned nor released.
-5. **Today, un-stun never thaws.** The unstun path looks up the veth before unfreezing, and that lookup always fails under kindnet (D5a-1, D5a-2: still frozen 75 s to 105 s after the unlabel). Release currently requires a node restart or a manual write to `cgroup.freeze`.
+5. **Un-stun: before the fix, it never thawed** (D5a-1, D5a-2). **After the fix, it thaws in 63 ms connected, and 1.27 s after a partition heals** (D5-0, D5a). It still cannot release a born-frozen pod, and a released pod cannot be re-stunned with a network drop (after-fix defects 1 and 2).
 6. So, to Andy's question: the freeze persists across hosts only as long as the API record exists, is attached to whatever runs next, and can reach the node. Distributed containment therefore needs the stun intent on the owner (Deployment/ReplicaSet, or an admission-time label on new pods). It also needs a sentinel that re-applies intent before the agent starts (D4's 32 s is a boot race), and a stated policy for partitioned nodes. Today the partition behaviour is fail-closed for revoke and fail-open for new stuns.
 
 ## Side findings (defects measured on the way)
 
-- **tc drop never attaches, and unstun never unfreezes.** `apps/signalloom-stun-sentinel/network.go:191` reads `/sys/class/net/eth0/iflink` after `setns`. sysfs stays bound to the namespace that mounted it, so the sentinel reads the node's own eth0 peer index (1245) instead of the pod's (3) (`d1-veth-diagnosis.txt`). The stun path freezes first and then fails, so containment is freeze-only with no network drop. The unstun path fails *before* unfreezing, so it never thaws. The fix is to read the peer index over netlink (`RTM_GETLINK` in the pod netns) rather than sysfs.
+- **tc drop never attaches, and unstun never unfreezes (before fix; fixed by `192f26c8`, see the after-fix section).** `apps/signalloom-stun-sentinel/network.go:191` reads `/sys/class/net/eth0/iflink` after `setns`. sysfs stays bound to the namespace that mounted it, so the sentinel reads the node's own eth0 peer index (1245) instead of the pod's (3) (`d1-veth-diagnosis.txt`). The stun path freezes first and then fails, so containment is freeze-only with no network drop. The unstun path fails *before* unfreezing, so it never thaws. The fix is to read the peer index over netlink (`RTM_GETLINK` in the pod netns) rather than sysfs.
 - **RBAC files conflict.** `infra/agent-swarm/ebpf-sentinel-rbac.yaml` defines Role and RoleBinding `stun-sentinel` bound to the non-existent service account `signalloom-stun-sentinel`. Applied after the kustomization's `rbac.yaml`, it overwrote the binding's subject, and the sentinel lost pod access (`setup-rolebinding-after-ebpf-rbac.json`). Last writer wins.
 - **The in-tree image build is broken.** `docker build apps/signalloom-stun-sentinel/` (Makefile:237) cannot resolve `replace ../stun-sentinel`.
 - **The sentinel watches itself.** Its own DaemonSet pods carry `signalloom.ai/agent=true`, so they match its informer selector and are reconciled down the unstun path (`d3b1-sentinel-B.log`).
@@ -204,4 +240,19 @@ osramp-scaffold
 $ docker ps -a --filter name=osramp-dist -q | wc -l
 0
 current-context: kind-osramp
+```
+
+After-fix run, from `evidence/stun-distributed-lab/after-fix/teardown-proof.txt`:
+
+```
+teardown_start 23:59:59.542360541
+Deleted nodes: ["osramp-dist-control-plane" "osramp-dist-worker" "osramp-dist-worker2"]
+teardown_end 00:00:03.077314000
+$ kind get clusters
+osramp
+osramp-scaffold
+$ docker ps -a --filter name=osramp-dist -q | wc -l
+0
+current-context: kind-osramp
+worktree /tmp/kusari-e2e/w6-sentinel-src removed
 ```

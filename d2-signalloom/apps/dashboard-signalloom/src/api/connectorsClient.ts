@@ -11,22 +11,8 @@ import type {
 } from '../types/connectors'
 
 // Thin, swappable data layer for the connector framework (ADR-ENHC-012,
-// implemented in PR #19 on services/agent_registry/routers/connectors.py).
-// VITE_CONNECTORS_API_MODE defaults to 'mock' — flip to 'live' once PR #19
-// merges and this is wired against a real dev deployment.
-//
-// Shapes below are read directly off the PR #19 diff, not guessed from the
-// ADR:
-//   GET  /connectors/providers -> { providers: [...] }
-//   GET  /connectors           -> { connectors: [...] }  (rows use `connector_id`,
-//                                   not `id`)
-//   POST /connectors           -> thin { connector_id, provider_id, status,
-//                                   created_at } — NOT a full connector row
-//   DELETE /connectors/{id}    -> { connector_id, status } (404 if already
-//                                   disconnected)
-//   POST /connectors/{id}/test -> { connector_id, valid, scopes_ok, error_msg,
-//                                   credential_expires_at, needs_rotation } —
-//                                   no `days_until_expiry`
+// implemented in fe-signalloom routers/connectors.py).
+// VITE_CONNECTORS_API_MODE defaults to 'mock', flip to 'live' for cluster APIs.
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 const http = axios.create({ baseURL: BASE })
@@ -55,6 +41,14 @@ export interface ConnectorsApi {
   createConnector(token: string, body: ConnectorCreateRequest): Promise<TenantConnector>
   deleteConnector(token: string, id: string): Promise<void>
   testConnector(token: string, id: string): Promise<ConnectorTestResult>
+  toggleConnector(token: string, id: string, enabled?: boolean): Promise<TenantConnector>
+  getStatus(token: string): Promise<{
+    status: string
+    synced_at: string
+    total_connectors: number
+    active_connectors: number
+    connectors: TenantConnector[]
+  }>
 }
 
 const liveConnectorsApi: ConnectorsApi = {
@@ -70,8 +64,6 @@ const liveConnectorsApi: ConnectorsApi = {
 
   createConnector: async (token, body) => {
     await req<ConnectorCreateResponse>('/connectors', token, { method: 'POST', data: body })
-    // The create response is thin (no display_name/expiry/metadata) — refetch
-    // to get the full row rather than hand-assembling a partial one.
     const res = await req<TenantConnectorsResponse>('/connectors', token)
     const match = res.connectors.find(
       (c) => c.provider_id === body.provider_id && c.status !== 'disconnected',
@@ -86,70 +78,28 @@ const liveConnectorsApi: ConnectorsApi = {
 
   testConnector: (token, id) =>
     req<ConnectorTestResult>(`/connectors/${id}/test`, token, { method: 'POST' }),
+
+  toggleConnector: async (token, id, enabled) => {
+    return req<TenantConnector>(`/connectors/${id}/toggle`, token, {
+      method: 'POST',
+      data: enabled !== undefined ? { enabled } : {},
+    })
+  },
+
+  getStatus: async (token) => {
+    return req<{
+      status: string
+      synced_at: string
+      total_connectors: number
+      active_connectors: number
+      connectors: TenantConnector[]
+    }>('/connectors/status', token)
+  },
 }
 
 // ─── Mock implementation ──────────────────────────────────────────────────
 
 const MOCK_PROVIDERS: ConnectorProvider[] = [
-  {
-    provider_id: 'ad_entra',
-    display_name: 'Microsoft Entra ID',
-    wizard_config: {
-      fields: [
-        { name: 'tenant_directory_id', label: 'Directory (tenant) ID', type: 'text', required: true, placeholder: '00000000-0000-0000-0000-000000000000' },
-        { name: 'client_id', label: 'Application (client) ID', type: 'text', required: true },
-        { name: 'client_secret', label: 'Client secret', type: 'password', required: true },
-      ],
-      permissions: ['Directory.Read.All', 'User.Read.All'],
-      // In-app help route (see /help/connectors/entra) rather than an external
-      // URL — mock-mode only; live mode's docs_link still comes from the
-      // backend connector framework until that's repointed separately.
-      docs_link: '/help/connectors/entra',
-      help_text: 'Create an app registration with Directory.Read.All (application permission, admin consented) and use its credentials here.',
-    },
-  },
-  {
-    provider_id: 'okta',
-    display_name: 'Okta',
-    wizard_config: {
-      fields: [
-        { name: 'okta_domain', label: 'Okta domain', type: 'text', required: true, placeholder: 'your-org.okta.com' },
-        { name: 'api_token', label: 'API token', type: 'password', required: true },
-      ],
-      permissions: ['okta.users.read', 'okta.apps.read'],
-      // In-app help route (see /help/connectors/okta) — matches the real
-      // backend plugin's docs_link (okta.py); mock-mode was stale/external.
-      docs_link: '/help/connectors/okta',
-      help_text: 'Generate a read-only API token from an Okta service account with the scopes above.',
-    },
-  },
-  {
-    provider_id: 'openai',
-    display_name: 'OpenAI',
-    wizard_config: {
-      fields: [
-        { name: 'admin_api_key', label: 'OpenAI Admin API Key', type: 'password', required: true, placeholder: 'sk-admin-...' },
-        { name: 'openai_org_id', label: 'Organization ID (optional)', type: 'text', required: false, placeholder: 'org-xxxxxxxx' },
-      ],
-      permissions: ['api.management.read'],
-      docs_link: '/help/connectors/openai',
-      help_text: 'Create an Admin API key (Organization → API keys → Admin keys) and use it here — a regular project API key will not work.',
-    },
-  },
-  {
-    provider_id: 'google_workspace',
-    display_name: 'Google Workspace',
-    wizard_config: {
-      fields: [
-        { name: 'admin_email', label: 'Admin email (for domain-wide delegation)', type: 'text', required: true },
-        { name: 'customer_id', label: 'Customer ID', type: 'text', required: false, placeholder: 'C0xxxxxxx' },
-        { name: 'service_account_json', label: 'Service account key (JSON)', type: 'password', required: true },
-      ],
-      permissions: ['admin.directory.user.readonly', 'admin.directory.rolemanagement.readonly'],
-      docs_link: 'https://developers.google.com/workspace/guides/create-credentials',
-      help_text: 'Use a service account with domain-wide delegation scoped to the read-only Admin SDK scopes above.',
-    },
-  },
   {
     provider_id: 'aws_iam',
     display_name: 'AWS IAM',
@@ -177,24 +127,155 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
       help_text: 'Use a service account with the read-only IAM viewer role.',
     },
   },
+  {
+    provider_id: 'ad_entra',
+    display_name: 'Microsoft Entra ID',
+    wizard_config: {
+      fields: [
+        { name: 'tenant_directory_id', label: 'Directory (tenant) ID', type: 'text', required: true, placeholder: '00000000-0000-0000-0000-000000000000' },
+        { name: 'client_id', label: 'Application (client) ID', type: 'text', required: true },
+        { name: 'client_secret', label: 'Client secret', type: 'password', required: true },
+      ],
+      permissions: ['Directory.Read.All', 'User.Read.All'],
+      docs_link: '/help/connectors/entra',
+      help_text: 'Create an app registration with Directory.Read.All (application permission, admin consented) and use its credentials here.',
+    },
+  },
+  {
+    provider_id: 'k8s',
+    display_name: 'Kubernetes Cluster',
+    wizard_config: {
+      fields: [
+        { name: 'cluster_name', label: 'Cluster name', type: 'text', required: true, placeholder: 'cluster-prod-01' },
+        { name: 'kubeconfig', label: 'Kubeconfig or service account token', type: 'password', required: true },
+      ],
+      permissions: ['pods:list', 'serviceaccounts:list', 'namespaces:list'],
+      docs_link: '/help/connectors/k8s',
+      help_text: 'Provide read-only credentials to discover running pod workloads.',
+    },
+  },
+  {
+    provider_id: 'github',
+    display_name: 'GitHub',
+    wizard_config: {
+      fields: [
+        { name: 'organization', label: 'GitHub organization', type: 'text', required: true, placeholder: 'org-name' },
+        { name: 'personal_access_token', label: 'Personal access token', type: 'password', required: true },
+      ],
+      permissions: ['read:org', 'repo:status'],
+      docs_link: '/help/connectors/github',
+      help_text: 'Generate a fine-grained personal access token with organization read permissions.',
+    },
+  },
+  {
+    provider_id: 'okta',
+    display_name: 'Okta',
+    wizard_config: {
+      fields: [
+        { name: 'okta_domain', label: 'Okta domain', type: 'text', required: true, placeholder: 'your-org.okta.com' },
+        { name: 'api_token', label: 'API token', type: 'password', required: true },
+      ],
+      permissions: ['okta.users.read', 'okta.apps.read'],
+      docs_link: '/help/connectors/okta',
+      help_text: 'Generate a read-only API token from an Okta service account with the scopes above.',
+    },
+  },
+  {
+    provider_id: 'openai',
+    display_name: 'OpenAI',
+    wizard_config: {
+      fields: [
+        { name: 'admin_api_key', label: 'OpenAI Admin API Key', type: 'password', required: true, placeholder: 'sk-admin-...' },
+        { name: 'openai_org_id', label: 'Organization ID (optional)', type: 'text', required: false, placeholder: 'org-xxxxxxxx' },
+      ],
+      permissions: ['api.management.read'],
+      docs_link: '/help/connectors/openai',
+      help_text: 'Create an Admin API key and use it here to discover assistant credentials.',
+    },
+  },
+  {
+    provider_id: 'google_workspace',
+    display_name: 'Google Workspace',
+    wizard_config: {
+      fields: [
+        { name: 'admin_email', label: 'Admin email (for domain-wide delegation)', type: 'text', required: true },
+        { name: 'customer_id', label: 'Customer ID', type: 'text', required: false, placeholder: 'C0xxxxxxx' },
+        { name: 'service_account_json', label: 'Service account key (JSON)', type: 'password', required: true },
+      ],
+      permissions: ['admin.directory.user.readonly', 'admin.directory.rolemanagement.readonly'],
+      docs_link: 'https://developers.google.com/workspace/guides/create-credentials',
+      help_text: 'Use a service account with domain-wide delegation scoped to the read-only Admin SDK scopes above.',
+    },
+  },
 ]
-
-// Module-level, in-memory only — resets on reload. Stands in for the real
-// tenant_connectors table until PR #19 merges and dev is wired to it.
-let mockConnectors: TenantConnector[] = []
-let mockIdSeq = 1
-// Dev-only convenience so the wizard's "test failed" path is exercisable in
-// mock mode: any credential field literally containing "invalid" fails the
-// mock test call. Never a real validation rule — the real backend actually
-// calls plugin.validate_credentials().
-const mockInvalidCredentials = new Map<string, boolean>()
-
-function delay<T>(value: T, ms = 220): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms))
-}
 
 function futureIso(daysOut: number): string {
   return new Date(Date.now() + daysOut * 24 * 60 * 60 * 1000).toISOString()
+}
+
+let mockConnectors: TenantConnector[] = [
+  {
+    connector_id: 'conn-aws-01',
+    provider_id: 'aws_iam',
+    display_name: 'AWS Production',
+    status: 'connected',
+    credential_expires_at: futureIso(90),
+    last_tested_at: new Date().toISOString(),
+    last_scan_at: new Date().toISOString(),
+    metadata: { region: 'us-east-1' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    connector_id: 'conn-gcp-01',
+    provider_id: 'gcp_iam',
+    display_name: 'GCP Europe-West',
+    status: 'connected',
+    credential_expires_at: futureIso(90),
+    last_tested_at: new Date().toISOString(),
+    last_scan_at: new Date().toISOString(),
+    metadata: { project_id: 'signalloom-prod' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    connector_id: 'conn-azure-01',
+    provider_id: 'ad_entra',
+    display_name: 'Microsoft Entra ID',
+    status: 'connected',
+    credential_expires_at: futureIso(90),
+    last_tested_at: new Date().toISOString(),
+    last_scan_at: new Date().toISOString(),
+    metadata: { tenant_name: 'corp.contoso.com' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    connector_id: 'conn-k8s-01',
+    provider_id: 'k8s',
+    display_name: 'Kubernetes Cluster Local',
+    status: 'connected',
+    credential_expires_at: futureIso(90),
+    last_tested_at: new Date().toISOString(),
+    last_scan_at: new Date().toISOString(),
+    metadata: { cluster_id: 'cluster-local' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    connector_id: 'conn-github-01',
+    provider_id: 'github',
+    display_name: 'GitHub Enterprise',
+    status: 'connected',
+    credential_expires_at: futureIso(90),
+    last_tested_at: new Date().toISOString(),
+    last_scan_at: new Date().toISOString(),
+    metadata: { org: 'signalloom-corp' },
+    created_at: new Date().toISOString(),
+  },
+]
+
+let mockIdSeq = 10
+const mockInvalidCredentials = new Map<string, boolean>()
+
+function delay<T>(value: T, ms = 50): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(value), ms))
 }
 
 const mockConnectorsApi: ConnectorsApi = {
@@ -209,7 +290,6 @@ const mockConnectorsApi: ConnectorsApi = {
       provider_id: body.provider_id,
       display_name: body.display_name ?? provider?.display_name ?? body.provider_id,
       status: 'connected',
-      // Real backend leaves this null until the first POST /test call.
       credential_expires_at: null,
       last_tested_at: null,
       last_scan_at: null,
@@ -221,14 +301,14 @@ const mockConnectorsApi: ConnectorsApi = {
       connector.connector_id,
       Object.values(body.credentials).some((v) => v.toLowerCase().includes('invalid')),
     )
-    return delay(connector, 400)
+    return delay(connector, 100)
   },
 
   deleteConnector: async (_token, id) => {
     mockConnectors = mockConnectors.map((c) =>
       c.connector_id === id ? { ...c, status: 'disconnected' as const } : c,
     )
-    return delay(undefined, 250)
+    return delay(undefined, 80)
   },
 
   testConnector: async (_token, id) => {
@@ -252,7 +332,36 @@ const mockConnectorsApi: ConnectorsApi = {
       credential_expires_at: expiresAt,
       needs_rotation: false,
     }
-    return delay(result, 350)
+    return delay(result, 100)
+  },
+
+  toggleConnector: async (_token, id, enabled) => {
+    const match = mockConnectors.find((c) => c.connector_id === id || c.provider_id === id)
+    if (!match) {
+      throw new Error(`Connector ${id} not found`)
+    }
+    const nextStatus = enabled !== undefined ? (enabled ? 'connected' : 'disconnected') : (match.status === 'connected' ? 'disconnected' : 'connected')
+    const updated: TenantConnector = {
+      ...match,
+      status: nextStatus,
+      last_tested_at: new Date().toISOString(),
+    }
+    mockConnectors = mockConnectors.map((c) => (c.connector_id === match.connector_id ? updated : c))
+    return delay(updated, 80)
+  },
+
+  getStatus: async (_token) => {
+    const active = mockConnectors.filter((c) => c.status === 'connected').length
+    return delay(
+      {
+        status: active > 0 ? 'healthy' : 'degraded',
+        synced_at: new Date().toISOString(),
+        total_connectors: mockConnectors.length,
+        active_connectors: active,
+        connectors: [...mockConnectors],
+      },
+      80,
+    )
   },
 }
 

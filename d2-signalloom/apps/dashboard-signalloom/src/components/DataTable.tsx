@@ -205,12 +205,13 @@ export default function DataTable<T>({
   const sorted = useMemo(() => {
     if (!sort.key || sort.dir === null) return data
 
+    const col = columns.find((c) => c.key === sort.key)
     const key = sort.key as keyof T
     const dir = sort.dir === 'asc' ? 1 : -1
 
     return [...data].sort((a, b) => {
-      const aVal = a[key]
-      const bVal = b[key]
+      const aVal = col?.accessor ? col.accessor(a) : (a != null ? (a as Record<string, unknown>)[sort.key] : undefined)
+      const bVal = col?.accessor ? col.accessor(b) : (b != null ? (b as Record<string, unknown>)[sort.key] : undefined)
 
       // Handle nullish and NaN: push missing values to the end regardless of
       // sort direction so they never interleave with real data.

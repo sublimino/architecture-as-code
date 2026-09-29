@@ -102,7 +102,11 @@ spec:
               # --- Assert the outcome, not the exit code ---
               bao read -field=bound_subject auth/jwt/role/fleet-manager \
                 | grep -qx 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager'
-              bao policy read fleet-manager | grep -q 'auth/token/revoke-accessor'| grep -q 'auth/token/lookup-accessor'
+              # Read once, grep twice: grep -q prints nothing, so piping one into
+              # another always feeds the second an empty stream and fails.
+              policy="$(bao policy read fleet-manager)"
+              printf '%s\n' "$policy" | grep -q 'auth/token/revoke-accessor'
+              printf '%s\n' "$policy" | grep -q 'auth/token/lookup-accessor'
 
               echo "fleet-manager bootstrap complete"
           resources:

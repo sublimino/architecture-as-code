@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -83,7 +84,7 @@ func TestHandleTopology_MethodNotAllowed(t *testing.T) {
 
 func TestHandleStun_Success(t *testing.T) {
 	s := newTestServer(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-cardvault", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-cardvault", strings.NewReader(`{"reason":"main_test: stun success"}`))
 	w := httptest.NewRecorder()
 	s.handleStun(w, req)
 

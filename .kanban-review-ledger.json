@@ -3763,5 +3763,25 @@
     "verdict": "PASS",
     "model": null,
     "reason": "Reconciled Settings view, implemented connectors router with discovery dynamic sync, 7/7 pytest passed, 19/19 vitest passed, typecheck clean, zero em-dashes"
+  },
+  "203d0": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "203d0",
+        "reviewed_at": "2026-09-29T10:17:03.052Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "PASS",
+        "model": null,
+        "reason": "Platform-wide em-dash eradication complete (0 em-dashes), en-dash baseline held <= 9, allowlist empty, 5/5 lint-ui-typography.bats passed, vitest 3483/3483 passed"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "203d0",
+    "reviewed_at": "2026-09-29T10:17:03.052Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "PASS",
+    "model": null,
+    "reason": "Platform-wide em-dash eradication complete (0 em-dashes), en-dash baseline held <= 9, allowlist empty, 5/5 lint-ui-typography.bats passed, vitest 3483/3483 passed"
   }
 }

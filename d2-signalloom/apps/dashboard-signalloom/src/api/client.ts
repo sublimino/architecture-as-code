@@ -48,6 +48,9 @@ import type {
   AggregateResult,
   OrderingResult,
   CodingAgentFilter,
+  DiscoveryWorkloadsResponse,
+  DiscoveryWorkload,
+  AutoclaimNamespaceRequest,
 } from '../types/api'
 import type {
   ComplianceCheck,
@@ -618,6 +621,36 @@ export const api = {
 
     reportJson: (token: string) =>
       req<unknown>('/nhi/report/json', token),
+  },
+
+  discovery: {
+    workloads: (
+      token: string,
+      params?: { source?: string; status?: string; namespace?: string; search?: string; page?: number; limit?: number },
+    ) => {
+      const q = new URLSearchParams()
+      if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null && value !== '') {
+            q.set(key, String(value))
+          }
+        }
+      }
+      const qs = q.toString()
+      return req<DiscoveryWorkloadsResponse>(qs ? `/discovery/workloads?${qs}` : '/discovery/workloads', token)
+    },
+
+    autoclaimNamespace: (token: string, namespace?: string) =>
+      req<{ claimed: any[]; total_claimed: number }>('/agents/autoclaim-discovered', token, {
+        method: 'POST',
+        data: namespace ? { namespace } : undefined,
+      }),
+
+    enroll: (token: string, accountId: string) =>
+      req<{ account_id: string; status: string }>(`/nhi/discovered/${accountId}/enroll`, token, { method: 'POST' }),
+
+    dismiss: (token: string, accountId: string) =>
+      req<{ account_id: string; status: string }>(`/nhi/discovered/${accountId}/dismiss`, token, { method: 'POST' }),
   },
 
   health: {

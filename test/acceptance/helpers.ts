@@ -203,10 +203,11 @@ export const config = {
    * longer resolves, which failed every spec that reached the dashboard or the
    * AFM proxy beneath it. SIGNALLOOM_UI_URL still wins for local vite work.
    */
-  base:
+  base: (
     process.env.SIGNALLOOM_UI_URL ??
     process.env.DASHBOARD_URL ??
-    "https://dashboard.osramp.acme.local:30754",
+    "https://dashboard.osramp.acme.local:30754"
+  ).replace(/\/+$/, ""),
   /** Dex demo user email. */
   user: process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local",
   /** Dex demo user password. */

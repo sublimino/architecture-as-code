@@ -29,15 +29,72 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
     await page.goto(`${BASE}/agents`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1, name: /Agents/i })).toBeVisible({ timeout: 15_000 });
 
-    // Open an agent detail drawer or check table
+    // Open an agent detail drawer and check table
     const agentRow = page.locator('[data-testid^="agent-row-"]').first();
     if (await agentRow.isVisible()) {
       await agentRow.click();
       const drawer = page.getByTestId("agent-evidence-drawer");
-      if (await drawer.isVisible()) {
-        await expect(drawer).toBeVisible();
+      await expect(drawer).toBeVisible({ timeout: 10_000 });
+
+      // Verify Quantitative Risk section settles without 502 upstream errors
+      const riskSection = page.getByTestId("drawer-section-risk");
+      const riskError = page.getByTestId("drawer-section-risk-error");
+      await expect(riskSection.or(riskError)).toBeVisible({ timeout: 15_000 });
+
+      if (await riskError.isVisible()) {
+        const errorText = await riskError.innerText();
+        expect(errorText).not.toContain("502");
+        expect(errorText).not.toContain("invalid_upstream_response");
+        expect(errorText).not.toContain("policy-engine returned unparseable JSON");
       }
     }
+  });
+
+  test("Surface 3b: Agent detail drawer deep-link ?drawer=<id> opens drawer and verifies Quantitative Risk (OpenFAIR) without 502", async ({ page }) => {
+    // Monitor risk endpoints for 500/502/504 errors
+    const failedRiskResponses: string[] = [];
+    page.on("response", (res) => {
+      if (res.url().includes("/risk") && res.status() >= 500) {
+        failedRiskResponses.push(`${res.status()} ${res.url()}`);
+      }
+    });
+
+    await page.goto(`${BASE}/agents`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { level: 1, name: /Agents/i })).toBeVisible({ timeout: 15_000 });
+
+    const agentRow = page.locator('[data-testid^="agent-row-"]').first();
+    await expect(agentRow).toBeVisible({ timeout: 15_000 });
+    const rowTestId = await agentRow.getAttribute("data-testid");
+    const agentId = rowTestId?.replace("agent-row-", "") || "5d9d84b5-b7d5-50b8-8fcf-d2ae4cc74599";
+
+    // Direct deep-link navigation as reported in incident
+    await page.goto(`${BASE}/agents?drawer=${agentId}`, { waitUntil: "domcontentloaded" });
+    const drawer = page.getByTestId("agent-evidence-drawer");
+    await expect(drawer).toBeVisible({ timeout: 15_000 });
+
+    // Assert Quantitative Risk (OpenFAIR) panel renders
+    const riskSection = page.getByTestId("drawer-section-risk");
+    const riskError = page.getByTestId("drawer-section-risk-error");
+    await expect(riskSection.or(riskError)).toBeVisible({ timeout: 15_000 });
+
+    // Assert zero 500/502/504 responses across risk API endpoints
+    expect(failedRiskResponses).toEqual([]);
+
+    // Assert no upstream 502 error text appears in the UI
+    if (await riskError.isVisible()) {
+      const errorText = await riskError.innerText();
+      expect(errorText).not.toContain("502");
+      expect(errorText).not.toContain("invalid_upstream_response");
+      expect(errorText).not.toContain("policy-engine returned unparseable JSON");
+    } else {
+      await expect(page.getByTestId("drawer-section-risk-ale")).toBeVisible();
+      await expect(page.getByTestId("drawer-section-risk-source")).toBeVisible();
+    }
+
+    // Verify closing drawer cleans up the ?drawer= URL parameter
+    await page.getByTestId("agent-evidence-drawer-close").click();
+    await expect(drawer).not.toBeVisible({ timeout: 5_000 });
+    await expect(page).not.toHaveURL(/[?&]drawer=/);
   });
 
   test("Surface 5: The Weave renders real-time signal stream and layer filters", async ({ page }) => {

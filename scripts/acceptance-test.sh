@@ -5,6 +5,8 @@
 set -uo pipefail
 
 export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+DASHBOARD_URL="${DASHBOARD_URL:-}"
+DASHBOARD_URL="${DASHBOARD_URL%/}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -44,6 +46,9 @@ trap cleanup EXIT
 
 start_port_forward() {
   local ns="$1" svc="$2" local_port="$3" remote_port="$4"
+  if [[ -n "${DASHBOARD_URL:-}" && "${DASHBOARD_URL}" != *"dashboard.osramp.acme.local"* ]]; then
+    return 0
+  fi
   if ! kubectl get svc "${svc}" -n "${ns}" &>/dev/null; then
     echo "    SKIP: ${ns}/${svc} (service not found)"
     return
@@ -70,6 +75,13 @@ echo ""
 # acceptance-test` got ERR_CONNECTION_REFUSED on the auth setup project and
 # cascaded into every dependent spec, so it is hoisted into a shared function.
 setup_gateway_forward() {
+  if [[ -n "${DASHBOARD_URL:-}" && "${DASHBOARD_URL}" != *"dashboard.osramp.acme.local"* ]]; then
+    echo "    gateway: using external target ${DASHBOARD_URL} (skipping local Gateway port-forward)"
+    gateway_forwarded=0
+    export DASHBOARD_URL
+    export GATEWAY_ADDRESS="${GATEWAY_ADDRESS:-127.0.0.1}"
+    return 0
+  fi
   gateway_local_port=18443
   read -r gateway_namespace gateway_service < <(kubectl -n ingress get service \
     -l gateway.envoyproxy.io/owning-gateway-name=cluster \
@@ -152,11 +164,21 @@ fi
 # up and then was told nothing about them. Deriving these from the forwards we
 # just made, rather than from argv, keeps them true by construction.
 setup_gateway_forward
-export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-http://127.0.0.1:18000}"
-export SIGNALLOOM_DEX_URL="${SIGNALLOOM_DEX_URL:-http://127.0.0.1:15556}"
+if [[ -n "${DASHBOARD_URL:-}" && "${DASHBOARD_URL}" != *"dashboard.osramp.acme.local"* ]]; then
+  _default_api_url="${DASHBOARD_URL}"
+  _default_dex_url="${DASHBOARD_URL}"
+else
+  _default_api_url="http://127.0.0.1:18000"
+  _default_dex_url="http://127.0.0.1:15556"
+fi
+export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-${_default_api_url}}"
+export SIGNALLOOM_DEX_URL="${SIGNALLOOM_DEX_URL:-${_default_dex_url}}"
+export SIGNALLOOM_UI_URL="${SIGNALLOOM_UI_URL:-${DASHBOARD_URL}}"
 
-echo "==> Waiting for port-forwards to establish..."
-sleep 4
+if (( ${#PF_PIDS[@]} > 0 )) || (( gateway_forwarded )); then
+  echo "==> Waiting for port-forwards to establish..."
+  sleep 4
+fi
 
 echo "==> Preflight..."
 # These preconditions were gated on the TEST-1 spec name, which meant every
@@ -185,6 +207,12 @@ if (( gateway_forwarded )); then
     echo "    ERROR: shared Gateway is not reachable at ${DASHBOARD_URL}" >&2
     PREFLIGHT_FAILED=1
   fi
+elif [[ -n "${DASHBOARD_URL:-}" && "${DASHBOARD_URL}" != *"dashboard.osramp.acme.local"* ]]; then
+  if curl -kfsS --max-time 5 "${DASHBOARD_URL}/readyz" >/dev/null; then
+    echo "    external target reachable at ${DASHBOARD_URL}/readyz"
+  else
+    echo "    WARNING: external target did not answer at ${DASHBOARD_URL}/readyz" >&2
+  fi
 else
   echo "    SKIP: Gateway preflight (no Envoy data-plane Service in cluster)"
 fi
@@ -194,6 +222,12 @@ if pf_established inf-signalloom/dex; then
     "${SIGNALLOOM_DEX_URL}/dex/.well-known/openid-configuration" >/dev/null; then
     echo "    ERROR: Dex issuer is not reachable at ${SIGNALLOOM_DEX_URL}" >&2
     PREFLIGHT_FAILED=1
+  fi
+elif [[ -n "${DASHBOARD_URL:-}" && "${DASHBOARD_URL}" != *"dashboard.osramp.acme.local"* ]]; then
+  if curl -kfsS --max-time 5 "${SIGNALLOOM_DEX_URL}/dex/.well-known/openid-configuration" >/dev/null; then
+    echo "    Dex issuer reachable at ${SIGNALLOOM_DEX_URL}/dex"
+  else
+    echo "    WARNING: Dex issuer did not answer at ${SIGNALLOOM_DEX_URL}/dex/.well-known/openid-configuration" >&2
   fi
 else
   echo "    SKIP: Dex issuer preflight (inf-signalloom/dex not deployed)"
@@ -233,34 +267,38 @@ fi
 # The namespace is derived for the same reason: `-n fe-signalloom` was hardcoded
 # too, and happened to be right only because every instrumented workload lives
 # there today.
-while IFS=$'\t' read -r _workload _workload_ns; do
-  [ -n "${_workload}" ] || continue
-  if ! kubectl -n "${_workload_ns}" get deployment "${_workload}" &>/dev/null; then
-    echo "    SKIP: ${_workload} staleness check (not deployed)"
-    continue
-  fi
-  "${SCRIPT_DIR}/check-deployed-staleness.sh" "${_workload}" >/dev/null 2>&1
-  case $? in
-    0) echo "    ${_workload} → running the current working tree" ;;
-    1) echo "    ERROR: ${_workload} is running code OLDER than the working tree." >&2
-       echo "           Specs below would test a build that no longer exists in this repo." >&2
-       echo "           Rebuild and roll it, then re-run. Detail: make check-deployed-staleness" >&2
-       PREFLIGHT_FAILED=1 ;;
-    *) echo "    ERROR: could not verify what ${_workload} is running." >&2
-       echo "           Unproven, not disproven — results below cannot be trusted to" >&2
-       echo "           describe this working tree. Detail: make check-deployed-staleness" >&2
-       PREFLIGHT_FAILED=1 ;;
-  esac
-done < <("${SCRIPT_DIR}/check-deployed-staleness.sh" --list)
+if [[ -n "${DASHBOARD_URL:-}" && "${DASHBOARD_URL}" != *"dashboard.osramp.acme.local"* ]]; then
+  echo "    SKIP: staleness check (external target ${DASHBOARD_URL})"
+else
+  while IFS=$'\t' read -r _workload _workload_ns; do
+    [ -n "${_workload}" ] || continue
+    if ! kubectl -n "${_workload_ns}" get deployment "${_workload}" &>/dev/null; then
+      echo "    SKIP: ${_workload} staleness check (not deployed)"
+      continue
+    fi
+    "${SCRIPT_DIR}/check-deployed-staleness.sh" "${_workload}" >/dev/null 2>&1
+    case $? in
+      0) echo "    ${_workload} → running the current working tree" ;;
+      1) echo "    ERROR: ${_workload} is running code OLDER than the working tree." >&2
+         echo "           Specs below would test a build that no longer exists in this repo." >&2
+         echo "           Rebuild and roll it, then re-run. Detail: make check-deployed-staleness" >&2
+         PREFLIGHT_FAILED=1 ;;
+      *) echo "    ERROR: could not verify what ${_workload} is running." >&2
+         echo "           Unproven, not disproven — results below cannot be trusted to" >&2
+         echo "           describe this working tree. Detail: make check-deployed-staleness" >&2
+         PREFLIGHT_FAILED=1 ;;
+    esac
+  done < <("${SCRIPT_DIR}/check-deployed-staleness.sh" --list)
 
-# An empty topology would make the loop above a no-op that prints nothing and
-# passes — the same vacuous green this preflight exists to prevent, one level up.
-# `--list` needs no cluster, so there is no legitimate reason for it to be empty.
-if [ -z "$("${SCRIPT_DIR}/check-deployed-staleness.sh" --list)" ]; then
-  echo "    ERROR: no instrumented workloads to staleness-check." >&2
-  echo "           check-deployed-staleness.sh --list returned nothing, so the loop" >&2
-  echo "           above checked NOTHING and said so silently." >&2
-  PREFLIGHT_FAILED=1
+  # An empty topology would make the loop above a no-op that prints nothing and
+  # passes — the same vacuous green this preflight exists to prevent, one level up.
+  # `--list` needs no cluster, so there is no legitimate reason for it to be empty.
+  if [ -z "$("${SCRIPT_DIR}/check-deployed-staleness.sh" --list)" ]; then
+    echo "    ERROR: no instrumented workloads to staleness-check." >&2
+    echo "           check-deployed-staleness.sh --list returned nothing, so the loop" >&2
+    echo "           above checked NOTHING and said so silently." >&2
+    PREFLIGHT_FAILED=1
+  fi
 fi
 
 # Advisory only — Grafana backs no assertion in any spec. Gated on the forward

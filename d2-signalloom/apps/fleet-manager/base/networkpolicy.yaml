@@ -52,3 +52,16 @@ spec:
       ports:
         - port: 8200
           protocol: TCP
+    # Allow the SPIRE server API (entry eviction / re-entry). Scoped to the
+    # spire-server pods; the matching ingress is inf-bao's
+    # allow-fleet-manager-to-spire.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: spire-server
+      ports:
+        - port: 8081
+          protocol: TCP

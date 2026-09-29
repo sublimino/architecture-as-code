@@ -1,0 +1,195 @@
+{
+  "artifact": "slms-p3-preflight-facts",
+  "phase": "P3",
+  "card": "SLMS-P3-PRE",
+  "title": "Phase 3 Pre-Flight Check: Topology, Weave, FAIR Risk & Audit Vocabulary Audit",
+  "generated": "2026-09-29T06:33:00+01:00",
+  "role_boundary": "audit and pre-flight verification only; no Phase 3 production deliverables modified",
+  "repository": {
+    "worktree": "/home/andy/src/.worktrees/2e256/osramp-demo",
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "base_commit_sha": "aa9b7c966e733174a2aeeaaeebc6f53e6e78be7c",
+    "current_commit_sha": "aa9b7c966e733174a2aeeaaeebc6f53e6e78be7c",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean": true
+  },
+  "baseline_test_results": {
+    "weave_vitest": {
+      "command": "make test-dashboard-weave",
+      "passed": 84,
+      "skipped": 0,
+      "failed": 0,
+      "total": 84,
+      "files_passed": 4,
+      "files_total": 4,
+      "test_files": [
+        "src/api/weaveApi.test.ts",
+        "src/components/WhoAuthorizedPanel.test.tsx",
+        "src/pages/SignalFusionPage.test.tsx",
+        "src/pages/WeavePage.test.tsx"
+      ],
+      "duration_seconds": 1.14,
+      "status": "PASS"
+    },
+    "dashboard_vitest": {
+      "command": "bun run test -- --run",
+      "passed": 3499,
+      "skipped": 3,
+      "failed": 0,
+      "total": 3502,
+      "files_passed": 195,
+      "files_total": 195,
+      "duration_seconds": 14.84,
+      "status": "PASS"
+    },
+    "frontend_typecheck": {
+      "command": "bun run typecheck",
+      "errors": 0,
+      "status": "PASS"
+    },
+    "policy_engine_go": {
+      "command": "CGO_ENABLED=0 go test ./...",
+      "packages_passed": 4,
+      "status": "PASS"
+    },
+    "audit_vocabulary_pytest": {
+      "command": "pytest tests/test_dashboard_audit_vocabulary.py",
+      "passed": 8,
+      "skipped": 0,
+      "failed": 0,
+      "total": 8,
+      "status": "PASS"
+    }
+  },
+  "surface_4_topology_audit": {
+    "reactflow_package": "@xyflow/react",
+    "reactflow_version": "^12.11.2",
+    "package_json_path": "d2-signalloom/apps/dashboard-signalloom/package.json",
+    "dagre_status": "missing_from_package_json",
+    "dagre_dependency_requirement": "P3-1 must add @dagrejs/dagre (or dagre / @types/dagre) to package.json AND update package-lock.json via 'npm install --package-lock-only' to satisfy lockfileSync.test.ts and prevent container build failures",
+    "rendering_engine": "ReactFlow v12 SVG/HTML custom nodes compatible with jsdom and headless test environments",
+    "topology_backend_drop_sites": [
+      {
+        "site": "backend_tenant_filter",
+        "file": "d2-signalloom/apps/fe-signalloom/src/api_compat.py",
+        "lines": "3632-3640",
+        "behavior": "Drops nodes and edges where node.tenant != authenticated_tenant and node.tenant is not None; drops edges referencing dropped nodes"
+      },
+      {
+        "site": "collector_fallback_derived",
+        "file": "d2-signalloom/apps/fe-signalloom/src/api_compat.py",
+        "lines": "3535-3565, 3624-3630",
+        "behavior": "When TRUST_TOPOLOGY_URL collector is unreachable, synthesizes _derived_topology containing only platform root, tenant node, and registered/enrolled agents, omitting cluster-level infrastructure nodes"
+      },
+      {
+        "site": "frontend_filters",
+        "file": "d2-signalloom/apps/dashboard-signalloom/src/components/trust/TrustTopologyCanvas.tsx",
+        "lines": "various",
+        "behavior": "Filters by plane (identity, authorization, network), decision (allowed, denied, modeled), location (in-cluster, external), and evidence state"
+      }
+    ],
+    "serialization_model": {
+      "response_model": "TrustTopologyResponse",
+      "nodes_model": "TrustTopologyItem (id, kind, label, tenant, parent_id, location, evidence_state, evidence_source, observed_at, freshness, assurance, reason)",
+      "edges_model": "TrustTopologyEdge (id, from_id, to_id, verb, plane, decision, tenant, evidence_state, evidence_source, observed_at, freshness, assurance, reason)",
+      "modeled_gaps_model": "TrustTopologyItem",
+      "collectors_model": "TopologyCollector (status, observed_at, reason)"
+    },
+    "topology_audit_verdict": "VERIFIED"
+  },
+  "surface_5_weave_audit": {
+    "current_routes": {
+      "primary": "/weave",
+      "alias": "/activity"
+    },
+    "h1_title_status": "Already reads 'The Weave' in WeavePage.tsx",
+    "rename_targets": [
+      "d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx:100 (name: 'The Weave')",
+      "d2-signalloom/apps/dashboard-signalloom/src/App.tsx:136 (redirect /activity to /weave)",
+      "Documentation and test fixtures referencing Activity"
+    ],
+    "controls_relocation": {
+      "source": "WeavePage.tsx:636-722 (SignalFusionDemoControls)",
+      "destination": "pages/SignalFusionPage.tsx (/signal-fusion in Demos nav section)"
+    },
+    "streaming_invariant": "/api/signals/* SSE pipeline (api/weaveApi.ts, signal_fusion.py) is untouched",
+    "baseline_suite": "make test-dashboard-weave passes with 84/84 tests across 4 test files",
+    "weave_audit_verdict": "VERIFIED"
+  },
+  "surface_6_fair_risk_audit": {
+    "backend_proxy_file": "d2-signalloom/apps/fe-signalloom/src/risk.py",
+    "proxy_endpoints": [
+      "GET /api/v1/risk/agents/{agent_id:path} -> http://signal-ingest:8082/api/v1/risk/agents/{agent_id}",
+      "GET /api/v1/risk/fleet -> http://signal-ingest:8082/api/v1/risk/fleet"
+    ],
+    "frontend_api_client": "d2-signalloom/apps/dashboard-signalloom/src/api/fairApi.ts",
+    "frontend_hooks_file": "d2-signalloom/apps/dashboard-signalloom/src/hooks/useAgentRisk.ts",
+    "hooks": [
+      "useAgentRisk(agentId) - fetches per-agent risk with monotonic run sequencing, AbortSignal cancellation, and error trapping",
+      "useFleetRisk(enabled) - fetches fleet risk rollup with identical race protection"
+    ],
+    "current_defects_and_gaps": [
+      "RiskExposurePage.tsx line 53 hardcodes namespace: 'default'",
+      "RiskExposurePage.tsx lines 189-191 scale static/empty exposure values (totalAle=0, totalVar95=0)",
+      "RiskExposurePage.tsx hardcodes VERSIONS array instead of querying framework catalog API"
+    ],
+    "p3_3_target_plan": "Implement population filter (Governed, Discovered, All), dynamic version fetching from API, dynamic ale/var95 calculation via fairApi.ts/useAgentRisk.ts, and reactive recalculation under 250ms",
+    "fair_risk_audit_verdict": "VERIFIED"
+  },
+  "surface_10_audit_trail_audit": {
+    "database_table": "public.audit_events",
+    "table_schema_file": "d2-signalloom/apps/fe-signalloom/src/db/migrations/004_agent_governance_schema.sql",
+    "columns": [
+      "id UUID PRIMARY KEY",
+      "tenant_id TEXT NOT NULL DEFAULT 'tenant-demo'",
+      "timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+      "event_type VARCHAR(30) NOT NULL",
+      "agent_id UUID REFERENCES public.agent_registry(id)",
+      "agent_name VARCHAR(255)",
+      "actor VARCHAR(255) NOT NULL",
+      "detail JSONB NOT NULL",
+      "actor_user_id UUID REFERENCES public.platform_users(id)",
+      "actor_issuer TEXT",
+      "actor_subject TEXT"
+    ],
+    "append_only_trigger": "audit_events_append_only (migration 030) enforces append-only semantics, rejecting UPDATE, DELETE, TRUNCATE",
+    "check_constraint_migration": "045_eap_audit_event_types.sql (59 permitted event types in audit_events_event_type_check)",
+    "unmapped_filter_vocabulary": {
+      "legacy_filter_only_types_count": 10,
+      "legacy_filter_only_types": [
+        "enrollment",
+        "state_transition",
+        "violation_detected",
+        "compliance_check",
+        "token_issued",
+        "token_refused",
+        "tenant_created",
+        "user_provisioned",
+        "directory_connected",
+        "discovery_enroll_requested"
+      ],
+      "eap_filter_only_types_count": 10,
+      "eap_filter_only_types": [
+        "eap_environment.lease_extended",
+        "eap_environment.provisioned",
+        "eap_environment.reaping_triggered",
+        "eap_environment.registered",
+        "eap_environment.teardown_requested",
+        "eap_environment.ttl_extended",
+        "eap_environment.webhook_triggered",
+        "eap_scenario.executed",
+        "eap_tenant.isolation_provisioned",
+        "eap_tenant.isolation_torn_down"
+      ],
+      "test_guard": "tests/test_dashboard_audit_vocabulary.py verifies 1:1 agreement between emitted events, legacy filter list, and AuditTrail.tsx EVENT_TYPES/EVENT_COLORS"
+    },
+    "p3_4_target_plan": "Convert AuditTrail.tsx detail cell (:865) from one-line JSON.stringify to clickable/keyboard trigger opening syntax-highlighted JSON drawer with SPIFFE ID, attestation hashes, actor provenance, and copy button",
+    "audit_trail_verdict": "VERIFIED"
+  },
+  "preflight_verdict": {
+    "status": "PASS",
+    "proceed": true,
+    "blocking_drift": false,
+    "summary": "Phase 3 pre-flight verification fully certified. Baseline test suites green (Weave 84/84 tests across 4 files, dashboard Vitest 3,499/3,502 tests across 195 files, Policy Engine Go 4/4 packages, TypeScript typecheck 0 errors). Dependencies, proxy architectures, topology drop sites, and audit vocabulary inventory cataloged. Phase 3 tasks (SLMS-P3-1, SLMS-P3-2, SLMS-P3-3, SLMS-P3-4) unblocked."
+  }
+}

@@ -203,11 +203,15 @@ class ContainmentMeasures(BaseModel):
 
     process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported", "unknown"] = "inactive"
     # Whether process_freeze / network_isolation rest on an observation
     # (sentinel annotation or discovered traffic-control data). None for
     # producers that predate the field.
     source: Literal["sentinel-annotation", "unavailable"] | None = None
+    # Where credential_revocation came from: the last agent.stunned audit
+    # row's bao/spire planes, the registry's credential_revoked flag, or
+    # nothing. None for producers that predate the field.
+    credential_source: Literal["stun-audit", "registry", "unavailable"] | None = None
 
 
 class OperationalStateMetadata(BaseModel):
@@ -1996,6 +2000,96 @@ def _kernel_view(discovered: dict[str, Any] | None, stunned: bool) -> dict[str, 
     }
 
 
+CREDENTIAL_PLANES = ("bao", "spire")
+
+
+def _stun_index_from_rows(rows: list[Any]) -> dict[str, dict[str, Any]]:
+    """Index agent.stunned audit details by every identifier a row carries.
+
+    ``rows`` must be newest first; the first row seen for a key wins. A row is
+    keyed by its agent_id (a registry UUID in DB mode, the caller's identifier
+    in memory mode), its agent_name, and detail.agent_ref (the caller's
+    identifier when it did not resolve to a registry row).
+    """
+    index: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        get = row.get if isinstance(row, dict) else (lambda k, r=row: r[k])
+        detail = get("detail")
+        if isinstance(detail, str):
+            try:
+                detail = json.loads(detail)
+            except ValueError:
+                continue
+        if not isinstance(detail, dict):
+            continue
+        for key in (get("agent_id"), get("agent_name"), detail.get("agent_ref")):
+            if key:
+                index.setdefault(str(key), detail)
+    return index
+
+
+async def _latest_stun_index(tenant_id: str, pool: Any) -> dict[str, dict[str, Any]]:
+    """Latest agent.stunned detail per agent for this tenant.
+
+    A read failure yields an empty index, which the mappers report as
+    credential_revocation "unknown" with source "unavailable": the honest
+    reading when the audit cannot be consulted.
+    """
+    if pool is None:
+        with _STORE_LOCK:
+            events = [e for e in _AUDIT_EVENTS.get(tenant_id, []) if e.get("event_type") == "agent.stunned"]
+        return _stun_index_from_rows(list(reversed(events)))
+    try:
+        rows = await pool.fetch(
+            """SELECT agent_id, agent_name, detail FROM audit_events
+                WHERE tenant_id = $1 AND event_type = 'agent.stunned'
+             ORDER BY timestamp DESC LIMIT 500""",
+            tenant_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - reported as unknown, not raised
+        logger.warning("stun audit unavailable for credential revocation: %s", exc)
+        return {}
+    try:
+        return _stun_index_from_rows([
+            {"agent_id": str(r["agent_id"]) if r["agent_id"] else None, "agent_name": r["agent_name"], "detail": r["detail"]}
+            for r in rows
+        ])
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning("stun audit rows unreadable for credential revocation: %s", exc)
+        return {}
+
+
+def _stun_detail_for(index: dict[str, dict[str, Any]], *keys: Any) -> dict[str, Any] | None:
+    for key in keys:
+        if key and str(key) in index:
+            return index[str(key)]
+    return None
+
+
+def _credential_revocation(stun_detail: dict[str, Any] | None, cred_revoked: bool) -> dict[str, Any]:
+    """credential_revocation from recorded outcomes, never from the lifecycle.
+
+    active: the registry's credential_revoked flag, or the last stun's bao
+    and spire planes both "contained". requested: a stun row exists but either
+    plane is partial, unavailable, not_found or missing. unknown: no row.
+    """
+    if cred_revoked:
+        return {"credential_revocation": "active", "credential_source": "registry"}
+    if stun_detail is None:
+        return {"credential_revocation": "unknown", "credential_source": "unavailable"}
+    planes = stun_detail.get("planes")
+    outcomes = {
+        p.get("plane"): p.get("outcome")
+        for p in (planes if isinstance(planes, list) else [])
+        if isinstance(p, dict)
+    }
+    contained = all(outcomes.get(plane) == "contained" for plane in CREDENTIAL_PLANES)
+    return {
+        "credential_revocation": "active" if contained else "requested",
+        "credential_source": "stun-audit",
+    }
+
+
 def _containment_observations(
     kernel: dict[str, Any],
     discovered: dict[str, Any] | None,
@@ -2065,6 +2159,7 @@ def _agent_response_from_row(
     row: asyncpg.Record | dict[str, Any],
     compliance: ComplianceSummaryInline | dict[str, Any],
     discovered_overlay: dict[str, Any] | None = None,
+    stun_detail: dict[str, Any] | None = None,
 ) -> AgentResponse:
     """Build an enriched AgentResponse from a DB row + pre-computed compliance summary and optional discovered overlay."""
     if isinstance(compliance, dict):
@@ -2175,14 +2270,14 @@ def _agent_response_from_row(
         _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended"), discovered_overlay, is_frozen,
     )
     cred_revoked = row.get("credential_revoked") if isinstance(row, dict) else (row["credential_revoked"] if "credential_revoked" in row else False)
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if (cred_revoked or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned")) else "inactive"
+    row_credentials = _credential_revocation(stun_detail, bool(cred_revoked))
 
     kernel = _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended")
     operational_state = OperationalStateMetadata(
         runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded")),
         containment=ContainmentMeasures(
             **row_containment,
-            credential_revocation=credential_revocation,
+            **row_credentials,
         ),
     )
 
@@ -2280,6 +2375,7 @@ def _agent_response_from_discovered(
     tenant_id: str,
     record_class: Literal["registered", "discovered", "resolved", "fixture"] = "discovered",
     is_registry_linked: bool = False,
+    stun_detail: dict[str, Any] | None = None,
 ) -> AgentResponse:
     """Build an enriched AgentResponse from a discovered Kubernetes workload."""
     discovered_id = str(discovered.get("id"))
@@ -2365,7 +2461,7 @@ def _agent_response_from_discovered(
     disc_containment = _containment_observations(
         _kernel_view(discovered, stunned=is_frozen or state == "suspended"), discovered, is_frozen or state == "suspended",
     )
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if state in ("revoked", "stunned") else "inactive"
+    disc_credentials = _credential_revocation(stun_detail, False)
 
     kernel = _kernel_view(
         discovered,
@@ -2375,7 +2471,7 @@ def _agent_response_from_discovered(
         runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or state in ("ready", "active", "idle")) else "unknown"),
         containment=ContainmentMeasures(
             **disc_containment,
-            credential_revocation=credential_revocation,
+            **disc_credentials,
         ),
     )
 
@@ -3417,6 +3513,7 @@ async def agents(
     pg_msg: str | None = None
 
     pool = await _get_pool()
+    stun_index = await _latest_stun_index(tenant_id, pool)
     if pool is None:
         # Fixture mode: pure discovered workloads
         for disc in raw_discovered:
@@ -3426,6 +3523,7 @@ async def agents(
                     tenant_id=tenant_id,
                     record_class="discovered",
                     is_registry_linked=False,
+                    stun_detail=_stun_detail_for(stun_index, disc.get("id"), disc.get("name")),
                 )
             )
     else:
@@ -3447,14 +3545,23 @@ async def agents(
 
             if matched_row is not None:
                 compliance = await _compliance_summary_for_agent(pool, matched_row["id"])
-                all_records.append(_agent_response_from_row(matched_row, compliance, discovered_overlay=disc))
+                all_records.append(_agent_response_from_row(
+                    matched_row, compliance, discovered_overlay=disc,
+                    stun_detail=_stun_detail_for(stun_index, matched_row["id"], matched_row["name"], disc_id, disc_name),
+                ))
             else:
-                all_records.append(_agent_response_from_discovered(disc, tenant_id=tenant_id, record_class="discovered", is_registry_linked=False))
+                all_records.append(_agent_response_from_discovered(
+                    disc, tenant_id=tenant_id, record_class="discovered", is_registry_linked=False,
+                    stun_detail=_stun_detail_for(stun_index, disc_id, disc_name),
+                ))
 
         # Remaining DB records
         for row in unmatched_db.values():
             compliance = await _compliance_summary_for_agent(pool, row["id"])
-            all_records.append(_agent_response_from_row(row, compliance, discovered_overlay=None))
+            all_records.append(_agent_response_from_row(
+                row, compliance, discovered_overlay=None,
+                stun_detail=_stun_detail_for(stun_index, row["id"], row["name"]),
+            ))
 
     # Compute meta counts before filtering/pagination
     total_records = len(all_records)
@@ -4609,6 +4716,10 @@ async def get_agent(
         pass
 
     pool = await _get_pool()
+    stun_index = await _latest_stun_index(tenant_id, pool)
+    disc_keys = (
+        (discovered_match.get("id"), discovered_match.get("name")) if discovered_match is not None else ()
+    )
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
@@ -4620,13 +4731,17 @@ async def get_agent(
                         break
         if agent is not None:
             compliance = agent.get("compliance_summary") or _default_compliance_summary()
-            return _agent_response_from_row(agent, compliance, discovered_overlay=discovered_match)
+            return _agent_response_from_row(
+                agent, compliance, discovered_overlay=discovered_match,
+                stun_detail=_stun_detail_for(stun_index, agent.get("id"), agent.get("name"), agent_id, *disc_keys),
+            )
         if discovered_match is not None:
             return _agent_response_from_discovered(
                 discovered_match,
                 tenant_id=tenant_id,
                 record_class="discovered",
                 is_registry_linked=False,
+                stun_detail=_stun_detail_for(stun_index, *disc_keys, agent_id),
             )
         raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
 
@@ -4641,7 +4756,10 @@ async def get_agent(
         )
     if row is not None:
         compliance = await _compliance_summary_for_agent(pool, row["id"])
-        return _agent_response_from_row(row, compliance, discovered_overlay=discovered_match)
+        return _agent_response_from_row(
+            row, compliance, discovered_overlay=discovered_match,
+            stun_detail=_stun_detail_for(stun_index, row["id"], row["name"], agent_id, *disc_keys),
+        )
 
     if discovered_match is not None:
         return _agent_response_from_discovered(
@@ -4649,6 +4767,7 @@ async def get_agent(
             tenant_id=tenant_id,
             record_class="discovered",
             is_registry_linked=False,
+            stun_detail=_stun_detail_for(stun_index, *disc_keys, agent_id),
         )
 
     raise APIError(404, "not_found", f"Agent '{agent_id}' not found")

@@ -108,7 +108,11 @@ export interface IdentityMetadata {
 export interface ContainmentMeasures {
   process_freeze: 'active' | 'inactive' | 'requested' | 'unsupported'
   network_isolation: 'active' | 'inactive' | 'requested' | 'unsupported'
-  credential_revocation: 'active' | 'inactive' | 'requested' | 'unsupported'
+  credential_revocation: 'active' | 'inactive' | 'requested' | 'unsupported' | 'unknown'
+  /** Whether process_freeze / network_isolation rest on an observation. */
+  source?: 'sentinel-annotation' | 'unavailable' | null
+  /** Where credential_revocation came from: the last stun's bao/spire planes, the registry flag, or nothing. */
+  credential_source?: 'stun-audit' | 'registry' | 'unavailable' | null
 }
 
 export interface OperationalStateMetadata {

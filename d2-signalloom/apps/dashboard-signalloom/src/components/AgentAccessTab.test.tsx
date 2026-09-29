@@ -210,7 +210,9 @@ describe('AgentAccessTab — 3 Independent Containment Tracks & StatCards', () =
 
     expect(screen.getByTestId('access-cgroup-badge')).toHaveTextContent('cgroup: THAWED')
     expect(screen.getByTestId('access-tc-badge')).toHaveTextContent('TC: PASS')
-    expect(screen.getByTestId('access-spiffe-crl-badge')).toHaveTextContent('SVID: ACTIVE')
+    // The mock carries no identity.cert_serial, so no SVID attestation is on
+    // record and the state is unknown rather than a default "ACTIVE".
+    expect(screen.getByTestId('access-spiffe-crl-badge')).toHaveTextContent('SVID: UNKNOWN')
     expect(screen.getByTestId('access-ebpf-status')).toHaveTextContent('eBPF Sentinel Active')
   })
 

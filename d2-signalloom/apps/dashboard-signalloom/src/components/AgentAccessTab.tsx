@@ -143,12 +143,16 @@ export default function AgentAccessTab({
   }
 
   // ─── 5. Containment Track 3: SPIFFE CRL / Identity Revocation ─────────────
-  const isRevoked = agent.credential_state?.status === 'revoked'
+  const isRevoked = agent.credential_state?.status === 'revoked' ||
+    agent.operational_state?.containment?.credential_revocation === 'active'
   const isRevocationRequested = agent.operational_state?.containment?.credential_revocation === 'requested'
+  // "Valid & attested" needs an issued SVID on record; the backend exposes
+  // that as identity.cert_serial. Without it the SVID state is unknown.
+  const isAttested = !!agent.identity?.cert_serial
 
-  let crlBadgeText = 'SVID: ACTIVE'
-  let crlBadgeColor = 'var(--teal)'
-  let crlBadgeBg = 'rgba(16, 185, 129, 0.15)'
+  let crlBadgeText = 'SVID: UNKNOWN'
+  let crlBadgeColor = 'var(--muted)'
+  let crlBadgeBg = 'rgba(156, 163, 175, 0.15)'
 
   if (isRevoked) {
     crlBadgeText = 'CRL: REVOKED'
@@ -158,6 +162,10 @@ export default function AgentAccessTab({
     crlBadgeText = 'Requested (Outcome unconfirmed)'
     crlBadgeColor = 'var(--amber)'
     crlBadgeBg = 'rgba(217, 119, 6, 0.15)'
+  } else if (isAttested) {
+    crlBadgeText = 'SVID: ACTIVE'
+    crlBadgeColor = 'var(--teal)'
+    crlBadgeBg = 'rgba(16, 185, 129, 0.15)'
   }
 
   // ─── 6. Sentinel Telemetry Status ─────────────────────────────────────────
@@ -538,8 +546,8 @@ export default function AgentAccessTab({
             </div>
             <div data-testid="access-spiffe-crl-state" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
               Status:{' '}
-              <strong style={{ color: isRevoked ? 'var(--error)' : 'var(--teal)' }}>
-                {isRevoked ? 'Revoked' : 'Active & Attested'}
+              <strong style={{ color: isRevoked ? 'var(--error)' : isAttested ? 'var(--teal)' : 'var(--muted)' }}>
+                {isRevoked ? 'Revoked' : isAttested ? 'Active & Attested' : 'Unknown (no attestation observed)'}
               </strong>
             </div>
           </div>
@@ -727,10 +735,10 @@ export default function AgentAccessTab({
                 <td style={{ padding: '10px 12px' }}>
                   <span className="tag" style={{
                     fontSize: 11, padding: '2px 6px',
-                    background: isRevoked ? 'rgba(220, 38, 38, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                    color: isRevoked ? 'var(--error)' : 'var(--teal)',
+                    background: isRevoked ? 'rgba(220, 38, 38, 0.15)' : isAttested ? 'rgba(16, 185, 129, 0.15)' : 'rgba(156, 163, 175, 0.15)',
+                    color: isRevoked ? 'var(--error)' : isAttested ? 'var(--teal)' : 'var(--muted)',
                   }}>
-                    {isRevoked ? 'X.509 SVID Serial Revoked' : 'SVID Valid & Attested'}
+                    {isRevoked ? 'X.509 SVID Serial Revoked' : isAttested ? 'SVID Valid & Attested' : 'SVID state unknown'}
                   </span>
                 </td>
                 <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11 }}>
@@ -739,8 +747,12 @@ export default function AgentAccessTab({
                 <td style={{ padding: '10px 12px' }}>
                   {isRevoked ? (
                     <span style={{ color: 'var(--error)', fontWeight: 600 }}>Platform access revoked</span>
-                  ) : (
+                  ) : isRevocationRequested ? (
+                    <span style={{ color: 'var(--amber)', fontWeight: 600 }}>Requested (Outcome unconfirmed)</span>
+                  ) : isAttested ? (
                     <span style={{ color: 'var(--teal)' }}>Authenticated</span>
+                  ) : (
+                    <span style={{ color: 'var(--muted)' }}>Not attested</span>
                   )}
                 </td>
               </tr>

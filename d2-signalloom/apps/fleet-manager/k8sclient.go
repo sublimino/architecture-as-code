@@ -501,22 +501,30 @@ func (c *k8sFleetClient) revokeSpirePlane(ctx context.Context, namespace, agentI
 // key is now threaded through; the previous implementation passed "" here, so a
 // retry was indistinguishable from a fresh decision on this plane while the
 // SPIRE plane saw a stable key.
+//
+// Two calls, and the plane is Contained only when BOTH succeed:
+//  1. lease revoke (RevokeAgentCredentials), as before;
+//  2. RevokeTokensBySubject: every live token whose SPIFFE subject is this
+//     agent's, revoked by accessor. Before this, step 1 alone reported
+//     Contained while the agent's JWT-login tokens stayed usable until their
+//     5m TTL. Step 2 runs even when step 1 failed: killing the tokens is still
+//     containment, and the outcome stays non-contained either way.
+//
+// The subject uses the same derivation as RevokeCredentialsPlanes' SPIRE
+// eviction (namespace + agent id as the service account), so both planes target
+// one identity.
 func (c *k8sFleetClient) revokeBaoPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
-	planeRes, err := c.baoClient.RevokeAgentCredentials(ctx, namespace, agentID, idempotencyKey)
-	if err != nil {
-		if planeRes == nil {
-			planeRes = &PlaneResult{
-				Plane:     PlaneBao,
-				Outcome:   OutcomeUnavailable,
-				Timestamp: c.now().UTC().Format(time.RFC3339Nano),
-				Details: map[string]any{
-					"idempotency_key":        idempotencyKey,
-					"worst_case_residual_ms": DefaultWorstCaseResidualMs,
-				},
-			}
+	planeRes, leaseErr := c.baoClient.RevokeAgentCredentials(ctx, namespace, agentID, idempotencyKey)
+	if planeRes == nil {
+		planeRes = &PlaneResult{
+			Plane:     PlaneBao,
+			Outcome:   OutcomeUnavailable,
+			Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+			Details: map[string]any{
+				"idempotency_key":        idempotencyKey,
+				"worst_case_residual_ms": DefaultWorstCaseResidualMs,
+			},
 		}
-		planeRes.Error = err.Error()
-		return planeRes, err
 	}
 	if planeRes.Details == nil {
 		planeRes.Details = map[string]any{}
@@ -527,9 +535,30 @@ func (c *k8sFleetClient) revokeBaoPlane(ctx context.Context, namespace, agentID,
 	planeRes.Details["residual_provenance"] = "config-derived (token_ttl = token_max_ttl = 5m)"
 	planeRes.Details["invalidates_issued_credentials"] = false
 
-	if planeRes.Outcome == OutcomeUnavailable {
-		resErr := fmt.Errorf("%w: %s", ErrEnforcementUnavailable, planeRes.Error)
-		return planeRes, resErr
+	leasesRevoked, _ := planeRes.Details["revoked_leases"].(int)
+	planeRes.Details["leases_revoked"] = leasesRevoked
+
+	subject := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", c.namespaceOrDefault(namespace), agentID)
+	tokensRevoked, tokenErr := c.baoClient.RevokeTokensBySubject(ctx, subject)
+	planeRes.Details["tokens_revoked"] = tokensRevoked
+	planeRes.Details["token_subject"] = subject
+
+	var failures []string
+	if leaseErr != nil {
+		failures = append(failures, "lease revoke: "+leaseErr.Error())
+	} else if planeRes.Outcome == OutcomeUnavailable {
+		failures = append(failures, "lease revoke: "+planeRes.Error)
+	}
+	if tokenErr != nil {
+		failures = append(failures, "token revoke: "+tokenErr.Error())
+		if planeRes.Outcome == OutcomeContained {
+			// Leases gone, tokens possibly live: partial, never contained.
+			planeRes.Outcome = OutcomePartial
+		}
+	}
+	if len(failures) > 0 {
+		planeRes.Error = strings.Join(failures, "; ")
+		return planeRes, fmt.Errorf("%w: %s", ErrEnforcementUnavailable, planeRes.Error)
 	}
 	return planeRes, nil
 }
@@ -1109,4 +1138,3 @@ func (c *k8sFleetClient) DegradedTargets() map[string]DegradedTarget {
 func (c *k8sFleetClient) IsDegraded(namespace, agentID string) bool {
 	return c.degraded.isDegraded(c.namespaceOrDefault(namespace), agentID)
 }
-

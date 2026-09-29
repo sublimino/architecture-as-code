@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -110,6 +111,9 @@ type fakeBaoToken struct {
 // lookup-accessor. An accessor mapped to nil answers 400 "invalid accessor",
 // which is what OpenBao returns for a token that expired between the LIST and
 // the lookup.
+// Also serves revoke-accessor (recorded in the returned path log as
+// "REVOKE <accessor>") and sys/leases/revoke (204), so the bao plane can be
+// driven end to end.
 func newFakeBaoAccessorServer(t *testing.T, tokens map[string]*fakeBaoToken, order []string) (*httptest.Server, *[]string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -137,6 +141,17 @@ func newFakeBaoAccessorServer(t *testing.T, tokens map[string]*fakeBaoToken, ord
 				"display_name": tok.displayName,
 				"meta":         tok.meta,
 			}})
+		case r.URL.Path == "/v1/auth/token/revoke-accessor" && r.Method == http.MethodPost:
+			var body struct {
+				Accessor string `json:"accessor"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			paths = append(paths, "REVOKE "+body.Accessor)
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/v1/sys/leases/revoke" && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(w, r)
 		}
@@ -205,5 +220,63 @@ func TestOpenBaoClient_ActiveTokensBySubject_DeniedIsAnError(t *testing.T) {
 	}
 	if counts != nil {
 		t.Fatalf("counts = %v, want nil on error", counts)
+	}
+}
+
+// ── Token revocation by subject ──────────────────────────────────────────────
+
+func revokedAccessors(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		if strings.HasPrefix(p, "REVOKE ") {
+			out = append(out, strings.TrimPrefix(p, "REVOKE "))
+		}
+	}
+	return out
+}
+
+func TestOpenBaoClient_RevokeTokensBySubject(t *testing.T) {
+	const cardvault = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-cardvault"
+	tokens := map[string]*fakeBaoToken{
+		"acc-meta":    {displayName: "jwt-" + cardvault, meta: map[string]string{"sub": cardvault}},
+		"acc-display": {displayName: "jwt-" + cardvault},
+		"acc-other":   {displayName: "jwt-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kusari-agent"},
+		"acc-expired": nil,
+	}
+	srv, paths := newFakeBaoAccessorServer(t, tokens, []string{"acc-meta", "acc-other", "acc-expired", "acc-display"})
+	defer srv.Close()
+
+	client := NewOpenBaoClient(OpenBaoConfig{Address: srv.URL, Token: "s.fleet"})
+	revoked, err := client.RevokeTokensBySubject(context.Background(), cardvault)
+	if err != nil {
+		t.Fatalf("RevokeTokensBySubject: %v", err)
+	}
+	if revoked != 2 {
+		t.Fatalf("revoked = %d, want 2", revoked)
+	}
+	got := revokedAccessors(*paths)
+	if len(got) != 2 || got[0] != "acc-meta" || got[1] != "acc-display" {
+		t.Fatalf("revoke-accessor calls = %q, want exactly [acc-meta acc-display]; another agent's token must never be revoked", got)
+	}
+}
+
+func TestOpenBaoClient_RevokeTokensBySubject_DeniedFailsClosed(t *testing.T) {
+	const sub = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-cardvault"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/token/accessors":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": []string{"a1"}}})
+		case "/v1/auth/token/lookup-accessor":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"display_name": "jwt-" + sub}})
+		default: // revoke-accessor
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
+		}
+	}))
+	defer srv.Close()
+	client := NewOpenBaoClient(OpenBaoConfig{Address: srv.URL, Token: "s.fleet"})
+	revoked, err := client.RevokeTokensBySubject(context.Background(), sub)
+	if !errors.Is(err, ErrEnforcementDenied) || revoked != 0 {
+		t.Fatalf("revoked=%d err=%v, want 0 and ErrEnforcementDenied", revoked, err)
 	}
 }

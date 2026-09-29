@@ -462,9 +462,56 @@ func (c *OpenBaoClient) RenewSelf(ctx context.Context, increment string) error {
 // partial count is not a count, and the consistency check must report the plane
 // as unqueried rather than under-report live credentials as zero.
 func (c *OpenBaoClient) ActiveTokensBySubject(ctx context.Context) (map[string]int, error) {
+	tokens, err := c.tokenSubjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{}
+	for _, tok := range tokens {
+		counts[tok.subject]++
+	}
+	return counts, nil
+}
+
+// RevokeTokensBySubject revokes, by accessor, every live token whose SPIFFE
+// subject is exactly spiffeID (subject derived as in ActiveTokensBySubject).
+// It returns how many it revoked. An accessor that expired mid-scan is already
+// gone and is not counted. Any other failure stops and returns the error with
+// the count so far: the caller must not report the plane contained while a
+// matching token may still be live.
+func (c *OpenBaoClient) RevokeTokensBySubject(ctx context.Context, spiffeID string) (int, error) {
+	tokens, err := c.tokenSubjects(ctx)
+	if err != nil {
+		return 0, err
+	}
+	revoked := 0
+	for _, tok := range tokens {
+		if tok.subject != spiffeID {
+			continue
+		}
+		_, _, err := c.executeRequest(ctx, http.MethodPost, "/v1/auth/token/revoke-accessor", map[string]any{"accessor": tok.accessor})
+		if errors.Is(err, ErrLeaseNotFound) {
+			continue
+		}
+		if err != nil {
+			return revoked, fmt.Errorf("revoke token accessor for %s: %w", spiffeID, err)
+		}
+		revoked++
+	}
+	return revoked, nil
+}
+
+type tokenSubject struct {
+	accessor string
+	subject  string
+}
+
+// tokenSubjects lists every live accessor and resolves its SPIFFE subject.
+// Tokens with no SPIFFE subject (root, bootstrap) are omitted.
+func (c *OpenBaoClient) tokenSubjects(ctx context.Context) ([]tokenSubject, error) {
 	_, body, err := c.executeRequest(ctx, http.MethodGet, "/v1/auth/token/accessors?list=true", nil)
 	if errors.Is(err, ErrLeaseNotFound) {
-		return map[string]int{}, nil // LIST answers 404 when there are no keys
+		return nil, nil // LIST answers 404 when there are no keys
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list token accessors: %w", err)
@@ -478,7 +525,7 @@ func (c *OpenBaoClient) ActiveTokensBySubject(ctx context.Context) (map[string]i
 		return nil, fmt.Errorf("%w: decode accessor list: %v", ErrEnforcementUnavailable, err)
 	}
 
-	counts := map[string]int{}
+	var out []tokenSubject
 	for _, accessor := range list.Data.Keys {
 		_, body, err := c.executeRequest(ctx, http.MethodPost, "/v1/auth/token/lookup-accessor", map[string]any{"accessor": accessor})
 		if errors.Is(err, ErrLeaseNotFound) {
@@ -503,10 +550,10 @@ func (c *OpenBaoClient) ActiveTokensBySubject(ctx context.Context) (map[string]i
 			}
 		}
 		if subject != "" {
-			counts[subject]++
+			out = append(out, tokenSubject{accessor: accessor, subject: subject})
 		}
 	}
-	return counts, nil
+	return out, nil
 }
 
 // Health checks OpenBao server readiness via GET /v1/sys/health.

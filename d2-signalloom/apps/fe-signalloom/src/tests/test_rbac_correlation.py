@@ -562,6 +562,30 @@ def test_afm_post_cluster_jobs_unknown_cluster_returns_404(monkeypatch):
     assert "non-existent-cluster" in error["message"]
 
 
+def test_afm_get_cluster_jobs_success(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+        "/clusters/local/jobs?limit=50": FakeResponse([{"id": "job-1", "status": "completed"}]),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.get("/afm/clusters/local/jobs")
+
+    assert response.status_code == 200
+    assert response.json() == [{"id": "job-1", "status": "completed"}]
+
+
+def test_afm_get_cluster_jobs_unknown_cluster_returns_404(monkeypatch):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.get("/afm/clusters/non-existent-cluster/jobs")
+
+    assert response.status_code == 404
+    error = response.json()["error"]
+    assert error["code"] == "cluster_not_found"
+
+
 def test_rbac_post_cluster_scan_and_jobs_accepted(monkeypatch):
     routes = {
         "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),

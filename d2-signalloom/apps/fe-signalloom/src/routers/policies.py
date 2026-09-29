@@ -32,6 +32,9 @@ router = APIRouter(tags=["policies"])
 @router.post("/v1/policies/validate")
 async def validate_policy_expression(request: Request) -> Response:
     """Validate a CEL policy expression and return structured error diagnostics."""
+    content_type = request.headers.get("content-type", "")
+    if content_type and not content_type.lower().startswith("application/json"):
+        return _error_response(400, "invalid_content_type", "Content-Type must be application/json")
     try:
         body = await request.json()
     except Exception as exc:
@@ -64,6 +67,9 @@ async def evaluate_policies(
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
     """Evaluate CEL policies against agent and workload contexts with structured diagnostics."""
+    content_type = request.headers.get("content-type", "")
+    if content_type and not content_type.lower().startswith("application/json"):
+        return _error_response(400, "invalid_content_type", "Content-Type must be application/json")
     try:
         body = await request.json()
     except Exception as exc:
@@ -163,6 +169,9 @@ async def register_bundle(
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
     """Register a new policy bundle with upfront CEL validation."""
+    content_type = request.headers.get("content-type", "")
+    if content_type and not content_type.lower().startswith("application/json"):
+        return _error_response(400, "invalid_content_type", "Content-Type must be application/json")
     try:
         body = await request.json()
     except Exception as exc:
@@ -214,6 +223,9 @@ async def rollback_bundle(
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
     """Rollback policy bundle to an earlier version."""
+    content_type = request.headers.get("content-type", "")
+    if content_type and not content_type.lower().startswith("application/json"):
+        return _error_response(400, "invalid_content_type", "Content-Type must be application/json")
     from routers.policy_engine import proxy_policy_engine
     return await proxy_policy_engine(request, "rollback", "policies", tenant_id=tenant_id)
 

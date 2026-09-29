@@ -717,11 +717,7 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/policies/{subpath}"),                  # proxy to policy-engine
     ("POST", "/api/policies"),                           # proxy to policy-engine
     ("POST", "/api/policies/{subpath}"),                 # proxy to policy-engine
-    ("GET", "/api/v1/risk"),                             # proxy to policy-engine
-    ("GET", "/api/v1/risk/{subpath}"),                   # proxy to policy-engine
-    ("POST", "/api/v1/risk"),                            # proxy to policy-engine
-    ("POST", "/api/v1/risk/{subpath}"),                  # proxy to policy-engine
-    ("GET", "/api/v1/fair/versions"),                    # proxy to policy-engine / in-memory fair versions
+    ("GET", "/api/v1/fair/versions"),                    # proxy to signal-ingest / in-memory fair versions
     # Federation proxy -- pure proxy to Go signal-ingest federation endpoints (test_federation.py)
     ("GET", "/api/v1/federation"),
     ("GET", "/api/v1/federation/{subpath}"),

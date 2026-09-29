@@ -3,7 +3,7 @@
 Validates:
 1. No route collision exists between SPA client-side routes (App.tsx) and nginx proxy prefixes.
 2. Every nginx proxy upstream has a matching NetworkPolicy egress rule.
-3. Policy Engine reverse proxy routes (/api/v1/compliance/*, /api/v1/policies/*, /api/v1/risk/*) are registered.
+3. Policy Engine reverse proxy routes (/api/v1/compliance/*, /api/v1/policies/*) are registered.
 4. Inbound and outbound JSON validation, timeouts, and structured error responses.
 5. Upstream connection errors and HTML fallbacks return structured HTTP 502/504 errors.
 6. Manifest consistency across the 4-layer deployment standard.
@@ -118,10 +118,6 @@ class TestPolicyEngineRouterMounting:
             "/api/v1/policies/{subpath:path}",
             "/v1/policies",
             "/v1/policies/{subpath:path}",
-            "/api/v1/risk",
-            "/api/v1/risk/{subpath:path}",
-            "/v1/risk",
-            "/v1/risk/{subpath:path}",
         ]
         for pattern in expected_patterns:
             assert pattern in route_paths, f"Expected route {pattern} not registered on app"

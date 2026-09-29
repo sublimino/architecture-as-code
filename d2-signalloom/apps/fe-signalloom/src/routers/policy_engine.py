@@ -1,6 +1,6 @@
 """Policy Engine reverse proxy routes for fe-signalloom.
 
-Proxies /api/v1/compliance/*, /api/v1/policies/*, and /api/v1/risk/* requests
+Proxies /api/v1/compliance/* and /api/v1/policies/* requests
 to the Go policy-engine service (http://policy-engine:8081).
 Validates inbound and outbound JSON payloads, and handles upstream connection
 failures with structured HTTP 502/504 errors instead of HTML fallbacks.
@@ -243,36 +243,6 @@ async def proxy_policies_route(
     return await proxy_policy_engine(request, subpath, "policies", tenant_id=tenant_id)
 
 
-# ---------------------------------------------------------------------------
-# Risk Routes (/api/v1/risk/* and /v1/risk/*)
-# ---------------------------------------------------------------------------
-
-
-@router.api_route(
-    "/api/v1/risk/{subpath:path}",
-    methods=["GET", "POST"],
-)
-@router.api_route(
-    "/api/v1/risk",
-    methods=["GET", "POST"],
-)
-@router.api_route(
-    "/v1/risk/{subpath:path}",
-    methods=["GET", "POST"],
-)
-@router.api_route(
-    "/v1/risk",
-    methods=["GET", "POST"],
-)
-async def proxy_risk_route(
-    request: Request,
-    subpath: str = "",
-    tenant_id: str = Depends(authenticated_tenant),
-) -> Response:
-    """Proxy risk evaluation and simulation requests to upstream policy-engine."""
-    return await proxy_policy_engine(request, subpath, "risk", tenant_id=tenant_id)
-
-
 def install_policy_engine_api(app: Any) -> None:
     """Mount the policy-engine reverse proxy router on the FastAPI app."""
     # Avoid duplicate includes if already registered
@@ -280,7 +250,6 @@ def install_policy_engine_api(app: Any) -> None:
         if getattr(route, "endpoint", None) in (
             proxy_compliance_route,
             proxy_policies_route,
-            proxy_risk_route,
         ):
             return
     app.include_router(router)

@@ -5,7 +5,6 @@ from routers.policy_engine import (
     proxy_compliance_route,
     proxy_policies_route,
     proxy_policy_engine,
-    proxy_risk_route,
     router,
 )
 
@@ -15,6 +14,6 @@ __all__ = [
     "proxy_compliance_route",
     "proxy_policies_route",
     "proxy_policy_engine",
-    "proxy_risk_route",
     "router",
 ]
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -29,7 +30,9 @@ type HealthServer struct {
 	cgroupDriver   string
 	tcReady        func() bool
 	reconcileCount *atomic.Int64
-	server         *http.Server
+	// frozenUnlabelled backs the sentinel_frozen_unlabelled_pods gauge.
+	frozenUnlabelled func() int
+	server           *http.Server
 }
 
 func newHealthServer(addr string, dryRun bool, cgroupRoot string, reconcileCount *atomic.Int64) *HealthServer {
@@ -73,7 +76,24 @@ func (h *HealthServer) Handler() http.Handler {
 	mux.Handle("/healthz", handler)
 	mux.Handle("/readyz", handler)
 	mux.Handle("/health", handler)
+	mux.HandleFunc("/metrics", h.serveMetrics)
 	return mux
+}
+
+// serveMetrics writes Prometheus text exposition without a client library.
+func (h *HealthServer) serveMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	n := 0
+	if h.frozenUnlabelled != nil {
+		n = h.frozenUnlabelled()
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	fmt.Fprintf(w, "# HELP sentinel_frozen_unlabelled_pods Pods whose cgroup.events reports frozen 1 with no stun label and no owner stun record.\n")
+	fmt.Fprintf(w, "# TYPE sentinel_frozen_unlabelled_pods gauge\n")
+	fmt.Fprintf(w, "sentinel_frozen_unlabelled_pods %d\n", n)
 }
 
 // Start launches the HTTP health server and stops gracefully when the context is cancelled.

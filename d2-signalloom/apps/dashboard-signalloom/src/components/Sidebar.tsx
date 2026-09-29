@@ -10,7 +10,7 @@ import type { TenantSettingsResponse } from '../types/api'
 import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
 
-export type NavSection = 'View' | 'Control' | 'Design'
+export type NavSection = 'View' | 'Control' | 'Design' | 'Demos' | 'Development'
 
 export interface NavItem {
   to: string
@@ -21,12 +21,12 @@ export interface NavItem {
   superadminOnly?: boolean
 }
 
-// One glyph per destination — never share a kind between two nav items. A
+// One glyph per destination: never share a kind between two nav items. A
 // collapsed sidebar is icons only, so a duplicated glyph is an unreadable nav.
 export type IconKind =
   | 'overview' | 'agents' | 'topology' | 'activity' | 'risk'
   | 'policies' | 'containment' | 'approvals' | 'audit'
-  | 'workspaces' | 'connectors' | 'fleet' | 'settings'
+  | 'workspaces' | 'connectors' | 'fleet' | 'fleetAudience' | 'settings'
   | 'crypto' | 'credentials' | 'federation' | 'collusion'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred'
   | 'agentmaxxing'
@@ -37,21 +37,21 @@ export type IconKind =
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
     // ─── View Group Icons ──────────────────────────────────
-    // Reticle/radar compass — platform overview and discovery
+    // Reticle/radar compass: platform overview and discovery
     overview: <><circle cx="12" cy="12" r="8" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /><circle cx="12" cy="12" r="2" /></>,
     // Agent identity frame with central processor
     agents: <><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 12h8M12 8v8" /></>,
     // Network topology graph with nodes and interconnects
     topology: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="m8 7 3 9M16 7l-3 9M8 6h8" /></>,
-    // Interlocking signal threads — live runtime activity
+    // Interlocking signal threads: live runtime activity
     activity: <><path d="M4 6l16 12" /><path d="M20 6 4 18" /><path d="M12 3v18" /><circle cx="12" cy="12" r="2.5" /></>,
     // FAIR Risk exposure warning triangle
     risk: <><path d="M12 4 2.6 20h18.8L12 4Z" /><path d="M12 10v4" /><path d="M12 17.4h.01" /></>,
 
     // ─── Control Group Icons ────────────────────────────────
-    // Document with a tick — ratified governance policy
+    // Document with a tick: ratified governance policy
     policies: <><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" /><path d="M14 3v5h5" /><path d="m9 15 2 2 3.5-3.5" /></>,
-    // Enclosed boundary shield — runtime kernel containment
+    // Enclosed boundary shield: runtime kernel containment
     containment: <><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></>,
     // Access & approval gate with operator authorization
     approvals: <><circle cx="12" cy="8" r="3" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6M19 8v4M17 10h4" /></>,
@@ -65,6 +65,8 @@ function NavIcon({ kind }: { kind: IconKind }) {
     connectors: <><path d="M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0V7zM12 17v4" /></>,
     // Clustered fleet configuration racks
     fleet: <><rect x="3" y="5" width="7" height="6" rx="1" /><rect x="14" y="5" width="7" height="6" rx="1" /><rect x="8.5" y="14" width="7" height="6" rx="1" /><path d="M6.5 11v2h5M17.5 11v2h-5" /></>,
+    // Clustered fleet audience display
+    fleetAudience: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /><circle cx="12" cy="10" r="2" /></>,
     // System configuration gear
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.3 3h-4l-.3 2.8a7 7 0 0 0-1.9 1.1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.9 1.1l.3 2.8h4l.3-2.8a7 7 0 0 0 1.9-1.1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1.1Z" /></>,
 
@@ -108,7 +110,6 @@ export const NAV: NavItem[] = [
 
   // ─── Design Group ───────────────────────────────────────
   { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation' },
-  { to: '/fleet', label: 'Fleet Config', section: 'Design', icon: 'fleet' },
   { to: '/settings', label: 'Settings', section: 'Design', icon: 'settings' },
 
   // ─── Superadmin Specialized Modules ─────────────────────
@@ -117,14 +118,20 @@ export const NAV: NavItem[] = [
   { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true },
   { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true },
   { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
-  { to: '/supercred', label: 'SuperCredential Demo', section: 'Control', icon: 'supercred', superadminOnly: true },
-  { to: '/demos/agentmaxxing', label: 'AgentMaxxing Demo', section: 'Control', icon: 'agentmaxxing', superadminOnly: true },
-  { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'View', icon: 'signalFusion', superadminOnly: true },
-  { to: '/distance-latency', label: 'Distance Latency Demo', section: 'View', icon: 'distanceLatency', superadminOnly: true },
   { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },
   { to: '/feeds', label: 'Feeds & Collectors', section: 'View', icon: 'feeds', superadminOnly: true },
-  { to: '/design-system', label: 'Design System', section: 'Design', icon: 'designSystem', end: true, superadminOnly: true },
-  { to: '/design-system/headers', label: 'Design System — Headers', section: 'Design', icon: 'designSystemHeaders', superadminOnly: true },
+
+  // ─── Demos Group ────────────────────────────────────────
+  { to: '/fleet', label: 'Fleet Demo', section: 'Demos', icon: 'fleet', superadminOnly: true },
+  { to: '/fleet/audience', label: 'Fleet Demo Audience', section: 'Demos', icon: 'fleetAudience', superadminOnly: true },
+  { to: '/supercred', label: 'SuperCredential Demo', section: 'Demos', icon: 'supercred', superadminOnly: true },
+  { to: '/demos/agentmaxxing', label: 'AgentMaxxing Demo', section: 'Demos', icon: 'agentmaxxing', superadminOnly: true },
+  { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'Demos', icon: 'signalFusion', superadminOnly: true },
+  { to: '/distance-latency', label: 'Distance Latency Demo', section: 'Demos', icon: 'distanceLatency', superadminOnly: true },
+
+  // ─── Development Group ──────────────────────────────────
+  { to: '/design-system', label: 'Design System', section: 'Development', icon: 'designSystem', end: true, superadminOnly: true },
+  { to: '/design-system/headers', label: 'Design System: Headers', section: 'Development', icon: 'designSystemHeaders', superadminOnly: true },
 ]
 
 // Exported so the quick-search width budget in
@@ -143,7 +150,7 @@ function readSidebarCollapsed(): boolean {
   try {
     return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true'
   } catch {
-    // Storage unavailable — default to the expanded, fully-labelled nav.
+    // Storage unavailable: default to the expanded, fully-labelled nav.
     return false
   }
 }
@@ -152,7 +159,7 @@ function writeSidebarCollapsed(on: boolean): void {
   try {
     localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, on ? 'true' : 'false')
   } catch {
-    /* ignore — storage unavailable; the in-memory React state still holds */
+    /* ignore: storage unavailable; the in-memory React state still holds */
   }
 }
 
@@ -168,7 +175,7 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(readSidebarCollapsed)
   const [pendingSearchFocus, setPendingSearchFocus] = useState(false)
   // `to` is the row the highlight is currently sitting on. Carrying it in the
-  // state — rather than deriving it twice — is what makes "the pill and the
+  // state (rather than deriving it twice) is what makes "the pill and the
   // --active link agree" a single fact instead of two that can drift.
   const [selectionBox, setSelectionBox] = useState<{ to: string; top: number; height: number } | null>(null)
   const navRef = useRef<HTMLDivElement>(null)
@@ -235,7 +242,7 @@ export default function Sidebar() {
         const result = await api.settings(token)
         if (!canceled) setTenant(result)
       } catch {
-        // Fail open — a broken tenant-card fetch must not block the nav.
+        // Fail open: a broken tenant-card fetch must not block the nav.
       }
     })()
     return () => { canceled = true }
@@ -249,7 +256,7 @@ export default function Sidebar() {
         const result = await api.nhi.discovered(token)
         if (!canceled) setNeedsTriage(result.summary.needs_triage)
       } catch {
-        // Fail open — a broken discovery-count fetch must not block the nav.
+        // Fail open: a broken discovery-count fetch must not block the nav.
       }
     })()
     return () => { canceled = true }
@@ -483,7 +490,19 @@ export default function Sidebar() {
                   Superadmin
                 </div>
               )}
-              {visibleSuperadminItems.map((item) => renderNavLink(item))}
+              {visibleSuperadminItems.map((item, visibleIndex) => {
+                const previous = visibleSuperadminItems[visibleIndex - 1]
+                const isNewSection = !previous || previous.section !== item.section
+                const showSubsection = !collapsed && isNewSection && (item.section === 'Demos' || item.section === 'Development')
+                return (
+                  <div key={item.to}>
+                    {showSubsection && (
+                      <div className="sl-sidebar__section-label">{item.section}</div>
+                    )}
+                    {renderNavLink(item)}
+                  </div>
+                )
+              })}
             </>
           )}
 

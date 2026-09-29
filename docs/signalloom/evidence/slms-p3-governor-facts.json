@@ -1,0 +1,107 @@
+{
+  "artifact": "slms-p3-governor-facts",
+  "phase": "P3",
+  "card": "SLMS-P3-GOV",
+  "title": "Phase 3 Governor: Topology, Weave, FAIR & Audit Reconciliation and Quality Gate Certification",
+  "generated": "2026-09-29T06:59:30+01:00",
+  "role_boundary": "Governor quality gate and integration merge",
+  "repository": {
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "tip_commit_sha": "5c39c61f8db2c651791364952e9217454b1f5644",
+    "integration_tag": "integration/slms-v0.1.0-p3",
+    "working_tree_clean": true
+  },
+  "constituent_tasks": {
+    "P3-PRE": {
+      "title": "Phase 3 Pre-Flight: Weave Baseline, Graph Architecture & FAIR Proxy Mapping",
+      "commit_sha": "6135a4d55b85a3c0e1816f568b2aa6d538b32ba3",
+      "status": "PASS"
+    },
+    "P3-1": {
+      "title": "Coding Agent Topology Multi-Pane Layout & Node Detail Drawers",
+      "commit_sha": "e2934548e41f813e3eddbc516d9eb6f93db53abc",
+      "status": "PASS"
+    },
+    "P3-2": {
+      "title": "The Weave Activity Rename & Streaming Telemetry",
+      "commit_sha": "2db72c4756fcb3c14467351cefbe33a7d829caba",
+      "status": "PASS"
+    },
+    "P3-3": {
+      "title": "FAIR Risk View Population Filter & Recalculation",
+      "commit_sha": "d7d32461a7e46aaed7e397af97412c4ba0c3ffec",
+      "status": "PASS"
+    },
+    "P3-4": {
+      "title": "Audit Trail Row Expansion & JSON Syntax Drawer",
+      "commit_sha": "157d9a3abee40d1d08b06c42045f5c06a0802ebf",
+      "status": "PASS"
+    }
+  },
+  "merge_reconciliation": {
+    "merged_branches": [
+      "SLMS-P3-1",
+      "SLMS-P3-2",
+      "SLMS-P3-3",
+      "SLMS-P3-4"
+    ],
+    "conflicts": 0,
+    "reconciled_files": [
+      "d2-signalloom/apps/dashboard-signalloom/src/App.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.test.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/views/AuditTrail.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/RiskExposurePage.tsx",
+      "d2-signalloom/apps/dashboard-signalloom/src/pages/AgentTrustTopologyPage.tsx",
+      "d2-signalloom/apps/fe-signalloom/src/api_compat.py",
+      "d2-signalloom/apps/fe-signalloom/src/risk.py"
+    ]
+  },
+  "verified_test_results": {
+    "dashboard_weave": {
+      "command": "make test-dashboard-weave",
+      "suites_passed": 5,
+      "passed": 93,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "dashboard_vitest_phase3_surface": {
+      "command": "bun run test -- src/components/trust/TrustFlowEdge.test.tsx src/components/trust/TrustGraph.test.tsx src/pages/AgentTrustTopologyPage.test.tsx src/pages/WeavePage.test.tsx src/pages/WeavePage.adversarial.test.tsx src/pages/SignalFusionPage.test.tsx src/components/Sidebar.test.tsx src/pages/RiskExposurePage.test.tsx src/views/AuditTrail.test.tsx src/components/AuditDetailDrawer.test.tsx --run",
+      "files_passed": 10,
+      "passed": 225,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "backend_pytest": {
+      "command": "uv run python -m pytest tests/test_dashboard_audit_vocabulary.py tests/test_latent_defects.py tests/test_risk.py tests/test_fair_risk.py tests/test_topology.py -q",
+      "passed": 25,
+      "failed": 0,
+      "status": "PASS",
+      "latent_defects_resolved": [
+        "test_fair_version_list_matches_api",
+        "test_dashboard_audit_vocabulary_complete"
+      ]
+    },
+    "frontend_typecheck": {
+      "command": "bun run typecheck",
+      "errors": 0,
+      "status": "PASS"
+    },
+    "policy_engine_go": {
+      "command": "CGO_ENABLED=0 go test ./...",
+      "packages_passed": 4,
+      "status": "PASS"
+    }
+  },
+  "typography_audit": {
+    "em_dashes_in_code_or_ui": 0,
+    "status": "ZERO_EM_DASHES_VERIFIED"
+  },
+  "governor_verdict": {
+    "status": "PASS",
+    "proceed": true,
+    "blocking_drift": false,
+    "unblocked_task": "SLMS-P4-PRE",
+    "summary": "Phase 3 Governor quality gate fully verified. All constituent task branches (P3-1, P3-2, P3-3, P3-4) merged cleanly into integration/slms-v0.1.0 with all tests passing (93/93 make test-dashboard-weave, 225 Phase 3 Vitest tests, 25 fe-signalloom Pytest tests with latent defect #2 resolved, 4 Go packages passed, 0 TypeScript errors, 0 failures, 0 regressions, zero em-dashes in UI). Tag integration/slms-v0.1.0-p3 ready."
+  }
+}

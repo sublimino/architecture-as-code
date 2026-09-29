@@ -169,7 +169,10 @@ func newBaoTestServer(delay time.Duration, status int) *baoTestServer {
 // address is overridden, because the env default points at cluster DNS.
 func newCombinedFleetClient(t *testing.T, spire SpireClient, baoAddr string) *k8sFleetClient {
 	t.Helper()
-	c := newK8sFleetClientWithSpire(fake.NewSimpleClientset(), "fe-signalloom-agents", spire)
+	// The agent pod is seeded so the credential planes observe the subject from
+	// its ServiceAccount; with no pod the identity is derived and both planes
+	// cap at partial.
+	c := newK8sFleetClientWithSpire(fake.NewSimpleClientset(agentPod("agent-cardvault", "active", nil)), "fe-signalloom-agents", spire)
 	if c.baoClient == nil {
 		t.Fatal("production constructor did not set baoClient — the premise of this " +
 			"whole test file (both planes non-nil in production) no longer holds")

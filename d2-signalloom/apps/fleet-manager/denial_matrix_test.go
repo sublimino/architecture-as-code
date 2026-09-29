@@ -373,6 +373,10 @@ func setupFull5PlaneFleetClient(t testing.TB, nAgents int) (*k8sFleetClient, *ht
 			Status: corev1.PodStatus{
 				PodIP: fmt.Sprintf("10.244.0.%d", 10+i%200),
 			},
+			// Each agent runs as its own ServiceAccount, as the swarm manifests
+			// do. Without it the credential planes derive the subject and cap
+			// themselves at partial (identity derived, not observed).
+			Spec: corev1.PodSpec{ServiceAccountName: agentID},
 		})
 	}
 

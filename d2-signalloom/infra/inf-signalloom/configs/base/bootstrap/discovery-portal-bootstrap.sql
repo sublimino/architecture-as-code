@@ -3127,3 +3127,171 @@ CREATE INDEX IF NOT EXISTS idx_external_agent_evidence_type
 
 COMMIT;
 -- END 042_external_agent_evidence.sql
+
+-- BEGIN 043_eap_environment_lifecycle.sql
+-- Durable EAP environment lifecycle, teardown checkpoints, worker leases, and outbox.
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.eap_environment_lifecycle (
+    customer_hash                 TEXT        PRIMARY KEY
+        CHECK (customer_hash ~ '^[0-9a-f]{8}$'),
+    company_name                  TEXT        NOT NULL,
+    state                         TEXT        NOT NULL
+        CHECK (state IN ('provisioning', 'warming', 'active', 'draining', 'teardown_failed', 'terminated')),
+    created_at                    TIMESTAMPTZ NOT NULL,
+    last_heartbeat_at             TIMESTAMPTZ NOT NULL,
+    last_activity_at              TIMESTAMPTZ NOT NULL,
+    expires_at                    TIMESTAMPTZ NOT NULL,
+    max_lifetime_expires_at       TIMESTAMPTZ NOT NULL,
+    grace_period_expires_at       TIMESTAMPTZ,
+    reap_reason                   TEXT,
+    teardown_id                   TEXT,
+    teardown_stages_completed     TEXT[]      NOT NULL DEFAULT '{}',
+    retry_count                   INTEGER     NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+    next_retry_at                 TIMESTAMPTZ,
+    last_error                    TEXT,
+    claim_owner                   TEXT,
+    claim_expires_at              TIMESTAMPTZ,
+    version                       BIGINT      NOT NULL DEFAULT 1 CHECK (version > 0),
+    updated_at                    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK ((claim_owner IS NULL) = (claim_expires_at IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_eap_lifecycle_reaper_due
+    ON public.eap_environment_lifecycle (state, next_retry_at, grace_period_expires_at)
+    WHERE state IN ('draining', 'teardown_failed');
+
+CREATE TABLE IF NOT EXISTS public.eap_lifecycle_outbox (
+    event_id       UUID        PRIMARY KEY,
+    customer_hash  TEXT        NOT NULL REFERENCES public.eap_environment_lifecycle(customer_hash),
+    event_type     TEXT        NOT NULL,
+    occurred_at    TIMESTAMPTZ NOT NULL,
+    payload        JSONB       NOT NULL,
+    published_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_eap_lifecycle_outbox_unpublished
+    ON public.eap_lifecycle_outbox (occurred_at)
+    WHERE published_at IS NULL;
+
+COMMIT;
+-- END 043_eap_environment_lifecycle.sql
+
+-- BEGIN 044_eap_lifecycle_fencing.sql
+-- Migration 044: Add claim fencing token to EAP environment lifecycle and index outbox by customer_hash
+BEGIN;
+
+ALTER TABLE public.eap_environment_lifecycle
+    ADD COLUMN IF NOT EXISTS claim_fencing_token BIGINT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_eap_lifecycle_outbox_customer_hash
+    ON public.eap_lifecycle_outbox (customer_hash);
+
+COMMIT;
+-- END 044_eap_lifecycle_fencing.sql
+
+-- BEGIN 045_eap_audit_event_types.sql
+-- 045 — EAP on-demand environment lifecycle and isolation audit event types
+--
+-- Extends the permitted audit_events vocabulary with 10 EAP lifecycle, routing,
+-- tenant isolation, scenario seeding, and webhook trigger event types.
+-- Replaces audit_events_event_type_check with the combined vocabulary.
+
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.audit_events'::regclass
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+            WHERE con.conrelid = 'public.audit_events'::regclass
+              AND con.conname = constraint_name
+          )) NOT LIKE '%eap_environment.registered%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+     WHERE con.conrelid = 'public.audit_events'::regclass
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%eap_environment.registered%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'agent.claimed',
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stunned',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'compliance.reassess_requested',
+        'compliance.scan_completed',
+        'compliance_check',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'demo.signalfusion.phase_run',
+        'demo.signalfusion.reset_requested',
+        'demo.supercred.phase_run',
+        'demo.supercred.reset_requested',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'eap_environment.lease_extended',
+        'eap_environment.provisioned',
+        'eap_environment.reaping_triggered',
+        'eap_environment.registered',
+        'eap_environment.teardown_requested',
+        'eap_environment.ttl_extended',
+        'eap_environment.webhook_triggered',
+        'eap_scenario.executed',
+        'eap_tenant.isolation_provisioned',
+        'eap_tenant.isolation_torn_down',
+        'enrollment',
+        'external_agent.claim_rejected',
+        'external_agent.claimed',
+        'external_agent.enrolled',
+        'external_agent.registered',
+        'external_agent.revoked',
+        'external_agent.status_updated',
+        'external_agent.token_issued',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'onboarding_completed',
+        'onboarding_skipped',
+        'operator.created',
+        'operator.removed',
+        'operator.sign_in_denied',
+        'operator.sign_in_succeeded',
+        'state_transition',
+        'support.requested',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'tenant_created',
+        'token_issued',
+        'token_refused',
+        'user.currency_updated',
+        'user_provisioned',
+        'violation.acknowledged',
+        'violation_detected'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 045_eap_audit_event_types.sql

@@ -713,10 +713,26 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/v1/policies/{subpath}"),               # proxy to policy-engine
     ("POST", "/api/v1/policies"),                        # proxy to policy-engine
     ("POST", "/api/v1/policies/{subpath}"),              # proxy to policy-engine
+    ("GET", "/api/policies"),                            # proxy to policy-engine
+    ("GET", "/api/policies/{subpath}"),                  # proxy to policy-engine
+    ("POST", "/api/policies"),                           # proxy to policy-engine
+    ("POST", "/api/policies/{subpath}"),                 # proxy to policy-engine
     ("GET", "/api/v1/risk"),                             # proxy to policy-engine
     ("GET", "/api/v1/risk/{subpath}"),                   # proxy to policy-engine
     ("POST", "/api/v1/risk"),                            # proxy to policy-engine
     ("POST", "/api/v1/risk/{subpath}"),                  # proxy to policy-engine
+    ("GET", "/api/v1/fair/versions"),                    # proxy to policy-engine / in-memory fair versions
+    # Federation proxy -- pure proxy to Go signal-ingest federation endpoints (test_federation.py)
+    ("GET", "/api/v1/federation"),
+    ("GET", "/api/v1/federation/{subpath}"),
+    ("POST", "/api/v1/federation"),
+    ("POST", "/api/v1/federation/{subpath}"),
+    ("PUT", "/api/v1/federation"),
+    ("PUT", "/api/v1/federation/{subpath}"),
+    ("PATCH", "/api/v1/federation"),
+    ("PATCH", "/api/v1/federation/{subpath}"),
+    ("DELETE", "/api/v1/federation"),
+    ("DELETE", "/api/v1/federation/{subpath}"),
     ("PUT", "/api/onboarding/state"),                    # covered by test_onboarding
     # Superadmin-gated, so the sweep's ordinary caller is refused before any
     # statement is issued. Its tenant binding has its own test below.

@@ -412,10 +412,10 @@ export default function FederatedServicesPage() {
         className="card"
         style={{
           padding: '12px 16px', marginBottom: 22, fontSize: 13,
-          borderLeft: isDemo ? '3px solid var(--cyan)' : '3px solid var(--emerald)', lineHeight: 1.6,
+          borderLeft: isDemo ? '3px solid var(--cyan)' : '3px solid var(--teal)', lineHeight: 1.6,
         }}
       >
-        <strong style={{ color: isDemo ? 'var(--cyan)' : 'var(--emerald)' }}>
+        <strong style={{ color: isDemo ? 'var(--cyan)' : 'var(--teal)' }}>
           {isDemo ? 'Demo Mode' : 'Live Mode'}
         </strong>
         <span style={{ color: 'var(--muted)' }}>
@@ -448,7 +448,7 @@ export default function FederatedServicesPage() {
           className="card"
           style={{
             padding: '12px 16px', marginBottom: 22, fontSize: 13,
-            borderLeft: '3px solid var(--rose)', color: 'var(--rose)',
+            borderLeft: '3px solid var(--error)', color: 'var(--error)',
           }}
         >
           {error}

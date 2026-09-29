@@ -483,7 +483,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	cd d2-signalloom/design-system-demo && bun run test
 	cd tools/harness-dash && bun test
 	@echo "=== [Offline 3/5] Python Unit & Invariant Suites ==="
-	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest tests -q --disable-warnings
+	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx --with-requirements requirements.txt python -m pytest tests -q --disable-warnings
 	UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} bash d2-signalloom/test/audit-guard-reintroduction-proof.sh
 	$(MAKE) -C d2-agent-trust test
 	$(MAKE) -C olly-replica authz-test

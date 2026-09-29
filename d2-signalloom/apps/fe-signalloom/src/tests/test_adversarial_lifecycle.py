@@ -310,15 +310,25 @@ class TestDoubleTransition:
 
 @pytest.fixture
 def stun_client(monkeypatch):
-    """Client with FLEET_MANAGER_URL cleared so the simulated path runs
-    (no actual network call) and acted=True, exercising the state-change code."""
+    """Client whose stun cascade is stubbed to a contained result with the
+    target's freeze held, so the state-change code runs with no network call.
+
+    It used to clear FLEET_MANAGER_URL and rely on simulated mode counting as
+    acted. Simulated mode no longer changes lifecycle state (nothing that did
+    not happen may), so that route would test nothing here."""
     monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test/dex")
     monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
     monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
     monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
     monkeypatch.setattr(settings, "api_subject_tenants", {"alice": "tenant-a"})
     monkeypatch.setattr(_api_compat_module, "_jwk_client", lambda _url: _TestJWKClient())
-    monkeypatch.setattr(_api_compat_module, "FLEET_MANAGER_URL", "")
+    async def _contained(fleet_agent_id: str, _reason: str):
+        return _api_compat_module._ClusterStunObservation(
+            observed=True, overall_outcome="contained", fleet_agent_id=fleet_agent_id,
+            fleet_manager_status=200, planes=[{"plane": "freeze", "outcome": "contained"}],
+        )
+
+    monkeypatch.setattr(_api_compat_module, "_perform_cluster_stun", _contained)
 
     set_pool_for_testing(_ReadyPool())
     reset_tenant_state("tenant-a")

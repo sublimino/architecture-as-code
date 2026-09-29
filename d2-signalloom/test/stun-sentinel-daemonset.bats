@@ -78,3 +78,47 @@ swarm_yaml() {
   names="$(while read -r f; do yq -r 'select((.kind == "RoleBinding" or .kind == "ClusterRoleBinding") and (.roleRef.name | test("^stun-sentinel"))) | .subjects[] | .name' "$f"; done <<<"$(swarm_yaml)" | rg -v '^---' | sort -u)"
   [ "$names" = "$sa" ]
 }
+
+# ── SPIRE identity: selectors must name SAs that exist and are used ──────────
+#
+# spire-agent-swarm-entries.yaml registers one entry per name in its AGENTS
+# array, as `-selector k8s:sa:${sa}` in fe-signalloom-agents. It named
+# signalloom-stun-sentinel, an SA no pod runs as, so the sentinel pod
+# (SA stun-sentinel) never matched its SPIFFE identity.
+
+spire_entries() {
+  echo "$repo_root/d2-signalloom/infra/inf-bao/controllers/base/spire-agent-swarm-entries.yaml"
+}
+
+# SAs a SPIRE entry selects in fe-signalloom-agents: the AGENTS array (the
+# script interpolates it into k8s:sa:) plus any literal k8s:sa: selector that
+# sits beside k8s:ns:fe-signalloom-agents anywhere under inf-bao.
+spire_agent_sas() {
+  yq -r '.data."register-entries.sh" // ""' "$(spire_entries)" |
+    awk '/^[[:space:]]*AGENTS=\(/{on=1; next} on && /^[[:space:]]*\)/{exit} on && /^[[:space:]]*#/{next} on && NF {print $1}'
+  rg --no-filename -o 'k8s:ns:fe-signalloom-agents[^\n]*' "$repo_root/d2-signalloom/infra/inf-bao" |
+    rg -o 'k8s:sa:[a-z0-9-]+' | sed 's/^k8s:sa://'
+}
+
+declared_swarm_sas() {
+  while read -r f; do yq -r 'select(.kind == "ServiceAccount") | .metadata.name' "$f"; done <<<"$(swarm_yaml)" | rg -v '^---' | sort -u
+}
+
+@test "every SPIRE k8s:sa: selector in fe-signalloom-agents names a declared SA" {
+  sas="$(spire_agent_sas | sort -u)"
+  [ "$(printf '%s\n' "$sas" | wc -l)" -ge 10 ]  # the parser found the array
+  run comm -23 <(printf '%s\n' "$sas") <(declared_swarm_sas)
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "the sentinel's SPIRE entry selects the SA the DaemonSet runs as" {
+  sa="$(yq -r '.spec.template.spec.serviceAccountName' "$ds")"
+  run bash -c "$(declare -f spire_entries spire_agent_sas); repo_root='$repo_root'; spire_agent_sas | rg -x -- '$sa'"
+  [ "$status" -eq 0 ]
+}
+
+@test "no ServiceAccount named signalloom-stun-sentinel is declared (orphan)" {
+  run bash -c "$(declare -f swarm_yaml declared_swarm_sas); repo_root='$repo_root'; declared_swarm_sas | rg -x signalloom-stun-sentinel"
+  [ "$status" -eq 1 ]
+}

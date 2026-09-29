@@ -24,7 +24,7 @@ vi.mock('../auth/oidc', () => ({
 
 import SuperCredPage from './SuperCredPage'
 import { api } from '../api/client'
-import type { StunAgentResponse } from '../types/api'
+import type { PlaneResult, StunAgentResponse } from '../types/api'
 
 // This file exercises the LIVE proxy path — every test drives a mocked fetch
 // against /supercred-api. Demo-data mode must therefore be off, or discovery is
@@ -61,9 +61,29 @@ interface AgentFixture {
  * so anything rendered from a stun has to come from here. The proxy's wording
  * sits under `proxy`, apart from what fe-signalloom established itself.
  */
+const STUN_REASON = 'exfiltration to unknown host'
+
+function plane(name: string, outcome = 'contained', extra: Partial<PlaneResult> = {}): PlaneResult {
+  return { plane: name, outcome, timestamp: '2026-08-02T10:00:00Z', latency_ms: 40, ...extra }
+}
+
+const ALL_CONTAINED: PlaneResult[] = ['freeze', 'bao', 'spire', 'mesh', 'admission', 'gitops'].map(p => plane(p))
+
+/** The stun confirm step: every stun now asks the operator why, first. */
+async function confirmStun(reason = STUN_REASON) {
+  const field = await screen.findByLabelText(/Reason for stunning/)
+  await userEvent.clear(field)
+  await userEvent.type(field, reason)
+  await userEvent.click(screen.getByRole('button', { name: /Confirm stun/ }))
+}
+
 function stunResponse(overrides: Partial<StunAgentResponse> = {}): StunAgentResponse {
   return {
     agent_id: 'agent-cardvault',
+    reason: STUN_REASON,
+    overall_outcome: 'contained',
+    fleet_manager_status: 200,
+    planes: ALL_CONTAINED,
     from_state: 'active',
     to_state: 'suspended',
     actor: 'demo-operator',
@@ -300,6 +320,7 @@ describe('SuperCredPage', () => {
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await confirmStun()
 
     expect(await screen.findByTestId('supercred-stun-result')).toBeInTheDocument()
     expect(calls.filter(url => url.includes('/stun'))).toEqual([])
@@ -311,6 +332,7 @@ describe('SuperCredPage', () => {
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await confirmStun()
     const actions = await screen.findByTestId('supercred-stun-actions')
     expect(actions).toHaveTextContent('OpenBao dynamic lease revoked')
     expect(actions).toHaveTextContent('SPIFFE SVID rotation blocked')
@@ -326,6 +348,7 @@ describe('SuperCredPage', () => {
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await confirmStun()
 
     expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(
       /lease 7f2a revoked, pod relabelled/,
@@ -343,6 +366,7 @@ describe('SuperCredPage', () => {
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await confirmStun()
 
     // Composed from the lifecycle fields the response always carries, so the
     // operator is told what happened rather than shown a gap.
@@ -370,6 +394,7 @@ describe('SuperCredPage', () => {
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await confirmStun()
   }
 
   it('asks the API to stun the agent and tells it nothing else', async () => {
@@ -378,13 +403,73 @@ describe('SuperCredPage', () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
 
-    // Token and target, and that is the whole call. This assertion has been
-    // walked backwards twice: it first asserted `outcome: 'stunned'` was sent,
-    // then locator-only after the narrative fields were removed, and now no
-    // body at all. Asserted on the exact argument list rather than with
-    // objectContaining, because objectContaining is satisfied by a call that
-    // has quietly grown a third argument again.
-    expect(spy.mock.calls[0]).toEqual(['test-token', 'agent-cardvault'])
+    // Token, target and the operator's reason, and that is the whole call.
+    // This assertion has been walked backwards before: it first asserted
+    // `outcome: 'stunned'` was sent, then locator-only, then no body at all.
+    // The reason is back because the server now requires it (422 otherwise):
+    // it is the operator's stated intent, recorded against the actor the
+    // server reads off the token, not a claim about what happened. Exact
+    // argument list, because objectContaining is satisfied by a call that has
+    // quietly grown another argument.
+    expect(spy.mock.calls[0]).toEqual(['test-token', 'agent-cardvault', STUN_REASON])
+  })
+
+  it('will not stun without a reason, and says why', async () => {
+    const spy = vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Confirm stun/ }))
+
+    expect(await screen.findByTestId('stun-reason-error')).toHaveTextContent(/reason is required/i)
+    expect(spy).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('supercred-stun-result')).not.toBeInTheDocument()
+  })
+
+  it('renders the per-plane report with the overall outcome as the headline', async () => {
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
+    await stunOnce()
+
+    const result = await screen.findByTestId('supercred-stun-result')
+    expect(within(result).getByTestId('stun-overall-outcome')).toHaveClass('stun-outcome--contained')
+    expect(within(result).getByTestId('stun-result-reason')).toHaveTextContent(STUN_REASON)
+    const table = within(result).getByTestId('stun-plane-table')
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(6)
+  })
+
+  // A partial stun is the dangerous one to get wrong: the agent looks handled
+  // and the lease is still live. Nothing on the panel may read as success.
+  it('shows a partial stun as partial, and claims no revocation it did not see', async () => {
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse({
+      overall_outcome: 'partial',
+      planes: [
+        plane('freeze'),
+        plane('bao', 'failed', { error: 'lease revoke returned 503' }),
+        plane('spire', 'partial', { error: '1 of 2 SVIDs still within TTL' }),
+        plane('mesh'),
+        plane('admission'),
+        plane('gitops', 'not_found'),
+      ],
+      // The relayed wording claims more than the planes support. It must not
+      // reach the screen while bao and spire say otherwise.
+      proxy: { state: 'stunned', message: 'Agent agent-cardvault stunned: credentials revoked' },
+    }))
+    await stunOnce()
+
+    const result = await screen.findByTestId('supercred-stun-result')
+    const headline = within(result).getByTestId('stun-overall-outcome')
+    expect(headline).toHaveClass('stun-outcome--partial')
+    expect(headline).not.toHaveClass('stun-outcome--contained')
+    expect(result).not.toHaveTextContent(/credentials revoked/i)
+    expect(result).not.toHaveTextContent(/lease revoked/i)
+    expect(result).not.toHaveTextContent(/SVID rotation blocked/i)
+    expect(result).not.toHaveTextContent(/Agent Stunned/)
+    expect(within(result).getByTestId('stun-plane-outcome-bao')).toHaveClass('stun-outcome--failed')
+    expect(within(result).getByTestId('stun-plane-outcome-spire')).toHaveClass('stun-outcome--partial')
+    expect(within(result).getByTestId('stun-plane-error-bao')).toHaveTextContent('lease revoke returned 503')
+    // Egress was contained, so that one claim is allowed to stand.
+    expect(within(result).getByTestId('supercred-stun-actions')).toHaveTextContent('deny-all egress')
   })
 
   it('shows the recorded event and points at the Audit Trail', async () => {
@@ -961,6 +1046,7 @@ describe('SuperCred explains its own jargon', () => {
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await confirmStun()
     await screen.findByTestId('supercred-stun-result')
 
     // The list beside this hint is four static claims with no probe behind
@@ -1042,6 +1128,7 @@ describe('SuperCred waits say what is running and for how long', () => {
     const stunButtons = await screen.findAllByRole('button', { name: /Stun Agent/ })
     expect(stunButtons).toHaveLength(2)
     await userEvent.click(stunButtons[0])
+    await confirmStun()
 
     expect(await screen.findByTestId('supercred-stun-loader-agent-cardvault')).toBeInTheDocument()
     // `stunLoading` is page-wide — it disables every row. A timer on every row
@@ -1133,11 +1220,29 @@ describe('Sentinel Kernel Containment Telemetry on SuperCredPage', () => {
 
     const stunBtn = await screen.findByRole('button', { name: /Stun Agent/ })
     await userEvent.click(stunBtn)
+    await confirmStun()
 
     const telemetryCard = await screen.findByTestId('supercred-sentinel-telemetry')
     expect(telemetryCard).toBeInTheDocument()
     expect(screen.getByTestId('supercred-telemetry-cgroup')).toHaveTextContent('1 · FROZEN')
     expect(screen.getByTestId('supercred-telemetry-tc')).toHaveTextContent('MATCHALL DROP · ACTIVE')
+  })
+
+  // The card reads FROZEN and ACTIVE. Those are claims, so they need the freeze
+  // plane to have said contained.
+  it('does not render FROZEN telemetry when the freeze plane did not contain', async () => {
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse({
+      overall_outcome: 'partial',
+      planes: [plane('freeze', 'failed', { error: 'cgroup not found' }), plane('bao'), plane('spire'), plane('mesh')],
+    }))
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await confirmStun()
+
+    await screen.findByTestId('supercred-stun-result')
+    expect(screen.queryByTestId('supercred-sentinel-telemetry')).not.toBeInTheDocument()
   })
 
   it('renders agent name as a drill-down link to the agent overview', async () => {

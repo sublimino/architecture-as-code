@@ -869,6 +869,31 @@ describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
     expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Drawer Bot')
   })
 
+  it('opens agent evidence drawer via ?drawer= URL parameter and renders quantitative risk section without error', async () => {
+    const agent = makeAgent({ id: '5d9d84b5-b7d5-50b8-8fcf-d2ae4cc74599', name: 'Risk Evaluated Agent' })
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent],
+      total: 1,
+    })
+
+    renderPage(['/agents?drawer=5d9d84b5-b7d5-50b8-8fcf-d2ae4cc74599'])
+
+    expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Risk Evaluated Agent')
+
+    // Quantitative Risk panel renders
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('drawer-section-risk') || screen.queryByTestId('drawer-section-risk-error')
+      ).toBeInTheDocument()
+    })
+
+    // Verify it did not crash with unhandled 502/invalid upstream error
+    expect(screen.queryByText(/invalid_upstream_response/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/policy-engine returned unparseable JSON/i)).not.toBeInTheDocument()
+  })
+
+
   it('populates search and displays active-selector-badge from ?selector= param', async () => {
     const agent1 = makeAgent({ id: 'agent-planner', name: 'Trust Planner', identity: { spiffe_id: '', spiffe_status: 'linked', aliases: [], selectors: ['k8s:sa:planner'] } })
     const agent2 = makeAgent({ id: 'agent-triage', name: 'Trust Triage' })

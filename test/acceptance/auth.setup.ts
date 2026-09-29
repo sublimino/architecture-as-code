@@ -1,7 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { test as setup, expect, errors, type Page } from "@playwright/test";
 
-const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "https://dashboard.osramp.acme.local:30754";
+const DASHBOARD_URL = (
+  process.env.DASHBOARD_URL ?? "https://dashboard.osramp.acme.local:30754"
+).replace(/\/+$/, "");
 const DEX_DEMO_PASSWORD = process.env.DEX_DEMO_PASSWORD ?? "demo-user";
 const ONBOARDING_SKIP_WAIT_MS = 15_000;
 const DASHBOARD_SETTLE_TIMEOUT_MS = 15_000;

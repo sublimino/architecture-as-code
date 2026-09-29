@@ -1,8 +1,25 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import AgentEvidenceDrawer from './AgentEvidenceDrawer'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
+
+const mockGetAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
+vi.mock('../auth/oidc', () => ({
+  useAuth0: () => ({ getAccessTokenSilently: mockGetAccessTokenSilently }),
+}))
+
+const mockUseAgentRisk = vi.fn().mockReturnValue({
+  data: null,
+  loading: false,
+  error: null,
+  source: 'fixture',
+  refresh: vi.fn(),
+})
+
+vi.mock('../hooks/useAgentRisk', () => ({
+  useAgentRisk: (id: string | null) => mockUseAgentRisk(id),
+}))
 
 const mockAgent: AgentResponse = {
   id: 'agent-uuid-1234',
@@ -65,6 +82,16 @@ const mockSourceHealthDetail: SourceHealthMap = {
 }
 
 describe('AgentEvidenceDrawer Component', () => {
+  beforeEach(() => {
+    mockUseAgentRisk.mockReturnValue({
+      data: null,
+      loading: false,
+      error: null,
+      source: 'fixture',
+      refresh: vi.fn(),
+    })
+  })
+
   it('renders null when agent is null', () => {
     const { container } = render(
       <AgentEvidenceDrawer
@@ -328,4 +355,92 @@ describe('AgentEvidenceDrawer Component', () => {
 
     unmount()
   })
+
+  it('quantitative risk: renders OpenFAIR metrics and live source badge when risk data is available', () => {
+    mockUseAgentRisk.mockReturnValue({
+      data: {
+        agentId: 'agent-uuid-1234',
+        currency: 'GBP',
+        lef: { min: 0.01, mode: 0.05, max: 0.2 },
+        lossMagnitude: {
+          min: { amount: 32872, currency: 'GBP' },
+          mode: { amount: 563520, currency: 'GBP' },
+          max: { amount: 5870000, currency: 'GBP' },
+        },
+        ale: { amount: 21681338, currency: 'GBP' },
+        pml: { amount: 51342162, currency: 'GBP' },
+        var95: { amount: 51342162, currency: 'GBP' },
+        tvar: { amount: 60172685, currency: 'GBP' },
+        carried: { amount: 66189954, currency: 'GBP' },
+        tier: 'caged',
+        simulation: { iterations: 10000, seed: 20260907, riskLoad: 0.1, tailDominated: false },
+        source: 'riskctl',
+      },
+      loading: false,
+      error: null,
+      source: 'riskctl',
+      refresh: vi.fn(),
+    })
+
+    render(
+      <AgentEvidenceDrawer
+        agent={mockAgent}
+        onClose={vi.fn()}
+      />
+    )
+
+    expect(screen.getByTestId('drawer-section-risk')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-section-risk-source')).toHaveTextContent('LIVE riskctl')
+    expect(screen.getByTestId('drawer-section-risk-ale')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-section-risk-pml')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-section-risk-lef')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-section-risk-lm')).toBeInTheDocument()
+  })
+
+  it('quantitative risk: renders error state with retry when risk calculation fails with upstream error', async () => {
+    const refreshMock = vi.fn()
+    mockUseAgentRisk.mockReturnValue({
+      data: null,
+      loading: false,
+      error: 'signal-ingest service unreachable',
+      source: 'riskctl',
+      refresh: refreshMock,
+    })
+
+    render(
+      <AgentEvidenceDrawer
+        agent={mockAgent}
+        onClose={vi.fn()}
+      />
+    )
+
+    expect(screen.getByTestId('drawer-section-risk-error')).toBeInTheDocument()
+    expect(screen.getByText(/signal-ingest service unreachable/i)).toBeInTheDocument()
+
+    const retryBtn = screen.getByRole('button', { name: /retry/i })
+    await userEvent.click(retryBtn)
+    expect(refreshMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('quantitative risk: renders loading state while awaiting calculation', () => {
+    mockUseAgentRisk.mockReturnValue({
+      data: null,
+      loading: true,
+      error: null,
+      source: 'riskctl',
+      refresh: vi.fn(),
+    })
+
+    render(
+      <AgentEvidenceDrawer
+        agent={mockAgent}
+        onClose={vi.fn()}
+      />
+    )
+
+    const riskWidget = screen.getByTestId('drawer-section-risk')
+    expect(riskWidget).toHaveAttribute('data-loading', 'true')
+    expect(screen.getByTestId('drawer-section-risk-ale-value')).toHaveTextContent('…')
+  })
 })
+

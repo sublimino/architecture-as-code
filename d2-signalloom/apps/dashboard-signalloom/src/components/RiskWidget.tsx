@@ -42,9 +42,9 @@ export function formatFrequency(n: number): string {
   return n.toPrecision(2).replace(/0+$/, '').replace(/\.$/, '')
 }
 
-/** "0.01 – 0.2 /yr (mode 0.05)": the whole triple, because a mode alone hides the spread. */
+/** "0.01 to 0.2 /yr (mode 0.05)": the whole triple, because a mode alone hides the spread. */
 export function formatTriple(t: FairTriple): string {
-  return `${formatFrequency(t.min)} – ${formatFrequency(t.max)} /yr (mode ${formatFrequency(t.mode)})`
+  return `${formatFrequency(t.min)} to ${formatFrequency(t.max)} /yr (mode ${formatFrequency(t.mode)})`
 }
 
 // ─── Presentation ───────────────────────────────────────────────────────────

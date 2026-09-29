@@ -1539,8 +1539,9 @@ signalloom-up: ## Restore Signal Loom frontend to the cluster.
 	./scripts/signalloom-up.sh
 
 .PHONY: acceptance-test
-acceptance-test: ## Run browser-driven acceptance tests (Playwright).
-	./scripts/acceptance-test.sh
+acceptance-test: ## Run browser-driven acceptance tests (Playwright). Pass DASHBOARD_URL=<url> to target a remote endpoint.
+	@DASHBOARD_URL="$${DASHBOARD_URL:-$(DASHBOARD_URL)}" \
+	./scripts/acceptance-test.sh $(ARGS)
 
 ##@ Remote & Public access (Tailscale)
 # SignalLoom uses a contract-first Dex single-issuer lease mechanism.

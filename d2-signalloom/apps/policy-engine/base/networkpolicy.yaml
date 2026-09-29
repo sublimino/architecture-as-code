@@ -1,0 +1,32 @@
+# Ingress: one caller. fe-signalloom's API pod reaches
+# http://policy-engine:8081 from src/routers/policy_engine.py (POLICY_ENGINE_URL) to
+# evaluate CEL policies and compliance checks.
+#
+# fe-signalloom runs a default-deny policy with an empty podSelector, so every
+# workload in the namespace must declare its ingress and egress boundaries.
+#
+# Admitted caller: fe-signalloom API pod matching both
+# app.kubernetes.io/name: fe-signalloom and bao.controlplane.io/consumer: fe-signalloom.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: policy-engine-ingress
+  labels:
+    app.kubernetes.io/name: policy-engine
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: policy-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fe-signalloom
+              bao.controlplane.io/consumer: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8081

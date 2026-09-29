@@ -87,6 +87,10 @@ resources:
   # and the namespace-scoped `flux` SA lacks `escalate`, so creating a
   # RoleBinding from here fails the server dry-run and aborts the whole set.
   - ../../fleet-manager/base
+  # Policy Engine: Go cel-go policy evaluation and compliance scanner, reached
+  # by fe-signalloom at http://policy-engine:8081 via the /api/v1/compliance/*,
+  # /api/v1/policies/*, and /api/v1/risk/* reverse proxy.
+  - ../../policy-engine/base
 
 configMapGenerator:
   # netassert-signalloom.yaml here is a committed copy of

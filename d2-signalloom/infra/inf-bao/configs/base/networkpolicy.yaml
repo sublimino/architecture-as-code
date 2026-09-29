@@ -142,3 +142,38 @@ spec:
           port: 443
         - protocol: TCP
           port: 6443
+---
+# fleet-manager -> SPIRE server API, for containment (entry eviction on stun,
+# re-entry on resume). The cascade has always attempted this call; with only
+# default-deny above, every attempt timed out (DeadlineExceeded in the
+# fleet-manager log) and the SPIRE plane reported unavailable on every stun.
+#
+# Scoped to the spire-server pods, to the one fleet-manager pod selector, and
+# to 8081 alone — the pattern of allow-eap-*-to-spire, narrowed from a whole
+# namespace to one workload. Guarded by
+# d2-signalloom/test/fleet-manager-spire-reachability.bats, which also checks the
+# selector against the label the rendered fleet-manager pod carries.
+#
+# Network only: whether the gRPC handshake then succeeds depends on the SPIRE
+# client's transport credentials, which this policy does not change.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fleet-manager-to-spire
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: spire-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fleet-manager
+      ports:
+        - protocol: TCP
+          port: 8081

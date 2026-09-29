@@ -934,6 +934,10 @@ class StunAgentResponse(BaseModel):
     #: "fleet-manager.freeze"``; ``{"source": "unavailable"}`` when it gave
     #: none; None when no fleet-manager was asked. Never synthesised.
     sentinel_telemetry: dict[str, Any] | None = None
+    #: Set when the answer needs saying in words: in simulated mode, that
+    #: nothing was isolated and lifecycle state was not changed. Not called
+    #: ``message``: that was the proxy's field and must not reappear at top level.
+    notice: str | None = None
 
 
 class ComplianceSummaryResponse(BaseModel):
@@ -4712,12 +4716,37 @@ class _ClusterStunObservation:
         with the freeze held is a success whose failing planes travel with
         the answer rather than being hidden by it.
 
-        ``simulated`` counts only when nothing was asked -- fleet-manager
-        itself claiming ``simulated`` is not a containment.
+        Only the TARGET's freeze decides (``_target_freeze_failure``). A
+        downstream cascade target that failed to freeze makes the stun
+        ``partial``, with that plane visible, not a failure.
         """
         if not self.observed:
-            return self.overall_outcome == "simulated"
-        return self.overall_outcome in _STUN_CONTAINED_OUTCOMES and _freeze_failure(self.planes) is None
+            # Simulated: nothing was asked, so nothing was isolated. It is
+            # answered 200 (see ``simulated``) but may never move lifecycle.
+            return False
+        return (
+            self.overall_outcome in _STUN_CONTAINED_OUTCOMES
+            and _target_freeze_failure(self.planes, self.target_ids, self.target_count) is None
+        )
+
+    @property
+    def simulated(self) -> bool:
+        """No fleet-manager configured: answered 200, recorded, changes nothing."""
+        return not self.observed and self.overall_outcome == "simulated"
+
+    @property
+    def target_ids(self) -> frozenset[str]:
+        """The ids that name the stun's target: the id sent, and the DAG id
+        fleet-manager resolved it to (``target_agent``)."""
+        ids = {self.fleet_agent_id}
+        if isinstance(self.payload.get("target_agent"), str) and self.payload["target_agent"]:
+            ids.add(self.payload["target_agent"])
+        return frozenset(ids)
+
+    @property
+    def target_count(self) -> int:
+        targets = self.payload.get("targets")
+        return len(targets) if isinstance(targets, list) else 0
 
 
 #: fleet-manager summary outcomes that MAY mean the agent was isolated. Never
@@ -4748,6 +4777,71 @@ def _freeze_failure(planes: list[dict[str, Any]]) -> str | None:
     )[:_FLEET_ERROR_TEXT_LIMIT * 2]
 
 
+def _pod_stem(pod: str) -> str:
+    """``agent-cardvault-bb57657-jlf8w`` -> ``agent-cardvault``: a Deployment
+    pod name minus its ReplicaSet and pod hash segments."""
+    parts = pod.rsplit("-", 2)
+    return parts[0] if len(parts) == 3 else pod
+
+
+def _plane_target(plane: dict[str, Any], target_ids: frozenset[str]) -> bool | None:
+    """Whether this plane is about the target: True, False, or None when the
+    plane does not say whose it is.
+
+    ``details.agent_id`` decides when present. Otherwise ``details.pod``
+    belongs to the target when it is the id sent, is a target id, or is a
+    pod of one (``<target>-<rs>-<pod>``).
+    """
+    details = plane.get("details") or {}
+    agent_id = details.get("agent_id")
+    if isinstance(agent_id, str) and agent_id:
+        return agent_id in target_ids
+    pod = details.get("pod")
+    if isinstance(pod, str) and pod:
+        return pod in target_ids or _pod_stem(pod) in target_ids
+    return None
+
+
+def _target_freeze_planes(
+    planes: list[dict[str, Any]], target_ids: frozenset[str], target_count: int,
+) -> list[dict[str, Any]]:
+    """The freeze plane(s) about the target.
+
+    Attributed planes are matched by ``_plane_target``. An unattributed
+    freeze is taken as the target's only when it cannot be anyone else's:
+    it is the sole freeze plane and fleet-manager reported at most one
+    target. Anything else is not guessed at, so it cannot count.
+    """
+    freezes = [plane for plane in planes if plane.get("plane") == _FREEZE_PLANE]
+    matched = [plane for plane in freezes if _plane_target(plane, target_ids)]
+    if matched:
+        return matched
+    if len(freezes) == 1 and target_count <= 1 and _plane_target(freezes[0], target_ids) is None:
+        return freezes
+    return []
+
+
+def _target_freeze_failure(
+    planes: list[dict[str, Any]], target_ids: frozenset[str], target_count: int,
+) -> str | None:
+    """Why the TARGET's freeze does not show it frozen, or None if it does.
+
+    Every freeze plane attributed to the target must be ``contained``. No
+    freeze plane for the target fails closed: a cascade that does not show
+    the target frozen has not shown it was isolated. Other targets' freeze
+    planes do not decide this; they make the stun ``partial``.
+    """
+    mine = _target_freeze_planes(planes, target_ids, target_count)
+    if not mine:
+        if not any(plane.get("plane") == _FREEZE_PLANE for plane in planes):
+            return _freeze_failure(planes)
+        return (
+            f"no freeze plane for the target ({', '.join(sorted(target_ids))}) in fleet-manager's "
+            "CascadeResult, so its freeze is unconfirmed (failing closed)"
+        )
+    return _freeze_failure(mine)
+
+
 def _sentinel_telemetry(observation: _ClusterStunObservation) -> dict[str, Any] | None:
     """What the freeze plane reported about the workload, and nothing invented.
 
@@ -4761,8 +4855,8 @@ def _sentinel_telemetry(observation: _ClusterStunObservation) -> dict[str, Any] 
     """
     if not observation.observed:
         return None
-    for plane in observation.planes:
-        if plane.get("plane") == _FREEZE_PLANE and plane.get("details"):
+    for plane in _target_freeze_planes(observation.planes, observation.target_ids, observation.target_count):
+        if plane.get("details"):
             return {**plane["details"], "source": "fleet-manager.freeze"}
     return {"source": "unavailable"}
 #: fleet-manager answers 200 when every plane contained, 207 when some did.
@@ -4900,9 +4994,16 @@ async def _perform_cluster_stun(fleet_agent_id: str, reason: str) -> _ClusterStu
             )
         overall = parsed[0]
         if overall in _STUN_CONTAINED_OUTCOMES:
-            # fleet-manager's summary word is kept as the outcome; the freeze
-            # plane's failure, if any, is what the operator is told.
-            return _observed(overall, _freeze_failure(planes))
+            target_ids = frozenset({fleet_agent_id} | (
+                {payload["target_agent"]} if isinstance(payload.get("target_agent"), str) and payload["target_agent"] else set()
+            ))
+            targets = payload.get("targets")
+            failure = _target_freeze_failure(planes, target_ids, len(targets) if isinstance(targets, list) else 0)
+            # A "contained" summary with any plane not contained is partial:
+            # a downstream target that did not freeze is not hidden by it.
+            if failure is None and overall == "contained" and any(p.get("outcome") != "contained" for p in planes):
+                overall = "partial"
+            return _observed(overall, failure)
         return _observed(overall, f"fleet-manager reported overall_outcome={overall!r}")
     if status == 404:
         error = _fleet_error_text(body, response)
@@ -4915,6 +5016,16 @@ async def _perform_cluster_stun(fleet_agent_id: str, reason: str) -> _ClusterStu
         overall = parsed[0] if parsed is not None and parsed[0] not in _STUN_CONTAINED_OUTCOMES else "error"
         return _observed(overall, _fleet_error_text(body, response))
     return _observed("unexpected_status", f"fleet-manager answered HTTP {status}")
+
+
+_SIMULATED_STUN_MESSAGE = (
+    "Stun simulated: FLEET_MANAGER_URL is empty, so no fleet-manager was asked. "
+    "The agent was not isolated and its lifecycle state was not changed."
+)
+
+
+def _stun_notice(observation: _ClusterStunObservation) -> str | None:
+    return _SIMULATED_STUN_MESSAGE if observation.simulated else None
 
 
 def _proxy_report(observation: _ClusterStunObservation) -> ProxyStunReport:
@@ -4944,7 +5055,7 @@ def _raise_if_stun_failed(observation: _ClusterStunObservation, stun_attempt_id:
     fleet-manager's 404 is passed through as a 404: "no such agent" is the
     caller's problem and a distinct one from "fleet-manager is broken".
     """
-    if observation.acted:
+    if observation.acted or observation.simulated:
         return
     detail = observation.error or f"overall_outcome={observation.overall_outcome}"
     reference = f"audit reference stun_attempt_id={stun_attempt_id}"
@@ -5018,8 +5129,11 @@ async def stun_agent(
     * 404 -> 404, naming the ``stun_attempt_id`` of the row it left.
     * 500, unreachable, timeout, a malformed body, or a 2xx whose
       ``overall_outcome`` is not ``contained``/``partial`` -> 502, likewise.
-    * ``FLEET_MANAGER_URL=""`` -> 200 with ``overall_outcome: "simulated"``
-      and ``proxy.observed: false``; no call is made.
+    * ``FLEET_MANAGER_URL=""`` -> 200 with ``overall_outcome: "simulated"``,
+      ``proxy.observed: false``, ``to_state: "unchanged"``, a ``notice``
+      saying nothing was isolated, and an ``agent.stun_simulated`` row. No
+      call is made and lifecycle state never moves: nothing that did not
+      happen may change it.
 
     Ordering, precisely, because it cannot be made atomic. fleet-manager is
     called first, because an outcome cannot be recorded before it is
@@ -5029,7 +5143,7 @@ async def stun_agent(
     gap is irreducible in any observe-then-record design.
 
     The registry is moved to ``suspended`` only when the id resolves to a row
-    and ``observation.acted``: the freeze plane held (or ``simulated``). A
+    and ``observation.acted``: the target's freeze plane held. A
     failed cascade, including a ``partial`` whose freeze failed, leaves it
     unchanged:
     claiming an agent is isolated when containment failed would be a
@@ -5138,7 +5252,7 @@ async def stun_agent(
                 agent["last_transition_by"] = principal.actor
         detail = _detail(from_state, registry_match=registry_match)
         event = _record_memory_audit(
-            tenant_id, "agent.stunned" if acted else "agent.stun_failed",
+            tenant_id, "agent.stunned" if acted else ("agent.stun_simulated" if observation.simulated else "agent.stun_failed"),
             agent_id, agent_name, principal.actor, detail,
         )
         _raise_if_stun_failed(observation, stun_attempt_id)
@@ -5158,6 +5272,7 @@ async def stun_agent(
             proxy=_proxy_report(observation),
             event=AuditEventResponse(**event),
             sentinel_telemetry=sentinel_telem,
+            notice=_stun_notice(observation),
         )
 
     agent_uuid = _try_uuid(agent_id)
@@ -5203,7 +5318,7 @@ async def stun_agent(
 
         detail = _detail(from_state, registry_match=registry_match)
         await _audit_log(
-            conn, tenant_id, "agent.stunned" if acted else "agent.stun_failed",
+            conn, tenant_id, "agent.stunned" if acted else ("agent.stun_simulated" if observation.simulated else "agent.stun_failed"),
             agent_id, agent_name, principal.actor, detail,
         )
 
@@ -5233,14 +5348,15 @@ async def stun_agent(
         event=AuditEventResponse(
             id=f"{tenant_id}:audit-pending",
             timestamp=now,
-            # Only reached when acted: every failure raised above.
-            event_type="agent.stunned",
+            # Only acted or simulated reach here: every failure raised above.
+            event_type="agent.stunned" if acted else "agent.stun_simulated",
             agent_id=agent_id,
             agent_name=agent_name,
             actor=principal.actor,
             detail=detail,
         ),
         sentinel_telemetry=sentinel_telem,
+        notice=_stun_notice(observation),
     )
 
 

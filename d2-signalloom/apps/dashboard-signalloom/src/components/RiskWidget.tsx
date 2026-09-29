@@ -1,8 +1,8 @@
 /**
  * Quantitative risk, priced.
  *
- * Renders the four OpenFAIR figures the Phase 2 work decomposition names — LEF,
- * LM, PML, ALE — for one agent or for the fleet, from whichever data plane the
+ * Renders the four OpenFAIR figures the Phase 2 work decomposition names: LEF,
+ * LM, PML, ALE, for one agent or for the fleet, from whichever data plane the
  * DemoToggle currently selects.
  *
  * ─── Provenance is part of the number ──────────────────────────────────────
@@ -18,7 +18,7 @@
  * four-across grid cell either wraps to three lines or clips. `formatMoney`'s
  * compact mode is the codebase's existing answer (chart axes already use it),
  * so the figure abbreviates and the full value goes in `title` + the accessible
- * name — abbreviating for the eye must not abbreviate for a screen reader.
+ * name: abbreviating for the eye must not abbreviate for a screen reader.
  */
 import type { ReactNode } from 'react'
 import ErrorState from './ErrorState'
@@ -35,14 +35,14 @@ import type { FairSource, FairTriple } from '../types/fair'
  * below 1 rather than rounding a real risk to "0".
  */
 export function formatFrequency(n: number): string {
-  if (!Number.isFinite(n)) return '—'
+  if (!Number.isFinite(n)) return '-'
   if (n === 0) return '0'
   if (n >= 10) return n.toFixed(0)
   if (n >= 1) return n.toFixed(1)
   return n.toPrecision(2).replace(/0+$/, '').replace(/\.$/, '')
 }
 
-/** "0.01 – 0.2 /yr (mode 0.05)" — the whole triple, because a mode alone hides the spread. */
+/** "0.01 – 0.2 /yr (mode 0.05)": the whole triple, because a mode alone hides the spread. */
 export function formatTriple(t: FairTriple): string {
   return `${formatFrequency(t.min)} – ${formatFrequency(t.max)} /yr (mode ${formatFrequency(t.mode)})`
 }
@@ -134,13 +134,13 @@ export interface RiskWidgetProps {
   title: string
   /** Loss Event Frequency triple, events/year. Null while loading or errored. */
   lef: FairTriple | null
-  /** Loss Magnitude — the modal per-event loss. */
+  /** Loss Magnitude: the modal per-event loss. */
   lossMagnitude: Money | null
   /** Probable Maximum Loss (this engine: the 95th-percentile bad year). */
   pml: Money | null
   /** Annualised Loss Expectancy. */
   ale: Money | null
-  /** Mean loss beyond PML. Optional — shown when the caller has it. */
+  /** Mean loss beyond PML. Optional: shown when the caller has it. */
   tvar?: Money | null
   source: FairSource
   loading?: boolean
@@ -169,7 +169,7 @@ export default function RiskWidget({
   footer,
 }: RiskWidgetProps) {
   // Error first. An error with stale data still in state must not render the
-  // stale figures under a live badge — that is the "fabricated figure" outcome
+  // stale figures under a live badge: that is the "fabricated figure" outcome
   // in its most convincing disguise.
   if (error) {
     return (
@@ -216,7 +216,7 @@ export default function RiskWidget({
         <Metric
           testId={`${testId}-lef`}
           label="LEF"
-          display={loading ? '…' : lef ? formatFrequency(lef.mode) : '—'}
+          display={loading ? '…' : lef ? formatFrequency(lef.mode) : '-'}
           full={loading ? 'loading' : lef ? formatTriple(lef) : 'unavailable'}
           hint="Loss Event Frequency, events per year"
         />

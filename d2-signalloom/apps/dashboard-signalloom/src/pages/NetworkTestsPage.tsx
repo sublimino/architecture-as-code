@@ -1,5 +1,5 @@
 /**
- * NetworkTestsPage — surfaces NetAssert network policy test
+ * NetworkTestsPage: surfaces NetAssert network policy test
  * results, CI pipeline results, and agent test infrastructure status.
  *
  * The NetAssert section is live: it reads the current state of the
@@ -42,14 +42,14 @@ interface CIResult {
 
 const CI_SUMMARY = { pass: 176, fail: 14, warn: 0, error: 1, skip: 68 }
 
-/** Everything the run scored, including skips — what the eight rows below are a sample of. */
+/** Everything the run scored, including skips: what the eight rows below are a sample of. */
 const CI_TOTAL = CI_SUMMARY.pass + CI_SUMMARY.fail + CI_SUMMARY.error + CI_SUMMARY.skip
 
 /**
  * The full outcome vocabulary, deliberately not derived from the loaded rows.
  *
  * Every row in CI_RESULTS passed, so chips built from the data would offer
- * `all` and `pass` and nothing else — a filter group that quietly agrees the
+ * `all` and `pass` and nothing else: a filter group that quietly agrees the
  * pipeline is green while the same run recorded fourteen failures and an
  * error. The zeros are the information.
  */
@@ -91,7 +91,7 @@ const AGENT_TESTS: AgentTestEntry[] = [
 // ── helpers ──
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
@@ -116,13 +116,13 @@ const proofButton: CSSProperties = {
 
 /**
  * The toolbar every table on this page gets, in the shape the Design System's
- * "Realistic — the shape AgentsPage needs" specimen documents: a search box,
+ * "Realistic: the shape AgentsPage needs" specimen documents: a search box,
  * one chip group with counts, a clear control, and a "n of m shown" tally,
  * handed to `DataTable`'s `toolbar` slot so it survives the empty branch.
  *
  * A LOCAL COMPONENT RATHER THAN THREE HAND-ROLLED STRIPS. Three tables on one
- * page is exactly the count at which copies start to drift — one gains a clear
- * button, another spells the tally differently, a third puts the search last —
+ * page is exactly the count at which copies start to drift (one gains a clear
+ * button, another spells the tally differently, a third puts the search last)
  * and a reader then has to learn the page three times. The predicate still
  * belongs to each caller, per the DataTable note: this owns the chrome and the
  * a11y contract, never what "matches" means.
@@ -133,7 +133,7 @@ const proofButton: CSSProperties = {
  * with both call sites visible.
  */
 interface Chip {
-  /** Stable id — also the `-filter-<key>` test id suffix. */
+  /** Stable id: also the `-filter-<key>` test id suffix. */
   key: string
   count: number
 }
@@ -170,7 +170,7 @@ const searchBox: CSSProperties = {
 
 /**
  * The sanctioned selected treatment: a tinted fill plus a full-strength border,
- * never a solid accent — text on solid cyan fails AA in at least one of Dark,
+ * never a solid accent: text on solid cyan fails AA in at least one of Dark,
  * Light and Andy, and `color-mix` moves with the theme where an `rgba()`
  * literal is correct in exactly one of the three.
  */
@@ -217,7 +217,7 @@ function FilterToolbar({
       {/* Rendered only while something is narrowing the table, and never
           conditioned on the row count: an empty result is precisely when this
           control is needed, and DataTable keeps the toolbar above the empty
-          panel so it is still here to click. No aria-label — the visible text
+          panel so it is still here to click. No aria-label: the visible text
           is the accessible name, so the two can never disagree. */}
       {narrowed && (
         <button
@@ -255,14 +255,14 @@ function matches(query: string, haystack: (string | number)[]): boolean {
  * fake-integration-proxy/server.py emits `pass`/`fail` ONLY when netassert
  * actually printed a TAP line for that assertion, and `pending`/`running`/
  * `error` when it did not. Those last three are not weak verdicts, they are
- * the absence of one — an `error` row says nothing whatsoever about whether
+ * the absence of one: an `error` row says nothing whatsoever about whether
  * traffic is permitted.
  *
  * DashKit's `Pill` collapsed that distinction: its colour map paints `error`,
  * `fail` and `unavailable` the same red, so a probe that could not run was
  * indistinguishable at a glance from a policy that had been breached. That is
  * the exact failure mode this product exists to make impossible, so the badge
- * is now `StatusBadge` — whose maps carry `pass` (teal) and `fail` (red) and
+ * is now `StatusBadge`, whose maps carry `pass` (teal) and `fail` (red) and
  * fall through to neutral for everything else, which is the honest colour for
  * "no verdict".
  */
@@ -284,7 +284,7 @@ const VERDICT_QUALIFIER: Record<VerdictClass, string> = {
 }
 
 /**
- * The tone of the row's "?" — HelpHint colours only the affordance, never the
+ * The tone of the row's "?": HelpHint colours only the affordance, never the
  * popup, so this ties the hint to the class of claim it is explaining without
  * a coloured panel reading as an error in its own right.
  *
@@ -303,14 +303,14 @@ const VERDICT_TONE: Record<VerdictClass, string> = {
 
 /**
  * What was actually observed for this row, and what would have proven the
- * opposite — the sentence a reader needs before treating a green row as proof.
+ * opposite: the sentence a reader needs before treating a green row as proof.
  *
  * The specific traps this page keeps hitting, each stated where it applies:
  * a probe's exit code is one bit covering a dropped packet, an unresolvable
  * name, a missing binary and a dead listener alike; a NetworkPolicy is not
  * enforced at pod start, so a denial asserted early reports a hole that is not
  * there; and a denial with no positive control cannot tell "correctly blocked"
- * from "nothing was listening". The narrative never contradicts `result` — it
+ * from "nothing was listening". The narrative never contradicts `result`: it
  * says what `result` is and is not evidence of.
  */
 export function verdictNarrative(test: NetworkTestResult): string {
@@ -319,27 +319,27 @@ export function verdictNarrative(test: NetworkTestResult): string {
   const evidence = test.evidence || 'no evidence was recorded'
 
   if (cls === 'unavailable') {
-    return `No verdict — ${evidence}. The probe never reported, so this row is not a denial and not a pass: nothing about ${target} was observed either way.`
+    return `No verdict: ${evidence}. The probe never reported, so this row is not a denial and not a pass: nothing about ${target} was observed either way.`
   }
   if (cls === 'in-flight') {
-    return `No verdict yet — ${evidence}. The scan is still running, so anything shown here is from an earlier run, not this one.`
+    return `No verdict yet: ${evidence}. The scan is still running, so anything shown here is from an earlier run, not this one.`
   }
   if (cls === 'not-observed') {
-    return `Nothing observed — ${evidence}. No TAP line exists for this assertion, so ${target} is neither shown reachable nor shown blocked.`
+    return `Nothing observed: ${evidence}. No TAP line exists for this assertion, so ${target} is neither shown reachable nor shown blocked.`
   }
   if (test.expectedExit === 0) {
     return test.result === 'pass'
-      ? `Observed — ${evidence}. The probe completed a connection to ${target}, which is positive evidence: a drop, an unresolvable name or a missing probe binary would each have produced a non-zero exit instead.`
-      : `Observed — ${evidence}. The probe did not reach ${target} although policy permits it. One non-zero exit covers a dropped packet, a DNS failure and a dead listener alike, so the Job log is what distinguishes them.`
+      ? `Observed: ${evidence}. The probe completed a connection to ${target}, which is positive evidence: a drop, an unresolvable name or a missing probe binary would each have produced a non-zero exit instead.`
+      : `Observed: ${evidence}. The probe did not reach ${target} although policy permits it. One non-zero exit covers a dropped packet, a DNS failure and a dead listener alike, so the Job log is what distinguishes them.`
   }
   return test.result === 'pass'
-    ? `Observed — ${evidence}. The probe failed to reach ${target}, which is what this deny assertion requires. A refused connection, an unresolvable name, a dead listener or a policy not yet programmed on a just-started pod all look identical here — only an allow assertion against the same destination shows there was something to be blocked from.`
-    : `Observed — ${evidence}. The probe reached ${target} although policy denies it. This is the one verdict on the page needing no corroboration: a completed connection is positive evidence the path is open.`
+    ? `Observed: ${evidence}. The probe failed to reach ${target}, which is what this deny assertion requires. A refused connection, an unresolvable name, a dead listener or a policy not yet programmed on a just-started pod all look identical here; only an allow assertion against the same destination shows there was something to be blocked from.`
+    : `Observed: ${evidence}. The probe reached ${target} although policy denies it. This is the one verdict on the page needing no corroboration: a completed connection is positive evidence the path is open.`
 }
 
 // Poll while a scan is running so the board reflects completion without a
 // manual refresh. Bounded so a Job that never finishes (RBAC misconfigured,
-// image pull failure, etc.) doesn't poll forever — the last-known state and
+// image pull failure, etc.) doesn't poll forever: the last-known state and
 // the scanStatus pill both stay visible either way.
 const POLL_MS = 2500
 // A live NetAssert Job took 39 seconds; 48 polls retain 2.5-second
@@ -358,7 +358,7 @@ export function isScanActive(status: NetworkTestListResponse['scanStatus'] | und
  * The endpoint whose response every NetAssert row on this page is a view of.
  *
  * Named here rather than inlined because the proof below promises it is the
- * route the client called, and the two must not be able to drift apart —
+ * route the client called, and the two must not be able to drift apart:
  * see `api.networkTests.list`.
  */
 const NETWORK_TESTS_ENDPOINT = '/network-tests'
@@ -366,7 +366,7 @@ const NETWORK_TESTS_ENDPOINT = '/network-tests'
 /**
  * Reserved so the control does not resize when its label becomes a loader.
  *
- * Fits the widest of the three states — "Refresh Results" — which is wider
+ * Fits the widest of the three states ("Refresh Results") which is wider
  * than ButtonWait's own reserved width, so nothing in the header row moves at
  * either transition. A toolbar button that jumps mid-scan reads to a room as a
  * fault, and this page's whole subject is telling faults from non-faults.
@@ -378,8 +378,8 @@ const SCAN_BUTTON_W = 152
  *
  * The whole verdict for a row is three fields the server derived from the
  * netassert Job's own TAP output (see `_network_test_result` in
- * fake-integration-proxy/server.py): `result`, `evidence` — the literal TAP
- * line, or an explicit sentence saying why there is no verdict — and
+ * fake-integration-proxy/server.py): `result`, `evidence` (the literal TAP
+ * line, or an explicit sentence saying why there is no verdict) and
  * `lastRun`. The assertion those were judged against is the other six. All
  * nine came down the same request, so one command reproduces the lot.
  *
@@ -444,7 +444,7 @@ export default function NetworkTestsPage() {
   const [filter, setFilter] = useState<TestFilter>('all')
   // One vocabulary per table: a free-text query plus the table's single
   // categorical chip group. Held here, not in DataTable, because the predicate
-  // is the one thing that can never be shared — see the note on DataTable.
+  // is the one thing that can never be shared: see the note on DataTable.
   const [netQuery, setNetQuery] = useState('')
   const [ciQuery, setCiQuery] = useState('')
   const [ciResult, setCiResult] = useState<string>('all')
@@ -455,7 +455,7 @@ export default function NetworkTestsPage() {
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [pollExhausted, setPollExhausted] = useState(false)
-  // Which rows have their proof console open, keyed by test name — the only
+  // Which rows have their proof console open, keyed by test name: the only
   // source of truth for that. A derived "show all" flag combined with `||` is
   // how the credential card shipped a row control that looked live and was
   // dead for as long as the global one was on.
@@ -524,7 +524,7 @@ export default function NetworkTestsPage() {
   const byDirection = filter === 'allowed' ? allowed : filter === 'denied' ? denied : tests
   // The chip narrows by direction and the search box narrows by everything
   // else, verdict included: `verdictClass` is in the haystack so typing
-  // "no verdict" or "unavailable" isolates the rows that observed nothing —
+  // "no verdict" or "unavailable" isolates the rows that observed nothing,
   // the state a reader most often needs to find and the one a pass/fail chip
   // group would have hidden.
   const displayed = useMemo(
@@ -541,7 +541,7 @@ export default function NetworkTestsPage() {
 
   const passCount = tests.filter((t) => t.result === 'pass').length
   const failCount = tests.filter((t) => t.result === 'fail' || t.result === 'error').length
-  // Presentation only — `failCount` above is untouched. This is the split it
+  // Presentation only: `failCount` above is untouched. This is the split it
   // hides: the Failing tile adds probes that never reported to assertions that
   // were actually breached, and the Result column's hint says so rather than
   // the number quietly overstating how much is known to be wrong.
@@ -595,7 +595,7 @@ export default function NetworkTestsPage() {
             breach does. The badge keeps saying what it always said; the hint
             beside it says what that word is derived from. `pass`/`degraded`
             rather than `healthy`/`degraded` because StatusBadge's maps carry
-            those two and paint them teal and amber — `healthy` is in DashKit's
+            those two and paint them teal and amber (`healthy` is in DashKit's
             Pill map only, and Pill renders every badge with no fill at all
             (the known `hex()` defect the Design System page documents). */}
         {data && tests.length > 0 && (
@@ -608,7 +608,7 @@ export default function NetworkTestsPage() {
             <HelpHint label="What the suite badge means" testId="netassert-suite-hint">
               {allPass
                 ? `All ${tests.length} assertions returned a TAP line and every one of them passed.`
-                : `Not every assertion passed. That covers breached policy and probes that never reported alike — ${passCount} passed, ${failCount} are counted failing, of which ${unavailableCount} produced no verdict at all.`}
+                : `Not every assertion passed. That covers breached policy and probes that never reported alike: ${passCount} passed, ${failCount} are counted failing, of which ${unavailableCount} produced no verdict at all.`}
             </HelpHint>
           </span>
         )}
@@ -625,7 +625,7 @@ export default function NetworkTestsPage() {
         >
           {/* The shared in-button wait, not a bespoke "Scanning…". A scan
               takes about forty seconds against a live cluster, and a static
-              word reads identically at second two and second ninety —
+              word reads identically at second two and second ninety,
               ButtonWait carries the elapsed figure that tells those apart,
               and owns no live region of its own because the button already
               has a name and a disabled state. */}
@@ -672,7 +672,7 @@ export default function NetworkTestsPage() {
       </div>
 
       {/* ── NetAssert ── */}
-      <Section title="NetAssert — Network Policy Assertions" hint={lastRun ? `last run ${fmtDate(lastRun)}` : 'netassert-signalloom.yaml'}>
+      <Section title="NetAssert: Network Policy Assertions" hint={lastRun ? `last run ${fmtDate(lastRun)}` : 'netassert-signalloom.yaml'}>
         {data?.scanStatus === 'never-run' && (
           <div className="card" style={{ padding: 16, marginBottom: 12 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
@@ -700,7 +700,7 @@ export default function NetworkTestsPage() {
             {
               key: 'expectedExit',
               label: 'Expected',
-              help: 'The exit code netassert requires from the probe: allow means it must connect, deny means it must not. A deny assertion passing is not on its own proof the destination was reachable — only an allow assertion against the same destination shows there was a listener to be blocked from.',
+              help: 'The exit code netassert requires from the probe: allow means it must connect, deny means it must not. A deny assertion passing is not on its own proof the destination was reachable; only an allow assertion against the same destination shows there was a listener to be blocked from.',
             },
             {
               key: 'result',
@@ -708,7 +708,7 @@ export default function NetworkTestsPage() {
               sortable: true,
               // The single most misread thing in this product, said once, at
               // the top of the column it applies to.
-              help: `Only pass and fail are observations — netassert printed a TAP line for the assertion. pending, running and error are the absence of a verdict: no line was produced, so the row says nothing about whether traffic is permitted. The Failing tile counts error alongside fail, so ${unavailableCount} of the ${failCount} it reports produced no verdict at all.`,
+              help: `Only pass and fail are observations: netassert printed a TAP line for the assertion. pending, running and error are the absence of a verdict: no line was produced, so the row says nothing about whether traffic is permitted. The Failing tile counts error alongside fail, so ${unavailableCount} of the ${failCount} it reports produced no verdict at all.`,
             },
             {
               key: 'lastRun',
@@ -818,7 +818,7 @@ export default function NetworkTestsPage() {
                   neutral: neither `allow` nor `deny` is in a StatusBadge map
                   and both land on the muted fallback. The words used to be
                   `active` and `blocked`, which painted a deny rule working
-                  exactly as designed in alarm red — colour asserting a
+                  exactly as designed in alarm red: colour asserting a
                   judgement the column does not make. */}
               <td style={DataTable.td}>
                 <StatusBadge
@@ -842,7 +842,7 @@ export default function NetworkTestsPage() {
                 {/* The class in words as well as colour. A reader scanning the
                     column should not have to hover to tell an assertion that
                     was checked from one that never was, and colour alone
-                    cannot carry it — the neutral fill is shared by `pending`,
+                    cannot carry it: the neutral fill is shared by `pending`,
                     `running` and `error`, which are three different silences. */}
                 <div
                   style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}
@@ -882,7 +882,7 @@ export default function NetworkTestsPage() {
               sortable: true,
               // The chips below make this arithmetic visible; the hint is what
               // stops a reader taking eight green rows for a green pipeline.
-              help: `These ${CI_RESULTS.length} rows are a sample of ${CI_TOTAL} results and every one of them passed. The run itself recorded ${CI_SUMMARY.fail} failures and ${CI_SUMMARY.error} error, none of which are among the rows on this page — an empty fail chip below means none were loaded, not that none exist.`,
+              help: `These ${CI_RESULTS.length} rows are a sample of ${CI_TOTAL} results and every one of them passed. The run itself recorded ${CI_SUMMARY.fail} failures and ${CI_SUMMARY.error} error, none of which are among the rows on this page: an empty fail chip below means none were loaded, not that none exist.`,
             },
           ]}
           data={ciRows}
@@ -928,7 +928,7 @@ export default function NetworkTestsPage() {
             <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={{ ...DataTable.td, fontWeight: 500 }}>{r.source}</td>
               <td style={{ ...DataTable.td, maxWidth: 420, whiteSpace: 'normal', lineHeight: 1.4 }}>{r.rule}</td>
-              {/* A classification, not an outcome — no variant, so it takes
+              {/* A classification, not an outcome: no variant, so it takes
                   the neutral fallback rather than borrowing a verdict colour. */}
               <td style={DataTable.td}><StatusBadge status={r.category} /></td>
               {/* `skip` and `error` are unmapped and land neutral, which is

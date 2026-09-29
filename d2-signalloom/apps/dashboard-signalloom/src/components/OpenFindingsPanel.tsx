@@ -7,13 +7,13 @@
 // an operator auditing at their own pace and useless to someone reading the
 // page over a presenter's shoulder.
 //
-// So this states each open finding as a sentence — which control failed, on
+// So this states each open finding as a sentence: which control failed, on
 // which agent, when it was assessed. It is derived entirely from
 // GET /compliance/posture (the live endpoint, projected for the demo), so it
 // appears when a scan finds something and disappears when the finding stops
 // being reported. There is no fixture and no demo-specific branch in here.
 //
-// Contrast (worst case across Dark / Light / Andy) — see CredentialStateNotice
+// Contrast (worst case across Dark / Light / Andy): see CredentialStateNotice
 // for the full rationale and why --error is never used as body text:
 //   --text  on the 12% error tint ..... 13.16:1  (AA needs 4.5)
 //   --muted on the 12% error tint ...... 5.37:1  (AA needs 4.5)
@@ -39,7 +39,7 @@ export interface OpenFinding {
  *
  * Newest-first is what makes this readable during a live scan: the finding the
  * platform just raised is the one at the top. Ties fall back to agent then
- * control name so the order is stable between polls — a list that reshuffles
+ * control name so the order is stable between polls. A list that reshuffles
  * itself every 2.5s is worse than no list.
  */
 export function openFindings(agents: AgentPosture[]): OpenFinding[] {
@@ -81,7 +81,7 @@ export default function OpenFindingsPanel({ agents }: { agents: AgentPosture[] }
   const findings = openFindings(agents)
   const inRouter = useInRouterContext()
 
-  // Nothing open means nothing to say. The panel's absence is the all-clear —
+  // Nothing open means nothing to say. The panel's absence is the all-clear:
   // and it is what makes a teardown visible: the findings stop being reported
   // and the panel goes away on the next poll.
   if (findings.length === 0) return null

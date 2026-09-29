@@ -4,8 +4,8 @@
  * WHY THIS EXISTS AND WHY IT THROWS. jsdom implements no IntersectionObserver
  * at all, and src/test-setup.ts does not stub one (unlike ResizeObserver,
  * which React Flow forced). Any component that guards its observer with
- * `typeof IntersectionObserver === 'undefined'` — as PageToc must, so it
- * degrades rather than crashes — will therefore take the early return under
+ * `typeof IntersectionObserver === 'undefined'` (as PageToc must, so it
+ * degrades rather than crashes) will therefore take the early return under
  * test and do nothing. A scrollspy test written against that silently asserts
  * an initial state forever and passes for as long as the feature is dead.
  *
@@ -91,7 +91,7 @@ export function installMockIntersectionObserver(): MockObserverHandle {
       if (instances.length === 0) {
         throw new Error(
           'No IntersectionObserver was constructed. The component under test either never ' +
-            'mounted its scrollspy effect or took its "no IntersectionObserver" early return — ' +
+            'mounted its scrollspy effect or took its "no IntersectionObserver" early return: ' +
             'either way the assertion that follows would have been measuring nothing.',
         )
       }

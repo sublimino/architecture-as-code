@@ -925,7 +925,7 @@ export function FeedsExplorerPage() {
                       {obs.source}
                     </td>
                     <td style={{ padding: '8px 10px', color: 'var(--text)', fontWeight: 500 }}>
-                      {obs.actor_hint || '—'}
+                      {obs.actor_hint || '-'}
                     </td>
                     <td style={{ padding: '8px 10px', color: 'var(--text)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {obs.description}

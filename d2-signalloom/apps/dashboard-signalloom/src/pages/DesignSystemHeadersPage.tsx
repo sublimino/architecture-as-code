@@ -1,9 +1,9 @@
 /**
- * Design System — Headers. Five candidate top bars, side by side, so the
+ * Design System: Headers. Five candidate top bars, side by side, so the
  * choice can be made by looking rather than by describing.
  *
  * Why it exists. components/TopNav.tsx is the header this app has, and it was
- * never chosen — it accreted. It carries a second copy of four nav links the
+ * never chosen: it accreted. It carries a second copy of four nav links the
  * sidebar already owns, a Help button, an avatar and a Sign out, and it says
  * nothing about which cluster or which tenant the reader is pointed at. That
  * is defensible for an internal tool and it is not defensible in front of a
@@ -19,7 +19,7 @@
  * Three things worth knowing before you edit it.
  *
  * 1. IT IS PROVIDER-FREE, like DesignSystemPage. No router, no auth context,
- *    no API client — every specimen is driven by fixtures in
+ *    no API client: every specimen is driven by fixtures in
  *    components/headers/alerts.ts, and DesignSystemHeadersPage.test.tsx
  *    renders it with a bare `render()` to keep it that way. The deep links are
  *    plain `<a href>` for exactly this reason: `toHref()` produces the same
@@ -34,7 +34,7 @@
  *
  * 3. THE SCOPED STYLE BLOCK IS DELIBERATE. Hover and :focus-visible cannot be
  *    expressed in an inline style object, and global.css only paints a focus
- *    ring on `button` — an anchor gets the browser default, which is invisible
+ *    ring on `button` (an anchor gets the browser default, which is invisible)
  *    on the dark themes. Nine other agents are in src/components/ and
  *    styles/global.css right now, so rather than edit a shared stylesheet this
  *    page carries its own `dsh-` prefixed rules. Every colour in it is a
@@ -62,7 +62,7 @@ import PageTocLayout, { type TocEntry } from '../components/PageToc'
  * The on-this-page index, in document order.
  *
  * The labels are SHORTER than the headings they point at, which the headings
- * on this page earn by being sentences — "3 · Operations console — the header
+ * on this page earn by being sentences: "3 · Operations console: the header
  * is an instrument panel" is a good heading and a bad nav entry, and a
  * 232px rail full of four-line links is not an index. What the labels may not
  * do is say something different: DesignSystemHeadersPage.test.tsx asserts each
@@ -84,7 +84,7 @@ export const DESIGN_SYSTEM_HEADER_SECTIONS: readonly TocEntry[] = [
 
 // ── Layout helpers ───────────────────────────────────────────────────────────
 //
-// Deliberately the same shapes DesignSystemPage uses — `Group` with its
+// Deliberately the same shapes DesignSystemPage uses: `Group` with its
 // section/heading/when-to-use testids, and an `ExampleHeading` at h3 so a
 // group never carries two h2s. Duplicated rather than imported: that page's
 // helpers are private to it, and a design-system page that reaches into
@@ -158,7 +158,7 @@ function Caveat({ children }: { children: ReactNode }) {
   )
 }
 
-/** "Do not reach for this when …" — always rendered, never optional. */
+/** "Do not reach for this when …": always rendered, never optional. */
 function NotWhen({ id, children }: { id: string; children: ReactNode }) {
   return (
     <p
@@ -190,8 +190,8 @@ const cardStyle: CSSProperties = {
  * Hover and focus, which inline styles cannot express.
  *
  * `.dsh-link:focus-visible` is the one that matters: global.css paints a ring
- * on `button:focus-visible` and on nothing else, so every anchor on this page —
- * and the deep links are all anchors — would otherwise be keyboard-reachable
+ * on `button:focus-visible` and on nothing else, so every anchor on this page (
+ * and the deep links are all anchors) would otherwise be keyboard-reachable
  * and invisibly so.
  */
 const SCOPED_STYLE = `
@@ -230,7 +230,7 @@ const COMPARISON: {
     name: 'Command bar',
     height: '52px',
     notifications: 'A count, then inside the palette',
-    orientation: 'None — the sidebar carries it',
+    orientation: 'None (the sidebar carries it)',
     search: 'The entire header',
     environment: 'Not shown',
   },
@@ -309,7 +309,7 @@ export default function DesignSystemHeadersPage() {
     <PageTocLayout entries={DESIGN_SYSTEM_HEADER_SECTIONS}>
       <style>{SCOPED_STYLE}</style>
 
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Design System — Headers</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Design System: Headers</h1>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0, marginBottom: 10, maxWidth: 860, lineHeight: 1.6 }}>
         Five candidate top bars for this product, each a different argument about what a header is for. They are
         working specimens, not pictures: hover them, tab into them, open and close them. All five are driven by the
@@ -318,19 +318,19 @@ export default function DesignSystemHeadersPage() {
       <p style={{ color: 'var(--muted)', fontSize: 12.5, marginTop: 0, marginBottom: 26, maxWidth: 860, lineHeight: 1.6 }}>
         Nothing here is wired into the app. <code style={{ color: 'var(--text)' }}>components/TopNav.tsx</code> is
         untouched and stays the header this dashboard renders until one of these is chosen on purpose. Start with the
-        deep-link contract below — it is the vocabulary the five variants are compared in.
+        deep-link contract below: it is the vocabulary the five variants are compared in.
       </p>
 
       {/* ── The deep-link contract ─────────────────────────────────────────── */}
       <Group
         id="deep-linking"
         title="The deep-link contract"
-        when="Reach for this every time an alert names a specific thing — which is nearly always. An alert is a promise that something is wrong somewhere; a deep link is the difference between keeping that promise and handing the reader a search problem with a red dot on it. The three parts below each do a job the other two cannot, and the middle one is the one products drop."
+        when="Reach for this every time an alert names a specific thing, which is nearly always. An alert is a promise that something is wrong somewhere; a deep link is the difference between keeping that promise and handing the reader a search problem with a red dot on it. The three parts below each do a job the other two cannot, and the middle one is the one products drop."
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
           <div style={{ ...cardStyle, flex: '1 1 340px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--cyan)', marginBottom: 10 }}>
-              Deep — the row
+              Deep: the row
             </div>
             <a
               className="dsh-link"
@@ -346,7 +346,7 @@ export default function DesignSystemHeadersPage() {
             </code>
             <dl style={{ margin: '12px 0 0', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px', fontSize: 11.5 }}>
               <dt style={{ color: 'var(--cyan)', fontWeight: 600 }}>path</dt>
-              <dd style={{ margin: 0, color: 'var(--muted)' }}>Which resource. The framework id is already substituted — never the bare list route.</dd>
+              <dd style={{ margin: 0, color: 'var(--muted)' }}>Which resource. The framework id is already substituted (never the bare list route).</dd>
               <dt style={{ color: 'var(--cyan)', fontWeight: 600 }}>query</dt>
               <dd style={{ margin: 0, color: 'var(--muted)' }}>
                 What must be true for the row to be rendered at all. Drop this and the link still “works”: you land on an
@@ -354,7 +354,7 @@ export default function DesignSystemHeadersPage() {
               </dd>
               <dt style={{ color: 'var(--cyan)', fontWeight: 600 }}>anchor</dt>
               <dd style={{ margin: 0, color: 'var(--muted)' }}>
-                Which row, so the page can scroll to it and highlight it — and so the URL still means something after it
+                Which row, so the page can scroll to it and highlight it, and so the URL still means something after it
                 has been pasted into a ticket somebody opens next Tuesday.
               </dd>
             </dl>
@@ -362,7 +362,7 @@ export default function DesignSystemHeadersPage() {
 
           <div style={{ ...cardStyle, flex: '1 1 340px', borderColor: 'color-mix(in srgb, var(--error) 40%, transparent)' }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--error)', marginBottom: 10 }}>
-              Shallow — the anti-pattern
+              Shallow: the anti-pattern
             </div>
             <a
               className="dsh-link"
@@ -376,7 +376,7 @@ export default function DesignSystemHeadersPage() {
               {shallowHref}
             </code>
             <p style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.55, margin: '12px 0 0' }}>
-              This is the link every product ships first. It is not broken, which is why it survives review — it
+              This is the link every product ships first. It is not broken, which is why it survives review: it
               navigates, the destination exists, the badge clears. It has simply moved the work from the system to the
               reader, and it does so once per alert, forever. The two cards are one line of markup apart.
             </p>
@@ -393,20 +393,20 @@ export default function DesignSystemHeadersPage() {
       {/* ── 1. Command bar ─────────────────────────────────────────────────── */}
       <Group
         id="command"
-        title="1 · Command bar — the header is a way in"
-        when="Choose this when your operators are experts who arrive knowing the noun they want — an agent name, a control id, a policy — and when the left rail already carries navigation, so a second navigation across the top is duplication rather than redundancy. It is the only one of the five that scales to a hundred destinations without growing, because it does not list them."
+        title="1 · Command bar: the header is a way in"
+        when="Choose this when your operators are experts who arrive knowing the noun they want (an agent name, a control id, a policy) and when the left rail already carries navigation, so a second navigation across the top is duplication rather than redundancy. It is the only one of the five that scales to a hundred destinations without growing, because it does not list them."
       >
         <CommandBarHeader />
         <NotWhen id="command">
           your users browse rather than seek, when the population is occasional or non-technical, or when someone must
           be able to see the state of the estate without performing an interaction first. A palette hides everything
           behind a keystroke; that is its efficiency and its blind spot. Note that the unread count still sits outside
-          it here — a version of this that folded the count away too would fail in an operations centre by lunchtime.
+          it here: a version of this that folded the count away too would fail in an operations centre by lunchtime.
         </NotWhen>
         <Caveat>
           Keyboard: tab to the input, type to filter, <kbd>↓</kbd> to move into the results, <kbd>Esc</kbd> to close.
           Results are real links and buttons rather than <code>aria-activedescendant</code> bookkeeping, so a screen
-          reader meets each one as the link it is. There is no global hotkey binding on this page on purpose — five
+          reader meets each one as the link it is. There is no global hotkey binding on this page on purpose: five
           specimens cannot each own <kbd>/</kbd>, and it must not race KeyboardShortcutsOverlay’s window handler.
         </Caveat>
       </Group>
@@ -414,12 +414,12 @@ export default function DesignSystemHeadersPage() {
       {/* ── 2. Context bar ─────────────────────────────────────────────────── */}
       <Group
         id="context"
-        title="2 · Context bar — the header is a place"
-        when="Choose this when the recurring question is “where am I and what is this”. This app has /compliance/:frameworkId and /discovery/accounts/:accountId — three levels deep with nothing in the chrome saying so and the browser back button as the only trail. It is also the only variant whose alerts are scoped to the thing on screen, which is what makes them worth reading rather than worth dismissing."
+        title="2 · Context bar: the header is a place"
+        when="Choose this when the recurring question is “where am I and what is this”. This app has /compliance/:frameworkId and /discovery/accounts/:accountId (three levels deep with nothing in the chrome saying so and the browser back button as the only trail). It is also the only variant whose alerts are scoped to the thing on screen, which is what makes them worth reading rather than worth dismissing."
       >
         <ContextBarHeader />
         <NotWhen id="context">
-          your pages are flat — a breadcrumb of length one is noise with a chevron — or when alerts routinely originate
+          your pages are flat (a breadcrumb of length one is noise with a chevron) or when alerts routinely originate
           somewhere other than the entity in view. Scoping is the strongest idea here and the most dangerous: it makes
           what you see relevant and it makes what you cannot see invisible, which is why the count of everything else is
           still printed beside it as a way out.
@@ -429,17 +429,17 @@ export default function DesignSystemHeadersPage() {
       {/* ── 3. Operations console ──────────────────────────────────────────── */}
       <Group
         id="operations"
-        title="3 · Operations console — the header is an instrument panel"
-        when="Choose this when acting on the wrong environment is the expensive mistake, and when alert volume is past what a badge can summarise. In a regulated estate the costly error is not misreading a figure, it is suspending the right agent in the wrong cluster — and no amount of care in the page below repairs a shell that never says which cluster it is. Demo data belongs in that strip for the same reason: this product is demonstrated far more often than it is operated, and a fictional figure should say so in the chrome rather than in the presenter’s narration."
+        title="3 · Operations console: the header is an instrument panel"
+        when="Choose this when acting on the wrong environment is the expensive mistake, and when alert volume is past what a badge can summarise. In a regulated estate the costly error is not misreading a figure, it is suspending the right agent in the wrong cluster, and no amount of care in the page below repairs a shell that never says which cluster it is. Demo data belongs in that strip for the same reason: this product is demonstrated far more often than it is operated, and a fictional figure should say so in the chrome rather than in the presenter’s narration."
       >
         <OperationsHeader />
         <NotWhen id="operations">
           there is only one environment, in which case the strip is a constant that stops being read in a fortnight, or
-          when vertical space is scarce — this is the tallest of the five at 84px before any work starts, and on a 13&quot;
+          when vertical space is scarce: this is the tallest of the five at 84px before any work starts, and on a 13&quot;
           laptop that is a visible fraction of the screen paid on every page view.
         </NotWhen>
         <Caveat>
-          The drawer is a drawer rather than an <code>/alerts</code> page because triage is a sequence — read, judge,
+          The drawer is a drawer rather than an <code>/alerts</code> page because triage is a sequence: read, judge,
           dismiss, next. Sending someone to another route to dismiss one thing and come back is four navigations for one
           decision. Dismiss an item and the count drops; dismiss them all and the drawer states where they went.
         </Caveat>
@@ -448,8 +448,8 @@ export default function DesignSystemHeadersPage() {
       {/* ── 4. Quiet header ────────────────────────────────────────────────── */}
       <Group
         id="quiet"
-        title="4 · Quiet header — the header is a label"
-        when="Choose this when the page is the product and the chrome is overhead: demos, projected screens, an audience six metres from the display. Forty-four pixels, one alert, no drawer, nothing that opens. Being able to show only one alert is a constraint that forces the right one to be chosen, which is a better discipline than it sounds — and it is the cheapest of the five to build and the hardest to get wrong."
+        title="4 · Quiet header: the header is a label"
+        when="Choose this when the page is the product and the chrome is overhead: demos, projected screens, an audience six metres from the display. Forty-four pixels, one alert, no drawer, nothing that opens. Being able to show only one alert is a constraint that forces the right one to be chosen, which is a better discipline than it sounds, and it is the cheapest of the five to build and the hardest to get wrong."
       >
         <QuietHeader alerts={quietAlerts} />
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -463,12 +463,12 @@ export default function DesignSystemHeadersPage() {
             {quietAlerts.length > 0 ? 'Clear all alerts' : 'Restore the alerts'}
           </button>
           <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-            The empty state is what this variant is really being judged on — it is where a demo audience spends most of
+            The empty state is what this variant is really being judged on: it is where a demo audience spends most of
             its time, and it is the state most headers never draw.
           </span>
         </div>
         <NotWhen id="quiet">
-          operators must triage several alerts without leaving the page, or when environment ambiguity exists — this
+          operators must triage several alerts without leaving the page, or when environment ambiguity exists: this
           header will not tell anyone which cluster they are in, and it has nowhere to put it.
         </NotWhen>
       </Group>
@@ -476,19 +476,19 @@ export default function DesignSystemHeadersPage() {
       {/* ── 5. Situation header ────────────────────────────────────────────── */}
       <Group
         id="situation"
-        title="5 · Situation header — the header is an exception channel"
-        when="Choose this when the normal state is “nothing to do” and the abnormal state must be impossible to miss. At rest it is thinner than any of the other four; when something breaks the same strip promotes into a banner that states what happened, which resource, since when, and offers exactly two things — go to it, or acknowledge it. A permanent instrument panel is read attentively for about a week; chrome that appears only when it has something to say is still being read in year two."
+        title="5 · Situation header: the header is an exception channel"
+        when="Choose this when the normal state is “nothing to do” and the abnormal state must be impossible to miss. At rest it is thinner than any of the other four; when something breaks the same strip promotes into a banner that states what happened, which resource, since when, and offers exactly two things: go to it, or acknowledge it. A permanent instrument panel is read attentively for about a week; chrome that appears only when it has something to say is still being read in year two."
       >
         <SituationHeader />
         <NotWhen id="situation">
           something is always wrong in your estate. A banner that is always on is a permanent instrument panel with
           worse layout stability, and it teaches the same learned blindness it was built to avoid. Also avoid it where
-          layout must not shift — the promotion moves the page down, and there is no honest way to make an
+          layout must not shift: the promotion moves the page down, and there is no honest way to make an
           impossible-to-miss banner that occupies no space.
         </NotWhen>
         <Caveat>
           The promoted banner carries <code>role=&quot;alert&quot;</code> and is the only live region this page mounts.
-          It does not exist until someone presses the control, so a reader who simply opens this page meets silence —
+          It does not exist until someone presses the control, so a reader who simply opens this page meets silence:
           the correct behaviour for a gallery, and not by coincidence for the real thing. Focus follows the escalation
           to Acknowledge and returns to the trigger when the banner is dismissed.
         </Caveat>
@@ -543,7 +543,7 @@ export default function DesignSystemHeadersPage() {
           <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
             The environment strip is the one thing on this page that a bank’s operator will notice is missing from every
             competitor’s screenshot. It answers “which tenant, which cluster, is this real data” without being asked, and
-            in a regulated estate that is not chrome — it is the control that stops the wrong action being taken
+            in a regulated estate that is not chrome: it is the control that stops the wrong action being taken
             confidently. The drawer is the only notification pattern here that survives past three alerts, and it
             dismisses in place, which is what triage actually is.
           </p>
@@ -554,10 +554,10 @@ export default function DesignSystemHeadersPage() {
             screen is the thing that is actually wrong rather than the thing that is permanently displayed.
           </p>
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Variant 4 is the fallback and it is not a consolation prize — if the header is going to be looked at from the
+            Variant 4 is the fallback and it is not a consolation prize: if the header is going to be looked at from the
             back of a room more often than it is worked in, ship the Quiet header and put the environment into the page.
             Variant 1 is right for a later product with more surface than a sidebar can list; today it solves a problem
-            this app does not have yet. Variant 2 is not a header at all — it is a page-level component that several
+            this app does not have yet. Variant 2 is not a header at all: it is a page-level component that several
             pages should adopt on their own, and building it into the shell would force a breadcrumb onto the flat
             top-level pages where it is noise.
           </p>
@@ -573,7 +573,7 @@ export default function DesignSystemHeadersPage() {
         <ul data-testid="ds-rules-list" style={{ margin: 0, paddingLeft: 18, maxWidth: 820, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.7 }}>
           <li>
             <strong style={{ color: 'var(--text)' }}>An accessible name contains the visible label.</strong> WCAG 2.5.3,
-            and in this codebase a CI stage — an <code>aria-label</code> of “Open help and support” on a button reading
+            and in this codebase a CI stage: an <code>aria-label</code> of “Open help and support” on a button reading
             “Help &amp; Support” made the control unsayable. Every icon-only control here takes a name a person would
             plausibly speak, and every control showing a number puts that number in its name: the bell is “Notifications,
             6 unread, 2 critical”.
@@ -586,8 +586,8 @@ export default function DesignSystemHeadersPage() {
           <li>
             <strong style={{ color: 'var(--text)' }}>The unread count is not white on red.</strong>{' '}
             <code>--on-accent</code> against <code>--error</code> measures 3.62:1 under the Andy theme and the numeral is
-            normal-size text, so it wants 4.5:1 — a red pill with an unreadable number on it is a decoration that looks
-            like information. The urgency is carried by a red-tinted surface and a red hairline; the numeral is{' '}
+            normal-size text, so it wants 4.5:1 (a red pill with an unreadable number on it is a decoration that looks
+            like information). The urgency is carried by a red-tinted surface and a red hairline; the numeral is{' '}
             <code>--text</code>, above 10:1 in every theme.
           </li>
           <li>
@@ -595,7 +595,7 @@ export default function DesignSystemHeadersPage() {
             on Enter, closes on Escape and on a click outside, and puts focus back where it found it.
           </li>
           <li>
-            <strong style={{ color: 'var(--text)' }}>Tokens only.</strong> No bare hex anywhere in these files —
+            <strong style={{ color: 'var(--text)' }}>Tokens only.</strong> No bare hex anywhere in these files:
             styles/cssVarUsage.test.ts fails the build for it, and a literal colour is correct in exactly one of Dark,
             Light and Andy. Switch the theme with the toggle and every specimen above should still read.
           </li>

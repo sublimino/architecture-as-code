@@ -29,8 +29,8 @@ import { useAuth0 } from '../auth/oidc'
  *
  * Read from the authenticated OIDC profile, never from a constant. Returns `undefined`
  * when the session has authenticated nobody, which the panels render as an explicit
- * unattributed marker — a demo console that fabricates an operator name is indisputably
- * worse than one that admits it has none.
+ * unattributed marker (a demo console that fabricates an operator name is indisputably
+ * worse than one that admits it has none).
  */
 export function deriveOperatorPrincipal(
   profile: Record<string, unknown> | undefined,
@@ -353,7 +353,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Stage 1 — AMXD-P2-2 TokenIssuePanel */}
+                  {/* Stage 1: AMXD-P2-2 TokenIssuePanel */}
                   {activeViewStage === 'operator_init' && (
                     <TokenIssuePanel
                       bridge={bridge}
@@ -365,7 +365,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                     />
                   )}
 
-                  {/* Stage 2 — AMXD-P2-2 EnrollmentPanel */}
+                  {/* Stage 2: AMXD-P2-2 EnrollmentPanel */}
                   {activeViewStage === 'host_enrolled' && (
                     <EnrollmentPanel
                       bridge={bridge}
@@ -376,7 +376,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                     />
                   )}
 
-                  {/* Stage 3 — AMXD-P3-1 ConfinementTelemetryPanel & LandlockPolicyInspector */}
+                  {/* Stage 3: AMXD-P3-1 ConfinementTelemetryPanel & LandlockPolicyInspector */}
                   {activeViewStage === 'confinement_streaming' && (
                     <>
                       <ConfinementTelemetryPanel
@@ -397,7 +397,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                     </>
                   )}
 
-                  {/* Stage 4 — AMXD-P4-1 AdversarialSimulationPanel */}
+                  {/* Stage 4: AMXD-P4-1 AdversarialSimulationPanel */}
                   {activeViewStage === 'adversarial_tamper' && (
                     <AdversarialSimulationPanel
                       bridge={bridge}
@@ -415,7 +415,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                     />
                   )}
 
-                  {/* Stage 5 — AMXD-P4-2 RevocationPanel */}
+                  {/* Stage 5: AMXD-P4-2 RevocationPanel */}
                   {activeViewStage === 'revocation_denied' && (
                     <RevocationPanel
                       bridge={bridge}
@@ -477,7 +477,7 @@ export const AgentMaxxingDemoPage: React.FC = () => {
                   />
                 </section>
 
-                {/* Execution Log Stream Slot — Streams logs like SuperCredential Demo */}
+                {/* Execution Log Stream Slot: Streams logs like SuperCredential Demo */}
                 <div
                   data-testid="execution-log-stream-slot"
                   style={{ marginTop: 8 }}

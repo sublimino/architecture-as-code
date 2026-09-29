@@ -12,21 +12,21 @@ import DelegationAttestationDrawer, { type AttestationPayload } from './Delegati
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtTs(iso: string | null | undefined): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   try {
     const d = new Date(iso)
     if (isNaN(d.getTime())) return iso
     return d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC'
   } catch {
-    return iso || '—'
+    return iso || '-'
   }
 }
 
 function fmtRelative(iso: string | null | undefined): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   try {
     const diff = Date.now() - new Date(iso).getTime()
-    if (isNaN(diff)) return '—'
+    if (isNaN(diff)) return '-'
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return 'just now'
     if (mins === 1) return '1m ago'
@@ -40,7 +40,7 @@ function fmtRelative(iso: string | null | undefined): string {
     if (days < 30) return `${days}d ago`
     return fmtTs(iso)
   } catch {
-    return '—'
+    return '-'
   }
 }
 
@@ -499,7 +499,7 @@ export default function AgentActivityTab({
             Recorded Events
           </span>
           <div data-testid="activity-total-events" style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: 'var(--text)' }}>
-            {isSourceUnavailable ? '—' : totalEventsCount}
+            {isSourceUnavailable ? '-' : totalEventsCount}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
             {isSourceUnavailable ? 'Source unavailable' : `${allAuditEvents.length} audit · ${violations.length} violations${telemetryObservations.length > 0 ? ` · ${telemetryObservations.length} telemetry` : ''}${externalEvidence.length > 0 ? ` · ${externalEvidence.length} evidence` : ''}`}
@@ -516,7 +516,7 @@ export default function AgentActivityTab({
             Policy Violations
           </span>
           <div data-testid="activity-violations-count" style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: openViolationsCount > 0 ? colors.red : colors.tealLoom }}>
-            {isSourceUnavailable ? '—' : openViolationsCount}
+            {isSourceUnavailable ? '-' : openViolationsCount}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
             {isSourceUnavailable ? 'Source unavailable' : openViolationsCount === 0 ? 'Zero active violations' : `${openViolationsCount} require acknowledgment`}
@@ -533,7 +533,7 @@ export default function AgentActivityTab({
             Attestations & SVIDs
           </span>
           <div data-testid="activity-attestations-count" style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: 'var(--text)' }}>
-            {isSourceUnavailable ? '—' : attestationEventsCount}
+            {isSourceUnavailable ? '-' : attestationEventsCount}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
             {agent.identity?.spiffe_id ? 'SPIFFE linked' : 'Registry not linked'}
@@ -1390,7 +1390,7 @@ export default function AgentActivityTab({
                       <div>
                         <span style={{ color: 'var(--muted)' }}>Executing Actor: </span>
                         <span data-testid="activity-executing-actor" style={{ fontFamily: 'monospace', color: 'var(--text)', fontWeight: 500 }}>
-                          {workloadActor || '—'}
+                          {workloadActor || '-'}
                         </span>
                       </div>
 

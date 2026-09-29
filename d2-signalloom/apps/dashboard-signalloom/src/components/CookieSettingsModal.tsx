@@ -1,5 +1,5 @@
 /**
- * CookieSettingsModal — update analytics opt-in post-consent.
+ * CookieSettingsModal: update analytics opt-in post-consent.
  * Opened from Account Settings → Cookie Settings link.
  * Reads current preferences from GET /api/cookie-preferences,
  * writes changes via PATCH /api/cookie-preferences.
@@ -28,7 +28,7 @@ export default function CookieSettingsModal({ onClose }: Props) {
         const res = await api.cookiePreferences.get(token)
         setAnalytics(res.cookie_preferences.analytics)
       } catch {
-        // Fail open — show default unchecked state
+        // Fail open: show default unchecked state
       } finally {
         setLoading(false)
       }
@@ -45,7 +45,7 @@ export default function CookieSettingsModal({ onClose }: Props) {
       setAnalytics(res.cookie_preferences.analytics)
       setSaved(true)
     } catch {
-      setError('Failed to save preferences — please try again.')
+      setError('Failed to save preferences. Please try again.')
     } finally {
       setSaving(false)
     }

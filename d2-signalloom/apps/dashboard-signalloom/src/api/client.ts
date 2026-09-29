@@ -145,7 +145,7 @@ function requiresLiveAgentDetail(method: string, path: string): boolean {
 //
 // `waiters` is what makes per-caller cancellation safe here. A coalesced
 // request has more than one consumer by construction, so one caller aborting
-// must NOT kill the HTTP request the others are still waiting on — it may only
+// must NOT kill the HTTP request the others are still waiting on; it may only
 // detach that caller. The shared request is aborted when, and only when, the
 // last waiter has left. A caller that passed no signal is uncancellable and so
 // pins the request open, which is the correct conservative reading of "this
@@ -186,14 +186,14 @@ function demoModeError(message: string, status: number): ApiLikeError {
  * and none of them know the demo exists.
  *
  * Applies to both demo-data fixtures and live API responses, because the
- * observation driving it — the agent's `signalloom.ai/state` pod label — reads
+ * observation driving it (the agent's `signalloom.ai/state` pod label) reads
  * the same either way. Hard-gated off in uat/prod by isSuperCredEnabled().
  */
 async function applyDemoProjection<T>(method: string, path: string, data: T): Promise<T> {
   // Deliberately total: every branch, including the enablement checks, is
   // inside the catch. This overlay is decoration on top of the real response,
-  // so no failure in it — an unreachable proxy, a partially-mocked module, a
-  // malformed payload — may ever surface as a page error.
+  // so no failure in it (an unreachable proxy, a partially-mocked module, a
+  // malformed payload) may ever surface as a page error.
   try {
     if (!isSuperCredEnabled() || !affectsDemo(method, path)) return data
     const state = await ensureSuperCredState()
@@ -207,7 +207,7 @@ async function applyDemoProjection<T>(method: string, path: string, data: T): Pr
  * The rejection every cancelled request produces.
  *
  * Named `AbortError` because callers have to be able to tell "you stopped
- * caring" apart from "the service failed" — a page that renders the first as
+ * caring" apart from "the service failed": a page that renders the first as
  * the second reports an outage that never happened.
  */
 function abortError(): ApiLikeError {
@@ -221,8 +221,8 @@ function abortError(): ApiLikeError {
  * cancelled.
  *
  * `clearTimeout` rather than a resolved-but-ignored timer is the whole point:
- * an abandoned timer still fires, still holds its callback alive, and — if the
- * caller has gone away in the meantime — still runs that callback in whatever
+ * an abandoned timer still fires, still holds its callback alive, and (if the
+ * caller has gone away in the meantime) still runs that callback in whatever
  * the environment has become by then.
  */
 function delayedFixture<T>(value: T, signal?: AbortSignal): Promise<T> {
@@ -268,7 +268,7 @@ function joinInflight<T>(url: string, entry: InflightGet, signal?: AbortSignal):
     }
     signal.addEventListener('abort', onAbort, { once: true })
     // Attached for every waiter, including one that has already been rejected
-    // by its own abort — settling an already-settled promise is a no-op, and
+    // by its own abort: settling an already-settled promise is a no-op, and
     // the handler is what keeps a cancelled shared request from surfacing as an
     // unhandled rejection.
     entry.promise.then(
@@ -331,7 +331,7 @@ export async function req<T>(
   }
 
   // Coalesce on the raw response so concurrent callers share one HTTP request,
-  // then project per-caller — the projection is pure and cheap.
+  // then project per-caller: the projection is pure and cheap.
   const existing = inflightGets.get(url)
   if (existing) {
     existing.waiters += 1
@@ -475,7 +475,7 @@ export const api = {
     issueCredential: (token: string, id: string, body?: { token_note?: string }) =>
       req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST', data: body }),
 
-    // Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
+    // Self-serve revoke: revokes ALL active credentials for the agent (ClickUp 86cak75u7).
     revokeCredential: (token: string, id: string) =>
       req<RevokeCredentialResponse>(`/agents/${id}/credentials/revoke`, token, { method: 'POST' }),
 
@@ -491,8 +491,8 @@ export const api = {
     transition: (token: string, id: string, body: TransitionRequest) =>
       req<TransitionResponse>(`/agents/${id}/transition`, token, { method: 'POST', data: body }),
 
-    // Stun an agent. This endpoint PERFORMS the isolation — it calls the
-    // SuperCred proxy itself to relabel the pod and revoke the lease — and
+    // Stun an agent. This endpoint PERFORMS the isolation (it calls the
+    // SuperCred proxy itself to relabel the pod and revoke the lease) and
     // writes the state change and its audit event in the same transaction.
     //
     // No body, by design. The browser used to POST the proxy directly and then
@@ -503,7 +503,7 @@ export const api = {
     // from the path, everything else from what the server observed.
     //
     // In demo mode it resolves to a fixture that appends to the demo activity
-    // log instead — same event, same timeline, no backend.
+    // log instead: same event, same timeline, no backend.
     stun: (token: string, id: string) =>
       req<StunAgentResponse>(`/agents/${id}/stun`, token, { method: 'POST' }),
 
@@ -677,7 +677,7 @@ export const api = {
     list: (token: string) =>
       req<NetworkTestListResponse>('/network-tests', token),
 
-    // POST with no body — the scan target set is fixed server-side (see
+    // POST with no body: the scan target set is fixed server-side (see
     // fake-integration-proxy/server.py's _netassert_job_manifest); there is
     // nothing for a caller to parameterise.
     scan: (token: string) =>

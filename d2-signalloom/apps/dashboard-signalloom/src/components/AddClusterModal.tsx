@@ -1,5 +1,5 @@
 /**
- * AddClusterModal — UI-only modal for connecting a remote Kubernetes cluster.
+ * AddClusterModal: UI-only modal for connecting a remote Kubernetes cluster.
  *
  * Supports three connection methods: Kubeconfig, Service Account, and API
  * Endpoint. On submit, the cluster is added to a local in-memory list (no
@@ -14,7 +14,7 @@ export interface NewClusterEntry {
   method: ConnectionMethod
   /** Kubeconfig path, SA token, or API URL depending on method. */
   connectionValue: string
-  /** API token — only used when method is 'api-endpoint'. */
+  /** API token (only used when method is 'api-endpoint'). */
   apiToken?: string
 }
 
@@ -182,7 +182,7 @@ export default function AddClusterModal({ onAdd, onClose }: Props) {
               />
             </div>
 
-            {/* API token — only for api-endpoint method */}
+            {/* API token: only for api-endpoint method */}
             {method === 'api-endpoint' && (
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>

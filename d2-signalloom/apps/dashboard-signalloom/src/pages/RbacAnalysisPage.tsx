@@ -1,15 +1,15 @@
 /**
- * RBAC Analysis — KubeSec-AFM embedded dashboard.
+ * RBAC Analysis: KubeSec-AFM embedded dashboard.
  *
  * Iframes the KubeSec-AFM Next.js dashboard through the nginx reverse proxy at
- * /dashboard/. Same-origin — AFM's asset paths (/dashboard/_next/...) resolve
+ * /dashboard/. Same-origin: AFM's asset paths (/dashboard/_next/...) resolve
  * naturally. The iframe loads the full AFM UI: cluster list, RBAC graph,
  * escalation analysis, collusion detection, and remediation recommendations.
  *
  * ── Why there is no DataTable here ──────────────────────────────────────────
  * There are no rows on this page to put in one. Its entire data surface is two
- * scalars — the code /afm/health answered with, and the length of
- * /afm/clusters — plus an iframe. `clustersRes` is consumed by `.length` and
+ * scalars (the code /afm/health answered with, and the length of
+ * /afm/clusters) plus an iframe. `clustersRes` is consumed by `.length` and
  * `selectMostRecentImport` and is never rendered; `localClusters` is the only
  * array in this component's state and only ever reaches the screen as an
  * addend in the count on the status line. The rows a reader of an RBAC page
@@ -45,7 +45,7 @@ interface AfmStatus {
   /**
    * The status code /afm/health actually answered with, kept so the
    * "AFM connected" claim beside it can be checked rather than believed.
-   * `null` means the request never completed, so there is no code to show —
+   * `null` means the request never completed, so there is no code to show,
    * which is a different thing from a code that says no.
    */
   healthStatus: number | null
@@ -57,7 +57,7 @@ interface AfmStatus {
  *
  * Both routes are called unauthenticated by `checkHealth` below (they are the
  * nginx-proxied `/afm/*` surface, not `/api/*`), so neither command carries a
- * bearer header — a proof that would not run as written is worse than none.
+ * bearer header: a proof that would not run as written is worse than none.
  *
  * A request that never completed yields NO proof rather than an invented one.
  * curl would print its own failure there and this page did not record it, and
@@ -92,7 +92,7 @@ const COMPACT_BTN: CSSProperties = { fontSize: 12, padding: '5px 12px' }
  * Reserved so Reload does not resize when its label becomes a loader.
  *
  * ButtonWait reserves 78px for the grid and the elapsed figure, and this
- * button's own padding adds 24 — so the busy state is wider than the word
+ * button's own padding adds 24, so the busy state is wider than the word
  * "Reload" and the header row would shuffle sideways at both transitions
  * without this. Same reasoning, and the same fix, as NetworkTestsPage's
  * SCAN_BUTTON_W: a toolbar that jumps mid-probe reads to a room as a fault,
@@ -104,7 +104,7 @@ const RELOAD_BTN_W = 104
 /**
  * The two mode banners, which held the last hardcoded colours on this page.
  *
- * They carried `rgba(245,158,11,…)` and `rgba(6,182,212,…)` — the Dark theme's
+ * They carried `rgba(245,158,11,…)` and `rgba(6,182,212,…)` (the Dark theme's
  * amber and cyan, frozen as literals. The text sitting on them is
  * `var(--amber)` and `var(--cyan)`, which do follow the theme, so under Light
  * and Andy the fill and the text it was supposed to tint were two different
@@ -183,7 +183,7 @@ export default function RbacAnalysisPage() {
       }
     } catch {
       // Nothing answered, so there is no status code to show and no proof to
-      // offer — see afmReachabilityProofs.
+      // offer: see afmReachabilityProofs.
       setStatus({ reachable: false, clusterCount: null, checkedAt: new Date(), healthStatus: null })
     }
   }, [])
@@ -216,13 +216,13 @@ export default function RbacAnalysisPage() {
               sentence: what an escalation path is, what makes two individually
               harmless identities dangerous together, and what a min-cut is a
               cut OF. Anchored to the words themselves rather than collected
-              into one hint on the heading — the canon's specimen is a term
+              into one hint on the heading: the canon's specimen is a term
               followed by its "?", and a reader who already knows two of the
               three should not have to open an explanation of all three.
               lineHeight is the one concession: an 18px affordance set in a 13px
               paragraph needs the extra leading or consecutive rows collide. */}
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, maxWidth: 700, lineHeight: 1.7 }}>
-            KubeSec-AFM — formal-methods RBAC privilege escalation{' '}
+            KubeSec-AFM: formal-methods RBAC privilege escalation{' '}
             <HelpHint label="What privilege escalation means" testId="rbac-hint-escalation">
               A path by which an identity that is not cluster-admin can become one, using only the
               permissions it already holds. The commonest edge is a wildcard verb: a Role granting
@@ -232,7 +232,7 @@ export default function RbacAnalysisPage() {
             </HelpHint>
             {' '}&amp; collusion{' '}
             <HelpHint label="What collusion means" testId="rbac-hint-collusion">
-              Two or more identities that are each harmless alone and reach admin together — one can
+              Two or more identities that are each harmless alone and reach admin together (one can
               create a binding, another can be named as its subject. No single account looks
               over-privileged in review, which is precisely why this is the class that an audit of one
               identity at a time cannot find.
@@ -241,7 +241,7 @@ export default function RbacAnalysisPage() {
             paths, shared-role pivot points, and min-cut remediation{' '}
             <HelpHint label="What min-cut remediation means" testId="rbac-hint-mincut">
               The smallest set of role bindings whose removal breaks every escalation path that was
-              found — a cut through the permission graph. It ranks what to revoke first; it is not a
+              found: a cut through the permission graph. It ranks what to revoke first; it is not a
               claim that whatever survives the cut is safe.
             </HelpHint>
             {' '}priorities.
@@ -282,7 +282,7 @@ export default function RbacAnalysisPage() {
           {/* Three controls, one shape. `.btn-secondary` already declares its
               own fill, text colour and border, so the cyan border-and-colour
               pair that used to sit here was overriding half a variant with an
-              inline copy of a different one — and getting the hover state
+              inline copy of a different one, and getting the hover state
               (which only moves --surface2 to --border-subtle) for free while
               leaving its own border static. Only the size, which the whole
               header row shares, is still local. */}
@@ -301,7 +301,7 @@ export default function RbacAnalysisPage() {
               who needs it is the one deciding whether to open it. */}
           <HelpHint label="What Add Cluster does" testId="rbac-hint-add-cluster">
             Registers a remote cluster in this browser tab only. No request is sent to AFM and nothing
-            is persisted — the entry adds to the count on this line, and refreshing the browser
+            is persisted: the entry adds to the count on this line, and refreshing the browser
             discards it.
           </HelpHint>
           {/* The wait belongs inside the control the reader just pressed, which
@@ -335,8 +335,8 @@ export default function RbacAnalysisPage() {
               ? <ButtonWait testId="afm-reload-wait" label="Reloading" />
               : 'Reload'}
           </button>
-          {/* An anchor, still — it opens a new tab and must stay
-              middle-clickable — but wearing the shared class rather than a
+          {/* An anchor, still (it opens a new tab and must stay
+              middle-clickable) but wearing the shared class rather than a
               hand-drawn border plus two JS mouse handlers that reimplemented
               :hover. `.btn`'s focus-visible outline comes with it, which the
               hand-rolled version never had: it was reachable by keyboard and
@@ -375,7 +375,7 @@ export default function RbacAnalysisPage() {
       {/* Demo mode banner */}
       {demo && (
         <div data-testid="demo-mode-notice" style={DEMO_NOTICE}>
-          Demo mode — AFM is running with seeded sample clusters. Switch to live mode
+          Demo mode: AFM is running with seeded sample clusters. Switch to live mode
           for real cluster RBAC analysis.
         </div>
       )}
@@ -383,7 +383,7 @@ export default function RbacAnalysisPage() {
       {/* Live mode host cluster indicator */}
       {!demo && status.reachable && (
         <div data-testid="host-cluster-indicator" style={LIVE_NOTICE}>
-          Live mode — analysing Host Cluster via Flux. Add remote clusters to extend analysis.
+          Live mode: analysing Host Cluster via Flux. Add remote clusters to extend analysis.
         </div>
       )}
 
@@ -405,7 +405,7 @@ export default function RbacAnalysisPage() {
       )}
 
       {/* The whole panel failed and there is nothing to show, which is
-          ErrorState's exact remit — so the icon, the heading, the message and
+          ErrorState's exact remit, so the icon, the heading, the message and
           the Retry are the shared ones rather than this page's fourth private
           spelling of them. It also brings the 401 rule with it: a session that
           expired gets "Log in" instead of a Retry that is guaranteed to
@@ -413,7 +413,7 @@ export default function RbacAnalysisPage() {
 
           The remediation block stays. ErrorState takes a message, not a
           fragment, and "here is the command that fixes this" is the most
-          useful thing on the screen — dropping it to fit the component would
+          useful thing on the screen: dropping it to fit the component would
           be the migration paying for consistency with the reader's time. */}
       {!status.reachable && status.checkedAt && (
         <div style={{

@@ -20,7 +20,7 @@ interface Props {
  * operator that the app is flaky when in fact their session has simply expired.
  *
  * Matched patterns are specific rather than a bare `401`, so a message that
- * merely contains the number — "401 roles scanned" — is not mistaken for an
+ * merely contains the number (such as "401 roles scanned") is not mistaken for an
  * auth failure. Each pattern is a spelling that actually occurs here:
  *   - axios throws literally "Request failed with status code 401"
  *   - our own surfaces render "(HTTP 401)"

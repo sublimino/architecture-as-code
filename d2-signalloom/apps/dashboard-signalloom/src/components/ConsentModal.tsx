@@ -1,14 +1,14 @@
 /**
- * ConsentModal — first-use legal + cookie consent gate (ClickUp 86cabhuub Phase 2).
+ * ConsentModal: first-use legal + cookie consent gate (ClickUp 86cabhuub Phase 2).
  *
  * Cannot be dismissed: no X button, no Escape key, no click-outside.
  * Accept button is enabled only when:
  *   1. All three legal docs scrolled to ≥95% of their content
  *   2. The acceptance + authority-warranty checkbox is checked
- *   (Analytics cookie opt-in is free — both yes and no are valid)
+ *   (Analytics cookie opt-in is free; both yes and no are valid)
  *
  * Feature flag: if VITE_CONSENT_MODAL_ENABLED is "false" (or absent),
- * this component will not be rendered at all — gated in App.tsx.
+ * this component will not be rendered at all, gated in App.tsx.
  *
  * Scroll tracking: each legal doc iframe fires
  *   postMessage({ type: 'sl-legal-scrolled', doc: 'terms' | 'privacy' | 'eula' })
@@ -45,7 +45,7 @@ export default function ConsentModal({ onAccept }: Props) {
   const [accepting, setAccepting]   = useState(false)
   const [error, setError]           = useState<string | null>(null)
 
-  // Lazy-load iframe srcs — only load a tab's iframe when first visited
+  // Lazy-load iframe srcs: only load a tab's iframe when first visited
   const [loadedSrcs, setLoadedSrcs] = useState<Record<DocKey, string>>({
     terms: DOCS[0].src, privacy: '', eula: '',
   })
@@ -105,7 +105,7 @@ export default function ConsentModal({ onAccept }: Props) {
     try {
       await onAccept({ strictly_necessary: true, analytics: analyticsConsent })
     } catch {
-      setError('Failed to record acceptance — please try again.')
+      setError('Failed to record acceptance. Please try again.')
       setAccepting(false)
     }
   }
@@ -114,7 +114,7 @@ export default function ConsentModal({ onAccept }: Props) {
     ? 'Scroll to the bottom of each document to enable the Accept button.'
     : !warrantyChecked
       ? 'Check the box below to confirm before accepting.'
-      : 'You\'re all set — click Accept & Continue.'
+      : 'You\'re all set: click Accept & Continue.'
   const hintColor = !allScrolled ? 'var(--muted, #94A3B8)' : !warrantyChecked ? 'var(--amber)' : 'var(--teal)'
 
   return (
@@ -149,7 +149,7 @@ export default function ConsentModal({ onAccept }: Props) {
             id="consent-modal-title"
             style={{ fontSize: 16, fontWeight: 700, color: 'var(--text, #F8FAFC)', marginBottom: 16 }}
           >
-            Welcome to Signal Loom — please review and accept
+            Welcome to Signal Loom: please review and accept
           </h2>
           <div style={{ display: 'flex', marginBottom: -1 }}>
             {DOCS.map(doc => {
@@ -222,7 +222,7 @@ export default function ConsentModal({ onAccept }: Props) {
             working securely. These cannot be disabled.
           </p>
 
-          {/* Strictly necessary — locked */}
+          {/* Strictly necessary: locked */}
           <label
             style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'not-allowed', opacity: 0.7 }}
             title="Strictly necessary cookies are always required and cannot be disabled."
@@ -231,7 +231,7 @@ export default function ConsentModal({ onAccept }: Props) {
               type="checkbox"
               checked
               disabled
-              aria-label="Strictly necessary cookies — always on, cannot be disabled"
+              aria-label="Strictly necessary cookies: always on, cannot be disabled"
               style={{ accentColor: 'var(--cyan, #06B6D4)', width: 14, height: 14 }}
             />
             <span style={{ fontSize: 12, color: 'var(--muted, #94A3B8)' }}>
@@ -239,7 +239,7 @@ export default function ConsentModal({ onAccept }: Props) {
             </span>
           </label>
 
-          {/* Analytics — opt-in */}
+          {/* Analytics: opt-in */}
           <label
             style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
             title="Aggregated, anonymised usage data to help us improve the product. No advertising or cross-site tracking."

@@ -11,7 +11,7 @@
 // this module reads a generated copy of it (ratesTable.generated.ts). The
 // dashboard does not author rates. `fair.go` says a second implementation of
 // its maths anywhere in the repo is a defect; two rate tables are the same sin
-// with worse symptoms — a figure that differs between two views of the same
+// with worse symptoms: a figure that differs between two views of the same
 // product, with no error anywhere.
 //
 // ── The direction trap ──────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ export interface RateTable {
   /**
    * `pairs[from][to]` multiplies one unit of `from` into `to`.
    *
-   * An absent pair is unsupported and must fail rather than assume 1.0 —
+   * An absent pair is unsupported and must fail rather than assume 1.0:
    * that assumption is how a GBP figure ends up wearing a dollar sign.
    */
   pairs: Record<string, Record<string, number>>
@@ -75,7 +75,7 @@ export function getRateTable(): RateTable {
 /**
  * Look up the rate taking one unit of `from` into `to`.
  *
- * Returns `null` — never 1, never an approximation — when the table cannot
+ * Returns `null` (never 1, never an approximation) when the table cannot
  * answer. A rate of 1 would silently render a GBP figure wearing a dollar sign,
  * which is the failure that puts a wrong number in front of an executive with
  * nothing on screen to notice it. `convert()` propagates the null and the

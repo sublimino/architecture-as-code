@@ -1,6 +1,6 @@
 import type { WizardStep } from '../../hooks/useOnboardingWizard'
 
-// Custom inline icons (not real logos — see ProviderLogo.tsx for the
+// Custom inline icons (not real logos: see ProviderLogo.tsx for the
 // per-provider brand marks). Pure SVG, no external assets, themes correctly
 // via currentColor/CSS vars in both light and dark mode.
 

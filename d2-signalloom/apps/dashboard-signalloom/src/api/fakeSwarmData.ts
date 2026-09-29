@@ -337,7 +337,7 @@ export const FAKE_SWARM_AUDIT_EVENTS: SwarmAuditEvent[] = [
   // Human review releases the agent
   ev('swarm.sentinel.stun_released', 'cpai-engineer', 10, {
     released_by: 'operator@controlplane.io',
-    reason: 'False positive — legitimate metadata lookup',
+    reason: 'False positive: legitimate metadata lookup',
   }),
 
   // Agent re-claims after release

@@ -1,5 +1,5 @@
 /**
- * AgentMaxxing Demo Console — FROZEN mock/live bridge contract (AMXD-P1-3)
+ * AgentMaxxing Demo Console: FROZEN mock/live bridge contract (AMXD-P1-3)
  *
  * =============================================================================
  * WHAT THIS IS
@@ -7,8 +7,8 @@
  * The single seam between the demo console's UI (AMXD-P2-1 .. P5-1) and the two
  * places a stage transition's data can come from:
  *
- *   - the MOCK channel — client-held fixtures sourced from AMXD-P1-2's presets
- *   - the LIVE channel — real HTTP against the Signal Loom API
+ *   - the MOCK channel: client-held fixtures sourced from AMXD-P1-2's presets
+ *   - the LIVE channel: real HTTP against the Signal Loom API
  *
  * The two channels never share a return type. `MockStageOutcome<S>` and
  * `LiveStageOutcome<S>` are mutually non-assignable for two independent
@@ -33,7 +33,7 @@
  * AMXD-P1-4 and lives at `nginx.conf:118`, passthrough via `$api$request_uri`
  * with `Authorization` forwarded). Anything not matching a proxy location
  * falls through to the SPA catch-all `location /`, which answers 200 with
- * `index.html` — a success status carrying a web page.
+ * `index.html`: a success status carrying a web page.
  *
  * Therefore, per preset stage (paths taken from AMXD-P1-2 `scenarios.ts`):
  *
@@ -53,34 +53,34 @@
  * revocation if the proxy table ever regresses.
  *
  * REACHABILITY AND TRANSPORT ARE TWO DIFFERENT QUESTIONS. Do not conflate them
- * — AMXD-P1-GOV found that a single predicate answering both is a trap:
+ * Note: AMXD-P1-GOV found that a single predicate answering both is a trap:
  *   - "Is this path proxied by nginx?"    -> `NGINX_PROXIED_API_PREFIXES`
  *   - "Which client transport carries it?" -> `REQ_TRANSPORT_PREFIXES`
  * Now that `/v1/` IS proxied, answering the transport question with the
  * reachability predicate would route the revoke through `client.ts`'s `req()`,
  * which auto-prefixes `/api` and produces `/api/v1/external-agents/hosts/...`
- * — a route FastAPI never registered. Only `/api/`-prefixed paths may use
+ * : a route FastAPI never registered. Only `/api/`-prefixed paths may use
  * `req()`; bare paths must use a direct `fetch`.
  *
  * Backend route provenance (verified by source inspection, not assumed):
  *   - `/v1/external-agents/hosts/{host_id}/revoke` is mounted ONLY on
- *     `v1_router` — `external_agent_registration.py:1231`. It was never added to
+ *     `v1_router` (`external_agent_registration.py:1231`). It was never added to
  *     `router` (`/api/v1/external-agents`), so routing it through `client.ts`'s
  *     `req()` (which auto-prefixes `/api` at `client.ts:241`) would call a path
  *     FastAPI never registered. The live channel uses a direct `fetch` for it,
  *     the same way `agentClaim.ts:111` does for its own bare paths.
  *
  * IF THE PROXY TABLE CHANGES AGAIN, THIS COMMENT AND `LIVE_REACHABILITY` MUST
- * BE UPDATED IN THE SAME COMMIT — but you will not be relying on that promise:
+ * BE UPDATED IN THE SAME COMMIT, but you will not be relying on that promise:
  * `bridge.test.ts` now parses `nginx.conf` itself and fails if
  * `NGINX_PROXIED_API_PREFIXES` disagrees with the real `location` blocks.
  *
  * =============================================================================
- * RESET / SEED — WHAT IS HONESTLY CLAIMED
+ * RESET / SEED: WHAT IS HONESTLY CLAIMED
  * =============================================================================
  * There is NO backend demo/reset or demo/seed HTTP endpoint. Verified:
  * `rg -n 'reset|seed'` over `external_agent_registration.py`,
- * `host_credential.py`, and `host_enrollment.py` returns exactly two matches —
+ * `host_credential.py`, and `host_enrollment.py` returns exactly two matches:
  * `reset_external_agent_state()` (external_agent_registration.py:54) and
  * `reset_host_enrollment_state()` (host_enrollment.py:50). Both are
  * undecorated module-level functions that clear in-process dictionaries; neither
@@ -92,7 +92,7 @@
  * `amxd.demo.`-namespaced localStorage keys, its in-memory bridge state, and its
  * event log. `ResetEstateResult.backendStateCleared` is typed as the literal
  * `false` so no future implementation can claim otherwise without a deliberate
- * type change. `seedEstate()` is IDEMPOTENT, not destructive — re-running it
+ * type change. `seedEstate()` is IDEMPOTENT, not destructive: re-running it
  * mid-demo re-establishes the same known state and is safe in front of an
  * audience.
  *
@@ -120,7 +120,7 @@ import {
 import type { PresetStage, ScenarioPreset } from './scenarios'
 
 // ============================================================================
-// 1. Channel descriptors — the discriminated union
+// 1. Channel descriptors: the discriminated union
 // ============================================================================
 
 /** Provenance tag for data produced by the client-held AMXD-P1-2 fixtures. */
@@ -152,7 +152,7 @@ export interface LiveChannel {
 export type DemoChannel = MockChannel | LiveChannel
 
 // ============================================================================
-// 2. Error taxonomy — network failure is NOT application failure
+// 2. Error taxonomy: network failure is NOT application failure
 // ============================================================================
 
 /**
@@ -186,7 +186,7 @@ export interface BridgeAbortedError {
 
 /**
  * The call could not honestly be attempted or its answer could not be trusted.
- * Distinct from `network` because nothing is wrong with the network — the route
+ * Distinct from `network` because nothing is wrong with the network: the route
  * is not wired up yet.
  */
 export interface BridgeUnsupportedError {
@@ -210,7 +210,7 @@ export type BridgeError =
   | BridgeUnsupportedError
 
 // ============================================================================
-// 3. Per-channel outcome types — mutually non-assignable by construction
+// 3. Per-channel outcome types: mutually non-assignable by construction
 // ============================================================================
 
 export interface MockStageSuccess<S extends StageId> {
@@ -283,14 +283,14 @@ export interface ChannelBearing {
  * `Omit` is NOT distributive over a union: `Omit<StageOutcome<S>, 'stage'>`
  * produces ONE object type with neither channel's brand and a widened
  * `channelKind`, silently collapsing the separation this contract exists to
- * enforce. `Partial` is worse — it makes mock and live mutually assignable
+ * enforce. `Partial` is worse: it makes mock and live mutually assignable
  * again. React prop plumbing reaches for both by reflex, so this helper is the
  * sanctioned form and `bridge.test.ts` pins that it preserves the boundary.
  */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 
 // ============================================================================
-// 4. describeChannel — the ONE source of the mock-vs-live label
+// 4. describeChannel: the ONE source of the mock-vs-live label
 // ============================================================================
 
 export interface ChannelDescriptor {
@@ -306,8 +306,8 @@ export interface ChannelDescriptor {
 
 /**
  * Single shared source of the "this came from the mock fixture" vs "this came
- * from the live backend" distinction. Reads `source.channel.kind` — the same
- * field `recordBridgeEvent` records — so the label and the event log cannot
+ * from the live backend" distinction. Reads `source.channel.kind` (the same
+ * field `recordBridgeEvent` records) so the label and the event log cannot
  * disagree for the same call. `bridge.test.ts` pins that invariant.
  */
 export function describeChannel(source: ChannelBearing): ChannelDescriptor {
@@ -328,17 +328,17 @@ export function describeChannel(source: ChannelBearing): ChannelDescriptor {
 }
 
 // ============================================================================
-// 5. Live reachability — derived from the real nginx rule, then pinned
+// 5. Live reachability: derived from the real nginx rule, then pinned
 // ============================================================================
 
 export type LiveReachability = 'reachable' | 'blocked-no-nginx-location'
 
 /**
  * The prefixes `nginx.conf` actually proxies to the API upstream: a
- * `location /api/` block and — since AMXD-P1-4 — a `location /v1/` block.
+ * `location /api/` block and (since AMXD-P1-4) a `location /v1/` block.
  *
  * This list answers ONE question: "would nginx route this path to the API?"
- * It does NOT answer "which client transport should carry it" — see
+ * It does NOT answer "which client transport should carry it": see
  * `REQ_TRANSPORT_PREFIXES`. Conflating the two was the live defect
  * AMXD-P1-GOV found: once `/v1/` became proxied, a shared predicate would
  * have promoted the revoke path onto `req()` and broken it.
@@ -353,7 +353,7 @@ export const NGINX_PROXIED_API_PREFIXES: readonly string[] = ['/api/', '/v1/']
  * The prefixes that may be carried by `client.ts`'s `req()`, which
  * unconditionally auto-prefixes `/api` (`client.ts:241`). ONLY `/api/` paths
  * qualify. A bare `/v1/` path handed to `req()` becomes `/api/v1/...`, a route
- * FastAPI never registered — reachable through nginx, 404 at the app.
+ * FastAPI never registered: reachable through nginx, 404 at the app.
  */
 export const REQ_TRANSPORT_PREFIXES: readonly string[] = ['/api/']
 
@@ -366,7 +366,7 @@ export function assessLiveReachability(path: string): LiveReachability {
 
 /**
  * Which transport must carry this path. Deliberately NOT derived from
- * `assessLiveReachability` — reachability and transport are independent.
+ * `assessLiveReachability`: reachability and transport are independent.
  */
 export function selectTransport(path: string): 'req' | 'fetch' {
   return REQ_TRANSPORT_PREFIXES.some((p) => path.startsWith(p)) ? 'req' : 'fetch'
@@ -383,7 +383,7 @@ export interface StageReachability {
  * The current answer, frozen here so P2 .. P4 can read it without re-deriving
  * the nginx table. `bridge.test.ts` asserts every entry agrees with
  * `assessLiveReachability()` run over the live preset data AND that
- * `NGINX_PROXIED_API_PREFIXES` agrees with `nginx.conf` itself — the second
+ * `NGINX_PROXIED_API_PREFIXES` agrees with `nginx.conf` itself: the second
  * assertion is the one that matters, because the first alone is satisfied by
  * two copies of the same wrong answer.
  *
@@ -416,10 +416,10 @@ export const LIVE_REACHABILITY: Readonly<
     operator_init: 'reachable',
     host_enrolled: 'reachable',
     confinement_streaming: 'reachable',
-    // POST /v1/external-agents/hosts/{host_id}/revoke — mounted on v1_router
+    // POST /v1/external-agents/hosts/{host_id}/revoke: mounted on v1_router
     // only. AMXD-P1-4 added `location /v1/` (nginx.conf:118), so nginx now
     // routes it to fe-signalloom-api. It still requires the `fetch` transport,
-    // not `req()` — see REQ_TRANSPORT_PREFIXES.
+    // not `req()`: see REQ_TRANSPORT_PREFIXES.
     adversarial_tamper: 'reachable',
     revocation_denied: 'reachable',
   },
@@ -431,10 +431,10 @@ export const LIVE_REACHABILITY: Readonly<
 
 /**
  * Every key this bridge writes lives under this prefix. Deliberately distinct
- * from the keys other dashboard features already own — `sl_demo_mode`
+ * from the keys other dashboard features already own: `sl_demo_mode`
  * (`api/demoMode.ts:11`), `signalloom.superadmin`, `signalloom.logTransport`
  * (`api/demoRunner.ts:227`), `signalloom-return-to` (`auth/oidc.tsx:45`) and
- * `demoMode` — so a localStorage audit can attribute every key to its feature.
+ * `demoMode`, so a localStorage audit can attribute every key to its feature.
  */
 export const BRIDGE_STORAGE_NAMESPACE = 'amxd.demo.' as const
 
@@ -446,7 +446,7 @@ export const BRIDGE_STORAGE_KEYS = {
 } as const
 
 /**
- * Guarded default accessor — the bridge must not throw where there is no DOM.
+ * Guarded default accessor: the bridge must not throw where there is no DOM.
  *
  * Note this returns `null` more often than it looks: the repo's vitest jsdom
  * environment provides `window` but NO `localStorage` at all (neither as a bare
@@ -488,7 +488,7 @@ function namespacedKeys(store: Storage): string[] {
 /**
  * Maximum retained bridge events. A conference-booth session runs for hours; an
  * unbounded array would grow without limit. AMXD-P6-1's acceptance spec reads
- * this log to assert which channel actually served a stage — if its assertion
+ * this log to assert which channel actually served a stage: if its assertion
  * window ever needs more than this, RAISE THE CAP rather than shortening the
  * spec.
  */
@@ -496,7 +496,7 @@ export const BRIDGE_EVENT_LOG_CAP = 200
 
 export interface BridgeEvent {
   readonly seq: number
-  /** Read from `outcome.channel.kind` — the same field `describeChannel` reads. */
+  /** Read from `outcome.channel.kind`: the same field `describeChannel` reads. */
   readonly channel: 'mock' | 'live'
   readonly stage: StageId | 'reset_estate' | 'seed_estate'
   readonly outcome: 'ok' | 'error'
@@ -564,7 +564,7 @@ export interface ResetEstateResult extends ChannelBearing {
   /**
    * Typed as the literal `false`, not `boolean`. No backend demo/reset endpoint
    * exists (see the module header), so no implementation can ever claim to have
-   * cleared backend state without changing this type — which is a reviewable
+   * cleared backend state without changing this type, which is a reviewable
    * change, not a silent one.
    */
   readonly backendStateCleared: false
@@ -785,7 +785,7 @@ function isAbortLike(value: unknown): boolean {
 }
 
 // ============================================================================
-// 11. Live transport — injectable so contract tests run without a backend
+// 11. Live transport: injectable so contract tests run without a backend
 // ============================================================================
 
 export interface LiveTransport {
@@ -794,7 +794,7 @@ export interface LiveTransport {
    *
    * Deliberately NOT generic. The bridge only ever consumes the body as
    * `unknown` and adapts it, and a generic member here cannot be satisfied by a
-   * concrete test double — `Mock<() => Promise<{}>>` is not assignable to
+   * concrete test double: `Mock<() => Promise<{}>>` is not assignable to
    * `<T>(...) => Promise<T>`, because T could be instantiated with anything.
    * The real generic `req` remains assignable to this narrower shape.
    */
@@ -840,7 +840,7 @@ function extractStatus(raw: unknown): number | null {
 }
 
 // ============================================================================
-// 12. Bridge interfaces — the frozen public surface
+// 12. Bridge interfaces: the frozen public surface
 // ============================================================================
 
 export interface MockDemoBridge {
@@ -884,7 +884,7 @@ export interface BridgeConfig {
    *
    * Injectable because a contract suite that sleeps for real is slow enough to
    * approach vitest's default 5s timeout once the whole dashboard suite is
-   * running in parallel — and a timeout mid-test leaves module-level state
+   * running in parallel, and a timeout mid-test leaves module-level state
    * dirty, which then fails an unrelated later test. Set 0 in bulk loops; leave
    * it alone in the one test that asserts the default.
    */
@@ -1066,7 +1066,7 @@ export function createMockBridge(config: BridgeConfig): MockDemoBridge {
 /**
  * A 200 carrying `text/html` is the SPA catch-all answering, not the API. Pre
  * AMXD-P1-4 that is exactly what a bare `/v1/` path receives, and reading it as
- * a successful revocation is the worst available failure — a green badge for a
+ * a successful revocation is the worst available failure: a green badge for a
  * revocation that never happened.
  */
 function looksLikeSpaFallthrough(res: Response): boolean {
@@ -1163,7 +1163,7 @@ export function createLiveBridge(config: BridgeConfig): LiveDemoBridge {
         stage,
         // The backend's own shape is adapted onto the stage payload contract.
         // Where the backend does not supply a field, the preset's fixture is the
-        // declared default — this is the ONLY place the two meet, and it is a
+        // declared default: this is the ONLY place the two meet, and it is a
         // live outcome throughout.
         payload: adaptLivePayload(stage, preset, presetStage, gate.data.body),
         httpStatus: gate.data.httpStatus,
@@ -1230,7 +1230,7 @@ export function createLiveBridge(config: BridgeConfig): LiveDemoBridge {
 
 /**
  * Adapt a backend response onto the stage payload contract. Falls back to the
- * preset's declared values for fields the backend does not supply — but the
+ * preset's declared values for fields the backend does not supply, but the
  * result is still a LIVE outcome, so a consumer can never mistake it for a mock
  * one: only `LiveStageSuccess` carries `httpStatus` and `requestPath`.
  */

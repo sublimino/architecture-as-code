@@ -1,9 +1,9 @@
 // Purpose-built preview illustrations for the wizard's Welcome-step tour.
-// Not real screenshots — the browser tooling available in this session can't
+// Not real screenshots: the browser tooling available in this session can't
 // export a captured screenshot to a file (only display it inline), so these
 // are hand-built mockups instead, styled to match the real pages (same dark
 // surfaces, same cyan/violet/teal/amber/red accent palette, same card/table
-// conventions) and populated with representative — not necessarily literal —
+// conventions) and populated with representative (not necessarily literal)
 // data, per an explicit call to make these "more exciting" than a sparse
 // live capture would be. Swap for real screenshots later if desired; the
 // call site (WelcomeStep.tsx) just takes an image src, so no structural

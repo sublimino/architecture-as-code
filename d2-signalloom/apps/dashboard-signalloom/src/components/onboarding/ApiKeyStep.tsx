@@ -15,13 +15,13 @@ interface Props {
   onBack: () => void
 }
 
-// Wizard step referencing the API key (86caytfw5 acceptance criterion 4 —
+// Wizard step referencing the API key (86caytfw5 acceptance criterion 4:
 // "if the onboarding wizard ships in the same window, include an opt-in
 // step referencing the API key. NOT force-reveal."). Missed in Slice 1a
 // (only the Settings side shipped); this closes that gap.
 //
 // Two-phase, matching the "agree before showing" requirement: a confirm
-// screen first ("this can only be shown once"), then the actual reveal —
+// screen first ("this can only be shown once"), then the actual reveal:
 // same one-time-reveal semantics as Settings' action, just reachable here
 // too. Opting out tells the user exactly where to get it later.
 export default function ApiKeyStep({ revealed, revealing, error, onReveal, onContinue, onBack }: Props) {
@@ -44,7 +44,7 @@ export default function ApiKeyStep({ revealed, revealing, error, onReveal, onCon
         </h1>
       </div>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 20 }}>
-        Signal Loom issued an API key for programmatic access to your agent registry — you'll
+        Signal Loom issued an API key for programmatic access to your agent registry; you'll
         need it if you plan to integrate with our API. It's optional right now; you can always
         reveal it later from Settings → API Access.
       </p>
@@ -52,7 +52,7 @@ export default function ApiKeyStep({ revealed, revealing, error, onReveal, onCon
       {revealed ? (
         <>
           <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--warning, #f59e0b)', marginBottom: 12 }}>
-            This is the only time you'll see this key — store it securely now.
+            This is the only time you'll see this key: store it securely now.
           </p>
           <div style={{
             background: 'var(--surface2)', border: '1px solid var(--border)',
@@ -71,7 +71,7 @@ export default function ApiKeyStep({ revealed, revealing, error, onReveal, onCon
       ) : confirming ? (
         <div style={{ marginBottom: 16 }}>
           <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--warning, #f59e0b)', marginBottom: 16 }}>
-            This is the only time you'll be able to see this key — make sure you're ready to
+            This is the only time you'll be able to see this key: make sure you're ready to
             store it securely before continuing.
           </p>
           {error && (

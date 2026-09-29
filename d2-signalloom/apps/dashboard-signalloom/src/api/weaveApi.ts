@@ -1,5 +1,5 @@
 /**
- * Signal Weave API — types and client functions for the signal observation
+ * Signal Weave API: types and client functions for the signal observation
  * and provisional actor correlation system.
  *
  * All calls go through the shared `req()` from client.ts, which handles demo
@@ -136,7 +136,7 @@ export interface WeaveActorsResponse {
  * The service-side fix (signal-ingest now emits `[]`) is the real one and is
  * where the bad state entered. This is the second line of defence, because the
  * page is one caching proxy, one gateway error body, or one future service away
- * from being handed a null again — and the browser should degrade to "empty"
+ * from being handed a null again, and the browser should degrade to "empty"
  * rather than a white screen. Anything that is not an array becomes an empty
  * array, which is the truthful reading of "no items".
  */

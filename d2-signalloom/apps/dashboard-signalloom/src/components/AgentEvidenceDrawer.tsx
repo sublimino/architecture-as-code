@@ -13,7 +13,7 @@ import { useAgentRisk } from '../hooks/useAgentRisk'
  * selection, so a `useAgentRisk` call in the drawer body would sit above an
  * early return and change the hook order between renders. A child component
  * mounts and unmounts instead, which is the legal way to make a hook
- * conditional — and its unmount is what aborts the in-flight risk query when
+ * conditional, and its unmount is what aborts the in-flight risk query when
  * the operator closes the drawer.
  */
 function AgentRiskSection({ agentId }: { agentId: string }) {
@@ -38,7 +38,7 @@ function AgentRiskSection({ agentId }: { agentId: string }) {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -49,7 +49,7 @@ function fmtDate(iso: string | null) {
 }
 
 function fmtRelative(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'just now'
@@ -109,11 +109,11 @@ export default function AgentEvidenceDrawer({
   // 2. Runtime metadata
   const namespace = agent.runtime?.namespace || agent.namespace || 'default'
   const framework = agent.runtime?.framework || agent.framework || agent.type || 'Custom'
-  const executionMode = agent.runtime?.execution_mode || agent.type || '—'
+  const executionMode = agent.runtime?.execution_mode || agent.type || '-'
   const model = agent.runtime?.model || agent.model_name || 'Not specified'
   const node = agent.runtime?.node || agent.node || 'Not assigned'
-  const podUid = agent.runtime?.pod_uid || agent.pod_uid || '—'
-  const serviceAccount = agent.runtime?.service_account || agent.service_account || '—'
+  const podUid = agent.runtime?.pod_uid || agent.pod_uid || '-'
+  const serviceAccount = agent.runtime?.service_account || agent.service_account || '-'
   const phase = agent.runtime?.phase || agent.state || 'Running'
 
   // 3. Responsibility metadata (Truthful language)
@@ -137,7 +137,7 @@ export default function AgentEvidenceDrawer({
     : null
 
   // 5. Identity & Telemetry (Truthful language)
-  const spiffeId = agent.identity?.spiffe_id || '—'
+  const spiffeId = agent.identity?.spiffe_id || '-'
   const isSpiffeLinked = agent.identity?.spiffe_status === 'linked' ||
     (!!agent.identity?.spiffe_id && agent.record_class !== 'discovered' && agent.is_registry_linked !== false)
   const aliases = agent.identity?.aliases ?? []
@@ -409,14 +409,14 @@ export default function AgentEvidenceDrawer({
                       {postureScorePct}%
                     </span>
                   ) : (
-                    <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>—</span>
+                    <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>-</span>
                   )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 1b. Quantitative Risk (OpenFAIR) — live riskctl figures, or demo fixtures.
+          {/* 1b. Quantitative Risk (OpenFAIR): live riskctl figures, or demo fixtures.
               Placed directly under the qualitative assessment on purpose: a posture
               score answers "how bad is the control coverage" and these four answer
               "what does that cost", and the pair is the whole argument. */}
@@ -494,7 +494,7 @@ export default function AgentEvidenceDrawer({
               <div>
                 <span style={{ color: 'var(--muted)' }}>Team</span>
                 <div data-testid="drawer-responsibility-team" style={{ color: 'var(--text)', marginTop: 1 }}>
-                  {team || '—'}
+                  {team || '-'}
                 </div>
               </div>
               <div>
@@ -574,7 +574,7 @@ export default function AgentEvidenceDrawer({
                       <span
                         data-testid="drawer-kernel-cgroup"
                         className="tag"
-                        title="cgroup.freeze: 1 (FROZEN) — Processes atomically suspended by Sentinel"
+                        title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
                         style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                       >
                         cgroup: FROZEN
@@ -582,7 +582,7 @@ export default function AgentEvidenceDrawer({
                       <span
                         data-testid="drawer-kernel-tc"
                         className="tag"
-                        title="TC matchall drop active — Network isolated by Sentinel"
+                        title="TC matchall drop active: Network isolated by Sentinel"
                         style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                       >
                         TC: DROP

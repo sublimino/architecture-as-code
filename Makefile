@@ -522,6 +522,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	$(MAKE) test-ci-lock
 	$(MAKE) test-ci-state
 	$(MAKE) test-ci-path-anchoring
+	$(MAKE) test-ui-typography
 	$(MAKE) audit-anchor-test
 	$(MAKE) test-signalfusion-bats
 	$(MAKE) test-tetragon-bats
@@ -1358,6 +1359,10 @@ test-sfdp-p3-3-root-wiring: ## Verify local SFDP-P3-3 root script gates without 
 .PHONY: test-sfdp-p4-4-tamper-regression
 test-sfdp-p4-4-tamper-regression: signing-keys ## Verify SFDP-P4-4 witness verify and tamper regression suite.
 	bats test/sfdp-p4-4-tamper-regression.bats
+
+.PHONY: test-ui-typography
+test-ui-typography: ## Run the UI typography and em-dash eradication lint gate.
+	bats d2-signalloom/test/lint-ui-typography.bats
 
 .PHONY: audit-anchor-test
 audit-anchor-test: ## Run the audit-anchor unit tests (no cluster required).

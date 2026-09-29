@@ -9,8 +9,8 @@
  *
  * 2. **A superseded response winning the race.** Flipping the DemoToggle twice
  *    quickly starts two fetches; the FIRST can settle last. Aborting is
- *    necessary but not sufficient — an already-resolved promise cannot be
- *    aborted — so each run also carries a monotonic sequence number and a
+ *    necessary but not sufficient (an already-resolved promise cannot be
+ *    aborted), so each run also carries a monotonic sequence number and a
  *    result is discarded unless it belongs to the newest run. Without this the
  *    panel can end up showing fixture figures while the toggle reads LIVE API,
  *    which is worse than showing nothing.
@@ -25,13 +25,13 @@
  * DemoToggle currently follows setDemoMode() with window.location.reload(), so
  * most of the app gets its new data from a fresh page rather than from a
  * subscription. That reload is pre-existing, load-bearing for the ~149 vitest
- * files whose pages fetch only on mount, and out of scope here — but it is also
+ * files whose pages fetch only on mount, and out of scope here, but it is also
  * the reason interactive toggling cannot be tested in a browser, because a
  * reload re-runs Playwright's addInitScript and re-forces the seeded mode
  * before the app boots (test/acceptance/helpers.ts documents exactly that).
  *
  * So these hooks subscribe. The risk surfaces switch on the setDemoMode event
- * alone, with no reload, which makes them assertable — and makes them the
+ * alone, with no reload, which makes them assertable, and makes them the
  * migration path if the reload is ever retired.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -54,7 +54,7 @@ export interface RiskQuery<T> {
  * An aborted request is not a failure.
  *
  * A caller that renders "you stopped caring" as "the service is down" reports an
- * outage that never happened — client.ts names its cancellation rejection
+ * outage that never happened: client.ts names its cancellation rejection
  * `AbortError` for exactly this reason, and axios uses `CanceledError`.
  */
 function isAbort(err: unknown): boolean {
@@ -73,9 +73,9 @@ function messageOf(err: unknown): string {
  * Shared machinery for both hooks.
  *
  * `fetcher` is passed by identity-stable reference from the caller's useCallback
- * so this effect's dependency array does not re-arm on every render — the same
+ * so this effect's dependency array does not re-arm on every render (the same
  * identity trap that turned the streaming harness into an unbounded request
- * loop (test/acceptance/harness/auth-stub.tsx documents it at length).
+ * loop: test/acceptance/harness/auth-stub.tsx documents it at length).
  */
 function useRiskQuery<T>(
   fetcher: (token: string, signal: AbortSignal) => Promise<T>,
@@ -89,7 +89,7 @@ function useRiskQuery<T>(
   const [nonce, setNonce] = useState(0)
 
   // Monotonic run id. A response is only allowed to write state if its run is
-  // still the newest one — see bug 2 in the header.
+  // still the newest one: see bug 2 in the header.
   const runRef = useRef(0)
   const mountedRef = useRef(true)
 
@@ -153,7 +153,7 @@ function useRiskQuery<T>(
 }
 
 /**
- * Risk for one agent. Pass a null id to park the hook — it will not fetch, and
+ * Risk for one agent. Pass a null id to park the hook: it will not fetch, and
  * it still obeys the rules of hooks, so a drawer can mount before it has a
  * selection.
  */

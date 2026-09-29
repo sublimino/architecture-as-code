@@ -1,7 +1,7 @@
 // The wire contract for money, mirrored on the frontend.
 //
 // These two shapes are agreed with the money-model side and are reproduced here
-// verbatim. If the server's shape changes, this file changes with it — do not
+// verbatim. If the server's shape changes, this file changes with it: do not
 // "improve" the field names locally. `as_of` is snake_case because that is what
 // the server sends; renaming it to `asOf` on the way in would put a translation
 // layer between the audit trail and the screen, which is the last place anyone
@@ -56,12 +56,12 @@ export function isConverted(value: Money | Converted): value is Converted {
  * `fallback`, since "no findings" genuinely is zero exposure.
  *
  * Also returns null when any amount is non-finite (NaN, ±Infinity). A NaN in a
- * sum propagates silently through IEEE 754 arithmetic, and the result — NaN
- * wearing a currency code — passes every null check downstream. The Go Sum()
+ * sum propagates silently through IEEE 754 arithmetic, and the result (NaN
+ * wearing a currency code) passes every null check downstream. The Go Sum()
  * rejects non-finite amounts with an error; this is the TS equivalent. An
  * overflow (finite + finite → Infinity) is caught the same way.
  *
- * Summing happens in the SOURCE currency and the total is converted once — see
+ * Summing happens in the SOURCE currency and the total is converted once: see
  * the header of convert.ts for why the reverse accumulates error.
  */
 export function sumMoney(items: readonly Money[], fallback: CurrencyCode): Money | null {
@@ -88,7 +88,7 @@ export function sumMoney(items: readonly Money[], fallback: CurrencyCode): Money
  *
  * Returns null when the factor or the amount is non-finite, or when the product
  * overflows to ±Infinity. A NaN factor silently corrupts the amount without any
- * downstream guard catching it — the Money type is structurally valid but
+ * downstream guard catching it: the Money type is structurally valid but
  * semantically garbage.
  */
 export function scaleMoney(m: Money | number | null | undefined, factor: number): Money | null {

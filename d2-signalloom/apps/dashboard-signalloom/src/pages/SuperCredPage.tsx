@@ -44,7 +44,7 @@ interface ComplianceResponse {
 interface RuntimeAgent {
   id: string
   name: string
-  /** Namespace the proxy discovered the pod in — Flux may relocate it. */
+  /** Namespace the proxy discovered the pod in: Flux may relocate it. */
   namespace?: string | null
   type: string | null
   framework: string | null
@@ -74,8 +74,8 @@ interface CredentialRecord {
 }
 
 
-// A pod whose image never loaded reports phase `Pending` — `ImagePullBackOff` is
-// a container waiting reason, not a phase — so `Pending` has to count as blocked.
+// A pod whose image never loaded reports phase `Pending` (`ImagePullBackOff` is
+// a container waiting reason, not a phase), so `Pending` has to count as blocked.
 // The proxy exposes `status.phase` verbatim, so accept the waiting reasons too in
 // case a future revision surfaces them.
 const BLOCKED_PHASES = new Set(['Pending', 'Failed', 'Unknown', 'ImagePullBackOff', 'ErrImagePull'])
@@ -85,7 +85,7 @@ function isBlocked(agent: RuntimeAgent): boolean {
 }
 
 // Distinct from this page's own `/supercred` route: `/supercred/*` used to serve
-// both the page and the API, and the API won. Not under `/api/` either — the
+// both the page and the API, and the API won. Not under `/api/` either: the
 // gateway routes /api to fe-signalloom-api and it never reaches the dashboard's
 // nginx. See the comment on this location block in nginx.conf.
 const SUPERCRED_API = '/supercred-api'
@@ -144,15 +144,15 @@ function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
 // "Realistic". The division of labour is that page's, not a local invention:
 // THIS page owns the search box, the chips and the predicate and hands
 // DataTable an already-narrowed array; DataTable owns sorting, paging, the
-// position of the strip — and the one guarantee worth having, that the strip
+// position of the strip (and the one guarantee worth having, that the strip
 // outlives the table when a filter matches nothing. Stacking those by hand
 // (`rows.length === 0 ? <EmptyState/> : <table/>`) takes the control that
 // emptied the table down with it and strands the reader with no way back
 // short of a reload. Mid-demo that is a reload in front of an audience.
 //
 // Column `help` strings are the other half of why these are DataTables. This
-// screen is read at two altitudes at once — a bank executive who needs to know
-// what a scope IS, and an engineer who needs to know which one this is — and a
+// screen is read at two altitudes at once (a bank executive who needs to know
+// what a scope IS, and an engineer who needs to know which one this is) and a
 // "?" in the header is how one table serves both without a second table.
 
 /**
@@ -164,7 +164,7 @@ function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
  * can return any number, and the actions column is the demo's own control
  * surface, so it belongs in the same table the rest of the estate is shown in.
  *
- * `Actions` keys off `id` because Column<T> keys must name a field — it is not
+ * `Actions` keys off `id` because Column<T> keys must name a field: it is not
  * sortable, and nothing reads the key except the sort handler it never calls.
  */
 const AGENT_COLUMNS: Column<RuntimeAgent>[] = [
@@ -174,7 +174,7 @@ const AGENT_COLUMNS: Column<RuntimeAgent>[] = [
     key: 'phase',
     label: 'Phase',
     sortable: true,
-    help: 'What Kubernetes says about the pod itself. Running means the container started — it says nothing about whether the agent is compliant, which is the next column along and a different question entirely.',
+    help: 'What Kubernetes says about the pod itself. Running means the container started: it says nothing about whether the agent is compliant, which is the next column along and a different question entirely.',
   },
   {
     key: 'namespace',
@@ -205,7 +205,7 @@ const CREDENTIAL_COLUMNS: Column<CredentialRecord>[] = [
     key: 'scope',
     label: 'Scope',
     sortable: true,
-    help: 'Exactly what this credential unlocks, and nothing beyond it. A SPIFFE ID names one workload, an OpenBao path names one database role, an API scope names one endpoint — so a stolen credential buys an attacker one of those, not the estate.',
+    help: 'Exactly what this credential unlocks, and nothing beyond it. A SPIFFE ID names one workload, an OpenBao path names one database role, an API scope names one endpoint, so a stolen credential buys an attacker one of those, not the estate.',
   },
   { key: 'status', label: 'Status', sortable: true },
   { key: 'issued_at', label: 'Issued', sortable: true },
@@ -219,7 +219,7 @@ const CREDENTIAL_COLUMNS: Column<CredentialRecord>[] = [
     key: 'rotation_count',
     label: 'Rotations',
     sortable: true,
-    help: 'How many times this credential has been re-minted since the agent started. Routine, not an incident — a chain that rotates is a chain where any single leaked credential is already stale.',
+    help: 'How many times this credential has been re-minted since the agent started. Routine, not an incident: a chain that rotates is a chain where any single leaked credential is already stale.',
   },
 ]
 
@@ -230,7 +230,7 @@ const COMPLIANCE_COLUMNS: Column<ComplianceResult>[] = [
     key: 'severity',
     label: 'Severity',
     sortable: true,
-    help: 'How much a failure of this check matters. Critical means the control is load-bearing for the credential chain — without it the agent can be made to do something its identity was never meant to allow.',
+    help: 'How much a failure of this check matters. Critical means the control is load-bearing for the credential chain: without it the agent can be made to do something its identity was never meant to allow.',
   },
   { key: 'reason', label: 'Reason' },
 ]
@@ -312,7 +312,7 @@ function FilterChip({
  *
  * In live mode the cluster is the source of truth: `make demo-signalloom-
  * supercred-N` stamps the agent pod and every page follows. Demo-data mode has
- * no cluster, so steps 1, 2 and 5 — the ones with no button on this page — need
+ * no cluster, so steps 1, 2 and 5 (the ones with no button on this page) need
  * a way to advance the simulated one. Rendered only when demo mode is on; in
  * live mode this returns null and the cluster stays authoritative.
  */
@@ -336,7 +336,7 @@ function DemoStepControls({ onAdvance }: { onAdvance: () => void }) {
 
   return (
     <div data-testid="supercred-demo-steps-control" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Demo Mode — Step Control</h2>
+      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Demo Mode: Step Control</h2>
       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
         No cluster is attached. Advance the simulated demo and watch the effects land on{' '}
         <strong>Agents</strong>, <strong>Compliance</strong>, <strong>Policy Compliance</strong>,{' '}
@@ -371,12 +371,12 @@ function DemoStepControls({ onAdvance }: { onAdvance: () => void }) {
 
 // ─── SuperCredential Demo Page ──────────────────────────────────────────────
 
-/** The one user-facing name for this page — h1, nav label and document title. */
+/** The one user-facing name for this page: h1, nav label and document title. */
 export const SUPERCRED_PAGE_TITLE = 'SuperCredential Demo'
 
 // ─── Waiting ────────────────────────────────────────────────────────────────
 //
-// Every wait on this page shows the pixel grid and a live elapsed figure — the
+// Every wait on this page shows the pixel grid and a live elapsed figure: the
 // treatment the instructor panel already uses for a running demo phase. A
 // disabled button says "busy" and nothing more, and ninety seconds into a step
 // nobody in the room can tell a slow proxy from a hung one.
@@ -397,7 +397,7 @@ export default function SuperCredPage() {
   const { superadmin } = useAppContext()
   const [agents, setAgents] = useState<RuntimeAgent[]>([])
   // null until a fetch completes, so "never loaded" is distinguishable from
-  // "loaded and genuinely empty" — the two used to render identically.
+  // "loaded and genuinely empty": the two used to render identically.
   const [discoveredCount, setDiscoveredCount] = useState<number | null>(null)
   const [namespaces, setNamespaces] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -408,14 +408,14 @@ export default function SuperCredPage() {
   const [stunEvent, setStunEvent] = useState<AuditEventResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Which row the in-flight scan or stun belongs to. `scanLoading` and
-  // `stunLoading` are page-wide — they disable every row's buttons — so
+  // `stunLoading` are page-wide (they disable every row's buttons), so
   // without this the progress timer would tick on all of them at once and
   // claim five operations are running when one is.
   const [busyAgentId, setBusyAgentId] = useState<string | null>(null)
   // Table filters. Purely client-side, and the predicate lives here rather
   // than inside DataTable on purpose: "search" means different things to the
-  // two tables — a credential is found by its issuer or its scope, a control
-  // by the reason it failed — and a component that owned the word would be
+  // two tables (a credential is found by its issuer or its scope, a control
+  // by the reason it failed), and a component that owned the word would be
   // handing both of them one opinion about it.
   const [agentSearch, setAgentSearch] = useState('')
   const [agentState, setAgentState] = useState<string>('all')
@@ -453,7 +453,7 @@ export default function SuperCredPage() {
     try {
       // The scan result is recorded in the observation store so the finding
       // reaches Compliance, Policy Compliance, Agent Posture and Risk Exposure
-      // — the proxy evaluates the pod but does not relabel it.
+      // Note: the proxy evaluates the pod but does not relabel it.
       const data = await scanSuperCredAgent(agentPath(agent, 'compliance'), agent.id)
       setCompliance(data as ComplianceResponse)
     } catch (err) {
@@ -469,7 +469,7 @@ export default function SuperCredPage() {
   // This used to be two: the browser POSTed the SuperCred proxy to relabel the
   // pod and revoke the lease, then POSTed fe-signalloom to write the audit row.
   // Everything between those two calls was a window in which the cluster was
-  // mutated and nothing was written down — a closed tab, a token expiring
+  // mutated and nothing was written down: a closed tab, a token expiring
   // mid-demo (Dex runs storage: memory and regenerates signing keys on every
   // `make public`, so a 401 there is routine), or simply a failed second
   // request. The page could report the gap, which is why a "stunned but not
@@ -492,7 +492,7 @@ export default function SuperCredPage() {
       setStunResult(data)
       setStunEvent(data.event ?? null)
 
-      // Local only — no backend counterpart. Advances the simulated cluster in
+      // Local only: no backend counterpart. Advances the simulated cluster in
       // demo mode and drops the cached observation so the other pages re-read.
       recordStunResult()
 
@@ -550,7 +550,7 @@ export default function SuperCredPage() {
     [activeAgent],
   )
 
-  // Chip counts are read off the FULL record set, never the filtered one — a
+  // Chip counts are read off the FULL record set, never the filtered one: a
   // count that shrinks as you filter tells you about the filter you already
   // applied instead of the one you are considering. Only statuses the data
   // actually holds get a chip: five permanently-zero chips are furniture.
@@ -600,7 +600,7 @@ export default function SuperCredPage() {
     })
   }, [complianceResults, checkSearch, checkResult])
 
-  // The width cap is on the PROSE, not on the page — which is what every other
+  // The width cap is on the PROSE, not on the page, which is what every other
   // page carrying a DataTable already does (Credential Inventory, Network
   // Tests, Cryptography). A page-wide 900px cap was fine for a page of cards
   // and paragraphs and stopped being fine the moment a seven-column table
@@ -620,10 +620,10 @@ export default function SuperCredPage() {
           <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Architecture Overview</h2>
           {/* The two words the rest of this page assumes you already know. An
               executive in the room needs them before the first table means
-              anything, and an engineer needs the diagram, not a definition —
+              anything, and an engineer needs the diagram, not a definition:
               which is exactly the split a hint resolves without a second page. */}
           <HelpHint label="What SPIFFE and OpenBao do here" testId="supercred-architecture-help">
-            SPIFFE gives each workload a cryptographic identity it cannot forge or lend out — the pod proves what it is rather than presenting a password anyone could steal. OpenBao then exchanges that proof for a credential that lasts minutes and unlocks one named thing. No shared secret exists to leak.
+            SPIFFE gives each workload a cryptographic identity it cannot forge or lend out: the pod proves what it is rather than presenting a password anyone could steal. OpenBao then exchanges that proof for a credential that lasts minutes and unlocks one named thing. No shared secret exists to leak.
           </HelpHint>
         </div>
         <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
@@ -696,7 +696,7 @@ export default function SuperCredPage() {
         }}>
           {blockedAgents.map(a => (
             <div key={a.id}>
-              <strong>{a.name}</strong> is in phase <code style={code}>{a.phase}</code> — it cannot run.
+              <strong>{a.name}</strong> is in phase <code style={code}>{a.phase}</code>: it cannot run.
             </div>
           ))}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
@@ -705,7 +705,7 @@ export default function SuperCredPage() {
               <code style={code}>make demo-signalloom-supercred-images</code>.
             </span>
             <HelpHint label="What a blocked pod phase means" tone="var(--amber)" testId="supercred-phase-help">
-              Kubernetes reports a pod’s phase, and Pending, Failed or Unknown all mean the container never started. Nothing further down this page has been disproved by that — the agent has simply not run, so there is no credential chain to inspect either way.
+              Kubernetes reports a pod’s phase, and Pending, Failed or Unknown all mean the container never started. Nothing further down this page has been disproved by that: the agent has simply not run, so there is no credential chain to inspect either way.
             </HelpHint>
           </div>
         </div>
@@ -713,14 +713,14 @@ export default function SuperCredPage() {
 
       {/* Live runner: phase status and links for everyone, controls for
           superadmins. Falls back to the simulated path below when the runner
-          reports no script — the two coexist rather than replace each other. */}
+          reports no script: the two coexist rather than replace each other. */}
       <SuperCredInstructorPanel superadmin={superadmin} onRefreshClients={loadAgents} />
 
       <DemoStepControls onAdvance={loadAgents} />
 
       {/* Load agents. A section rather than a card, because DataTable brings
           its own frame and a card inside a card draws two borders around one
-          table — the same reason the two tables below this are sections. */}
+          table, for the same reason the two tables below this are sections. */}
       <section style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -729,11 +729,11 @@ export default function SuperCredPage() {
                 explanation repeated down five rows is noise, and the word that
                 needs explaining is the same word every time. Toned to --error
                 because it explains the destructive control beside it.
-                The name deliberately avoids the word "stunning" — the row
+                The name deliberately avoids the word "stunning": the row
                 button carries that as its accessible name while the stun is in
                 flight, and a hint sharing it makes that assertion ambiguous. */}
             <HelpHint label="What a stun does to an agent" tone="var(--error)" testId="supercred-stun-help">
-              Stunning withdraws the agent’s identity: the OpenBao lease is revoked, its next credential exchange is refused, and network policy stops its egress. It is not a shutdown — the pod keeps running, it simply can no longer prove who it is, so nothing downstream will talk to it. There is no undo.
+              Stunning withdraws the agent’s identity: the OpenBao lease is revoked, its next credential exchange is refused, and network policy stops its egress. It is not a shutdown: the pod keeps running, it simply can no longer prove who it is, so nothing downstream will talk to it. There is no undo.
             </HelpHint>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -758,7 +758,7 @@ export default function SuperCredPage() {
         {/* Rendered only when discovery actually returned SuperCred agents, so
             DataTable's `emptyState` below can mean exactly one thing: a filter
             matched nothing. The two "no agents at all" branches underneath keep
-            their own conditions — an estate with nothing in it and a filter
+            their own conditions: an estate with nothing in it and a filter
             hiding everything are different sentences and must not share one. */}
         {agents.length > 0 && (
           <div style={{ marginTop: 12 }}>
@@ -807,7 +807,7 @@ export default function SuperCredPage() {
               emptyState={
                 <EmptyState
                   kicker="No agent matches those filters"
-                  body="Clear the search box, or pick a different state — discovery still found the agents, this is only what is on screen."
+                  body="Clear the search box, or pick a different state: discovery still found the agents, this is only what is on screen."
                 />
               }
               renderRow={(agent: RuntimeAgent) => (
@@ -833,7 +833,7 @@ export default function SuperCredPage() {
                           <span
                             data-testid={`telemetry-cgroup-${agent.id}`}
                             className="tag"
-                            title="cgroup.freeze: 1 — Kernel processes atomically suspended with memory preserved"
+                            title="cgroup.freeze: 1: Kernel processes atomically suspended with memory preserved"
                             style={{ fontSize: 10, background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                           >
                             cgroup: FROZEN
@@ -841,7 +841,7 @@ export default function SuperCredPage() {
                           <span
                             data-testid={`telemetry-tc-${agent.id}`}
                             className="tag"
-                            title="TC clsact matchall drop active — all ingress/egress packets blocked"
+                            title="TC clsact matchall drop active: all ingress/egress packets blocked"
                             style={{ fontSize: 10, background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                           >
                             TC: DROP
@@ -852,7 +852,7 @@ export default function SuperCredPage() {
                           <span
                             data-testid={`telemetry-cgroup-${agent.id}`}
                             className="tag"
-                            title="cgroup.freeze: 0 — Normal kernel scheduling active"
+                            title="cgroup.freeze: 0: Normal kernel scheduling active"
                             style={{ fontSize: 10, background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
                           >
                             cgroup: THAWED
@@ -860,7 +860,7 @@ export default function SuperCredPage() {
                           <span
                             data-testid={`telemetry-tc-${agent.id}`}
                             className="tag"
-                            title="TC clsact drop filter inactive — normal packet routing"
+                            title="TC clsact drop filter inactive: normal packet routing"
                             style={{ fontSize: 10, background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
                           >
                             TC: PASS
@@ -878,14 +878,14 @@ export default function SuperCredPage() {
                       <div style={{ fontSize: 11, color: colors.red, marginTop: 2 }}>{agent.stun_reason}</div>
                     )}
                   </td>
-                  <td style={DataTable.td}>{agent.phase ?? '—'}</td>
+                  <td style={DataTable.td}>{agent.phase ?? '-'}</td>
                   {/* The testid stays on the cell it always named. The word
                       "Namespace:" moved into the column header, where a table
                       puts it. */}
-                  <td data-testid={`agent-namespace-${agent.id}`} style={DataTable.td}>{agent.namespace ?? '—'}</td>
-                  <td style={DataTable.td}>{agent.model ?? '—'}</td>
-                  <td style={DataTable.td}>{agent.framework ?? '—'}</td>
-                  <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 11 }}>{agent.supercred_target ?? '—'}</td>
+                  <td data-testid={`agent-namespace-${agent.id}`} style={DataTable.td}>{agent.namespace ?? '-'}</td>
+                  <td style={DataTable.td}>{agent.model ?? '-'}</td>
+                  <td style={DataTable.td}>{agent.framework ?? '-'}</td>
+                  <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 11 }}>{agent.supercred_target ?? '-'}</td>
                   <td style={DataTable.td}>
                     <div style={{ display: 'flex', gap: 8 }}>
                       {/* Both row buttons carry the same min-width so the pair is
@@ -942,7 +942,7 @@ export default function SuperCredPage() {
             distinction and it is the one this card must never lose: "we have
             not asked yet" and "we asked and the estate is clean" are opposite
             claims that used to render identically. The sentence naming the
-            control to press stays — the phase says what is true, the sentence
+            control to press stays: the phase says what is true, the sentence
             says what to do about it. */}
         {agents.length === 0 && !loading && discoveredCount === null && (
           <div data-testid="supercred-not-loaded" style={{ marginTop: 12 }}>
@@ -978,7 +978,7 @@ export default function SuperCredPage() {
         )}
       </section>
 
-      {/* Credential Lifecycle — observed evidence, not asserted progress.
+      {/* Credential Lifecycle: observed evidence, not asserted progress.
           The previous card derived all six steps from `!!agent.id` and printed
           hardcoded 2026-01-01 timestamps, which is why it showed everything
           completed after only the first deploy. Backed by the same script as
@@ -989,7 +989,7 @@ export default function SuperCredPage() {
         </div>
       )}
 
-      {/* Credential inventory — DataTable, sortable, searchable, filterable.
+      {/* Credential inventory: DataTable, sortable, searchable, filterable.
           The status badge is StatusBadge on the `credential` variant rather
           than a colour map kept here: a credential's `pending` (an exchange in
           flight) and a compliance `pending` (an assessment nobody ran) are the
@@ -1048,7 +1048,7 @@ export default function SuperCredPage() {
             emptyState={
               <EmptyState
                 kicker="No credential matches those filters"
-                body="Clear the search box, or pick a different status — the controls above are still there."
+                body="Clear the search box, or pick a different status: the controls above are still there."
               />
             }
             renderRow={(cred: CredentialRecord) => (
@@ -1079,7 +1079,7 @@ export default function SuperCredPage() {
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Compliance Scan Results</h2>
             <StatusBadge status={compliance.compliant ? 'compliant' : 'non-compliant'} variant="compliance" />
             <HelpHint label="What a compliance scan is checking" testId="supercred-compliance-help">
-              Each row is one control evaluated against the running pod just now. A failure does not mean the agent has been attacked — it means a guardrail that would have contained an attack is not in place, which is why the platform can revoke the agent’s credentials rather than wait to find out.
+              Each row is one control evaluated against the running pod just now. A failure does not mean the agent has been attacked: it means a guardrail that would have contained an attack is not in place, which is why the platform can revoke the agent’s credentials rather than wait to find out.
             </HelpHint>
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
@@ -1141,7 +1141,7 @@ export default function SuperCredPage() {
             emptyState={
               <EmptyState
                 kicker="No check matches those filters"
-                body="Clear the search box, or switch back to all — the scan itself is unchanged, this is only what is on screen."
+                body="Clear the search box, or switch back to all: the scan itself is unchanged, this is only what is on screen."
               />
             }
             renderRow={(r: ComplianceResult) => (
@@ -1188,7 +1188,7 @@ export default function SuperCredPage() {
           {/* The proxy's own wording when it gave one, otherwise composed from
               the lifecycle fields the response always carries. Read from
               `proxy` rather than the top level because that is where relayed
-              claims live — see StunProxyReport. Display text, so composing it
+              claims live: see StunProxyReport. Display text, so composing it
               is fine; what must never be composed here is the audit record,
               and that arrives whole in `event` below. */}
           <p style={{ fontSize: 13, marginBottom: 4 }}>
@@ -1238,7 +1238,7 @@ export default function SuperCredPage() {
                   1 · FROZEN
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
-                  Atomic scheduler freeze — process memory preserved for forensics
+                  Atomic scheduler freeze: process memory preserved for forensics
                 </div>
               </div>
               <div style={{ padding: '10px 12px', background: 'var(--surface)', borderRadius: 4, border: '1px solid var(--border)' }}>
@@ -1250,7 +1250,7 @@ export default function SuperCredPage() {
                   MATCHALL DROP · ACTIVE
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
-                  clsact qdisc ingress/egress filter — 100% packet isolation
+                  clsact qdisc ingress/egress filter: 100% packet isolation
                 </div>
               </div>
             </div>
@@ -1261,14 +1261,14 @@ export default function SuperCredPage() {
               marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)',
               fontSize: 12, color: 'var(--muted)', lineHeight: 1.6,
             }}>
-              <strong>Audit event recorded</strong> — visible on the{' '}
+              <strong>Audit event recorded</strong>: visible on the{' '}
               <a href="/audit" style={{ color: 'var(--cyan)' }}>Audit Trail</a>.
               <div style={{ fontFamily: 'monospace', fontSize: 11, marginTop: 4 }}>
                 <span data-testid="stun-event-type">{stunEvent.event_type}</span>
                 {' · '}
                 <span data-testid="stun-event-timestamp">{stunEvent.timestamp}</span>
                 {' · agent '}
-                <span data-testid="stun-event-agent">{stunEvent.agent_name ?? stunEvent.agent_id ?? '—'}</span>
+                <span data-testid="stun-event-agent">{stunEvent.agent_name ?? stunEvent.agent_id ?? '-'}</span>
                 {' · actor '}
                 <span data-testid="stun-event-actor">{stunEvent.actor}</span>
               </div>
@@ -1284,7 +1284,7 @@ export default function SuperCredPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Discovery Summary</h2>
             <HelpHint label="What discovery counted" testId="supercred-discovery-help">
-              Discovery lists every agent running in the namespaces below, then narrows to the ones carrying the SuperCred label. Blocked counts pods Kubernetes never started — they are neither compliant nor non-compliant, because nothing about them has been evaluated.
+              Discovery lists every agent running in the namespaces below, then narrows to the ones carrying the SuperCred label. Blocked counts pods Kubernetes never started: they are neither compliant nor non-compliant, because nothing about them has been evaluated.
             </HelpHint>
           </div>
           {/* DashKit's StatCard rather than four hand-rolled tiles: the same
@@ -1322,12 +1322,12 @@ export default function SuperCredPage() {
       <div className="card" style={{ padding: '16px 20px' }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Demo Steps</h2>
         <ol data-testid="supercred-demo-steps" style={{ fontSize: 13, lineHeight: 1.8, paddingLeft: 20, margin: 0 }}>
-          <li><code>make demo-signalloom-supercred-images</code> — Build and kind-load the demo images</li>
-          <li><code>make demo-signalloom-supercred-1</code> — Deploy services + agent + OpenBao secrets</li>
-          <li><code>make demo-signalloom-supercred-2</code> — Run SPIFFE → OpenBao → cardvault credential chain</li>
-          <li>Click <strong>Refresh Agents</strong> above, then <strong>Compliance Scan</strong> — discovers missing securityContext</li>
-          <li>Click <strong>Stun Agent</strong> — revokes OpenBao credentials, marks agent as stunned</li>
-          <li><code>make demo-signalloom-supercred-5</code> — Tear down</li>
+          <li><code>make demo-signalloom-supercred-images</code>: Build and kind-load the demo images</li>
+          <li><code>make demo-signalloom-supercred-1</code>: Deploy services + agent + OpenBao secrets</li>
+          <li><code>make demo-signalloom-supercred-2</code>: Run SPIFFE → OpenBao → cardvault credential chain</li>
+          <li>Click <strong>Refresh Agents</strong> above, then <strong>Compliance Scan</strong>: discovers missing securityContext</li>
+          <li>Click <strong>Stun Agent</strong>: revokes OpenBao credentials, marks agent as stunned</li>
+          <li><code>make demo-signalloom-supercred-5</code>: Tear down</li>
         </ol>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, marginBottom: 0 }}>
           Steps 3 and 4 are also scriptable as <code style={code}>make demo-signalloom-supercred-3</code> and{' '}

@@ -1,5 +1,5 @@
 /**
- * Credential inventory — canonical model of the platform's workload identities
+ * Credential inventory: canonical model of the platform's workload identities
  * and the credentials minted from them.
  *
  * ## Why this module exists
@@ -7,17 +7,17 @@
  * Three pages independently hard-coded a SPIFFE table and three different trust
  * domains: CryptographyPage (`signalloom.svc.cluster.local`), SuperCredPage
  * (`signalloom.ai`), FederatedServicesPage (`signalloom.demo`). Only the last
- * one is right. The deployed SPIRE server config is the authority —
+ * one is right. The deployed SPIRE server config is the authority:
  * `infra/inf-bao/controllers/base/spire-openbao-config.yaml` sets
- * `trust_domain = "signalloom.demo"` — so this module sources it from there and
+ * `trust_domain = "signalloom.demo"`: so this module sources it from there and
  * the Credential Inventory page reads it from here.
  *
  * ## Provenance is a first-class field
  *
  * Every entry and every credential carries `provenance`:
- *   - `live`   — derived from a pod the proxy actually discovered in-cluster
- *   - `config` — read from the SPIRE/OpenBao manifests committed to this repo
- *   - `demo`   — fixture, shown only when the live path is unreachable
+ *   - `live`   : derived from a pod the proxy actually discovered in-cluster
+ *   - `config` : read from the SPIRE/OpenBao manifests committed to this repo
+ *   - `demo`   : fixture, shown only when the live path is unreachable
  *
  * The page renders that tag on every row. A dashboard that presents modelled
  * figures as measured ones is worse than no dashboard, so the distinction is
@@ -47,7 +47,7 @@ export type Provenance = 'live' | 'config' | 'demo'
 export type IdentityState = 'active' | 'revoked' | 'pending'
 
 export interface RegistrationEntry {
-  /** Canonical SPIFFE ID — the join key across config and live sources. */
+  /** Canonical SPIFFE ID: the join key across config and live sources. */
   spiffeId: string
   namespace: string
   serviceAccount: string
@@ -67,7 +67,7 @@ export interface RegistrationEntry {
    *
    * A running pod is not an identity. Verified against the cluster on
    * 2026-08-02: the five `agent-*` pods in `fe-signalloom-agents` run
-   * serviceAccountName `default`, for which nothing is registered — they hold
+   * serviceAccountName `default`, for which nothing is registered: they hold
    * no SVID at all. That is a finding worth surfacing, not a row to paint
    * green.
    */
@@ -100,7 +100,7 @@ export interface RuntimeAgentIdentity {
   id: string
   name?: string | null
   namespace?: string | null
-  /** Pod `spec.serviceAccountName` — the second half of the SPIFFE ID. */
+  /** Pod `spec.serviceAccountName`: the second half of the SPIFFE ID. */
   service_account?: string | null
   state?: string | null
 }
@@ -110,8 +110,8 @@ export interface RuntimeAgentIdentity {
 /**
  * The SPIFFE identities registered by the manifests in this repo.
  *
- * Entry 1 — infra/inf-bao/controllers/base/spire-openbao-config.yaml (identity.json)
- * Entry 2 — infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml (JWT role)
+ * Entry 1: infra/inf-bao/controllers/base/spire-openbao-config.yaml (identity.json)
+ * Entry 2: infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml (JWT role)
  *
  * These are `config`, not `live`: the manifest says the identity should exist,
  * which is not the same as SPIRE having issued it.
@@ -275,7 +275,7 @@ export const CONFIG_REGISTRATION_ENTRIES: RegistrationEntry[] = [
 // ─── Demo fallback ──────────────────────────────────────────────────────────
 
 /**
- * Offline fixture set. Uses the real trust domain deliberately — a demo row
+ * Offline fixture set. Uses the real trust domain deliberately: a demo row
  * that teaches an operator the wrong SPIFFE ID format is a defect, not a
  * placeholder.
  */
@@ -327,7 +327,7 @@ export const DEMO_REGISTRATION_ENTRIES: RegistrationEntry[] = [
  *
  * `registeredEntries` is the set of SPIFFE IDs SPIRE is actually configured to
  * issue. A discovered pod outside that set gets `state: 'pending'` and
- * `registered: false` — it is running with no workload identity. Omit the
+ * `registered: false` (it is running with no workload identity). Omit the
  * argument and every pod is assumed registered.
  */
 export function deriveEntriesFromAgents(
@@ -416,7 +416,7 @@ const ISSUERS: Record<CredentialKind, string> = {
 }
 
 export interface CredentialOptions {
-  /** Clock injection — no `Date.now()` inside, so tests are deterministic. */
+  /** Clock injection: no `Date.now()` inside, so tests are deterministic. */
   now: Date
   /**
    * Result of the live SPIFFE→OpenBao proof (`/health/crypto`). When the proof
@@ -445,7 +445,7 @@ export function credentialsForEntry(
       : kind === 'openbao-lease' ? (entry.baoPolicyPath ?? `auth/jwt/role/${entry.serviceAccount}`)
       : `${entry.workload}:api/v1:read`
 
-    // An unregistered identity holds nothing. Every credential is pending —
+    // An unregistered identity holds nothing. Every credential is pending:
     // reporting an SVID SPIRE never issued is the fabrication this page exists
     // to prevent, and a failed exchange cannot apply to an exchange that never
     // happened.
@@ -455,7 +455,7 @@ export function credentialsForEntry(
       : unregistered ? 'pending'
       : 'active'
     // A failed SPIFFE→OpenBao exchange only invalidates the lease. The SVID was
-    // still issued — conflating the two would hide which link of the chain broke.
+    // still issued: conflating the two would hide which link of the chain broke.
     if (status === 'active' && kind === 'openbao-lease' && opts.baoExchangeProven === false) {
       status = 'failed'
     }
@@ -474,7 +474,7 @@ export function credentialsForEntry(
       revokedAt,
       ttlSeconds,
       // Rotation count is a function of elapsed lifetime over TTL for a
-      // short-lived credential — SPIRE rotates continuously.
+      // short-lived credential: SPIRE rotates continuously.
       rotationCount: kind === 'x509-svid' ? 0 : Math.floor(3600 / ttlSeconds) - 1,
       provenance: entry.provenance,
     }
@@ -524,11 +524,11 @@ export function summariseCredentials(records: CredentialRecord[], now: Date): Cr
 
 /**
  * Status with the clock applied. A stored `active` whose expiry has passed is
- * `expired` — short-lived credentials go stale between renders, and reporting a
- * dead credential as active is the exact failure this page exists to catch.
+ * `expired` (short-lived credentials go stale between renders, and reporting a
+ * dead credential as active is the exact failure this page exists to catch).
  */
 export function effectiveStatus(record: CredentialRecord, now: Date): CredentialStatus {
-  // A pending credential has no real expiry to pass — it was never issued.
+  // A pending credential has no real expiry to pass; it was never issued.
   if (record.status !== 'active') return record.status
   return Date.parse(record.expiresAt) <= now.getTime() ? 'expired' : record.status
 }

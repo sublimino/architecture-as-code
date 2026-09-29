@@ -6,7 +6,7 @@
 // the evidence stands on its own without a narrator.
 //
 // Visible to every authenticated user. There is deliberately no superadmin
-// gate — a customer whose agent was just isolated is precisely the person who
+// gate: a customer whose agent was just isolated is precisely the person who
 // needs to see it.
 //
 // ── Colour ──────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ export default function CredentialStateNotice({
         }}
       >
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', letterSpacing: '0.03em' }}>
-          STUNNED — CREDENTIALS REVOKED
+          STUNNED: CREDENTIALS REVOKED
         </span>
         {reason && (
           <span style={{ fontSize: 11, color: 'var(--text)', lineHeight: 1.35 }}>{reason}</span>
@@ -122,12 +122,12 @@ export default function CredentialStateNotice({
       }}
     >
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', letterSpacing: '0.03em', marginBottom: 6 }}>
-        STUNNED — CREDENTIALS REVOKED
+        STUNNED: CREDENTIALS REVOKED
       </div>
       <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>
         {subject ? <strong>{subject}</strong> : 'This agent'} can no longer authenticate to the
         platform. Every credential it held has been revoked
-        {reason ? <> — {reason}</> : null}.
+        {reason ? <> ({reason})</> : null}.
       </div>
       {(when || credentialState.revoked_by) && (
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>

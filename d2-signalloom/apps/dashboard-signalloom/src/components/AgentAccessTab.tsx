@@ -11,7 +11,7 @@ import CredentialStateNotice from './CredentialStateNotice'
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null | undefined) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -22,7 +22,7 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 function fmtRelative(iso: string | null | undefined) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'just now'
@@ -71,7 +71,7 @@ export default function AgentAccessTab({
     pending: 0,
     posture_score: null,
   }
-  const spiffeId = agent.identity?.spiffe_id || (agent.id ? `spiffe://signalloom.demo/ns/${agent.runtime?.namespace || agent.namespace || 'default'}/sa/${agent.id}` : '—')
+  const spiffeId = agent.identity?.spiffe_id || (agent.id ? `spiffe://signalloom.demo/ns/${agent.runtime?.namespace || agent.namespace || 'default'}/sa/${agent.id}` : '-')
   const isSpiffeLinked = agent.identity?.spiffe_status === 'linked' || (!!agent.identity?.spiffe_id && isRegistryLinked)
 
   // ─── 2. Truthful Language Dictionary ──────────────────────────────────────

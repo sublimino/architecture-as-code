@@ -27,13 +27,13 @@ import { rateFor, type RateTable } from './rates'
  * catch:
  *
  *   `Math.round` is half-UP, not half-away-from-zero. `Math.round(-267.5)` is
- *   -267, so -2.675 would round to -2.67 while +2.675 rounds to +2.68 — the
+ *   -267, so -2.675 would round to -2.67 while +2.675 rounds to +2.68: the
  *   same magnitude rounding two different ways either side of zero.
  *
  *   `toFixed` rounds the BINARY double, not the decimal literal. The nearest
  *   double to 2.675 is 2.67499999999999982, so `(2.675).toFixed(2)` is "2.67".
  *   A reader who types 2.675 into a calculator gets 2.68 and concludes the
- *   screen is wrong — and on that evidence they would be right.
+ *   screen is wrong, and on that evidence they would be right.
  *
  * Taking the absolute value first makes half-up and half-away-from-zero the
  * same operation, and the digits are walked as a STRING so that no arithmetic
@@ -69,7 +69,7 @@ export function roundHalfAwayFromZero(value: number, decimals: number): number {
   const neg = value < 0
   const abs = Math.abs(value)
 
-  // String(abs) gives the shortest round-tripping decimal — the number as a
+  // String(abs) gives the shortest round-tripping decimal: the number as a
   // reader would write it. It switches to exponential form ("1e+21", "1e-7")
   // outside roughly 1e-6..1e21, where there is no digit string to walk; fall
   // back to the binary path there rather than return NaN. At those magnitudes a
@@ -101,7 +101,7 @@ export function roundHalfAwayFromZero(value: number, decimals: number): number {
  * Apply the sign, except to zero.
  *
  * Zero has no sign in money. This is safe precisely because rounding is
- * presentation-only — the value is never fed back into arithmetic, so
+ * presentation-only: the value is never fed back into arithmetic, so
  * discarding a sign that carries no quantity costs nothing.
  */
 function signed(magnitude: number, negative: boolean): number {
@@ -134,7 +134,7 @@ export function convert(
   target: CurrencyCode,
   table?: RateTable,
 ): Converted | null {
-  // A non-finite source amount is not money — it is a computation error upstream.
+  // A non-finite source amount is not money; it is a computation error upstream.
   // Returning null forces the caller to render "Unavailable" rather than producing
   // a Converted with NaN that passes the null check and enters arithmetic.
   if (m === null || m === undefined) return null
@@ -148,7 +148,7 @@ export function convert(
   const raw = moneyObj.amount * lookup.rate
   // The multiplication can overflow to ±Infinity for extreme values (e.g. a very
   // large amount times a very large rate). An infinite converted amount is not a
-  // figure anyone can use — return null so the caller renders "Unavailable".
+  // figure anyone can use; return null so the caller renders "Unavailable".
   if (!Number.isFinite(raw)) return null
 
   return {

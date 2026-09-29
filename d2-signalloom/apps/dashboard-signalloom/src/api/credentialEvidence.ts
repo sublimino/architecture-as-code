@@ -6,7 +6,7 @@
 //
 //   observed     a probe ran and confirmed it
 //   absent       a probe ran and disproved it
-//   unavailable  the probe could not run — NOT the same as absent
+//   unavailable  the probe could not run (NOT the same as absent)
 //
 // Keeping `unavailable` distinct from `absent` is the whole discipline. They
 // render differently and neither renders as progress: "we could not look" and
@@ -23,13 +23,13 @@ export type EvidenceState = 'observed' | 'absent' | 'unavailable'
  * A step carried exactly one command until step 6 proved that was too few. A
  * stun is a revocation (the mechanism), an annotation (corroboration) and a
  * NetworkPolicy (containment); with room for one command, whichever one was
- * shown silently became the definition of the step — and the one that had been
+ * shown silently became the definition of the step, and the one that had been
  * shown was the NetworkPolicy, the weakest of the three.
  */
 export interface EvidenceProof {
-  /** Short name for the tab — what this command is evidence OF. */
+  /** Short name for the tab: what this command is evidence OF. */
   label: string
-  /** The literal command that produced this output — paste-and-rerun. */
+  /** The literal command that produced this output (paste-and-rerun). */
   command: string
   /** Raw output, shown in the debugger console. */
   detail: string
@@ -62,8 +62,8 @@ export interface CredentialEvidence {
 
 // Routed through the same prefix as every other demo-runner call. Spelling this
 // `/api/demo/supercred/evidence` reaches fe-signalloom-api instead of the runner
-// — a pod with no kubectl and no scripts, where the handler dies with
-// `IndexError: 4` and the card renders a bare HTTP 500. See DEMO_API.
+// (a pod with no kubectl and no scripts, where the handler dies with
+// `IndexError: 4` and the card renders a bare HTTP 500). See DEMO_API.
 export const EVIDENCE_ENDPOINT = `${DEMO_API}/evidence`
 
 /** Narrow an unknown state string without inventing progress for it. */
@@ -74,7 +74,7 @@ export function normaliseState(raw: unknown): EvidenceState {
 /**
  * Normalise a step's proofs to the multi-proof shape, whatever the producer sent.
  *
- * The single-command shape is not deprecated data to be tolerated — it is what
+ * The single-command shape is not deprecated data to be tolerated: it is what
  * every step with one probe still sends, and what a runner image built before
  * `proofs` existed sends for all of them. Both collapse to the same thing: one
  * proof, labelled with the step it belongs to.
@@ -122,7 +122,7 @@ export function parseEvidence(payload: unknown): CredentialEvidence {
 /**
  * How many steps are actually proven. Used for the executive one-liner.
  *
- * `unavailable` deliberately counts toward neither proven nor disproven — it is
+ * `unavailable` deliberately counts toward neither proven nor disproven: it is
  * reported separately so a reader can tell "5 of 6 confirmed" from "5 of 6
  * confirmed, 1 we could not check".
  */

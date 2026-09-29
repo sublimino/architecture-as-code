@@ -17,7 +17,7 @@ export default function DemoToggle({ bottom = 16 }: DemoToggleProps = {}) {
     window.location.reload()
   }
 
-  // Guard sits below the hooks so they run in the same order on every render —
+  // Guard sits below the hooks so they run in the same order on every render:
   // an early return above them violates the rules of hooks (ThemeToggle, the
   // sibling corner widget, has no early return for the same reason).
   if (!showDemoToggle) return null
@@ -29,7 +29,7 @@ export default function DemoToggle({ bottom = 16 }: DemoToggleProps = {}) {
       data-testid="demo-toggle"
       title={
         on
-          ? 'Demo data ON — showing fixtures. Click to use the live API.'
+          ? 'Demo data ON: showing fixtures. Click to use the live API.'
           : 'Click to render with demo data (works even if the API is unavailable).'
       }
       style={{
@@ -46,7 +46,7 @@ export default function DemoToggle({ bottom = 16 }: DemoToggleProps = {}) {
         // Every colour resolves from the active theme's own custom properties.
         //
         // The previous revision read `var(--card, #1a1a1a)`. `--card` is declared by no theme and
-        // by no :root block — it was a dead token, the only reference to it in the codebase — so
+        // by no :root block (it was a dead token, the only reference to it in the codebase), so
         // the fallback was ALWAYS used. Under Light that painted near-black #1a1a1a behind
         // var(--text) #0F172A: 1.03:1, an invisible button.
         //

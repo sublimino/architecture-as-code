@@ -6,7 +6,7 @@ interface Props {
   testId?: string
   /**
    * CSS colour for the "?" affordance, so a hint can be tied visually to the
-   * control it explains — the hint beside a red destructive button reads as
+   * control it explains: the hint beside a red destructive button reads as
    * belonging to something else when it is cyan. Only the "?" is toned; a
    * coloured popup would read as an error rather than an explanation.
    * Proximity, not colour, is what actually establishes the association.
@@ -53,8 +53,8 @@ function clamp(value: number, min: number, max: number): number {
  *
  * Coordinates in and out are viewport-relative, matching `getBoundingClientRect`
  * and `position: fixed`. Pure and side-effect free so the geometry can be tested
- * without a browser — jsdom reports all-zero rects, so this is the only place the
- * edge cases can actually be exercised.
+ * without a browser (jsdom reports all-zero rects, so this is the only place the
+ * edge cases can actually be exercised).
  */
 export function placeTooltip(anchor: Rect, tip: Rect, viewport: Viewport): Placement {
   // Horizontal: prefer left-aligned, flip to right-aligned, shift as a last resort.
@@ -110,7 +110,7 @@ function samePlacement(a: Placement, b: Placement): boolean {
  * A hint has to look identical wherever it is dropped, and the container it is
  * dropped into gets a vote it never asked for: `text-transform`,
  * `letter-spacing`, `white-space`, `font-weight`, `font-style`, `word-spacing`
- * and `text-align` all inherit. A table header is the case that actually bit —
+ * and `text-align` all inherit. A table header is the case that actually bit:
  * every `th` in this codebase carries
  * `{ textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
  * fontWeight: 600 }` (DataTable, DashKit and the hand-rolled tables all agree
@@ -123,7 +123,7 @@ function samePlacement(a: Placement, b: Placement): boolean {
  * component that only looks right in the places someone remembered to defend is
  * a component that is wrong by default.
  *
- * The font stack is spelled out for the same reason — a hint inside a `.mono`
+ * The font stack is spelled out for the same reason: a hint inside a `.mono`
  * or `<code>` cell would otherwise render its "?" in JetBrains Mono. It matches
  * `body` in global.css, which `.display`, `.number`, `.kicker` and `.label`
  * already restate for the same reason.

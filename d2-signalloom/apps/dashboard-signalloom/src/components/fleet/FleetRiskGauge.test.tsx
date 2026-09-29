@@ -68,7 +68,7 @@ describe('FleetRiskGauge', () => {
   it('shows stable trend indicator', () => {
     render(<FleetRiskGauge ale={100000} var95={200000} trend="stable" />)
     const trendEl = screen.getByTestId('fleet-risk-trend')
-    expect(trendEl.textContent).toBe('\u2014')
+    expect(trendEl.textContent).toBe('-')
     expect(trendEl.style.color).toBe('var(--muted)')
   })
 

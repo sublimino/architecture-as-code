@@ -14,7 +14,7 @@ export const colors = {
 }
 
 // Matches demo v5's donut rendering (measured live, 2026-07-30): sharp segment
-// edges with no visible border, ~3deg gap between segments — Recharts' own
+// edges with no visible border, ~3deg gap between segments: Recharts' own
 // defaults (a 1px white stroke, 0 paddingAngle) are what made ours read chunky.
 export const donutDefaults = {
   paddingAngle: 3,

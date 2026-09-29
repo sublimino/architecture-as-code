@@ -3,7 +3,7 @@
 // TEMPORARY STAND-IN: the dashboard has no user-authentication table and no RBAC
 // model yet, so "who may switch superadmin on" is decided here by matching the
 // demo user's OIDC claims. When the user-authentication / RBAC table lands,
-// replace the body of isSuperadminEligible() with the role lookup — this file is
+// replace the body of isSuperadminEligible() with the role lookup: this file is
 // the single place that has to change.
 //
 // Superadmin is a VISIBILITY control, not an authorization control: it only
@@ -37,7 +37,7 @@ export function readSuperadmin(): boolean {
   try {
     return localStorage.getItem(SUPERADMIN_STORAGE_KEY) === 'true'
   } catch {
-    // Storage unavailable (private mode, some test runners) — default off.
+    // Storage unavailable (private mode, some test runners): default off.
     return false
   }
 }
@@ -46,7 +46,7 @@ export function writeSuperadmin(on: boolean): void {
   try {
     localStorage.setItem(SUPERADMIN_STORAGE_KEY, on ? 'true' : 'false')
   } catch {
-    /* ignore — storage unavailable; the in-memory React state still holds */
+    /* ignore: storage unavailable; the in-memory React state still holds */
   }
 }
 

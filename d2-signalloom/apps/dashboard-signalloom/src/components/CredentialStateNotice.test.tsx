@@ -47,7 +47,7 @@ describe.each(['inline', 'panel'] as const)('CredentialStateNotice — revoked (
 
   it('names the state in words, not just a status token', () => {
     renderRevoked()
-    expect(screen.getByText(/STUNNED — CREDENTIALS REVOKED/)).toBeInTheDocument()
+    expect(screen.getByText(/STUNNED: CREDENTIALS REVOKED/)).toBeInTheDocument()
   })
 
   it('says WHY the credentials were revoked', () => {
@@ -79,7 +79,7 @@ describe.each(['inline', 'panel'] as const)('CredentialStateNotice — revoked (
 
   it('still renders when the cluster reported no reason', () => {
     renderRevoked({ status: 'revoked', revoked_at: REVOKED.revoked_at })
-    expect(screen.getByText(/STUNNED — CREDENTIALS REVOKED/)).toBeInTheDocument()
+    expect(screen.getByText(/STUNNED: CREDENTIALS REVOKED/)).toBeInTheDocument()
   })
 
   it('survives an unparseable timestamp rather than rendering "Invalid Date"', () => {

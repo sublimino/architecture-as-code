@@ -82,7 +82,7 @@ export default function FrameworkDetailPage() {
       setRequestedKeys(prev => new Set([...prev, `${reassessTarget.agentId}:${reassessTarget.controlId}`]))
       setReassessTarget(null)
     } catch {
-      // silent — cell reverts on next poll
+      // silent: cell reverts on next poll
     } finally {
       setReassessing(false)
     }
@@ -198,7 +198,7 @@ export default function FrameworkDetailPage() {
                       return (
                         <td
                           key={c.id}
-                          title={status ? `${status} — ${isFail ? 'Click to request reassessment' : ''}` : 'No data'}
+                          title={status ? `${status}: ${isFail ? 'Click to request reassessment' : ''}` : 'No data'}
                           onClick={isFail ? () => setReassessTarget({ agentId: agent.agent_id, agentName: agent.agent_name, controlId: c.id, controlName: c.name }) : undefined}
                           style={{
                             padding: '10px 6px', textAlign: 'center',
@@ -211,7 +211,7 @@ export default function FrameworkDetailPage() {
                           onMouseEnter={e => { if (isFail) e.currentTarget.style.opacity = '0.75' }}
                           onMouseLeave={e => { if (isFail) e.currentTarget.style.opacity = '1' }}
                         >
-                          {status ? CELL_ICON[status] : '—'}
+                          {status ? CELL_ICON[status] : '-'}
                         </td>
                       )
                     })}
@@ -227,7 +227,7 @@ export default function FrameworkDetailPage() {
       <div style={{ marginTop: 12, display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>
         {[
           ['✓', 'pass', 'Pass'],
-          ['✗', 'fail', 'Fail — click cell to request reassessment'],
+          ['✗', 'fail', 'Fail: click cell to request reassessment'],
           ['↻', 'reassessment_requested', 'Reassessment requested'],
           ['○', 'pending', 'Pending'],
         ].map(([sym, key, label]) => (

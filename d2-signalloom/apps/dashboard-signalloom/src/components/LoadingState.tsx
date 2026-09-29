@@ -6,7 +6,7 @@ import PixelLoader from './PixelLoader'
 // event. Four phases, and the fourth one is the point: `idle` means "never
 // loaded", which is not the same thing as "loaded and found nothing". A
 // dashboard that renders an empty table for both is a dashboard nobody can
-// read — the operator cannot tell a healthy zero from a fetch that never ran.
+// read: the operator cannot tell a healthy zero from a fetch that never ran.
 //
 // Colour note, because this is where the last bug in this area came from.
 // `var(--error)` is NOT usable as body text: measured against the three
@@ -23,7 +23,7 @@ export type LoadPhase = 'idle' | 'loading' | 'success' | 'error'
 /**
  * Collapses the `loading` / `error` / `has-loaded-once` booleans that every
  * page in this codebase already keeps into a single phase. `loaded` has to be
- * passed explicitly — inferring it from "data is non-empty" is exactly how
+ * passed explicitly: inferring it from "data is non-empty" is exactly how
  * "never loaded" and "loaded and empty" get conflated.
  */
 export function loadPhase(input: {
@@ -53,7 +53,7 @@ export function formatAgo(from: number, now: number = Date.now()): string {
  * Re-renders often enough that the relative-time line stays honest without a
  * re-fetch: every second while the stamp is inside its first minute, every
  * fifteen after that. Returns the tick count so callers can use it as a
- * dependency — memoising the message without it silently freezes the line at
+ * dependency: memoising the message without it silently freezes the line at
  * whatever it said on mount, which is worse than showing no time at all.
  */
 function useElapsedTicker(stamp: number | null): number {
@@ -73,7 +73,7 @@ function useElapsedTicker(stamp: number | null): number {
 // The reduced-motion hook that used to live here is gone, not lost: the only
 // thing that read it was the spinning `Indicator`, and the `loading` phase no
 // longer draws one. PixelLoader owns motion now, including freezing its grid
-// under `prefers-reduced-motion` while the elapsed figure keeps counting —
+// under `prefers-reduced-motion` while the elapsed figure keeps counting,
 // which is strictly more than the dot did, since the dot just stopped.
 
 function buildMessage(
@@ -100,7 +100,7 @@ export interface LoadingStateProps {
   status: LoadPhase
   /** The thing being loaded, lower case, e.g. "agents", "compliance data". */
   label?: string
-  /** Failure reason. Shown verbatim — never replaced with a generic string. */
+  /** Failure reason. Shown verbatim, never replaced with a generic string. */
   error?: string | null
   /**
    * Explicit stamp for the current phase, in epoch ms. Omit it and the
@@ -148,7 +148,7 @@ export default function LoadingState({
   const subject = label ? ` ${label}` : ''
 
   // Deliberately NOT memoised. formatAgo reads Date.now(), so the output is a
-  // function of wall-clock time and not of the props alone — a useMemo keyed
+  // function of wall-clock time and not of the props alone: a useMemo keyed
   // on the props freezes the line at whatever it said on mount, which is the
   // exact bug the "counts up while the component just sits there" test in
   // LoadingState.test.tsx caught. Recomputing a switch on every tick is free.
@@ -167,7 +167,7 @@ export default function LoadingState({
   // else; forty seconds into a slow query the only question worth answering is
   // "how long has this been going", and this answers it.
   //
-  // `announce={false}` because the element above is already the live region —
+  // `announce={false}` because the element above is already the live region:
   // see PixelLoader's `announce` prop. It takes over `${testId}-message`, so
   // the message is still one element with one testid and callers see no change.
   //
@@ -256,7 +256,7 @@ export default function LoadingState({
       )}
       {isError && error && (
         <>
-          <span aria-hidden="true">—</span>
+          <span aria-hidden="true">:</span>
           {/* --text, not --error: see the colour note at the top of this file.
               The separator lives outside this span so the reason is the whole
               of its element's text and stays findable by exact string. */}
@@ -265,7 +265,7 @@ export default function LoadingState({
           </span>
         </>
       )}
-      {/* A 401 cannot be retried — the request was refused, not lost. Offer the
+      {/* A 401 cannot be retried: the request was refused, not lost. Offer the
           only action that can actually resolve it. */}
       {isError && error && isAuthError(error) && (
         <button
@@ -306,7 +306,7 @@ export default function LoadingState({
  * aria-hidden, because the sibling text is what carries the meaning.
  *
  * It draws no `loading` case any more and takes no reduced-motion argument.
- * Both are gone because the spinning ring they existed for is gone — a
+ * Both are gone because the spinning ring they existed for is gone: a
  * `loading` phase renders PixelLoader instead, which handles its own motion.
  * Leaving the branch in place would have left a second, unreachable answer to
  * "what does loading look like" for the next person to find and believe.

@@ -1,4 +1,4 @@
-// The SuperCred agent's control set — the single source of truth that every
+// The SuperCred agent's control set: the single source of truth that every
 // main-page projection derives from.
 //
 // Twelve controls in four groups, each group satisfied (or broken) by one step
@@ -21,10 +21,10 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low'
 /**
  * Which demo step decides this control's fate.
  *
- * - `governance` — satisfied by registering/deploying the agent (step 1)
- * - `identity`   — satisfied by the SPIFFE → OpenBao credential chain (step 2)
- * - `runtime`    — broken by the compliance scan's findings (step 3)
- * - `response`   — proven by the stun actually working (step 4)
+ * - `governance`: satisfied by registering/deploying the agent (step 1)
+ * - `identity`: satisfied by the SPIFFE → OpenBao credential chain (step 2)
+ * - `runtime`: broken by the compliance scan's findings (step 3)
+ * - `response`: proven by the stun actually working (step 4)
  */
 export type ControlGroup = 'governance' | 'identity' | 'runtime' | 'response'
 
@@ -54,7 +54,7 @@ const SEVERITY_WEIGHT: Record<Severity, number> = {
  *
  * Revoking the OpenBao lease and setting deny-all egress removes the threat
  * actor's *capability* to exploit the finding, but the defect itself (no
- * securityContext on the pod spec) is still there — so the residual is
+ * securityContext on the pod spec) is still there, so the residual is
  * deliberately non-zero. 0.15 is a treatment-effectiveness assumption, not a
  * measurement; it is surfaced in the UI under the existing
  * "industry-indicative" calibration tag.
@@ -62,7 +62,7 @@ const SEVERITY_WEIGHT: Record<Severity, number> = {
 export const STUN_CONTAINMENT_RESIDUAL = 0.15
 
 export const SUPERCRED_CONTROLS: SuperCredControl[] = [
-  // ── Governance — satisfied the moment the agent is deployed (step 1) ──────
+  // ── Governance: satisfied the moment the agent is deployed (step 1) ──────
   {
     id: 'agent-registered',
     control: 'AIG-1',
@@ -94,7 +94,7 @@ export const SUPERCRED_CONTROLS: SuperCredControl[] = [
     ale: 5100, var95: 22000, tvar: 34000,
   },
 
-  // ── Identity — satisfied by the SPIFFE → OpenBao chain (step 2) ───────────
+  // ── Identity: satisfied by the SPIFFE → OpenBao chain (step 2) ───────────
   {
     id: 'workload-identity-issued',
     control: 'IA-4',
@@ -136,7 +136,7 @@ export const SUPERCRED_CONTROLS: SuperCredControl[] = [
     ale: 24700, var95: 110000, tvar: 169000,
   },
 
-  // ── Runtime — the three real policy-engine checks, broken at step 3 ───────
+  // ── Runtime: the three real policy-engine checks, broken at step 3 ───────
   {
     id: 'security-context-present',
     control: 'SC-9',
@@ -168,7 +168,7 @@ export const SUPERCRED_CONTROLS: SuperCredControl[] = [
     ale: 16300, var95: 72000, tvar: 111000,
   },
 
-  // ── Response — proven only when the stun actually works (step 4) ──────────
+  // ── Response: proven only when the stun actually works (step 4) ──────────
   {
     id: 'kill-switch-operational',
     control: 'AIO-4',
@@ -191,7 +191,7 @@ export const SUPERCRED_CONTROLS: SuperCredControl[] = [
   },
 ]
 
-/** Sum of every control's severity weight — the posture score denominator. */
+/** Sum of every control's severity weight: the posture score denominator. */
 export const SUPERCRED_TOTAL_WEIGHT = SUPERCRED_CONTROLS.reduce(
   (s, c) => s + SEVERITY_WEIGHT[c.severity],
   0,
@@ -226,7 +226,7 @@ export function controlStatus(control: SuperCredControl, phase: SuperCredPhase):
  * Controls that have actually been evaluated at this phase.
  *
  * A pending control is not a scan result, so it must not appear as a check on
- * Policy Compliance or Agent Posture — otherwise the demo would show findings
+ * Policy Compliance or Agent Posture; otherwise the demo would show findings
  * for work the platform has not done yet.
  */
 export function evaluatedControls(phase: SuperCredPhase): SuperCredControl[] {
@@ -288,7 +288,7 @@ export function postureScore(phase: SuperCredPhase): number | null {
  *
  * These are hand-calibrated constants in this file, all sterling. Named so the
  * projection can refuse to add them to a document reported in another currency
- * rather than adding two different kinds of number — see projectPolicySummary.
+ * rather than adding two different kinds of number (see projectPolicySummary).
  */
 export const SUPERCRED_CURRENCY: CurrencyCode = 'GBP'
 
@@ -296,8 +296,8 @@ export const SUPERCRED_CURRENCY: CurrencyCode = 'GBP'
  * Carried (residual) risk in GBP for a single control at this phase.
  *
  * A failing control carries its full ALE while the agent still holds live
- * credentials. Once stunned, it falls to STUN_CONTAINMENT_RESIDUAL of that —
- * capability removed, defect not yet fixed. Passing and pending controls carry
+ * credentials. Once stunned, it falls to STUN_CONTAINMENT_RESIDUAL of that
+ * (capability removed, defect not yet fixed). Passing and pending controls carry
  * nothing.
  */
 export function controlCarriedGbp(control: SuperCredControl, phase: SuperCredPhase): number {

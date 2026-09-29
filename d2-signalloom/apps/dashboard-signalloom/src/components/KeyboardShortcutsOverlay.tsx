@@ -5,7 +5,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
  * Global "press ? for shortcuts" overlay.
  *
  * Source of truth for the documented keys is Sidebar.tsx's window keydown
- * handler — `/` focuses quick search and `1`..`N` navigate to the Nth
+ * handler: `/` focuses quick search and `1`..`N` navigate to the Nth
  * non-superadmin nav item. Nothing is listed here that the app does not
  * actually bind. Keep this table in step with that handler.
  */
@@ -21,7 +21,7 @@ const SHORTCUTS: Shortcut[] = [
   { keys: ['1', '9'], separator: '…', description: 'Jump to the nth item in the sidebar navigation' },
   { keys: ['?'], description: 'Open this keyboard shortcuts overlay' },
   { keys: ['Esc'], description: 'Close this overlay' },
-  { keys: ['Tab'], description: 'Move between controls — focus stays inside this overlay while it is open' },
+  { keys: ['Tab'], description: 'Move between controls (focus stays inside this overlay while it is open)' },
 ]
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -72,7 +72,7 @@ export default function KeyboardShortcutsOverlay() {
     restoreFocusRef.current = null
   }, [])
 
-  // One window listener for the component's lifetime — opening is idempotent,
+  // One window listener for the component's lifetime: opening is idempotent,
   // so a repeated `?` can never stack a second dialog or a second listener.
   useEffect(() => {
     function handleKeyDown(e: globalThis.KeyboardEvent) {
@@ -83,7 +83,7 @@ export default function KeyboardShortcutsOverlay() {
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (isTypingTarget(e.target)) return
-      // `?` is Shift+/ on most layouts but not all — match the produced
+      // `?` is Shift+/ on most layouts but not all: match the produced
       // character rather than the physical key combination.
       if (e.key === '?' && !openRef.current) {
         e.preventDefault()

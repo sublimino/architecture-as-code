@@ -5,14 +5,14 @@
  *
  * Why it exists. DesignSystemPage is fifteen sections and sixteen hundred
  * lines; DesignSystemHeadersPage is nine. Finding a component on either meant
- * scrolling and hoping. Both pages already carried the structure this needs —
- * a `Group` per section with a stable id — so the index is a reading of
+ * scrolling and hoping. Both pages already carried the structure this needs:
+ * a `Group` per section with a stable id, so the index is a reading of
  * something that was already true rather than a new thing to keep in sync.
  *
  * Four decisions worth knowing before editing.
  *
  * 1. THE ACTIVE SECTION IS THE TOPMOST ONE CROSSING A SCAN LINE, NOT THE
- *    TOPMOST ONE ON SCREEN. See TOC_SCAN_LINE below — this is the part
+ *    TOPMOST ONE ON SCREEN. See TOC_SCAN_LINE below: this is the part
  *    scrollspies get wrong and the reason that constant is exported and
  *    asserted.
  *
@@ -26,7 +26,7 @@
  * 3. THE SCOPED STYLE BLOCK IS DELIBERATE, and follows the precedent
  *    DesignSystemHeadersPage set. `:hover`, `:focus-visible` and the media
  *    query cannot be expressed as an inline style object, and the alternative
- *    — editing the shared global.css that every page depends on — is a much
+ *    (editing the shared global.css that every page depends on) is a much
  *    larger blast radius for a feature used by two of them. Every colour is a
  *    `var(--token)`: styles/cssVarUsage.test.ts scans .tsx as well as .css.
  *
@@ -44,8 +44,8 @@
  *   focus ring       --cyan  on --bg    8.31 /  5.36 /  7.50 worst  5.36 AA-UI
  *
  * The Andy column moved when that theme was rebuilt on the Signal Loom brand
- * ramp: the marker was 4.23 against the old red — 1.23 above the 3:1 non-text
- * floor — and is 7.50 against the brand cyan, so the tightest theme for this
+ * ramp: the marker was 4.23 against the old red (1.23 above the 3:1 non-text
+ * floor) and is 7.50 against the brand cyan, so the tightest theme for this
  * component is now Light at 5.36 rather than Andy.
  *
  * `--dim` was the first choice for the rail's title and is not used: 4.24 at
@@ -67,7 +67,7 @@ export type TocEntry = {
  *
  *   The active entry is the FIRST IN DOCUMENT ORDER among the sections
  *   currently intersecting this band. Sections are non-overlapping siblings,
- *   so first-in-document-order is exactly topmost-on-screen — and unlike
+ *   so first-in-document-order is exactly topmost-on-screen, and unlike
  *   comparing `boundingClientRect.top` values it needs no geometry, which
  *   matters because those rects are only fresh for the entries in the current
  *   callback batch.
@@ -77,7 +77,7 @@ export type TocEntry = {
  * the highlight until its last pixel has scrolled off the top, so the reader
  * spends a whole screenful looking at section B's heading while the nav
  * insists they are in section A. Shrinking the root to a thin horizontal strip
- * fixes it — a section is "current" while it crosses the strip, which is the
+ * fixes it: a section is "current" while it crosses the strip, which is the
  * band of the screen a reader's eye is actually in.
  *
  * `-12%` off the top and `-83%` off the bottom leaves rows 12%–17% of the
@@ -106,7 +106,7 @@ export const TOC_SCAN_LINE = '-12% 0px -83% 0px'
  *
  * The budget is the argument. `App.tsx` puts the page inside a 268px sidebar
  * plus 64px of horizontal padding, so at a 1280px viewport the content column
- * is 948px and the rail takes 260 of it, leaving 688px — the narrowest the
+ * is 948px and the rail takes 260 of it, leaving 688px: the narrowest the
  * page's widest specimen (the DataTable with seven columns) reads at. Below
  * that the rail is stealing width from the thing it exists to help you find.
  *
@@ -120,7 +120,7 @@ export const TOC_SCAN_LINE = '-12% 0px -83% 0px'
  * So: hidden. Every section stays reachable by scrolling and by direct anchor
  * link, which is what a reader on a narrow screen would have had anyway. This
  * is a superadmin-only internal reference page inside a `height: 100vh;
- * overflow: hidden` desktop shell — it is not a mobile surface, and pretending
+ * overflow: hidden` desktop shell: it is not a mobile surface, and pretending
  * otherwise would cost content width on the widths that do matter.
  *
  * `display: none` also settles the no-overlap requirement at narrow widths in
@@ -136,7 +136,7 @@ const RAIL_STYLES = `
 }
 .ds-toc-content {
   flex: 1 1 auto;
-  /* Without this a wide child — the DataTable specimens — refuses to shrink
+  /* Without this a wide child (the DataTable specimens) refuses to shrink
      below its content width and pushes the rail off the page. */
   min-width: 0;
 }
@@ -257,7 +257,7 @@ export default function PageTocLayout({
     const targets = ids.map(findSection).filter((el): el is HTMLElement => el !== null)
     if (targets.length === 0) return
 
-    // The browser reports CHANGES, not the current picture — a callback for a
+    // The browser reports CHANGES, not the current picture: a callback for a
     // section entering says nothing about the three still inside. Accumulating
     // here is what makes "first in document order among intersecting" a
     // question about the whole page rather than about the latest batch.
@@ -270,7 +270,7 @@ export default function PageTocLayout({
           else intersecting.delete(record.target.id)
         }
         const winner = ids.find((id) => intersecting.has(id))
-        // No winner means the band is empty — mid-way through a section taller
+        // No winner means the band is empty, mid-way through a section taller
         // than the strip's distance from the top. Holding the last answer beats
         // blanking the nav, which would flicker on every long section.
         if (winner) setActiveId(winner)
@@ -351,7 +351,7 @@ export default function PageTocLayout({
                   data-testid={`page-toc-link-${entry.id}`}
                   // aria-current="location" rather than "true": this is a
                   // position within the page, which is the exact case the
-                  // value exists for. Colour is not the only signal — weight
+                  // value exists for. Colour is not the only signal; weight
                   // and the marker bar change too.
                   aria-current={activeId === entry.id ? 'location' : undefined}
                   onClick={(event) => handleClick(event, entry.id)}

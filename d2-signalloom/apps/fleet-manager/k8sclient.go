@@ -510,9 +510,21 @@ func (c *k8sFleetClient) revokeCredentialsIdempotencyKey(agentID string) string 
 // ErrEnforcementUnavailable so callers keep the fail-closed contract. A partial
 // containment is representable: the []PlaneResult carries the per-plane truth
 // even when the aggregate error is set.
+//
+// It acts in the client's default namespace. The cascade calls
+// RevokeCredentialsPlanesIn with the target's DAG namespace instead.
 func (c *k8sFleetClient) RevokeCredentialsPlanes(ctx context.Context, agentID string) ([]PlaneResult, error) {
+	return c.RevokeCredentialsPlanesIn(ctx, "", agentID)
+}
+
+// RevokeCredentialsPlanesIn is RevokeCredentialsPlanes for an agent in a
+// given namespace ("" means the default). The namespace decides where the
+// agent's pod, and so its ServiceAccount subject, is looked up; using the
+// default for an agent the DAG places elsewhere derived an identity the agent
+// does not hold.
+func (c *k8sFleetClient) RevokeCredentialsPlanesIn(ctx context.Context, namespace, agentID string) ([]PlaneResult, error) {
 	seq := c.degraded.nextSeq()
-	namespace := c.defaultNamespace
+	namespace = c.namespaceOrDefault(namespace)
 	identity := c.resolveIdentity(ctx, namespace, agentID)
 	idempotencyKey := c.revokeCredentialsIdempotencyKey(agentID)
 

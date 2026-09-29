@@ -10,6 +10,39 @@ describe('StatusBadge', () => {
     expect(border).toContain('var(--teal)')
   })
 
+  it('resolves canonical lifecycle "Governed" to the teal token', () => {
+    const { color, bg, border } = getStatusColor('Governed', 'lifecycle')
+    expect(color).toBe('var(--teal)')
+    expect(bg).toContain('var(--teal)')
+    expect(border).toContain('var(--teal)')
+  })
+
+  it('resolves canonical lifecycle "Suspended" to the amber token', () => {
+    const { color, bg, border } = getStatusColor('Suspended', 'lifecycle')
+    expect(color).toBe('var(--amber)')
+    expect(bg).toContain('var(--amber)')
+    expect(border).toContain('var(--amber)')
+  })
+
+  it('resolves canonical lifecycle "Revoked" to the error token', () => {
+    const { color, bg, border } = getStatusColor('Revoked', 'lifecycle')
+    expect(color).toBe('var(--error)')
+    expect(bg).toContain('var(--error)')
+    expect(border).toContain('var(--error)')
+  })
+
+  it('renders eBPF lock indicator for Suspended agent with accessible title', () => {
+    const { getByTestId, getByText } = render(
+      <StatusBadge status="Suspended" variant="lifecycle" isFrozen testId="suspended-badge" />,
+    )
+    expect(getByText('Suspended')).toBeTruthy()
+    expect(getByTestId('ebpf-lock-icon')).toBeTruthy()
+    expect(getByTestId('suspended-badge')).toHaveAttribute(
+      'title',
+      'Sentinel eBPF kernel enforcement active: cgroup frozen and network dropped',
+    )
+  })
+
   it('resolves risk "high_risk" to the amber token', () => {
     const { color, bg } = getStatusColor('high_risk', 'risk')
     expect(color).toBe('var(--amber)')

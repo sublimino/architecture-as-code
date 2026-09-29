@@ -11,7 +11,7 @@
  *   7. Zero em-dash typography verification across policy and compliance surfaces.
  */
 import { test, expect } from "./fixtures";
-import { login, config } from "./helpers";
+import { login, config, getAuthToken } from "./helpers";
 
 const BASE = config.base;
 
@@ -145,3 +145,79 @@ test.describe("Surfaces 7 & 8: Policy Editor & Compliance (Mobile Viewport 375x6
     expect(bodyText).not.toContain("—");
   });
 });
+
+test.describe("Surfaces 7 & 8: Adversarial Policy and Compliance Endpoint Contracts", () => {
+  let authToken = "";
+
+  test("rejects unauthenticated policy validation with 401", async ({ request }) => {
+    const res = await request.post(`${BASE}/api/v1/policies/validate`, {
+      data: { expression: "true" },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test("validates CEL syntax errors returning 422 with error diagnostics", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
+    const res = await request.post(`${BASE}/api/v1/policies/validate`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: { expression: "invalid.cel.syntax ?::: ?? broken" },
+    });
+    expect([400, 422]).toContain(res.status());
+    const body = await res.json();
+    expect(body.error).toBe("cel_validation_error");
+    expect(body.detail).toBeDefined();
+  });
+
+  test("validates valid CEL expression returning valid=true", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
+    const res = await request.post(`${BASE}/api/v1/policies/validate`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: { expression: "has(agent.security_profile) && agent.security_profile.secure_by_default == true" },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.valid).toBe(true);
+  });
+
+  test("querying non-existent framework ID returns 404 with structured error envelope", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
+    const res = await request.get(`${BASE}/api/v1/compliance/frameworks/non-existent-framework-xyz`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    expect(res.status()).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe("framework_not_found");
+    expect(body.framework_id).toBe("non-existent-framework-xyz");
+    expect(Array.isArray(body.available_frameworks)).toBe(true);
+  });
+
+  test("posture calculation endpoint bounds posture_score in [0.0, 100.0]", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
+    const res = await request.post(`${BASE}/api/v1/compliance/posture/calculate`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: {
+        total_controls: 5,
+        passing_controls: 4,
+        failing_controls: 1,
+      },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.posture_score).toBe(80.0);
+    expect(body.posture_score).toBeGreaterThanOrEqual(0.0);
+    expect(body.posture_score).toBeLessThanOrEqual(100.0);
+  });
+});
+

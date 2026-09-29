@@ -108,7 +108,14 @@ class TestPolicyEngineRouterMounting:
     """Verify that all policy-engine proxy routes are mounted on the FastAPI app."""
 
     def test_policy_engine_routes_registered(self):
-        route_paths = {r.path for r in app.routes if hasattr(r, "path")}
+        route_paths = set()
+        for r in app.routes:
+            if hasattr(r, "path"):
+                route_paths.add(r.path)
+            elif hasattr(r, "original_router"):
+                for sub in r.original_router.routes:
+                    if hasattr(sub, "path"):
+                        route_paths.add(sub.path)
         expected_patterns = [
             "/api/v1/compliance",
             "/api/v1/compliance/{subpath:path}",

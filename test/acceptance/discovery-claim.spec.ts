@@ -11,7 +11,7 @@
  *   7. Adversarial claim API assertions: malformed payload, empty agent ID, missing/invalid namespace.
  */
 import { test, expect } from "./fixtures";
-import { login, config } from "./helpers";
+import { login, config, getAuthToken } from "./helpers";
 
 const BASE = config.base;
 
@@ -130,8 +130,22 @@ test.describe("Surface 2: Multi-Source Discovery (Mobile Viewport 375x667)", () 
 });
 
 test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () => {
-  test("rejects empty agent ID with 400 or 422 and structured error envelope", async ({ request }) => {
+  let authToken = "";
+
+  test("rejects unauthenticated claim request with 401", async ({ request }) => {
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      data: { agent_id: "unauth-agent", namespace: "fe-signalloom-agents" },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test("rejects empty agent ID with 400 or 422 and structured error envelope", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
+    const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      headers: { Authorization: `Bearer ${authToken}` },
       data: { agent_id: "", namespace: "fe-signalloom-agents" },
     });
     expect([400, 422]).toContain(res.status());
@@ -140,8 +154,13 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
     expect(body.error.code).toBeDefined();
   });
 
-  test("rejects missing namespace with 400 or 422 and structured error envelope", async ({ request }) => {
+  test("rejects missing namespace with 400 or 422 and structured error envelope", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      headers: { Authorization: `Bearer ${authToken}` },
       data: { agent_id: "adversarial-agent" },
     });
     expect([400, 422]).toContain(res.status());
@@ -150,8 +169,13 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
     expect(body.error.code).toBeDefined();
   });
 
-  test("rejects non-existent namespace with 400 or 422 and structured error envelope", async ({ request }) => {
+  test("rejects non-existent namespace with 400 or 422 and structured error envelope", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      headers: { Authorization: `Bearer ${authToken}` },
       data: { agent_id: "adversarial-agent", namespace: "non-existent-namespace-9999" },
     });
     expect([400, 422]).toContain(res.status());
@@ -160,9 +184,16 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
     expect(body.error.code).toBeDefined();
   });
 
-  test("rejects malformed raw JSON with 400 or 422 and never unhandled 500", async ({ request }) => {
+  test("rejects malformed raw JSON with 400 or 422 and never unhandled 500", async ({ page, request }) => {
+    if (!authToken) {
+      await login(page);
+      authToken = (await getAuthToken(page)) || "";
+    }
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+      },
       data: "{ malformed: json, missing quotes }",
     });
     expect([400, 422]).toContain(res.status());

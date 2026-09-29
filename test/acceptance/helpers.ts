@@ -291,6 +291,27 @@ export async function login(page: Page, opts?: { demoMode?: boolean; skipOnboard
 }
 
 /**
+ * Retrieve OIDC Bearer access token from localStorage or sessionStorage.
+ */
+export async function getAuthToken(page: Page): Promise<string | null> {
+  return await page.evaluate(() => {
+    for (const store of [window.localStorage, window.sessionStorage]) {
+      for (let i = 0; i < store.length; i++) {
+        const key = store.key(i);
+        if (!key?.startsWith("oidc.user:")) continue;
+        try {
+          const v = JSON.parse(store.getItem(key) ?? "{}");
+          if (v?.access_token) return v.access_token as string;
+        } catch {
+          /* storage unparseable */
+        }
+      }
+    }
+    return null;
+  });
+}
+
+/**
  * Login variant that always expects the Dex form (for login-specific tests
  * that need to verify the login flow itself, not skip it).
  */

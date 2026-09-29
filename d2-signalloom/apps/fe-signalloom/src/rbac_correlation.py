@@ -756,6 +756,39 @@ async def afm_post_cluster_jobs(
     return await _trigger_cluster_scan(cluster_id, trigger_source)
 
 
+@afm_router.get(
+    "/clusters/{cluster_id}/jobs",
+)
+async def afm_get_cluster_jobs(
+    cluster_id: str,
+    limit: int = 50,
+) -> Any:
+    """List AFM jobs for cluster."""
+    async with httpx.AsyncClient(timeout=AFM_TIMEOUT_S) as client:
+        try:
+            clusters_raw = await _afm_get_json(client, "/clusters")
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("rbac_correlation: /clusters unavailable during jobs fetch: %s", exc)
+            raise _afm_failure(exc, "the cluster list") from exc
+
+        if not isinstance(clusters_raw, list):
+            raise APIError(503, "afm_bad_response", "KubeSec-AFM returned a malformed cluster list")
+
+        known_ids = {
+            item.get("id")
+            for item in clusters_raw
+            if isinstance(item, dict) and "id" in item
+        }
+        if cluster_id not in known_ids:
+            raise APIError(404, "cluster_not_found", f"Cluster '{cluster_id}' not found")
+
+        try:
+            return await _afm_get_json(client, f"/clusters/{cluster_id}/jobs?limit={limit}")
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("rbac_correlation: jobs unavailable for cluster %s: %s", cluster_id, exc)
+            raise _afm_failure(exc, f"jobs for cluster {cluster_id!r}") from exc
+
+
 @router.post(
     "/clusters/{cluster_id}/jobs",
     status_code=202,

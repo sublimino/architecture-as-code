@@ -29,6 +29,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: dashboard-signalloom
+        # The fe-signalloom API calls POST /api/v1/fleet/stun/{agentId}
+        # server-side (kusari-e2e). Its pods carry only
+        # app.kubernetes.io/name=fe-signalloom, so neither selector above
+        # admits them. Same namespace, so a podSelector is enough.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fe-signalloom
       ports:
         - port: http
           protocol: TCP

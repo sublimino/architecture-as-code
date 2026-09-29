@@ -151,9 +151,6 @@ func TestAttachAndDetachUseOnlySentinelFilters(t *testing.T) {
 	tc := newTCDropFilter()
 	tc.run = func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string{name}, args...))
-		if reflect.DeepEqual(args[:2], []string{"qdisc", "add"}) {
-			return []byte("RTNETLINK answers: File exists"), errors.New("exists")
-		}
 		return nil, nil
 	}
 
@@ -177,10 +174,10 @@ func TestAttachAndDetachUseOnlySentinelFilters(t *testing.T) {
 		}
 	}
 	want := []string{
-		"tc qdisc add dev veth-target clsact",
+		"tc qdisc replace dev veth-target clsact",
 		"tc filter replace dev veth-target pref 49152 protocol all ingress handle 1 matchall action drop",
 		"tc filter replace dev veth-target pref 49153 protocol all egress handle 2 matchall action drop",
-		"tc qdisc add dev veth-target clsact",
+		"tc qdisc replace dev veth-target clsact",
 		"tc filter replace dev veth-target pref 49152 protocol all ingress handle 1 matchall action drop",
 		"tc filter replace dev veth-target pref 49153 protocol all egress handle 2 matchall action drop",
 		"tc filter del dev veth-target pref 49152 protocol all ingress handle 1 matchall",
@@ -306,5 +303,42 @@ func TestNetlinkLinkPeerLoopback(t *testing.T) {
 	}
 	if _, err := netlinkLinkPeer("fixc-no-such-if0"); err == nil {
 		t.Fatal("missing interface returned no error")
+	}
+}
+
+// W6 re-stun: unstun leaves the shared clsact qdisc in place (by design), and
+// iproute2 then refuses a second `qdisc add ... clsact` with "Exclusivity flag
+// on, cannot modify" (exit 2) rather than "File exists". Treating that as fatal
+// froze the pod but never re-attached the drop filter (53 s of retries).
+// The fake answers `qdisc add` the way real tc does on that second attach.
+func TestReattachAfterUnstunSurvivesExistingClsact(t *testing.T) {
+	var calls []string
+	tc := newTCDropFilter()
+	tc.run = func(name string, args ...string) ([]byte, error) {
+		call := strings.Join(append([]string{name}, args...), " ")
+		calls = append(calls, call)
+		if strings.HasPrefix(call, "tc qdisc add ") {
+			return []byte("Error: Exclusivity flag on, cannot modify.\n"), errors.New("exit status 2")
+		}
+		return nil, nil
+	}
+	for i := 0; i < 2; i++ { // first stun, then re-stun after an unstun
+		if err := tc.attachDrop("veth-target"); err != nil {
+			t.Fatalf("attach %d: %v", i, err)
+		}
+		if i == 0 {
+			if err := tc.detachDrop("veth-target"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	filters := 0
+	for _, c := range calls {
+		if strings.HasPrefix(c, "tc filter replace ") {
+			filters++
+		}
+	}
+	if filters != 4 {
+		t.Fatalf("filter replaces = %d, want 4 (both directions, both attaches): %q", filters, calls)
 	}
 }

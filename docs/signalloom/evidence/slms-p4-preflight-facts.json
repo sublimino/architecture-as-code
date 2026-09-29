@@ -1,0 +1,266 @@
+{
+  "artifact": "slms-p4-preflight-facts",
+  "phase": "P4",
+  "card": "SLMS-P4-PRE",
+  "title": "Phase 4 Pre-Flight Check: Federated Services, Cofide SDK Interceptor, Fleet Telemetry & Collusion Access Typography Audit",
+  "generated": "2026-09-29T07:06:00+01:00",
+  "role_boundary": "audit and pre-flight verification only; no Phase 4 production deliverables modified",
+  "repository": {
+    "worktree": "/home/andy/src/.worktrees/7f28a/osramp-demo",
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "base_commit_sha": "9774902193c5458375c513e2785ef8d6e7d79364",
+    "current_commit_sha": "37abea99596927232edbc08c1ebcf1ea3e72f05f",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean": true
+  },
+  "baseline_test_results": {
+    "signal_ingest_go": {
+      "command": "env GOPATH=/tmp/go GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache CGO_ENABLED=0 go test ./... -v",
+      "packages_tested": [
+        "api",
+        "api/audit",
+        "audit",
+        "cmd",
+        "codingagent",
+        "collectors",
+        "collectors/agentnono",
+        "collectors/ebpf",
+        "collectors/gcpaudit",
+        "collectors/k8saudit",
+        "collectors/spirea",
+        "correlation",
+        "identity",
+        "model",
+        "pkg/fair",
+        "privacy",
+        "privacy/tombstone",
+        "retention",
+        "store",
+        "subjectkey",
+        "transform"
+      ],
+      "status": "PASS",
+      "exit_code": 0
+    },
+    "phase_4_vitest": {
+      "command": "bun run test -- --run src/pages/FederatedServicesPage.test.tsx src/pages/FleetDemoPage.test.tsx src/pages/CollusionAccessPage.test.tsx",
+      "passed": 171,
+      "skipped": 0,
+      "failed": 0,
+      "total": 171,
+      "test_files": [
+        {
+          "file": "src/pages/FederatedServicesPage.test.tsx",
+          "passed": 65,
+          "status": "PASS"
+        },
+        {
+          "file": "src/pages/FleetDemoPage.test.tsx",
+          "passed": 56,
+          "status": "PASS"
+        },
+        {
+          "file": "src/pages/CollusionAccessPage.test.tsx",
+          "passed": 50,
+          "status": "PASS"
+        }
+      ],
+      "status": "PASS",
+      "exit_code": 0
+    },
+    "full_dashboard_vitest": {
+      "command": "bun run test -- --run",
+      "passed": 3520,
+      "skipped": 3,
+      "failed": 0,
+      "total": 3523,
+      "files_passed": 198,
+      "files_total": 198,
+      "status": "PASS",
+      "exit_code": 0
+    },
+    "policy_engine_go": {
+      "command": "env GOPATH=/tmp/go GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache CGO_ENABLED=0 go test ./...",
+      "packages_passed": 4,
+      "packages_total": 4,
+      "status": "PASS",
+      "exit_code": 0
+    },
+    "frontend_typecheck": {
+      "command": "bun run typecheck",
+      "errors": 0,
+      "status": "PASS",
+      "exit_code": 0
+    }
+  },
+  "go_interceptor_host_evaluation": {
+    "evaluated_candidates": [
+      {
+        "service": "apps/signal-ingest",
+        "path": "d2-signalloom/apps/signal-ingest/api/auth.go",
+        "port": 8082,
+        "protocol": "HTTP/REST",
+        "auth_model": "SPIFFE JWT-SVID (SIGNAL_AUTH_JWKS, SIGNAL_AUTH_AUDIENCE, SIGNAL_AUTH_TRUST_DOMAIN)",
+        "multi_tenancy": "TenantContext with WithTenantContext and TenantContextFromContext",
+        "audit_logging": "PostgresWriter with fail-closed audit journal",
+        "router_pattern": "NewProtectedRouter with JWTAuthenticator middleware",
+        "verdict": "SELECTED"
+      },
+      {
+        "service": "apps/cardvault",
+        "path": "d2-signalloom/apps/cardvault/main.go",
+        "port": 8080,
+        "protocol": "HTTP/REST",
+        "auth_model": "HTTP Basic Authentication (requireAuth)",
+        "multi_tenancy": "None (mock PCI card datastore)",
+        "audit_logging": "Standard log.Printf middleware",
+        "router_pattern": "Standard http.ServeMux with loggingMiddleware",
+        "verdict": "REJECTED"
+      }
+    ],
+    "authoritative_host_decision": {
+      "selected_host": "apps/signal-ingest",
+      "rationale": "apps/signal-ingest processes all inbound telemetry from autonomous agent workloads and external providers, validating SPIFFE SVID credentials, enforcing fine-grained actor permissions, and maintaining cryptographic audit journals. It is the sole authoritative host where Cofide Go SDK interceptor middleware can validate cross-trust-zone mTLS attestation and SVID exchanges.",
+      "dependencies": [
+        "github.com/cofide/cofide-sdk-go",
+        "github.com/cofide/cofide-api-sdk"
+      ],
+      "compilation_flags": "CGO_ENABLED=0",
+      "environment_requirements": "GOPATH=/tmp/go GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache"
+    }
+  },
+  "surface_11_federated_services_audit": {
+    "page_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/FederatedServicesPage.tsx",
+    "test_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/FederatedServicesPage.test.tsx",
+    "illustrative_strings_found": [
+      {
+        "lines": "520-526",
+        "location": "FIXTURE_PROOFS constant",
+        "text": "Every table on this page reads from an array literal declared in the page file. The component issues no fetch, holds no auth token and has no API client imported... zero of the figures above were measured. The trust domains, SVID expiries and bundle-exchange states are illustrative, chosen to show the shape of a federated deployment."
+      },
+      {
+        "line": 577,
+        "location": "federated-source card banner",
+        "text": "Illustrative — no trust zone, federation or SVID below was observed. This page is a fixture that shows what the fabric would look like; nothing on it is a measurement of this platform."
+      }
+    ],
+    "array_literals_for_extraction": [
+      {
+        "name": "TRUST_ZONES",
+        "type": "TrustZone[]",
+        "count": 3,
+        "items": ["signalloom-eu", "signalloom-us", "partner-acme"]
+      },
+      {
+        "name": "FEDERATIONS",
+        "type": "Federation[]",
+        "count": 3,
+        "items": ["signalloom-eu <-> signalloom-us", "signalloom-eu -> partner-acme", "signalloom-us -> partner-acme"]
+      },
+      {
+        "name": "FEDERATED_SERVICES",
+        "type": "FederatedService[]",
+        "count": 4,
+        "items": ["payments-api", "ledger-grpc", "kyc-lookup", "settlement-feed"]
+      },
+      {
+        "name": "POLICIES",
+        "type": "AttestationPolicy[]",
+        "count": 3,
+        "items": ["ap-payments", "ap-partner-read", "ap-node-tpm"]
+      },
+      {
+        "name": "SPIFFE_IDS",
+        "type": "SpiffeIdentity[]",
+        "count": 5,
+        "items": ["fe-signalloom", "cardvault-agent", "payments-api", "ledger-grpc", "kyc-lookup"]
+      },
+      {
+        "name": "FEDERATION_EVENTS",
+        "type": "FederationEvent[]",
+        "count": 5,
+        "severities": ["info", "pending"]
+      },
+      {
+        "name": "SDK_SNIPPET",
+        "type": "string",
+        "description": "Cofide Go SDK DialFederated example"
+      },
+      {
+        "name": "FIXTURE_PROOFS",
+        "type": "Proof[]",
+        "count": 2,
+        "description": "Proof console data source and verification commands"
+      }
+    ],
+    "p4_1_implementation_contract": {
+      "demo_mode_toggle": "isDemoMode() from src/api/demoMode.ts",
+      "fixture_location": "Extract to fakeData.ts or local fixtures",
+      "badge_treatment": "Demote illustrative badge to standard Demo Mode indicator",
+      "interceptor_verification": "Verify server-side Cofide Go SDK interceptor in apps/signal-ingest with pytest proxy integration"
+    }
+  },
+  "surface_12_fleet_demo_audit": {
+    "page_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/FleetDemoPage.tsx",
+    "test_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/FleetDemoPage.test.tsx",
+    "api_client": "d2-signalloom/apps/dashboard-signalloom/src/api/fleetApi.ts",
+    "reverse_proxy_route": "/fleet-api/",
+    "reverse_proxy_target": "http://fleet-manager:8082 (rewrite ^/fleet-api(/.*) /api$1 break)",
+    "active_endpoints": [
+      {
+        "path": "/api/v1/fleet/topology",
+        "method": "GET",
+        "purpose": "Fetch fleet agents, edges, aggregate risk, and cascade events"
+      },
+      {
+        "path": "/api/v1/fleet/stun/:agentId",
+        "method": "POST",
+        "purpose": "Trigger agent containment/stun and return cascade event"
+      },
+      {
+        "path": "/api/v1/fleet/deploy",
+        "method": "POST",
+        "purpose": "Deploy candidate agent workloads to cluster"
+      },
+      {
+        "path": "/api/v1/fleet/scan",
+        "method": "POST",
+        "purpose": "Trigger compliance scan across fleet"
+      },
+      {
+        "path": "/api/v1/fleet/recover",
+        "method": "POST",
+        "purpose": "Recover stunned agents"
+      },
+      {
+        "path": "/api/v1/fleet/reset",
+        "method": "POST",
+        "purpose": "Reset fleet to baseline state"
+      }
+    ],
+    "architectural_delineation": {
+      "fleet_demo_purpose": "Operational workload health, agent lifecycle management (deploy/stun/recover/reset), team allocations, and cascading failure risk.",
+      "topology_page_purpose": "Cryptographic SPIFFE trust domains, mTLS communication graph, cross-tenant workload links, and attestation evidence provenance.",
+      "duplication_resolution": "Remove the duplicated agent and SPIRE views from FleetDemoPage, provide explicit cross-links to /topology, and document the architectural boundary in help tooltips."
+    }
+  },
+  "surface_9_collusion_access_typography_audit": {
+    "page_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/CollusionAccessPage.tsx",
+    "test_file": "d2-signalloom/apps/dashboard-signalloom/src/pages/CollusionAccessPage.test.tsx",
+    "em_dash_occurrences_page": 60,
+    "em_dash_occurrences_test": 41,
+    "typography_rules": {
+      "rule": "Strict zero em-dashes (—) in user-facing UI text strings.",
+      "substitution_constraint": "Must rewrite into proper grammatical punctuation (colon, comma, sentence break, parentheses). Mechanical substitution with en-dashes (–) or hyphens (-) is strictly prohibited.",
+      "automated_gate": "Verified via grep -o '—' | wc -l and lint-ui-typography.bats in P5"
+    },
+    "p4_3_implementation_contract": {
+      "typography_rewrite": "Rewrite all 60 em-dashes in CollusionAccessPage.tsx and 41 in CollusionAccessPage.test.tsx",
+      "scan_triggers": "Add 'Run Collusion Scan' and 'Scan RBAC' action buttons wired to api/afmApi.ts and api/rbacCorrelationApi.ts",
+      "recency_badges": "Display relative time badges derived from job createdAt and finishedAt timestamps"
+    }
+  },
+  "preflight_verdict": "PASS",
+  "proceed": "yes",
+  "blocking_drift": "no"
+}

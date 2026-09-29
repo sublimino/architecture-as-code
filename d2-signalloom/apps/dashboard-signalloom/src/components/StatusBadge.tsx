@@ -93,6 +93,10 @@ const CREDENTIAL: ColorMap = {
   expired: { bg: tint(VAR.amber, 0.12), border: tint(VAR.amber, 0.25), color: VAR.amber },
   failed:  { bg: tint(VAR.error, 0.12), border: tint(VAR.error, 0.25), color: VAR.error },
   revoked: { bg: tint(VAR.error, 0.12), border: tint(VAR.error, 0.25), color: VAR.error },
+  // A revocation that was attempted and did not complete: the credential may
+  // still work, so it must not share revoked's colour.
+  revocation_failed: { bg: tint(VAR.amber, 0.12), border: tint(VAR.amber, 0.25), color: VAR.amber },
+  unknown: { bg: tint(VAR.slateGray, 0.15), border: 'transparent', color: VAR.muted },
 }
 
 /** Cryptographic posture: seal state, CA rotation, and PQC readiness. */

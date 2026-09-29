@@ -16,12 +16,16 @@
 #
 #   sys/leases/revoke           RevokeLease            (stun: bao plane)
 #   cardvault/creds/*           RotateAgentCredentials (resume: rotation)
-#   auth/token/accessors        ActiveTokensBySubject  (consistency: LIST, needs sudo)
-#   auth/token/lookup-accessor  ActiveTokensBySubject  (metadata only, never the token)
+#   auth/token/accessors        tokenSubjects          (stun + consistency: LIST, needs sudo)
+#   auth/token/lookup-accessor  tokenSubjects          (metadata only, never the token)
+#   auth/token/revoke-accessor  RevokeTokensBySubject  (stun: kill the agent's live tokens)
 #
 # renew-self / lookup-self come from the default policy; sys/health is
-# unauthenticated. RevokeToken and RevokeTokenAccessor exist on the client but
-# nothing in production calls them, so they are deliberately NOT granted.
+# unauthenticated. RevokeToken (revoke by token VALUE) exists on the client but
+# nothing in production calls it, so auth/token/revoke is deliberately NOT
+# granted. revoke-accessor can revoke ANY token whose accessor fleet-manager
+# can list; that is inherent to containment by accessor and is the reason this
+# identity is bound to exactly one SPIFFE ID.
 #
 # Separate Job (not an edit to openbao-bootstrap.yaml) because a Job's pod
 # template is immutable and that Job carries no force annotation: editing it
@@ -73,6 +77,9 @@ spec:
               path "auth/token/lookup-accessor" {
                 capabilities = ["update"]
               }
+              path "auth/token/revoke-accessor" {
+                capabilities = ["update"]
+              }
               POLICY
               bao policy write fleet-manager /tmp/policy.hcl
 
@@ -95,7 +102,7 @@ spec:
               # --- Assert the outcome, not the exit code ---
               bao read -field=bound_subject auth/jwt/role/fleet-manager \
                 | grep -qx 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager'
-              bao policy read fleet-manager | grep -q 'auth/token/lookup-accessor'
+              bao policy read fleet-manager | grep -q 'auth/token/revoke-accessor'| grep -q 'auth/token/lookup-accessor'
 
               echo "fleet-manager bootstrap complete"
           resources:

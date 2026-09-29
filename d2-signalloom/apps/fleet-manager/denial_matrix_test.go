@@ -338,7 +338,18 @@ func setupFull5PlaneFleetClient(t testing.TB, nAgents int) (*k8sFleetClient, *ht
 	t.Helper()
 
 	// 1. Fast OpenBao mock HTTP server
+	//
+	// The bao plane now also revokes the agent's tokens by accessor, which
+	// starts with LIST auth/token/accessors. This mock used to answer every path
+	// with an empty 204, a response real OpenBao never gives to a LIST, so the
+	// accessor list could not be decoded and the plane (correctly) refused to
+	// report Contained. It now answers that LIST the way OpenBao does when no
+	// tokens exist: 404. Every other path keeps the 204.
 	baoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/token/accessors" {
+			http.NotFound(w, r)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 

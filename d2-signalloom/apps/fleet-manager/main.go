@@ -77,13 +77,16 @@ const maxStunBodyBytes = 4 << 10
 
 // decodeStunRequest reads the stun body and returns the effective
 // reason. Every rejection is a 400 before any enforcement call is made.
-func decodeStunRequest(r *http.Request, pathAgentID string) (string, error) {
+//
+// The body's agent_id may name either what the path carried or the DAG id it
+// resolved to; fe-signalloom echoes the path value, which is often a pod name.
+func decodeStunRequest(r *http.Request, pathAgentID, resolvedID string) (string, error) {
 	var req StunRequest
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxStunBodyBytes))
 	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		return "", fmt.Errorf("invalid stun body: %v", err)
 	}
-	if req.AgentID != "" && req.AgentID != pathAgentID {
+	if req.AgentID != "" && req.AgentID != pathAgentID && req.AgentID != resolvedID {
 		return "", fmt.Errorf("agent_id %q in body contradicts %q in path", req.AgentID, pathAgentID)
 	}
 	return validateStunReason(req.Reason)
@@ -244,18 +247,25 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.dag.GetAgent(agentID) == nil {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown agent: %s", agentID))
+	// The dashboard and the integration proxy send pod names; the DAG knows
+	// agent ids. Resolve before anything else so a 404 means "no such agent"
+	// and never "you used the pod's name".
+	resolved, err := s.resolveAgentID(r.Context(), agentID)
+	if err != nil {
+		writeUnknownAgent(w, resolved)
 		return
 	}
 
-	reason, err := decodeStunRequest(r, agentID)
+	reason, err := decodeStunRequest(r, agentID, resolved.ID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	result, err := s.orchestrator.Stun(r.Context(), agentID, reason)
+	result, err := s.orchestrator.Stun(r.Context(), resolved.ID, reason)
+	if result != nil {
+		result.Details = map[string]any{"requested_id": agentID}
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -369,6 +379,17 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Namespace == "" && req.Token.Namespace != "" {
 		req.Namespace = req.Token.Namespace
+	}
+	// Same resolution as stun: a pod name maps onto its DAG agent, and the
+	// token's agent binding is then checked against the resolved id. An id no
+	// branch resolves is a 404 before any token verification.
+	if req.AgentID != "" {
+		resolved, err := s.resolveAgentID(r.Context(), req.AgentID)
+		if err != nil {
+			writeUnknownAgent(w, resolved)
+			return
+		}
+		req.AgentID = resolved.ID
 	}
 	if req.IdempotencyKey == "" {
 		req.IdempotencyKey = fmt.Sprintf("resume-%s-%s", req.AgentID, req.Token.TokenID)

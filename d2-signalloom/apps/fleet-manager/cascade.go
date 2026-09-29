@@ -119,6 +119,10 @@ type CascadeResult struct {
 	DurationMs     int64              `json:"duration_ms"`
 	RecoveryOrder  []string           `json:"recovery_order,omitempty"`
 	OverallOutcome PlaneOutcome       `json:"overall_outcome,omitempty"`
+	// Details carries request-level context the handler adds, currently
+	// requested_id: the id the caller sent before it was resolved onto the
+	// DAG agent named in TargetAgent (often a pod name).
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // FailedTargets returns the agent IDs whose containment or recovery did not

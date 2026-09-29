@@ -990,6 +990,10 @@
         },
         "overall_outcome": {
           "$ref": "#/$defs/PlaneOutcome"
+        },
+        "details": {
+          "type": "object",
+          "description": "Request-level context added by the handler. requested_id is the id the caller sent before resolution onto target_agent (often a pod name)."
         }
       },
       "required": [

@@ -2,7 +2,7 @@
 //
 // The SuperCred demo is driven from one browser window while an audience
 // watches a second one showing ordinary customer-facing pages. Those pages
-// only tell the story if they move on their own — nobody is going to hit
+// only tell the story if they move on their own: nobody is going to hit
 // reload in front of a room.
 //
 // Every constant here is deliberately in ONE module because they are not
@@ -27,7 +27,7 @@ export const LIVE_POLL_MS = 2500
  *
  * MUST stay strictly under LIVE_POLL_MS. If the TTL is longer than the poll,
  * every other poll is answered from cache and the audience sees the agent
- * change state a beat late — or, when the two drift into phase, not at all.
+ * change state a beat late, or, when the two drift into phase, not at all.
  * `pollInterval.test.ts` asserts the inequality so it cannot regress silently.
  *
  * Still long enough to do its original job: a page rendering six panels fires
@@ -52,7 +52,7 @@ export const OBSERVATION_BACKOFF_CEILING_MS = 60_000
  *
  * This used to be a cliff: three failures and the retry interval jumped
  * straight to 60s. That is correct for "the proxy isn't there" and badly wrong
- * for "the proxy blinked" — a transient blip mid-demo froze the audience
+ * for "the proxy blinked": a transient blip mid-demo froze the audience
  * window for a full minute, which is an eternity on stage.
  *
  * Backing off geometrically from the TTL instead keeps both properties. A

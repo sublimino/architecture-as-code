@@ -1,8 +1,8 @@
 /**
- * DataTable — reusable table with client-side pagination and column sorting.
+ * DataTable: reusable table with client-side pagination and column sorting.
  *
  * Uses var(--token) CSS custom properties for consistent theming. Zero external
- * dependencies — just React + inline styles.
+ * dependencies: just React + inline styles.
  *
  * Usage:
  *   <DataTable
@@ -21,7 +21,7 @@
  *   />
  *
  * ONE COMPONENT, NOT TWO. The question that produced this note was whether the
- * advanced call sites want a second component — `DataTableFiltered` beside
+ * advanced call sites want a second component, `DataTableFiltered` beside
  * `DataTable`. They do not, and the reason is specific rather than a general
  * preference for fewer files.
  *
@@ -31,7 +31,7 @@
  * a computed status that depends on the clock. A component that owned "search"
  * would be handing every caller one opinion about a thing they each define
  * differently, and the escape hatch for the callers it did not fit would be a
- * prop that turns it off — at which point there are two behaviours in one
+ * prop that turns it off, at which point there are two behaviours in one
  * component and we have arrived where a fork would have, only later. So the
  * page keeps the predicate and hands down an already-narrowed array.
  *
@@ -90,7 +90,7 @@ export interface DataTableProps<T> {
   /** Custom row renderer. Receives the item and its index within the full sorted array. */
   renderRow: (item: T, index: number) => ReactNode
   /**
-   * Hide the PAGE NAVIGATION — prev/next and "Page 1 of 1" — when everything
+   * Hide the PAGE NAVIGATION (prev/next and "Page 1 of 1") when everything
    * fits on one page. Default true.
    *
    * Scoped to the navigation, not the footer. The rows-per-page select and the
@@ -101,7 +101,7 @@ export interface DataTableProps<T> {
   /** Optional test-id prefix for pagination controls. */
   testIdPrefix?: string
   /**
-   * Controls that belong above the table — a search box, filter chips, a count.
+   * Controls that belong above the table: a search box, filter chips, a count.
    *
    * A slot, not a feature: this renders whatever it is given and reads none of
    * it. The caller still owns the state and the predicate and still hands down
@@ -210,7 +210,7 @@ export default function DataTable<T>({
       const aVal = a[key]
       const bVal = b[key]
 
-      // Handle nullish and NaN — push missing values to the end regardless of
+      // Handle nullish and NaN: push missing values to the end regardless of
       // sort direction so they never interleave with real data.
       const aNull = aVal == null || (typeof aVal === 'number' && Number.isNaN(aVal))
       const bNull = bVal == null || (typeof bVal === 'number' && Number.isNaN(bVal))
@@ -239,7 +239,7 @@ export default function DataTable<T>({
   // rendering the headers over no rows exactly as it does today.
   const showEmptyState = emptyState != null && sorted.length === 0
 
-  // TWO QUESTIONS, NOT ONE. "Is there any data at all?" decides the footer —
+  // TWO QUESTIONS, NOT ONE. "Is there any data at all?" decides the footer:
   // the row count and the rows-per-page select. "Is there more than one page?"
   // decides the page navigation inside it.
   //
@@ -249,13 +249,13 @@ export default function DataTable<T>({
   // the control disappeared as a direct consequence of being used, and nothing
   // short of a reload brought it back. A hidden control is a nuisance; a
   // control that hides itself is a state the user cannot leave, which is why
-  // this is worth two booleans and a comment. The rule is now absolute — a
+  // this is worth two booleans and a comment. The rule is now absolute: a
   // control's own value never decides whether that control renders.
   //
   // Nothing over an empty state, even when the caller asked for a pager
   // unconditionally: "Page 1 of 1 · No rows" beneath a panel that already says
   // nothing matched is furniture restating a fact. Same for zero rows without
-  // an empty state — a size control over nothing controls nothing.
+  // an empty state: a size control over nothing controls nothing.
   const showFooter = !showEmptyState && sorted.length > 0
   const showPageNav = showFooter && (!hidePaginationWhenSinglePage || totalPages > 1)
 
@@ -302,7 +302,7 @@ export default function DataTable<T>({
                       </span>
                       {col.help && (
                         // The sort handler lives on the `th`, so a click that
-                        // lands on the "?" would otherwise re-sort the table —
+                        // lands on the "?" would otherwise re-sort the table:
                         // a surprise mutation from a control that only explains.
                         <span onClick={(e) => e.stopPropagation()}>
                           <HelpHint
@@ -353,8 +353,8 @@ export default function DataTable<T>({
               data-testid={`${testIdPrefix}-page-size`}
             >
               {/* The current size is always an option, even when it is not one
-                  of the presets. A caller can pass any pageSize — the Design
-                  System's "Realistic" specimen passes 5 — and a <select> whose
+                  of the presets. A caller can pass any pageSize, such as the Design
+                  System's "Realistic" specimen passing 5, and a <select> whose
                   value matches no option renders the FIRST one instead. The
                   control then reads "10 per page" while the table pages by 5:
                   it misreports its own state, which is the same defect class as

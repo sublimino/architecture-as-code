@@ -36,7 +36,7 @@ export default function SummaryStep({ connectors, disconnectingId, onDisconnect,
       </div>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>
         You can disconnect a provider at any time. Disconnecting stops future scans but
-        keeps historical NHI findings from that provider — nothing is deleted.
+        keeps historical NHI findings from that provider (nothing is deleted).
       </p>
 
       {active.length === 0 ? (

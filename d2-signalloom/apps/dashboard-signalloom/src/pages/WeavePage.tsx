@@ -593,7 +593,7 @@ function CoverageHonestyPanel({ coverage }: { coverage: CoverageStatement }) {
             <strong style={{ color: 'var(--amber-base, var(--amber))' }}>
               {closeableCount} of {totalBlindSpots} blind spots are closeable by credential issuance
             </strong>
-            {' '}&mdash; an agent with its own issued identity is no longer a detection problem
+            : an agent with its own issued identity is no longer a detection problem
             at the identity or network layer.
           </div>
         )}

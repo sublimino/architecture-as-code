@@ -1,5 +1,5 @@
 /**
- * Credential Inventory — the canonical operator view of every workload identity
+ * Credential Inventory: the canonical operator view of every workload identity
  * on the platform and the credentials minted from it.
  *
  * Extracted from the SuperCred demo page, where it was the strongest section
@@ -8,14 +8,14 @@
  *
  * ## Data path
  *
- *  1. `GET /supercred-api/agents` — live pod discovery through the integration
+ *  1. `GET /supercred-api/agents`: live pod discovery through the integration
  *     proxy. Namespace + `spec.serviceAccountName` yield the real SPIFFE ID
  *     SPIRE's k8s workload registrar issues.
- *  2. `GET /api/health/crypto` — the live SPIFFE→OpenBao proof Jobs. A failed
+ *  2. `GET /api/health/crypto`: the live SPIFFE→OpenBao proof Jobs. A failed
  *     positive proof marks the OpenBao lease failed instead of green.
  *  3. Repo manifests (via `credentialInventory.ts`) supply the OpenBao role and
  *     policy binding, which pod metadata cannot know.
- *  4. Demo fixtures — only when demo mode is on, or the live path is down. The
+ *  4. Demo fixtures: only when demo mode is on, or the live path is down. The
  *     source banner and per-row provenance tags say which is in play.
  *
  * Nothing here is presented as measured unless it was measured; see the
@@ -23,7 +23,7 @@
  *
  * ## Filtering
  *
- * Both tables carry the same three controls — search, lifecycle, provenance —
+ * Both tables carry the same three controls (search, lifecycle, provenance)
  * in DataTable's `toolbar` slot, and both hand DataTable an already-narrowed
  * array. Two rules hold across them:
  *
@@ -67,7 +67,7 @@ import {
   type RuntimeAgentIdentity,
 } from '../data/credentialInventory'
 
-// Same endpoint SuperCredPage uses — see the routing note on its SUPERCRED_API
+// Same endpoint SuperCredPage uses: see the routing note on its SUPERCRED_API
 // constant for why this is not under /api/.
 const SUPERCRED_API = '/supercred-api'
 
@@ -85,7 +85,7 @@ interface LoadedState {
   /**
    * The calls this page actually made, and what they answered.
    *
-   * The provenance banner says "Live" or "Demo data" — a summary of a data path
+   * The provenance banner says "Live" or "Demo data": a summary of a data path
    * the reader has to take on trust. The same standard the Credential Lifecycle
    * card is held to applies here: an engineer must be able to open the claim,
    * read the literal request behind it, and rerun it. Recorded during the load
@@ -107,7 +107,7 @@ const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'var(--tex
  *
  * DataTable, not DashKit's static Table, and the filter below is what changed
  * the answer. The old note here argued that two-to-six rows do not need sorting
- * or pagination, which was true and still is — `hidePaginationWhenSinglePage`
+ * or pagination, which was true and still is: `hidePaginationWhenSinglePage`
  * keeps the pager away. What a static table cannot do is carry a `toolbar`, and
  * the moment this table gained a filter the hand-rolled arrangement became the
  * exact bug DataTable's `toolbar`/`emptyState` pair exists to prevent: the
@@ -120,15 +120,15 @@ const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'var(--tex
  *
  *  - Selectors describes a mechanism rather than a value, and it is the
  *    mechanism the whole page rests on.
- *  - Source is the most load-bearing distinction on the page — measured versus
- *    declared — and its three values are slugs, not sentences. The per-row
+ *  - Source is the most load-bearing distinction on the page (measured versus
+ *    declared), and its three values are slugs, not sentences. The per-row
  *    badge carries a `title`, but that only reaches a reader who already
  *    suspects the row.
  *  - State reads as self-evident and is not. "pending" here means the manifests
  *    never asked for this identity, so no SVID was ever issued; read as "still
  *    starting up" it says the opposite of what it means.
  *
- * The rest — SPIFFE ID, Workload, OpenBao role, Policy path — either name
+ * The rest (SPIFFE ID, Workload, OpenBao role, Policy path) either name
  * themselves or are already explained by the badge titles in their cells.
  */
 const IDENTITY_COLUMNS: Column<RegistrationEntry>[] = [
@@ -137,7 +137,7 @@ const IDENTITY_COLUMNS: Column<RegistrationEntry>[] = [
   {
     key: 'selectors',
     label: 'Selectors',
-    help: 'What SPIRE checks about a running pod before it will hand that pod an identity — here, its namespace and its Kubernetes service account. A workload that does not match cannot obtain the credential even if it knows the name of it.',
+    help: 'What SPIRE checks about a running pod before it will hand that pod an identity: here, its namespace and its Kubernetes service account. A workload that does not match cannot obtain the credential even if it knows the name of it.',
   },
   { key: 'baoRole', label: 'OpenBao role', sortable: true },
   { key: 'baoPolicyPath', label: 'Policy path', sortable: true },
@@ -145,13 +145,13 @@ const IDENTITY_COLUMNS: Column<RegistrationEntry>[] = [
     key: 'provenance',
     label: 'Source',
     sortable: true,
-    help: 'How this row got here. "live" — the pod was observed running in the cluster. "config" — the SPIRE/OpenBao manifests declare this identity, but nothing on this page has seen it running. "demo" — fixture data, because the live path was unavailable. Only a live row was measured; the other two are claims about intent.',
+    help: 'How this row got here. "live": the pod was observed running in the cluster. "config": the SPIRE/OpenBao manifests declare this identity, but nothing on this page has seen it running. "demo": fixture data, because the live path was unavailable. Only a live row was measured; the other two are claims about intent.',
   },
   {
     key: 'state',
     label: 'State',
     sortable: true,
-    help: 'Whether this identity can be used right now. "active" — declared, and a credential can be minted from it. "revoked" — the platform withdrew it, so every credential minted from it is dead. "pending" — the manifests do not declare this identity at all, so no SVID was ever issued for it. Pending is not a workload that is about to start.',
+    help: 'Whether this identity can be used right now. "active": declared, and a credential can be minted from it. "revoked": the platform withdrew it, so every credential minted from it is dead. "pending": the manifests do not declare this identity at all, so no SVID was ever issued for it. Pending is not a workload that is about to start.',
   },
 ]
 
@@ -165,13 +165,13 @@ const PROOF_BUTTON: CSSProperties = { fontSize: 11, padding: '3px 10px', marginT
 
 const PROVENANCE_HINT: Record<Provenance, string> = {
   live: 'Observed in-cluster via agent discovery',
-  config: 'Declared in the SPIRE/OpenBao manifests — registration expected, not observed',
-  demo: 'Fixture data — the live path was unavailable',
+  config: 'Declared in the SPIRE/OpenBao manifests: registration expected, not observed',
+  demo: 'Fixture data: the live path was unavailable',
 }
 
 
 interface StatHelp {
-  /** Must contain the words it explains — see ToolbarSelect on WCAG 2.5.3. */
+  /** Must contain the words it explains: see ToolbarSelect on WCAG 2.5.3. */
   label: string
   testId: string
   text: string
@@ -184,8 +184,8 @@ function StatCard({ label, value, sub, accent, testId, help }: {
    *
    * The one figure on this page that hides a threshold is "expiring within
    * 15m", and 15 is a number the reader has no way to derive. It also decides
-   * a colour twelve rows further down — the Expires cell turns amber over the
-   * same boundary — so explaining it here is what makes that colour legible.
+   * a colour twelve rows further down (the Expires cell turns amber over the
+   * same boundary), so explaining it here is what makes that colour legible.
    * The Expires column header itself stays bare: a "?" restating "Expires"
    * would be noise, which is the standing rule this page's tests enforce.
    */
@@ -210,8 +210,8 @@ function StatCard({ label, value, sub, accent, testId, help }: {
 /**
  * ONE FILTER VOCABULARY, BOTH TABLES.
  *
- * The two tables here describe the same subject at two altitudes — an identity,
- * and the credentials minted from it — so a reader who learns the controls on
+ * The two tables here describe the same subject at two altitudes (an identity
+ * and the credentials minted from it), so a reader who learns the controls on
  * one has learned them on the other. Both get the same four things in the same
  * order: free-text search, the lifecycle select, the provenance select, then a
  * count and a clear. Nothing is a filter on one table and a sort on the other.
@@ -220,7 +220,7 @@ function StatCard({ label, value, sub, accent, testId, help }: {
  * where the status select used to sit, and that is the whole point of the move:
  * DataTable renders the toolbar on the empty branch by construction, so a
  * filter that matches nothing cannot take away the control that would undo it.
- * The predicate stays here — each table hands DataTable an already-narrowed
+ * The predicate stays here: each table hands DataTable an already-narrowed
  * array, exactly as the Design System's "Realistic" specimen does.
  */
 const TOOLBAR_CONTROL: CSSProperties = {
@@ -261,7 +261,7 @@ function ToolbarSearch({ label, placeholder, value, onChange, testId }: {
  * An `aria-label` REPLACES the wrapping `<label>`'s text as the accessible
  * name, so "Filter identities by state" has to contain the visible "State" or a
  * speech-input user saying "State" reaches nothing. That is WCAG 2.5.3, and it
- * is the invariant components/sidebarLabelInName.test.tsx exists to catch — the
+ * is the invariant components/sidebarLabelInName.test.tsx exists to catch: the
  * name is composed rather than written out so it cannot drift from the label.
  */
 function ToolbarSelect({ label, subject, value, options, onChange, testId }: {
@@ -295,7 +295,7 @@ function ToolbarSelect({ label, subject, value, options, onChange, testId }: {
  * conditional-control pattern DataTable's own notes permit: it is conditioned
  * on the OTHER controls' values, never on its own, so using it cannot make it
  * vanish in a state the user then cannot leave. It renders inside the toolbar,
- * which means it survives on the empty branch — undoing a filter that matched
+ * which means it survives on the empty branch: undoing a filter that matched
  * nothing is one click from the panel that says nothing matched.
  */
 function ToolbarCount({ shown, total, noun, onClear, testId }: {
@@ -335,7 +335,7 @@ function Toolbar({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/** Absolute timestamps only — a relative "in 4 minutes" goes stale in a screenshot. */
+/** Absolute timestamps only: a relative "in 4 minutes" goes stale in a screenshot. */
 function shortTime(iso: string): string {
   return iso.replace('T', ' ').replace(/\.\d+Z$/, 'Z')
 }
@@ -439,7 +439,7 @@ export default function CredentialInventoryPage() {
       label: 'Registration entries (manifests)',
       command: "rg -n 'spiffe://' d2-signalloom/apps/dashboard-signalloom/src/data/credentialInventory.ts",
       detail: `${CONFIG_REGISTRATION_ENTRIES.length} entries declared in the SPIRE/OpenBao manifests. `
-        + 'These are DECLARED, not observed — a row tagged "config" says the platform intends this '
+        + 'These are DECLARED, not observed: a row tagged "config" says the platform intends this '
         + 'identity to exist, and nothing more.',
     }
 
@@ -452,13 +452,13 @@ export default function CredentialInventoryPage() {
           label: 'Data source',
           command: 'localStorage.getItem("demoMode")   // ?demo=1 sets this',
           detail: 'Demo mode is on, so no cluster call was made. Every figure on this page is a '
-            + 'fixture — nothing here was measured.',
+            + 'fixture: nothing here was measured.',
         }],
       })
       return
     }
 
-    // The crypto proof is advisory — its absence must not cost us the inventory,
+    // The crypto proof is advisory: its absence must not cost us the inventory,
     // so it is settled independently of the discovery call.
     let baoExchangeProven: boolean | undefined
     let cryptoDetail: string
@@ -469,10 +469,10 @@ export default function CredentialInventoryPage() {
       if (positive && positive.status !== 'pending') baoExchangeProven = positive.status === 'passed'
       cryptoDetail = positive
         ? `${POSITIVE_PROOF}: ${positive.status}`
-        : `no ${POSITIVE_PROOF} in the response — lease status left as declared, not marked failed`
+        : `no ${POSITIVE_PROOF} in the response: lease status left as declared, not marked failed`
     } catch (err) {
-      // No proof signal — leave the lease status untouched rather than guessing.
-      cryptoDetail = `request failed (${err instanceof Error ? err.message : 'unknown error'}) — `
+      // No proof signal: leave the lease status untouched rather than guessing.
+      cryptoDetail = `request failed (${err instanceof Error ? err.message : 'unknown error'}): `
         + 'the lease status below is unproven, not disproven'
     }
     const cryptoProof: Proof = {
@@ -500,7 +500,7 @@ export default function CredentialInventoryPage() {
           {
             label: 'Agent discovery',
             command: discoveryCommand,
-            detail: `HTTP ${res.status} — ${agents.length} pod(s) discovered in-cluster, `
+            detail: `HTTP ${res.status}: ${agents.length} pod(s) discovered in-cluster, `
               + `${live.length} of which resolve to a workload identity:\n`
               + (agents.map((a) => `  ${a.namespace ?? '?'}/${a.name ?? a.id} (sa: ${a.service_account ?? '?'})`).join('\n')
                  || '  (none)'),
@@ -531,7 +531,7 @@ export default function CredentialInventoryPage() {
 
   useEffect(() => {
     void load()
-    // Watched by the demo audience in a second window — see api/pollInterval.ts.
+    // Watched by the demo audience in a second window: see api/pollInterval.ts.
     //
     // Phase 2 mints the credential chain and lands it here, and this page had
     // no refresh at all: it fetched once on mount and then showed that first
@@ -557,7 +557,7 @@ export default function CredentialInventoryPage() {
    * it wrong would be worse than omitting it.
    *
    * `registered` is decided by `deriveEntriesFromAgents` doing
-   * `new Set(CONFIG_REGISTRATION_ENTRIES.map(e => e.spiffeId)).has(id)` — a
+   * `new Set(CONFIG_REGISTRATION_ENTRIES.map(e => e.spiffeId)).has(id)`: a
    * comparison against a constant transcribed from the repo manifests. There is
    * no SPIRE call anywhere in this page's data path, so the console shows the
    * comparison that ran and names the command that would actually answer the
@@ -567,7 +567,7 @@ export default function CredentialInventoryPage() {
    */
   const unregisteredProof = useMemo<Proof>(() => {
     const declared = CONFIG_REGISTRATION_ENTRIES.map((e) => `  ${e.spiffeId}`).join('\n')
-    const absent = unregistered.map((e) => `  ${e.spiffeId} — ${e.workload}`).join('\n')
+    const absent = unregistered.map((e) => `  ${e.spiffeId}: ${e.workload}`).join('\n')
     return {
       label: 'Registration check',
       command: 'CONFIG_REGISTRATION_ENTRIES.map(e => e.spiffeId).includes(discoveredId)'
@@ -607,7 +607,7 @@ export default function CredentialInventoryPage() {
   const visibleCredentials = useMemo(() => {
     const q = credentialSearch.trim().toLowerCase()
     return credentials.filter((c) => {
-      // `effectiveStatus`, not `c.status` — the stored status predates `now`,
+      // `effectiveStatus`, not `c.status`: the stored status predates `now`,
       // and an active credential whose expiry has passed must answer the
       // Expired filter. Unchanged from the select this replaced.
       if (statusFilter !== 'all' && effectiveStatus(c, now) !== statusFilter) return false
@@ -641,11 +641,11 @@ export default function CredentialInventoryPage() {
       <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, maxWidth: 760 }}>
         Every workload identity in trust domain{' '}
         <code data-testid="trust-domain" style={{ color: 'var(--cyan)' }}>{TRUST_DOMAIN}</code>{' '}
-        and the credentials minted from it — SPIFFE SVID, OpenBao dynamic lease, and the
+        and the credentials minted from it: SPIFFE SVID, OpenBao dynamic lease, and the
         downstream service token. No static long-lived secrets: every row here expires.
       </p>
 
-      {/* Provenance banner — which data path produced this page. */}
+      {/* Provenance banner: which data path produced this page. */}
       <div
         data-testid="credential-inventory-source"
         className="card"
@@ -660,7 +660,7 @@ export default function CredentialInventoryPage() {
           <>
             <strong style={{ color: sourceColor }}>Live</strong>
             <span style={{ color: 'var(--muted)' }}>
-              {' '}— identities observed in-cluster via agent discovery, overlaid on the SPIRE/OpenBao
+              {' '}: identities observed in-cluster via agent discovery, overlaid on the SPIRE/OpenBao
               manifests. Rows tagged <em>config</em> are declared but not observed.
             </span>
           </>
@@ -668,7 +668,7 @@ export default function CredentialInventoryPage() {
           <>
             <strong style={{ color: sourceColor }}>Demo data</strong>
             <span style={{ color: 'var(--muted)' }}>
-              {' '}— the live path was not used{state.reason ? `: ${state.reason}` : ''}. Figures below are
+              {' '}: the live path was not used{state.reason ? `: ${state.reason}` : ''}. Figures below are
               fixtures, not measurements.
             </span>
           </>
@@ -709,14 +709,14 @@ export default function CredentialInventoryPage() {
           help={{
             label: 'What expiring within 15m means',
             testId: 'summary-expiring-help',
-            text: 'Credentials whose expiry is less than 15 minutes away. Nothing is wrong with them — the platform re-mints a credential before it lapses, and this is the same 15-minute boundary that turns the Expires column amber further down, so a row and this count can never disagree. It is notice of which rows are about to change, not a fault.',
+            text: 'Credentials whose expiry is less than 15 minutes away. Nothing is wrong with them: the platform re-mints a credential before it lapses, and this is the same 15-minute boundary that turns the Expires column amber further down, so a row and this count can never disagree. It is notice of which rows are about to change, not a fault.',
           }}
         />
         <StatCard testId="summary-revoked" label="Revoked" value={String(summary.revoked)} sub="lease terminated" accent="var(--error)" />
         <StatCard testId="summary-failed" label="Failed" value={String(summary.failed)} sub="exchange did not complete" accent="var(--amber)" />
       </div>
 
-      {/* Unregistered workloads — a pod whose identity the manifests never ask
+      {/* Unregistered workloads: a pod whose identity the manifests never ask
           for. The heading used to read "with no SPIRE registration entry",
           which asserts a fact about SPIRE that this page has never gone and
           checked: `registered` is a set-membership test against the hardcoded
@@ -756,13 +756,13 @@ export default function CredentialInventoryPage() {
               `!registered`, and no single select up there reproduces that set:
               revocation outranks pending in `deriveEntriesFromAgents`, so a
               stunned pod that was never registered reads `revoked`, not
-              `pending`. That pod — unregistered AND cut off — is the one an
+              `pending`. That pod (unregistered AND cut off) is the one an
               operator most needs, and a filter would be the thing that hid it.
               Guarded by a test of the same name. */}
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'var(--muted)', fontSize: 12 }}>
             {unregistered.map((entry) => (
               <li key={entry.spiffeId} data-testid={`unregistered-${entry.spiffeId}`}>
-                <code style={{ color: 'var(--amber)' }}>{entry.spiffeId}</code> — {renderWorkload(entry.workload, `unregistered-workload-${entry.spiffeId}`)}
+                <code style={{ color: 'var(--amber)' }}>{entry.spiffeId}</code>: {renderWorkload(entry.workload, `unregistered-workload-${entry.spiffeId}`)}
               </li>
             ))}
           </ul>
@@ -831,7 +831,7 @@ export default function CredentialInventoryPage() {
            * cluster. `undefined` while `state` is null keeps a load that has
            * not answered from rendering as a finding. Beyond that, "discovery
            * found nothing" and "you filtered everything out" are different
-           * facts and get different words — the second one is recoverable and
+           * facts and get different words: the second one is recoverable and
            * says so, one click from the control that caused it.
            */
           emptyState={state === null ? undefined : entries.length === 0 ? (
@@ -853,12 +853,12 @@ export default function CredentialInventoryPage() {
                 {entry.selectors.map((s) => <div key={s}>{s}</div>)}
               </td>
               <td style={{ ...td, fontSize: 12 }}>
-                {entry.baoRole ?? <span style={{ color: 'var(--muted)' }}>—</span>}
+                {entry.baoRole ?? <span style={{ color: 'var(--muted)' }}>-</span>}
               </td>
               <td style={{ ...td, fontSize: 12 }}>
                 {entry.baoPolicyPath
                   ? <code style={{ color: 'var(--violet)', fontSize: 12 }}>{entry.baoPolicyPath}</code>
-                  : <span style={{ color: 'var(--muted)' }}>—</span>}
+                  : <span style={{ color: 'var(--muted)' }}>-</span>}
               </td>
               <td style={td}>
                 <StatusBadge
@@ -883,8 +883,8 @@ export default function CredentialInventoryPage() {
       {/* Credentials */}
       <section>
         {/* The status select used to live on this line, floated right of the
-            subtitle. It now sits in the toolbar with its two new siblings —
-            same control, same testid, same aria-label, one altitude down — so
+            subtitle. It now sits in the toolbar with its two new siblings (
+            same control, same testid, same aria-label, one altitude down), so
             that both tables carry their filters in the same place and so that
             filtering to nothing cannot take the control away with the rows. */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
@@ -904,7 +904,7 @@ export default function CredentialInventoryPage() {
             {
               key: 'scope',
               label: 'Scope',
-              help: 'The only thing this credential can open — the OpenBao path or audience it was minted for. Holding a valid credential does not grant anything outside its scope.',
+              help: 'The only thing this credential can open: the OpenBao path or audience it was minted for. Holding a valid credential does not grant anything outside its scope.',
             },
             { key: 'status', label: 'Status', sortable: true },
             { key: 'expiresAt', label: 'Expires', sortable: true },
@@ -918,7 +918,7 @@ export default function CredentialInventoryPage() {
               key: 'rotationCount',
               label: 'Rotations',
               sortable: true,
-              help: 'How many times this credential has been re-minted since it was first issued. A rising count is the design working, not a fault — short-lived credentials are meant to be replaced rather than kept.',
+              help: 'How many times this credential has been re-minted since it was first issued. A rising count is the design working, not a fault: short-lived credentials are meant to be replaced rather than kept.',
             },
             { key: 'provenance', label: 'Source', sortable: true },
           ]}

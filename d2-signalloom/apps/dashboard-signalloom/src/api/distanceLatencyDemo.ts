@@ -7,7 +7,7 @@
  *   3. FrostDB Columnar Telemetry Stream (31-column Arrow vector ingestion & CEL evaluation)
  *   4. Quarantine Cascade (distance-weighted stun and isolation enforcement)
  *
- * Routes through /demo-api/distancelatency/ — proxied by nginx to the demo-runner pod.
+ * Routes through /demo-api/distancelatency/ (proxied by nginx to the demo-runner pod).
  */
 import type { DemoStep, DemoRunView, DemoRunLogChunk, DemoRunnerStatus } from './demoRunner'
 
@@ -25,7 +25,7 @@ function authHeaders(token?: string): HeadersInit | undefined {
 
 async function describeFailure(res: Response): Promise<string> {
   const body = await res.text().catch(() => '')
-  return `${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`
+  return `${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`
 }
 
 async function getJson<T>(path: string, what: string, token?: string): Promise<T> {

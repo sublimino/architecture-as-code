@@ -27,7 +27,7 @@ export default function ProviderLogo({ providerId, displayName, size = 40 }: Pro
   const src = LOGOS[providerId]
 
   // Fallback for any provider without a mapped brand mark yet (e.g. a newly
-  // added connector like OpenAI) — a neutral initial-letter avatar so the
+  // added connector like OpenAI): a neutral initial-letter avatar so the
   // grid/list still looks intentional instead of leaving a blank gap where
   // a logo would go. Swap in a real mark by adding it to LOGOS above; no
   // other change needed.
@@ -50,7 +50,7 @@ export default function ProviderLogo({ providerId, displayName, size = 40 }: Pro
     <div
       style={{
         width: size, height: size, borderRadius: size / 4,
-        // Always a white chip, not var(--surface2) — the supplied brand
+        // Always a white chip, not var(--surface2): the supplied brand
         // marks (Entra, AWS) are opaque PNGs with a white background baked
         // in; rendering them on the app's dark surface color would show a
         // visible white box in dark mode. A fixed white background keeps

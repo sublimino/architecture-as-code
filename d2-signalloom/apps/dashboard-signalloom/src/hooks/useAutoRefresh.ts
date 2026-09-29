@@ -62,7 +62,7 @@ export function useLastUpdatedText(lastUpdated: Date | null, error: string | nul
     return () => clearInterval(t)
   }, [])
 
-  if (error) return 'Last refresh failed — retrying in 1 min'
+  if (error) return 'Last refresh failed: retrying in 1 min'
   if (!lastUpdated) return 'Auto-refreshes every 15 min'
 
   const diffMin = Math.floor((Date.now() - lastUpdated.getTime()) / 60_000)

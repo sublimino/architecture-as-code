@@ -27,7 +27,7 @@ import ClaimModal, { getAgentWorkloadSecurityProfile } from '../components/agent
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtTs(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
@@ -35,7 +35,7 @@ function fmtTs(iso: string | null) {
 }
 
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
@@ -352,7 +352,7 @@ function RequestTransitionModal({ agent, onClose }: { agent: AgentResponse; onCl
             <h3 style={{ marginBottom: 6 }}>Request Lifecycle Transition</h3>
             <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
               Lifecycle changes are applied by your Signal Loom operator. This sends them a request
-              to action — the agent's state changes once they apply it.
+              to action: the agent's state changes once they apply it.
             </p>
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
@@ -384,7 +384,7 @@ function RequestTransitionModal({ agent, onClose }: { agent: AgentResponse; onCl
                   <option value="low">Low: when convenient</option>
                   <option value="normal">Normal: soon</option>
                   <option value="high">High: impacting operations</option>
-                  <option value="critical">Critical — security or data risk</option>
+                  <option value="critical">Critical: security or data risk</option>
                 </select>
               </div>
               <div>
@@ -785,7 +785,7 @@ function DossierHeader({
               </button>
             ) : !(recordClass === 'discovered' || agent.is_registry_linked === false) && (
               <span
-                title="Revoked is a terminal state — no further transitions are possible."
+                title="Revoked is a terminal state: no further transitions are possible."
                 style={{ fontSize: 11, color: 'var(--muted)' }}
               >
                 No transitions available

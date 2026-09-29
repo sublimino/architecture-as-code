@@ -1,6 +1,6 @@
 // Runtime preference: does a loader show how long it has been waiting?
 //
-// Every waiting indicator in this app is a PixelLoader — directly in the
+// Every waiting indicator in this app is a PixelLoader: directly in the
 // instructor panel, and through LoadingState on twenty-odd pages. Each one
 // renders three things: a cycling mark, a LABEL naming what is running, and a
 // live elapsed figure. This setting governs the figure and nothing else. The
@@ -13,7 +13,7 @@
 // seeded from localStorage, synced back best-effort, with a listener set so a
 // change takes effect without a reload. Keeping the live value in memory means
 // the setting still works where storage is unavailable (private-mode quotas,
-// some test runners) — localStorage is only for persistence across a reload.
+// some test runners); localStorage is only for persistence across a reload.
 //
 // One thing this deliberately does NOT copy from demoMode: its
 // `isProductionEnv` override. Demo mode has to be forced off in uat/prod
@@ -28,9 +28,9 @@ import { useSyncExternalStore } from 'react'
 const KEY = 'sl_load_times'
 
 /**
- * `all`  — always show the elapsed figure.
- * `long` — show it only once the wait passes LONG_WAIT_MS.
- * `none` — never show it. The label still shows.
+ * `all`: always show the elapsed figure.
+ * `long`: show it only once the wait passes LONG_WAIT_MS.
+ * `none`: never show it. The label still shows.
  */
 export type LoadTimesSetting = 'all' | 'long' | 'none'
 
@@ -55,7 +55,7 @@ export const DEFAULT_LOAD_TIMES: LoadTimesSetting = 'all'
  * So the threshold has to sit above 1.0s. It should not sit far above it: the
  * value of the figure is that it distinguishes a slow step from a hung one,
  * and that judgement starts the moment the wait becomes conscious. 2.0s is one
- * full second past the flow limit — long enough that the user has certainly
+ * full second past the flow limit, long enough that the user has certainly
  * noticed, short enough that the figure is on screen well before the 10s
  * attention cliff, with time in hand to decide whether to keep waiting.
  *
@@ -125,7 +125,7 @@ export function setLoadTimes(setting: LoadTimesSetting): void {
   try {
     localStorage.setItem(KEY, next)
   } catch {
-    /* ignore — storage unavailable; in-memory value still holds */
+    /* ignore: storage unavailable; in-memory value still holds */
   }
   listeners.forEach((l) => l(next))
 }

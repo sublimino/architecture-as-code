@@ -4,7 +4,7 @@
 // scripts/supercred-demo.sh stamps the agent pod with a `signalloom.ai/state`
 // label, which fake-integration-proxy surfaces verbatim as `agent.state` on
 // GET /supercred-api/agents. That label is therefore the single observable
-// that tells the dashboard how far the demo has progressed — and it reads the
+// that tells the dashboard how far the demo has progressed, and it reads the
 // same whether the operator drove the step from the CLI or from a button in
 // the UI.
 //
@@ -14,15 +14,15 @@
 
 /** How far the SuperCred demo has progressed, derived from cluster state. */
 export type SuperCredPhase =
-  /** No SuperCred agent discovered — before step 1, or after step 5 teardown. */
+  /** No SuperCred agent discovered: before step 1, or after step 5 teardown. */
   | 'absent'
   /** Step 1: pod deployed, SPIRE entry registered, no state label yet. */
   | 'deployed'
-  /** Step 2: `signalloom.ai/state=active` — SPIFFE → OpenBao chain verified. */
+  /** Step 2: `signalloom.ai/state=active` (SPIFFE → OpenBao chain verified). */
   | 'credentialed'
   /** Step 3: scan found the missing securityContext. */
   | 'non-compliant'
-  /** Step 4: `signalloom.ai/state=stunned` — credentials revoked, agent isolated. */
+  /** Step 4: `signalloom.ai/state=stunned` (credentials revoked, agent isolated). */
   | 'stunned'
 
 /** The raw agent record as returned by GET /supercred-api/agents. */
@@ -33,7 +33,7 @@ export interface SuperCredAgentObservation {
   type?: string | null
   framework?: string | null
   model?: string | null
-  /** The `signalloom.ai/state` pod label — the demo's step marker. */
+  /** The `signalloom.ai/state` pod label: the demo's step marker. */
   state?: string | null
   phase?: string | null
   supercred?: boolean
@@ -49,7 +49,7 @@ export interface SuperCredAgentObservation {
  * The CLI path (`supercred-demo.sh 3`) writes `state=non-compliant` onto the
  * pod, so the finding survives a reload. The UI path (the Compliance Scan
  * button) calls the policy engine through the proxy, which does NOT relabel
- * the pod — so the scan result only exists in this observation until the
+ * the pod, so the scan result only exists in this observation until the
  * operator stuns the agent. Both paths must move the main pages, hence both
  * are inputs to the phase derivation.
  */
@@ -81,7 +81,7 @@ export const EMPTY_SUPERCRED_STATE: SuperCredDemoState = {
  * Lives here, in a module that imports nothing, because two very different
  * consumers need the same answer and neither may depend on the other:
  * supercredSource builds its simulated observations from it, and fakeData's
- * stunFixture reads the identity off it when recording a demo audit event —
+ * stunFixture reads the identity off it when recording a demo audit event,
  * standing in for the proxy reply the live endpoint gets.
  *
  * It was briefly exported from supercredSource instead, which made fakeData

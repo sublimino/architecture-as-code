@@ -22,12 +22,12 @@ export interface WizardPersistedState {
   providerRunState: Record<string, ProviderRunState>
 }
 
-// Resumable wizard progress. Server-side (Slice 1a, 86cajpvar QA item g) —
+// Resumable wizard progress. Server-side (Slice 1a, 86cajpvar QA item g):
 // `initialState` is fetched by the caller (OnboardingWizard.tsx, via
 // GET /onboarding/state) before this hook mounts, so a user who starts the
 // wizard on one device resumes at the same step on another. State updates
 // are instant/optimistic (plain useState); the caller is responsible for
-// debouncing writes back to PUT /onboarding/state — this hook only owns the
+// debouncing writes back to PUT /onboarding/state: this hook only owns the
 // in-memory state machine, not persistence.
 export function useOnboardingWizard(
   tenantId: string | null,

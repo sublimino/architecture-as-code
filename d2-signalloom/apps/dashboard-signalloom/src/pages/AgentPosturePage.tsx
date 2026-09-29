@@ -1,4 +1,4 @@
-// TODO: migrate tables to DataTable (expandable accordion tables — may need DataTable extension for nested rows)
+// TODO: migrate tables to DataTable (expandable accordion tables; may need DataTable extension for nested rows)
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AgentDeepLink from '../components/AgentDeepLink'
@@ -32,7 +32,7 @@ interface ControlGroup {
  * Group checks into framework → control set → control.
  *
  * Keyed on framework AND control set, not control set alone. A control set name
- * is only unique WITHIN its framework — "Risk Management" belongs to the EU AI
+ * is only unique WITHIN its framework: "Risk Management" belongs to the EU AI
  * Act and "Supply Chain Security" to NIS2, and nothing stops a seventh
  * framework from reusing either. Keying on the name alone silently merged two
  * regulations into one section and mislabelled every row under it. The
@@ -61,13 +61,13 @@ function groupChecks(checks: ComplianceCheck[]): ControlSetGroup[] {
 // ─── Layer Tooltip Descriptions ─────────────────────────────────────────────
 
 const LAYER_TOOLTIPS: Record<string, string> = {
-  network_egress: 'Outbound traffic analysis — detects unexpected external communication',
-  identity_authorization: 'Identity and access audit — detects unauthorised service account usage',
-  application_saas: 'SaaS integration monitoring — detects unregistered AI workloads',
-  endpoint_host: 'Host-level detection — detects container filesystem and process anomalies',
-  behavioural: 'Behavioural analysis — detects anomalous request patterns and cadence',
-  cloud_control_plane: 'Cloud API monitoring — detects control plane misuse',
-  protocol: 'Protocol-level analysis — detects non-standard protocol usage',
+  network_egress: 'Outbound traffic analysis: detects unexpected external communication',
+  identity_authorization: 'Identity and access audit: detects unauthorised service account usage',
+  application_saas: 'SaaS integration monitoring: detects unregistered AI workloads',
+  endpoint_host: 'Host-level detection: detects container filesystem and process anomalies',
+  behavioural: 'Behavioural analysis: detects anomalous request patterns and cadence',
+  cloud_control_plane: 'Cloud API monitoring: detects control plane misuse',
+  protocol: 'Protocol-level analysis: detects non-standard protocol usage',
 }
 
 const LAYER_DISPLAY: Record<string, string> = {
@@ -90,7 +90,7 @@ const LAYER_COLORS: Record<string, string> = {
   protocol: 'var(--dim)',
 }
 
-/** Every layer the signal model defines — the denominator for coverage. */
+/** Every layer the signal model defines (the denominator for coverage). */
 const ALL_LAYERS: SignalLayer[] = [
   'network_egress',
   'identity_authorization',
@@ -116,10 +116,10 @@ const FALLBACK_COVERED_LAYERS: SignalLayer[] = [
 const FIDELITY_ORDER: FidelityTier[] = ['definitive', 'strong', 'suggestive', 'circumstantial']
 
 const FIDELITY_TOOLTIPS: Record<FidelityTier, string> = {
-  definitive: 'Attribution follows directly from the evidence — no inference step',
+  definitive: 'Attribution follows directly from the evidence: no inference step',
   strong: 'Attribution requires one inference step from reliable evidence',
   suggestive: 'Consistent with the hypothesis; other explanations remain open',
-  circumstantial: 'Contextual only — carries no attribution weight on its own',
+  circumstantial: 'Contextual only: carries no attribution weight on its own',
 }
 
 // ─── Signal Evidence Section ────────────────────────────────────────────────
@@ -135,7 +135,7 @@ function SignalEvidenceSection() {
         <div className="card" style={{ padding: '16px 18px' }}>
           <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>
             {signal.error
-              ? 'Signal data currently unavailable — signal-ingest may be offline.'
+              ? 'Signal data currently unavailable. Signal ingest may be offline.'
               : 'No signal observations recorded yet.'}
           </p>
         </div>
@@ -176,14 +176,14 @@ function SignalEvidenceSection() {
             Actors are broken down by status rather than summed and labelled
             "provisional". Of the three actors in the demo estate one is
             provisional, one is actionable and one is already promoted into the
-            registry — calling all three provisional understates two of them,
+            registry: calling all three provisional understates two of them,
             and the promoted one is precisely the row a reviewer would ask about.
             `actorsByStatus` was already computed by the hook and discarded here.
           */}
           <span style={{ fontSize: 12, color: 'var(--muted)' }} data-testid="posture-actor-breakdown">
             {signal.totalActors} actor{signal.totalActors !== 1 ? 's' : ''} under correlation
             {actorStatuses.length > 0 && (
-              <> — {actorStatuses.map(([status, n]) => `${n} ${status}`).join(', ')}</>
+              <> ({actorStatuses.map(([status, n]) => `${n} ${status}`).join(', ')})</>
             )}
           </span>
           <button
@@ -208,7 +208,7 @@ function SignalEvidenceSection() {
               return (
                 <span
                   key={tier}
-                  title={`${FIDELITY_LABELS[tier]}: ${count} observation${count !== 1 ? 's' : ''} — ${FIDELITY_TOOLTIPS[tier]}`}
+                  title={`${FIDELITY_LABELS[tier]}: ${count} observation${count !== 1 ? 's' : ''} (${FIDELITY_TOOLTIPS[tier]})`}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -252,7 +252,7 @@ function SignalEvidenceSection() {
               return (
                 <span
                   key={layer}
-                  title={`${LAYER_DISPLAY[layer]}: ${state} — ${LAYER_TOOLTIPS[layer]}`}
+                  title={`${LAYER_DISPLAY[layer]}: ${state} (${LAYER_TOOLTIPS[layer]})`}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -289,7 +289,7 @@ function SignalEvidenceSection() {
           These used to be filtered out of the render entirely, which made
           "Layer Coverage" read as a complete picture of the model when it was a
           view of five sevenths of it. A layer with no collector produces no
-          observations and so can never contradict anything on this page — the
+          observations and so can never contradict anything on this page: the
           absence has to be visible or it reads as an all-clear.
         */}
         {uncoveredLayers.length > 0 && (
@@ -302,7 +302,7 @@ function SignalEvidenceSection() {
                 const reasons = blindSpotsByLayer.get(layer) ?? []
                 const detail = reasons.length > 0
                   ? reasons.join(' ')
-                  : 'No collector deployed for this layer — no signal can be observed here.'
+                  : 'No collector deployed for this layer: no signal can be observed here.'
                 return (
                   <span
                     key={layer}
@@ -393,7 +393,7 @@ export default function AgentPosturePage() {
 
   const overallPosture = summary
     ? summary.failed === 0 ? 'COMPLIANT' : summary.failed <= 3 ? 'PARTIAL' : 'NON-COMPLIANT'
-    : '—'
+    : '-'
 
   const postureBadgeStatus = overallPosture === 'COMPLIANT' ? 'pass' : overallPosture === 'PARTIAL' ? 'pending' : 'fail'
 
@@ -509,7 +509,7 @@ export default function AgentPosturePage() {
                     fontFamily: 'inherit',
                   }}
                 >
-                  <span>{cg.control} — {cg.checks[0]?.check.replace(/^\[olly-sentinel\] /, '')}</span>
+                  <span>{cg.control}: {cg.checks[0]?.check.replace(/^\[olly-sentinel\] /, '')}</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <StatusBadge status={allPassed ? 'pass' : 'fail'} variant="compliance" />
                     <span style={{ fontSize: 11, color: 'var(--muted)' }}>{isExpanded ? '▲' : '▼'}</span>
@@ -545,7 +545,7 @@ export default function AgentPosturePage() {
         </Section>
       ))}
 
-      {/* Signal Evidence — cross-cutting signal correlation data */}
+      {/* Signal Evidence: cross-cutting signal correlation data */}
       <SignalEvidenceSection />
     </div>
   )

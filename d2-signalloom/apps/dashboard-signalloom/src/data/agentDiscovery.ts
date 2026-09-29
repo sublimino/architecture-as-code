@@ -8,16 +8,16 @@
  * ## Unified Orthogonal Label Schema
  *
  * Every agent pod MUST carry:
- *   signalloom.ai/agent: "true"             — discovery gate
- *   signalloom.ai/framework: <framework>    — agent framework (kagent, claude-code, langchain, custom)
- *   signalloom.ai/harness: <harness>        — execution runtime harness (claude-code, daytona, knative, opencode-cpai)
- *   signalloom.ai/role: <functional-role>   — functional specialization (summarizer, triage, engineer, sentinel, etc.)
- *   signalloom.ai/tenant: <tenant-id>       — multi-tenant isolation boundary (acme-corp, controlplane, platform)
- *   signalloom.ai/state: <state>            — lifecycle & containment state (active, claimed, idle, stunned, draining)
+ *   signalloom.ai/agent: "true"             : discovery gate
+ *   signalloom.ai/framework: <framework>    : agent framework (kagent, claude-code, langchain, custom)
+ *   signalloom.ai/harness: <harness>        : execution runtime harness (claude-code, daytona, knative, opencode-cpai)
+ *   signalloom.ai/role: <functional-role>   : functional specialization (summarizer, triage, engineer, sentinel, etc.)
+ *   signalloom.ai/tenant: <tenant-id>       : multi-tenant isolation boundary (acme-corp, controlplane, platform)
+ *   signalloom.ai/state: <state>            : lifecycle & containment state (active, claimed, idle, stunned, draining)
  *
  * Optional metadata labels:
- *   signalloom.ai/model: <model>            — LLM model backing the agent (claude-sonnet-4, gpt-4.1, gemini-2.5-flash)
- *   signalloom.ai/project: <project-id>     — project association (osramp-core, pci-compliance, signalloom-infra)
+ *   signalloom.ai/model: <model>            : LLM model backing the agent (claude-sonnet-4, gpt-4.1, gemini-2.5-flash)
+ *   signalloom.ai/project: <project-id>     : project association (osramp-core, pci-compliance, signalloom-infra)
  *
  * ## Real-Time Sentinel Kernel Telemetry
  *
@@ -40,21 +40,21 @@ import { FAKE_SWARM_AGENTS } from '../api/fakeSwarmData'
  * taxonomy classification, and kernel containment policy.
  */
 export const AGENT_LABELS = {
-  /** Discovery gate — must be "true" for the pod/CR to be treated as an agent. */
+  /** Discovery gate: must be "true" for the pod/CR to be treated as an agent. */
   agent: 'signalloom.ai/agent',
-  /** Agent framework — kagent, claude-code, langchain, crewai, custom. */
+  /** Agent framework: kagent, claude-code, langchain, crewai, custom. */
   framework: 'signalloom.ai/framework',
-  /** Runtime execution harness — claude-code, daytona, knative, opencode-cpai, go-worker. */
+  /** Runtime execution harness: claude-code, daytona, knative, opencode-cpai, go-worker. */
   harness: 'signalloom.ai/harness',
-  /** Functional role — summarizer, ci-worker, engineer, sentinel, governor, cardvault. */
+  /** Functional role: summarizer, ci-worker, engineer, sentinel, governor, cardvault. */
   role: 'signalloom.ai/role',
   /** Multi-tenant isolation boundary. */
   tenant: 'signalloom.ai/tenant',
-  /** Lifecycle & containment state — active, claimed, idle, stunned, draining. */
+  /** Lifecycle & containment state: active, claimed, idle, stunned, draining. */
   state: 'signalloom.ai/state',
-  /** LLM model backing the agent — claude-sonnet-4, gpt-4.1, gemini-2.5-flash. */
+  /** LLM model backing the agent: claude-sonnet-4, gpt-4.1, gemini-2.5-flash. */
   model: 'signalloom.ai/model',
-  /** Project association — maps to Signal Loom project constructs. */
+  /** Project association: maps to Signal Loom project constructs. */
   project: 'signalloom.ai/project',
 } as const
 
@@ -89,7 +89,7 @@ export interface AgentDiscoveryRecord {
   pod_name: string
   /** Namespace the agent runs in. */
   namespace: string
-  /** Service account — second segment of the SPIFFE ID. */
+  /** Service account: second segment of the SPIFFE ID. */
   service_account: string
   /** Derived SPIFFE ID: spiffe://signalloom.demo/ns/<ns>/sa/<sa>. */
   spiffe_id: string
@@ -111,7 +111,7 @@ export interface AgentDiscoveryRecord {
   kernel_telemetry?: SentinelKernelTelemetry | null
   /** Pod/CR creation timestamp. */
   created_at: string | null
-  /** Data provenance — live from the proxy, or demo fixture. */
+  /** Data provenance: live from the proxy, or demo fixture. */
   provenance: Provenance
 }
 

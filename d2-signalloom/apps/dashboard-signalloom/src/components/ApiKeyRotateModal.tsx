@@ -1,5 +1,5 @@
 /**
- * ApiKeyRotateModal — lets a tenant admin revoke their current API key
+ * ApiKeyRotateModal: lets a tenant admin revoke their current API key
  * and generate a new one (Q6 follow-on, ClickUp 86caac5f9).
  *
  * Usage: pass an `onRotated` callback to receive the new key details,
@@ -12,10 +12,10 @@
  *   />
  *
  * Three phases:
- *   1. Confirm — warns the user that their current key will be permanently revoked.
- *   2. Reveal  — shows the new key (same one-time-reveal UX as the initial modal).
- *   3. Closed  — parent controls visibility via onClose.
- */
+ *   1. Confirm: warns the user that their current key will be permanently revoked.
+ *   2. Reveal: shows the new key (same one-time-reveal UX as the initial modal).
+ *   3. Closed: parent controls visibility via onClose.
+ * */
 import { useState } from 'react'
 import type { RotateApiKeyResponse } from '../types/api'
 
@@ -52,7 +52,7 @@ export default function ApiKeyRotateModal({
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status
       if (status === 429) {
-        setError('Key was rotated very recently — please wait a moment before rotating again.')
+        setError('Key was rotated very recently. Please wait a moment before rotating again.')
       } else {
         setError('Rotation failed. Please try again or contact support.')
       }
@@ -89,7 +89,7 @@ export default function ApiKeyRotateModal({
             </h2>
 
             <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--warning, #f59e0b)', marginBottom: 12 }}>
-              Your current key will be permanently revoked — any integrations using it will stop
+              Your current key will be permanently revoked; any integrations using it will stop
               working immediately.
             </p>
 
@@ -131,7 +131,7 @@ export default function ApiKeyRotateModal({
             </h2>
 
             <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--warning, #f59e0b)', marginBottom: 20 }}>
-              This is the only time you will see this key — store it securely now.
+              This is the only time you will see this key. Store it securely now.
               Your old key is already revoked.
             </p>
 
@@ -158,7 +158,7 @@ export default function ApiKeyRotateModal({
                 className="btn btn-secondary"
                 onClick={onClose}
               >
-                I've saved it — close
+                I've saved it (close)
               </button>
             </div>
 

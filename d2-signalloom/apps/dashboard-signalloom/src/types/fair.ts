@@ -6,8 +6,8 @@
  * They are NOT invented here. Every name below is read off the output that
  * `riskctl --json` already produces and that this repo already carries at
  * `risk/out/baseline-*.json`. `fair.test.ts` parses that exact file and drives
- * it through `normalizeAgentRisk()`, so the artifact — not this file, and not
- * whoever writes the server — is the authority on the shape.
+ * it through `normalizeAgentRisk()`, so the artifact (not this file, and not
+ * whoever writes the server) is the authority on the shape.
  *
  * That is deliberate. The service half of this contract (CRKC-P2-1) is being
  * built in a separate worktree at the same time as this client half. Two agents
@@ -20,7 +20,7 @@
  * ─── Units ─────────────────────────────────────────────────────────────────
  *
  * LEF is a FREQUENCY: loss events per year, a bare number. Everything else is a
- * MAGNITUDE and is therefore `Money`, never a bare number — `money/money.ts`
+ * MAGNITUDE and is therefore `Money`, never a bare number: `money/money.ts`
  * carries the reasoning for that rule (the currency used to be welded into the
  * field name, so a refactor could rename a value into a different currency with
  * nothing to catch it).
@@ -29,13 +29,13 @@
  *
  * `riskctl` emits no field called PML. It emits `ale`, `var95`, `tvar` and
  * `carried`. Probable Maximum Loss in OpenFAIR/insurance practice is a
- * high-percentile loss, and `var95` — the 95th-percentile bad year — is this
+ * high-percentile loss, and `var95` (the 95th-percentile bad year) is this
  * engine's. So `pml` below IS `var95`, mapped once, here, in the open.
  *
  * `tvar` (the mean loss BEYOND var95) travels beside it rather than being
  * folded in, because a PML quoted without its tail is the kind of number that
- * cannot be defended in a review. `tailDominated` — the engine's own flag for
- * "the tail is doing the work" — is carried through for the same reason.
+ * cannot be defended in a review. `tailDominated` (the engine's own flag for
+ * "the tail is doing the work") is carried through for the same reason.
  */
 
 import type { Money } from '../money/money'
@@ -63,7 +63,7 @@ export interface FairGuards {
   poissonLoopCapped: number
 }
 
-/** Simulation provenance — what produced these numbers. */
+/** Simulation provenance: what produced these numbers. */
 export interface FairSimulation {
   iterations: number
   seed: number
@@ -76,7 +76,7 @@ export interface FairSimulation {
  * Where a risk figure came from.
  *
  * Rendered on screen. An operator looking at a loss figure has to be able to
- * tell a fixture from an attested computation without reading the URL bar —
+ * tell a fixture from an attested computation without reading the URL bar;
  * that is the entire point of Phase 2, and a priced figure with no stated
  * provenance is indistinguishable from the invented ones it replaces.
  */
@@ -86,17 +86,17 @@ export type FairSource = 'fixture' | 'riskctl'
 export interface AgentRisk {
   agentId: string
   currency: CurrencyCode
-  /** Loss Event Frequency — events per year. Dimensionless, never Money. */
+  /** Loss Event Frequency: events per year. Dimensionless, never Money. */
   lef: FairTriple
-  /** Loss Magnitude — the per-event loss triple. */
+  /** Loss Magnitude: the per-event loss triple. */
   lossMagnitude: { min: Money; mode: Money; max: Money }
-  /** Annualised Loss Expectancy — the mean annual loss. */
+  /** Annualised Loss Expectancy: the mean annual loss. */
   ale: Money
   /** Probable Maximum Loss. See the header: this IS var95. */
   pml: Money
   /** 95th-percentile bad year, carried explicitly so `pml`'s basis is legible. */
   var95: Money
-  /** Mean loss beyond var95 — the tail behind the PML. */
+  /** Mean loss beyond var95: the tail behind the PML. */
   tvar: Money
   /** TVaR plus the risk load: what carrying this exposure actually costs. */
   carried: Money
@@ -240,7 +240,7 @@ function pick(src: Record<string, unknown>, ...keys: string[]): unknown {
  * Validate and normalise one agent's risk payload.
  *
  * Throws `FairContractError` on anything it cannot read. Callers are hooks,
- * and the hooks turn the throw into an error banner — the exception never
+ * and the hooks turn the throw into an error banner: the exception never
  * reaches a render.
  */
 export function normalizeAgentRisk(raw: unknown, fallbackAgentId = ''): AgentRisk {

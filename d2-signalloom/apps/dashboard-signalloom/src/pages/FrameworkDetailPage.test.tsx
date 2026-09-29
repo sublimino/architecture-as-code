@@ -142,7 +142,7 @@ describe('FrameworkDetailPage — Agent Matrix and Framework Rendering', () => {
       expect(screen.getByText('CPAI Engineer (custom)')).toBeInTheDocument()
     })
 
-    const failCell = screen.getByTitle(/fail — Click to request reassessment/i)
+    const failCell = screen.getByTitle(/fail: Click to request reassessment/i)
     fireEvent.click(failCell)
 
     expect(screen.getByRole('heading', { name: /request reassessment/i })).toBeInTheDocument()

@@ -16,7 +16,7 @@ export interface FakeRateOptions {
  * A table whose only conversions are the ones named.
  *
  * `pairs` is given as "FROM->TO": rate. Identity pairs are NOT added
- * automatically — a test that wants GBP→GBP to work must say so, because
+ * automatically: a test that wants GBP→GBP to work must say so, because
  * silently supplying identities would hide exactly the missing-rate case these
  * tests exist to exercise.
  */

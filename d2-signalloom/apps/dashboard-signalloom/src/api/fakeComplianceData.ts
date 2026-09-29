@@ -17,7 +17,7 @@ const CALIBRATION = 'industry-indicative'
 /**
  * The reporting currency of this demo document.
  *
- * One org, one reporting currency — the engine emits `doc.Currency` per ORG,
+ * One org, one reporting currency: the engine emits `doc.Currency` per ORG,
  * so mixing denominations inside a single scan would misrepresent what the
  * payload can actually look like. Multi-currency rendering is exercised in
  * fakeComplianceData.test.ts, which builds documents in other currencies and a
@@ -82,7 +82,7 @@ const NIST_CHECKS: RawCheck[] = [
   { framework: 'NIST 800-53', controlSet: 'Identification & Auth', control: 'IA-1', check: 'I&A policy defined', passed: true, policyVersion: 'v2.1', ale: 7600, var95: 33000, tvar: 51000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
 ]
 
-// ─── DORA — Regulation (EU) 2022/2554 ───────────────────────────────────────
+// ─── DORA: Regulation (EU) 2022/2554 ───────────────────────────────────────
 //
 // Control IDs are DORA article numbers and the check text is the article's own
 // subject matter. Control sets follow the regulation's chapter structure:
@@ -103,11 +103,11 @@ const DORA_CHECKS: RawCheck[] = [
   { framework: 'DORA', controlSet: 'ICT Third-Party Risk', control: 'Art. 30', check: 'Key contractual provisions present in agent supplier contracts', passed: false, policyVersion: 'v2.0', ale: 29700, var95: 135000, tvar: 209000, carried: 29700, scanTimestamp: NOW, calibrationSource: CALIBRATION },
 ]
 
-// ─── NIS2 — Directive (EU) 2022/2555 ────────────────────────────────────────
+// ─── NIS2: Directive (EU) 2022/2555 ────────────────────────────────────────
 //
 // Control IDs are the lettered cybersecurity risk-management measures of
 // Article 21(2)(a)-(j). The control sets are a reading grouping, not a
-// structure the directive itself imposes — Art. 21(2) is a flat list.
+// structure the directive itself imposes; Art. 21(2) is a flat list.
 
 const NIS2_CHECKS: RawCheck[] = [
   { framework: 'NIS2', controlSet: 'Risk Management Measures', control: 'Art. 21(2)(a)', check: 'Risk analysis and information system security policies', passed: true, policyVersion: 'v2.1', ale: 10200, var95: 46000, tvar: 74000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
@@ -122,11 +122,11 @@ const NIS2_CHECKS: RawCheck[] = [
   { framework: 'NIS2', controlSet: 'Cyber Hygiene', control: 'Art. 21(2)(g)', check: 'Cyber hygiene practices and security training', passed: true, policyVersion: 'v2.1', ale: 5900, var95: 27000, tvar: 42000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
 ]
 
-// ─── Cyber Resilience Act — Regulation (EU) 2024/2847 ───────────────────────
+// ─── Cyber Resilience Act: Regulation (EU) 2024/2847 ───────────────────────
 //
 // Control IDs cite Annex I of the ADOPTED regulation. The lettering moved
-// between the 2022 proposal and the adopted text — attack surfaces was (h) in
-// the draft and is (j) in 2024/2847 — so these are deliberately taken from the
+// between the 2022 proposal and the adopted text (attack surfaces was (h) in
+// the draft and is (j) in 2024/2847), so these are deliberately taken from the
 // adopted numbering and not from the widely-mirrored proposal.
 
 const CRA_CHECKS: RawCheck[] = [
@@ -146,7 +146,7 @@ const CRA_CHECKS: RawCheck[] = [
 //
 // Control IDs and check text are the framework's own risk identifiers and
 // titles, verbatim, from air-governance-framework.finos.org. AIR-SEC-024/025/
-// 026/029 and AIR-OP-028 are the agentic risks added in v2.0 — they are the
+// 026/029 and AIR-OP-028 are the agentic risks added in v2.0: they are the
 // reason this framework is the one that most directly prices an agent estate.
 //
 // Note the ID-space collision with this file's EU AI Act rows, which use
@@ -195,7 +195,7 @@ const OLLY_CHECKS_V1: ComplianceCheck[] = ALL_CHECKS.map((c) => ({
 // ─── Summaries ──────────────────────────────────────────────────────────────
 
 /**
- * Stable id for a framework name — `EU AI Act` → `eu-ai-act`.
+ * Stable id for a framework name, such as `EU AI Act` → `eu-ai-act`.
  *
  * Derived rather than hand-maintained. The two ids that existed before this
  * function (`eu-ai-act`, `nist-800-53`) are exactly what it produces, so no
@@ -232,9 +232,9 @@ function buildPostureSummary(checks: ComplianceCheck[]): PostureSummary {
   // The document currency is READ from the rows, not asserted. It used to be
   // the DEMO_CURRENCY constant, which meant a document built from non-GBP
   // checks reported `currency: 'GBP'` while carrying figures in something else
-  // — the precise mislabelling the ComplianceCheck header warns about, one org
+  // (the precise mislabelling the ComplianceCheck header warns about, one org
   // file away from putting a wrong currency symbol in front of every figure on
-  // screen. DEMO_CURRENCY remains the fallback for the two cases where the rows
+  // screen). DEMO_CURRENCY remains the fallback for the two cases where the rows
   // cannot answer: an empty document, and a mixed-denomination one.
   const currencies = new Set(checks.map((c) => c.ale.currency))
   const documentCurrency: CurrencyCode =
@@ -252,7 +252,7 @@ function buildPostureSummary(checks: ComplianceCheck[]): PostureSummary {
     // Derived from the checks, never a hand-maintained list. The previous
     // version named its two frameworks literally, which meant adding a
     // framework to ALL_CHECKS put its rows on the page while leaving it out of
-    // `summary.frameworks` and out of the /compliance/policy/frameworks route —
+    // `summary.frameworks` and out of the /compliance/policy/frameworks route,
     // a silent omission with nothing to catch it. Insertion order of the first
     // appearance is preserved, so the framework list reads in fixture order.
     frameworks: [...new Set(checks.map((c) => c.framework))].map((name) =>
@@ -273,7 +273,7 @@ function checksForVersion(version: string): ComplianceCheck[] {
   if (version === 'v2.0') {
     return ALL_CHECKS // mix of pass/fail as defined
   }
-  // v2.1 — tightest policy, fewer failures
+  // v2.1: tightest policy, fewer failures
   return ALL_CHECKS.map((c) => ({
     ...c,
     policyVersion: 'v2.1',

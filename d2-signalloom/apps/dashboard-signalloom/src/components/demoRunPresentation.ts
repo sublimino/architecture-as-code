@@ -1,4 +1,4 @@
-// How a demo run is PRESENTED — shared by every panel that drives the demo
+// How a demo run is PRESENTED: shared by every panel that drives the demo
 // runner.
 //
 // These four rules were private to SuperCredInstructorPanel. Signal Fusion
@@ -6,7 +6,7 @@
 // copy in SignalFusionPage: two status-colour maps, two tail windows, two
 // opinions about what a 401 from the runner means. Both panels talk to the SAME
 // runner through the same shapes (`DemoRunView`, `DemoRunnerStatus`), so a
-// divergence here is not a difference of style — it is one demo telling the
+// divergence here is not a difference of style: it is one demo telling the
 // instructor the run timed out in amber while the other calls the same run red.
 //
 // Presentation only. Nothing here fetches, polls or decides; the transport
@@ -23,7 +23,7 @@ import type { DemoRunView } from '../api/demoRunner'
  *
  * `timed_out` and `cancelled` are amber rather than red on purpose: neither is
  * a script failure, and painting them red sends an instructor hunting for a
- * defect in a demo that was simply interrupted. Neither is teal either — a run
+ * defect in a demo that was simply interrupted. Neither is teal either: a run
  * that stopped early did not do what it said it would.
  *
  * Every value is a `var(--token)`: src/styles/cssVarUsage.test.ts rejects bare
@@ -53,8 +53,8 @@ export function runStatusTone(status: string | undefined | null): string {
  * When a run began, in epoch ms, or undefined if the runner did not say.
  *
  * Read from the runner's own stamp rather than from a component's mount, so a
- * run adopted from another browser — or from before this page load, which is
- * routine when the instructor refreshes mid-act — shows its true age instead of
+ * run adopted from another browser, or from before this page load (which is
+ * routine when the instructor refreshes mid-act), shows its true age instead of
  * restarting the clock at zero and understating how long the audience has been
  * waiting.
  *
@@ -72,7 +72,7 @@ export function runStartedAt(run: DemoRunView | null | undefined): number | unde
 export const LOG_TAIL_LINES = 12
 
 /**
- * The last few meaningful lines of a log — the ones that explain a failure.
+ * The last few meaningful lines of a log: the ones that explain a failure.
  *
  * `stripAnsi` is imported from the streaming block rather than re-implemented,
  * because two copies of that regex is two places for the runner's colour
@@ -96,20 +96,20 @@ export function logTail(log: string, maxLines: number = LOG_TAIL_LINES): string 
  * actual answer is "sign in again".
  *
  * The 401 case is not hypothetical and not rare. Dex runs `storage: memory`, so
- * it regenerates its signing keys on every restart — and it restarts whenever
+ * it regenerates its signing keys on every restart, and it restarts whenever
  * the published origin changes, which is exactly what `make public` does. Any
  * browser tab open across that boundary holds a token signed by keys that no
  * longer exist, so the API rejects it. The demo runner is perfectly healthy;
  * the session is stale. Telling the instructor it is "not reachable" during a
  * live demo is the worst possible moment to be wrong about which.
  *
- * The status codes are matched on word boundaries so "1401" and "4030" — a
- * port, an upstream code, a byte count — cannot route to the wrong advice.
+ * The status codes are matched on word boundaries so "1401" and "4030" (a
+ * port, an upstream code, a byte count) cannot route to the wrong advice.
  */
 export function describeRunnerError(runnerError: string): string {
   if (/\b401\b|invalid_token|token is invalid/i.test(runnerError)) {
     return 'Your session is no longer valid, so the demo runner rejected the request '
-      + '(the demo runner itself is fine). This happens when Dex restarts — publishing '
+      + '(the demo runner itself is fine). This happens when Dex restarts: publishing '
       + 'or tearing down a public URL does exactly that. Sign out and back in, then retry.'
   }
   if (/\b403\b|superadmin_required|forbidden/i.test(runnerError)) {

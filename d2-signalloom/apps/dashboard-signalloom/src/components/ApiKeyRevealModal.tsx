@@ -36,7 +36,7 @@ export default function ApiKeyRevealModal() {
         </h2>
 
         <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--warning, #f59e0b)', marginBottom: 20 }}>
-          This is the only time you will see this key — store it securely now.
+          This is the only time you will see this key. Store it securely now.
           It cannot be shown again after you dismiss this dialog.
         </p>
 
@@ -65,7 +65,7 @@ export default function ApiKeyRevealModal() {
             className="btn btn-secondary"
             onClick={dismiss}
           >
-            I've saved it — dismiss
+            I've saved it (dismiss)
           </button>
         </div>
 

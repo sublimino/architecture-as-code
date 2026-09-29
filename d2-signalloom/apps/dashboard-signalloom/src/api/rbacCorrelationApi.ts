@@ -1,6 +1,6 @@
 /**
  * Client for the intermediate `/api/rbac/*` correlation endpoints backed by
- * `rbac_correlation.py` (fe-signalloom API) — distinct from `afmApi.ts`,
+ * `rbac_correlation.py` (fe-signalloom API): distinct from `afmApi.ts`,
  * which wraps the direct `/afm/*` proxy to KubeSec-AFM itself.
  *
  * AFM exposes cluster RBAC, escalation analysis, conformance and shared-role
@@ -14,7 +14,7 @@
  * shared-role findings carry `all_subjects`/`privileged_subjects` rather than
  * a `shared_by` count or a `risk` field. That correlation now happens once,
  * server-side, behind tenant auth (see rbac_correlation.py's module
- * docstring) — this module is a thin, typed client over the result.
+ * docstring): this module is a thin, typed client over the result.
  *
  * Unlike `afmApi.ts`'s unauthenticated `/afm/*` calls, every request here
  * requires a bearer token, matching the rest of `/api/*` (see fe-signalloom's
@@ -252,7 +252,7 @@ export function parseClusterMetaList(value: unknown): ClusterMeta[] {
  *   that message through rather than re-deriving it from a status code.
  * - The fe-signalloom API itself is absent or /api/ is not proxied. Then
  *   nothing answers as the API, the SPA catch-all serves index.html with
- *   200 OK, and res.json() throws "Unexpected token '<'" — the same trap
+ *   200 OK, and res.json() throws "Unexpected token '<'": the same trap
  *   FleetUnreachableError exists for. Content-type is the discriminator: a
  *   200 that is not JSON is not an answer from this API.
  */
@@ -268,7 +268,7 @@ const BACKEND_ABSENT_CODES = new Set(['afm_not_deployed', 'afm_unreachable'])
 
 function notTheApiError(): RbacUnreachableError {
   return new RbacUnreachableError(
-    'The Signal Loom API did not respond — the request was answered by the dashboard ' +
+    'The Signal Loom API did not respond: the request was answered by the dashboard ' +
       'itself, which means fe-signalloom is not deployed or /api/ is not proxied. ' +
       'Run `make demo-signalloom-up` to deploy it.',
   )
@@ -297,7 +297,7 @@ async function authedGet(path: string, token: string): Promise<unknown> {
         }
       } catch (error) {
         if (error instanceof RbacUnreachableError) throw error
-        /* body wasn't JSON — fall back to the bare status */
+        /* body wasn't JSON: fall back to the bare status */
       }
       throw new Error(`RBAC correlation request failed for ${url} with status ${res.status}.${detail}`)
     }

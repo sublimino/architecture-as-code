@@ -773,7 +773,7 @@ describe('the fleet roster', () => {
     // true for a reply that is not this API. An empty state here would tell a
     // room the estate is clean when the backend is simply not there.
     mockFetchFleetTopology.mockRejectedValue(
-      new Error('Fleet Manager did not respond — the request was answered by the dashboard itself'),
+      new Error('Fleet Manager did not respond: the request was answered by the dashboard itself'),
     )
     renderPage()
     await waitFor(() => expect(screen.getByTestId('fleet-roster-unreachable')).toBeInTheDocument())
@@ -858,7 +858,7 @@ describe('both fleet routes', () => {
 
   it('fails visibly on the audience route rather than projecting an empty fleet', async () => {
     mockFetchFleetTopology.mockRejectedValue(
-      new Error('Fleet Manager did not respond — /fleet-api/ is not proxied'),
+      new Error('Fleet Manager did not respond: /fleet-api/ is not proxied'),
     )
     renderPage(true)
     await waitFor(() => expect(screen.getByTestId('fleet-audience-unreachable')).toBeInTheDocument())

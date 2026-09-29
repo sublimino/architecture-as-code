@@ -14,11 +14,11 @@ export interface RBACData { subjects: Subject[]; roles: Role[]; bindings: Bindin
  * `{..., "namespace": null}`, and bindings carry `"roleRefKind": null`.
  *
  * So these are PARSERS, not boolean type guards. They normalise the wire shape
- * into the strict interfaces above — null and missing both become absent — and
+ * into the strict interfaces above (null and missing both become absent) and
  * they tolerate extra keys AFM sends that we do not model (`annotations`,
  * `roleRefKind`). They reject only on a genuine contract break: a non-object, a
  * missing name, or a scope that is neither Cluster nor Namespace. That split
- * matters for a security tool — being lax about null-vs-absent is right,
+ * matters for a security tool: being lax about null-vs-absent is right,
  * silently dropping a role from an RBAC export is not.
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -162,7 +162,7 @@ export async function fetchOk(path: string): Promise<boolean> {
 }
 
 /**
- * `name` is optional on the wire — fall back to the id rather than rejecting
+ * `name` is optional on the wire: fall back to the id rather than rejecting
  * the whole cluster list, which would break the panel before it reaches RBAC.
  */
 export function parseClusterList(value: unknown): ClusterMeta[] {
@@ -194,8 +194,8 @@ export function parseRbacData(value: unknown): RBACData {
     bindings: parseAll(value.bindings as unknown[], parseBinding, 'binding'),
   }
   // AFM reports its own namespace list alongside the items. It is empty on the
-  // sample clusters, so it is a preference, not a replacement — see
-  // deriveNamespaces.
+  // sample clusters, so it is a preference, not a replacement (see
+  // deriveNamespaces).
   const reported = asStringArray(value.namespaces)
   if (reported.length > 0) rbac.namespaces = reported
   return rbac
@@ -375,7 +375,7 @@ function parseGroupEscalation(value: unknown): GroupEscalation | null {
 
 /**
  * AFM returns a JSON `null` body for `/analysis/latest` when no run has
- * completed yet for that cluster — that is a legitimate "no data" state, not
+ * completed yet for that cluster; that is a legitimate "no data" state, not
  * an error, so it round-trips to `null` rather than throwing.
  */
 export function parseAnalysisResult(value: unknown): AnalysisResult | null {
@@ -425,7 +425,7 @@ function parseJobRecord(value: unknown): JobRecord | null {
   }
 }
 
-/** Malformed entries are dropped, not fatal — one bad job record should not blank the whole run selector. */
+/** Malformed entries are dropped, not fatal: one bad job record should not blank the whole run selector. */
 export function parseJobList(value: unknown): JobRecord[] {
   if (!Array.isArray(value)) {
     throw new Error('AFM returned a non-array job list.')
@@ -470,7 +470,7 @@ export function parseAnalysisStatus(value: unknown): AnalysisStatusInfo {
   }
 }
 
-/** Most recent runs for one cluster — the source list for the run-selector dropdown. */
+/** Most recent runs for one cluster: the source list for the run-selector dropdown. */
 /** POST a cluster import payload to AFM. Throws on non-2xx or network error. */
 export async function postClusterImport(payload: unknown): Promise<void> {
   const url = `${AFM}/clusters/import`
@@ -502,7 +502,7 @@ export async function fetchAnalysisResult(clusterId: string): Promise<AnalysisRe
   return parseAnalysisResult(await fetchJsonOrThrow(`/clusters/${encodeURIComponent(clusterId)}/analysis/latest`))
 }
 
-/** A specific historical run's result — this is what powers the run drill-down, not just "latest". */
+/** A specific historical run's result: this is what powers the run drill-down, not just "latest". */
 export async function fetchJobResult(jobId: string): Promise<AnalysisResult | null> {
   return parseAnalysisResult(await fetchJsonOrThrow(`/jobs/${encodeURIComponent(jobId)}/result`))
 }

@@ -1,7 +1,7 @@
 // Observable store for the SuperCred demo's derived state.
 //
 // Everything the main pages show about the demo is a projection of this store,
-// and the store itself only ever holds *observations* — what the cluster (or,
+// and the store itself only ever holds *observations*: what the cluster (or,
 // in demo-data mode, the simulated cluster) reported. No page writes to it and
 // no page reads it directly; client.ts consults it when projecting responses.
 
@@ -18,8 +18,8 @@ import { EMPTY_SUPERCRED_STATE } from './supercredTypes'
  *
  * The `signalloom.ai/state` pod label is authoritative because both drivers
  * write it: the CLI (`supercred-demo.sh` steps 2/3/4) and the proxy's stun
- * handler. The one gap is the UI's Compliance Scan button — the proxy
- * evaluates the pod spec but does not relabel the pod — so a failing scan
+ * handler. The one gap is the UI's Compliance Scan button (the proxy
+ * evaluates the pod spec but does not relabel the pod) so a failing scan
  * observation is accepted as an equivalent signal for the same phase.
  *
  * Unrecognised labels fall back to `deployed` rather than being guessed at: a

@@ -172,7 +172,7 @@ describe('demoRunner endpoints', () => {
 
   it('names the endpoint and carries the server body into the error', async () => {
     mockFetch(() => ({ status: 409, text: 'a run is already active' }))
-    await expect(startDemoRun('1')).rejects.toThrow(/Demo step 1 failed: 409 — a run is already active/)
+    await expect(startDemoRun('1')).rejects.toThrow(/Demo step 1 failed: 409: a run is already active/)
   })
 
   it('reports an unreachable runner rather than returning empty status', async () => {

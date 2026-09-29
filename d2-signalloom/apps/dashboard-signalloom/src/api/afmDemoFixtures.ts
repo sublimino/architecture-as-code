@@ -5,13 +5,13 @@
  * something to browse even when the backend is unreachable, and the two are
  * built from what were previously this page's only content: the collusion
  * pairs, shared-role pivots and remediation fixes that used to be hardcoded
- * directly into the component. Their union — DEMO_AGGREGATE — is what "All
+ * directly into the component. Their union (DEMO_AGGREGATE) is what "All
  * runs (aggregate)" renders, so the page's original narrative content is
  * still fully reachable, just now behind the same run-shaped data model that
  * live mode uses.
  *
  * Timestamps are fixed (not `Date.now()`) so demo mode is byte-for-byte
- * reproducible across renders and test runs — the whole point of "demo mode
+ * reproducible across renders and test runs: the whole point of "demo mode
  * stays deterministic and offline".
  */
 import type { AnalysisResult, Guard, GroupEscalation, SharedRoleEntry } from './afmApi'
@@ -125,7 +125,7 @@ export const DEMO_RUN_STAGING: DemoRun = {
 
 export const DEMO_RUNS: DemoRun[] = [DEMO_RUN_PROD, DEMO_RUN_STAGING]
 
-/** The union of every demo run — what "All runs (aggregate)" renders in demo mode. */
+/** The union of every demo run: what "All runs (aggregate)" renders in demo mode. */
 export const DEMO_AGGREGATE: DemoRun = {
   id: 'demo-aggregate',
   clusterId: 'all',

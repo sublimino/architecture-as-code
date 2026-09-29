@@ -208,7 +208,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
     )
 
     expect(screen.getByTestId('assessments-section-article9')).toBeInTheDocument()
-    expect(screen.getByText('EU AI Act Article 9 — Risk Management System')).toBeInTheDocument()
+    expect(screen.getByText('EU AI Act Article 9: Risk Management System')).toBeInTheDocument()
     expect(screen.getByTestId('article9-risk-badge')).toHaveTextContent('Risk Class: HIGH')
     expect(screen.getByTestId('article9-ratio-score')).toBeInTheDocument()
     expect(screen.getByTestId('article9-card-art--9-1-')).toBeInTheDocument()

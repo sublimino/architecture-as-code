@@ -24,7 +24,7 @@ export type EvidenceVisual = {
   /** SVG stroke-dasharray. 'none' renders solid. */
   dash: string
   /**
-   * CSS border-style for node boxes — the DOM equivalent of `dash`.
+   * CSS border-style for node boxes (the DOM equivalent of `dash`).
    *
    * These must stay in step with each other AND with the legend wording,
    * because colour cannot be relied on to carry evidence state. For any viewer
@@ -70,7 +70,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     flowSeconds: 2.2,
     restOpacity: 1,
     timing: 'linear',
-    confidence: 'Observed at runtime — highest confidence available on this page',
+    confidence: 'Observed at runtime: highest confidence available on this page',
   },
   modeled: {
     label: 'Modeled / dashed',
@@ -81,7 +81,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     flowSeconds: 6,
     restOpacity: 0.72,
     timing: 'linear',
-    confidence: 'Contract assumption — never proved, drawn faint on purpose',
+    confidence: 'Contract assumption (never proved, drawn faint on purpose)',
   },
   fixture: {
     label: 'Fixture-tested / dotted',
@@ -92,7 +92,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     flowSeconds: 3.4,
     restOpacity: 0.9,
     timing: 'linear',
-    confidence: 'Proved by a fixture test — real evidence, not live evidence',
+    confidence: 'Proved by a fixture test: real evidence, not live evidence',
   },
   stale: {
     label: 'Stale / dotted warning',
@@ -103,7 +103,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     flowSeconds: 4.5,
     restOpacity: 0.8,
     timing: 'steps(9, end)',
-    confidence: 'Last known good — treat as unverified until refreshed',
+    confidence: 'Last known good: treat as unverified until refreshed',
   },
 }
 

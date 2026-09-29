@@ -103,7 +103,7 @@ const STUN_REASON_FALLBACK = 'revoked by the platform kill switch'
  *
  * Derived from the same pod observation everything else reads: the stun is
  * `signalloom.ai/state=stunned`, and the timestamp and reason ride along on
- * the record the proxy returns. Nothing here is fabricated — if the cluster
+ * the record the proxy returns. Nothing here is fabricated: if the cluster
  * did not report a stun, the agent's credentials are reported as active.
  */
 function credentialState(state: SuperCredDemoState): AgentCredentialState {
@@ -253,7 +253,7 @@ function toCheck(control: SuperCredControl, state: SuperCredDemoState): Complian
  * The SuperCred control set is authored entirely in SUPERCRED_CURRENCY, so a
  * document reported in anything else cannot absorb these numbers: adding them
  * would silently produce a total that is neither currency. In that case the
- * base figure is returned untouched — the projection declines to contribute
+ * base figure is returned untouched: the projection declines to contribute
  * rather than corrupting the total, and the SuperCred rows still appear as
  * their own denominated checks.
  */
@@ -313,7 +313,7 @@ export function projectPolicySummary(base: PostureSummary, state: SuperCredDemoS
     totalChecks: Number(base.totalChecks ?? 0) + evaluated.length,
     passed: Number(base.passed ?? 0) + passed,
     failed: Number(base.failed ?? 0) + (evaluated.length - passed),
-    // Inherent risk accrues for every evaluated control, passing or failing —
+    // Inherent risk accrues for every evaluated control, passing or failing:
     // matching how the baseline fixtures aggregate ALE across all checks.
     totalAle: addInSourceCurrency(base.totalAle, evaluated.reduce((s, c) => s + c.ale, 0)),
     totalVar95: addInSourceCurrency(base.totalVar95, evaluated.reduce((s, c) => s + c.var95, 0)),

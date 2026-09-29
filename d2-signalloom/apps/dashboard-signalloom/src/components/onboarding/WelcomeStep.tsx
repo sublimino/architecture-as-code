@@ -8,12 +8,12 @@ import {
 } from './TourPreviews'
 
 // Screen 1 of the wizard per the original US-ENHC-011 design ("Welcome +
-// framing"), never actually built when the wizard shipped — added here per
+// framing"), never actually built when the wizard shipped: added here per
 // Wendy's review along with a platform tour and a Help & FAQ link, so a
 // first-time user knows where things are before diving into setup.
 const TOUR_ITEMS = [
   { label: 'Discovery', blurb: 'Where the non-human identities we find for you show up, with risk findings and triage actions.', Preview: DiscoveryPreview },
-  { label: 'Agents', blurb: 'Your governed AI agents — lifecycle state, compliance posture, and enrollment.', Preview: AgentsPreview },
+  { label: 'Agents', blurb: 'Your governed AI agents: lifecycle state, compliance posture, and enrollment.', Preview: AgentsPreview },
   { label: 'Compliance', blurb: 'Framework-by-framework posture (SOC 2, EU AI Act, and others you select).', Preview: CompliancePreview },
   { label: 'Audit Trail', blurb: 'A full history of governance actions, exportable for evidence.', Preview: AuditTrailPreview },
   { label: 'Settings', blurb: 'Connected providers, scan preferences, API access, and account details.', Preview: SettingsPreview },
@@ -35,7 +35,7 @@ export default function WelcomeStep({ onContinue, onOpenHelp }: Props) {
       </div>
       <p style={{ color: 'var(--muted)', fontSize: 16, marginBottom: 28, lineHeight: 1.7, maxWidth: 640 }}>
         Let's find your non-human identities. This short setup connects your identity providers
-        so Signal Loom can start discovering service accounts, API keys, and bots — and get you
+        so Signal Loom can start discovering service accounts, API keys, and bots, and get you
         governing them.
       </p>
 

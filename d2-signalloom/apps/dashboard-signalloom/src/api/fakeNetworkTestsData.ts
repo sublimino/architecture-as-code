@@ -1,6 +1,6 @@
 // Fake network-tests (netassert) fixtures for demo mode.
 //
-// Separated from fakeData.ts for the same reason as fakeComplianceData.ts —
+// Separated from fakeData.ts for the same reason as fakeComplianceData.ts:
 // keeps the main fixture file from growing unbounded. Test definitions mirror
 // d2-signalloom/test/netassert-signalloom.yaml and server.py's
 // NETWORK_TEST_DEFINITIONS 1:1.

@@ -1,5 +1,5 @@
 /**
- * SignalBadge — compact pill showing correlated signal observation count,
+ * SignalBadge: compact pill showing correlated signal observation count,
  * coloured by the highest fidelity tier present. Clickable to navigate
  * to the Signal Weave page.
  */
@@ -67,7 +67,7 @@ export default function SignalBadge({
   if (layers > 0) {
     tooltipParts[0] += ` from ${layers} layer${layers !== 1 ? 's' : ''}`
   }
-  tooltipParts[0] += ` — highest fidelity: ${fidelityLabel}`
+  tooltipParts[0] += `, highest fidelity: ${fidelityLabel}`
 
   if (actorStatus) {
     tooltipParts.push(`Actor status: ${STATUS_LABELS[actorStatus] ?? actorStatus}`)

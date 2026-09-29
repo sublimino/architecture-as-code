@@ -1,5 +1,5 @@
 /**
- * Swarm audit event types — the vocabulary for the agent swarm lifecycle.
+ * Swarm audit event types: the vocabulary for the agent swarm lifecycle.
  *
  * These events cover the full claim-credential-sandbox-sentinel lifecycle
  * that distinguishes the swarm from the platform's existing agent registry.

@@ -3,14 +3,14 @@
 // The demo used to be drivable only from a shell: `make demo-signalloom-
 // supercred-N` against a cluster the audience cannot see. This panel puts the
 // same five phases behind buttons, streams the script's output back, and points
-// at the customer page where each phase's effect actually lands — so the whole
+// at the customer page where each phase's effect actually lands, so the whole
 // demo can be run from the browser with the audience watching.
 //
 // Two audiences, one component:
 //   * everyone sees the phase status and the "Show this on →" links;
 //   * only superadmins see the buttons that mutate the cluster.
 // Superadmin here is the same VISIBILITY control the sidebar uses (see
-// auth/superadmin.ts) — the route stays reachable by direct URL either way, so
+// auth/superadmin.ts): the route stays reachable by direct URL either way, so
 // this is presentation, not authorization. The runner enforces its own access.
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
@@ -19,7 +19,7 @@ import HelpHint from './HelpHint'
 import PixelLoader from './PixelLoader'
 import StreamingLogBlock from './StreamingLogBlock'
 // These four were defined here. Signal Fusion needed all four, so they moved to
-// a module both panels import rather than becoming a second copy that drifts —
+// a module both panels import rather than becoming a second copy that drifts:
 // see demoRunPresentation.ts. Behaviour is unchanged; the definitions are the
 // same ones, relocated.
 import {
@@ -53,7 +53,7 @@ import {
  *
  * `nowrap` is the load-bearing part: the controls row wraps, and a wrap landing
  * between a button and its hint would put the "?" at the head of the next line
- * beside a control it has nothing to do with — the confusion this grouping
+ * beside a control it has nothing to do with: the confusion this grouping
  * exists to remove.
  */
 const CONTROL_WITH_HINT: CSSProperties = {
@@ -68,7 +68,7 @@ const CONTROL_WITH_HINT: CSSProperties = {
  *   2 runs SPIFFE → OpenBao → cardvault and labels the pod `state=active`;
  *   3 scans and labels it `state=non-compliant`;
  *   4 revokes and labels it `state=stunned`;
- *   5 tears the agent down — after which the only surviving evidence is the
+ *   5 tears the agent down, after which the only surviving evidence is the
  *     audit record, which is the point.
  */
 const STEP_TARGETS: Record<string, { to: string; label: string; effect: string }> = {
@@ -87,19 +87,19 @@ const STEP_TARGETS: Record<string, { to: string; label: string; effect: string }
  * joins the estate as enrolled"). That is the right length for a button title
  * and the wrong length for someone deciding whether to press a control that
  * mutates a shared cluster in front of a room. These strings say the mechanism
- * and the visible consequence, so an instructor who has never run the demo — and
- * an executive reading over their shoulder — both know what is about to happen.
+ * and the visible consequence, so an instructor who has never run the demo (
+ * and an executive reading over their shoulder) both know what is about to happen.
  *
  * Written from what scripts/supercred-demo.sh actually executes, not from the
  * phase titles, so they cannot drift into describing an intention the script
  * does not carry out.
  */
 const STEP_HELP: Record<string, string> = {
-  '1': 'Deletes anything left from a previous run, then deploys the Cardvault agent with its SPIRE registration entry and its OpenBao secrets. Watch a new agent appear on Agents — enrolled, but holding no credentials yet.',
+  '1': 'Deletes anything left from a previous run, then deploys the Cardvault agent with its SPIRE registration entry and its OpenBao secrets. Watch a new agent appear on Agents: enrolled, but holding no credentials yet.',
   '2': 'Runs the agent for real: it presents its SPIFFE identity to OpenBao, exchanges it for a short-lived credential and uses that to read the cardvault secret. Watch Credential Inventory fill with the SVID, the OpenBao lease and the service token.',
-  '3': 'Reads the running pod’s spec and evaluates it against policy. The agent fails on a missing securityContext and is labelled non-compliant. Nothing is revoked here — watch it drop into the critical band on Compliance.',
+  '3': 'Reads the running pod’s spec and evaluates it against policy. The agent fails on a missing securityContext and is labelled non-compliant. Nothing is revoked here: watch it drop into the critical band on Compliance.',
   '4': 'Destructive. Deletes the agent’s OpenBao secret and its login role, marks the pod stunned, then re-runs the credential chain to prove it now fails. The pod keeps running but can no longer authenticate to anything. Watch Agents, then Audit Trail.',
-  '5': 'Destructive. Deletes the agent pod, its jobs and its SPIRE entry from every namespace they can land in. Watch it disappear everywhere except Audit Trail, which still holds the record of what happened — that is the point.',
+  '5': 'Destructive. Deletes the agent pod, its jobs and its SPIRE entry from every namespace they can land in. Watch it disappear everywhere except Audit Trail, which still holds the record of what happened: that is the point.',
 }
 
 /** How often an in-flight run's STATUS is re-read. Fast enough to feel live. */
@@ -112,7 +112,7 @@ const POLL_MS = 500
  * comes back within milliseconds of the script printing, so it is as live as a
  * stream, while remaining an ordinary short HTTP response that no proxy,
  * compressor or tunnel can silently sit on. Chosen against the 300s
- * `proxy_read_timeout` on the `/demo-api/` nginx location — three seconds
+ * `proxy_read_timeout` on the `/demo-api/` nginx location: three seconds
  * leaves two orders of magnitude of headroom, so the boring failure (the
  * deadline passes, an empty chunk comes back, the loop re-arms) is the only
  * one available.
@@ -125,7 +125,7 @@ const LOG_WAIT_SECONDS = 3
  * Only reachable against a runner image that predates `wait` and therefore
  * drops it: an unknown query parameter is not an error, so the read returns at
  * once with nothing in it and an unpaced loop would spin hot. 300ms rather
- * than the old 500ms because the loop is now self-rescheduling — it cannot
+ * than the old 500ms because the loop is now self-rescheduling: it cannot
  * issue a read while one is outstanding, so the request stacking that caused
  * the 2026-08-03 duplication is structurally impossible and the interval no
  * longer has to be conservative enough to outrun a slow round trip.
@@ -138,7 +138,7 @@ const MAX_DRAIN_READS = 20
 // recordStunAudit() used to live here. It POSTed the audit event from the
 // browser after phase 4 succeeded, which made the record of a cluster-mutating
 // action contingent on things that have nothing to do with the cluster: a tab
-// staying open, a token staying valid across a Dex restart (routine — Dex runs
+// staying open, a token staying valid across a Dex restart (routine: Dex runs
 // storage: memory and `make public` restarts it), and the operator using this
 // panel rather than calling the endpoint directly.
 //
@@ -157,7 +157,7 @@ const MAX_DRAIN_READS = 20
 // proxy, and claiming them here is what made the old row a fabrication.
 
 interface Props {
-  /** Same visibility flag the sidebar uses — gates the mutating controls only. */
+  /** Same visibility flag the sidebar uses: gates the mutating controls only. */
   superadmin: boolean
   /** Re-query live agent state. Wired to the page's own discovery call. */
   onRefreshClients: () => void | Promise<void>
@@ -174,14 +174,14 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   const [resetArmed, setResetArmed] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
-  // Log offsets are a stream cursor, not render state — advancing them must not
+  // Log offsets are a stream cursor, not render state: advancing them must not
   // schedule a render, and the poll loop must read the latest value.
   const offsetRef = useRef(0)
   /**
    * Whether the SSE stream currently owns the log.
    *
-   * Exactly one transport reads the log at a time. Both are safe to display —
-   * `applyLogChunk` guarantees that — but they are not safe to interleave: a
+   * Exactly one transport reads the log at a time. Both are safe to display (
+   * `applyLogChunk` guarantees that), but they are not safe to interleave: a
    * poll response landing between two stream frames advances the cursor past
    * where the stream is, every later frame is then refused, and the stream
    * quietly stops contributing. So the poll skips its log read while the
@@ -234,7 +234,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
    *
    * Two readers share `offsetRef`: the 500ms poll below and `drainLog`. Neither
    * holds a lock, the poll has no in-flight guard, and the cursor only advances
-   * when a response LANDS — so a response can easily arrive that no longer
+   * when a response LANDS, so a response can easily arrive that no longer
    * describes the cursor's position:
    *
    *   * a tick fires while the previous tick is still outstanding (any round
@@ -251,7 +251,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
    *
    * The server already echoes the `offset` it served, so the check is exact and
    * needs no locking: a chunk that does not begin at the cursor is a duplicate
-   * or an out-of-order straggler, and discarding it is always correct — the
+   * or an out-of-order straggler, and discarding it is always correct: the
    * bytes it carries are either already displayed or will be re-requested.
    */
   const applyLogChunk = useCallback((chunk: DemoRunLogChunk): boolean => {
@@ -280,7 +280,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
         if (chunk.eof) break
       }
     } catch {
-      /* the tail is best effort — the run status is the authoritative outcome */
+      /* the tail is best effort: the run status is the authoritative outcome */
     }
   }, [applyLogChunk, getAccessTokenSilently])
 
@@ -289,7 +289,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       // No audit call here any more: the runner records the invocation itself,
       // server-side, so the record no longer depends on this component being
       // alive to make it. The de-duplication ref that guarded against double
-      // POSTs goes with it — one request now produces exactly one row.
+      // POSTs goes with it: one request now produces exactly one row.
       await drainLog(run.run_id)
       // The run changed the cluster, so every projection above it is stale.
       invalidateSuperCredState()
@@ -309,7 +309,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
    * and that difference is the point: the old interval fired every 500ms
    * whether or not the previous read had come back, so any read slower than
    * the interval overlapped the next one, both sent the same offset, and the
-   * server honestly returned the same bytes twice — the 2026-08-03 duplicated
+   * server honestly returned the same bytes twice: the 2026-08-03 duplicated
    * reset banner. A loop that only issues a read when the last one has landed
    * cannot stack requests at all. `applyLogChunk` still guards every chunk,
    * because `drainLog` and the opt-in stream are also writers.
@@ -322,8 +322,8 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
     void (async () => {
       while (!stopped) {
         // The opt-in stream, once proven live, owns the log. Yield to it and
-        // keep checking, so the moment it stops — watchdog, break, divergence
-        // — this loop is already the one reading.
+        // keep checking, so the moment it stops (watchdog, break, divergence)
+        // this loop is already the one reading.
         if (streamLiveRef.current) {
           await sleep(LOG_IDLE_FLOOR_MS)
           continue
@@ -362,7 +362,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
           // fail to make progress two ways and both must be paced: an empty
           // chunk (a runner that ignored `wait` and answered at once, since an
           // unknown query parameter is not an error), or a chunk `applyLogChunk`
-          // refused because it did not start at the cursor — a straggler from
+          // refused because it did not start at the cursor: a straggler from
           // `drainLog` or the opt-in stream. Pacing on "nothing new appeared"
           // rather than on "the chunk was empty" is what stops a refused chunk
           // becoming a hot loop; a runner that honours `wait` makes progress
@@ -387,7 +387,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   }, [running, runId, applyLogChunk, finishRun, getAccessTokenSilently])
 
   /**
-   * Follow the log over SSE — only when this browser has explicitly asked for it.
+   * Follow the log over SSE: only when this browser has explicitly asked for it.
    *
    * Off by default. The waiting read above is what an instructor gets, because
    * it cannot fail the way a stream fails: a buffering intermediary accepts an
@@ -402,7 +402,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
    * the cursor is not retried. The loop above simply carries on.
    *
    * Every chunk goes through `applyLogChunk`, so the exact-offset guard covers
-   * this transport too — and it is what makes the handover safe in both
+   * this transport too, and it is what makes the handover safe in both
    * directions if a waiting read is still outstanding when a frame lands.
    */
   useEffect(() => {
@@ -421,7 +421,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               // arrived, never merely because the response opened. nginx
               // buffers proxied responses by default, and a buffering proxy
               // opens the response at once and then holds every frame until
-              // the run ends — so trusting the open would silence the poll for
+              // the run ends, so trusting the open would silence the poll for
               // the whole phase and leave the panel emptier than it was
               // before any of this existed.
               streamLiveRef.current = true
@@ -435,7 +435,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
           controller.signal,
         )
       } catch {
-        /* silent by design — see the note above */
+        /* silent by design: see the note above */
       } finally {
         streamLiveRef.current = false
       }
@@ -450,7 +450,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   }, [running, runId, applyLogChunk, getAccessTokenSilently])
 
   // The run's STATUS only. The log is read by the waiting loop above, which
-  // paces itself against the runner rather than against a clock — leaving this
+  // paces itself against the runner rather than against a clock: leaving this
   // interval to do the one job it is actually good at: noticing, within half a
   // second, that the run has reached a terminal state.
   useEffect(() => {
@@ -532,7 +532,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
     ? status!.recent.slice(0, latestResetIndex)
     : status?.recent ?? []
 
-  /** The most recent run for a step — active first, then the runner's history. */
+  /** The most recent run for a step: active first, then the runner's history. */
   function runForStep(stepId: string): DemoRunView | null {
     if (resetVerified) return null
     if (activeRun?.step_id === stepId) return activeRun
@@ -546,7 +546,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       : ['1', '2', '3', '4', '5'].map(id => ({
           step_id: id,
           title: `Phase ${id}`,
-          // Without /demo-api the titles are unknown, but the targets are not —
+          // Without /demo-api the titles are unknown, but the targets are not:
           // the "Show this on →" links must survive an absent runner.
           description: STEP_TARGETS[id]?.effect ?? '',
         }))
@@ -574,7 +574,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
 
   return (
     <>
-      {/* Phase status + where to look — rendered for every role */}
+      {/* Phase status + where to look: rendered for every role */}
       <div data-testid="supercred-phase-status" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Demo Phases</h2>
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
@@ -582,7 +582,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
         </p>
         {resetVerified && (
           <p data-testid="supercred-clean-state" style={{ fontSize: 12, color: colors.tealLoom, margin: '0 0 12px', lineHeight: 1.5 }}>
-            Clean state verified — teardown completed; no demo phase is currently active.
+            Clean state verified: teardown completed; no demo phase is currently active.
           </p>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -638,12 +638,12 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
         </div>
       </div>
 
-      {/* Instructor controls — superadmin only */}
+      {/* Instructor controls: superadmin only */}
       {superadmin && (
         <div data-testid="supercred-instructor" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Instructor Controls</h2>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
-            Run the demo from here. Steps mutate a shared cluster, so they run one at a time —
+            Run the demo from here. Steps mutate a shared cluster, so they run one at a time:
             every control is locked while a step is in flight.
           </p>
 
@@ -689,7 +689,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
                 <span data-testid="supercred-reset-prompt" style={{ fontSize: 12, color: colors.amber, alignSelf: 'center' }}>
                   Reset tears the demo down and returns the estate to a clean state. Sure?
                 </span>
-                {/* The hint follows the destructive button in this state too —
+                {/* The hint follows the destructive button in this state too:
                     that is the button it describes. Cancel stays outside the
                     group so the "?" is not stranded between the two. */}
                 <div data-testid="supercred-reset-group" style={CONTROL_WITH_HINT}>
@@ -755,7 +755,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
 
           {/* Every control above is now disabled and a phase can run for
               minutes. Without this the panel is indistinguishable from a
-              panel that has hung — which, on stage, is the moment an
+              panel that has hung (which, on stage, is the moment an
               instructor starts clicking things. Presentation only: it reads
               `running` and the runner's start stamp and drives nothing. */}
           {running && activeRun && (
@@ -797,7 +797,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               data-testid="supercred-run-status"
               style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}
             >
-              Step <strong>{activeRun.step_id}</strong> ({activeRun.kind}) —{' '}
+              Step <strong>{activeRun.step_id}</strong> ({activeRun.kind}):{' '}
               <strong style={{ color: RUN_STATUS_COLORS[activeRun.status] ?? 'var(--muted)' }}>
                 {activeRun.status}
               </strong>
@@ -817,7 +817,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               <div>
                 Step {activeRun.step_id} {activeRun.status} with exit code{' '}
                 <strong data-testid="supercred-run-exit-code">{activeRun.exit_code ?? 'unknown'}</strong>
-                {activeRun.error ? ` — ${activeRun.error}` : ''}
+                {activeRun.error ? `: ${activeRun.error}` : ''}
               </div>
               <pre
                 data-testid="supercred-run-log-tail"
@@ -831,7 +831,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
             </div>
           )}
 
-          {/* The RAW log goes in, escape bytes and all — the block strips them
+          {/* The RAW log goes in, escape bytes and all: the block strips them
               for display and hands the untouched string to its Copy button,
               which is the one artefact an instructor actually wants off this
               screen when a phase fails. `running` drives only the caret; the
@@ -840,7 +840,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               Mounted as soon as a run is live, not when the first byte lands.
               Phase 1 can spend a long time in kubectl before it prints
               anything, and until it did, the instructor was looking at a panel
-              with every control greyed out and no log surface at all — which
+              with every control greyed out and no log surface at all, which
               is indistinguishable from a panel that has hung. The block says
               it is waiting rather than showing an empty bordered box, and it
               does not invent a line, a timestamp or a progress figure to fill

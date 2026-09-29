@@ -9,7 +9,7 @@
 // of a user who does not exist.
 //
 // Note this is NOT the product default. A real user with no saved preference
-// gets DEFAULT_CURRENCY (USD) — that decision lives in the provider and in
+// gets DEFAULT_CURRENCY (USD): that decision lives in the provider and in
 // migration 020's column DEFAULT, which have to agree.
 
 import {
@@ -36,8 +36,8 @@ import {
 
 export interface CurrencyCtx {
   /**
-   * The user's display currency, or null when no provider is mounted — see the
-   * file header for why null means "each figure in its own currency".
+   * The user's display currency, or null when no provider is mounted (see the
+   * file header for why null means "each figure in its own currency").
    */
   currency: CurrencyCode | null
   /** Persists to the server and audits. Rejects if the save fails. */
@@ -52,7 +52,7 @@ export interface CurrencyCtx {
    *
    * The preference is fetched on demand rather than on mount because most of
    * the dashboard shows no money at all, and an unconditional fetch put a
-   * server round trip on the pre-auth and onboarding-gate renders — which
+   * server round trip on the pre-auth and onboarding-gate renders, which
    * onboardingGate.test.tsx exists to forbid, having been written for a
    * routing regression that turned on exactly that kind of unnecessary call.
    */
@@ -83,7 +83,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // A preference belongs to a signed-in user, so there is nobody to fetch one
-    // for until there is a session — and nothing to fetch for until something
+    // for until there is a session, and nothing to fetch for until something
     // on screen actually shows money.
     if (!isAuthenticated || !demanded) return
 
@@ -144,7 +144,7 @@ export interface MoneyRenderer {
    *
    * Returns MONEY_UNAVAILABLE when no rate exists. The argument is a `Money`
    * rather than a bare number because the source currency travels with the
-   * data — it is per-org and cannot be assumed. See types/compliance.ts for
+   * data: it is per-org and cannot be assumed. See types/compliance.ts for
    * the constant this replaced and why it was a coincidence.
    */
   fmtMoney: (m: Money | number | null | undefined, options?: FormatOptions) => string
@@ -178,7 +178,7 @@ export function useMoney(): MoneyRenderer {
   return useMemo(() => {
     const target = currency
     // No provider mounted: show each figure in its own currency, unconverted.
-    // The only truthful answer without a user preference — see the file header.
+    // The only truthful answer without a user preference: see the file header.
     const convertMoney = (m: Money | number | null | undefined): Converted | null => {
       if (m === null || m === undefined) return null
       const moneyObj: Money = typeof m === 'number' ? { amount: m, currency: 'GBP' } : m

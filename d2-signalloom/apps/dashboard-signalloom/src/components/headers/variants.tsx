@@ -4,11 +4,11 @@
  * Each is a whole argument about what a header is for, not a restyling of the
  * one above it:
  *
- *   1. CommandBarHeader     the header is a way in    — search-first
- *   2. ContextBarHeader     the header is a place     — orientation-first
- *   3. OperationsHeader     the header is an instrument panel — state-first
- *   4. QuietHeader          the header is a label     — restraint-first
- *   5. SituationHeader      the header is an exception channel — event-first
+ *   1. CommandBarHeader     the header is a way in    : search-first
+ *   2. ContextBarHeader     the header is a place     : orientation-first
+ *   3. OperationsHeader     the header is an instrument panel : state-first
+ *   4. QuietHeader          the header is a label     : restraint-first
+ *   5. SituationHeader      the header is an exception channel : event-first
  *
  * All five are driven by the same six alerts from ./alerts, because the only
  * question worth asking of them is how the same world looks through each. All
@@ -81,7 +81,7 @@ const kbdStyle: React.CSSProperties = {
 /**
  * The header as a way in.
  *
- * One input, and everything else — navigation, alerts, actions — is a result
+ * One input, and everything else (navigation, alerts, actions) is a result
  * inside it. The claim is that a product whose left rail already carries
  * navigation does not need a second navigation across the top, and that an
  * expert operator reaches for a noun ("sbom-collector", "POL-118") far more
@@ -91,7 +91,7 @@ const kbdStyle: React.CSSProperties = {
  * and the risky part: it means there is exactly one place to go for anything,
  * and it means an unattended alert is behind an interaction rather than in
  * front of the reader. The count is therefore surfaced outside the palette as
- * a button of its own — hiding it entirely would be the version of this that
+ * a button of its own: hiding it entirely would be the version of this that
  * fails in an operations centre.
  *
  * KEYBOARD. Tab reaches the input; ArrowDown from the input moves into the
@@ -252,7 +252,7 @@ export function CommandBarHeader() {
           type="button"
           className="dsh-icon-button"
           onClick={() => openWith('alert')}
-          aria-label={`${unread} unread alerts — search them`}
+          aria-label={`${unread} unread alerts: search them`}
           data-testid="dsh-command-unread"
           style={{
             display: 'inline-flex',
@@ -317,12 +317,12 @@ const SCOPED_ALERTS = ALERTS.filter((a) => a.target.path.startsWith('/compliance
  * which this app asks constantly and never answers: /compliance/:frameworkId
  * and /discovery/accounts/:accountId are three clicks deep with nothing in the
  * chrome saying so, and the browser back button is the only trail. The second
- * is "what is this thing and what state is it in" — the entity's own title,
+ * is "what is this thing and what state is it in": the entity's own title,
  * its status, and the actions that apply to it rather than to the app.
  *
  * Notifications are deliberately scoped: "2 alerts on this control", not "6
  * alerts". That is the strongest and the most dangerous idea in the five. It
- * makes the alert relevant — a reader on Article 14 cares about Article 14 —
+ * makes the alert relevant (a reader on Article 14 cares about Article 14)
  * and it means an alert somewhere else in the estate is invisible from here,
  * which is why the count of everything else is still printed beside it as a
  * way out.
@@ -420,7 +420,7 @@ export function ContextBarHeader() {
  * expensive mistake is not misreading a number, it is suspending the right
  * agent in the wrong cluster, and no amount of care in the page below fixes a
  * shell that never says which cluster it is. `Demo data` sits in that strip
- * for the same reason — this product is demonstrated far more often than it is
+ * for the same reason: this product is demonstrated far more often than it is
  * operated, and a figure that is fictional should say so in the chrome rather
  * than in the presenter's narration.
  *
@@ -429,7 +429,7 @@ export function ContextBarHeader() {
  * is four navigations for one decision. It groups by severity, dismisses in
  * place, and every row carries the full deep link.
  *
- * This is the most chrome of the five — 84px before any work starts — and the
+ * This is the most chrome of the five (84px before any work starts) and the
  * honest cost is that on a 13" laptop it is a visible fraction of the screen.
  */
 export function OperationsHeader() {
@@ -616,7 +616,7 @@ export function OperationsHeader() {
  * Forty-four pixels: the mark, where you are, the single worst thing that is
  * true, and who you are. Nothing opens. The alert is a link, not a drawer,
  * and it shows one alert because a header that can only show one is forced to
- * pick the right one — which is a better constraint than it sounds.
+ * pick the right one, which is a better constraint than it sounds.
  *
  * The state that matters here is the empty one, so the specimen ships with a
  * control to reach it. "All clear" is the state a demo audience spends most of
@@ -682,7 +682,7 @@ export function QuietHeader({ alerts }: { alerts: HeaderAlert[] }) {
 /**
  * The header as an exception channel.
  *
- * At rest it is a hairline and a page name — less chrome than any of the other
+ * At rest it is a hairline and a page name, less chrome than any of the other
  * four. When something breaks it promotes into a banner that is impossible to
  * miss, states what happened and which resource, and offers exactly two
  * things: go to the thing, or acknowledge it. Acknowledging demotes it again.
@@ -696,7 +696,7 @@ export function QuietHeader({ alerts }: { alerts: HeaderAlert[] }) {
  *
  * LIVE REGION. The promoted banner carries `role="alert"` and is the only live
  * region this page mounts. It exists only while promoted and only ever after
- * a click, so a reader who opens the page meets silence — which is the correct
+ * a click, so a reader who opens the page meets silence, which is the correct
  * behaviour for a gallery and, not coincidentally, for the real thing.
  */
 export function SituationHeader() {
@@ -746,7 +746,7 @@ export function SituationHeader() {
               // agent/sbom-collector", and an accessible name that opened with
               // the headline instead would be a name containing none of the
               // label a speech-input user can see.
-              aria-label={`Go to ${incident.resource} — ${incident.destination}`}
+              aria-label={`Go to ${incident.resource}: ${incident.destination}`}
               data-testid="dsh-situation-deep-link"
               style={{
                 display: 'inline-flex',

@@ -315,7 +315,7 @@ describe('AgentPosturePage — Signal Evidence Section', () => {
 
     await screen.findByText('Agent Posture')
     expect(await screen.findByText('Signal Evidence')).toBeInTheDocument()
-    expect(screen.getByText(/signal-ingest may be offline/)).toBeInTheDocument()
+    expect(screen.getByText(/Signal ingest may be offline/i)).toBeInTheDocument()
   })
 })
 

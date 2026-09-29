@@ -9,7 +9,7 @@ const LOGGED_OUT_KEY = 'signalloom:logged-out'
 
 interface Props {
   children: React.ReactNode
-  // Set on /onboarding and /help/connectors/:provider — the wizard itself
+  // Set on /onboarding and /help/connectors/:provider: the wizard itself
   // and its in-app setup-guide pages must never redirect back into
   // themselves (US-ENHC-011 closeout, auto-trigger gate).
   exemptFromOnboardingGate?: boolean
@@ -70,7 +70,7 @@ export default function ProtectedRoute({ children, exemptFromOnboardingGate }: P
     )
   }
 
-  // needsOnboarding === null means "not yet checked" — don't redirect on
+  // needsOnboarding === null means "not yet checked"; don't redirect on
   // that first render, or every protected page would flash through
   // /onboarding before the check resolves.
   if (needsOnboarding === true && !exemptFromOnboardingGate) {

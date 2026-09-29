@@ -2241,6 +2241,8 @@ def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypat
             fleet_agent_id="agent-under-test",
             fleet_manager_status=200,
             error=None,
+            # The freeze plane is what makes a stun an isolation.
+            planes=[{"plane": "freeze", "outcome": "contained"}],
         )
 
     monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
@@ -2260,15 +2262,10 @@ def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypat
     assert res.status_code == 200
     data = res.json()
     assert data["agent_id"] == agent_id
-    assert "sentinel_telemetry" in data
-    assert data["sentinel_telemetry"] is not None
-    telem = data["sentinel_telemetry"]
-    assert telem["cgroup_state"] == "frozen"
-    assert telem["traffic_control_state"] == "drop"
-    assert telem["sentinel_ack"] is True
-    assert telem["sentinel_ack_id"] == f"ack-{agent_id}-ebpf-sentinel"
-    assert telem["sentinel_drop_count"] == 142
-    assert telem["containment_probe_state"] == "confirmed"
+    # The freeze plane carried no details, so there is nothing to report and
+    # the response says so. It used to assert a hard-coded frozen cgroup and
+    # sentinel_drop_count=142 that no probe had observed.
+    assert data["sentinel_telemetry"] == {"source": "unavailable"}
 
 
 def test_get_agent_detail_returns_sentinel_telemetry_side_effect_free(client, monkeypatch):

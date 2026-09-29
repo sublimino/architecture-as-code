@@ -93,6 +93,8 @@ class _FakeProxy:
             fleet_agent_id="agent-under-test",
             fleet_manager_status=200,
             error=None,
+            # The freeze plane is what makes a stun an isolation.
+            planes=[{"plane": "freeze", "outcome": "contained"}],
         )
 
     async def __call__(self, agent_id: str, reason: str) -> Any:

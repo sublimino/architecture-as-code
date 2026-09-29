@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Request/response types
+// Request/response types for legacy PodSpec evaluation
 
 type SecurityContext struct {
 	RunAsNonRoot *bool         `json:"runAsNonRoot,omitempty"`
@@ -29,12 +29,12 @@ type Capabilities struct {
 
 type Container struct {
 	Name            string           `json:"name"`
-	SecurityContext *SecurityContext  `json:"securityContext,omitempty"`
+	SecurityContext *SecurityContext `json:"securityContext,omitempty"`
 }
 
 type PodSpec struct {
 	Containers      []Container      `json:"containers,omitempty"`
-	SecurityContext *SecurityContext  `json:"securityContext,omitempty"`
+	SecurityContext *SecurityContext `json:"securityContext,omitempty"`
 }
 
 type EvaluateRequest struct {
@@ -201,19 +201,36 @@ func main() {
 		port = "8081"
 	}
 
+	celEngine, err := NewCELEngine()
+	if err != nil {
+		slog.Error("failed initializing CEL engine", "error", err)
+		os.Exit(1)
+	}
+
+	store := NewPolicyStore(celEngine)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", handleReadyz)
 	mux.HandleFunc("/api/v1/evaluate", handleEvaluate)
 
+	// Versioned Policy Endpoints
+	policyHandlers := NewPolicyEngineHandlers(store, celEngine)
+	mux.HandleFunc("/api/v1/policies", policyHandlers.HandleListPolicies)
+	mux.HandleFunc("/api/v1/policies/evaluate", policyHandlers.HandleEvaluatePolicies)
+	mux.HandleFunc("/api/v1/policies/bundles", policyHandlers.HandleRegisterBundle)
+	mux.HandleFunc("/api/v1/policies/rollback", policyHandlers.HandleRollback)
+
 	// Compliance scanner: FAIR risk engine + framework hierarchy + CEL evaluation.
 	policyRoot := os.Getenv("POLICY_ROOT")
 	if policyRoot == "" {
-		// Walk up from the binary's working directory to find the policy/ dir.
 		policyRoot = findPolicyRoot()
 	}
 	if policyRoot != "" {
-		ch, err := newComplianceHandler(policyRoot)
+		if err := store.LoadFrameworks(policyRoot); err != nil {
+			slog.Warn("loading frameworks into policy store", "error", err)
+		}
+		ch, err := newComplianceHandler(policyRoot, celEngine)
 		if err != nil {
 			slog.Warn("compliance handler disabled", "error", err)
 		} else {

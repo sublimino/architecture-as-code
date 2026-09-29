@@ -36,6 +36,7 @@ async def proxy_policy_engine(
     request: Request,
     subpath: str,
     prefix: str,
+    tenant_id: str | None = None,
 ) -> Response:
     """Forward a request to the policy-engine service with JSON validation."""
     clean_subpath = subpath.lstrip("/")
@@ -73,6 +74,8 @@ async def proxy_policy_engine(
     }
     if body_bytes is not None:
         headers["Content-Type"] = "application/json"
+    if tenant_id:
+        headers["X-Tenant-ID"] = tenant_id
 
     # Forward any authorization headers if present
     auth_header = request.headers.get("authorization")
@@ -80,6 +83,8 @@ async def proxy_policy_engine(
         headers["Authorization"] = auth_header
 
     params = dict(request.query_params)
+    if tenant_id and "tenant" not in params:
+        params["tenant"] = tenant_id
 
     try:
         async with httpx.AsyncClient(
@@ -162,25 +167,26 @@ async def proxy_policy_engine(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Compliance Routes (/api/v1/compliance/* and /v1/compliance/*)
 # ---------------------------------------------------------------------------
 
 
 @router.api_route(
     "/api/v1/compliance/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/api/v1/compliance",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/v1/compliance/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/v1/compliance",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 async def proxy_compliance_route(
     request: Request,
@@ -188,7 +194,7 @@ async def proxy_compliance_route(
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
     """Proxy compliance requests to upstream policy-engine."""
-    return await proxy_policy_engine(request, subpath, "compliance")
+    return await proxy_policy_engine(request, subpath, "compliance", tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -198,19 +204,19 @@ async def proxy_compliance_route(
 
 @router.api_route(
     "/api/v1/policies/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/api/v1/policies",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/v1/policies/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/v1/policies",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 async def proxy_policies_route(
     request: Request,
@@ -218,7 +224,7 @@ async def proxy_policies_route(
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
     """Proxy policy evaluation and bundle requests to upstream policy-engine."""
-    return await proxy_policy_engine(request, subpath, "policies")
+    return await proxy_policy_engine(request, subpath, "policies", tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -228,19 +234,19 @@ async def proxy_policies_route(
 
 @router.api_route(
     "/api/v1/risk/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/api/v1/risk",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/v1/risk/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 @router.api_route(
     "/v1/risk",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    methods=["GET", "POST"],
 )
 async def proxy_risk_route(
     request: Request,
@@ -248,7 +254,7 @@ async def proxy_risk_route(
     tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
     """Proxy risk evaluation and simulation requests to upstream policy-engine."""
-    return await proxy_policy_engine(request, subpath, "risk")
+    return await proxy_policy_engine(request, subpath, "risk", tenant_id=tenant_id)
 
 
 def install_policy_engine_api(app: Any) -> None:

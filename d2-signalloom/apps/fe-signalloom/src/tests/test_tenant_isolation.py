@@ -705,14 +705,18 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/compliance/policy/summary"),           # projection of the two above
     ("GET", "/api/v1/compliance/policy/frameworks"),     # projection of the two above
     ("GET", "/api/v1/compliance/policy/summary"),        # projection of the two above
-    ("GET", "/api/policies"),                            # proxy to policy-engine
+    ("GET", "/api/v1/compliance"),                       # proxy to policy-engine
+    ("GET", "/api/v1/compliance/{subpath}"),             # proxy to policy-engine
+    ("POST", "/api/v1/compliance"),                      # proxy to policy-engine
+    ("POST", "/api/v1/compliance/{subpath}"),            # proxy to policy-engine
     ("GET", "/api/v1/policies"),                         # proxy to policy-engine
-    ("POST", "/api/policies/evaluate"),                  # proxy to policy-engine
-    ("POST", "/api/v1/policies/evaluate"),               # proxy to policy-engine
-    ("POST", "/api/policies/bundles"),                   # proxy to policy-engine
-    ("POST", "/api/v1/policies/bundles"),                # proxy to policy-engine
-    ("POST", "/api/policies/rollback"),                  # proxy to policy-engine
-    ("POST", "/api/v1/policies/rollback"),               # proxy to policy-engine
+    ("GET", "/api/v1/policies/{subpath}"),               # proxy to policy-engine
+    ("POST", "/api/v1/policies"),                        # proxy to policy-engine
+    ("POST", "/api/v1/policies/{subpath}"),              # proxy to policy-engine
+    ("GET", "/api/v1/risk"),                             # proxy to policy-engine
+    ("GET", "/api/v1/risk/{subpath}"),                   # proxy to policy-engine
+    ("POST", "/api/v1/risk"),                            # proxy to policy-engine
+    ("POST", "/api/v1/risk/{subpath}"),                  # proxy to policy-engine
     ("PUT", "/api/onboarding/state"),                    # covered by test_onboarding
     # Superadmin-gated, so the sweep's ordinary caller is refused before any
     # statement is issued. Its tenant binding has its own test below.

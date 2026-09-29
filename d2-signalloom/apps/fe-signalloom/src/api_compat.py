@@ -2002,7 +2002,7 @@ def _agent_response_from_row(
         ),
     )
 
-    normalized_score = (compliance.posture_score / 100.0) if (compliance.total_controls > 0 and compliance.posture_score is not None) else None
+    normalized_score = compliance.posture_score if (compliance.total_controls > 0 and compliance.posture_score is not None) else None
     assessment_summary = AssessmentSummaryMetadata(
         status="assessed" if compliance.total_controls > 0 else "not_assessed",
         total_controls=compliance.total_controls,

@@ -20,6 +20,8 @@ from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
 from risk import install_risk_api
 from routers.connectors import install_connectors_api
+from routers.discovery import install_discovery_api
+from routers.agents import install_agents_api
 from routers.policy_engine import install_policy_engine_api
 from scenario_seeding import install_scenario_seeding_api
 from signal_fusion import install_signal_fusion_api
@@ -84,6 +86,8 @@ install_coding_agent_telemetry_api(app)
 install_risk_api(app)
 install_policy_engine_api(app)
 install_connectors_api(app)
+install_discovery_api(app)
+install_agents_api(app)
 install_environment_routing_api(app)
 install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)

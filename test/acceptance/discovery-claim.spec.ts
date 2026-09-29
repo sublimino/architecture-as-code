@@ -1,5 +1,5 @@
 /**
- * Signal Loom Platform Acceptance Suite — Shadow AI & Multi-Source Discovery (Surface 2).
+ * Signal Loom Platform Acceptance Suite - Shadow AI & Multi-Source Discovery (Surface 2).
  *
  * Validates:
  *   1. Super Datatable multi-source workload aggregation across IDP, Kubernetes, and Cloud Run.
@@ -8,6 +8,7 @@
  *   4. Namespace auto-claim workflow: modal trigger, selection, optimistic update to Governed with SPIFFE ID.
  *   5. Mobile viewport (375x667) and desktop viewport (1280x800) responsiveness.
  *   6. Zero em-dash typography verification across discovery views.
+ *   7. Adversarial claim API assertions: malformed payload, empty agent ID, missing/invalid namespace.
  */
 import { test, expect } from "./fixtures";
 import { login, config } from "./helpers";
@@ -125,5 +126,49 @@ test.describe("Surface 2: Multi-Source Discovery (Mobile Viewport 375x667)", () 
     // Close modal
     await page.getByRole("button", { name: /Cancel/i }).click();
     await expect(modalHeading).not.toBeVisible();
+  });
+});
+
+test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () => {
+  test("rejects empty agent ID with 400 or 422 and structured error envelope", async ({ request }) => {
+    const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      data: { agent_id: "", namespace: "fe-signalloom-agents" },
+    });
+    expect([400, 422]).toContain(res.status());
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBeDefined();
+  });
+
+  test("rejects missing namespace with 400 or 422 and structured error envelope", async ({ request }) => {
+    const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      data: { agent_id: "adversarial-agent" },
+    });
+    expect([400, 422]).toContain(res.status());
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBeDefined();
+  });
+
+  test("rejects non-existent namespace with 400 or 422 and structured error envelope", async ({ request }) => {
+    const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      data: { agent_id: "adversarial-agent", namespace: "non-existent-namespace-9999" },
+    });
+    expect([400, 422]).toContain(res.status());
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBeDefined();
+  });
+
+  test("rejects malformed raw JSON with 400 or 422 and never unhandled 500", async ({ request }) => {
+    const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
+      headers: { "Content-Type": "application/json" },
+      data: "{ malformed: json, missing quotes }",
+    });
+    expect([400, 422]).toContain(res.status());
+    expect(res.status()).not.toBe(500);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBeDefined();
   });
 });

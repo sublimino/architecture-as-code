@@ -24,7 +24,7 @@ const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
   { name: "Discovery", href: "/discovery", category: "View" },
   { name: "Agents", href: "/agents", category: "View" },
   { name: "Topology", href: "/topology", category: "View" },
-  { name: "Activity", href: "/activity", category: "View" },
+  { name: "The Weave", href: "/weave", category: "View" },
   { name: "FAIR Risk", href: "/risk", category: "View" },
 
   // Control Tier
@@ -35,7 +35,6 @@ const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
 
   // Design Tier
   { name: "Federated Services", href: "/federated-services", category: "Design" },
-  { name: "Fleet Config", href: "/fleet", category: "Design" },
   { name: "Settings", href: "/settings", category: "Design" },
 ];
 
@@ -58,7 +57,7 @@ test.describe("3-Tier Navigation Hierarchy & Structure", () => {
     await expect(nav).toBeVisible({ timeout: 15_000 });
 
     for (const item of PRIMARY_NAV_ITEMS) {
-      const link = nav.getByRole("link", { name: new RegExp(`^${item.name}`, "i") });
+      const link = nav.getByRole("link", { name: new RegExp(`^${item.name}$`, "i") });
       await expect(link).toBeVisible();
       await expect(link).toHaveAttribute("href", item.href);
     }

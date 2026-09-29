@@ -11,6 +11,7 @@ export interface NotificationBellProps {
   onRefresh?: () => Promise<void>
   pollIntervalMs?: number
   token?: string
+  placement?: 'top' | 'bottom'
   className?: string
   style?: React.CSSProperties
 }
@@ -68,6 +69,7 @@ export function NotificationBell({
   onMarkAllAsRead: propOnMarkAllAsRead,
   pollIntervalMs = 15_000,
   token,
+  placement = 'bottom',
   className,
   style,
 }: NotificationBellProps) {
@@ -202,8 +204,9 @@ export function NotificationBell({
           data-testid="tenant-warnings-panel"
           style={{
             position: 'absolute',
-            top: 40,
-            right: 0,
+            ...(placement === 'top'
+              ? { bottom: 42, left: 0 }
+              : { top: 40, right: 0 }),
             width: 380,
             maxWidth: '90vw',
             maxHeight: 460,

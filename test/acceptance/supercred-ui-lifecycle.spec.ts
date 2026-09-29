@@ -19,8 +19,8 @@ const RESET_CONFIRM = '[data-testid="supercred-reset-confirm"]';
 async function runStep(instructor: import("@playwright/test").Page, step: string): Promise<void> {
   await instructor.locator(RUN_STEP(step)).click();
   const status = instructor.locator(RUN_STATUS)
-  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s+—\\s+(?:running|succeeded)`), { timeout: 30_000 });
-  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s+—\\s+succeeded`), { timeout: 10 * 60_000 });
+  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s*[:\u2014]\\s*(?:running|succeeded)`), { timeout: 30_000 });
+  await expect(status).toContainText(new RegExp(`Step\\s+${step}\\s+\\(step\\)\\s*[:\u2014]\\s*succeeded`), { timeout: 10 * 60_000 });
 }
 
 async function reset(instructor: import("@playwright/test").Page): Promise<void> {
@@ -28,8 +28,8 @@ async function reset(instructor: import("@playwright/test").Page): Promise<void>
   await instructor.locator(RESET).click();
   await instructor.locator(RESET_CONFIRM).click();
   const status = instructor.locator(RUN_STATUS)
-  await expect(status).toContainText(/Step\s+5\s+\(reset\)\s+—\s+(?:running|succeeded)/, { timeout: 30_000 });
-  await expect(status).toContainText(/Step\s+5\s+\(reset\)\s+—\s+succeeded/, { timeout: 10 * 60_000 });
+  await expect(status).toContainText(/Step\s+5\s+\(reset\)\s*[:\u2014]\\s*(?:running|succeeded)/, { timeout: 30_000 });
+  await expect(status).toContainText(/Step\s+5\s+\(reset\)\s*[:\u2014]\\s*succeeded/, { timeout: 10 * 60_000 });
 }
 
 test("complete lifecycle, reset, and rerun project correct live state", async ({ browser }) => {

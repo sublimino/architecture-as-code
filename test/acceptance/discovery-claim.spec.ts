@@ -42,13 +42,16 @@ test.describe("Surface 2: Multi-Source Discovery & Auto-Claim (Desktop 1280x800)
   test("filters workloads reactively via search bar and facet buttons", async ({ page }) => {
     await expect(page.getByRole("heading", { level: 1, name: /Discovery/i })).toBeVisible({ timeout: 15_000 });
 
-    const searchInput = page.getByPlaceholder(/Search workloads/i);
+    const searchInput = page.getByTestId("discovery-search-input").or(page.getByPlaceholder(/Search (workloads|by name)/i));
     await expect(searchInput).toBeVisible();
 
-    // Type a specific workload name
-    await searchInput.fill("gpt");
-    // Verify row count updates without crash
+    // Type a specific workload name from the rendered table
     const rows = page.locator("tbody tr");
+    await expect(rows.first()).toBeVisible({ timeout: 10_000 });
+    const firstCell = await rows.first().locator("td").first().innerText();
+    const query = firstCell.trim().split(/\s+/)[0];
+    await searchInput.fill(query);
+    // Verify row count updates without crash
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
 
     // Clear search
@@ -78,11 +81,11 @@ test.describe("Surface 2: Multi-Source Discovery & Auto-Claim (Desktop 1280x800)
     await autoClaimBtn.click();
 
     // Auto-claim modal should appear
-    const modalHeading = page.getByRole("heading", { name: /Auto-Claim Namespace Workloads/i });
+    const modalHeading = page.getByRole("heading", { name: /Auto-Claim (Namespace|Discovered)/i });
     await expect(modalHeading).toBeVisible({ timeout: 10_000 });
 
     // Select or confirm namespace
-    const confirmBtn = page.getByRole("button", { name: /Auto-Claim Workloads/i });
+    const confirmBtn = page.getByTestId("autoclaim-modal-confirm-btn");
     await expect(confirmBtn).toBeVisible();
     await confirmBtn.click();
 

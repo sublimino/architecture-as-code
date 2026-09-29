@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { colors } from '../styles/tokens'
@@ -217,13 +217,21 @@ const DEFAULT_BUNDLES: Record<string, PolicyBundle> = {
 export default function CompliancePolicyPage() {
   const { getAccessTokenSilently } = useAuth0()
   const { fmtMoney, noteFor } = useMoney()
+  const location = useLocation()
+  const isPoliciesRoute = location.pathname.startsWith('/policies')
   const [summary, setSummary] = useState<PostureSummary | null>(null)
   const [frameworks, setFrameworks] = useState<FrameworkSummary[]>([])
   const [policySummaries, setPolicySummaries] = useState<PolicyBundleSummary[]>([])
   const [selectedFrameworkId, setSelectedFrameworkId] = useState<string>('eu-ai-act')
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'editor' | 'overview'>('overview')
+  const [activeTab, setActiveTab] = useState<'editor' | 'overview'>(isPoliciesRoute ? 'editor' : 'overview')
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/policies')) {
+      setActiveTab('editor')
+    }
+  }, [location.pathname])
 
   const load = useCallback(async () => {
     try {

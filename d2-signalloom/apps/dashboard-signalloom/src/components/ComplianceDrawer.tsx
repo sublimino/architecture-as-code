@@ -213,8 +213,8 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
                   : item.agentName
                   ? `Agent: ${item.agentName}`
                   : item.regulatoryBody
-                  ? `Regulatory Body: ${item.regulatoryBody}`
-                  : 'Compliance Control Drill-Down'}
+                  ? `Regulatory Framework (${item.regulatoryBody})`
+                  : 'Regulatory Framework Controls'}
               </div>
             </div>
 
@@ -266,7 +266,7 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
                 marginBottom: 10,
               }}
             >
-              Evaluation Summary
+              Regulatory Framework Controls Evaluation
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, textAlign: 'center' }}>

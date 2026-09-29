@@ -99,8 +99,8 @@ import {
 const TAB = '[data-testid="coding-agents-tab"]';
 const GRID = '[data-testid="coding-agents-grid"]';
 const TENANT_BANNER = '[data-testid="harness-tenant"]';
-const LOAD_STATE = '[data-testid="loading-state"]';
-const LOAD_REASON = '[data-testid="loading-state-reason"]';
+const LOAD_STATE = '[data-testid="loading-state"], [data-testid="coding-agents-load-state"]';
+const LOAD_REASON = '[data-testid="loading-state-reason"], [data-testid="coding-agents-load-state-reason"]';
 
 /**
  * Card test ids are EXACT, never `^=`.

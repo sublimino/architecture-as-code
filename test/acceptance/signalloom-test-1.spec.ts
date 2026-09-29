@@ -130,6 +130,10 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
   test("dashboard sign out clears the session and redirects to Dex", async ({ page }) => {
     await page.goto(DASHBOARD_URL);
     await page.locator('button[title="Sign out"]').click();
+    const dexBtn = page.getByRole("button", { name: /sign in with dex/i });
+    if (await dexBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await dexBtn.click();
+    }
     await expect(page.locator('input[name="login"]')).toBeVisible({ timeout: 15_000 });
   });
 

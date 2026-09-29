@@ -58,11 +58,11 @@ export function getTenantWarningsStorageKey(tenantId: string | null | undefined)
 }
 
 function loadReadIdsFromStorage(storageKey: string): Set<string> {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  if (typeof window === 'undefined') {
     return new Set()
   }
   try {
-    const raw = window.localStorage.getItem(storageKey)
+    const raw = window.localStorage?.getItem(storageKey)
     if (!raw) return new Set()
     const parsed = JSON.parse(raw)
     if (Array.isArray(parsed)) {
@@ -75,14 +75,27 @@ function loadReadIdsFromStorage(storageKey: string): Set<string> {
 }
 
 function saveReadIdsToStorage(storageKey: string, ids: Set<string>): void {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  if (typeof window === 'undefined') {
     return
   }
   try {
-    window.localStorage.setItem(storageKey, JSON.stringify(Array.from(ids)))
+    window.localStorage?.setItem(storageKey, JSON.stringify(Array.from(ids)))
   } catch {
     // Ignore storage quota or access errors
   }
+}
+
+function getStorageItem(key: string): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const sessionVal = window.sessionStorage?.getItem(key)
+    if (sessionVal) return sessionVal
+  } catch {}
+  try {
+    const localVal = window.localStorage?.getItem(key)
+    if (localVal) return localVal
+  } catch {}
+  return null
 }
 
 export function useTenantWarnings({
@@ -104,6 +117,11 @@ export function useTenantWarnings({
       setResolvedToken(explicitToken)
       return
     }
+    const sessionToken = getStorageItem('signalloom_token')
+    if (sessionToken) {
+      setResolvedToken(sessionToken)
+      return
+    }
     let isSubscribed = true
     getAccessTokenSilently()
       .then((tok) => {
@@ -117,8 +135,10 @@ export function useTenantWarnings({
     }
   }, [explicitToken, getAccessTokenSilently])
 
-  // Derive tenant ID from active token
+  // Derive tenant ID from active token or stored session tenant
   const tenantId = useMemo(() => {
+    const storedTenant = getStorageItem('signalloom_tenant')
+    if (storedTenant) return storedTenant
     if (!resolvedToken) return null
     return getTenantIdFromToken(resolvedToken)
   }, [resolvedToken])
@@ -154,7 +174,8 @@ export function useTenantWarnings({
 
     try {
       const response = await api.audit(resolvedToken, { limit: 50 })
-      const auditList: AuditEventResponse[] = response?.events || []
+      const raw = response as unknown as { events?: AuditEventResponse[]; items?: AuditEventResponse[] }
+      const auditList: AuditEventResponse[] = raw?.events || raw?.items || []
 
       const matched: TenantWarning[] = auditList
         .filter((ev) => warningTypesSet.has(ev.event_type))
@@ -165,7 +186,7 @@ export function useTenantWarnings({
           agent_id: ev.agent_id,
           agent_name: ev.agent_name,
           actor: ev.actor,
-          detail: ev.detail,
+          detail: ev.detail || (ev as unknown as { details?: Record<string, unknown> }).details,
           authorizing_principal_id: ev.authorizing_principal_id,
           executing_actor_id: ev.executing_actor_id,
           spiffe_id: ev.spiffe_id,

@@ -64,7 +64,7 @@ test.describe("Surface 1: Governance Navigation & Role Gating (Desktop 1280x800)
     await expect(nav.getByText("Design", { exact: true })).toBeVisible();
 
     for (const item of PRIMARY_NAV_ITEMS) {
-      const link = nav.getByRole("link", { name: new RegExp(`^${item.name}`, "i") });
+      const link = nav.getByRole("link", { name: new RegExp(`^${item.name}$`, "i") });
       await expect(link).toBeVisible();
       await expect(link).toHaveAttribute("href", item.href);
     }
@@ -79,7 +79,7 @@ test.describe("Surface 1: Governance Navigation & Role Gating (Desktop 1280x800)
     await expect(nav.getByText("Development", { exact: true })).toBeVisible();
 
     for (const item of SUPERADMIN_NAV_ITEMS) {
-      const link = nav.getByRole("link", { name: new RegExp(`^${item.name}`, "i") });
+      const link = nav.getByRole("link", { name: new RegExp(`^${item.name}$`, "i") });
       await expect(link).toBeVisible();
     }
   });
@@ -96,7 +96,7 @@ test.describe("Surface 1: Governance Navigation & Role Gating (Desktop 1280x800)
     ];
 
     for (const route of sampleRoutes) {
-      const link = nav.getByRole("link", { name: new RegExp(`^${route.name}`, "i") });
+      const link = nav.getByRole("link", { name: new RegExp(`^${route.name}$`, "i") });
       await link.click();
 
       await expect(page).toHaveURL(new RegExp(`${route.href}`));

@@ -210,6 +210,10 @@ COSIGN_PASSWORD="" cosign sign --yes \
   --allow-insecure-registry \
   "${LOCAL_DIGEST_REF}"
 
+echo "pulling fresh image to local docker daemon and tagging ${IMAGE_REF}"
+docker pull "${LOCAL_REF}"
+docker tag "${LOCAL_REF}" "${IMAGE_REF}"
+
 echo "loading ${IMAGE_REF} into kind cluster ${CLUSTER_NAME}"
 kind load docker-image --name "${CLUSTER_NAME}" "${IMAGE_REF}"
 

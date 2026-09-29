@@ -72,6 +72,7 @@ class SentinelKernelTelemetry(BaseModel):
     cgroup_path: str | None = None
     veth_interface: str | None = None
     sentinel_ack: bool = False
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
     sentinel_ack_id: str | None = None
     sentinel_drop_count: int | None = None
     sentinel_last_ack_at: str | None = None
@@ -224,6 +225,9 @@ class AgentResponse(BaseModel):
     created_at: str | None
     credential_state: AgentCredentialState | None = None
     kernel_telemetry: SentinelKernelTelemetry | None = None
+    kernel_state: Literal["frozen", "running", "unknown"] | None = None
+    kernel_observed_at: str | None = None
+    split_brain: list[str] | None = None
 
     # Workload / Kubernetes preserved discovery fields
     namespace: str | None = None

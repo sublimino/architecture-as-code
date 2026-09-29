@@ -1,7 +1,9 @@
 interface Props {
   status: string
   variant?: 'lifecycle' | 'risk' | 'privilege' | 'violation' | 'compliance' | 'nhi'
-    | 'credential' | 'crypto' | 'provenance' | 'federation'
+    | 'credential' | 'crypto' | 'provenance' | 'federation' | 'kernel'
+  /** Visible text; defaults to the status with underscores as spaces. */
+  label?: string
   /** Hover text: used where the badge is a claim that owes its provenance. */
   title?: string
   testId?: string
@@ -133,6 +135,16 @@ const FEDERATION: ColorMap = {
   connecting: { bg: tint(VAR.cyan, 0.12), border: tint(VAR.cyan, 0.25), color: VAR.cyan },
 }
 
+/**
+ * Kernel freezer truth versus the stun record. Keys are this file's own, never
+ * API values, so a no-variant lookup of an existing status cannot land here.
+ */
+const KERNEL: ColorMap = {
+  kernel_frozen_no_stun: { bg: tint(VAR.error, 0.12),     border: tint(VAR.error, 0.25), color: VAR.error },
+  kernel_running_stunned: { bg: tint(VAR.amber, 0.12),    border: tint(VAR.amber, 0.25), color: VAR.amber },
+  kernel_frozen_confirmed: { bg: tint(VAR.slateGray, 0.15), border: 'transparent',        color: VAR.muted },
+}
+
 // Insertion order is load-bearing. A lookup with no `variant` falls through
 // every map in order and takes the first match, so the six original maps stay
 // first and the three added later go at the end: any status already resolved
@@ -149,6 +161,7 @@ const ALL_MAPS: Record<string, ColorMap> = {
   crypto: CRYPTO,
   provenance: PROVENANCE,
   federation: FEDERATION,
+  kernel: KERNEL,
 }
 
 export function getStatusColor(status: string, variant?: string): { bg: string; border: string; color: string } {
@@ -167,6 +180,7 @@ export default function StatusBadge({
   isFrozen,
   ebpfEnforced,
   lockIcon,
+  label,
 }: Props) {
   const { bg, border, color } = getStatusColor(status, variant)
   const isSuspendedOrStunned = status.toLowerCase() === 'suspended' || status.toLowerCase() === 'stunned'
@@ -200,7 +214,72 @@ export default function StatusBadge({
           <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
         </svg>
       )}
-      {status.replace(/_/g, ' ')}
+      {label ?? status.replace(/_/g, ' ')}
     </span>
   )
+}
+
+export const KERNEL_FROZEN_WITHOUT_STUN = 'kernel frozen without stun record'
+export const STUN_WITHOUT_KERNEL_FREEZE = 'stun record without kernel freeze'
+
+/** The slice of an agent or discovery workload that carries the kernel view. */
+export interface KernelView {
+  kernel_state?: string | null
+  kernel_observed_at?: string | null
+  split_brain?: string[] | null
+}
+
+/** True when the kernel and the stun record disagree in either direction. */
+export function hasKernelSplitBrain(view: KernelView): boolean {
+  return (view.split_brain?.length ?? 0) > 0
+}
+
+/**
+ * Kernel frozen, no stun record. Callers use this to suppress the lifecycle
+ * label (typically "idle") and any thawed/healthy wording beside it.
+ */
+export function isFrozenWithoutStun(view: KernelView): boolean {
+  return view.kernel_state === 'frozen' && (view.split_brain ?? []).includes(KERNEL_FROZEN_WITHOUT_STUN)
+}
+
+/**
+ * Kernel freezer state badge. Renders nothing when the kernel state is
+ * unknown or unobserved: absence of an observation is not evidence either way.
+ */
+export function KernelStateBadge({ view, testId }: { view: KernelView; testId?: string }) {
+  const observed = view.kernel_observed_at ? `, observed ${view.kernel_observed_at}` : ''
+  if (isFrozenWithoutStun(view)) {
+    return (
+      <StatusBadge
+        status="kernel_frozen_no_stun"
+        variant="kernel"
+        label="FROZEN (no stun record)"
+        title={`Kernel cgroup is frozen${observed}, but no stun record exists. The lifecycle label is stale.`}
+        testId={testId}
+      />
+    )
+  }
+  if (view.kernel_state === 'running' && (view.split_brain ?? []).includes(STUN_WITHOUT_KERNEL_FREEZE)) {
+    return (
+      <StatusBadge
+        status="kernel_running_stunned"
+        variant="kernel"
+        label="NOT FROZEN (stun record only)"
+        title={`A stun record exists but the kernel cgroup is not frozen${observed}.`}
+        testId={testId}
+      />
+    )
+  }
+  if (view.kernel_state === 'frozen') {
+    return (
+      <StatusBadge
+        status="kernel_frozen_confirmed"
+        variant="kernel"
+        label="frozen"
+        title={`Kernel cgroup freeze confirmed by the stun-sentinel${observed}.`}
+        testId={testId}
+      />
+    )
+  }
+  return null
 }

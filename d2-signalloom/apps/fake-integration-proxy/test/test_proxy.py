@@ -379,6 +379,54 @@ class AgentDiscoveryTest(AgentNamespaceTestCase):
         self.assertIn(AGENTS_NAMESPACE, body["namespace"])
 
 
+class KernelFreezeDiscoveryTest(AgentNamespaceTestCase):
+    """The stun-sentinel publishes the cgroup freezer truth as two pod
+    annotations. Discovery must carry them verbatim: a pod frozen in the kernel
+    with no stun label otherwise renders as an idle, healthy agent."""
+
+    FROZEN = "signalloom.io/kernel-frozen"
+    OBSERVED = "signalloom.io/kernel-observed-at"
+
+    def _agent(self, **annotations):
+        pod = agent_pod("agent-sir-lancelot", AGENTS_NAMESPACE)
+        pod["metadata"]["annotations"].update(annotations)
+        self.install({AGENTS_NAMESPACE: [pod]})
+        return self.request("GET", "/agents")[1]["agents"][0]
+
+    def test_frozen_annotation_maps_to_frozen_with_observation_time(self):
+        agent = self._agent(**{self.FROZEN: "true", self.OBSERVED: "2026-09-07T10:00:00Z"})
+        self.assertEqual("frozen", agent["kernel_state"])
+        self.assertEqual("2026-09-07T10:00:00Z", agent["kernel_observed_at"])
+
+    def test_false_annotation_maps_to_running(self):
+        agent = self._agent(**{self.FROZEN: "false", self.OBSERVED: "2026-09-29T10:00:00Z"})
+        self.assertEqual("running", agent["kernel_state"])
+        self.assertEqual("2026-09-29T10:00:00Z", agent["kernel_observed_at"])
+
+    def test_absent_annotations_are_unknown_not_running(self):
+        agent = self._agent()
+        self.assertEqual("unknown", agent["kernel_state"])
+        self.assertIsNone(agent["kernel_observed_at"])
+
+    def test_unrecognised_annotation_value_is_unknown(self):
+        agent = self._agent(**{self.FROZEN: "maybe"})
+        self.assertEqual("unknown", agent["kernel_state"])
+
+    def test_kernel_state_is_never_inferred_from_the_stun_label(self):
+        pod = agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True, state="stunned")
+        pod["metadata"]["annotations"]["signalloom.ai/stunned-at"] = "2026-09-01T00:00:00Z"
+        self.install({FLUX_NAMESPACE: [pod]})
+        agent = self.request("GET", "/agents")[1]["agents"][0]
+        self.assertEqual("unknown", agent["kernel_state"])
+
+    def test_a_kagent_cr_has_no_kernel_to_observe(self):
+        cr = {"metadata": {"name": "k-agent", "namespace": AGENTS_NAMESPACE,
+                           "labels": {"signalloom.ai/agent": "true"}}, "spec": {}}
+        agent = server._agent_from_kagent_cr(cr)
+        self.assertEqual("unknown", agent["kernel_state"])
+        self.assertIsNone(agent["kernel_observed_at"])
+
+
 class KagentCrDiscoveryTest(AgentNamespaceTestCase):
     """An agent has two carriers: a pod, and an Agent.kagent.dev CR.
 

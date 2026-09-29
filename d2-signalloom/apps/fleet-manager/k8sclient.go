@@ -1313,3 +1313,13 @@ func stampSubject(res *PlaneResult, subject, source string) {
 	res.Details["subject"] = subject
 	res.Details["subject_source"] = source
 }
+
+// ResolvePodName names the pod an agent id resolves to, using the same
+// name-then-agent-name-selector lookup as every enforcement operation.
+func (c *k8sFleetClient) ResolvePodName(ctx context.Context, namespace, agentID string) (string, error) {
+	pod, err := c.resolvePod(ctx, namespace, agentID)
+	if err != nil {
+		return "", err
+	}
+	return pod.Name, nil
+}

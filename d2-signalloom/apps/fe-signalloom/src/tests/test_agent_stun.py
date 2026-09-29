@@ -1,7 +1,7 @@
 """Pressing Stun must leave a record on the audit trail.
 
-The SuperCred proxy owns the cluster-side action -- relabel the pod, revoke the
-OpenBao lease -- and holds no database. So the durable record of an operator
+fleet-manager owns the cluster-side action -- its stun cascade contains the
+agent plane by plane -- and holds no audit trail. So the durable record of an operator
 isolating an agent lives here, in ``POST /api/agents/{id}/stun``: the lifecycle
 change and its ``audit_events`` row, written together.
 
@@ -45,6 +45,9 @@ TEST_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048
 SUBJECT_TENANTS = {"stun": "tenant-stun"}
 TENANT = "tenant-stun"
 AGENT_ID = f"{TENANT}:agent-1"
+#: The operator's justification. Required by the route since the stun moved to
+#: fleet-manager's cascade; see test_stun_fleet_cascade.py for its validation.
+STUN_REASON = "operator isolated agent after anomalous egress"
 
 
 def _bearer(subject: str = "stun") -> dict[str, str]:
@@ -80,7 +83,7 @@ class _ReadyPool:
 
 
 class _FakeProxy:
-    """The SuperCred proxy, stubbed at the seam the API calls it through.
+    """fleet-manager's stun cascade, stubbed at the seam the API calls it through.
 
     The endpoint performs the cluster action now rather than being told about
     it, so every test in this file drives an outbound call. Stubbing
@@ -88,19 +91,23 @@ class _FakeProxy:
     is poisoned below, and a test that reached for a real proxy would fail
     with a DNS error rather than anything about audit records.
 
-    Defaults to the payload the real proxy returns on success, so a test that
-    does not care about the cluster half gets the ordinary case.
+    Defaults to a contained cascade, so a test that does not care about the
+    cluster half gets the ordinary case. The real HTTP exchange with
+    fleet-manager is exercised in test_stun_fleet_cascade.py.
     """
 
     def __init__(self) -> None:
-        self.calls: list[str] = []
+        self.calls: list[tuple[str, str]] = []
         self.observation = api_compat._ClusterStunObservation(
-            observed=True, outcome="stunned", namespace="fe-signalloom",
-            proxy_status=200, error=None,
+            observed=True,
+            overall_outcome="contained",
+            fleet_agent_id="agent-under-test",
+            fleet_manager_status=200,
+            error=None,
         )
 
-    async def __call__(self, agent_id: str) -> Any:
-        self.calls.append(agent_id)
+    async def __call__(self, agent_id: str, reason: str) -> Any:
+        self.calls.append((agent_id, reason))
         return self.observation
 
 
@@ -141,6 +148,7 @@ def client(monkeypatch: pytest.MonkeyPatch, proxy: _FakeProxy) -> TestClient:
 
 
 def _stun(client: TestClient, **body: Any) -> Any:
+    body.setdefault("reason", STUN_REASON)
     return client.post(f"/api/agents/{AGENT_ID}/stun", json=body, headers=_bearer())
 
 
@@ -149,7 +157,7 @@ def _stun(client: TestClient, **body: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 def test_stunning_an_agent_returns_the_audit_event_it_recorded(client: TestClient) -> None:
-    response = _stun(client, reason="compliance-failure: securityContext not set")
+    response = _stun(client)
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -164,42 +172,49 @@ def test_stunning_an_agent_returns_the_audit_event_it_recorded(client: TestClien
     assert event["timestamp"]
 
 
-def test_the_outcome_and_namespace_come_from_the_proxy(
+def test_the_outcome_and_status_come_from_fleet_manager(
     client: TestClient, proxy: _FakeProxy,
 ) -> None:
-    """Both used to be supplied by the browser and copied through.
+    """The outcome is read off the response to the call this API made itself.
 
-    They are now read off the response to the call this API made itself, which
-    is the difference between a record and a transcript. The values here are
+    The browser once supplied it and the handler copied it through, which is
+    the difference between a record and a transcript. ``partial`` and 207 are
     distinctive so the assertion cannot pass against a hardcoded default.
     """
     proxy.observation = api_compat._ClusterStunObservation(
-        observed=True, outcome="stunned", namespace="fe-signalloom-agents",
-        proxy_status=200, error=None,
+        observed=True, overall_outcome="partial", fleet_agent_id="agent-under-test",
+        fleet_manager_status=207, error=None,
     )
 
     detail = _stun(client).json()["event"]["detail"]
 
-    assert detail["proxy"]["outcome"] == "stunned"
-    assert detail["proxy"]["namespace"] == "fe-signalloom-agents"
+    assert detail["proxy"]["outcome"] == "partial"
+    assert detail["proxy"]["status"] == 207
     assert detail["proxy"]["observed"] is True
+    assert detail["overall_outcome"] == "partial"
+    assert detail["fleet_manager_status"] == 207
     assert detail["from_state"] == "active"
     assert detail["to_state"] == "suspended"
 
 
-def test_the_reason_is_server_authored(client: TestClient) -> None:
-    """``reason`` was the narrative field the caller filled in.
+def test_the_reason_is_the_operators_and_attributed_to_them(client: TestClient) -> None:
+    """``reason`` is the one thing the caller supplies, and it is labelled so.
 
-    It survives because how an isolation was initiated is worth recording, but
-    the value is now this API's own and says only what this API knows.
+    It used to be a server constant because the old endpoint had no business
+    taking narrative from the browser. fleet-manager now needs the operator's
+    justification to annotate what it contains, so the route requires one --
+    and records it as the statement of the token's subject, never as a finding.
     """
-    detail = _stun(client, reason="whatever the caller would like it to say").json()["event"]["detail"]
+    response = _stun(client, reason="suspected credential exfiltration")
 
-    assert detail["reason"] == "operator-initiated stun via governance API"
+    event = response.json()["event"]
+    assert event["detail"]["reason"] == "suspected credential exfiltration"
+    assert event["actor"] == "stun"
+    assert response.json()["reason"] == "suspected credential exfiltration"
 
 
 def test_a_stun_records_an_attributable_event(client: TestClient) -> None:
-    response = client.post(f"/api/agents/{AGENT_ID}/stun", headers=_bearer())
+    response = client.post(f"/api/agents/{AGENT_ID}/stun", json={"reason": STUN_REASON}, headers=_bearer())
 
     assert response.status_code == 200, response.text
     event = response.json()["event"]
@@ -207,7 +222,7 @@ def test_a_stun_records_an_attributable_event(client: TestClient) -> None:
     # The token subject, not a constant. Asserted positively: "is not
     # demo-actor" would pass against any other hardcoded string.
     assert event["actor"] == "stun"
-    assert event["detail"]["proxy"]["outcome"] == "stunned"
+    assert event["detail"]["proxy"]["outcome"] == "contained"
 
 
 # ---------------------------------------------------------------------------
@@ -229,10 +244,13 @@ def test_the_proxys_account_is_nested_and_not_flattened(
     text and nothing raises. A 422 at least shouts; this would not.
     """
     proxy.observation = api_compat._ClusterStunObservation(
-        observed=True, outcome="stunned", namespace="fe-signalloom",
-        proxy_status=200, error=None,
-        payload={"state": "stunned", "stunned_at": "2026-01-01T00:00:00Z",
-                 "message": "credentials revoked"},
+        observed=True,
+        overall_outcome="contained",
+        fleet_agent_id="agent-under-test",
+        fleet_manager_status=200,
+        error=None,
+        payload={"target_agent": "agent-under-test", "overall_outcome": "contained",
+                 "duration_ms": 41},
     )
 
     body = _stun(client).json()
@@ -240,7 +258,7 @@ def test_the_proxys_account_is_nested_and_not_flattened(
     # First-party: established here, from the token, the path and this database.
     assert set(body) >= {"agent_id", "from_state", "to_state", "actor", "stunned_at"}
     # Second-hand: everything the proxy said, in one place and only there.
-    assert body["proxy"]["payload"]["message"] == "credentials revoked"
+    assert body["proxy"]["payload"]["target_agent"] == "agent-under-test"
     assert body["proxy"]["observed"] is True
     for leaked in ("outcome", "namespace", "state", "message", "cluster_action_observed"):
         assert leaked not in body, f"{leaked} leaked out of the proxy namespace"
@@ -259,9 +277,9 @@ def test_the_audit_detail_splits_provenance_the_same_way(
     # Established by this process.
     assert detail["from_state"] == "active"
     assert detail["registry_match"] is True
-    assert detail["reason"] == "operator-initiated stun via governance API"
+    assert detail["reason"] == STUN_REASON
     # Reported to it.
-    assert detail["proxy"]["outcome"] == "stunned"
+    assert detail["proxy"]["outcome"] == "contained"
     for leaked in ("outcome", "namespace", "cluster_action_observed", "proxy_status"):
         assert leaked not in detail, f"{leaked} sits outside the proxy namespace"
 
@@ -275,7 +293,7 @@ def test_the_api_calls_the_proxy_itself(client: TestClient, proxy: _FakeProxy) -
     """
     _stun(client)
 
-    assert proxy.calls == [AGENT_ID]
+    assert proxy.calls == [(api_compat._fleet_agent_id(AGENT_ID), STUN_REASON)]
 
 
 def test_a_failed_cluster_action_is_recorded_and_then_reported(
@@ -288,8 +306,11 @@ def test_a_failed_cluster_action_is_recorded_and_then_reported(
     half to optimise.
     """
     proxy.observation = api_compat._ClusterStunObservation(
-        observed=True, outcome="failed", namespace=None,
-        proxy_status=502, error="upstream refused",
+        observed=True,
+        overall_outcome="error",
+        fleet_agent_id="agent-under-test",
+        fleet_manager_status=502,
+        error="upstream refused",
     )
 
     response = _stun(client)
@@ -301,7 +322,7 @@ def test_a_failed_cluster_action_is_recorded_and_then_reported(
         "/api/audit", params={"type": "agent.stunned"}, headers=_bearer(),
     ).json()["events"]
     assert len(recorded) == 1, "a failed isolation left no trace"
-    assert recorded[0]["detail"]["proxy"]["outcome"] == "failed"
+    assert recorded[0]["detail"]["proxy"]["outcome"] == "error"
     assert recorded[0]["detail"]["proxy"]["status"] == 502
 
 
@@ -315,8 +336,11 @@ def test_a_failed_cluster_action_leaves_the_agent_unsuspended(
     authenticating is worse than one that says nothing.
     """
     proxy.observation = api_compat._ClusterStunObservation(
-        observed=True, outcome="failed", namespace=None,
-        proxy_status=502, error="upstream refused",
+        observed=True,
+        overall_outcome="error",
+        fleet_agent_id="agent-under-test",
+        fleet_manager_status=502,
+        error="upstream refused",
     )
 
     _stun(client)
@@ -334,8 +358,11 @@ def test_a_proxy_404_is_passed_through_as_a_404(
 ) -> None:
     """"No such pod" is the caller's problem; "the proxy is broken" is ours."""
     proxy.observation = api_compat._ClusterStunObservation(
-        observed=True, outcome="failed", namespace=None,
-        proxy_status=404, error="agent nope not found",
+        observed=True,
+        overall_outcome="not_found",
+        fleet_agent_id="agent-under-test",
+        fleet_manager_status=404,
+        error="agent nope not found",
     )
 
     assert _stun(client).status_code == 404
@@ -350,8 +377,11 @@ def test_a_deployment_with_no_proxy_records_that_nothing_was_watched(
     watched one without knowing which deployment produced it.
     """
     proxy.observation = api_compat._ClusterStunObservation(
-        observed=False, outcome="simulated", namespace=None,
-        proxy_status=None, error=None,
+        observed=False,
+        overall_outcome="simulated",
+        fleet_agent_id="agent-under-test",
+        fleet_manager_status=None,
+        error=None,
     )
 
     response = _stun(client)
@@ -418,7 +448,7 @@ def test_stunning_a_pod_the_registry_does_not_know_still_records(client: TestCli
     case where the trail matters most; dropping the event because the id does
     not resolve would lose it silently.
     """
-    response = client.post("/api/agents/agent-cardvault/stun", headers=_bearer())
+    response = client.post("/api/agents/agent-cardvault/stun", json={"reason": STUN_REASON}, headers=_bearer())
 
     assert response.status_code == 200, response.text
     event = response.json()["event"]
@@ -449,7 +479,7 @@ def test_an_unresolved_pod_records_no_state_it_did_not_observe(
     What is true and worth recording: a stun was requested, against an id the
     registry does not hold, and the registry state is therefore unchanged.
     """
-    response = client.post("/api/agents/agent-cardvault/stun", headers=_bearer())
+    response = client.post("/api/agents/agent-cardvault/stun", json={"reason": STUN_REASON}, headers=_bearer())
 
     detail = response.json()["event"]["detail"]
     assert detail["from_state"] == "unknown", (
@@ -487,7 +517,7 @@ def test_a_resolved_agent_still_records_the_states_it_did_observe(
 def test_the_event_appears_on_the_audit_timeline(client: TestClient) -> None:
     before = client.get("/api/audit", headers=_bearer()).json()
 
-    _stun(client, reason="compliance-failure")
+    _stun(client)
 
     after = client.get("/api/audit", headers=_bearer()).json()
     assert after["total"] == before["total"] + 1
@@ -509,7 +539,7 @@ def test_the_timeline_can_be_filtered_down_to_stuns(client: TestClient) -> None:
 
 def test_the_timeline_can_be_filtered_down_to_one_agent(client: TestClient) -> None:
     _stun(client)
-    client.post("/api/agents/agent-cardvault/stun", headers=_bearer())
+    client.post("/api/agents/agent-cardvault/stun", json={"reason": STUN_REASON}, headers=_bearer())
 
     filtered = client.get(
         "/api/audit", params={"agent": "agent-cardvault"}, headers=_bearer(),

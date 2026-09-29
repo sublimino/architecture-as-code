@@ -51,6 +51,13 @@ import type {
   DiscoveryWorkloadsResponse,
   DiscoveryWorkload,
   AutoclaimNamespaceRequest,
+  TrustZone,
+  Federation,
+  FederatedService,
+  AttestationPolicy,
+  SpiffeIdentity,
+  FederationEvent,
+  FederationSummaryResponse,
 } from '../types/api'
 import type {
   ComplianceCheck,
@@ -839,6 +846,23 @@ export const api = {
     }
     const qs = searchParams.toString()
     return req<StoredRecord[]>(qs ? `/v1/telemetry/coding-agents?${qs}` : '/v1/telemetry/coding-agents', token)
+  },
+
+  federation: {
+    summary: (token: string, signal?: AbortSignal) =>
+      req<FederationSummaryResponse>('/v1/federation/summary', token, { signal }),
+    zones: (token: string, signal?: AbortSignal) =>
+      req<TrustZone[]>('/v1/federation/zones', token, { signal }),
+    federations: (token: string, signal?: AbortSignal) =>
+      req<Federation[]>('/v1/federation/federations', token, { signal }),
+    services: (token: string, signal?: AbortSignal) =>
+      req<FederatedService[]>('/v1/federation/services', token, { signal }),
+    policies: (token: string, signal?: AbortSignal) =>
+      req<AttestationPolicy[]>('/v1/federation/policies', token, { signal }),
+    identities: (token: string, signal?: AbortSignal) =>
+      req<SpiffeIdentity[]>('/v1/federation/identities', token, { signal }),
+    events: (token: string, signal?: AbortSignal) =>
+      req<FederationEvent[]>('/v1/federation/events', token, { signal }),
   },
 }
 

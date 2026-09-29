@@ -45,11 +45,12 @@ describe('demo mode', () => {
   // +1 agent telemetry route (GET /agents/:id/telemetry) = 57.
   // +2 discovery aggregate & namespace autoclaim routes (SLMS-P1-2: GET /discovery/workloads, POST /agents/autoclaim-discovered) = 59.
   // +7 fleet manager routes (SLMS-P4-2 Surface 12: topology, status, deploy, scan, stun, recover, reset) = 66.
+  // +14 federated services routes (SLMS-P4-1 Surface 11: GET summary, zones, federations, services, policies, identities, events x2 prefixes) = 80.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
-  // This count is deliberately exact rather than a lower bound, as it guards against
+  // This count is deliberately exact rather than a lower bound: it guards against
   // routes disappearing in a merge.
-  it('covers the full 66-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(66)
+  it('covers the full 80-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(80)
   })
 
 

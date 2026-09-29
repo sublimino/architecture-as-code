@@ -124,6 +124,17 @@ spec:
       ports:
         - protocol: TCP
           port: 8082
+    # policy_engine.py / routers/policy_engine.py calls POLICY_ENGINE_URL
+    # (http://policy-engine:8081) to proxy CEL policy evaluation, compliance scans
+    # and risk checks. Same namespace, so podSelector with no namespaceSelector
+    # is the whole rule.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: policy-engine
+      ports:
+        - protocol: TCP
+          port: 8081
 ---
 # Public exposure is permitted only through the selected gateway namespace;
 # direct cross-namespace access to the portal is denied by default.

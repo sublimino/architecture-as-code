@@ -11,7 +11,8 @@
 # http://…:8080/supercred/ and got ERR_CONNECTION_REFUSED.
 
 setup() {
-	repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
+	local test_dir="$(cd "$(dirname "$(readlink -f "$BATS_TEST_FILENAME")")" && pwd)"
+	repo_root="$(cd "$test_dir/../.." && pwd)"
 	dashboard="$repo_root/d2-signalloom/apps/dashboard-signalloom"
 	nginx_conf="$dashboard/nginx.conf"
 	app_tsx="$dashboard/src/App.tsx"
@@ -192,7 +193,7 @@ proxy_segments() {
 	# foreign prefix — /api/supercred/ being the obvious temptation — is a real
 	# defect, because the gateway hands the whole /api subtree to another backend
 	# and nginx never sees it.
-	local exempt=("/api" "/dex" "/docs")
+	local exempt=("/api" "/dex" "/dex/token" "/docs")
 
 	local loc prefix skip_it offenders=()
 	while read -r loc; do

@@ -580,6 +580,43 @@ const frameworks: FrameworkResponse[] = [
       { id: 'AIC-2', name: 'Human oversight', description: 'A human can halt the agent.', control_order: 2 },
     ],
   },
+  {
+    id: 'nist-800-53',
+    name: 'NIST 800-53',
+    version: 'Rev. 5',
+    regulatory_body: 'NIST',
+    compliance_deadline: '2026-12-31',
+    control_count: 3,
+    controls: [
+      { id: 'AC-1', name: 'Access control policy and procedures', description: 'Access boundaries enforced.', control_order: 1 },
+      { id: 'AU-2', name: 'Event logging and audit', description: 'Audit events recorded.', control_order: 2 },
+      { id: 'SC-7', name: 'Boundary protection', description: 'Network protection applied.', control_order: 3 },
+    ],
+  },
+  {
+    id: 'cra',
+    name: 'Cyber Resilience Act',
+    version: '2024/2847',
+    regulatory_body: 'European Union',
+    compliance_deadline: '2027-12-11',
+    control_count: 2,
+    controls: [
+      { id: 'CRA-1', name: 'Secure by default configuration', description: 'Hardened baseline profiles enabled.', control_order: 1 },
+      { id: 'CRA-2', name: 'Vulnerability handling and SBOM', description: 'CycloneDX or SPDX SBOM verified.', control_order: 2 },
+    ],
+  },
+  {
+    id: 'finos-aigf',
+    name: 'FINOS AI Governance Framework',
+    version: 'v2.0',
+    regulatory_body: 'FINOS Open Source in Finance',
+    compliance_deadline: '2026-10-31',
+    control_count: 2,
+    controls: [
+      { id: 'AIR-SEC-010', name: 'Prompt injection defense', description: 'Active guardrail filters enabled.', control_order: 1 },
+      { id: 'AIR-SEC-024', name: 'Agent action authorization', description: 'SPIFFE cryptographic peer verification.', control_order: 2 },
+    ],
+  },
 ]
 
 const complianceExport = { format: 'json', generated_at: NOW, url: 'blob://demo/compliance-report.json' }

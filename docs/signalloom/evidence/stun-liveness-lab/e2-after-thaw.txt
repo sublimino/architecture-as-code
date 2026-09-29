@@ -1,0 +1,7 @@
+22:47:47.659302423 agent:8080=OK HTTP/1.0 200 OK
+agent_pids_after=3801910 
+usage_usec 33843
+populated 1
+frozen 0
+NAME                        READY   STATUS    RESTARTS   AGE
+e2-agent-5464646c5b-mvlwx   2/2     Running   0          100s

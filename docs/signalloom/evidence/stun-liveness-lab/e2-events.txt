@@ -1,0 +1,8 @@
+2026-09-29T21:46:07Z   Scheduled   e2-agent-5464646c5b-mvlwx   Successfully assigned kusari-liveness-lab/e2-agent-5464646c5b-mvlwx to osramp-control-plane
+2026-09-29T21:46:08Z   Pulled      e2-agent-5464646c5b-mvlwx   Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:46:08Z   Created     e2-agent-5464646c5b-mvlwx   Container created
+2026-09-29T21:46:08Z   Started     e2-agent-5464646c5b-mvlwx   Container started
+2026-09-29T21:46:08Z   Pulled      e2-agent-5464646c5b-mvlwx   Container image "docker.io/bitnamilegacy/kubectl:1.31" already present on machine and can be accessed by the pod
+2026-09-29T21:46:08Z   Created     e2-agent-5464646c5b-mvlwx   Container created
+2026-09-29T21:46:09Z   Started     e2-agent-5464646c5b-mvlwx   Container started
+2026-09-29T21:46:09Z   Unhealthy   e2-agent-5464646c5b-mvlwx   Readiness probe failed: Get "http://10.0.0.215:8081/healthz": dial tcp 10.0.0.215:8081: connect: connection refused

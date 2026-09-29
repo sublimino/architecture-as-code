@@ -122,3 +122,15 @@ declared_swarm_sas() {
   run bash -c "$(declare -f swarm_yaml declared_swarm_sas); repo_root='$repo_root'; declared_swarm_sas | rg -x signalloom-stun-sentinel"
   [ "$status" -eq 1 ]
 }
+
+# The sentinel skips its own pods by SA and by app.kubernetes.io/name
+# (main.go isSentinelPod). Those constants must track this DaemonSet.
+@test "sentinel self-exclusion constants match the DaemonSet" {
+  main="$repo_root/d2-signalloom/apps/signalloom-stun-sentinel/main.go"
+  sa="$(yq -r '.spec.template.spec.serviceAccountName' "$ds")"
+  app="$(yq -r '.spec.template.metadata.labels."app.kubernetes.io/name"' "$ds")"
+  run rg -q "sentinelServiceAccount = \"${sa}\"" "$main"
+  [ "$status" -eq 0 ]
+  run rg -q "sentinelAppName +?= \"${app}\"" "$main"
+  [ "$status" -eq 0 ]
+}

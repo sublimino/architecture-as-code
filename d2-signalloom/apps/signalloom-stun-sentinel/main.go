@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -27,7 +28,18 @@ const (
 	watchNamespace       = "fe-signalloom-agents"
 	defaultCgroupRoot    = "/sys/fs/cgroup"
 	informerResync       = 30 * time.Second
+	// The sentinel's own identity. Its DaemonSet pods carry the informer's
+	// selector (signalloom.ai/agent=true), so they must be excluded by name.
+	sentinelServiceAccount = "stun-sentinel"
+	sentinelAppName        = "stun-sentinel"
 )
+
+// isSentinelPod: a pod of this DaemonSet. The sentinel never freezes, isolates
+// or annotates itself, whatever labels it carries.
+func isSentinelPod(pod *corev1.Pod) bool {
+	return pod.Spec.ServiceAccountName == sentinelServiceAccount ||
+		pod.Labels["app.kubernetes.io/name"] == sentinelAppName
+}
 
 // ownerStunLookup answers the fourth stun term: does the pod's controller
 // chain (ReplicaSet -> Deployment) carry signalloom.io/stunned=true?
@@ -146,9 +158,13 @@ type stunReconciler struct {
 	kernel         *kernelPublisher // nil: kernel state is not published
 	dryRun         bool
 	reconcileCount *atomic.Int64
+	selfSkipped    sync.Map // pod key -> struct{}: self_pod_skipped logged once
 }
 
-func (r *stunReconciler) forget(key string) { r.kernel.forget(key) }
+func (r *stunReconciler) forget(key string) {
+	r.kernel.forget(key)
+	r.selfSkipped.Delete(key)
+}
 
 func newStunReconciler(freezer *cgroupFreezer, tc *tcDropFilter, probes *probePreserver) *stunReconciler {
 	if probes == nil {
@@ -163,6 +179,14 @@ func newStunReconciler(freezer *cgroupFreezer, tc *tcDropFilter, probes *probePr
 }
 
 func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
+	if isSentinelPod(pod) {
+		if _, seen := r.selfSkipped.LoadOrStore(pod.Namespace+"/"+pod.Name, struct{}{}); !seen {
+			logEvent(stunEvent{Timestamp: now(), Event: "self_pod_skipped", Pod: pod.Name, Namespace: pod.Namespace,
+				UID: string(pod.UID), Decision: "never_contain_self", Details: map[string]interface{}{
+					"service_account": pod.Spec.ServiceAccountName, "stunned_labels": isPodStunned(pod, nil)}})
+		}
+		return nil
+	}
 	start := time.Now()
 	if r.reconcileCount != nil {
 		r.reconcileCount.Add(1)

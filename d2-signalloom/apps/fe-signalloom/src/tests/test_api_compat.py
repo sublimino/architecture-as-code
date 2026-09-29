@@ -2234,12 +2234,12 @@ def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypat
     async def mock_get_pool():
         return None
 
-    async def _stun_succeeds(_agent_id: str) -> api_compat._ClusterStunObservation:
+    async def _stun_succeeds(_agent_id: str, _reason: str) -> api_compat._ClusterStunObservation:
         return api_compat._ClusterStunObservation(
             observed=True,
-            outcome="stunned",
-            namespace="fe-signalloom",
-            proxy_status=200,
+            overall_outcome="contained",
+            fleet_agent_id="agent-under-test",
+            fleet_manager_status=200,
             error=None,
         )
 
@@ -2252,7 +2252,11 @@ def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypat
         agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
         api_compat._AGENTS["tenant-a"][agent_id]["lifecycle_state"] = "active"
 
-    res = client.post(f"/api/agents/{agent_id}/stun", headers=bearer(token_for("alice")))
+    res = client.post(
+        f"/api/agents/{agent_id}/stun",
+        json={"reason": "sentinel containment probe"},
+        headers=bearer(token_for("alice")),
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["agent_id"] == agent_id

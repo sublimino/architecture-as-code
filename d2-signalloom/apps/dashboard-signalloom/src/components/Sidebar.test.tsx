@@ -189,7 +189,7 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
     expect(screen.getByRole('link', { name: /^Discovery/ })).toHaveAttribute('href', '/discovery')
     expect(screen.getByRole('link', { name: /^Agents/ })).toHaveAttribute('href', '/agents')
     expect(screen.getByRole('link', { name: /^Topology$/ })).toHaveAttribute('href', '/topology')
-    expect(screen.getByRole('link', { name: /^Activity$/ })).toHaveAttribute('href', '/activity')
+    expect(screen.getByRole('link', { name: /^The Weave$/ })).toHaveAttribute('href', '/weave')
     expect(screen.getByRole('link', { name: /^FAIR Risk$/ })).toHaveAttribute('href', '/risk')
 
     // Control group
@@ -217,8 +217,8 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
 
     expect(links.indexOf('/discovery')).toBeLessThan(links.indexOf('/agents'))
     expect(links.indexOf('/agents')).toBeLessThan(links.indexOf('/topology'))
-    expect(links.indexOf('/topology')).toBeLessThan(links.indexOf('/activity'))
-    expect(links.indexOf('/activity')).toBeLessThan(links.indexOf('/risk'))
+    expect(links.indexOf('/topology')).toBeLessThan(links.indexOf('/weave'))
+    expect(links.indexOf('/weave')).toBeLessThan(links.indexOf('/risk'))
 
     expect(links.indexOf('/risk')).toBeLessThan(links.indexOf('/policies'))
     expect(links.indexOf('/policies')).toBeLessThan(links.indexOf('/compliance'))

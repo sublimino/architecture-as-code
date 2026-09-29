@@ -143,7 +143,7 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/discovery': 'Discovery',
   '/discovery/accounts/:accountId': 'Account',
   '/topology': 'Topology',
-  '/activity': 'Activity',
+  '/activity': 'The Weave',
   '/risk': 'FAIR Risk',
   '/policies': 'Policies',
   '/containment': 'Containment',
@@ -416,7 +416,7 @@ export default function App() {
                 <Route path="/agents/:id" element={<ProtectedRoute><AgentDetailPage /></ProtectedRoute>} />
                 <Route path="/topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
                 <Route path="/agent-trust-topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
-                <Route path="/activity" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
+                <Route path="/activity" element={<Navigate to="/weave" replace />} />
                 <Route path="/weave" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
                 <Route path="/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/compliance/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />

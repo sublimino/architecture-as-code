@@ -632,6 +632,7 @@ test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 	node d2-signalloom/apps/dashboard-signalloom/node_modules/vitest/vitest.mjs run \
 		--root d2-signalloom/apps/dashboard-signalloom \
 		src/pages/WeavePage.test.tsx \
+		src/pages/WeavePage.adversarial.test.tsx \
 		src/pages/SignalFusionPage.test.tsx \
 		src/components/WhoAuthorizedPanel.test.tsx \
 		src/api/weaveApi.test.ts \

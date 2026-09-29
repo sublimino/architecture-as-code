@@ -228,8 +228,8 @@ export default function RiskExposurePage() {
           className="tag"
           data-testid="status-badge-active"
           style={{
-            background: tint('var(--tealLoom, var(--teal))', 0.15),
-            color: 'var(--tealLoom, var(--teal))',
+            background: tint('var(--teal)', 0.15),
+            color: 'var(--teal)',
             marginLeft: 8,
             fontSize: 11,
             padding: '2px 6px',
@@ -324,7 +324,7 @@ export default function RiskExposurePage() {
                   fontWeight: population === 'all' ? 600 : 400,
                   border: 'none',
                   borderRadius: 6,
-                  background: population === 'all' ? 'var(--tealLoom, var(--cyan))' : 'transparent',
+                  background: population === 'all' ? 'var(--cyan)' : 'transparent',
                   color: population === 'all' ? '#000' : 'var(--text)',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
@@ -344,7 +344,7 @@ export default function RiskExposurePage() {
                   fontWeight: population === 'governed' ? 600 : 400,
                   border: 'none',
                   borderRadius: 6,
-                  background: population === 'governed' ? 'var(--tealLoom, var(--cyan))' : 'transparent',
+                  background: population === 'governed' ? 'var(--cyan)' : 'transparent',
                   color: population === 'governed' ? '#000' : 'var(--text)',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
@@ -364,7 +364,7 @@ export default function RiskExposurePage() {
                   fontWeight: population === 'discovered' ? 600 : 400,
                   border: 'none',
                   borderRadius: 6,
-                  background: population === 'discovered' ? 'var(--tealLoom, var(--cyan))' : 'transparent',
+                  background: population === 'discovered' ? 'var(--cyan)' : 'transparent',
                   color: population === 'discovered' ? '#000' : 'var(--text)',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',

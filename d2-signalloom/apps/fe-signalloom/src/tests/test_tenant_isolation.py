@@ -461,6 +461,11 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
         "/api/compliance/policy/scan",
         {"namespace": "probe-ns", "policyVersion": "v1", "frameworks": []},
     ),
+    (
+        "POST",
+        "/api/v1/compliance/policy/scan",
+        {"namespace": "probe-ns", "policyVersion": "v1", "frameworks": []},
+    ),
     ("GET", "/api/v1/external-agents/registrations", None),
     ("GET", "/api/external-agents/registrations", None),
     ("GET", "/api/v1/external-agents/registrations/probe-ext-01", None),
@@ -698,6 +703,16 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("DELETE", "/api/agents/claim/{claim_id}"),          # in-memory claim release
     ("GET", "/api/compliance/policy/frameworks"),        # projection of the two above
     ("GET", "/api/compliance/policy/summary"),           # projection of the two above
+    ("GET", "/api/v1/compliance/policy/frameworks"),     # projection of the two above
+    ("GET", "/api/v1/compliance/policy/summary"),        # projection of the two above
+    ("GET", "/api/policies"),                            # proxy to policy-engine
+    ("GET", "/api/v1/policies"),                         # proxy to policy-engine
+    ("POST", "/api/policies/evaluate"),                  # proxy to policy-engine
+    ("POST", "/api/v1/policies/evaluate"),               # proxy to policy-engine
+    ("POST", "/api/policies/bundles"),                   # proxy to policy-engine
+    ("POST", "/api/v1/policies/bundles"),                # proxy to policy-engine
+    ("POST", "/api/policies/rollback"),                  # proxy to policy-engine
+    ("POST", "/api/v1/policies/rollback"),               # proxy to policy-engine
     ("PUT", "/api/onboarding/state"),                    # covered by test_onboarding
     # Superadmin-gated, so the sweep's ordinary caller is refused before any
     # statement is issued. Its tenant binding has its own test below.

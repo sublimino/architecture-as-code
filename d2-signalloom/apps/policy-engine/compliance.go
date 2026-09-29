@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"hash/fnv"
 	"log/slog"
@@ -8,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/google/cel-go/cel"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/frameworks"
@@ -26,12 +25,6 @@ type ComplianceScanRequest struct {
 }
 
 // reportingCurrency denominates every figure this service reports.
-//
-// It is a constant rather than a config knob for now, and that is a deliberate, temporary choice:
-// the loss magnitudes baked into policy/frameworks/ are GBP-calibrated, so making the OUTPUT
-// currency configurable without also redenominating those inputs would relabel figures rather than
-// convert them -- the precise failure this change exists to prevent. Point this at a real per-tenant
-// setting only together with per-tenant calibration data.
 const reportingCurrency money.Currency = "GBP"
 
 type ComplianceScanResult struct {
@@ -49,12 +42,6 @@ type ComplianceScanResult struct {
 	CalibrationSource string  `json:"calibrationSource"`
 
 	// Currency denominates ale, var95, tvar and carriedGbp above.
-	//
-	// The four numeric fields are retained under their existing names so the dashboard keeps
-	// working while it migrates; `carriedGbp` in particular is now a MISNOMER whenever this
-	// service is configured for another currency, which is exactly why the denomination has to
-	// travel as data rather than in a field name. New consumers should read `carried` and
-	// `currency` and treat the *Gbp field as deprecated.
 	Currency money.Currency `json:"currency"`
 	// Carried is CarriedGBP with its denomination attached. Same number, self-describing.
 	Carried money.Money `json:"carried"`
@@ -75,18 +62,31 @@ type ComplianceSummary struct {
 
 // complianceHandler holds framework data and scan state.
 type complianceHandler struct {
-	policyRoot string
-
+	policyRoot  string
+	celEngine   *CELEngine
 	mu          sync.RWMutex
 	lastResults []ComplianceScanResult
 }
 
-func newComplianceHandler(policyRoot string) (*complianceHandler, error) {
+func newComplianceHandler(policyRoot string, optEngine ...*CELEngine) (*complianceHandler, error) {
 	// Verify the frameworks directory exists.
 	if _, err := frameworks.ListFrameworks(policyRoot); err != nil {
 		return nil, err
 	}
-	return &complianceHandler{policyRoot: policyRoot}, nil
+	var celEngine *CELEngine
+	if len(optEngine) > 0 && optEngine[0] != nil {
+		celEngine = optEngine[0]
+	} else {
+		var err error
+		celEngine, err = NewCELEngine()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &complianceHandler{
+		policyRoot: policyRoot,
+		celEngine:  celEngine,
+	}, nil
 }
 
 // handleScan evaluates CEL checks from requested frameworks against a manifest.
@@ -111,11 +111,6 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Pre-flight: reject unknown frameworks before doing any work. A scan that
-	// silently ignores every requested framework and returns an empty 200 is the
-	// exact "two things that must agree, with nothing checking that they do"
-	// pattern: the caller believes it asked for a SOC-2 scan, the server believes
-	// it ran one, and neither has any results to show for it.
 	available, err := frameworks.ListFrameworks(ch.policyRoot)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -131,7 +126,6 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if len(unknown) == len(req.Frameworks) {
-		// ALL requested frameworks are unknown — this is always an error.
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
@@ -143,6 +137,11 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []ComplianceScanResult
 
+	inputMap := map[string]any{
+		"object":   req.Manifest,
+		"manifest": req.Manifest,
+	}
+
 	for _, fwID := range req.Frameworks {
 		versions, ok := available[fwID]
 		if !ok || len(versions) == 0 {
@@ -150,7 +149,6 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
-		// Load each version of the framework and collect applicable checks.
 		for _, ver := range versions {
 			fw, err := frameworks.Load(ch.policyRoot, fwID, ver)
 			if err != nil {
@@ -160,9 +158,11 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 
 			checks := frameworks.ChecksForVersion(fw, req.PolicyVersion)
 			for _, cwc := range checks {
-				passed := evaluateCEL(cwc.Check.CELExpression, req.Manifest)
+				passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
+				if err != nil {
+					passed = false
+				}
 
-				// Deterministic seed from check ID for reproducible FAIR results.
 				seed := checkSeed(cwc.Check.ID)
 				risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
 
@@ -186,7 +186,6 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Cache for summary endpoint.
 	ch.mu.Lock()
 	ch.lastResults = results
 	ch.mu.Unlock()
@@ -238,37 +237,25 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 }
 
 // evaluateCEL compiles and evaluates a CEL expression against a manifest.
-// Returns true if the expression evaluates to true, false otherwise (including
-// on compilation or evaluation errors).
 func evaluateCEL(expr string, manifest map[string]any) bool {
-	env, err := cel.NewEnv(
-		cel.Variable("object", cel.DynType),
-	)
+	engine, err := NewCELEngine()
 	if err != nil {
 		slog.Error("creating CEL env", "error", err)
 		return false
 	}
 
-	ast, issues := env.Compile(expr)
-	if issues != nil && issues.Err() != nil {
-		slog.Warn("CEL compile error", "expression", expr, "error", issues.Err())
-		return false
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
 
-	prg, err := env.Program(ast)
-	if err != nil {
-		slog.Error("CEL program error", "error", err)
-		return false
-	}
-
-	out, _, err := prg.Eval(map[string]any{"object": manifest})
+	passed, _, err := engine.Evaluate(ctx, expr, map[string]any{
+		"object":   manifest,
+		"manifest": manifest,
+	})
 	if err != nil {
 		slog.Debug("CEL eval error", "expression", expr, "error", err)
 		return false
 	}
-
-	result, ok := out.Value().(bool)
-	return ok && result
+	return passed
 }
 
 func checkSeed(id string) uint64 {
@@ -277,23 +264,6 @@ func checkSeed(id string) uint64 {
 	return h.Sum64()
 }
 
-// roundMoney quantises a risk figure for display in the given currency using decimal-string
-// rounding (half away from zero, on the shortest decimal representation), matching the
-// money package exactly.
-//
-// WHY THIS REPLACED roundTo2. The original function had two defects beyond the three that
-// had already been patched (negative truncation, NaN→0, Inf→MinInt64):
-//
-//  4. CURRENCY-BLIND. It hardcoded 2 decimal places regardless of the currency. JPY has 0
-//     minor units; BHD has 3. Rounding ¥12345.67 to 2dp prints a quantity of yen that
-//     cannot exist — and 2dp is wrong for BHD/KWD/OMR/TND/JOD/LYD/IQD too.
-//  5. BINARY-FLOAT ROUNDING. math.Floor(abs*100+0.5)/100 operates on the IEEE 754 binary
-//     representation, not the decimal the reader sees. The nearest double to 1.005 is
-//     1.00499..., so the old function rounded to 1.00 while money.roundHalfAwayFromZero
-//     rounds to 1.01 — a penny difference on the same screen from the same number.
-//
-// The fix is to stop reimplementing rounding altogether and use money.Money.Round(), which
-// respects the currency's minor-unit exponent and operates on the decimal string.
 func roundMoney(v float64, c money.Currency) float64 {
 	return money.Money{Amount: v, Currency: c}.Round().Amount
 }

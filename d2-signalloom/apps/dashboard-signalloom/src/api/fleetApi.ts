@@ -42,11 +42,36 @@ export interface CascadeEvent {
   riskAfter: number
 }
 
+export interface NodeMetrics {
+  name: string
+  status: 'Ready' | 'NotReady'
+  cpuUsagePercent: number
+  memoryUsagePercent: number
+  roles: string[]
+}
+
+export interface PodPhaseCounts {
+  running: number
+  pending: number
+  failed: number
+  succeeded: number
+}
+
+export interface FluxStatus {
+  reconciled: boolean
+  lastReconciledAt: string
+  revision: string
+  suspended: boolean
+}
+
 export interface FleetTopology {
   agents: AgentState[]
   edges: Edge[]
   aggregateRisk: RiskSummary
   cascadeHistory: CascadeEvent[]
+  nodes?: NodeMetrics[]
+  podPhaseCounts?: PodPhaseCounts
+  fluxStatus?: FluxStatus
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────

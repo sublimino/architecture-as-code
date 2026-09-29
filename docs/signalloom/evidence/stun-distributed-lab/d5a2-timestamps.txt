@@ -1,0 +1,7 @@
+precheck 23:42:10.988705815 cgroup=populated 1 frozen 1 
+partition_insert_bidirectional 23:42:11.074568418
+probe_B_to_api 000FAIL
+labels_removed_via_api 23:42:13.198047707
+during_partition_check 23:42:58.271077497 cgroup=populated 1 frozen 1  node_ready=Unknown
+heal 23:42:58.383177293
+post_heal_check 23:44:13.510589137 cgroup=populated 1 frozen 1 

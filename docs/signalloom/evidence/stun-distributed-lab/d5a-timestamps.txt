@@ -1,0 +1,8 @@
+partition_insert 23:40:01.267144841
+probe_B_to_api 000FAIL
+probe_A_to_api 200
+labels_removed_via_api 23:40:03.493859603
+api_labels {"app":"kusari-agent","pod-template-hash":"59679655c4","signalloom.ai/agent":"true"}
+during_partition_check 23:40:48.582613053 node_ready=True cgroup=populated 1 frozen 1 
+heal 23:40:48.701840005
+post_heal_check 23:41:48.758700339 cgroup=populated 1 frozen 1  node_ready=True

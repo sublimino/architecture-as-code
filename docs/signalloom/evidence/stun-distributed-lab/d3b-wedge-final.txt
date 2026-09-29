@@ -1,0 +1,6 @@
+at 23:46:07.494209261
+kusari-agent-59679655c4-fbsvn e35aade2-e5be-4be8-b2b2-7326e8f5822b osramp-dist-worker2 Running 
+2026-09-29T22:36:47Z   kusari-agent-59679655c4         SuccessfulCreate       Created pod: kusari-agent-59679655c4-t7mtk
+2026-09-29T22:36:47Z   kusari-agent-59679655c4-t7mtk   Scheduled              Successfully assigned fe-signalloom-agents/kusari-agent-59679655c4-t7mtk to osramp-dist-worker2
+2026-09-29T22:37:12Z   kusari-agent-59679655c4         SuccessfulCreate       Created pod: kusari-agent-59679655c4-5g9bb
+2026-09-29T22:37:12Z   kusari-agent-59679655c4-5g9bb   Scheduled              Successfully assigned fe-signalloom-agents/kusari-agent-59679655c4-5g9bb to osramp-dist-worker2

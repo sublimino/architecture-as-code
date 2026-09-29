@@ -26,10 +26,20 @@ const (
 	stunnedValue         = "stunned"
 	watchNamespace       = "fe-signalloom-agents"
 	defaultCgroupRoot    = "/sys/fs/cgroup"
+	informerResync       = 30 * time.Second
 )
 
-func isPodStunned(pod *corev1.Pod) bool {
-	if pod == nil || pod.Labels == nil {
+// ownerStunLookup answers the fourth stun term: does the pod's controller
+// chain (ReplicaSet -> Deployment) carry signalloom.io/stunned=true?
+type ownerStunLookup interface {
+	ownerStunned(*corev1.Pod) bool
+}
+
+// isPodStunned ORs the three pod labels and, when owners is non-nil, the
+// owner-chain stun record. Labels are checked first: no API call for a pod
+// that is already labelled.
+func isPodStunned(pod *corev1.Pod, owners ownerStunLookup) bool {
+	if pod == nil {
 		return false
 	}
 	if pod.Labels[labelStunnedAI] == stunnedValue {
@@ -39,6 +49,9 @@ func isPodStunned(pod *corev1.Pod) bool {
 		return true
 	}
 	if pod.Labels[labelContainmentMode] == "frozen" {
+		return true
+	}
+	if owners != nil && owners.ownerStunned(pod) {
 		return true
 	}
 	return false
@@ -106,6 +119,9 @@ func (c *controller) processNextWorkItem() bool {
 		return true
 	}
 	if !exists { // Pod deletion ends the cgroup and host veth lifecycle.
+		if f, ok := c.reconciler.(interface{ forget(string) }); ok {
+			f.forget(key)
+		}
 		c.queue.Forget(key)
 		return true
 	}
@@ -127,9 +143,12 @@ type stunReconciler struct {
 	freezer        *cgroupFreezer
 	tc             *tcDropFilter
 	probes         *probePreserver
+	kernel         *kernelPublisher // nil: kernel state is not published
 	dryRun         bool
 	reconcileCount *atomic.Int64
 }
+
+func (r *stunReconciler) forget(key string) { r.kernel.forget(key) }
 
 func newStunReconciler(freezer *cgroupFreezer, tc *tcDropFilter, probes *probePreserver) *stunReconciler {
 	if probes == nil {
@@ -154,7 +173,16 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		return fmt.Errorf("resolve cgroup: %w", err)
 	}
 
-	if isPodStunned(pod) {
+	// Kernel truth FIRST, before any veth/tc work: it must publish even while
+	// the veth step fails.
+	var owners ownerStunLookup
+	if r.kernel != nil {
+		owners = r.kernel
+	}
+	stunned := isPodStunned(pod, owners)
+	r.kernel.publish(pod, cgroupPath, stunned)
+
+	if stunned {
 		if err := r.freezer.freeze(cgroupPath); err != nil {
 			return fmt.Errorf("freeze: %w", err)
 		}
@@ -241,6 +269,9 @@ func main() {
 
 	reconcileCount := &atomic.Int64{}
 	healthSrv := newHealthServer(cfg.HealthAddr, cfg.DryRun, cfg.CgroupRoot, reconcileCount)
+	// Set once the clientset exists; read concurrently by /metrics.
+	var kernelRef atomic.Pointer[kernelPublisher]
+	healthSrv.frozenUnlabelled = func() int { return kernelRef.Load().frozenUnlabelledCount() }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -298,7 +329,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	factory := informers.NewSharedInformerFactoryWithOptions(clientset, 30*time.Second,
+	reconciler.kernel = newKernelPublisher(clientsetAPI{cs: clientset}, informerResync, cfg.DryRun)
+	kernelRef.Store(reconciler.kernel)
+
+	factory := informers.NewSharedInformerFactoryWithOptions(clientset, informerResync,
 		informers.WithNamespace(cfg.WatchNamespace),
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) { options.LabelSelector = "signalloom.ai/agent=true" }),
 	)

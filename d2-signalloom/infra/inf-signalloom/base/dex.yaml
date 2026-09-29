@@ -162,7 +162,7 @@ spec:
         #     is the single largest source of the error page this hash exists to
         #     keep working.
         signalloom.ai/dex-origin: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}
-        signalloom.ai/dex-config-sha: "276891c421b48360bd29284aaa786680572cf464087543ca962e249efe3f9cb7"
+        signalloom.ai/dex-config-sha: "d3cf0dfc645cba5b5048314fa93f600fc0a2b35000bf600d1060c084b3f65670"
         signalloom.ai/dex-ui-sha: "eb11147f7fc82987b22a0d4632a5767fe8767d8ab47880860af3f9abe0643584"
       labels:
         app.kubernetes.io/name: dex

@@ -1,0 +1,182 @@
+{
+  "artifact": "slms-p5-preflight-facts",
+  "phase": "P5",
+  "card": "SLMS-P5-PRE",
+  "title": "Phase 5 Pre-Flight Check: Settings Connectors, Framework Toggles, Typography Baseline & Playwright Setup Audit",
+  "generated": "2026-09-29T10:10:00+01:00",
+  "role_boundary": "audit and pre-flight verification only; no Phase 5 production deliverables modified",
+  "repository": {
+    "worktree": "/home/andy/src/.worktrees/b6c7e/osramp-demo",
+    "base_ref": "refs/heads/integration/slms-v0.1.0",
+    "base_commit_sha": "e4d148d6e8cd52cef2e01a44446b5c0718707e4b",
+    "current_commit_sha": "e4d148d6e8cd52cef2e01a44446b5c0718707e4b",
+    "is_ancestor_of_base_ref": true,
+    "working_tree_clean": true
+  },
+  "connectors_architecture_audit": {
+    "client_path": "d2-signalloom/apps/dashboard-signalloom/src/api/connectorsClient.ts",
+    "vite_connectors_api_mode_default": "mock",
+    "env_var_toggle": "VITE_CONNECTORS_API_MODE",
+    "live_mode_endpoints": [
+      "GET /api/connectors/providers",
+      "GET /api/connectors",
+      "POST /api/connectors",
+      "DELETE /api/connectors/{id}",
+      "POST /api/connectors/{id}/test"
+    ],
+    "mock_providers": [
+      {
+        "id": "ad_entra",
+        "name": "Microsoft Entra ID"
+      },
+      {
+        "id": "okta",
+        "name": "Okta"
+      },
+      {
+        "id": "openai",
+        "name": "OpenAI"
+      },
+      {
+        "id": "google_workspace",
+        "name": "Google Workspace"
+      },
+      {
+        "id": "aws_iam",
+        "name": "AWS IAM"
+      },
+      {
+        "id": "gcp_iam",
+        "name": "GCP IAM"
+      }
+    ],
+    "backend_routers_dir": "d2-signalloom/apps/fe-signalloom/src/routers/",
+    "routers_connectors_present": false,
+    "main_py_registered": false,
+    "database_support": {
+      "tenant_settings_table_present": true,
+      "tenant_connectors_state_present": false,
+      "p5_1_work_item": "Implement routers/connectors.py in fe-signalloom, register in main.py, and connect tenant settings / discovery dynamic filtering"
+    }
+  },
+  "compliance_framework_toggles_audit": {
+    "patch_endpoint": "PATCH /tenant/settings/frameworks",
+    "handler_location": "d2-signalloom/apps/fe-signalloom/src/api_compat.py:6878",
+    "request_schema": "FrameworksPatchRequest(selected_frameworks: list[str])",
+    "active_compliance_frameworks": [
+      {
+        "id": "eu-ai-act",
+        "code": "EU_AI_ACT",
+        "display_name": "EU AI Act"
+      },
+      {
+        "id": "nist-800-53",
+        "code": "NIST_SP_800_53",
+        "display_name": "NIST 800-53"
+      },
+      {
+        "id": "dora",
+        "code": "DORA",
+        "display_name": "DORA"
+      },
+      {
+        "id": "nis2",
+        "code": "NIS2",
+        "display_name": "NIS2"
+      },
+      {
+        "id": "cyber-resilience-act",
+        "code": "CRA",
+        "display_name": "Cyber Resilience Act"
+      },
+      {
+        "id": "finos-ai-governance-framework",
+        "code": "FINOS_AIGF",
+        "display_name": "FINOS AI Governance Framework"
+      }
+    ],
+    "compliance_view_sync": "views/Compliance.tsx filters frameworks by selected_frameworks from settings; views/Settings.tsx renders toggles for each framework"
+  },
+  "typography_emdash_baseline_audit": {
+    "grep_command": "cd d2-signalloom/apps/dashboard-signalloom && grep -ro '\u2014' src --exclude='*.test.*'",
+    "total_emdash_count": 1305,
+    "total_endash_count": 9,
+    "typescript_source_emdash_count": 1278,
+    "total_files_with_emdash": 140,
+    "inventory_file": "docs/signalloom/evidence/slms-p5-emdash-inventory.tsv",
+    "inventory_sha256": "e2da75698133c16d5a0bdba056df40dffce4123cf88eefdadd88559e397429cf",
+    "top_10_highest_count_files": [
+      {
+        "file": "src/pages/DesignSystemPage.tsx",
+        "count": 68
+      },
+      {
+        "file": "src/pages/SuperCredPage.tsx",
+        "count": 64
+      },
+      {
+        "file": "src/pages/CredentialInventoryPage.tsx",
+        "count": 58
+      },
+      {
+        "file": "src/pages/DesignSystemHeadersPage.tsx",
+        "count": 46
+      },
+      {
+        "file": "src/pages/NetworkTestsPage.tsx",
+        "count": 43
+      },
+      {
+        "file": "src/components/SuperCredInstructorPanel.tsx",
+        "count": 42
+      },
+      {
+        "file": "src/components/demos/bridge.ts",
+        "count": 41
+      },
+      {
+        "file": "src/pages/CryptographyPage.tsx",
+        "count": 40
+      },
+      {
+        "file": "src/pages/RbacExplorerPage.tsx",
+        "count": 39
+      },
+      {
+        "file": "src/components/StreamingLogBlock.tsx",
+        "count": 31
+      }
+    ]
+  },
+  "playwright_audit": {
+    "config_path": "test/acceptance/playwright.config.ts",
+    "spec_registry_path": "test/acceptance/SPEC-REGISTRY.tsv",
+    "total_specs_in_registry": 37,
+    "active_wired_specs": 33,
+    "unwired_specs": [
+      "cluster.spec.ts",
+      "dashboard-journey.spec.ts",
+      "supercred-live-pages.spec.ts",
+      "supercred-page.spec.ts"
+    ],
+    "total_discovered_tests": 147,
+    "total_discovered_test_files": 31,
+    "browser_environment": {
+      "firefox_available": true,
+      "firefox_version": "Mozilla Firefox 140.16.0esr",
+      "chrome_binary_present": true,
+      "chrome_path": "/opt/google/chrome/chrome"
+    }
+  },
+  "baseline_test_results": {
+    "settings_vitest": {
+      "command": "cd d2-signalloom/apps/dashboard-signalloom && bun run test -- --run src/views/Settings.test.tsx",
+      "passed": 16,
+      "failed": 0,
+      "status": "PASS",
+      "exit_code": 0
+    }
+  },
+  "status": "PASS",
+  "proceed": "yes"
+}

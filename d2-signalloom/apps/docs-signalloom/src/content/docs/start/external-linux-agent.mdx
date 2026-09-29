@@ -240,6 +240,39 @@ curl -sS -X POST "https://dashboard.osramp.acme.local/api/v1/external-agents/reg
 
 Revocation takes effect immediately: subsequent audit upload attempts from the host are rejected with `403 Forbidden`, and a `revocation` audit event is published to the agent timeline.
 
+---
+
+## 7. Running the Sensor on Your Local Machine
+
+Developers and security teams can run the workstation sensor directly on local Linux workstations to monitor autonomous coding sessions (such as Claude Code, Antigravity CLI, Cline, or Cursor):
+
+### Direct CLI Observation Mode
+Run a one-off telemetry collection against an active local process:
+
+```bash
+cd d2-signalloom/apps/agentmaxxing-host-sensor
+
+# Collect process, socket, and cgroup telemetry for a running agent PID
+python3 cli.py collect --pid <AGENT_PID> --extended --pretty
+```
+
+### Background Host Monitoring
+To monitor local developer sessions continuously, configure the sensor as a systemd service:
+
+```bash
+# 1. Install the hardened systemd unit
+sudo cp agentmaxxing-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# 2. Start the background sensor daemon
+sudo systemctl enable --now agentmaxxing-agent.service
+
+# 3. Verify telemetry output in the system journal
+journalctl -u agentmaxxing-agent -f
+```
+
+The sensor automatically classifies coding agent processes, correlates git worktree modifications with local Kanban tasks, and streams privacy-preserving `codingagent.v1` telemetry to the central Signal Loom platform.
+
 ## Related Documentation
 
 - [AgentMaxxing Interactive Demo Console](/docs/demos/agentmaxxing/): Interactive five-stage laboratory demonstrating token issuance, Ed25519 enrollment, Landlock telemetry, tamper injection, and attributable revocation.

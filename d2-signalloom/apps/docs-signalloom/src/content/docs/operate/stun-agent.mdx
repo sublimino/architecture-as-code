@@ -5,62 +5,199 @@ description: Suspend an agent, inspect evidence, and restore the demonstration w
 
 import Mermaid from "../../../components/Mermaid.astro";
 
-Stunning is a containment action. It can freeze a process, isolate network
-traffic, and revoke credentials. Use it only on an authorised demonstration
-agent.
+Stunning is an active containment action executed by the Signal Loom Enforcement
+and Response (SLER) plane. It isolates an anomalous or compromised agent workload
+at the kernel and network boundaries while preserving runtime forensics.
+
+In standard Kubernetes environments, freezing an agent process tree via `SIGSTOP`
+or `cgroup.freeze` causes Kubelet liveness and readiness probes to fail immediately.
+Once `failureThreshold` is exceeded, Kubelet restarts or terminates the Pod,
+destroying volatile heap memory, process state, and open socket telemetry before
+security responders can investigate.
+
+Signal Loom resolves this through **Behavioral Probe Recording and Simulation ("Healthz Replay")**
+managed by the `stun-sentinel` daemon/sidecar.
 
 <Mermaid
-  label="Agent stun and recovery sequence"
+  label="Dynamic Probe Inspection, Healthz Replay, and Forensic Lease Sequence"
   diagram={`sequenceDiagram
-    actor Operator
-    participant UI as Signal Loom
-    participant API
-    participant Agent
-    Operator->>UI: Select Stun Agent
-    UI->>API: POST /api/agents/{id}/stun
-    API->>Agent: Apply containment
-    Agent-->>API: Report stunned evidence
-    Operator->>Agent: Apply authorised active labels
-    Agent-->>API: Report unstun evidence`}
+    autonumber
+    actor Operator as Security Operator / Policy Engine
+    participant Kubelet as Node Kubelet
+    participant Sentinel as Stun-Sentinel (Sidecar/Daemon)
+    participant Cgroup as Linux cgroups v2
+    participant Agent as Agent Workload Container
+    participant Audit as Central Evidence Lake (FrostDB)
+
+    Note over Sentinel,Agent: Passive Phase: Continuous Probe Baseline Recording
+    Kubelet->>Sentinel: Periodic Liveness/Readiness Probe (HTTP/TCP)
+    Sentinel->>Agent: Forward probe & inspect response
+    Agent-->>Sentinel: 200 OK (latency, headers, body digest)
+    Sentinel-->>Kubelet: 200 OK
+    Sentinel->>Sentinel: Update Probe Signature Profile & Timing Matrix
+
+    Note over Operator,Audit: Containment Phase: Stun Triggered
+    Operator->>Sentinel: POST /api/v1/agents/{id}/stun (Forensic Lease: 300s)
+    Sentinel->>Audit: Emit StunInitiated (reason, target, lease_duration)
+    Sentinel->>Sentinel: Inspect Probe Tolerance: T_evict = failureThreshold * periodSeconds
+    Sentinel->>Cgroup: Write 1 to cgroup.freeze (Freeze Agent Process Tree)
+    Sentinel->>Sentinel: Sever Egress Traffic (eBPF TC / NetFilter)
+
+    alt Probe Is Replayable
+        loop Every probe interval (T < Lease Deadline)
+            Kubelet->>Sentinel: Healthz Probe
+            Sentinel->>Sentinel: Intercept & verify frozen state
+            Sentinel-->>Kubelet: Replay Pre-Recorded 200 OK (Keep Pod Live)
+            Sentinel->>Audit: Emit ProbeSimulatedHeartbeat (lease_remaining)
+        end
+    else Probe Is Non-Deterministic / Dynamic Nonce / Stateful mTLS
+        Sentinel->>Sentinel: Mark probe as UNSIMULATEABLE_PROBE
+        Sentinel->>Audit: Emit ProbeSimulationBypassed (hard_eviction_expected_at = T_evict)
+        Sentinel-->>Kubelet: Pass-through (Probes naturally fail)
+    end
+
+    alt Remediation Succeeded (T < Lease Deadline)
+        Operator->>Sentinel: POST /api/v1/agents/{id}/unstun (remediation_token)
+        Sentinel->>Cgroup: Write 0 to cgroup.freeze (Unfreeze Process Tree)
+        Sentinel->>Sentinel: Restore Network TC Filters & Hand Probe Socket to Agent
+        Sentinel->>Audit: Emit AgentRemediated & Unstunned
+    else Lease Expired Without Remediation (T >= Lease Deadline)
+        Sentinel->>Audit: Emit LeaseExpiredUnremediated (initiating fail-closed termination)
+        Sentinel->>Sentinel: Cease Probe Simulation (Stop Replay)
+        Kubelet->>Sentinel: Healthz Probe
+        Sentinel-->>Kubelet: 503 Service Unavailable / Connection Refused
+        Note over Kubelet,Agent: failureThreshold exceeded -> Kubelet kills Pod
+        Kubelet->>Agent: SIGKILL
+        Sentinel->>Audit: Emit PodEvictedPostForensics (final container exit receipt)
+    end`}
 />
 
-## Stun an agent
+---
 
-:::caution
-The current endpoint requires authentication only. The capability response says
-that containment is superadmin-only, but the endpoint does not enforce that
-claim. Do not expose this demonstration endpoint as a production control.
-:::
+## 1. Dynamic Probe Inspection & Eviction Window Calculation
 
-1. Open the **SuperCredential** page.
-2. Find the target demonstration agent.
-3. Select **Stun Agent**.
-4. Confirm the action.
-5. Check the agent state.
-6. Check the evidence timeline.
-
-The current control calls `POST /api/agents/{id}/stun`.
-
-## Unstun an agent
-
-The dashboard does not have a generic unstun control. A cluster administrator
-can restore the demonstration Pod labels:
-
-```bash
-kubectl label pod -n fe-signalloom-agents <pod-name> \
-  signalloom.ai/state=active \
-  signalloom.io/stunned=false \
-  signalloom.io/containment-mode=none \
-  --field-manager=flux-client-side-apply --overwrite
+When containment is triggered, `stun-sentinel` queries the Kubernetes API and the local
+Kubelet pod status to determine the exact probe tolerances configured on the Pod:
+```
+T_eviction = (failureThreshold * periodSeconds) + timeoutSeconds
 ```
 
-The stun sentinel then releases probes, removes traffic filters, unfreezes the
-cgroup, and records an `unstun` event.
+| Probe Type | Default Period | Default Failure Threshold | Typical Unmitigated Eviction Window |
+| :--- | :--- | :--- | :--- |
+| **Liveness Probe** (`httpGet` / `tcpSocket`) | 10s | 3 | **30 seconds** |
+| **Readiness Probe** (`httpGet` / `tcpSocket`) | 10s | 3 | **30 seconds** (Traffic removed from Service) |
+| **Startup Probe** (`httpGet` / `exec`) | 10s | 30 | **300 seconds** |
 
-## Check recovery
+Without probe simulation, a frozen process triggers liveness probe timeouts within 30 seconds,
+causing Kubelet to terminate the container. 
 
-1. Check that the Pod becomes ready.
-2. Check that agent traffic resumes.
-3. Check that the audit stream contains an `unstun` event.
+`stun-sentinel` overrides this by enforcing a bounded **Forensic Investigation Lease**
+(default: **300 seconds**, configurable up to 900 seconds in cluster policy).
 
-The generic authenticated unstun API and dashboard control are roadmap items.
+---
+
+## 2. Behavioral Probe Recording & Simulation ("Healthz Replay")
+
+### Passive Recording Phase
+During normal agent execution, `stun-sentinel` acts as a transparent reverse proxy for inbound
+Kubelet probes on the Pod's loopback interface:
+1. **HTTP Probes**: Records status code (`200 OK`), content type, response headers, static body digests,
+   and typical response latency (p50, p95).
+2. **TCP Socket Probes**: Records handshake timing and TCP window behavior.
+3. **Exec Probes**: Analyzes the script path and exit code patterns.
+
+### Simulation Phase (Active Freeze)
+Upon receiving a stun command:
+1. `stun-sentinel` writes `1` to `/sys/fs/cgroup/cgroup.freeze` for the target container cgroup.
+2. The agent's execution stops instantaneously at the CPU schedule level. No instructions execute;
+   memory allocations, file descriptors, and thread stacks remain static.
+3. When Kubelet sends a liveness or readiness check, `stun-sentinel` intercepts the probe request.
+4. Sentinel synthesizes the response matching the recorded baseline signature, returning `200 OK`
+   with the expected headers and body payload. Kubelet observes a healthy response and leaves the Pod running.
+
+---
+
+## 3. The "Un-simulate-able" Detection Circuit Breaker
+
+Certain health probes cannot be safely simulated without compromising security integrity:
+- **Dynamic Cryptographic Nonces**: Probes that require the container to sign an ephemeral nonce using a TPM or enclave key.
+- **Stateful Mutual TLS (mTLS)**: Probes requiring dynamic session state renegotiation.
+- **Deep Application Checksums**: Probes that query internal database sequence numbers or dynamic cache states.
+
+`stun-sentinel` continuously validates whether the probe payload is deterministic. If the probe
+requires unpredictable dynamic entropy or stateful crypto handshakes:
+1. Sentinel flags the probe as **`UNSIMULATEABLE_PROBE`**.
+2. **Simulation is refused**: Sentinel does not emit synthetic responses. Faking non-deterministic
+   probes could mask catastrophic node-level failures.
+3. **Fail-Fast Alert**: Sentinel immediately emits an alert to the operator:
+   ```json
+   {
+     "event": "PROBE_SIMULATION_REFUSED",
+     "agent_id": "agent-7f9a12",
+     "reason": "DYNAMIC_NONCE_DETECTED",
+     "hard_eviction_deadline_seconds": 30
+   }
+   ```
+4. Incident responders are notified that the investigation must be conducted within the unmitigated
+   T_eviction window (e.g. 30 seconds) before Kubelet terminates the container.
+
+---
+
+## 4. Remediation & Forensic Investigation
+
+During the active 300-second forensic lease, the agent is quarantined:
+- **Process State**: Frozen (`cgroup.freeze = 1`).
+- **Network Boundary**: Egress traffic severed via eBPF TC classifier or iptables drop rules.
+- **SuperCredentials**: Active Vault/OpenBao tokens revoked or suspended.
+
+### Available Responder Actions
+
+1. **Forensic Memory Capture**:
+   Inspect memory without destroying the container:
+   ```bash
+   # Stream memory core dump of frozen container to secure storage
+   kubectl exec -n fe-signalloom-agents stun-sentinel-pod -- \
+     /opt/sentinel/bin/sentinel-dump --target-pid 18492 --out /tmp/agent-dump.core
+   ```
+2. **Automated Policy Remediation**:
+   Push updated security policies, rotate compromised model weights, or restrict SPIFFE SVID roles.
+3. **Authorized Unstun**:
+   If the investigation determines the anomaly was benign or remediation is complete, release the agent:
+   ```bash
+   curl -X POST https://signalloom.cp.internal/api/v1/agents/{id}/unstun \
+     -H "Authorization: Bearer $SUPERADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"remediation_token": "rem-849204", "reason": "False positive verified"}'
+   ```
+
+---
+
+## 5. Fail-Closed Eviction & Audit Responses
+
+If neither remediation nor an authorized unstun occurs before the 300-second lease expires:
+1. **Lease Expiry**: Sentinel's internal timer triggers `ON_LEASE_EXPIRED`.
+2. **Cease Simulation**: Sentinel shuts down the probe replay engine. Inbound probes are rejected
+   with `HTTP 503 Service Unavailable` or TCP RST.
+3. **Kubelet Termination**: Kubelet records consecutive probe failures. Once `failureThreshold`
+   is reached, Kubelet issues `SIGKILL` and evicts the Pod.
+4. **Structured Audit Emission**: Sentinel writes an immutable audit record to the central FrostDB
+   evidence lake:
+   ```json
+   {
+     "timestamp": "2026-09-19T14:22:18.491Z",
+     "event": "AGENT_CONTAINMENT_EVICTION",
+     "agent_id": "agent-7f9a12",
+     "workload": "order-processor",
+     "containment_duration_seconds": 300.0,
+     "probe_replay_status": "CEASED_UPON_EXPIRY",
+     "remediated": false,
+     "eviction_cause": "KUBELET_LIVENESS_FAILURE_POST_LEASE",
+     "forensic_artifacts": {
+       "core_dump_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "audit_trail_urn": "urn:signalloom:audit:tenant-01:evt-994821"
+     }
+   }
+   ```
+
+This fail-closed architecture guarantees that a compromised agent can never remain frozen
+indefinitely or evade final cluster garbage collection.

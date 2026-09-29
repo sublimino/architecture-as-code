@@ -35,7 +35,8 @@ export default defineConfig({
             { label: "Containment & response runbook", slug: "operate/containment-runbook" },
             { label: "Formal verification of Kubernetes RBAC", slug: "operate/rbac-formal-analysis" },
             { label: "CPAI runtime proxy configuration", slug: "operate/cpai-runtime-proxy" },
-            { label: "CNCF Kagent declarative agent swarms", slug: "operate/kagent-declarative-swarms" }
+            { label: "CNCF Kagent declarative agent swarms", slug: "operate/kagent-declarative-swarms" },
+            { label: "On-demand environment routing", slug: "operate/environment-routing" }
           ]
         },
         {
@@ -72,6 +73,7 @@ export default defineConfig({
             { label: "External agent wire contracts", slug: "reference/external-agent-wire-contracts" },
             { label: "Inference provider CIDR ranges", slug: "reference/inference-provider-ranges" },
             { label: "Lawful basis & GDPR assessment", slug: "reference/lawful-basis-assessment" },
+            { label: "Platform guarantee matrix", slug: "reference/platform-guarantee-matrix" },
             { label: "Current limits and roadmap", slug: "reference/roadmap" },
             { label: "Glossary", slug: "reference/glossary" },
             { label: "Documentation rules", slug: "reference/documentation-rules" }

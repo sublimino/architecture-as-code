@@ -252,3 +252,54 @@ class TestKernelTelemetryFromKernelState:
     def test_active_row_with_unknown_kernel_has_no_telemetry(self) -> None:
         resp = _agent_response_from_row(_row("active"), _compliance(), discovered_overlay=None)
         assert resp.kernel_telemetry is None
+
+
+class TestTrafficControlOnlyFromDiscovery:
+    """traffic_control_state and sentinel_drop_count come from discovered data
+    or nowhere. They were 'drop' and 142 whenever the lifecycle said stunned."""
+
+    def test_stunned_without_tc_observation_has_no_drop_count(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", kernel_state=None, stunned_at="2026-09-01T00:00:00Z"),
+            tenant_id="tenant-a",
+        )
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "unknown"
+        assert t.sentinel_drop_count is None
+        assert t.source == "unavailable"
+
+    def test_suspended_row_without_tc_observation_has_no_drop_count(self) -> None:
+        t = _agent_response_from_row(_row("suspended"), _compliance(), discovered_overlay=None).kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "unknown"
+        assert t.sentinel_drop_count is None
+
+    def test_discovered_tc_and_drop_count_pass_through(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(state="stunned", stunned_at="2026-09-01T00:00:00Z",
+                  traffic_control_state="drop", sentinel_drop_count=7),
+            tenant_id="tenant-a",
+        )
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "drop"
+        assert t.sentinel_drop_count == 7
+
+    def test_discovered_drop_without_a_count_is_not_filled_in(self) -> None:
+        resp = _agent_response_from_discovered(
+            _disc(traffic_control_state="drop"), tenant_id="tenant-a",
+        )
+        t = resp.kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "drop"
+        assert t.sentinel_drop_count is None
+
+    def test_row_overlay_tc_passes_through(self) -> None:
+        overlay = _disc(kernel_state=None, traffic_control_state="allow", sentinel_drop_count=0)
+        t = _agent_response_from_row(_row("active"), _compliance(), discovered_overlay=overlay).kernel_telemetry
+        assert t is not None
+        assert t.traffic_control_state == "allow"
+        assert t.sentinel_drop_count == 0
+        assert t.cgroup_state == "unknown"
+        assert t.source == "unavailable"

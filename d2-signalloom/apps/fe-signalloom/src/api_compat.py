@@ -1992,23 +1992,35 @@ def _kernel_view(discovered: dict[str, Any] | None, stunned: bool) -> dict[str, 
     }
 
 
-def _kernel_telemetry(kernel: dict[str, Any], containment_requested: bool) -> SentinelKernelTelemetry | None:
-    """Sentinel telemetry built only from the kernel view.
+def _kernel_telemetry(
+    kernel: dict[str, Any],
+    containment_requested: bool,
+    discovered: dict[str, Any] | None = None,
+) -> SentinelKernelTelemetry | None:
+    """Sentinel telemetry built only from observations.
 
-    cgroup_state mirrors kernel_state (frozen, thawed, unknown). The sentinel
-    annotation says nothing about traffic control, eBPF attachment, ACKs or
-    drop counts, so those stay unknown or unset rather than being filled in
-    from the lifecycle. Returns None when there is neither an observation nor
-    a containment request to report against.
+    cgroup_state mirrors kernel_state (frozen, thawed, unknown).
+    traffic_control_state and sentinel_drop_count are taken from discovered
+    data when it carries them and are otherwise unknown and None; neither is
+    ever filled in from the lifecycle or from each other. eBPF attachment and
+    ACKs have no source yet and stay unset. Returns None when there is no
+    observation and no containment request to report against.
     """
+    disc = discovered or {}
+    tc_raw = disc.get("traffic_control_state")
+    tc_state = tc_raw if tc_raw in ("drop", "allow") else "unknown"
+    drop_raw = disc.get("sentinel_drop_count")
+    drop_count = drop_raw if isinstance(drop_raw, int) and not isinstance(drop_raw, bool) else None
     kernel_state = kernel["kernel_state"]
-    if kernel_state == "unknown" and not containment_requested:
+    if kernel_state == "unknown" and not containment_requested and tc_state == "unknown" and drop_count is None:
         return None
     observed = kernel["kernel_observed_at"]
     return SentinelKernelTelemetry(
         cgroup_frozen=kernel_state == "frozen",
         cgroup_state={"frozen": "frozen", "running": "thawed"}.get(kernel_state, "unknown"),
-        traffic_control_state="unknown",
+        tc_drop_active=tc_state == "drop",
+        traffic_control_state=tc_state,
+        sentinel_drop_count=drop_count,
         ebpf_active=False,
         ebpf_program_attached=None,
         observed_at=observed,
@@ -2179,6 +2191,7 @@ def _agent_response_from_row(
     telemetry = _kernel_telemetry(
         _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended"),
         containment_requested=is_frozen or canonical_state == "Suspended",
+        discovered=discovered_overlay,
     )
 
     origin_metadata = OriginVerificationMetadata(
@@ -2367,6 +2380,7 @@ def _agent_response_from_discovered(
     telemetry = _kernel_telemetry(
         _kernel_view(discovered, stunned=is_frozen or state in ("stunned", "suspended", "frozen")),
         containment_requested=is_frozen,
+        discovered=discovered,
     )
 
     origin_verified = bool(spiffe_id)

@@ -14,8 +14,16 @@
 #   list   pods   resolvePod()  — fallback by label selector signalloom.ai/agent-name=<short>
 #                 Health()      — Limit:1 probe with selector signalloom.ai/agent=true
 #   patch  pods   SetPodState() — strategic-merge on metadata.labels + .annotations
+#                 setFluxReconcile() — merge patch on one metadata annotation
 #
-# Three verbs. Nothing else. Specifically NOT granted, and why:
+# The gitops plane (kusari-e2e) adds, in the apps group:
+#
+#   get    replicasets  owningDeployment() — pod's controller ReplicaSet
+#   get    deployments  (the patch target is named by the ReplicaSet owner)
+#   patch  deployments  setFluxReconcile() — kustomize.toolkit.fluxcd.io/reconcile
+#                       on metadata only, never spec.template
+#
+# Specifically NOT granted, and why:
 #
 #   watch   — the client polls via Get/List and builds no informer. Granting it
 #             would be forward-looking rather than minimal. If a future card
@@ -31,8 +39,8 @@
 #
 # The authoritative Role and RoleBinding are `fleet-manager-pod-reader`, namespace
 # fe-signalloom-agents, at d2-osramp-fleet/tenants/local/signalloom.yaml:1007-1039.
-# They already grant exactly ["get","list","patch"] on pods — verified against the
-# call sites above, so SLER-P1-1 widened nothing.
+# They grant ["get","list","patch"] on pods plus the apps-group rules above,
+# verified against the call sites by test/fleet-manager-contract.bats.
 #
 # ── Do not move the Role here ────────────────────────────────────────────────
 #

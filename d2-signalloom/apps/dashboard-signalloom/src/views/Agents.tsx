@@ -7,12 +7,14 @@ import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 
-// NOTE: this view is not currently routed — /agents renders pages/AgentsPage.
+// NOTE: this view is not currently routed: /agents renders pages/AgentsPage.
 // It stays on the demo cadence so it cannot drift back if it is ever wired up.
 const POLL_MS = LIVE_POLL_MS
 
+export const LIFECYCLE_OPTIONS = ['all', 'Governed', 'Suspended', 'Revoked'] as const
+
 function fmtDate(iso: string | null) {
-  if (!iso) return '—'
+  if (!iso) return 'N/A'
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
@@ -45,7 +47,7 @@ function AgentCard({ agent }: { agent: AgentPosture }) {
               {agent.posture_score}%
             </span>
           ) : (
-            <span style={{ color: 'var(--muted)', fontSize: 13 }}>—</span>
+            <span style={{ color: 'var(--muted)', fontSize: 13 }}>N/A</span>
           )}
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>posture</div>
         </div>

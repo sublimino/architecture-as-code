@@ -2,9 +2,13 @@ interface Props {
   status: string
   variant?: 'lifecycle' | 'risk' | 'privilege' | 'violation' | 'compliance' | 'nhi'
     | 'credential' | 'crypto' | 'provenance' | 'federation'
-  /** Hover text — used where the badge is a claim that owes its provenance. */
+  /** Hover text: used where the badge is a claim that owes its provenance. */
   title?: string
   testId?: string
+  /** Whether eBPF kernel enforcement / process freeze is active. */
+  isFrozen?: boolean
+  ebpfEnforced?: boolean
+  lockIcon?: boolean
 }
 
 type ColorMap = Record<string, { bg: string; border: string; color: string }>
@@ -25,10 +29,17 @@ export function tint(cssVar: string, opacity: number) {
 }
 
 const LIFECYCLE: ColorMap = {
-  enrolled:  { bg: tint(VAR.cyan, 0.12),  border: tint(VAR.cyan, 0.25),  color: VAR.cyan },
-  active:    { bg: tint(VAR.teal, 0.12),  border: tint(VAR.teal, 0.25),  color: VAR.teal },
+  Governed:  { bg: tint(VAR.teal, 0.12),  border: tint(VAR.teal, 0.25),  color: VAR.teal },
+  governed:  { bg: tint(VAR.teal, 0.12),  border: tint(VAR.teal, 0.25),  color: VAR.teal },
+  Suspended: { bg: tint(VAR.amber, 0.12), border: tint(VAR.amber, 0.25), color: VAR.amber },
   suspended: { bg: tint(VAR.amber, 0.12), border: tint(VAR.amber, 0.25), color: VAR.amber },
+  Revoked:   { bg: tint(VAR.error, 0.12), border: tint(VAR.error, 0.25), color: VAR.error },
   revoked:   { bg: tint(VAR.error, 0.12), border: tint(VAR.error, 0.25), color: VAR.error },
+  enrolled:       { bg: tint(VAR.cyan, 0.12),  border: tint(VAR.cyan, 0.25),  color: VAR.cyan },
+  registered:     { bg: tint(VAR.cyan, 0.12),  border: tint(VAR.cyan, 0.25),  color: VAR.cyan },
+  active:         { bg: tint(VAR.teal, 0.12),  border: tint(VAR.teal, 0.25),  color: VAR.teal },
+  stunned:        { bg: tint(VAR.amber, 0.12), border: tint(VAR.amber, 0.25), color: VAR.amber },
+  decommissioned: { bg: tint(VAR.error, 0.12), border: tint(VAR.error, 0.25), color: VAR.error },
 }
 
 const RISK: ColorMap = {
@@ -144,10 +155,47 @@ export function getStatusColor(status: string, variant?: string): { bg: string; 
   return { bg: tint(VAR.slateGray, 0.15), border: 'transparent', color: VAR.muted }
 }
 
-export default function StatusBadge({ status, variant, title, testId }: Props) {
+export default function StatusBadge({
+  status,
+  variant,
+  title,
+  testId,
+  isFrozen,
+  ebpfEnforced,
+  lockIcon,
+}: Props) {
   const { bg, border, color } = getStatusColor(status, variant)
+  const isSuspendedOrStunned = status.toLowerCase() === 'suspended' || status.toLowerCase() === 'stunned'
+  const showLock = lockIcon ?? (isFrozen || ebpfEnforced || (variant === 'lifecycle' && isSuspendedOrStunned && isFrozen !== false && isFrozen !== undefined))
+  const effectiveTitle = title || (showLock ? 'Sentinel eBPF kernel enforcement active: cgroup frozen and network dropped' : undefined)
+
   return (
-    <span className="tag" data-testid={testId} title={title} style={{ background: bg, borderColor: border, color }}>
+    <span
+      className="tag"
+      data-testid={testId}
+      title={effectiveTitle}
+      style={{
+        background: bg,
+        borderColor: border,
+        color,
+        display: showLock ? 'inline-flex' : undefined,
+        alignItems: showLock ? 'center' : undefined,
+        gap: showLock ? 4 : undefined,
+      }}
+    >
+      {showLock && (
+        <svg
+          aria-hidden="true"
+          data-testid="ebpf-lock-icon"
+          viewBox="0 0 24 24"
+          width="11"
+          height="11"
+          fill="currentColor"
+          style={{ flexShrink: 0 }}
+        >
+          <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+        </svg>
+      )}
       {status.replace(/_/g, ' ')}
     </span>
   )

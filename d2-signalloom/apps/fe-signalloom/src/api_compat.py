@@ -1837,6 +1837,30 @@ async def _compliance_summary_for_agent(
     )
 
 
+def _canonical_lifecycle_state(
+    state: str | None,
+    disc_state: str | None = None,
+    stunned_at: Any = None,
+) -> Literal["Governed", "Suspended", "Revoked"]:
+    """Map DB lifecycle_state and discovery signals into canonical 3-stage governance lifecycle:
+    - 'registered', 'enrolled', 'active' -> 'Governed'
+    - 'suspended', 'stunned' (or disc_state in ('stunned', 'frozen') or stunned_at is set) -> 'Suspended'
+    - 'revoked', 'decommissioned' -> 'Revoked'
+    """
+    if stunned_at is not None or disc_state in ("stunned", "frozen"):
+        return "Suspended"
+    if not state:
+        return "Governed"
+    s = str(state).strip().lower()
+    if s in ("registered", "enrolled", "active", "governed", "ready", "running"):
+        return "Governed"
+    if s in ("suspended", "stunned", "frozen"):
+        return "Suspended"
+    if s in ("revoked", "decommissioned", "terminated"):
+        return "Revoked"
+    return "Governed"
+
+
 def _agent_response_from_row(
     row: asyncpg.Record | dict[str, Any],
     compliance: ComplianceSummaryInline | dict[str, Any],
@@ -1852,7 +1876,7 @@ def _agent_response_from_row(
         origin = row.get("type")
     owner = row.get("owner") if isinstance(row, dict) else (row["owner"] if "owner" in row else None)
     tenant_id = str(row["tenant_id"])
-    lifecycle_state = str(row["lifecycle_state"])
+    raw_lifecycle_state = str(row.get("lifecycle_state") if isinstance(row, dict) else (row["lifecycle_state"] if "lifecycle_state" in row else "registered"))
     last_trans_at = row.get("last_transition_at") if isinstance(row, dict) else (row["last_transition_at"] if "last_transition_at" in row else None)
     last_transition_at = _ts(last_trans_at)
     last_transition_by = row.get("last_transition_by") if isinstance(row, dict) else (row["last_transition_by"] if "last_transition_by" in row else None)
@@ -1874,6 +1898,8 @@ def _agent_response_from_row(
     stunned_at = disc.get("stunned_at")
     stun_reason = disc.get("stun_reason")
 
+    canonical_state = _canonical_lifecycle_state(raw_lifecycle_state, disc_state=disc_state, stunned_at=stunned_at)
+
     record_class_val = row.get("record_class") if isinstance(row, dict) else (row["record_class"] if "record_class" in row else None)
     record_class: Literal["registered", "discovered", "resolved", "fixture"] = (
         record_class_val
@@ -1892,7 +1918,7 @@ def _agent_response_from_row(
         model=model,
         execution_mode="autonomous",
         node=node,
-        phase=phase or ("Running" if lifecycle_state in ("active", "ready", "running") else None),
+        phase=phase or ("Running" if canonical_state == "Governed" else None),
     )
 
     spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else (row.get("spiffe_id") if isinstance(row, dict) else (row["spiffe_id"] if "spiffe_id" in row else None))
@@ -1942,14 +1968,14 @@ def _agent_response_from_row(
         assignment_status="assigned" if owner else "unassigned",
     )
 
-    is_frozen = (stunned_at is not None) or (disc_state in ("stunned", "frozen")) or (lifecycle_state == "suspended")
-    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if lifecycle_state == "suspended" else "inactive")
+    is_frozen = (stunned_at is not None) or (disc_state in ("stunned", "frozen")) or (canonical_state == "Suspended") or (raw_lifecycle_state in ("suspended", "stunned"))
+    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if canonical_state == "Suspended" else "inactive")
     network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else "inactive"
     cred_revoked = row.get("credential_revoked") if isinstance(row, dict) else (row["credential_revoked"] if "credential_revoked" in row else False)
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if (cred_revoked or lifecycle_state in ("revoked", "stunned")) else "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if (cred_revoked or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned")) else "inactive"
 
     operational_state = OperationalStateMetadata(
-        runtime_status="running" if (phase == "Running" or lifecycle_state in ("active", "ready", "running")) else ("stopped" if lifecycle_state in ("suspended", "decommissioned") else "degraded"),
+        runtime_status="running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded"),
         containment=ContainmentMeasures(
             process_freeze=process_freeze,
             network_isolation=network_isolation,
@@ -1967,7 +1993,7 @@ def _agent_response_from_row(
         normalized_score=normalized_score,
     )
 
-    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if (compliance.failing > 0 or lifecycle_state in ("error", "failed")) else ("warning" if compliance.pending > 0 else "none")
+    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if (compliance.failing > 0 or raw_lifecycle_state in ("error", "failed")) else ("warning" if compliance.pending > 0 else "none")
     attention = AttentionMetadata(
         level=attention_level,
         highest_issue=f"{compliance.failing} failing controls" if compliance.failing > 0 else None,
@@ -1981,16 +2007,16 @@ def _agent_response_from_row(
     )
 
     cred_state = None
-    if stunned_at or lifecycle_state in ("revoked", "stunned") or cred_revoked:
+    if stunned_at or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned") or cred_revoked:
         rev_reason = row.get("revocation_reason") if isinstance(row, dict) else (row["revocation_reason"] if "revocation_reason" in row else None)
         cred_state = AgentCredentialState(
             status="revoked",
-            reason=stun_reason or rev_reason,
+            reason=stun_reason or rev_reason or ("Agent revoked under governance policy" if canonical_state == "Revoked" else None),
             revoked_at=stunned_at or last_transition_at,
         )
 
     telemetry = None
-    if is_frozen:
+    if is_frozen or canonical_state == "Suspended":
         telemetry = SentinelKernelTelemetry(
             cgroup_state="frozen",
             traffic_control_state="drop",
@@ -2025,7 +2051,7 @@ def _agent_response_from_row(
         origin_verification=origin_metadata,
         owner=owner,
         tenant_id=tenant_id,
-        lifecycle_state=lifecycle_state,
+        lifecycle_state=canonical_state,
         last_transition_at=last_transition_at,
         last_transition_by=last_transition_by,
         eu_ai_act_risk_class=eu_risk,
@@ -2040,7 +2066,7 @@ def _agent_response_from_row(
         phase=phase,
         pod_uid=str(pod_uid) if pod_uid else None,
         framework=framework,
-        state=disc_state or lifecycle_state,
+        state=disc_state or canonical_state,
         record_class=record_class,
         is_registry_linked=is_registry_linked,
         runtime=runtime,
@@ -3313,7 +3339,11 @@ async def agents(
     if effective_state:
         st = effective_state.strip().lower()
         if st != "all":
-            filtered = [a for a in filtered if a.lifecycle_state and a.lifecycle_state.lower() == st]
+            canonical_q = _canonical_lifecycle_state(st).lower()
+            filtered = [
+                a for a in filtered
+                if a.lifecycle_state and (a.lifecycle_state.lower() == st or a.lifecycle_state.lower() == canonical_q)
+            ]
     if spiffe_id:
         sid = spiffe_id.strip().lower()
         filtered = [

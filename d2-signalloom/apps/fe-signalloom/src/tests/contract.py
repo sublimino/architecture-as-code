@@ -224,6 +224,9 @@ class AgentResponse(BaseModel):
     created_at: str | None
     credential_state: AgentCredentialState | None = None
     kernel_telemetry: SentinelKernelTelemetry | None = None
+    kernel_state: Literal["frozen", "running", "unknown"] | None = None
+    kernel_observed_at: str | None = None
+    split_brain: list[str] | None = None
 
     # Workload / Kubernetes preserved discovery fields
     namespace: str | None = None

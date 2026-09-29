@@ -10,10 +10,10 @@ updated: "2026-09-29T10:18:00+01:00"
 ---
 
 ## Problem
-In fe-signalloom, `routers/connectors.py` is absent despite frontend client references in `api/connectorsClient.ts`. The administrative Settings view in `views/Settings.tsx` and `pages/SettingsPage.tsx` requires reconciliation to support connector status, toggling with audit logging, and discovery synchronization. Disabling a connector must dynamically purge its unmanaged workloads from the discovery aggregation table (`/discovery/workloads`). Additionally, `/connectors` legacy redirect to `/federated-services` must be removed and routed to Settings, compliance framework toggles must be harmonized across all 6 frameworks (including DORA and NIS2 placeholders), and a prominent CEL policy editor link to `/policies` must be mounted in Settings.
+In fe-signalloom, `routers/connectors.py` is absent despite frontend client references in `api/connectorsClient.ts`. The administrative Settings view in `views/Settings.tsx` and `pages/SettingsPage.tsx` requires reconciliation to support connector status, toggling with audit logging, and discovery synchronization. Disabling a connector must dynamically purge its unmanaged workloads from the discovery aggregation table (`/discovery/workloads`). The legacy `/connectors` redirect to `/federated-services` is removed. It now routes directly to Settings. Compliance framework toggles are harmonized across all six frameworks. A CEL policy editor link to `/policies` is mounted in Settings.
 
 ## Vision
-An administrator navigating to Settings or `/connectors` experiences an interactive, robust connector management interface (AWS, GCP, Azure, K8s, GitHub) with real-time status and instant toggle capability. Toggling a connector emits an immediate structured audit event (`CONNECTOR_STATUS_CHANGED`), updates the database, and synchronizes with Discovery so unmanaged workloads from disabled connectors are excluded and risk totals recomputed. Framework toggles accurately control all active frameworks, and the CEL policy editor entry point provides clear navigation to Policy-as-Code.
+Administrators navigating to Settings or `/connectors` see an interactive connector management interface. It supports AWS, GCP, Azure, K8s, and GitHub with instant toggle capability. Toggling a connector emits a structured `CONNECTOR_STATUS_CHANGED` audit event. It synchronizes with Discovery to purge unmanaged workloads and recompute risk totals. Framework toggles accurately control all active frameworks. Finally, the CEL policy editor entry point provides clear navigation to Policy-as-Code.
 
 ## Out of Scope
 - Rewriting em-dashes platform-wide (owned by P5-2)
@@ -33,7 +33,7 @@ An administrator navigating to Settings or `/connectors` experiences an interact
 - All test suites must pass: pytest `tests/test_connectors.py`, vitest `Settings.test.tsx`, vitest `SettingsPage.test.tsx`, and `bun run typecheck`.
 
 ## Goal
-Implement `fe-signalloom/src/routers/connectors.py` with full CRUD/toggle/status endpoints and audit logging, register it in `main.py`, update `api_compat.py` discovery filtering, update `api/connectorsClient.ts` and `views/Settings.tsx` with interactive connector management and CEL editor link, update `/connectors` routing in `App.tsx`, and deliver comprehensive passing pytest and vitest suites.
+Implement `fe-signalloom/src/routers/connectors.py` with full CRUD and status endpoints. Register it in `main.py` and update discovery filtering. Deliver passing pytest and vitest suites.
 
 ## Criteria
 - [ ] ISC-1: `fe-signalloom/src/routers/connectors.py` exists and defines `router = APIRouter(tags=["connectors"])`

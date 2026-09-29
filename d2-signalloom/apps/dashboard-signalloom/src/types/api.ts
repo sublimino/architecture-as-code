@@ -957,3 +957,62 @@ export interface AutoclaimNamespaceRequest {
   namespace: string
 }
 
+// ─── Federated Services (Surface 11 / SLMS-P4-1) ────────────────────────────
+
+export interface TrustZone {
+  name: string
+  domain: string
+  clusters: number
+  servers: number
+  status: string
+}
+
+export interface Federation {
+  left: string
+  right: string
+  mode: string
+  policy: string
+  status: string
+}
+
+export interface FederatedService {
+  service: string
+  home: string
+  consumer: string
+  endpoint: string
+  transport: string
+  status: string
+}
+
+export interface AttestationPolicy {
+  name: string
+  selector: string
+  zones: string
+}
+
+export interface SpiffeIdentity {
+  uri: string
+  workload: string
+  ns: string
+  sa: string
+  svid: string
+  expiry: string
+}
+
+export interface FederationEvent {
+  ts: string
+  zone: string
+  event: string
+  detail: string
+  severity: string
+}
+
+export interface FederationSummaryResponse {
+  zones: TrustZone[]
+  federations: Federation[]
+  services: FederatedService[]
+  policies: AttestationPolicy[]
+  identities: SpiffeIdentity[]
+  events: FederationEvent[]
+}
+

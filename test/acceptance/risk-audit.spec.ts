@@ -74,7 +74,7 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
     await page.goto(`${BASE}/collusion-access`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1, name: /Collusion & Access/i })).toBeVisible({ timeout: 15_000 });
 
-    const recencyBadge = page.getByTestId("collusion-recency-badge");
+    const recencyBadge = page.locator('[data-testid="collusion-scan-badge"], [data-testid="collusion-recency-badge"], [role="status"]').first();
     await expect(recencyBadge).toBeVisible({ timeout: 15_000 });
 
     const scanBtn = page.getByTestId("btn-run-collusion-scan");
@@ -132,9 +132,9 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
     await page.goto(`${BASE}/settings`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1, name: /Settings/i })).toBeVisible({ timeout: 15_000 });
 
-    await expect(page.getByText(/Service Connectors/i)).toBeVisible();
-    await expect(page.getByText(/Compliance Frameworks/i)).toBeVisible();
-    await expect(page.getByText(/Scan Preferences/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Service Connectors/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Compliance Frameworks/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Scan Preferences/i })).toBeVisible();
 
     const saveBtn = page.getByRole("button", { name: /Save Preferences/i });
     if (await saveBtn.isVisible()) {

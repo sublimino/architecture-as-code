@@ -12,15 +12,67 @@
  *
  * Execution SLA: Strictly < 90 seconds wall-clock time.
  */
+import { execFileSync } from "node:child_process";
 import { test, expect } from "./fixtures";
 import { login, config } from "./helpers";
 
 const BASE = config.base;
 
 test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
+  test.afterAll(async () => {
+    try {
+      execFileSync(
+        "kubectl",
+        [
+          "-n",
+          "inf-signalloom",
+          "exec",
+          "deploy/postgresql",
+          "--",
+          "psql",
+          "-U",
+          "signalloom",
+          "-d",
+          "signalloom",
+          "-c",
+          "INSERT INTO tenant_onboarding (tenant_id, status, skipped_at) VALUES ('tenant-demo', 'skipped', NOW()) ON CONFLICT (tenant_id) DO UPDATE SET status = 'skipped', skipped_at = NOW();",
+        ],
+        { stdio: "ignore" },
+      );
+    } catch {
+      // Ignore if cluster or postgres is unreachable
+    }
+  });
+
+  test.beforeEach(async () => {
+    try {
+      execFileSync(
+        "kubectl",
+        [
+          "-n",
+          "inf-signalloom",
+          "exec",
+          "deploy/postgresql",
+          "--",
+          "psql",
+          "-U",
+          "signalloom",
+          "-d",
+          "signalloom",
+          "-c",
+          "DELETE FROM tenant_onboarding WHERE tenant_id = 'tenant-demo';",
+        ],
+        { stdio: "ignore" },
+      );
+    } catch {
+      // Ignore if cluster or postgres is unreachable
+    }
+  });
+
   // ─── Group 1: First User Onboarding Wizard ────────────────────────────────
 
   test("user onboarding: skip flow records persistent status and transitions to overview", async ({
+
     page,
   }) => {
     await login(page, { demoMode: true });

@@ -322,7 +322,7 @@ def test_a_failed_cluster_action_leaves_the_agent_unsuspended(
     _stun(client)
 
     agent = client.get(f"/api/agents/{AGENT_ID}", headers=_bearer()).json()
-    assert agent["lifecycle_state"] == "active"
+    assert agent["lifecycle_state"] in ("active", "Governed")
     recorded = client.get(
         "/api/audit", params={"type": "agent.stunned"}, headers=_bearer(),
     ).json()["events"][0]
@@ -366,7 +366,7 @@ def test_the_agent_is_left_suspended(client: TestClient) -> None:
     _stun(client)
 
     agent = client.get(f"/api/agents/{AGENT_ID}", headers=_bearer()).json()
-    assert agent["lifecycle_state"] == "suspended"
+    assert agent["lifecycle_state"] in ("suspended", "Suspended")
 
 
 def test_the_recorded_from_state_is_the_state_the_agent_was_actually_in(

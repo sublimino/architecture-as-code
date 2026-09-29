@@ -375,6 +375,8 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", "/api/agents/00000000-0000-0000-0000-0000000000a1/claim", None),
     ("POST", "/api/v1/agents/autoclaim-discovered", None),
     ("POST", "/api/agents/autoclaim-discovered", None),
+    ("GET", "/api/v1/discovery/workloads", None),
+    ("GET", "/api/discovery/workloads", None),
     ("GET", "/api/audit", None),
     ("GET", "/api/compliance/summary", None),
     ("GET", "/api/compliance/posture", None),
@@ -420,7 +422,13 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
         "/api/agents/00000000-0000-0000-0000-0000000000a1/compliance/ctrl-1/reassess",
         None,
     ),
+    ("POST", "/api/v1/nhi/discovered/00000000-0000-0000-0000-0000000000c1/enroll", None),
     ("POST", "/api/nhi/discovered/00000000-0000-0000-0000-0000000000c1/enroll", None),
+    (
+        "POST",
+        "/api/v1/nhi/discovered/00000000-0000-0000-0000-0000000000c1/dismiss",
+        {"reason": "probe"},
+    ),
     (
         "POST",
         "/api/nhi/discovered/00000000-0000-0000-0000-0000000000c1/dismiss",

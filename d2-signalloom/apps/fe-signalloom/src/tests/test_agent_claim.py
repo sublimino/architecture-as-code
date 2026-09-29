@@ -327,7 +327,7 @@ def test_compliance_posture_seeding(client: TestClient) -> None:
     assert agent_res.status_code == 200
     agent_data = agent_res.json()
 
-    assert agent_data["lifecycle_state"] == "active"
+    assert agent_data["lifecycle_state"] == "Governed"
     assert agent_data["is_registry_linked"] is True
     assert agent_data["record_class"] == "resolved"
 

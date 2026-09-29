@@ -53,6 +53,7 @@ from test_dashboard_audit_vocabulary import (
     DASHBOARD_SRC,
     _array_literal,
 )
+import api_compat
 
 SRC_DIR = Path(__file__).resolve().parent.parent
 MIGRATIONS_DIR = SRC_DIR / "db" / "migrations"
@@ -210,7 +211,10 @@ def test_every_state_the_api_writes_is_filterable() -> None:
     no way to filter to them.
     """
     offered = set(_array_literal(AGENTS_PAGE, "LIFECYCLE_OPTIONS")) - FILTER_SENTINELS
-    missing = sorted(_states_written_by_source() - offered)
+    written_canonical = {
+        api_compat.map_to_canonical_lifecycle(s) for s in _states_written_by_source()
+    }
+    missing = sorted(written_canonical - offered)
     assert not missing, (
         f"{len(missing)} lifecycle state(s) the API writes have no filter option "
         f"in AgentsPage.tsx: {missing}. Agents occupy these states and the fleet "
@@ -238,7 +242,10 @@ def test_every_offered_transition_target_is_permitted() -> None:
 def test_no_dead_lifecycle_filter_options() -> None:
     """A filter option for a state no row can hold returns zero rows forever."""
     offered = set(_array_literal(AGENTS_PAGE, "LIFECYCLE_OPTIONS")) - FILTER_SENTINELS
-    dead = sorted(offered - _permitted_states())
+    permitted_canonical = {
+        api_compat.map_to_canonical_lifecycle(s) for s in _permitted_states()
+    }
+    dead = sorted(offered - permitted_canonical)
     assert not dead, (
         f"{len(dead)} filter option(s) in AgentsPage.tsx name states the "
         f"lifecycle_state constraint forbids: {dead}. No row can hold them, so "

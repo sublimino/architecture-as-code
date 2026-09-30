@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# infra/kind/cluster-signalloom-hub.yaml : SLDC governance hub (kind-signalloom-hub)
+#
+# Consumed by: scripts/dual-cluster-up.sh
+# Tests:       test/dual-cluster-networking.bats
+# Spec:        Proposal (SLDC) Appendix B.2
+#
+# Hosts Envoy Gateway, OpenBao, the SPIRE server and the Signal Loom control
+# plane. It is created on the default `kind` docker network, so the
+# pull-through registry caches stay reachable. dual-cluster-up.sh then attaches
+# the node to signalloom-bridge at 172.19.0.20, which is the address the
+# workload cluster uses for every cross-cluster call.
+#
+# Deviations from B.2 (see the SLDC-P2-1 errata):
+#   * image: pinned to v1.36.1 by digest, matching the workload node. B.2's
+#     v1.31.0 is uncached and outside the kubectl skew policy.
+#   * extraPortMappings bind 127.0.0.1, not B.2's implicit 0.0.0.0. Nothing on
+#     the LAN needs the hub gateway, and a workstation should not publish it.
+#   * kubeProxyMode is pinned to iptables. iptables NodePorts answer on every
+#     local address, including the bridge interface added after creation.
+#     nftables mode defaults nodePortAddresses to the primary IP only, which
+#     would leave 172.19.0.20:<nodePort> dark.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: signalloom-hub
+networking:
+  apiServerAddress: "127.0.0.1"
+  apiServerPort: 34788
+  podSubnet: "10.245.0.0/16"
+  serviceSubnet: "10.97.0.0/16"
+  kubeProxyMode: iptables
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+    extraPortMappings:
+      - containerPort: 31443
+        hostPort: 31443
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 30080
+        hostPort: 30080
+        listenAddress: "127.0.0.1"
+        protocol: TCP

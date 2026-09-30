@@ -101,7 +101,22 @@ test.describe("RBAC Explorer", () => {
     const selector = page.locator('[data-testid="cluster-selector"]');
     const options = await selector.locator("option").allTextContents();
     if (options.length < 2) {
-      test.skip(true, "Only 1 cluster — cannot test switching");
+      // Single cluster environment: verify active cluster and exercise adversarial parameters
+      expect(options[0]).toMatch(/prod|local/i);
+
+      // Adversarial cluster URL parameter handling
+      const origin = new URL(page.url()).origin;
+      await page.goto(`${origin}/rbac-explorer?cluster=non-existent-cluster-id`, { waitUntil: "domcontentloaded" });
+      await expect(page.getByRole("heading", { name: /rbac explorer/i })).toBeVisible();
+
+      // Verify the page handles the invalid cluster gracefully without unhandled crashes
+      const paramOutcome = await polling.waitForRbacData(page);
+      expect(["data", "empty", "error"]).toContain(paramOutcome);
+
+      // Verify clicking Refresh button reloads cluster data without error
+      await page.getByRole("button", { name: "Refresh" }).click();
+      const refreshOutcome = await polling.waitForRbacData(page);
+      expect(["data", "empty"]).toContain(refreshOutcome);
       return;
     }
     await selector.selectOption({ index: 1 });

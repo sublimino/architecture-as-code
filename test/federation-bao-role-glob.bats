@@ -15,7 +15,7 @@ GLOB_DIR="$REPO_ROOT/test/fixtures/phase2-governor/bao-glob"
 
 setup_file() {
   export GLOB_BIN="$BATS_FILE_TMPDIR/bao-glob"
-  (cd "$GLOB_DIR" && GOPROXY=off GOFLAGS=-mod=mod go build -o "$GLOB_BIN" .)
+  (cd "$GLOB_DIR" && GOPROXY=off GOFLAGS=-mod=vendor go build -o "$GLOB_BIN" .)
   PATTERN="$(yq -e 'select(.metadata.name == "openbao-jwt-role-config") | .data."role.json"' "$ROLE_FILE" | jq -er '.bound_claims.sub')"
   export PATTERN
 }

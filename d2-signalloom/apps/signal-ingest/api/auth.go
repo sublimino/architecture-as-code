@@ -289,7 +289,7 @@ func (a *JWTAuthenticator) Authenticate(r *http.Request) (Principal, error) {
 	now := a.now().Unix()
 	exp, err := claims.Expires.Int64()
 	nbf := int64(0)
-	if claims.NotBefore != "" {
+	if err == nil && claims.NotBefore != "" {
 		nbf, err = claims.NotBefore.Int64()
 	}
 	if err != nil || exp <= now || nbf > now || !audienceContains(claims.Audience, a.cfg.Audience) || !validSPIFFEForDomain(claims.Subject, a.cfg.TrustDomain) {

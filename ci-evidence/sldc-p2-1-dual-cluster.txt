@@ -1,0 +1,108 @@
+# SLDC-P2-1 required-test evidence, captured 2026-09-30 06:51:24 +0100 on fortuna
+
+$ kind get clusters
+osramp
+osramp-scaffold
+signalloom-hub
+rc=0
+
+$ kubectl --context kind-osramp exec -n default deploy/probe -- ping -c 3 172.19.0.20
+PING 172.19.0.20 (172.19.0.20): 56 data bytes
+64 bytes from 172.19.0.20: seq=0 ttl=62 time=0.109 ms
+64 bytes from 172.19.0.20: seq=1 ttl=62 time=0.080 ms
+64 bytes from 172.19.0.20: seq=2 ttl=62 time=0.074 ms
+
+--- 172.19.0.20 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.074/0.087/0.109 ms
+rc=0
+
+$ kubectl --context kind-osramp exec -n default deploy/probe -- nslookup signal-ingest.fe-signalloom.signalloom.hub
+Server:		10.96.0.10
+Address:	10.96.0.10:53
+
+
+Name:	signal-ingest.fe-signalloom.signalloom.hub
+Address: 172.19.0.20
+
+rc=0
+
+$ kubectl --context kind-signalloom-hub exec -n default deploy/probe -- nslookup agent-kusari.fe-signalloom-agents.osramp.local
+Server:		10.97.0.10
+Address:	10.97.0.10:53
+
+Name:	agent-kusari.fe-signalloom-agents.osramp.local
+Address: 172.19.0.10
+
+
+rc=0
+
+$ kubectl --context kind-osramp get nodes && kubectl --context kind-signalloom-hub get nodes
+NAME                   STATUS   ROLES           AGE   VERSION
+osramp-control-plane   Ready    control-plane   30d   v1.36.1
+NAME                           STATUS   ROLES           AGE   VERSION
+signalloom-hub-control-plane   Ready    control-plane   75s   v1.36.1
+rc=0
+
+$ docker network inspect signalloom-bridge (subnet + members)
+172.19.0.0/16 gw 172.19.0.1
+  signalloom-hub-control-plane 172.19.0.20/16
+  osramp-control-plane 172.19.0.10/16
+
+$ kubectl --context kind-osramp -n kube-system get cm coredns -o jsonpath={.data.Corefile}  (managed block)
+# BEGIN sldc-cross-cluster (managed by scripts/dual-cluster-up.sh; do not edit)
+signalloom.hub:53 {
+    errors
+    cache 30
+    forward . 172.19.0.20:53 {
+        max_fails 2
+        expire 10s
+    }
+}
+osramp.local:53 {
+    errors
+    cache 30
+    forward . 172.19.0.10:53 {
+        max_fails 2
+        expire 10s
+    }
+}
+# END sldc-cross-cluster
+$ bats test/dual-cluster-networking.bats (SLDC_DUAL_CLUSTER_LIVE=1 SLDC_LIVE_MUTATION=1)
+1..36
+ok 1 manifests: cluster names, API ports and subnets match Appendix B
+ok 2 manifests: workload node mounts cgroup rw, modules and BTF ro
+ok 3 manifests: gateway host ports bind only on the hub, only on loopback
+ok 4 manifests: both nodes pin the same node image by digest
+ok 5 manifests: hub pins kube-proxy iptables mode (NodePorts on the bridge NIC)
+ok 6 lib: bridge contract constants
+ok 7 stubs: shipped block forwards each zone to its owner and passes the lint
+ok 8 stubs: bridge responder is authoritative, binds the bridge IP, never forwards
+ok 9 lint mutation: self-forward (hub zone -> workload IP) is a loop and is rejected
+ok 10 lint mutation: fallthrough is rejected
+ok 11 lint mutation: a root zone or foreign zone server block is rejected
+ok 12 lint mutation: a zone both templated and forwarded is rejected
+ok 13 splice: appends the managed block, keeps .:53 intact, and is idempotent
+ok 14 splice: replaces a stale managed block instead of appending a second
+ok 15 strip: removes exactly the managed block (teardown restores the original)
+ok 16 probe: in-pod probe carries NET_RAW and a scoped egress policy for default-deny
+ok 17 up: refuses when the bridge CIDR is held and --reclaim-subnet is absent
+ok 18 up: --reclaim-subnet never removes a network with containers attached
+ok 19 up: attaches existing osramp (no recreate), creates hub, pins bridge IPs, wires DNS
+ok 20 up: a fresh osramp is created from its manifest and gets Cilium
+ok 21 up mutation: a stub block that fails the lint aborts before touching CoreDNS
+ok 22 up: verify fails when in-pod DNS does not return the hub bridge IP
+ok 23 down: default keeps the shared osramp cluster and unwires it
+ok 24 down: --delete-osramp --remove-bridge removes both clusters and the network
+ok 25 live: kind get clusters lists osramp and signalloom-hub
+ok 26 live: both contexts return a Ready control-plane node
+ok 27 live: nodes hold their fixed IPs on signalloom-bridge 172.19.0.0/16
+ok 28 live: ICMP osramp pod -> hub 172.19.0.20 with 0% loss
+ok 29 live: ICMP hub pod -> osramp 172.19.0.10 with 0% loss
+ok 30 live: in-pod DNS on osramp resolves signal-ingest.fe-signalloom.signalloom.hub -> 172.19.0.20
+ok 31 live: in-pod DNS on the hub resolves agent-kusari.fe-signalloom-agents.osramp.local -> 172.19.0.10
+ok 32 live: cluster.local resolution is untouched on both clusters
+ok 33 live: managed stub block is present in both Corefiles (catches a GitOps overwrite)
+ok 34 live: no loop detection or Corefile parse errors in CoreDNS logs
+ok 35 live: TCP by FQDN across the bridge in both directions
+ok 36 live mutation: stub pointed at unroutable 192.0.2.1 makes in-pod lookup fail, restore heals it

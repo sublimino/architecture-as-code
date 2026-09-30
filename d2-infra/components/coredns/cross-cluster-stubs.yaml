@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# d2-infra/components/coredns/cross-cluster-stubs.yaml : SLDC cross-cluster DNS
+#
+# Applied by: scripts/dual-cluster-up.sh (identically to kind-osramp and
+#             kind-signalloom-hub); removed by scripts/dual-cluster-down.sh
+# Tests:      test/dual-cluster-networking.bats
+#
+# This file is the source of truth for the cross-cluster stub zones. It is
+# identical in both clusters. Two things are per-cluster, and the up script
+# supplies both:
+#   * ConfigMap kube-system/sldc-bridge-identity (SLDC_ZONE, SLDC_BRIDGE_IP),
+#     which tells sldc-bridge-dns which zone it owns and which address to bind
+#   * the splice of `stub.server` into kube-system/coredns, between the
+#     `# BEGIN sldc-cross-cluster` and `# END sldc-cross-cluster` markers.
+#     Re-running replaces that block and never touches the `.:53` block, so
+#     the stanza can be re-derived from Git at any time. A Flux or kubeadm
+#     rewrite of the Corefile is healed by re-running the up script, and the
+#     bats suite detects the loss.
+#
+# Topology:
+#   zone            owner (authoritative)             answers
+#   signalloom.hub  sldc-bridge-dns @ 172.19.0.20:53  172.19.0.20 (hub ingress;
+#                                                     Envoy Gateway NodePorts
+#                                                     30080/31443 route by Host)
+#   osramp.local    sldc-bridge-dns @ 172.19.0.10:53  172.19.0.10
+#   Each cluster's main CoreDNS forwards BOTH zones to their owners' bridge IPs.
+#
+# Why this shape, and not the card's "forward to the peer CoreDNS ClusterIP
+# (10.97.0.10 / 10.96.0.10)":
+#   * ClusterIPs are virtual. Nothing routes them across the bridge, and the
+#     live kind-osramp's Cilium IPAM pool is 10.0.0.0/8, which contains both
+#     10.96/16 and 10.97/16.
+#   * A NodePort on the bridge IP does not work on kind-osramp either. Cilium
+#     kube-proxy replacement attaches its BPF NodePort only to the devices it
+#     detected at start (eth0). The bridge NIC is added later, so
+#     172.19.0.10:<nodePort> is dark (measured: NodePort 30053 answered on
+#     172.19.0.20 via kube-proxy iptables, timed out on 172.19.0.10).
+#   * A hostNetwork responder bound to the bridge IP runs in the node's host
+#     stack. It works the same under Cilium and kube-proxy, and it never
+#     touches either CNI.
+#
+# Loop safety (the known CoreDNS forwarding-loop failure mode): each zone has
+# exactly ONE authoritative answerer (sldc-bridge-dns, which has no `forward`),
+# and every forward points at that owner. No block forwards `.`, and nothing
+# uses `fallthrough`, so a query crosses the bridge at most once.
+# dual-cluster-up.sh lints the block against those rules before patching.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sldc-cross-cluster-stubs
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: sldc-dual-cluster
+    app.kubernetes.io/managed-by: dual-cluster-up
+data:
+  # Spliced into kube-system/coredns in BOTH clusters.
+  stub.server: |
+    signalloom.hub:53 {
+        errors
+        cache 30
+        forward . 172.19.0.20:53 {
+            max_fails 2
+            expire 10s
+        }
+    }
+    osramp.local:53 {
+        errors
+        cache 30
+        forward . 172.19.0.10:53 {
+            max_fails 2
+            expire 10s
+        }
+    }
+  # Corefile of sldc-bridge-dns. {$VAR} is CoreDNS env substitution, fed from
+  # the per-cluster sldc-bridge-identity ConfigMap.
+  Corefile: |
+    {$SLDC_ZONE}:53 {
+        bind {$SLDC_BRIDGE_IP}
+        errors
+        health :30054
+        template IN A {$SLDC_ZONE} {
+            answer "{{ .Name }} 30 IN A {$SLDC_BRIDGE_IP}"
+        }
+        template ANY ANY {$SLDC_ZONE} {
+            rcode NOERROR
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sldc-bridge-dns
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: sldc-bridge-dns
+    app.kubernetes.io/part-of: sldc-dual-cluster
+    app.kubernetes.io/managed-by: dual-cluster-up
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # a hostNetwork bind cannot be shared by two replicas
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sldc-bridge-dns
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sldc-bridge-dns
+        app.kubernetes.io/part-of: sldc-dual-cluster
+    spec:
+      hostNetwork: true
+      dnsPolicy: Default
+      automountServiceAccountToken: false
+      priorityClassName: system-cluster-critical
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+      containers:
+        - name: coredns
+          # Same image the kind node already runs for kube-dns: no pull.
+          image: registry.k8s.io/coredns/coredns:v1.14.2
+          imagePullPolicy: IfNotPresent
+          args: ["-conf", "/etc/sldc-bridge-dns/Corefile"]
+          envFrom:
+            - configMapRef:
+                name: sldc-bridge-identity
+          readinessProbe:
+            tcpSocket:
+              port: 30054
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sldc-bridge-dns
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: sldc-cross-cluster-stubs
+            items:
+              - key: Corefile
+                path: Corefile

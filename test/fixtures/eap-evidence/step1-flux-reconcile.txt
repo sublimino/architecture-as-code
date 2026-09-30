@@ -1,0 +1,8 @@
+# FIXTURE step 1: Flux delivery of kusari-agent on kind-osramp
+kustomization: fe-signalloom-agents/agent-kusari-agent
+ready: True
+lastAppliedRevision: integration/sldc-v0.1.0@sha1:0000000000000000000000000000000000000000
+deployment: fe-signalloom-agents/agent-kusari
+replicas: 1/1 ready
+pod: agent-kusari-7c9f8d6b5-x2x4q phase=Running
+restartCount: 0

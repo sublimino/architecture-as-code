@@ -1,0 +1,13 @@
+{
+  "source": "stun-sentinel in-sentinel eBPF correlator (fixture)",
+  "observations": [
+    {
+      "actor_id": "kusari-agent",
+      "pod_name": "agent-kusari-7c9f8d6b5-x2x4q",
+      "cgroup_path": "/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod0000.slice/cri-containerd-0000.scope",
+      "syscall": "sys_enter_openat",
+      "filename": "/etc/passwd",
+      "tenant_id": "kusari"
+    }
+  ]
+}

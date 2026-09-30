@@ -211,6 +211,7 @@ beforeEach(() => {
 
 afterEach(() => {
   clearBridgeEventLog()
+  vi.restoreAllMocks()
 })
 
 // ===========================================================================
@@ -880,6 +881,465 @@ describe('hardening — previously-unasserted invariants', () => {
     // Let the abandoned request settle well past its own resolution.
     await new Promise((r) => setTimeout(r, 450))
     expect(getBridgeEventLog().length).toBe(afterAbort)
+  })
+})
+
+// ===========================================================================
+// Offline adversarial live-bridge unit tests (mocked fetch / transport)
+// ===========================================================================
+
+describe('offline adversarial unit tests for createLiveBridge', () => {
+  describe('stage advancement', () => {
+    it('advances stage host_enrolled successfully via live bridge', async () => {
+      const mockReq = vi.fn(async () => ({
+        hostId: 'test-host-id-42',
+        status: 'enrolled',
+      }))
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'test-token-advance',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcome = await bridge.advance('host_enrolled')
+
+      expect(outcome.status).toBe('ok')
+      expect(outcome.channelKind).toBe('live')
+      expect(outcome.channel.kind).toBe('live')
+      expect(outcome.channel.transport).toBe('req')
+      expect(outcome.stage).toBe('host_enrolled')
+      expect(outcome.httpStatus).toBe(201)
+      if (outcome.status === 'ok') {
+        expect(outcome.payload.hostId).toBe('test-host-id-42')
+        expect(outcome.payload.status).toBe('enrolled')
+      }
+    })
+
+    it('advances stage adversarial_tamper successfully via direct fetch on bare /v1 path', async () => {
+      const mockFetch = vi.fn(async () =>
+        jsonResponse({ status: 'revoked', host_id: REVOCATION_RACE_PRESET.host_id }, 200),
+      )
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'test-token-tamper',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('ok')
+      expect(outcome.channelKind).toBe('live')
+      expect(outcome.channel.kind).toBe('live')
+      expect(outcome.channel.transport).toBe('fetch')
+      expect(outcome.stage).toBe('adversarial_tamper')
+      expect(outcome.httpStatus).toBe(200)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('advances stage revocation_denied successfully via live bridge', async () => {
+      const mockReq = vi.fn(async () => ({
+        denialConfirmed: true,
+      }))
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'test-token-revocation',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcome = await bridge.advance('revocation_denied')
+
+      expect(outcome.status).toBe('ok')
+      expect(outcome.channelKind).toBe('live')
+      expect(outcome.stage).toBe('revocation_denied')
+      expect(outcome.httpStatus).toBe(200)
+      if (outcome.status === 'ok') {
+        expect(outcome.payload.denialConfirmed).toBe(true)
+      }
+    })
+
+    it('advances stages operator_init and confinement_streaming successfully', async () => {
+      const mockReq = vi.fn(async (path: string) => {
+        if (path.includes('token')) {
+          return { tokenId: 'token-xyz-123' }
+        }
+        return { hashMatch: true, zeroPayloadVerified: true }
+      })
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'test-token-all',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const initOutcome = await bridge.advance('operator_init')
+      expect(initOutcome.status).toBe('ok')
+      expect(initOutcome.stage).toBe('operator_init')
+
+      const streamOutcome = await bridge.advance('confinement_streaming')
+      expect(streamOutcome.status).toBe('ok')
+      expect(streamOutcome.stage).toBe('confinement_streaming')
+    })
+
+    it('rejects unmapped stage names (workload_discovered, policy_verified) gracefully', async () => {
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'test-token',
+        transport: happyTransport(),
+      })
+      await expect(
+        bridge.advance('workload_discovered' as unknown as StageId),
+      ).rejects.toThrow("has no stage 'workload_discovered'")
+      await expect(
+        bridge.advance('policy_verified' as unknown as StageId),
+      ).rejects.toThrow("has no stage 'policy_verified'")
+    })
+  })
+
+  describe('token inclusion in Authorization header', () => {
+    it('includes Bearer token in Authorization header on direct fetch requests', async () => {
+      const mockFetch = vi.fn(async () => jsonResponse({}, 200))
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'adversarial-secret-token-xyz',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      await bridge.advance('adversarial_tamper')
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toBe(`/v1/external-agents/hosts/${REVOCATION_RACE_PRESET.host_id}/revoke`)
+      expect(init?.headers).toEqual(
+        expect.objectContaining({
+          Authorization: 'Bearer adversarial-secret-token-xyz',
+          'Content-Type': 'application/json',
+        }),
+      )
+    })
+
+    it('forwards Bearer token to transport req for /api-prefixed routes', async () => {
+      const mockReq = vi.fn(async () => ({}))
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'adversarial-secret-token-xyz',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      await bridge.advance('host_enrolled')
+
+      expect(mockReq).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/external-agents/enroll'),
+        'adversarial-secret-token-xyz',
+        expect.anything(),
+      )
+    })
+
+    it('passes Bearer header using defaultLiveTransport delegating to globalThis.fetch', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+        jsonResponse({}, 200),
+      )
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'global-bearer-token-789',
+      })
+      await bridge.advance('adversarial_tamper')
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      const [url, init] = fetchSpy.mock.calls[0]
+      expect(url).toBe(`/v1/external-agents/hosts/${REVOCATION_RACE_PRESET.host_id}/revoke`)
+      expect(init?.headers).toEqual(
+        expect.objectContaining({
+          Authorization: 'Bearer global-bearer-token-789',
+        }),
+      )
+    })
+  })
+
+  describe('HTTP error response status handling', () => {
+    it('handles 401 Unauthorized as application error on fetch', async () => {
+      const mockFetch = vi.fn(async () =>
+        new Response(JSON.stringify({ detail: 'Unauthorized invalid token' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'bad-token-401',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.channelKind).toBe('live')
+      expect(outcome.error.kind).toBe('application')
+      if (outcome.status === 'error' && outcome.error.kind === 'application') {
+        expect(outcome.error.httpStatus).toBe(401)
+        expect(outcome.error.message).toContain('401')
+      }
+    })
+
+    it('handles 401 Unauthorized as application error on req', async () => {
+      const mockReq = vi.fn(async () => {
+        throw Object.assign(new Error('Unauthorized'), { status: 401 })
+      })
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'bad-token-401',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcome = await bridge.advance('host_enrolled')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('application')
+      if (outcome.status === 'error' && outcome.error.kind === 'application') {
+        expect(outcome.error.httpStatus).toBe(401)
+      }
+    })
+
+    it('handles 403 Forbidden (host_revoked) as application error on fetch', async () => {
+      const mockFetch = vi.fn(async () =>
+        new Response(JSON.stringify({ detail: 'host_revoked' }), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'revoked-host-token',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('application')
+      if (outcome.status === 'error' && outcome.error.kind === 'application') {
+        expect(outcome.error.httpStatus).toBe(403)
+        expect(outcome.error.message).toContain('403')
+      }
+    })
+
+    it('handles 403 Forbidden (host_revoked) as application error on req', async () => {
+      const mockReq = vi.fn(async () => {
+        throw Object.assign(new Error('Forbidden: host_revoked'), { status: 403 })
+      })
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'revoked-host-token',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcome = await bridge.advance('host_enrolled')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('application')
+      if (outcome.status === 'error' && outcome.error.kind === 'application') {
+        expect(outcome.error.httpStatus).toBe(403)
+        expect(outcome.error.message).toContain('host_revoked')
+      }
+    })
+
+    it('handles 409 Conflict as application error on fetch and req', async () => {
+      const mockFetch = vi.fn(async () =>
+        new Response(JSON.stringify({ detail: 'Conflict: host already registered' }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      const bridgeFetch = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-409',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcomeFetch = await bridgeFetch.advance('adversarial_tamper')
+      expect(outcomeFetch.status).toBe('error')
+      expect(outcomeFetch.error.kind).toBe('application')
+      if (outcomeFetch.status === 'error' && outcomeFetch.error.kind === 'application') {
+        expect(outcomeFetch.error.httpStatus).toBe(409)
+        expect(outcomeFetch.error.message).toContain('409')
+      }
+
+      const mockReq = vi.fn(async () => {
+        throw Object.assign(new Error('Conflict'), { status: 409 })
+      })
+      const bridgeReq = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'token-409',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcomeReq = await bridgeReq.advance('host_enrolled')
+      expect(outcomeReq.status).toBe('error')
+      expect(outcomeReq.error.kind).toBe('application')
+      if (outcomeReq.status === 'error' && outcomeReq.error.kind === 'application') {
+        expect(outcomeReq.error.httpStatus).toBe(409)
+      }
+    })
+
+    it('handles 502 Bad Gateway as application error on fetch and req', async () => {
+      const mockFetch = vi.fn(async () => new Response('Bad Gateway', { status: 502 }))
+      const bridgeFetch = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-502',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcomeFetch = await bridgeFetch.advance('adversarial_tamper')
+      expect(outcomeFetch.status).toBe('error')
+      expect(outcomeFetch.error.kind).toBe('application')
+      if (outcomeFetch.status === 'error' && outcomeFetch.error.kind === 'application') {
+        expect(outcomeFetch.error.httpStatus).toBe(502)
+      }
+
+      const mockReq = vi.fn(async () => {
+        throw Object.assign(new Error('Bad Gateway'), { status: 502 })
+      })
+      const bridgeReq = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'token-502',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcomeReq = await bridgeReq.advance('host_enrolled')
+      expect(outcomeReq.status).toBe('error')
+      expect(outcomeReq.error.kind).toBe('application')
+      if (outcomeReq.status === 'error' && outcomeReq.error.kind === 'application') {
+        expect(outcomeReq.error.httpStatus).toBe(502)
+      }
+    })
+
+    it('handles 504 Gateway Timeout as application error on fetch and req', async () => {
+      const mockFetch = vi.fn(async () => new Response('Gateway Timeout', { status: 504 }))
+      const bridgeFetch = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-504',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcomeFetch = await bridgeFetch.advance('adversarial_tamper')
+      expect(outcomeFetch.status).toBe('error')
+      expect(outcomeFetch.error.kind).toBe('application')
+      if (outcomeFetch.status === 'error' && outcomeFetch.error.kind === 'application') {
+        expect(outcomeFetch.error.httpStatus).toBe(504)
+      }
+
+      const mockReq = vi.fn(async () => {
+        throw Object.assign(new Error('Gateway Timeout'), { status: 504 })
+      })
+      const bridgeReq = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'token-504',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcomeReq = await bridgeReq.advance('host_enrolled')
+      expect(outcomeReq.status).toBe('error')
+      expect(outcomeReq.error.kind).toBe('application')
+      if (outcomeReq.status === 'error' && outcomeReq.error.kind === 'application') {
+        expect(outcomeReq.error.httpStatus).toBe(504)
+      }
+    })
+  })
+
+  describe('network errors and timeout handling', () => {
+    it('handles TypeError (fetch failed / network error) as network error', async () => {
+      const mockFetch = vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-net',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('network')
+      if (outcome.status === 'error' && outcome.error.kind === 'network') {
+        expect(outcome.error.message).toContain('Failed to fetch')
+        expect(outcome.error.cause).toBe('TypeError')
+      }
+    })
+
+    it('handles connection refused (ECONNREFUSED) as network error', async () => {
+      const mockFetch = vi.fn(async () => {
+        throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8000'), {
+          code: 'ECONNREFUSED',
+        })
+      })
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-net',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('network')
+      if (outcome.status === 'error' && outcome.error.kind === 'network') {
+        expect(outcome.error.message).toContain('ECONNREFUSED')
+      }
+    })
+
+    it('handles network failure via globalThis.fetch on default transport', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+        new TypeError('NetworkError when attempting to fetch resource.'),
+      )
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-net',
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('network')
+    })
+
+    it('handles timeout when direct fetch hangs beyond timeoutMs', async () => {
+      const mockFetch = vi.fn(() => new Promise<Response>(() => {}))
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-timeout',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper', { timeoutMs: 25 })
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('network')
+    })
+
+    it('handles timeout when transport req hangs beyond timeoutMs', async () => {
+      const mockReq = vi.fn(() => new Promise(() => {}))
+      const bridge = createLiveBridge({
+        preset: HAPPY_PATH_PRESET,
+        token: 'token-timeout',
+        transport: { req: mockReq, fetch: vi.fn() },
+      })
+      const outcome = await bridge.advance('host_enrolled', { timeoutMs: 25 })
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('network')
+    })
+  })
+
+  describe('routing gap and SPA catch-all detection', () => {
+    it('identifies SPA catch-all html response as unsupported routing gap on fetch', async () => {
+      const mockFetch = vi.fn(async () =>
+        new Response('<!doctype html><html><body>SPA</body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        }),
+      )
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-spa',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('unsupported')
+    })
+
+    it('identifies 405 Method Not Allowed as unsupported routing gap on bare path', async () => {
+      const mockFetch = vi.fn(async () => new Response('Method Not Allowed', { status: 405 }))
+      const bridge = createLiveBridge({
+        preset: REVOCATION_RACE_PRESET,
+        token: 'token-405',
+        transport: { req: vi.fn(), fetch: mockFetch },
+      })
+      const outcome = await bridge.advance('adversarial_tamper')
+
+      expect(outcome.status).toBe('error')
+      expect(outcome.error.kind).toBe('unsupported')
+    })
   })
 })
 

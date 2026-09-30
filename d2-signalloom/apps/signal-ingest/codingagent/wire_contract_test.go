@@ -508,7 +508,7 @@ func TestCodingAgentWireContract_RoutingGapIsClosed(t *testing.T) {
 	if apiLine == -1 {
 		t.Fatal("no `location /api/` block found in nginx.conf")
 	}
-	if apiLine != 136 {
+	if apiLine != 146 {
 		t.Fatalf("`location /api/` moved to line %d", apiLine)
 	}
 	window := strings.Join(lines[apiLine:apiLine+4], "\n")

@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# SLDC-P1-PRE: Capability and Security Context Audit Specification for stun-sentinel
+# Defines the required kernel capabilities, host namespaces, and host volume mounts
+# necessary for pure-Go in-sentinel eBPF telemetry and cgroup-v2 process containment.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: stun-sentinel
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/component: in-sentinel-ebpf
+    app.kubernetes.io/part-of: signalloom
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stun-sentinel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stun-sentinel
+        app.kubernetes.io/component: in-sentinel-ebpf
+        app.kubernetes.io/part-of: signalloom
+    spec:
+      serviceAccountName: stun-sentinel
+      hostPID: true
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: sentinel
+          image: ghcr.io/controlplaneio-in-toto/stun-sentinel:v0.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              add:
+                - SYS_PTRACE
+                - BPF
+                - NET_ADMIN
+                - SYS_ADMIN
+              drop:
+                - ALL
+          volumeMounts:
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: false
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+            - name: btf
+              mountPath: /sys/kernel/btf
+              readOnly: true
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+      volumes:
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: modules
+          hostPath:
+            path: /lib/modules
+            type: DirectoryOrCreate
+        - name: btf
+          hostPath:
+            path: /sys/kernel/btf
+            type: DirectoryOrCreate
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory

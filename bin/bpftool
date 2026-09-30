@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# Transparent bpftool wrapper utilizing signalloom-bpf-builder container with privileged host BTF/cgroup mounts
+if [[ -x /usr/sbin/bpftool && $(id -u) -eq 0 ]]; then
+  exec /usr/sbin/bpftool "$@"
+fi
+
+exec docker run --rm --privileged \
+  -v /sys/kernel/btf:/sys/kernel/btf:ro \
+  -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+  -v /boot:/boot:ro \
+  signalloom-bpf-builder:trixie bpftool "$@"

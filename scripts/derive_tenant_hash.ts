@@ -24,7 +24,13 @@ export class RetiredTenantError extends TenantHashError {}
 export class SaltUnavailableError extends Error {}
 
 export function normalizeTenant(name: string): string {
-  const cleaned = name.trim().toLowerCase();
+  // ASCII whitespace only, and non-ASCII refused before lowercasing, so
+  // Unicode spaces, a BOM and case folds cannot reach an ASCII tenant.
+  const trimmed = name.replace(/^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, "");
+  if (/[^\x00-\x7f]/.test(trimmed)) {
+    throw new TenantHashError(`invalid tenant name ${JSON.stringify(trimmed)} (non-ASCII input)`);
+  }
+  const cleaned = trimmed.toLowerCase();
   if (!cleaned) throw new TenantHashError("tenant name cannot be empty");
   if (RETIRED_TENANTS.has(cleaned)) {
     throw new RetiredTenantError(

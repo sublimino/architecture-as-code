@@ -80,7 +80,7 @@ hermetic_setup() {
 }
 
 hermetic_status() {
-  local host="$1" header_name="$2" header_val="$3" out
+  local host="$1" header_name="$2" header_val="$3" header2_name="${4:-}" header2_val="${5:-}" out
   if ! yq -e ".spec.hostnames[] | select(. == \"$host\")" "$HTTPROUTE_MANIFEST" >/dev/null 2>&1; then
     echo "404"
     return 0
@@ -88,6 +88,9 @@ hermetic_status() {
   local hdr=()
   if [[ -n "$header_name" ]]; then
     hdr+=("${header_name,,}=${header_val//%/%25}")
+  fi
+  if [[ -n "$header2_name" ]]; then
+    hdr+=("${header2_name,,}=${header2_val//%/%25}")
   fi
   if ! out="$(luajit "$LUA_HARNESS" "$HERMETIC_LUA" "${hdr[@]}" 2>&1)"; then
     echo "ERROR: Lua filter raised: $out" >&2
@@ -105,12 +108,14 @@ check_http() {
   local host="$1"
   local header_name="$2"
   local header_val="$3"
-  local path="${4:-/}"
+  local header2_name="${4:-}"
+  local header2_val="${5:-}"
+  local path="/"
   local ip="$TARGET_IP"
   local port="$TARGET_PORT"
 
   if [[ "$HERMETIC" == "true" ]]; then
-    hermetic_status "$host" "$header_name" "$header_val"
+    hermetic_status "$host" "$header_name" "$header_val" "$header2_name" "$header2_val"
     return 0
   fi
 
@@ -118,6 +123,9 @@ check_http() {
   curl_args+=("-H" "Host: $host")
   if [[ -n "$header_name" && -n "$header_val" ]]; then
     curl_args+=("-H" "$header_name: $header_val")
+  fi
+  if [[ -n "$header2_name" && -n "$header2_val" ]]; then
+    curl_args+=("-H" "$header2_name: $header2_val")
   fi
 
   local code
@@ -156,10 +164,12 @@ run_probe() {
   local hdr_name="$4"
   local hdr_val="$5"
   local expected_code="$6"
+  local hdr2_name="${7:-}"
+  local hdr2_val="${8:-}"
 
   log "Running probe $id: $name (Host: $host, Header: $hdr_name='$hdr_val')..."
   local actual_code
-  actual_code="$(check_http "$host" "$hdr_name" "$hdr_val")"
+  actual_code="$(check_http "$host" "$hdr_name" "$hdr_val" "$hdr2_name" "$hdr2_val")"
   local pass=false
   if [[ "$actual_code" == "$expected_code" ]]; then
     pass=true
@@ -185,6 +195,7 @@ run_probe "P8" "Case-insensitive whitespace header normalization" "$CANONICAL_HO
 run_probe "P9" "Case-insensitive legacy typo rejection" "$CANONICAL_HOST" "X-Tenant-ID" "  KuRaSi  " "403" || ERRORS=$((ERRORS + 1))
 run_probe "P10" "Legacy typo host rejection" "$RETIRED_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "404" || ERRORS=$((ERRORS + 1))
 run_probe "P11" "Canonical demo host routing" "$CANONICAL_DEMO_HOST" "" "" "200" || ERRORS=$((ERRORS + 1))
+run_probe "P12" "Canonical X-Tenant-ID cannot launder a mismatched X-SignalLoom-Tenant" "$CANONICAL_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "403" "X-SignalLoom-Tenant" "rogue" || ERRORS=$((ERRORS + 1))
 
 TOTAL_PROBES="${#RESULTS[@]}"
 PASSED_PROBES=$((TOTAL_PROBES - ERRORS))

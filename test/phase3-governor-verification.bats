@@ -43,11 +43,11 @@ gate() { # id -> status
 	jq -r --arg g "$1" '.gates[] | select(.gate == $g) | .status' "$CERT"
 }
 
-@test "all gates green: exit 0 and a PASS certificate with 8/8 gates and 11/11 probes" {
+@test "all gates green: exit 0 and a PASS certificate with 8/8 gates and 12/12 probes" {
 	run_gov
 	[ "$status" -eq 0 ]
 	[ "$(jq -r '.governor_status' "$CERT")" = "PASS" ]
-	[ "$(jq -r '.metrics | "\(.gates_total) \(.gates_passed) \(.gates_failed) \(.probes_total) \(.probes_passed)"' "$CERT")" = "8 8 0 11 11" ]
+	[ "$(jq -r '.metrics | "\(.gates_total) \(.gates_passed) \(.gates_failed) \(.probes_total) \(.probes_passed)"' "$CERT")" = "8 8 0 12 12" ]
 	[ "$(jq -r '.signoff.authorized_for_phase4' "$CERT")" = "true" ]
 }
 
@@ -78,7 +78,7 @@ gate() { # id -> status
 	[ "$status" -eq 1 ]
 	[ "$(gate G5_POSITIVE_ROUTING)" = "PASS" ]
 	[ "$(gate G6_NEGATIVE_ISOLATION)" = "FAIL" ]
-	[ "$(jq -r '.metrics.probes_passed' "$CERT")" = "9" ]
+	[ "$(jq -r '.metrics.probes_passed' "$CERT")" = "10" ]
 }
 
 @test "Gate 8 fails when an active file names the legacy typo without an allowlist entry" {

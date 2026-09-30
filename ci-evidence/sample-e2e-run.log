@@ -1,0 +1,238 @@
+===============================================================================
+ SLDC-P5-1 - five-step containment suite: complete execution trace
+ captured: 2026-09-30 11:08:19+0100
+ base:     8d599f148c970c01b50295b4632a4a4524c8bc82 (integration/sldc-v0.1.0)
+ host:     fortuna  bats 1.13.0  go1.26.2
+===============================================================================
+
+This file contains THREE traces. Read the labels: only section C ran against
+the live dual-cluster estate.
+  A. Hermetic baseline  - all five steps pass against fixtures (no cluster).
+  B. Mutation matrix    - 20 mutations + baseline, each proving one assertion
+                          is non-vacuous (Shared Pattern 6, no cluster).
+  C. LIVE run           - kind-osramp + kind-signalloom-hub. Steps 1 and 3
+                          pass; Steps 2, 4 and 5 fail on pre-existing estate
+                          defects (P5-PRE blockers B1-B7). Diagnostics follow.
+
+===============================================================================
+ D. kusari-agent unit tests (go test, provocation endpoints)
+===============================================================================
+$ cd d2-signalloom/apps/kusari-agent && go test -count=1 -v ./...
+=== RUN   TestCooldownZeroDialsEveryTime
+--- PASS: TestCooldownZeroDialsEveryTime (0.00s)
+=== RUN   TestFallbackLogNeverContainsAPIKey
+--- PASS: TestFallbackLogNeverContainsAPIKey (0.00s)
+=== RUN   TestHostileWriteOnExactlyFifthRequest
+--- PASS: TestHostileWriteOnExactlyFifthRequest (0.02s)
+=== RUN   TestHostileDisabledWhenZero
+--- PASS: TestHostileDisabledWhenZero (0.00s)
+=== RUN   TestQuoteResponseNeverAdvertisesHostileWrite
+--- PASS: TestQuoteResponseNeverAdvertisesHostileWrite (0.00s)
+=== RUN   TestHostileLogLineIsStructuredJSON
+--- PASS: TestHostileLogLineIsStructuredJSON (0.00s)
+=== RUN   TestStatsEndpoint
+--- PASS: TestStatsEndpoint (0.00s)
+=== RUN   TestHealthz
+--- PASS: TestHealthz (0.00s)
+=== RUN   TestQuoteRejectsNonGet
+--- PASS: TestQuoteRejectsNonGet (0.00s)
+=== RUN   TestActReadPasswdReturnsEnvelope
+--- PASS: TestActReadPasswdReturnsEnvelope (0.00s)
+=== RUN   TestActReadPasswdNeverLeaksFileContent
+--- PASS: TestActReadPasswdNeverLeaksFileContent (0.00s)
+=== RUN   TestActReadPasswdHoldsDescriptor
+--- PASS: TestActReadPasswdHoldsDescriptor (0.03s)
+=== RUN   TestActReadPasswdMissingFileIsNotOK
+--- PASS: TestActReadPasswdMissingFileIsNotOK (0.00s)
+=== RUN   TestActReadShadowAttemptsOpenEvenWhenAbsent
+--- PASS: TestActReadShadowAttemptsOpenEvenWhenAbsent (0.00s)
+=== RUN   TestActCPUBurnBusyLoops
+--- PASS: TestActCPUBurnBusyLoops (0.06s)
+=== RUN   TestActCPUBurnClampsAndValidates
+--- PASS: TestActCPUBurnClampsAndValidates (0.05s)
+=== RUN   TestActRoutesRejectGet
+--- PASS: TestActRoutesRejectGet (0.00s)
+=== RUN   TestActUnknownActionIs404
+--- PASS: TestActUnknownActionIs404 (0.00s)
+=== RUN   TestActConfigFromEnv
+--- PASS: TestActConfigFromEnv (0.00s)
+PASS
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/kusari-agent	0.180s
+
+===============================================================================
+ A. Hermetic baseline - all five steps pass against unmutated fixtures
+===============================================================================
+$ test/e2e-mutation-proof.sh --only baseline --verbose
+TAP version 13
+1..1
+ok 1 - baseline: all five steps pass against unmutated fixtures
+  # 1..5
+  # # evidence: /tmp/tmp.OsQyj1YTia/evidence-none
+  # ok 1 Step 1: Kusari workload deployment reconciled by Flux on the workload cluster
+  # ok 2 Step 2: Tenant registration and database claim for tenant kusari
+  # ok 3 Step 3: Provoke malicious actor via /act/read-passwd
+  # ok 4 Step 4: In-sentinel eBPF probe intercepts syscall and emits observation
+  # ok 5 Step 5: Pod is frozen, CPU flatlines at 0 mCPU, Flux reconcile suppressed, 0 restarts
+  # # evidence: /tmp/tmp.OsQyj1YTia/evidence-none
+# mutations proven: 1/1
+
+===============================================================================
+ B. Mutation matrix - falsifiability proof
+===============================================================================
+$ test/e2e-mutation-proof.sh
+TAP version 13
+1..21
+ok 1 - baseline: all five steps pass against unmutated fixtures
+ok 2 - step1_not_ready: Flux Kustomization Ready=False is not reported as deployed (step 1 red, suite exit 1)
+ok 3 - step1_dirty_restart: a workload that already restarted is not accepted as a clean baseline (step 1 red, suite exit 1)
+ok 4 - step2_no_row: absent agent_registry row is not read as a successful claim (step 2 red, suite exit 1)
+ok 5 - step2_wrong_tenant: claim into tenant-demo is not accepted as tenant kusari (step 2 red, suite exit 1)
+ok 6 - step2_legacy_typo: retired typo tenant kurasi fails closed (step 2 red, suite exit 1)
+ok 7 - step2_no_model: claim with no model_name is not accepted as registered (step 2 red, suite exit 1)
+ok 8 - step3_act_failed: provocation returning ok=false is not read as provoked (step 3 red, suite exit 1)
+ok 9 - step3_descriptor_not_held: a descriptor released immediately is not accepted (step 3 red, suite exit 1)
+ok 10 - step3_shadow_not_attempted: shadow provocation that never attempted the open is rejected (step 3 red, suite exit 1)
+ok 11 - step4_probe_removed: removing the eBPF hook makes Step 4 fail (step 4 red, suite exit 1)
+ok 12 - step4_not_sensitive: an openat of a non-sensitive path is not accepted as the provocation (step 4 red, suite exit 1)
+ok 13 - step4_stale_timestamp: an observation outside the correlation window is rejected (step 4 red, suite exit 1)
+ok 14 - step4_wrong_tenant: an observation bound to the wrong tenant is rejected (step 4 red, suite exit 1)
+ok 15 - step4_legacy_typo: an observation carrying kurasi fails closed (step 4 red, suite exit 1)
+ok 16 - step5_freeze_disabled: disabling the cgroup freeze makes Step 5 fail (step 5 red, suite exit 1)
+ok 17 - step5_restart_h1_breach: restartCount=1 during the forensic window fails (Option H1) (step 5 red, suite exit 1)
+ok 18 - step5_no_flux_suppression: a Deployment without reconcile=disabled fails (Pattern 4) (step 5 red, suite exit 1)
+ok 19 - step5_no_pod_suppression: a Pod without reconcile=disabled fails (Pattern 4) (step 5 red, suite exit 1)
+ok 20 - step5_cpu_still_burning: a CPU counter that keeps advancing is not a 0.000 mCPU flatline (step 5 red, suite exit 1)
+ok 21 - step5_still_serving: a frozen pod still answering network traffic fails (step 5 red, suite exit 1)
+# mutations proven: 21/21
+
+===============================================================================
+ C. LIVE run - kind-osramp + kind-signalloom-hub
+===============================================================================
+$ scripts/run-e2e-dual-cluster-containment.sh --evidence-dir /tmp/kusari-e2e/final-110819 --tap
+=== run 1/1 - evidence /tmp/kusari-e2e/final-110819
+1..5
+# evidence: /tmp/kusari-e2e/final-110819
+ok 1 Step 1: Kusari workload deployment reconciled by Flux on the workload cluster
+not ok 2 Step 2: Tenant registration and database claim for tenant kusari
+# (in test file test/e2e-dual-cluster-containment.bats, line 266)
+#   `[ "$status" -eq 0 ]' failed
+ok 3 Step 3: Provoke malicious actor via /act/read-passwd
+not ok 4 Step 4: In-sentinel eBPF probe intercepts syscall and emits observation
+# (in test file test/e2e-dual-cluster-containment.bats, line 340)
+#   `[ "$status" -eq 0 ]' failed
+not ok 5 Step 5: Pod is frozen, CPU flatlines at 0 mCPU, Flux reconcile suppressed, 0 restarts
+# (in test file test/e2e-dual-cluster-containment.bats, line 382)
+#   `[ "$status" -eq 0 ]' failed
+# evidence: /tmp/kusari-e2e/final-110819
+=== evidence root: /tmp/kusari-e2e/final-110819
+
+$ ls -l <evidence-dir>
+total 40
+-rw-rw-r-- 1 andy andy 775 Sep 30 11:11 bats-output.log
+-rw-rw-r-- 1 andy andy 257 Sep 30 11:08 preflight-docker-bridge.txt
+-rw-rw-r-- 1 andy andy 249 Sep 30 11:08 preflight-hub-cluster-info.txt
+-rw-rw-r-- 1 andy andy 638 Sep 30 11:08 preflight-manifest.json.txt
+-rw-rw-r-- 1 andy andy 249 Sep 30 11:08 preflight-workload-cluster-info.txt
+-rw-rw-r-- 1 andy andy 125 Sep 30 11:11 run-summary.json
+-rw-rw-r-- 1 andy andy 437 Sep 30 11:08 step1-flux-reconcile.txt
+-rw-rw-r-- 1 andy andy 646 Sep 30 11:09 step3-provocation-act.log
+-rw-rw-r-- 1 andy andy  25 Sep 30 11:09 step3-provocation-end.txt
+-rw-rw-r-- 1 andy andy  25 Sep 30 11:09 step3-provocation-start.txt
+
+$ cat <evidence-dir>/step1-flux-reconcile.txt
+kustomization: agent-kusari-agent (ns fe-signalloom-agents)
+ready: True
+lastAppliedRevision: latest@sha256:82ef76a05850f30583639956ea64f7b23b2ea465ea0bd74f3d43d4e824893248
+deployment: agent-kusari replicas 1/1
+pod: agent-kusari-5685ff664b-kv25k
+pod_uid: e02fe214-5d7c-423b-9fa9-f933932d6679
+phase: Running
+restartCount: 0
+image: docker.io/library/import-2026-09-30@sha256:3b50456024dd4d132673d975d2f4d5fe2f0eb206410a74a7b3d0eeb8deb4bd6a
+
+$ cat <evidence-dir>/step3-provocation-act.log
+POST /api/v1/namespaces/fe-signalloom-agents/services/kusari-agent:8080/proxy/act/read-passwd
+{"action":"read-passwd","ok":true,"path":"/etc/passwd","attempted":true,"bytes":149,"lines":3,"held_ms":100,"pid":1,"tid":20,"started_at":"2026-09-30T10:09:21.202962846Z","finished_at":"2026-09-30T10:09:21.303164459Z"}
+
+POST /api/v1/namespaces/fe-signalloom-agents/services/kusari-agent:8080/proxy/act/read-shadow
+{"action":"read-shadow","ok":false,"error":"open /etc/shadow: no such file or directory","path":"/etc/shadow","attempted":true,"pid":1,"tid":19,"started_at":"2026-09-30T10:09:21.351538969Z","finished_at":"2026-09-30T10:09:21.351574185Z"}
+
+===============================================================================
+ C.1 Why Steps 2, 4 and 5 fail live - root-cause diagnostics
+===============================================================================
+# SLDC-P5-1 live blocker diagnostics - captured: 2026-09-30 11:07:01+0100 - base: 8d599f148c970c01b50295b4632a4a4524c8bc82
+
+$ kubectl --context kind-osramp -n fe-signalloom-agents logs ds/stun-sentinel | rg -o "\"event\":\"[a-z_]+\"" | sort | uniq -c
+      1 "event":"ebpf_probe_attached"
+      1 "event":"started"
+    738 "event":"unstun"
+
+$ ... | rg ebpf_probe_attached | tail -1
+{"timestamp":"2026-09-30T05:17:15.634355587Z","event":"ebpf_probe_attached","details":{"ringbuf_mb":16,"tracepoints":["sys_enter_openat","sys_enter_openat2","sys_enter_execve","sys_enter_connect"]}}
+
+$ ... | rg "cannot list resource .pods." | tail -1   # informer starved -> correlator drops every event
+W0930 10:06:54.015310  410405 reflector.go:561] k8s.io/client-go@v0.31.0/tools/cache/reflector.go:243: failed to list *v1.Pod: pods is forbidden: User "system:serviceaccount:fe-signalloom-agents:stun-sentinel" cannot list resource "pods" in API group "" in the
+
+$ kubectl --context kind-osramp auth can-i list pods --as=system:serviceaccount:fe-signalloom-agents:stun-sentinel -n fe-signalloom-agents
+no
+
+$ kubectl --context kind-osramp get kustomization agent-signalloom-stun-sentinel -n fe-signalloom-agents -o jsonpath=ready+msg
+False :: DaemonSet/fe-signalloom-agents/stun-sentinel dry-run failed (Invalid): DaemonSet.apps "stun-sentinel" is invalid: spec.template.spec.containers[0].volumeMounts.mountPropagation: Forbidden: Bidirectional mount propagation is available only to privileged containers
+
+
+$ registry row at the real DB location (kind-osramp/inf-signalloom)
+kusari-agent|tenant-demo|claude-3-5-sonnet
+
+$ postgres deployments per cluster (card Appendix F.1 places agent_registry on the hub)
+kind-signalloom-hub: 
+kind-osramp: inf-signalloom/postgresql kagent/kagent-postgresql 
+
+$ observations carrying sys_enter_openat after three provocations
+0
+
+$ cgroup.events for the kusari pod
+cgroup=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pode02fe214_5d7c_423b_9fa9_f933932d6679.slice
+populated 1
+frozen 0
+
+$ kusari deployment flux reconcile annotation
+(empty = absent)
+
+$ correlator drop site
+74:	if pod == nil {
+75-		return errors.New("pod is nil")
+--
+207:	if pod == nil {
+208-		return
+--
+231:	if pod == nil {
+232-		return
+--
+352:	if pod == nil || pod.Labels == nil {
+353-		return false
+--
+478:		if pod == nil && raw.TGID != 0 {
+479-			pod = m.lookupPodByPID(raw.TGID)
+--
+481:		if pod == nil {
+482-			continue
+
+$ Step 2 re-run against the REAL database location (DB_CONTEXT=kind-osramp)
+1..1
+# evidence: /tmp/kusari-e2e/s2
+not ok 1 Step 2: Tenant registration and database claim for tenant kusari
+# (in test file test/e2e-dual-cluster-containment.bats, line 276)
+#   `[[ "$row" == *"|${TENANT}|"* ]]' failed
+# evidence: /tmp/kusari-e2e/s2
+
+===============================================================================
+ VERDICT
+===============================================================================
+Suite correctness:  PROVEN (21/21 falsifiability, baseline 5/5 green)
+Agent endpoints:    PROVEN live (Step 1 and Step 3 green against kind-osramp)
+Live 5/5 pass:      BLOCKED - stun-sentinel SA cannot list pods, so every
+                    sensitive openat is dropped at
+                    pkg/correlator/ebpf_correlator.go:481 before normalization,
+                    dispatch or freeze. Card hard blocker: 'BPF probe fails to
+                    trigger on /etc/shadow provocation'. Remediation is
+                    P5-PRE B3/B5 + the sentinel Flux slice, all out of scope here.

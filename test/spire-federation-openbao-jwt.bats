@@ -84,7 +84,8 @@ live() { [[ "${SLDC_P22_LIVE:-}" == 1 ]] || skip "live lab tier: set SLDC_P22_LI
 @test "federation manifest renders per side with no unrendered variables" {
   run "$SCRIPT" render workload
   [ "$status" -eq 0 ]
-  if grep -q '\${' <<<"$output"; then echo "unrendered variable"; return 1; fi
+  # comments may name the variables; only YAML/HCL content must be rendered
+  if grep -v '^[[:space:]]*#' <<<"$output" | grep -q '\${'; then echo "unrendered variable"; return 1; fi
   grep -Fq 'trust_domain = "osramp.local"' <<<"$output"
   grep -Fq 'federates_with "signalloom.hub"' <<<"$output"
   grep -Fq 'bundle_endpoint_url = "https://172.19.0.20:31843"' <<<"$output"

@@ -11,6 +11,10 @@ setup() {
 	root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 	gate="$root/scripts/verify-mutation-gate.sh"
 	stub() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$BATS_TEST_TMPDIR/$1"; chmod +x "$BATS_TEST_TMPDIR/$1"; }
+	# The code-mutation stage is proven by running test/eap-evidence-mutation-proof.sh
+	# directly; here it is a stub so the gate's aggregation is what is tested.
+	stub code-proof 'exit "${CODE_PROOF_RC:-0}"'
+	export MUTATION_GATE_CODE_PROOF="$BATS_TEST_TMPDIR/code-proof"
 }
 
 @test "against the real packager and verifier: control passes and 4/4 mutations are proven" {
@@ -52,4 +56,11 @@ echo "disk full" >&2; exit 1'
 	before="$(git -C "$root" status --porcelain)"
 	run bash "$gate" --check-all
 	[ "$(git -C "$root" status --porcelain)" = "$before" ]
+}
+
+@test "--check-all fails when the code-mutation proof fails" {
+	CODE_PROOF_RC=1 run bash "$gate" --check-all
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"MUTATION GATE: 4/4 mutations proven"* ]]
+	[[ "$output" == *"CODE MUTATION PROOF: FAIL"* ]]
 }

@@ -1,0 +1,5 @@
+=== RUN   TestLiveSPIREJWTSVID
+    auth_jwks_refresh_test.go:261: accepted spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel tenant=kusari
+--- PASS: TestLiveSPIREJWTSVID (0.00s)
+PASS
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api	0.007s

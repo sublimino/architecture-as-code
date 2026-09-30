@@ -1,0 +1,16 @@
+{
+  "http_status": 200,
+  "auth": {
+    "policies": [
+      "agent-cardvault-policy"
+    ],
+    "token_policies": [
+      "agent-cardvault-policy"
+    ],
+    "lease_duration": 3600,
+    "renewable": true,
+    "metadata": {
+      "role": "agent-cardvault"
+    }
+  }
+}

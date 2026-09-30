@@ -1,0 +1,391 @@
+# SLDC-P2-2: cross-cluster SPIRE federation, kind-osramp <-> kind-signalloom-hub.
+#
+# One template, rendered once per cluster by scripts/bootstrap-spire-federation.sh
+# (envsubst over exactly the five ${SPIRE_*} variables below; nothing else in
+# this file uses "$"):
+#
+#   cluster               SPIRE_TRUST_DOMAIN  SPIRE_PEER_TRUST_DOMAIN  SPIRE_PEER_BUNDLE_ENDPOINT_URL
+#   kind-osramp           osramp.local        signalloom.hub           https://172.19.0.20:31843
+#   kind-signalloom-hub   signalloom.hub      osramp.local             https://172.19.0.10:31843
+#
+# SPIRE_CLUSTER_NAME is the k8s_psat cluster name (osramp / signalloom-hub),
+# and SPIRE_BUNDLE_NODEPORT the host-reachable bundle endpoint port (31843).
+#
+# Why a separate spire-system stack instead of re-domaining inf-bao's SPIRE:
+# the inf-bao SPIRE server (trust domain signalloom.demo) backs every live
+# SVID, bound_claims and pinned contract test on kind-osramp. Re-domaining it
+# invalidates all of them at once (SLDC-P2-PRE drift item 2). This stack is
+# additive, and `kubectl delete ns spire-system` fully reverses it.
+#
+# Trust path: each server serves its bundle on 8443 (NodePort
+# ${SPIRE_BUNDLE_NODEPORT} across signalloom-bridge) with the https_spiffe
+# profile. The peer authenticates that endpoint as
+# spiffe://<peer>/spire/server against a bundle seeded once by the bootstrap
+# script ("bundle set"); after that SPIRE refreshes it from the endpoint on the
+# bundle's refresh hint, which covers rotation in both directions. Proposal
+# B.3's http://spire-server.spire.svc.cluster.local:8081/keys is not used:
+# 8081 is SPIRE's gRPC API, not a JWKS endpoint (SLDC-P2-PRE drift item 3).
+#
+# The "BEGIN federation" / "END federation" markers are load-bearing:
+# test/spire-federation-openbao-jwt.bats splices that exact block into its
+# live Docker lab, so the lab runs this file's federation config rather than a
+# copy of it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spire-system
+  labels:
+    signalloom.io/card: SLDC-P2-2
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-server
+  namespace: spire-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-agent
+  namespace: spire-system
+---
+# k8s_psat node attestation: the server validates agent tokens via TokenReview
+# and reads pod/node objects to build selectors.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spire-system-server
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods", "nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spire-system-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spire-system-server
+subjects:
+  - kind: ServiceAccount
+    name: spire-server
+    namespace: spire-system
+---
+# k8sbundle notifier: the server keeps the spire-bundle ConfigMap current so
+# agents bootstrap trust in their own domain's CA.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spire-server-bundle
+  namespace: spire-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["spire-bundle"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spire-server-bundle
+  namespace: spire-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-server-bundle
+subjects:
+  - kind: ServiceAccount
+    name: spire-server
+    namespace: spire-system
+---
+# The k8s workload attestor asks the kubelet which pod owns a caller's PID.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spire-system-agent
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "nodes/proxy"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spire-system-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spire-system-agent
+subjects:
+  - kind: ServiceAccount
+    name: spire-agent
+    namespace: spire-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-bundle
+  namespace: spire-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-server
+  namespace: spire-system
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      trust_domain = "${SPIRE_TRUST_DOMAIN}"
+      data_dir = "/run/spire/data"
+      log_level = "INFO"
+      ca_key_type = "ec-p256"
+      jwt_key_type = "ec-p256"
+      ca_ttl = "168h"
+      default_x509_svid_ttl = "1h"
+      default_jwt_svid_ttl = "5m"
+      # BEGIN federation
+      federation {
+        bundle_endpoint {
+          address = "0.0.0.0"
+          port = 8443
+        }
+        federates_with "${SPIRE_PEER_TRUST_DOMAIN}" {
+          bundle_endpoint_url = "${SPIRE_PEER_BUNDLE_ENDPOINT_URL}"
+          bundle_endpoint_profile "https_spiffe" {
+            endpoint_spiffe_id = "spiffe://${SPIRE_PEER_TRUST_DOMAIN}/spire/server"
+          }
+        }
+      }
+      # END federation
+    }
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "sqlite3"
+          connection_string = "/run/spire/data/datastore.sqlite3"
+        }
+      }
+      # disk, not memory: the CA and JWT signing keys must survive a restart,
+      # or every peer's federated copy of this bundle goes stale at once.
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/run/spire/data/keys.json"
+        }
+      }
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            "${SPIRE_CLUSTER_NAME}" = {
+              service_account_allow_list = ["spire-system:spire-agent"]
+            }
+          }
+        }
+      }
+      Notifier "k8sbundle" {
+        plugin_data {
+          namespace = "spire-system"
+          config_map = "spire-bundle"
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-agent
+  namespace: spire-system
+data:
+  agent.conf: |
+    agent {
+      data_dir = "/run/spire/data"
+      log_level = "INFO"
+      server_address = "spire-server.spire-system.svc.cluster.local"
+      server_port = "8081"
+      socket_path = "/run/spire/sockets/agent.sock"
+      trust_domain = "${SPIRE_TRUST_DOMAIN}"
+      trust_bundle_path = "/run/spire/bundle/bundle.crt"
+    }
+    plugins {
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          cluster = "${SPIRE_CLUSTER_NAME}"
+        }
+      }
+      KeyManager "memory" {
+        plugin_data {}
+      }
+      WorkloadAttestor "k8s" {
+        plugin_data {
+          skip_kubelet_verification = true
+        }
+      }
+      WorkloadAttestor "unix" {
+        plugin_data {}
+      }
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spire-server
+  namespace: spire-system
+  labels:
+    app: spire-server
+spec:
+  replicas: 1
+  serviceName: spire-server
+  selector:
+    matchLabels:
+      app: spire-server
+  template:
+    metadata:
+      labels:
+        app: spire-server
+    spec:
+      serviceAccountName: spire-server
+      containers:
+        - name: spire-server
+          image: ghcr.io/spiffe/spire-server:1.11.1
+          args: ["-config", "/run/spire/config/server.conf"]
+          ports:
+            - name: grpc
+              containerPort: 8081
+            - name: federation
+              containerPort: 8443
+          livenessProbe:
+            exec:
+              command: ["/opt/spire/bin/spire-server", "healthcheck"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["/opt/spire/bin/spire-server", "healthcheck", "--shallow"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /run/spire/config
+              readOnly: true
+            - name: data
+              mountPath: /run/spire/data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: spire-server
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-server
+  namespace: spire-system
+spec:
+  selector:
+    app: spire-server
+  ports:
+    - name: grpc
+      port: 8081
+      targetPort: grpc
+---
+# Bundle endpoint, reachable from the peer node over signalloom-bridge.
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-server-federation
+  namespace: spire-system
+spec:
+  type: NodePort
+  selector:
+    app: spire-server
+  ports:
+    - name: federation
+      port: 8443
+      targetPort: federation
+      nodePort: ${SPIRE_BUNDLE_NODEPORT}
+---
+# A Deployment, not a DaemonSet: both Kind clusters are single-node, and the
+# card's acceptance probe addresses deploy/spire-agent. The agent pod shares
+# the node's PID namespace so the k8s workload attestor can resolve callers
+# on that node, and publishes the Workload API socket under a hostPath so
+# workloads on that node can mount it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spire-agent
+  namespace: spire-system
+  labels:
+    app: spire-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spire-agent
+  template:
+    metadata:
+      labels:
+        app: spire-agent
+    spec:
+      serviceAccountName: spire-agent
+      hostPID: true
+      containers:
+        - name: spire-agent
+          image: ghcr.io/spiffe/spire-agent:1.11.1
+          args: ["-config", "/run/spire/config/agent.conf"]
+          env:
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          livenessProbe:
+            exec:
+              command: ["/opt/spire/bin/spire-agent", "healthcheck", "-socketPath", "/run/spire/sockets/agent.sock"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          volumeMounts:
+            - name: config
+              mountPath: /run/spire/config
+              readOnly: true
+            - name: bundle
+              mountPath: /run/spire/bundle
+              readOnly: true
+            - name: sockets
+              mountPath: /run/spire/sockets
+            - name: psat
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: spire-agent
+        - name: bundle
+          configMap:
+            name: spire-bundle
+        - name: sockets
+          hostPath:
+            path: /run/spire-system/sockets
+            type: DirectoryOrCreate
+        - name: psat
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: spire-agent
+                  audience: spire-server
+                  expirationSeconds: 7200

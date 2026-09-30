@@ -75,6 +75,11 @@ type AuthConfig struct {
 	Audience, TrustDomain string
 	Keys                  map[string]any
 	Bindings              map[string]PrincipalBinding
+	// JWKSFile, when set, is re-read every JWKSRefresh by StartKeyRefresh so a
+	// rotated SPIRE signing key reaches the verifier without a restart
+	// (SLDC-P2-2). Keys holds the boot-time load of the same file.
+	JWKSFile    string
+	JWKSRefresh time.Duration
 }
 type Principal struct {
 	Subject, TenantID string
@@ -108,7 +113,16 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 type JWTAuthenticator struct {
 	cfg AuthConfig
 	now func() time.Time
+
+	keysMu sync.RWMutex
+	keys   map[string]any
 }
+
+// DefaultJWKSRefresh is the SIGNAL_AUTH_JWKS_REFRESH default.
+const DefaultJWKSRefresh = 15 * time.Minute
+
+// maxJWKSFileBytes bounds a mounted JWKS read; a SPIRE bundle is a few KiB.
+const maxJWKSFileBytes = 1 << 20
 
 func NewJWTAuthenticator(cfg AuthConfig) (*JWTAuthenticator, error) {
 	if cfg.Audience == "" || cfg.TrustDomain == "" || len(cfg.Keys) == 0 || len(cfg.Bindings) == 0 {
@@ -122,24 +136,109 @@ func NewJWTAuthenticator(cfg AuthConfig) (*JWTAuthenticator, error) {
 			return nil, fmt.Errorf("invalid binding for %q", subject)
 		}
 	}
-	for kid, key := range cfg.Keys {
+	if err := validateKeys(cfg.Keys); err != nil {
+		return nil, err
+	}
+	return &JWTAuthenticator{cfg: cfg, now: time.Now, keys: cfg.Keys}, nil
+}
+
+func validateKeys(keys map[string]any) error {
+	if len(keys) == 0 {
+		return errors.New("trust keys are required")
+	}
+	for kid, key := range keys {
 		if kid == "" {
-			return nil, errors.New("key ID must not be empty")
+			return errors.New("key ID must not be empty")
 		}
 		switch k := key.(type) {
 		case *ecdsa.PublicKey:
 			if k.Curve != elliptic.P256() {
-				return nil, fmt.Errorf("key %q must use P-256", kid)
+				return fmt.Errorf("key %q must use P-256", kid)
 			}
 		case *rsa.PublicKey:
 			if k.N == nil || k.N.BitLen() < 2048 || k.E < 3 || k.E%2 == 0 {
-				return nil, fmt.Errorf("key %q must use RSA-2048 or stronger", kid)
+				return fmt.Errorf("key %q must use RSA-2048 or stronger", kid)
 			}
 		default:
-			return nil, fmt.Errorf("key %q has unsupported type", kid)
+			return fmt.Errorf("key %q has unsupported type", kid)
 		}
 	}
-	return &JWTAuthenticator{cfg: cfg, now: time.Now}, nil
+	return nil
+}
+
+// LoadJWKSFile reads, parses and validates a JWKS file. An empty key set is an
+// error: a refresh must never swap in "trust nothing" silently, and a boot
+// with no keys must refuse to start.
+func LoadJWKSFile(path string) (map[string]any, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxJWKSFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxJWKSFileBytes {
+		return nil, errors.New("JWKS file exceeds 1 MiB")
+	}
+	keys, err := parseJWKS(string(raw))
+	if err != nil {
+		return nil, err
+	}
+	if err := validateKeys(keys); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+// RefreshKeys re-reads JWKSFile and swaps the key set. On any failure the
+// last good key set stays in force and the error is returned.
+func (a *JWTAuthenticator) RefreshKeys() error {
+	if a.cfg.JWKSFile == "" {
+		return nil
+	}
+	keys, err := LoadJWKSFile(a.cfg.JWKSFile)
+	if err != nil {
+		return fmt.Errorf("refresh JWKS from %s: %w", a.cfg.JWKSFile, err)
+	}
+	a.keysMu.Lock()
+	a.keys = keys
+	a.keysMu.Unlock()
+	return nil
+}
+
+// StartKeyRefresh re-reads JWKSFile every JWKSRefresh until ctx ends. It is a
+// no-op for the inline SIGNAL_AUTH_JWKS source.
+func (a *JWTAuthenticator) StartKeyRefresh(ctx context.Context) {
+	if a.cfg.JWKSFile == "" {
+		return
+	}
+	interval := a.cfg.JWKSRefresh
+	if interval <= 0 {
+		interval = DefaultJWKSRefresh
+	}
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := a.RefreshKeys(); err != nil {
+					slog.Warn("JWT-SVID key refresh failed; keeping last good keys", "error", err)
+				}
+			}
+		}
+	}()
+}
+
+func (a *JWTAuthenticator) key(kid string) (any, bool) {
+	a.keysMu.RLock()
+	defer a.keysMu.RUnlock()
+	k, ok := a.keys[kid]
+	return k, ok
 }
 
 func (a *JWTAuthenticator) Authenticate(r *http.Request) (Principal, error) {
@@ -175,7 +274,7 @@ func (a *JWTAuthenticator) Authenticate(r *http.Request) (Principal, error) {
 	if decodeJWTPart(parts[0], &header) != nil || decodeJWTPart(parts[1], &claims) != nil || header.Kid == "" || header.Crit != nil {
 		return Principal{}, ErrInvalidCredential
 	}
-	key, ok := a.cfg.Keys[header.Kid]
+	key, ok := a.key(header.Kid)
 	if !ok {
 		return Principal{}, ErrInvalidCredential
 	}
@@ -521,11 +620,31 @@ func AuthConfigFromEnv() (AuthConfig, error) {
 	audience := os.Getenv("SIGNAL_AUTH_AUDIENCE")
 	trustDomain := os.Getenv("SIGNAL_AUTH_TRUST_DOMAIN")
 	jwks := os.Getenv("SIGNAL_AUTH_JWKS")
+	jwksFile := os.Getenv("SIGNAL_AUTH_JWKS_FILE")
 	bindingsRaw := os.Getenv("SIGNAL_AUTH_BINDINGS")
-	if audience == "" || trustDomain == "" || jwks == "" || bindingsRaw == "" {
-		return AuthConfig{}, errors.New("SIGNAL_AUTH_AUDIENCE, SIGNAL_AUTH_TRUST_DOMAIN, SIGNAL_AUTH_JWKS, and SIGNAL_AUTH_BINDINGS are required")
+	if audience == "" || trustDomain == "" || (jwks == "" && jwksFile == "") || bindingsRaw == "" {
+		return AuthConfig{}, errors.New("SIGNAL_AUTH_AUDIENCE, SIGNAL_AUTH_TRUST_DOMAIN, SIGNAL_AUTH_JWKS or SIGNAL_AUTH_JWKS_FILE, and SIGNAL_AUTH_BINDINGS are required")
 	}
-	keys, err := parseJWKS(jwks)
+	if jwks != "" && jwksFile != "" {
+		return AuthConfig{}, errors.New("set exactly one of SIGNAL_AUTH_JWKS and SIGNAL_AUTH_JWKS_FILE")
+	}
+	var (
+		keys    map[string]any
+		refresh time.Duration
+		err     error
+	)
+	if jwksFile != "" {
+		refresh = DefaultJWKSRefresh
+		if raw := os.Getenv("SIGNAL_AUTH_JWKS_REFRESH"); raw != "" {
+			refresh, err = time.ParseDuration(raw)
+			if err != nil || refresh < time.Second || refresh > 24*time.Hour {
+				return AuthConfig{}, fmt.Errorf("SIGNAL_AUTH_JWKS_REFRESH must be a duration between 1s and 24h, got %q", raw)
+			}
+		}
+		keys, err = LoadJWKSFile(jwksFile)
+	} else {
+		keys, err = parseJWKS(jwks)
+	}
 	if err != nil {
 		return AuthConfig{}, err
 	}
@@ -533,7 +652,7 @@ func AuthConfigFromEnv() (AuthConfig, error) {
 	if err = json.Unmarshal([]byte(bindingsRaw), &bindings); err != nil {
 		return AuthConfig{}, fmt.Errorf("parse bindings: %w", err)
 	}
-	return AuthConfig{Audience: audience, TrustDomain: trustDomain, Keys: keys, Bindings: bindings}, nil
+	return AuthConfig{Audience: audience, TrustDomain: trustDomain, Keys: keys, Bindings: bindings, JWKSFile: jwksFile, JWKSRefresh: refresh}, nil
 }
 func parseJWKS(raw string) (map[string]any, error) {
 	var set struct {

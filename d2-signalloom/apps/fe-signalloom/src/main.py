@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from adapters import load_adapter_selections
 from api_compat import install_compatibility_api
 from audit_ingest import install_audit_ingest_api
+from cadvisor_poller import install_cadvisor_telemetry_api
 from coding_agent_telemetry import install_coding_agent_telemetry_api
 from demo_runner import install_demo_runner_api
 from environment_lifecycle import GLOBAL_REAPER_DAEMON, install_environment_lifecycle_api
@@ -88,6 +89,7 @@ install_policy_engine_api(app)
 install_connectors_api(app)
 install_discovery_api(app)
 install_agents_api(app)
+install_cadvisor_telemetry_api(app)
 install_environment_routing_api(app)
 install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)

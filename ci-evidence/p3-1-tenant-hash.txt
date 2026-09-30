@@ -1,0 +1,116 @@
+# SLDC-P3-1 required-test transcripts - 2026-09-30 08:21:34+0100 - base ed24fba0e7fa94c828a366eb77c53310c5776d0c
+
+$ SIGNAL_LOOM_EAP_SALT=signalloom-eap-salt-2026-q3 python3 scripts/derive_tenant_hash.py kusari
+Tenant: kusari -> Hash: 4b53ab6b
+EXIT:0
+
+$ python3 scripts/derive_tenant_hash.py kusari   # verbatim, no salt source: fails closed by design
+ERROR: EAP salt unavailable: provision secret/signalloom/eap in OpenBao or set SIGNAL_LOOM_EAP_SALT
+EXIT:1
+
+$ python3 scripts/derive_tenant_hash.py   # self-test, pilot salt is a vector input
+ok: kusari -> 4b53ab6b (4b53ab6b)
+ok: kusari is not the unsalted digest (4b53ab6b)
+ok: kurasi fails closed (rejected)
+EXIT:0
+
+$ python3 scripts/derive_tenant_hash.py kurasi 2>&1; echo "EXIT:$?"
+ERROR: tenant 'kurasi' is a retired legacy typo; the canonical tenant is 'kusari'
+EXIT:1
+
+$ SIGNAL_LOOM_EAP_SALT="signalloom-eap-salt-2026-q3" python3 -m unittest discover -s test/unit -p "test_tenant_hash*.py" -v
+test_custom_tenant_vector (test_tenant_hash.CanonicalVectors.test_custom_tenant_vector) ... ok
+test_env_salt_used_when_no_explicit_salt (test_tenant_hash.CanonicalVectors.test_env_salt_used_when_no_explicit_salt) ... ok
+test_kusari_is_4b53ab6b (test_tenant_hash.CanonicalVectors.test_kusari_is_4b53ab6b) ... ok
+test_matches_salted_concatenation_formula (test_tenant_hash.CanonicalVectors.test_matches_salted_concatenation_formula) ... ok
+test_normalises_case_and_whitespace (test_tenant_hash.CanonicalVectors.test_normalises_case_and_whitespace) ... ok
+test_not_hmac (test_tenant_hash.CanonicalVectors.test_not_hmac) ... ok
+test_not_unsalted_digest (test_tenant_hash.CanonicalVectors.test_not_unsalted_digest) ... ok
+test_output_is_eight_lowercase_hex (test_tenant_hash.CanonicalVectors.test_output_is_eight_lowercase_hex) ... ok
+test_salt_changes_hash (test_tenant_hash.CanonicalVectors.test_salt_changes_hash) ... ok
+test_kurasi_cli_exit_1 (test_tenant_hash.Cli.test_kurasi_cli_exit_1) ... ok
+test_kusari_cli (test_tenant_hash.Cli.test_kusari_cli) ... ok
+test_missing_salt_cli_exit_1 (test_tenant_hash.Cli.test_missing_salt_cli_exit_1) ... ok
+test_quiet_prints_bare_hash (test_tenant_hash.Cli.test_quiet_prints_bare_hash) ... ok
+test_self_test_no_args (test_tenant_hash.Cli.test_self_test_no_args) ... ok
+test_unreachable_openbao_does_not_hang (test_tenant_hash.Cli.test_unreachable_openbao_does_not_hang) ... ok
+test_usage_error_exit_2 (test_tenant_hash.Cli.test_usage_error_exit_2) ... ok
+test_empty_rejected (test_tenant_hash.RejectedInputs.test_empty_rejected) ... ok
+test_empty_salt_rejected (test_tenant_hash.RejectedInputs.test_empty_salt_rejected) ... ok
+test_invalid_charset_rejected (test_tenant_hash.RejectedInputs.test_invalid_charset_rejected) ... ok
+test_kurasi_rejected (test_tenant_hash.RejectedInputs.test_kurasi_rejected) ... ok
+test_invalid_token_falls_back_to_env (test_tenant_hash.SaltResolution.test_invalid_token_falls_back_to_env) ... derive_tenant_hash: OpenBao salt lookup failed (HTTP Error 403: permission denied); falling back to SIGNAL_LOOM_EAP_SALT
+Exception ignored while calling deallocator <function _TemporaryFileCloser.__del__ at 0x7fe4add76980>:
+Traceback (most recent call last):
+  File "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.4_1/lib/python3.14/tempfile.py", line 484, in __del__
+    _warnings.warn(self.warn_message, ResourceWarning)
+ResourceWarning: Implicitly cleaning up <HTTPError 403: 'permission denied'>
+ok
+test_missing_token_skips_openbao (test_tenant_hash.SaltResolution.test_missing_token_skips_openbao) ... ok
+test_no_salt_anywhere_fails_closed (test_tenant_hash.SaltResolution.test_no_salt_anywhere_fails_closed) ... derive_tenant_hash: OpenBao returned no salt field; falling back to SIGNAL_LOOM_EAP_SALT
+ok
+test_openbao_consistent_with_env_fallback (test_tenant_hash.SaltResolution.test_openbao_consistent_with_env_fallback) ... ok
+test_openbao_salt_preferred (test_tenant_hash.SaltResolution.test_openbao_salt_preferred) ... ok
+test_unprovisioned_secret_falls_back_to_env (test_tenant_hash.SaltResolution.test_unprovisioned_secret_falls_back_to_env) ... derive_tenant_hash: OpenBao returned no salt field; falling back to SIGNAL_LOOM_EAP_SALT
+ok
+test_unreachable_openbao_falls_back_to_env (test_tenant_hash.SaltResolution.test_unreachable_openbao_falls_back_to_env) ... derive_tenant_hash: OpenBao salt lookup failed (<urlopen error connection refused>); falling back to SIGNAL_LOOM_EAP_SALT
+ok
+test_vault_addr_and_token_accepted (test_tenant_hash.SaltResolution.test_vault_addr_and_token_accepted) ... ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 2.333s
+
+OK
+EXIT:0
+
+$ bats test/tenant-hash-vectors.bats
+1..12
+ok 1 kusari derives the canonical 4b53ab6b
+ok 2 --quiet prints exactly the 8-char hash
+ok 3 matches the shell implementation in tailscale-eap-env.sh
+ok 4 custom tenant equals sha256(salt:tenant)[:8]
+ok 5 case and whitespace normalise to the canonical vector
+ok 6 kurasi fails closed with exit 1 and names the retired typo
+ok 7 uppercase KURASI is also rejected
+ok 8 empty tenant is rejected
+ok 9 missing salt fails closed with exit 1
+ok 10 unreachable OpenBao with a bogus token falls back to the env salt
+ok 11 no arguments runs the known-answer self-test
+ok 12 extra arguments are a usage error (exit 2)
+EXIT:0
+
+$ (cd d2-signalloom/apps/fe-signalloom/pkg/tenant && CGO_ENABLED=0 go test -v ./...)
+=== RUN   TestCanonicalVector
+--- PASS: TestCanonicalVector (0.00s)
+=== RUN   TestMatchesSaltedConcatenation
+--- PASS: TestMatchesSaltedConcatenation (0.00s)
+=== RUN   TestRejectedInputs
+--- PASS: TestRejectedInputs (0.00s)
+=== RUN   TestResolveSaltPrefersOpenBao
+--- PASS: TestResolveSaltPrefersOpenBao (0.00s)
+=== RUN   TestResolveSaltFailsClosed
+--- PASS: TestResolveSaltFailsClosed (0.00s)
+PASS
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fe-signalloom/pkg/tenant	0.003s
+EXIT:0
+
+$ bun test test/unit/tenant-hash.test.ts
+bun test v1.4.0 (34cbb9a40)
+ 6 pass
+ 0 fail
+ 12 expect() calls
+Ran 6 tests across 1 file. [188.00ms]
+EXIT:0
+
+# Mutation testing (Pattern 6). Each mutant applied in place, suites run, file restored and cmp-verified.
+# python mutants: unittest rc / bats not-ok count
+unsalted-sha256 (required: sha256(tenant)[:8] -> d9d69501)  unittest rc=1 (10 failures)  bats 7 not-ok
+hmac (HMAC-SHA256 -> 4a89f30d)                              unittest rc=1 (10 failures)  bats 7 not-ok
+bytes-truncation (digest()[:8].hex(), 16 chars)             unittest rc=1 (5F/9E)        bats 7 not-ok
+accept-kurasi                                               unittest rc=1 (3 failures)   bats 3 not-ok
+default-salt-fail-open                                      unittest rc=1 (2 failures)   bats 1 not-ok
+env-before-openbao                                          unittest rc=1 (1 failure)    bats 0 (CLI suite is hermetic)
+no-normalise                                                unittest rc=1 (2 errors)     bats 2 not-ok
+no-timeout (fetch timeout=None)                             unittest rc=1 (2 errors)     bats 0
+# go: unsalted rc=1, accept-kurasi rc=1; ts: unsalted rc=1, accept-kurasi rc=1
+# Note: first bytes-truncation run hit the docstring anchor (vacuous, survived); rerun on the code line was killed.

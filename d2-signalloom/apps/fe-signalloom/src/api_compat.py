@@ -1486,7 +1486,17 @@ def validate_jwt(token: str) -> dict[str, Any]:
     except (jwt.PyJWTError, ValueError, TypeError) as exc:
         raise JWTValidationError("invalid Dex JWT") from exc
 
-    if claims.get("azp") != settings.api_jwt_authorized_party:
+    # OIDC Core 3.1.3.7: azp (Authorized Party) MUST be present if the ID Token was
+    # issued with multiple audiences. If single audience, azp is OPTIONAL and defaults
+    # to the single audience (aud).
+    azp = claims.get("azp")
+    if azp is None:
+        aud = claims.get("aud")
+        if isinstance(aud, list) and len(aud) == 1:
+            azp = aud[0]
+        elif isinstance(aud, str):
+            azp = aud
+    if azp != settings.api_jwt_authorized_party:
         raise JWTValidationError("unexpected JWT authorized party")
     if not isinstance(claims.get("sub"), str) or not claims["sub"].strip():
         raise JWTValidationError("missing JWT subject")

@@ -1,0 +1,23 @@
+{
+  "schema": "sldc-mission-certification/v1",
+  "status": "fail",
+  "reason": "run 1 red (exit=1, failed=3); consecutive-green chain broken",
+  "generated_at": "2026-09-30 11:42:36+0100",
+  "integration_head": "5b61552d9a9013f806c3d2b93432fb24734a8ac8",
+  "consecutive_green_required": 3,
+  "consecutive_green_achieved": 0,
+  "runs": [
+    {
+      "run": 1,
+      "exit": 1,
+      "passed": 2,
+      "failed": 3,
+      "skipped": 0,
+      "seconds": 180
+    }
+  ],
+  "bundle": "",
+  "bundle_sha256": "",
+  "certificate_digest": "0e2e8ce7c808d654ee65cbe96dda3599ee62f64c2f6710606edbfbbdf600f785",
+  "signoffs": []
+}

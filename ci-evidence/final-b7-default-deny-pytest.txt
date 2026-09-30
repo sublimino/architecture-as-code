@@ -1,0 +1,241 @@
+ssFF.F.....F.....FFsF.................s                                  [100%]
+=================================== FAILURES ===================================
+___________________ test_guard_sweep_covers_the_eap_routers ____________________
+
+    def test_guard_sweep_covers_the_eap_routers() -> None:
+        swept = [p for _, p, r in HTTP_OPERATIONS if _module_of(r) in EAP_MODULES]
+        swept += [r.path for r in WEBSOCKET_ROUTES if _module_of(r) in EAP_MODULES]
+>       assert len(swept) >= 23, f"only {len(swept)} EAP routes swept - has a router stopped being mounted?"
+E       AssertionError: only 0 EAP routes swept - has a router stopped being mounted?
+E       assert 0 >= 23
+E        +  where 0 = len([])
+
+src/tests/test_eap_default_deny.py:210: AssertionError
+________________ test_guard_every_anonymous_entry_still_exists _________________
+
+    def test_guard_every_anonymous_entry_still_exists() -> None:
+        live = {
+            (method, route.path)
+            for route in app.routes
+            if isinstance(route, (APIRoute, Route))
+            for method in (route.methods or ())
+        }
+        stale = sorted(set(ANONYMOUS_ROUTES) - live)
+>       assert not stale, f"ANONYMOUS_ROUTES names routes the app no longer has: {stale}"
+E       AssertionError: ANONYMOUS_ROUTES names routes the app no longer has: [('GET', '/api/v1/external-agents/privacy')]
+E       assert not [('GET', '/api/v1/external-agents/privacy')]
+
+src/tests/test_eap_default_deny.py:222: AssertionError
+_______ test_guard_delegated_auth_routes_are_exactly_the_telemetry_proxy _______
+
+    def test_guard_delegated_auth_routes_are_exactly_the_telemetry_proxy() -> None:
+        """The delegated list may only ever name the SLCD proxy module, and every entry must still exist."""
+        by_key = {
+            (method, route.path): route
+            for route in app.routes
+            if isinstance(route, APIRoute)
+            for method in (route.methods or ())
+        }
+        stale = sorted(set(DELEGATED_AUTH_ROUTES) - set(by_key))
+>       assert not stale, f"DELEGATED_AUTH_ROUTES names routes the app no longer has: {stale}"
+E       AssertionError: DELEGATED_AUTH_ROUTES names routes the app no longer has: [('GET', '/api/v1/telemetry/coding-agents'), ('GET', '/api/v1/telemetry/coding-agents/aggregate'), ('POST', '/api/v1/telemetry/coding-agents'), ('POST', '/api/v1/telemetry/coding-agents/ordering')]
+E       assert not [('GET', '/api/v1/telemetry/coding-agents'), ('GET', '/api/v1/telemetry/coding-agents/aggregate'), ('POST', '/api/v1/telemetry/coding-agents'), ('POST', '/api/v1/telemetry/coding-agents/ordering')]
+
+src/tests/test_eap_default_deny.py:242: AssertionError
+______________ test_guard_eap_inventory_is_exactly_the_pinned_set ______________
+
+    def test_guard_eap_inventory_is_exactly_the_pinned_set() -> None:
+        live = {(m, p) for m, p, r in HTTP_OPERATIONS if _module_of(r) in EAP_MODULES}
+        live |= {("WS", r.path) for r in WEBSOCKET_ROUTES if _module_of(r) in EAP_MODULES}
+        missing = sorted(EXPECTED_EAP_OPERATIONS - live)
+        unexpected = sorted(live - EXPECTED_EAP_OPERATIONS)
+>       assert not missing, f"EAP operations vanished from the sweep (unmounted, exempted, or import error): {missing}"
+E       AssertionError: EAP operations vanished from the sweep (unmounted, exempted, or import error): [('DELETE', '/api/v1/eap/tenants/{customer_hash}'), ('GET', '/api/v1/eap/lifecycle/active'), ('GET', '/api/v1/eap/lifecycle/audit-events'), ('GET', '/api/v1/eap/lifecycle/environments/{customer_hash}'), ('GET', '/api/v1/eap/lifecycle/metrics'), ('GET', '/api/v1/eap/lifecycle/reaper/dlq'), ('GET', '/api/v1/eap/lifecycle/reaper/status'), ('GET', '/api/v1/eap/scenarios/events/{customer_hash}'), ('GET', '/api/v1/eap/scenarios/events/{customer_hash}/stream'), ('GET', '/api/v1/eap/scenarios/history'), ('GET', '/api/v1/eap/tenants'), ('GET', '/api/v1/eap/tenants/{customer_hash}'), ('GET', '/api/v1/eap/tenants/{customer_hash}/manifests'), ('GET', '/api/v1/eap/tenants/{customer_hash}/spire-entry'), ('GET', '/api/v1/environments/'), ('GET', '/api/v1/environments/{environment_id}'), ('GET', '/api/v1/environments/{environment_id}/probe'), ('POST', '/api/v1/eap/lifecycle/environments/{customer_hash}/activity'), ('POST', '/api/v1/eap/lifecycle/environments/{customer_hash}/heartbeat'), ('POST', '/api/v1/eap/lifecycle/reap-now'), ('POST', '/api/v1/eap/lifecycle/reaper/dlq/clear'), ('POST', '/api/v1/eap/lifecycle/reaper/pause'), ('POST', '/api/v1/eap/lifecycle/reaper/resume'), ('POST', '/api/v1/eap/lifecycle/register'), ('POST', '/api/v1/eap/scenarios/execute'), ('POST', '/api/v1/eap/tenants'), ('POST', '/api/v1/eap/tenants/{customer_hash}/transit/decrypt'), ('POST', '/api/v1/eap/tenants/{customer_hash}/transit/encrypt'), ('POST', '/api/v1/environments/provision'), ('POST', '/api/v1/environments/resolve-domain'), ('POST', '/api/v1/environments/{environment_id}/extend'), ('POST', '/api/v1/environments/{environment_id}/teardown'), ('WS', '/api/v1/environments/{environment_id}/telemetry')]
+E       assert not [('DELETE', '/api/v1/eap/tenants/{customer_hash}'), ('GET', '/api/v1/eap/lifecycle/active'), ('GET', '/api/v1/eap/life...ronments/{customer_hash}'), ('GET', '/api/v1/eap/lifecycle/metrics'), ('GET', '/api/v1/eap/lifecycle/reaper/dlq'), ...]
+
+src/tests/test_eap_default_deny.py:391: AssertionError
+____ test_guard_operator_only_routes_carry_the_superadmin_gate_structurally ____
+
+    def test_guard_operator_only_routes_carry_the_superadmin_gate_structurally() -> None:
+        """Each operator-only handler declares the require_superadmin dependency, so the 403 above is not a coincidence."""
+        from superadmin import require_superadmin
+    
+        def declares_gate(route: APIRoute) -> bool:
+            return any(d.call is require_superadmin for d in route.dependant.dependencies)
+    
+        by_key = {(m, r.path): r for r in app.routes if isinstance(r, APIRoute) for m in (r.methods or ())}
+>       ungated = sorted(key for key in OPERATOR_ONLY_ROUTES if not declares_gate(by_key[key]))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/tests/test_eap_default_deny.py:438: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <set_iterator object at 0x7f57422ed700>
+
+>   ungated = sorted(key for key in OPERATOR_ONLY_ROUTES if not declares_gate(by_key[key]))
+                                                                              ^^^^^^^^^^^
+E   KeyError: ('POST', '/api/v1/eap/lifecycle/reaper/resume')
+
+src/tests/test_eap_default_deny.py:438: KeyError
+__________________ test_guard_no_route_escapes_the_inventory ___________________
+
+    def test_guard_no_route_escapes_the_inventory() -> None:
+        """Nothing is mounted where the sweep cannot see it, and every non-API route is a listed exemption."""
+        mounts = [r.path for r in app.routes if isinstance(r, Mount)]
+        assert mounts == [], f"sub-applications are invisible to the sweep and must not exist: {mounts}"
+        unknown = sorted(
+            (method, route.path)
+            for route in app.routes
+            if isinstance(route, Route) and not isinstance(route, APIRoute)
+            for method in (route.methods or ())
+            if method != "HEAD" and (method, route.path) not in ANONYMOUS_ROUTES
+        )
+        assert unknown == [], f"plain Starlette routes outside ANONYMOUS_ROUTES: {unknown}"
+        kinds = {type(r).__name__ for r in app.routes}
+>       assert kinds <= {"Route", "APIRoute", "APIWebSocketRoute"}, f"unexpected route kinds: {kinds}"
+E       AssertionError: unexpected route kinds: {'APIRoute', 'Route', '_IncludedRouter'}
+E       assert {'APIRoute', ...cludedRouter'} <= {'APIRoute', ...ute', 'Route'}
+E         
+E         Extra items in the left set:
+E         '_IncludedRouter'
+
+src/tests/test_eap_default_deny.py:459: AssertionError
+____________________ test_no_oidc_callback_route_is_mounted ____________________
+
+    def test_no_oidc_callback_route_is_mounted() -> None:
+>       callbacks = [r.path for r in app.routes if re.search(r"callback|oidc", r.path, re.IGNORECASE)]
+                                                                               ^^^^^^
+E       AttributeError: '_IncludedRouter' object has no attribute 'path'
+
+src/tests/test_eap_default_deny.py:482: AttributeError
+=============================== warnings summary ===============================
+../../../../../../../../../linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID list_discovery_workloads_api_v1_discovery_workloads_get for function list_discovery_workloads at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/api_compat.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_compliance_route_v1_compliance_get for function proxy_compliance_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_compliance_route_v1_compliance__subpath__get for function proxy_compliance_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_compliance_route_api_v1_compliance_get for function proxy_compliance_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_compliance_route_api_v1_compliance__subpath__get for function proxy_compliance_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_policies_get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_policies__subpath__get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_api_policies_get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_api_policies__subpath__get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_v1_policies_get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_v1_policies__subpath__get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_api_v1_policies_get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_policies_route_api_v1_policies__subpath__get for function proxy_policies_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_federation_route_v1_federation_put for function proxy_federation_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/federation.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_federation_route_v1_federation__subpath__put for function proxy_federation_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/federation.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_federation_route_api_v1_federation_put for function proxy_federation_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/federation.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID proxy_federation_route_api_v1_federation__subpath__put for function proxy_federation_route at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/federation.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID claim_discovered_workload_discovery_claim_post for function claim_discovered_workload at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/discovery.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID claim_discovered_workload_v1_discovery_claim_post for function claim_discovered_workload at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/discovery.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID claim_discovered_workload_api_v1_discovery_claim_post for function claim_discovered_workload at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/discovery.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID list_discovery_workloads_discovery_workloads_get for function list_discovery_workloads at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/discovery.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID list_discovery_workloads_v1_discovery_workloads_get for function list_discovery_workloads at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/discovery.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID list_discovery_workloads_api_v1_discovery_workloads_get for function list_discovery_workloads at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/discovery.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID transition_agent_state_agents__agent_id__transition_post for function transition_agent_state at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/agents.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID transition_agent_state_v1_agents__agent_id__transition_post for function transition_agent_state at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/agents.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID transition_agent_state_api_v1_agents__agent_id__transition_post for function transition_agent_state at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/agents.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID list_agents_agents_get for function list_agents at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/agents.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID list_agents_v1_agents_get for function list_agents at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/agents.py
+    warnings.warn(message, stacklevel=1)
+
+tests/test_eap_default_deny.py::test_guard_anonymous_routes_are_served_without_a_token[GET /openapi.json]
+  /home/linuxbrew/.linuxbrew/lib/python3.14/site-packages/fastapi/openapi/utils.py:303: UserWarning: Duplicate Operation ID list_agents_api_v1_agents_get for function list_agents at /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/p5-gov-candidate/d2-signalloom/apps/fe-signalloom/src/routers/agents.py
+    warnings.warn(message, stacklevel=1)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED src/tests/test_eap_default_deny.py::test_guard_sweep_covers_the_eap_routers
+FAILED src/tests/test_eap_default_deny.py::test_guard_every_anonymous_entry_still_exists
+FAILED src/tests/test_eap_default_deny.py::test_guard_delegated_auth_routes_are_exactly_the_telemetry_proxy
+FAILED src/tests/test_eap_default_deny.py::test_guard_eap_inventory_is_exactly_the_pinned_set
+FAILED src/tests/test_eap_default_deny.py::test_guard_operator_only_routes_carry_the_superadmin_gate_structurally
+FAILED src/tests/test_eap_default_deny.py::test_guard_no_route_escapes_the_inventory
+FAILED src/tests/test_eap_default_deny.py::test_no_oidc_callback_route_is_mounted
+7 failed, 28 passed, 4 skipped, 30 warnings in 1.88s

@@ -1,0 +1,9 @@
+kustomization: agent-kusari-agent (ns fe-signalloom-agents)
+ready: True
+lastAppliedRevision: latest@sha256:82ef76a05850f30583639956ea64f7b23b2ea465ea0bd74f3d43d4e824893248
+deployment: agent-kusari replicas 1/1
+pod: agent-kusari-5685ff664b-kv25k
+pod_uid: e02fe214-5d7c-423b-9fa9-f933932d6679
+phase: Running
+restartCount: 0
+image: docker.io/library/import-2026-09-30@sha256:3b50456024dd4d132673d975d2f4d5fe2f0eb206410a74a7b3d0eeb8deb4bd6a

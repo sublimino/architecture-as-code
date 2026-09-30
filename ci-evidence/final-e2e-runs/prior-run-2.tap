@@ -1,0 +1,14 @@
+1..5
+# evidence: /tmp/sldc-p5-gov/run-2
+ok 1 Step 1: Kusari workload deployment reconciled by Flux on the workload cluster
+not ok 2 Step 2: Tenant registration and database claim for tenant kusari
+# (in test file test/e2e-dual-cluster-containment.bats, line 266)
+#   `[ "$status" -eq 0 ]' failed
+ok 3 Step 3: Provoke malicious actor via /act/read-passwd
+not ok 4 Step 4: In-sentinel eBPF probe intercepts syscall and emits observation
+# (in test file test/e2e-dual-cluster-containment.bats, line 340)
+#   `[ "$status" -eq 0 ]' failed
+not ok 5 Step 5: Pod is frozen, CPU flatlines at 0 mCPU, Flux reconcile suppressed, 0 restarts
+# (in test file test/e2e-dual-cluster-containment.bats, line 382)
+#   `[ "$status" -eq 0 ]' failed
+# evidence: /tmp/sldc-p5-gov/run-2

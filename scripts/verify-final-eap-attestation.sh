@@ -61,15 +61,16 @@ run_step "4" "Cold-Start Replay and Attestation Suite" \
 run_step "5" "Forensic Evidence Packager and Tamper Verification" \
   "bats '$REPO_ROOT/test/evidence-bundle-integrity.bats'"
 
-# Step 6: Final Governor Certification Suite
-if [ -f "$REPO_ROOT/test/final-mission-governor.bats" ]; then
-  run_step "6" "Final Mission Governor Gates" \
-    "bats '$REPO_ROOT/test/final-mission-governor.bats'"
-fi
+# Step 6: Final Governor Certification Suite (a missing suite is a failure, not a skip)
+run_step "6" "Final Mission Governor Gates" \
+  "bats '$REPO_ROOT/test/final-mission-governor.bats'"
 
 # Step 7: Cryptographic Signing Key Inventory
+# shellcheck source=scripts/lib/keys.sh
+. "$SCRIPT_DIR/lib/keys.sh"
+KEYS="$(keys_dir_abs "$REPO_ROOT")"
 run_step "7" "Cryptographic Signing Keys Check" \
-  "test -r '$REPO_ROOT/.keys/cosign.key' && test -r '$REPO_ROOT/.keys/cosign.pub' && test -r '$REPO_ROOT/.keys/witness.pem'"
+  "test -r '$KEYS/cosign.key' && test -r '$KEYS/cosign.pub' && test -r '$KEYS/witness.pem'"
 
 echo "═════════════════════════════════════════════════════════════"
 printf 'FINAL ATTESTATION VERDICT: PASS (%d/%d steps verified)\n' "$PASSED_STEPS" "$TOTAL_STEPS"

@@ -47,14 +47,15 @@ const (
 type Reason string
 
 const (
-	ReasonNone           Reason = ""
-	ReasonNilPod         Reason = "nil-pod"
-	ReasonInfraNamespace Reason = "infrastructure-namespace"
-	ReasonSelfPod        Reason = "self-pod"
-	ReasonSentinelPod    Reason = "sentinel-pod"
-	ReasonSelfProcess    Reason = "self-process"
-	ReasonSelfCgroup     Reason = "self-cgroup"
-	ReasonNotRunning     Reason = "not-running"
+	ReasonNone               Reason = ""
+	ReasonNilPod             Reason = "nil-pod"
+	ReasonInfraNamespace     Reason = "infrastructure-namespace"
+	ReasonSelfPod            Reason = "self-pod"
+	ReasonSentinelPod        Reason = "sentinel-pod"
+	ReasonSelfProcess        Reason = "self-process"
+	ReasonSelfCgroup         Reason = "self-cgroup"
+	ReasonNotRunning         Reason = "not-running"
+	ReasonIncompleteIdentity Reason = "incomplete-pod-identity"
 )
 
 var (

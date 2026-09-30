@@ -217,3 +217,21 @@ live() { [[ "${SLDC_P2GOV_LIVE:-}" == 1 ]] || skip "live tier: set SLDC_P2GOV_LI
   run kubectl --context kind-signalloom-hub get ns sldc-p2-gov -o jsonpath='{.status.phase}'
   [ "$output" != Active ]
 }
+
+# --- runner abort path (offline: temp repo, fake kubectl, temp evidence dir) --
+
+@test "runner: an abort mid-gates replaces a stale pass certificate with a fail one" {
+  repo="$TMP/repo"; ev="$TMP/ev"; mkdir -p "$repo" "$ev" "$TMP/bin"
+  g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+  g init -q; g commit -q --allow-empty -m a; g commit -q --allow-empty -m b
+  printf '#!/bin/sh\nexit 1\n' >"$TMP/bin/kubectl"; chmod +x "$TMP/bin/kubectl"
+  echo '{"status":"pass","gates":[]}' >"$ev/phase2-governance-certification.json"
+  REPO_ROOT="$repo" P2GOV_EVIDENCE_DIR="$ev" KUBECTL_BIN="$TMP/bin/kubectl" \
+    P2_1_SHA="$(g rev-parse HEAD~1)" P2_2_SHA="$(g rev-parse HEAD)" SI_IMAGE=x \
+    run "$RUNNER" --skip-bringup
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"write_cert: command not found"* ]]
+  [ "$(jq -r .status "$ev/phase2-governance-certification.json")" = fail ]
+  [ "$(jq -r '.gates[-1].id' "$ev/phase2-governance-certification.json")" = ABORT ]
+  [ "$(jq -r '.gates[0] | [.id, .status] | join(" ")' "$ev/phase2-governance-certification.json")" = "G1 pass" ]
+}

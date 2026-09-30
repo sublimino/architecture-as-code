@@ -52,13 +52,52 @@ while [[ $# -gt 0 ]]; do
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HTTPROUTE_MANIFEST="$REPO_ROOT/deploy/eap-tenant-httproute.yaml"
+HTTPROUTE_MANIFEST="${SLDC_HTTPROUTE_MANIFEST:-$REPO_ROOT/deploy/eap-tenant-httproute.yaml}"
 DEX_CONFIG_MANIFEST="$REPO_ROOT/d2-signalloom/infra/dex/dex-config-eap.yaml"
-TENANT_POLICY_MANIFEST="$REPO_ROOT/d2-infra/components/ingress/tenant-filter-policy.yaml"
+TENANT_POLICY_MANIFEST="${SLDC_TENANT_POLICY_MANIFEST:-$REPO_ROOT/d2-infra/components/ingress/tenant-filter-policy.yaml}"
+LUA_HARNESS="$REPO_ROOT/test/fixtures/tenant/envoy_lua_harness.lua"
 
 log() {
   if [[ "$VERBOSE" == "true" ]]; then
     echo "[verify-tenant-routing] $*" >&2
+  fi
+}
+
+# Hermetic mode answers each probe from the shipped config, not a copy of it:
+# a Host outside the HTTPRoute's hostnames is 404 (no route), otherwise the
+# real Envoy Lua filter from the policy manifest runs under LuaJIT and its
+# local reply (or 200 upstream) is the answer.
+HERMETIC_LUA=""
+hermetic_setup() {
+  local tool
+  for tool in yq luajit; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: --hermetic needs $tool on PATH" >&2; exit 2; }
+  done
+  HERMETIC_LUA="$(mktemp)"
+  trap 'rm -f "$HERMETIC_LUA"' EXIT
+  yq 'select(.kind == "EnvoyExtensionPolicy") | .spec.lua[0].inline' "$TENANT_POLICY_MANIFEST" >"$HERMETIC_LUA"
+  grep -q 'envoy_on_request' "$HERMETIC_LUA" || { echo "ERROR: no Lua filter in $TENANT_POLICY_MANIFEST" >&2; exit 2; }
+}
+
+hermetic_status() {
+  local host="$1" header_name="$2" header_val="$3" out
+  if ! yq -e ".spec.hostnames[] | select(. == \"$host\")" "$HTTPROUTE_MANIFEST" >/dev/null 2>&1; then
+    echo "404"
+    return 0
+  fi
+  local hdr=()
+  if [[ -n "$header_name" ]]; then
+    hdr+=("${header_name,,}=${header_val//%/%25}")
+  fi
+  if ! out="$(luajit "$LUA_HARNESS" "$HERMETIC_LUA" "${hdr[@]}" 2>&1)"; then
+    echo "ERROR: Lua filter raised: $out" >&2
+    echo "500"
+    return 0
+  fi
+  if [[ "$out" == *"action=respond"* ]]; then
+    sed -n 's/^status=//p' <<<"$out"
+  else
+    echo "200"
   fi
 }
 
@@ -71,25 +110,7 @@ check_http() {
   local port="$TARGET_PORT"
 
   if [[ "$HERMETIC" == "true" ]]; then
-    # Hermetic mock evaluation matching Envoy filter policy rules
-    local clean_host="$host"
-    local clean_val=""
-    if [[ -n "$header_val" ]]; then
-      clean_val="$(echo "$header_val" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^["\x27]|["\x27]$//g')"
-    fi
-
-    if [[ "$clean_host" != "$CANONICAL_HOST" && "$clean_host" != "$CANONICAL_DEMO_HOST" ]]; then
-      echo "404"
-      return 0
-    fi
-
-    if [[ -n "$clean_val" ]]; then
-      if [[ "$clean_val" == "$RETIRED_TENANT" || "$clean_val" == "$RETIRED_HASH" || ("$clean_val" != "$CANONICAL_TENANT" && "$clean_val" != "$CANONICAL_HASH") ]]; then
-        echo "403"
-        return 0
-      fi
-    fi
-    echo "200"
+    hermetic_status "$host" "$header_name" "$header_val"
     return 0
   fi
 
@@ -123,6 +144,9 @@ test -f "$TENANT_POLICY_MANIFEST" || { echo "ERROR: Missing $TENANT_POLICY_MANIF
 grep -q "eap-tenant-kusari" "$TENANT_POLICY_MANIFEST" || { echo "ERROR: Policy targetRef does not match HTTPRoute" >&2; exit 1; }
 
 # 2. Ingress HTTP Probe Matrix
+if [[ "$HERMETIC" == "true" ]]; then
+  hermetic_setup
+fi
 RESULTS=()
 
 run_probe() {

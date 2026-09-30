@@ -1,0 +1,14 @@
+component	kind	manifest_path	image	required
+kind-node	Node	d2-osramp-fleet/clusters/local/kind-config.yaml	kindest/node:v1.30.0	true
+zot-registry	Deployment	d2-osramp-fleet/local/zot.yaml	ghcr.io/project-zot/zot-linux-amd64:v2.1.1	true
+cert-manager	Deployment	d2-infra/components/cert-manager/cert-manager.yaml	quay.io/jetstack/cert-manager-controller:v1.15.1	true
+envoy-gateway	Deployment	d2-infra/components/ingress/envoy-gateway.yaml	docker.io/envoyproxy/gateway:v1.1.0	true
+flux-operator	Deployment	d2-osramp-fleet/base/flux-operator.yaml	ghcr.io/controlplaneio-fluxcd/flux-operator:v0.16.0	true
+openbao	StatefulSet	d2-signalloom/infra/inf-bao/bao-cluster.yaml	openbao/openbao:2.0.0	true
+spire-server	StatefulSet	d2-signalloom/infra/inf-bao/spire-server.yaml	ghcr.io/spiffe/spire-server:1.9.4	true
+spire-agent	DaemonSet	d2-signalloom/infra/inf-bao/spire-agent.yaml	ghcr.io/spiffe/spire-agent:1.9.4	true
+stun-sentinel	DaemonSet	d2-signalloom/infra/agent-swarm/ebpf-sentinel-daemonset.yaml	localhost:5001/signalloom/stun-sentinel:latest	true
+kusari-agent	Deployment	d2-signalloom/infra/agent-swarm/kusari-deployment.yaml	localhost:5001/signalloom/kusari-agent:latest	true
+signalloom-api	Deployment	d2-signalloom/apps/api-signalloom/k8s/deployment.yaml	localhost:5001/signalloom/api-signalloom:latest	true
+signalloom-dashboard	Deployment	d2-signalloom/apps/fe-signalloom/k8s/deployment.yaml	localhost:5001/signalloom/fe-signalloom:latest	true
+host-sensor	DaemonSet	d2-signalloom/apps/agentmaxxing-host-sensor/k8s/daemonset.yaml	localhost:5001/signalloom/agentmaxxing-host-sensor:latest	true

@@ -208,12 +208,12 @@ assert_canonicalised() { # <header=value>...
 
 # --- verify-tenant-routing.sh --hermetic (HTTPRoute + real Lua) -------------
 
-@test "verify --hermetic passes all 11 probes against the shipped config" {
+@test "verify --hermetic passes all 12 probes against the shipped config" {
 	run "$VERIFY" --hermetic --json
 	[ "$status" -eq 0 ]
-	[ "$(jq -r '.summary | "\(.total) \(.passed) \(.failed) \(.status)"' <<<"$output")" = "11 11 0 PASS" ]
+	[ "$(jq -r '.summary | "\(.total) \(.passed) \(.failed) \(.status)"' <<<"$output")" = "12 12 0 PASS" ]
 	[ "$(jq -r '[.probes[] | .id + "=" + .actual] | join(" ")' <<<"$output")" = \
-		"P1=200 P2=200 P3=200 P4=403 P5=403 P6=403 P7=403 P8=200 P9=403 P10=404 P11=200" ]
+		"P1=200 P2=200 P3=200 P4=403 P5=403 P6=403 P7=403 P8=200 P9=403 P10=404 P11=200 P12=403" ]
 }
 
 @test "verify --hermetic answers from the policy file: a filter that admits kurasi fails P6 and P9" {

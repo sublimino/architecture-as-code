@@ -205,7 +205,7 @@ probe_gate() { # gate-id, name, probe ids...
 echo "Executing Gate 5: Positive Tenant Routing Probes..."
 probe_gate "G5_POSITIVE_ROUTING" "Positive Ingress Tenant Routing" P1 P2 P3 P8 P11
 echo "Executing Gate 6: Cross-Tenant Isolation & Negative Probes..."
-probe_gate "G6_NEGATIVE_ISOLATION" "Cross-Tenant Boundary Isolation" P4 P5 P6 P7 P9 P10
+probe_gate "G6_NEGATIVE_ISOLATION" "Cross-Tenant Boundary Isolation" P4 P5 P6 P7 P9 P10 P12
 
 # ------------------------------------------------------------------------------
 # Gate 7: Deliberate Mutation Testing Check (Falsification Assurance)

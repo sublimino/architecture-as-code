@@ -123,7 +123,7 @@ check M16 "verify --hermetic refuses to run without luajit (exit 2), never falls
 
 echo "M17 verify routes any host (no HTTPRoute lookup)"
 ms_sed "$VERIFY" 's/^  if ! yq -e ".spec.hostnames\[\] | select(. == \\"\$host\\")" "\$HTTPROUTE_MANIFEST" >\/dev\/null 2>&1; then/  if false; then/'
-check M17 "verify --hermetic passes all 11 probes against the shipped config"
+check M17 "verify --hermetic passes all 12 probes against the shipped config"
 
 green_or_die after
 

@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// The Gateway requires SNI hostname *.osramp.acme.local — we resolve
+// The Gateway requires SNI hostname *.osramp.acme.local - we resolve
 // the hostname to 127.0.0.1 (port-forward) via Chrome's host-resolver.
 const gatewayAddress = process.env.GATEWAY_ADDRESS ?? "127.0.0.1";
 
@@ -41,7 +41,7 @@ export default defineConfig({
     //
     // It used to be repeated in each project's own launchOptions. Five projects
     // carried it and `smoke` did not, so every spec in `smoke` died on
-    // net::ERR_NAME_NOT_RESOLVED before its first assertion — CI stage 8b failed
+    // net::ERR_NAME_NOT_RESOLVED before its first assertion - CI stage 8b failed
     // 18/18 on both lanes while stage 8 passed against the same cluster minutes
     // earlier. Per-project opt-in makes "forgot it" the default and turns a
     // missing precondition into an unrelated-looking DNS error; declaring it
@@ -91,8 +91,8 @@ export default defineConfig({
       // The two-window SuperCredential demo.
       //
       // Its own project because it needs BOTH of the things only `chromium`
-      // has — the storageState the setup project writes, and a dependency on
-      // that setup project — plus a timeout that suits a real demo phase. A
+      // has - the storageState the setup project writes, and a dependency on
+      // that setup project - plus a timeout that suits a real demo phase. A
       // spec added to `smoke` gets neither and runs unauthenticated; a spec
       // left on the global 30s timeout fails on a working demo, because step 2
       // alone waits up to 300s for the credential-chain Job.
@@ -111,7 +111,7 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
-      // Full lifecycle proof: UI drives phases 1–5, observes every audience
+      // Full lifecycle proof: UI drives phases 1-5, observes every audience
       // projection, resets, then proves the workflow can start over.
       name: "supercred-ui-lifecycle",
       testMatch: /supercred-ui-lifecycle\.spec\.ts/,
@@ -150,11 +150,11 @@ export default defineConfig({
       // the reason that project's own comment gives about `smoke`: a failure
       // here must name the streaming path. Sharing a project would bury a
       // streaming regression inside a 30-minute lifecycle journey and make the
-      // two impossible to run independently — and the whole reason this defect
+      // two impossible to run independently - and the whole reason this defect
       // survived is that its symptom was invisible inside a bigger green test.
       //
       // 15 minutes, not 30: it drives one reset and one phase, not all five.
-      // retries:0 like its siblings — it mutates one shared cluster, so a
+      // retries:0 like its siblings - it mutates one shared cluster, so a
       // retry would start against its own leftovers rather than clean.
       name: "supercred-log-streaming",
       testMatch: /supercred-log-streaming\.spec\.ts/,
@@ -174,7 +174,7 @@ export default defineConfig({
       // NO storageState and NO `setup` dependency, and both omissions are
       // deliberate: the setup project drives Dex through the Gateway, so
       // depending on it would give this project the cluster requirement it
-      // exists to avoid — and `test-results/.auth-state.json` does not exist
+      // exists to avoid - and `test-results/.auth-state.json` does not exist
       // on a machine that has never run against a cluster, which Playwright
       // reports as a project-level failure rather than a skip.
       //
@@ -188,17 +188,17 @@ export default defineConfig({
       // bundle of the real component tree on first request.
       timeout: 3 * 60_000,
       // Deliberately NOT `fullyParallel`, and the reason is a defect rather
-      // than a resource — which makes it worth writing down, because on the
+      // than a resource - which makes it worth writing down, because on the
       // resource question this project is the ONE here that could parallelise.
       // Each of its tests spawns its own `bun harness/server.ts` on `--port 0`:
       // no cluster, no gateway, no fixed port, no storageState between them.
       // (Every other project drives the one shared demo cluster, where
-      // concurrency means two runs mutating the same estate — the same reason
+      // concurrency means two runs mutating the same estate - the same reason
       // those projects set `retries: 0`. Those are not candidates and should
       // not be made into ones.)
       //
       // What actually blocks it is a pre-existing flake in "batched output must
-      // FAIL the progressive-arrival assertions" — measured at 3 failures in 5
+      // FAIL the progressive-arrival assertions" - measured at 3 failures in 5
       // consecutive runs against the UNMODIFIED spec, with no concurrency
       // involved at all. The spec's own header documents the mechanism. Serial
       // mode currently hides it by a side effect nobody wrote down: a failure
@@ -220,13 +220,13 @@ export default defineConfig({
         // wants the real branded Chrome, because that is what an instructor
         // will be running on stage. This project drives a bun server on
         // 127.0.0.1 with no Gateway, no TLS and no SNI, so branded Chrome buys
-        // it nothing — and costs it reproducibility, because whether
+        // it nothing - and costs it reproducibility, because whether
         // /opt/google/chrome exists, is executable, and can reach the system
         // font cache varies per machine in a way the bundled build does not.
         //
         // That is not hypothetical. The same run rendered correctly under a
         // plain bundled-Chromium launch and rendered with ZERO-HEIGHT TEXT
-        // under this config on the same machine — every string present in the
+        // under this config on the same machine - every string present in the
         // DOM, every string laying out at 0x0, a 36px-tall scroll region
         // holding 6470 characters, and a failure message about the log not
         // overflowing its box. A layout assertion is only worth having if the
@@ -240,7 +240,7 @@ export default defineConfig({
     },
     {
       // Coding-agent topology rendering (SLCD-P6-3), against a cluster-free
-      // harness — `bun harness/coding-agents-server.ts`, spawned per worker by
+      // harness - `bun harness/coding-agents-server.ts`, spawned per worker by
       // the spec on `--port 0`.
       //
       // Its own project rather than a home in `smoke`, for the reason
@@ -257,8 +257,8 @@ export default defineConfig({
       // built from this branch), so an unconditional project would redden
       // `make acceptance-test` for a reason unrelated to any assertion in the
       // spec. This project's precondition is `bun` plus the node_modules this
-      // directory already installs — both present wherever Playwright is being
-      // run at all — so gating it would only hide it.
+      // directory already installs - both present wherever Playwright is being
+      // run at all - so gating it would only hide it.
       name: "coding-agent-topology",
       testMatch: /coding-agent-topology\.spec\.ts/,
       // Three minutes, not the global 30s. A cold worker pays `Bun.build` over
@@ -273,12 +273,12 @@ export default defineConfig({
       // independent by resetting that process's store in `beforeEach`. That is
       // only sound while the file's tests do not overlap. `workers: 1` at the
       // top of this config gives that today, and the file also declares
-      // `mode: "serial"` — but P6-4 owns the lane that will invoke this, and a
+      // `mode: "serial"` - but P6-4 owns the lane that will invoke this, and a
       // `--workers=N` on that invocation would override the estate default.
       // Declaring it here means the invariant travels with the project rather
       // than depending on how someone else calls it.
       fullyParallel: false,
-      // retries: 0, and NOT for the shared-cluster reason its neighbours give —
+      // retries: 0, and NOT for the shared-cluster reason its neighbours give -
       // this project touches no cluster. It is so that a flake is reported as a
       // flake. The harness store is reset and the reset is asserted in
       // `beforeEach`, so a second attempt would start from the same state as
@@ -290,7 +290,7 @@ export default defineConfig({
         // No storageState and no `dependencies: ["setup"]`, both deliberate and
         // both load-bearing: the setup project drives Dex through the Gateway,
         // so depending on it would hand this project the cluster requirement it
-        // exists to avoid — and `test-results/.auth-state.json` does not exist
+        // exists to avoid - and `test-results/.auth-state.json` does not exist
         // on a machine that has never run against a cluster, which Playwright
         // reports as a project-level FAILURE rather than a skip.
         //
@@ -303,17 +303,35 @@ export default defineConfig({
       },
     },
     {
+      // SLDC-P4-2 live cockpit telemetry. Cluster-free for the same reasons as
+      // coding-agent-topology above, and deliberately configured the same way:
+      // no storageState, no `setup` dependency, no project-level launchOptions,
+      // not env-gated. It spawns `bun harness/cockpit-telemetry-server.ts` and
+      // drives the real AgentCockpitTelemetry and MetricsTopBar against a
+      // scripted SSE producer. One regex claims both of its spec files.
+      name: "cockpit-telemetry",
+      testMatch: /cockpit-telemetry\.spec\.ts/,
+      timeout: 3 * 60_000,
+      fullyParallel: false,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
+    {
       // Specs that authenticate themselves, per test, via helpers.ts `login()`.
       // The absence of storageState and of a `setup` dependency is deliberate
       // and must stay: smoke.spec.ts's first case asserts that an
       // unauthenticated visit is redirected to Dex, which a pre-seeded auth
       // state would defeat. What was NOT deliberate was the absence of the
-      // host-resolver rule — that now comes from the top-level `use`.
+      // host-resolver rule - that now comes from the top-level `use`.
       name: "smoke",
       // live-data.spec.ts belongs here and nowhere else: it calls login() per
       // test (with demoMode:false) and needs no storageState, which is exactly
       // this project's contract. A spec that matches NO project is silently
-      // skipped by Playwright — exit 0, no warning — so leaving it out would
+      // skipped by Playwright - exit 0, no warning - so leaving it out would
       // reproduce the very blindness it was written to close.
       testMatch: /smoke\.spec\.ts|navigation\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|agent-claim\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts|sfas-dossier-authorization\.spec\.ts|onboarding\.spec\.ts|smoke-onboarding-agents\.spec\.ts|feeds-explorer\.spec\.ts|governance-navigation\.spec\.ts|discovery-claim\.spec\.ts|topology-graph\.spec\.ts|policy-editor\.spec\.ts|risk-audit\.spec\.ts/,
       use: {
@@ -332,7 +350,7 @@ export default defineConfig({
     // docs-render-check` sets DOCS_BASE_URL, builds, serves and runs it.
     //
     // The spec-coverage guard reads this file as text, so the testMatch below
-    // is visible to it whether or not the ternary includes the project — the
+    // is visible to it whether or not the ternary includes the project - the
     // spec reads as wired, which it is whenever it is meant to run.
     ...(process.env.DOCS_BASE_URL ? [{
       // Its own project because it is the one suite here that must NOT touch
@@ -346,7 +364,7 @@ export default defineConfig({
       // It also does not use the gateway. docs/signalloom/
       // slon-p3-docs-portal-provenance.md §4 records that every Flux source in
       // the demo cluster is an OCIRepository with no git revision, and that the
-      // running docs image was published from a different branch — so a probe
+      // running docs image was published from a different branch - so a probe
       // of https://dashboard.osramp.acme.local/docs is evidence about the
       // deployed artifact, never about the checked-out tree. docs.spec.ts
       // therefore drives a locally served build via DOCS_BASE_URL.
@@ -371,7 +389,7 @@ export default defineConfig({
     // lazy page chunks, none of them this page, while App.tsx:436 registers
     // the route in source. An unconditional project would therefore turn a
     // green `make acceptance-test` red for a reason unrelated to any assertion
-    // in the spec — which is precisely the trap the docs project's comment
+    // in the spec - which is precisely the trap the docs project's comment
     // records. AMXD-P6-2 owns the make target that supplies this variable.
     //
     // The spec-coverage guard parses this file as TEXT, so the testMatch below
@@ -407,7 +425,7 @@ export default defineConfig({
         // and the live block specifically needs `login(page, { demoMode:
         // false })`, which a pre-seeded demo-mode auth state would defeat.
         //
-        // No `launchOptions` either — Playwright merges `use` shallowly per
+        // No `launchOptions` either - Playwright merges `use` shallowly per
         // key, so re-declaring it would REPLACE the top-level
         // --host-resolver-rules and kill every navigation with
         // net::ERR_NAME_NOT_RESOLVED, exactly as it did to `smoke` (18/18) once

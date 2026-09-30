@@ -1039,6 +1039,20 @@ test-kind-load-verified: ## Verify the kind image-load guard against fake docker
 test-deployed-staleness: ## Verify the deployed-vs-source guard against a fake kubectl, including that it cannot pass vacuously (no cluster required).
 	bats test/deployed-staleness.bats
 
+# SLDC-P5-1 five-step containment suite. A named target, not an entry in a
+# blanket glob, for the reason stated at test-dashboard-image below: it needs
+# preconditions no CI stage establishes - BOTH kind clusters up, the kusari-agent
+# workload reconciled, and a functioning in-sentinel correlator. Its
+# falsifiability proof is a different matter and needs nothing: it is matched by
+# GCP_TF_PROOFS = $(wildcard test/*-mutation-proof.sh) and therefore already runs
+# on every `make gcp-tf-validate`. Docs: docs/eap/SLDC-P5-1-E2E-CONTAINMENT.md.
+.PHONY: test-e2e-dual-cluster-containment test-e2e-containment-mutation-proof
+test-e2e-dual-cluster-containment: ## Five-step Deploy/Claim/Provoke/Detect/Freeze containment suite (both kind clusters required).
+	./scripts/run-e2e-dual-cluster-containment.sh --tap
+
+test-e2e-containment-mutation-proof: ## Prove every containment assertion is non-vacuous against fixtures (no cluster required).
+	bash test/e2e-mutation-proof.sh
+
 .PHONY: test-supervise-port-forward test-signalloom-portforward
 test-supervise-port-forward: ## Verify port-forward supervision against fake kubectl/curl clients (no cluster required).
 	bats test/supervise-port-forward.bats

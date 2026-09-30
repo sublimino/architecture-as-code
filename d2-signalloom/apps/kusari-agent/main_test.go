@@ -114,6 +114,9 @@ func TestConfigFromEnv(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// /act/* defaults are covered by TestActConfigFromEnv
+			tc.want.passwdPath, tc.want.shadowPath = defaultPasswdPath, defaultShadowPath
+			tc.want.actHold, tc.want.burnMax = defaultActHold, defaultBurnMax
 			if got != tc.want {
 				t.Fatalf("config = %+v, want %+v", got, tc.want)
 			}
@@ -375,5 +378,176 @@ func TestQuoteRejectsNonGet(t *testing.T) {
 	}
 	if a.requests.Load() != 0 {
 		t.Fatalf("rejected request counted towards hostile cadence")
+	}
+}
+
+// ── /act/* provocation endpoints (SLDC-P5-1) ─────────────────────────────────
+
+func actAgent(t *testing.T) (*agent, *bytes.Buffer, string) {
+	t.Helper()
+	a, logs := testAgent(t, "http://127.0.0.1:0", 0)
+	passwd := filepath.Join(t.TempDir(), "passwd")
+	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/sbin/nologin\nnonroot:x:65532:65532::/home/nonroot:/sbin/nologin\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.cfg.passwdPath = passwd
+	a.cfg.shadowPath = filepath.Join(t.TempDir(), "shadow-absent")
+	a.cfg.actHold = time.Millisecond
+	a.cfg.burnMax = 2 * time.Second
+	return a, logs, passwd
+}
+
+func post(t *testing.T, h http.Handler, target string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, target, nil))
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode %s: %v: %q", target, err, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("%s content-type = %q", target, got)
+	}
+	return rec, body
+}
+
+func TestActReadPasswdReturnsEnvelope(t *testing.T) {
+	a, logs, passwd := actAgent(t)
+	rec, body := post(t, a.routes(), "/act/read-passwd")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if body["action"] != "read-passwd" || body["ok"] != true {
+		t.Fatalf("envelope = %v", body)
+	}
+	if body["path"] != passwd || body["lines"] != float64(2) {
+		t.Fatalf("path/lines = %v/%v", body["path"], body["lines"])
+	}
+	if body["bytes"].(float64) <= 0 {
+		t.Fatalf("bytes = %v", body["bytes"])
+	}
+	for _, k := range []string{"started_at", "finished_at", "pid", "tid", "held_ms"} {
+		if _, ok := body[k]; !ok {
+			t.Fatalf("missing %q in %v", k, body)
+		}
+	}
+	// the exact compact form Step 3 greps for must be present on the wire
+	if !strings.Contains(rec.Body.String(), `"action":"read-passwd"`) || !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("wire form = %s", rec.Body.String())
+	}
+	if !strings.Contains(logs.String(), `"event":"act"`) || !strings.Contains(logs.String(), `"action":"read-passwd"`) {
+		t.Fatalf("no structured act log: %s", logs.String())
+	}
+}
+
+func TestActReadPasswdNeverLeaksFileContent(t *testing.T) {
+	a, _, _ := actAgent(t)
+	rec, _ := post(t, a.routes(), "/act/read-passwd")
+	if strings.Contains(rec.Body.String(), "root:x:0") {
+		t.Fatalf("response leaked file content: %s", rec.Body.String())
+	}
+}
+
+func TestActReadPasswdHoldsDescriptor(t *testing.T) {
+	a, _, _ := actAgent(t)
+	a.cfg.actHold = 30 * time.Millisecond
+	start := time.Now()
+	_, body := post(t, a.routes(), "/act/read-passwd")
+	if el := time.Since(start); el < 30*time.Millisecond {
+		t.Fatalf("returned after %v, want >= hold 30ms", el)
+	}
+	if body["held_ms"].(float64) < 30 {
+		t.Fatalf("held_ms = %v", body["held_ms"])
+	}
+}
+
+func TestActReadPasswdMissingFileIsNotOK(t *testing.T) {
+	a, _, _ := actAgent(t)
+	a.cfg.passwdPath = filepath.Join(t.TempDir(), "nope")
+	rec, body := post(t, a.routes(), "/act/read-passwd")
+	if rec.Code != http.StatusInternalServerError || body["ok"] != false || body["action"] != "read-passwd" {
+		t.Fatalf("code %d body %v", rec.Code, body)
+	}
+	if body["error"] == "" || body["error"] == nil {
+		t.Fatalf("no error field: %v", body)
+	}
+}
+
+func TestActReadShadowAttemptsOpenEvenWhenAbsent(t *testing.T) {
+	a, _, _ := actAgent(t)
+	rec, body := post(t, a.routes(), "/act/read-shadow")
+	if rec.Code != http.StatusOK || body["action"] != "read-shadow" || body["attempted"] != true {
+		t.Fatalf("code %d body %v", rec.Code, body)
+	}
+	if body["ok"] != false {
+		t.Fatalf("absent shadow must report ok=false, got %v", body)
+	}
+}
+
+func TestActCPUBurnBusyLoops(t *testing.T) {
+	a, _, _ := actAgent(t)
+	start := time.Now()
+	rec, body := post(t, a.routes(), "/act/cpu-burn?duration=60ms&threads=2")
+	if rec.Code != http.StatusOK || body["action"] != "cpu-burn" || body["ok"] != true {
+		t.Fatalf("code %d body %v", rec.Code, body)
+	}
+	if time.Since(start) < 60*time.Millisecond {
+		t.Fatal("returned before the burn window elapsed")
+	}
+	if body["threads"] != float64(2) || body["iterations"].(float64) <= 0 {
+		t.Fatalf("threads/iterations = %v/%v", body["threads"], body["iterations"])
+	}
+}
+
+func TestActCPUBurnClampsAndValidates(t *testing.T) {
+	a, _, _ := actAgent(t)
+	a.cfg.burnMax = 50 * time.Millisecond
+	_, body := post(t, a.routes(), "/act/cpu-burn?duration=1h&threads=1")
+	if body["duration_ms"] != float64(50) {
+		t.Fatalf("duration not clamped to burnMax: %v", body["duration_ms"])
+	}
+	for _, q := range []string{"duration=banana", "duration=-1s", "threads=0", "threads=x", "threads=100000"} {
+		rec, body := post(t, a.routes(), "/act/cpu-burn?"+q)
+		if rec.Code != http.StatusBadRequest || body["ok"] != false || body["action"] != "cpu-burn" {
+			t.Fatalf("%s: code %d body %v", q, rec.Code, body)
+		}
+	}
+}
+
+func TestActRoutesRejectGet(t *testing.T) {
+	a, _, _ := actAgent(t)
+	for _, p := range []string{"/act/read-passwd", "/act/read-shadow", "/act/cpu-burn"} {
+		rec, body := get(t, a.routes(), p)
+		if rec.Code != http.StatusMethodNotAllowed || body["ok"] != false {
+			t.Fatalf("%s: code %d body %v", p, rec.Code, body)
+		}
+		if rec.Header().Get("Allow") != http.MethodPost {
+			t.Fatalf("%s: Allow = %q", p, rec.Header().Get("Allow"))
+		}
+	}
+}
+
+func TestActUnknownActionIs404(t *testing.T) {
+	a, _, _ := actAgent(t)
+	rec := httptest.NewRecorder()
+	a.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/act/format-disk", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code %d", rec.Code)
+	}
+}
+
+func TestActConfigFromEnv(t *testing.T) {
+	cfg, err := configFromEnv(envFrom(map[string]string{"ACT_HOLD": "250ms", "ACT_BURN_MAX": "10s"}))
+	if err != nil || cfg.actHold != 250*time.Millisecond || cfg.burnMax != 10*time.Second {
+		t.Fatalf("cfg %+v err %v", cfg, err)
+	}
+	def, _ := configFromEnv(envFrom(nil))
+	if def.actHold != defaultActHold || def.passwdPath != "/etc/passwd" || def.shadowPath != "/etc/shadow" {
+		t.Fatalf("defaults %+v", def)
+	}
+	for _, env := range []map[string]string{{"ACT_HOLD": "-1s"}, {"ACT_BURN_MAX": "0"}, {"ACT_HOLD": "x"}} {
+		if _, err := configFromEnv(envFrom(env)); err == nil {
+			t.Fatalf("%v accepted", env)
+		}
 	}
 }

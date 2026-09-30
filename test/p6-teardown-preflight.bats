@@ -68,7 +68,7 @@ fails_only() { # CHECK-NAME: exit 1, exactly one failed check, and it is this on
 
 @test "no real cluster tool is reachable from the test PATH" {
 	for b in docker kind df; do [ "$(command -v "$b")" = "$stub/$b" ]; done
-	for b in kubectl ip iptables pkill make; do ! command -v "$b"; done
+	for b in kubectl ip iptables pkill make; do run ! command -v "$b"; done
 }
 
 @test "every check holds: exit 0, PASS 8/8, report written, repo untouched" {
@@ -173,7 +173,7 @@ ip_links='13: veth664d764@if2: <UP> mtu 1500 master br-f7f9 state UP mode DEFAUL
 	source "$helpers"
 	run cleanup_orphaned_veths 1
 	[ "$output" = "DRY-RUN: would remove orphaned veth vethorph01" ]
-	! grep -q 'link delete' "$STUB_LOG"
+	run ! grep -q 'link delete' "$STUB_LOG"
 	run cleanup_orphaned_veths 0
 	[ "$(grep 'link delete' "$STUB_LOG")" = "ip link delete vethorph01" ]
 }

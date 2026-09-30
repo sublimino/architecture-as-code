@@ -263,8 +263,8 @@ edit_header() { # JQ-FILTER: edit the header, keep it correctly signed
 	[[ "$output" != *"token"* ]]
 	[[ "$output" != *".env"* ]]
 	# No private key material in any packaged byte.
-	! tar -xzOf "$bundle" | grep -q 'PRIVATE KEY'
-	for f in "$out"/*; do ! grep -q 'PRIVATE KEY' "$f"; done
+	[ "$(tar -xzOf "$bundle" | grep -c 'PRIVATE KEY')" -eq 0 ]
+	[ "$(cat "$out"/* | grep -c 'PRIVATE KEY')" -eq 0 ]
 }
 
 @test "packager output is byte-identical across runs from pristine copies" {

@@ -54,7 +54,7 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 	[ "$(grep -c '^kind delete' "$STUB_LOG")" -eq 2 ]
 	grep -qx 'kind delete cluster --name osramp' "$STUB_LOG"
 	grep -qx 'kind delete cluster --name signalloom-hub' "$STUB_LOG"
-	! grep -q 'name other' "$STUB_LOG"
+	run ! grep -q 'name other' "$STUB_LOG"
 }
 
 @test "teardown fails when a cluster delete fails" {
@@ -81,14 +81,14 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 
 @test "teardown never deletes a bridge-attached veth" {
 	run bash "$teardown_sh"
-	! grep -q 'link delete' "$STUB_LOG"
+	run ! grep -q 'link delete' "$STUB_LOG"
 }
 
 @test "standup: a failing platform target fails the standup" {
 	MAKE_FAIL=demo-signalloom-up run --separate-stderr bash "$standup_sh"
 	[ "$status" -ne 0 ]
 	[[ "$output" != *"VERDICT: PASS"* ]]
-	! grep -q 'healthcheck' "$STUB_LOG"
+	run ! grep -q 'healthcheck' "$STUB_LOG"
 }
 
 @test "standup: healthy targets run in order and pass" {
@@ -104,12 +104,12 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 	run bash "$standup_sh"
 	[ "$status" -eq 0 ]
 	grep -qx 'docker start signalloom-aux' "$STUB_LOG"
-	! grep -q 'docker start osramp-control-plane' "$STUB_LOG"
+	run ! grep -q 'docker start osramp-control-plane' "$STUB_LOG"
 	[ ! -e "$SLDC_SAVED_CONTAINERS_FILE" ]
 }
 
 @test "a cluster whose name only contains an SLDC name is never deleted" {
 	KIND_CLUSTERS=$'osramp-staging\nsignalloom-hub-old' run bash "$teardown_sh"
 	[ "$status" -eq 0 ]
-	! grep -q '^kind delete' "$STUB_LOG"
+	run ! grep -q '^kind delete' "$STUB_LOG"
 }

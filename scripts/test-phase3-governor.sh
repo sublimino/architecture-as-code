@@ -22,6 +22,7 @@ RETIRED_HOST="sl-eap-${RETIRED_HASH}.ts.net"
 PILOT_SALT="signalloom-eap-salt-2026-q3"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MUTATION_PROOF="${PHASE3_MUTATION_PROOF:-$REPO_ROOT/test/eap-tenant-routing-mutation-proof.sh}"
 OUTPUT_JSON="${REPO_ROOT}/ci-evidence/phase3-governance-certification.json"
 TRACE_OUTPUT="${REPO_ROOT}/ci-evidence/phase3-routing-audit.txt"
 HERMETIC=false
@@ -75,9 +76,9 @@ record_gate() {
   local name="$2"
   local status="$3"
   local details="$4"
-  GATE_RESULTS+=("{\"gate\":\"$id\",\"name\":\"$name\",\"status\":\"$status\",\"details\":\"$details\"}")
+  GATE_RESULTS+=("$(jq -nc --arg g "$id" --arg n "$name" --arg s "$status" --arg d "$details" '{gate: $g, name: $n, status: $s, details: $d}')")
   if [[ "$status" != "PASS" ]]; then
-    ((GATE_ERRORS++))
+    GATE_ERRORS=$((GATE_ERRORS + 1))
     echo "❌ [$id] $name: FAIL ($details)"
   else
     echo "✅ [$id] $name: PASS ($details)"
@@ -89,7 +90,7 @@ record_gate() {
 # ------------------------------------------------------------------------------
 echo "Executing Gate 1: Branch Clean Merge Verification..."
 MERGE_STATUS="PASS"
-MERGE_DETAILS="Clean integration of feat/sldc-p3-1 and feat/sldc-p3-2 with 0 conflicts"
+MERGE_DETAILS="HEAD resolved"
 if ! git rev-parse HEAD >/dev/null 2>&1; then
   MERGE_STATUS="FAIL"
   MERGE_DETAILS="Not in a git repository"
@@ -103,33 +104,27 @@ record_gate "G1_BRANCH_MERGE" "Branch Clean Integration" "$MERGE_STATUS" "$MERGE
 # ------------------------------------------------------------------------------
 echo "Executing Gate 2: Cryptographic Test Vector Certification..."
 G2_STATUS="PASS"
-G2_DETAILS="All Go, Python, TypeScript, and Shell test vectors verified"
-
-# Python unit test suite
-if ! python3 -m unittest discover -s "$REPO_ROOT/test/unit" -p "test_*.py" >/dev/null 2>&1; then
+G2_FAILED=()
+run_suite() { # label, command...
+  local label="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then
+    log_trace "[Gate 2] $label=PASS"
+  else
+    log_trace "[Gate 2] $label=FAIL"
+    G2_FAILED+=("$label")
+  fi
+}
+run_suite Python python3 -m unittest discover -s "$REPO_ROOT/test/unit" -p "test_tenant_hash.py"
+run_suite TypeScript bash -c "cd '$REPO_ROOT' && bun test test/unit/tenant-hash.test.ts"
+run_suite Go bash -c "cd '$REPO_ROOT/d2-signalloom/apps/fe-signalloom/pkg/tenant' && go test ."
+run_suite BATS bats "$REPO_ROOT/test/tenant-hash-vectors.bats"
+if [[ ${#G2_FAILED[@]} -gt 0 ]]; then
   G2_STATUS="FAIL"
-  G2_DETAILS="Python tenant hash unit tests failed"
+  G2_DETAILS="Tenant hash suites failed: ${G2_FAILED[*]}"
+else
+  G2_DETAILS="Go, Python, TypeScript and BATS tenant hash suites passed"
 fi
-
-# Bun TypeScript test suite
-if ! (cd "$REPO_ROOT" && bun test test/unit/tenant-hash.test.ts >/dev/null 2>&1); then
-  G2_STATUS="FAIL"
-  G2_DETAILS="TypeScript tenant hash unit tests failed"
-fi
-
-# Go tenant package tests
-if ! (cd "$REPO_ROOT/d2-signalloom/apps/fe-signalloom/pkg/tenant" && go test -v . >/dev/null 2>&1); then
-  G2_STATUS="FAIL"
-  G2_DETAILS="Go tenant hash unit tests failed"
-fi
-
-# BATS tenant hash vectors
-if ! bats "$REPO_ROOT/test/tenant-hash-vectors.bats" >/dev/null 2>&1; then
-  G2_STATUS="FAIL"
-  G2_DETAILS="BATS tenant hash vector tests failed"
-fi
-
-log_trace "[Gate 2] Cryptographic derivation tests: Python=PASS, TypeScript=PASS, Go=PASS, BATS=PASS"
 record_gate "G2_CRYPTO_VECTORS" "Cryptographic Derivation Matrix" "$G2_STATUS" "$G2_DETAILS"
 
 # ------------------------------------------------------------------------------
@@ -182,110 +177,47 @@ record_gate "G4_DEX_OIDC_ALIGNMENT" "Dex OIDC Redirect Alignment" "$G4_STATUS" "
 # Gate 5: Ingress HTTP Probe Matrix (Positive & Inferred)
 # ------------------------------------------------------------------------------
 echo "Executing Gate 5: Positive Tenant Routing Probes..."
-G5_STATUS="PASS"
-G5_DETAILS="Canonical tenant routes return HTTP 200 OK"
+# One probe matrix answers Gates 5 and 6: verify-tenant-routing.sh routes by
+# the HTTPRoute and, with --hermetic, runs the real Envoy Lua filter.
+VERIFY_ARGS=(--json)
+[[ "$HERMETIC" == "true" ]] && VERIFY_ARGS+=(--hermetic)
+PROBES_JSON="$("$REPO_ROOT/scripts/verify-tenant-routing.sh" "${VERIFY_ARGS[@]}" 2>/dev/null || true)"
+if ! jq -e '.probes | length > 0' <<<"$PROBES_JSON" >/dev/null 2>&1; then
+  PROBES_JSON='{"probes":[]}'
+fi
+PROBES_TOTAL="$(jq '.probes | length' <<<"$PROBES_JSON")"
+PROBES_PASSED="$(jq '[.probes[] | select(.pass)] | length' <<<"$PROBES_JSON")"
+while IFS= read -r line; do log_trace "[HTTP Probe] $line"; done < <(jq -r '.probes[] | "\(.id) \(.name) | Host: \(.host) | \(.header)=\(.value) | Expected: \(.expected) | Actual: \(.actual)"' <<<"$PROBES_JSON")
 
-PROBES_TOTAL=0
-PROBES_PASSED=0
-
-http_probe() {
-  local id="$1"
-  local name="$2"
-  local host="$3"
-  local hdr_name="$4"
-  local hdr_val="$5"
-  local expected="$6"
-
-  ((PROBES_TOTAL++))
-  local actual="000"
-
-  if [[ "$HERMETIC" == "true" ]]; then
-    if [[ "$host" != "$CANONICAL_HOST" && "$host" != "$CANONICAL_DEMO_HOST" ]]; then
-      actual="404"
-    elif [[ -n "$hdr_val" && ("$hdr_val" == "$RETIRED_TENANT" || "$hdr_val" == "$RETIRED_HASH" || ("$hdr_val" != "$CANONICAL_TENANT" && "$hdr_val" != "$CANONICAL_HASH")) ]]; then
-      actual="403"
-    else
-      actual="200"
-    fi
+probe_gate() { # gate-id, name, probe ids...
+  local id="$1" name="$2" failed
+  shift 2
+  failed="$(jq -r --args '[.probes[] | select(.id as $i | $ARGS.positional | index($i)) | select(.pass | not) | .id] | join(",")' "$@" <<<"$PROBES_JSON")"
+  if [[ "$(jq --args '[.probes[] | select(.id as $i | $ARGS.positional | index($i))] | length' "$@" <<<"$PROBES_JSON")" -ne $# ]]; then
+    record_gate "$id" "$name" "FAIL" "probe matrix incomplete"
+  elif [[ -n "$failed" ]]; then
+    record_gate "$id" "$name" "FAIL" "probes failed: $failed"
   else
-    local curl_cmd=("curl" "-s" "-o" "/dev/null" "-w" "%{http_code}" "--max-time" "3")
-    curl_cmd+=("-H" "Host: $host")
-    if [[ -n "$hdr_name" && -n "$hdr_val" ]]; then
-      curl_cmd+=("-H" "$hdr_name: $hdr_val")
-    fi
-    actual="$("${curl_cmd[@]}" "http://172.19.0.20:30080/" 2>/dev/null || echo "000")"
-    if [[ "$actual" == "000" ]]; then
-      actual="$("${curl_cmd[@]}" "http://127.0.0.1:30080/" 2>/dev/null || echo "000")"
-    fi
-  fi
-
-  log_trace "[HTTP Probe $id] Host: $host | Header: $hdr_name='$hdr_val' | Expected: $expected | Actual: $actual"
-
-  if [[ "$actual" == "$expected" ]]; then
-    ((PROBES_PASSED++))
-    return 0
-  else
-    return 1
+    record_gate "$id" "$name" "PASS" "$# probes answered as expected"
   fi
 }
 
-http_probe "P1" "Canonical host with X-SignalLoom-Tenant" "$CANONICAL_HOST" "X-SignalLoom-Tenant" "$CANONICAL_TENANT" "200" || G5_STATUS="FAIL"
-http_probe "P2" "Canonical host with X-Tenant-ID" "$CANONICAL_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "200" || G5_STATUS="FAIL"
-http_probe "P3" "Canonical host with inferred tenant" "$CANONICAL_HOST" "" "" "200" || G5_STATUS="FAIL"
-http_probe "P4" "Canonical demo host" "$CANONICAL_DEMO_HOST" "" "" "200" || G5_STATUS="FAIL"
-http_probe "P5" "Whitespace normalized header" "$CANONICAL_HOST" "X-Tenant-ID" "  KUSARI  " "200" || G5_STATUS="FAIL"
-
-record_gate "G5_POSITIVE_ROUTING" "Positive Ingress Tenant Routing" "$G5_STATUS" "5/5 positive probes succeeded (HTTP 200)"
-
-# ------------------------------------------------------------------------------
-# Gate 6: Cross-Tenant Isolation & Negative Tamper Rejection
-# ------------------------------------------------------------------------------
+echo "Executing Gate 5: Positive Tenant Routing Probes..."
+probe_gate "G5_POSITIVE_ROUTING" "Positive Ingress Tenant Routing" P1 P2 P3 P8 P11
 echo "Executing Gate 6: Cross-Tenant Isolation & Negative Probes..."
-G6_STATUS="PASS"
-G6_DETAILS="All unauthorized and legacy typo attempts strictly rejected with HTTP 403/404"
-
-http_probe "N1" "Legacy typo kurasi header" "$CANONICAL_HOST" "X-Tenant-ID" "$RETIRED_TENANT" "403" || G6_STATUS="FAIL"
-http_probe "N2" "Legacy typo hash 6f82ad81 header" "$CANONICAL_HOST" "X-Tenant-ID" "$RETIRED_HASH" "403" || G6_STATUS="FAIL"
-http_probe "N3" "Mismatched tenant rogue" "$CANONICAL_HOST" "X-SignalLoom-Tenant" "rogue" "403" || G6_STATUS="FAIL"
-http_probe "N4" "Mismatched tenant unauthorized-org" "$CANONICAL_HOST" "X-Tenant-ID" "unauthorized-org" "403" || G6_STATUS="FAIL"
-http_probe "N5" "Case-insensitive typo KuRaSi" "$CANONICAL_HOST" "X-Tenant-ID" "  KuRaSi  " "403" || G6_STATUS="FAIL"
-http_probe "N6" "Cross-tenant legacy hostname sl-eap-6f82ad81.ts.net" "$RETIRED_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "404" || G6_STATUS="FAIL"
-
-record_gate "G6_NEGATIVE_ISOLATION" "Cross-Tenant Boundary Isolation" "$G6_STATUS" "6/6 negative probes rejected fail-closed (HTTP 403/404)"
+probe_gate "G6_NEGATIVE_ISOLATION" "Cross-Tenant Boundary Isolation" P4 P5 P6 P7 P9 P10
 
 # ------------------------------------------------------------------------------
 # Gate 7: Deliberate Mutation Testing Check (Falsification Assurance)
 # ------------------------------------------------------------------------------
 echo "Executing Gate 7: Empirical Mutation Testing Proof..."
 G7_STATUS="PASS"
-G7_DETAILS="Mutation tests assert falsification when security policy or vectors are broken"
-
-# Test 1: Mutate hash derivation vector and assert failure
-MUTATION_1_PASSED=false
-if python3 -c "
-import sys
-from scripts.derive_tenant_hash import derive_tenant_hash, PILOT_SALT
-h = derive_tenant_hash('kusari', salt=PILOT_SALT)
-# Assert that non-canonical hash comparison fails
-assert h != 'd9d69501'
-assert h != '6f82ad81'
-assert h != '4a89f30d'
-" >/dev/null 2>&1; then
-  MUTATION_1_PASSED=true
-fi
-
-# Test 2: Execute BATS eap-tenant-routing mutation test suite
-MUTATION_2_PASSED=false
-if bats "$REPO_ROOT/test/eap-tenant-routing.bats" -f "Mutation" >/dev/null 2>&1; then
-  MUTATION_2_PASSED=true
-fi
-
-if [[ "$MUTATION_1_PASSED" != "true" || "$MUTATION_2_PASSED" != "true" ]]; then
+G7_DETAILS="Every mutation of the real tenant filter, route, Dex config and gates turned its test red"
+if ! "$MUTATION_PROOF" >/dev/null 2>&1; then
   G7_STATUS="FAIL"
-  G7_DETAILS="Mutation testing falsification check failed"
+  G7_DETAILS="Mutation proof failed or refused: $MUTATION_PROOF"
 fi
-
-log_trace "[Gate 7] Mutation testing: vector discrimination=PASS, policy mutation detection=PASS"
+log_trace "[Gate 7] Mutation proof $MUTATION_PROOF: $G7_STATUS"
 record_gate "G7_MUTATION_TESTING" "Deliberate Mutation Assurance" "$G7_STATUS" "$G7_DETAILS"
 
 # ------------------------------------------------------------------------------
@@ -293,18 +225,13 @@ record_gate "G7_MUTATION_TESTING" "Deliberate Mutation Assurance" "$G7_STATUS" "
 # ------------------------------------------------------------------------------
 echo "Executing Gate 8: Repository-Wide Zero-Tolerance Typo Scan..."
 G8_STATUS="PASS"
-G8_DETAILS="Zero active code occurrences of legacy kurasi or 6f82ad81"
-
-# Run git grep excluding docs, tests, and evidence records
-SCAN_MATCHES="$( (cd "$REPO_ROOT" && git grep -n -I -i -E "(kurasi|6f82ad81)" -- ":!docs/" ":!*.md" ":!*.mdx" ":!*.bats" ":!*test*" ":!*fixture*" ":!ci-evidence/" ":!*.json" ":!scripts/p3-tenant-preflight.sh" ":!scripts/verify-tenant-routing.sh" ":!scripts/test-phase3-governor.sh" ":!d2-infra/components/ingress/tenant-filter-policy.yaml" ":!d2-signalloom/apps/fe-signalloom/pkg/tenant/hash.go" ":!scripts/derive_tenant_hash.py" ":!scripts/derive_tenant_hash.ts" || true) )"
-
-if [[ -n "$SCAN_MATCHES" ]]; then
-  G8_STATUS="FAIL"
-  G8_DETAILS="Found unexcused occurrences of legacy typo in active codebase: $SCAN_MATCHES"
-  log_trace "[Gate 8] Active code scan violation: $SCAN_MATCHES"
+if G8_OUT="$(P3_REPO="$REPO_ROOT" "$REPO_ROOT/scripts/p3-tenant-preflight.sh" legacy-gate 2>&1)"; then
+  G8_DETAILS="$G8_OUT"
 else
-  log_trace "[Gate 8] Codebase scan clear: 0 active code violations"
+  G8_STATUS="FAIL"
+  G8_DETAILS="$(tr '\n' ' ' <<<"$G8_OUT")"
 fi
+log_trace "[Gate 8] $G8_DETAILS"
 
 record_gate "G8_ZERO_TOLERANCE_SCAN" "Repository Typo Zero-Tolerance" "$G8_STATUS" "$G8_DETAILS"
 

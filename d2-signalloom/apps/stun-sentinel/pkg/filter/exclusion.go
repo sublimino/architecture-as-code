@@ -181,6 +181,9 @@ func (f *Filter) Evaluate(pod *corev1.Pod) Decision {
 	if pod.Labels[SentinelNameLabel] == SentinelName {
 		return Decision{Excluded: true, Reason: ReasonSentinelPod, Detail: SentinelNameLabel + "=" + SentinelName}
 	}
+	if pod.UID == "" {
+		return Decision{Excluded: true, Reason: ReasonIncompleteIdentity, Detail: "pod has no UID; failing closed"}
+	}
 	return Decision{}
 }
 

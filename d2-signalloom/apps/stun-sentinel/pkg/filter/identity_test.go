@@ -10,14 +10,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// A pod with no namespace or no UID cannot be checked against the namespace
-// policy or the self-UID guard, and the freezer resolves cgroups by UID; such
-// a record must fail closed rather than be treated as an ordinary tenant pod.
-func TestIncompletePodIdentityFailsClosed(t *testing.T) {
+// A pod with no UID cannot be checked against the self-UID guard and the
+// freezer resolves cgroups by UID; it must fail closed rather than be treated
+// as an ordinary tenant pod. (An empty namespace is legal on the /stun wire,
+// where namespace is optional; see the report on caller-asserted namespaces.)
+func TestPodWithoutUIDFailsClosed(t *testing.T) {
 	f := New(testSelf, WithAuditLog(func(string) {}))
 	for name, p := range map[string]*corev1.Pod{
-		"empty-namespace": pod("", "agent", "0b0c3a1e-0000-4000-8000-000000000001", corev1.PodRunning, nil),
-		"empty-uid":       pod("tenant-kusari", "agent", "", corev1.PodRunning, nil),
+		"empty-uid":            pod("tenant-kusari", "agent", "", corev1.PodRunning, nil),
+		"empty-uid-and-labels": pod("tenant-kusari", "", "", corev1.PodRunning, map[string]string{}),
 	} {
 		d := f.Evaluate(p)
 		if !d.Excluded || d.Reason != ReasonIncompleteIdentity {

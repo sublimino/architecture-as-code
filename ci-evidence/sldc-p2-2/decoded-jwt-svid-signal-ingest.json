@@ -1,0 +1,8 @@
+{
+  "aud": [
+    "signal-ingest"
+  ],
+  "exp": 1790748253,
+  "iat": 1790747953,
+  "sub": "spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel"
+}

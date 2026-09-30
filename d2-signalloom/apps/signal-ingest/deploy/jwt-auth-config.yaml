@@ -1,0 +1,64 @@
+# SLDC-P2-2: signal-ingest JWT-SVID authentication for cross-cluster callers.
+#
+# signal-ingest runs on kind-signalloom-hub and accepts JWT-SVIDs minted by
+# the workload SPIRE (trust domain osramp.local) on kind-osramp. The hub SPIRE
+# server holds the osramp.local bundle through federation
+# (d2-agent-trust/spire-federation-config.yaml);
+# scripts/bootstrap-spire-federation.sh (step signal-ingest) writes the
+# federated jwt-svid keys into signal-ingest-jwks below. Re-run that step after
+# a SPIRE JWT key rotation; nothing re-syncs the ConfigMap automatically yet
+# (see the SLDC-P2-2 errata follow-ups).
+#
+# The service reads the keys from SIGNAL_AUTH_JWKS_FILE and re-reads them
+# every SIGNAL_AUTH_JWKS_REFRESH (15m). A refresh that fails to parse, or that
+# yields an empty key set, keeps the last good keys. kubelet propagates a
+# ConfigMap update to the mounted file within its sync period, so a rotated
+# SPIRE key is live in under ~16 minutes without a restart.
+#
+# Wiring onto the Deployment: envFrom configMapRef signal-ingest-jwt-auth, plus
+# signal-ingest-jwks mounted read-only at /etc/signal-ingest/auth. The
+# bootstrap script applies that patch; see patch_signal_ingest() there.
+#
+# Permissions: the card named "telemetry:write" / "violations:publish". Those
+# do not exist in signal-ingest's vocabulary (api/auth.go Permission consts),
+# and an unknown permission grants nothing. POST /api/v1/observations is
+# gated by observations:write, and sentinel violation publishing goes through
+# the collector surface (collectors:write). See the SLDC-P2-2 errata.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signal-ingest-jwt-auth
+  labels:
+    app.kubernetes.io/name: signal-ingest
+    signalloom.io/card: SLDC-P2-2
+data:
+  SIGNAL_AUTH_AUDIENCE: signal-ingest
+  SIGNAL_AUTH_TRUST_DOMAIN: osramp.local
+  SIGNAL_AUTH_JWKS_FILE: /etc/signal-ingest/auth/jwks.json
+  SIGNAL_AUTH_JWKS_REFRESH: 15m
+  # Canonical tenant is "kusari" (phase pattern 1). Exact-match SPIFFE IDs,
+  # no wildcards: signal-ingest bindings are a map keyed by the full subject.
+  SIGNAL_AUTH_BINDINGS: |
+    {
+      "spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel": {
+        "tenant_id": "kusari",
+        "permissions": ["observations:write", "collectors:write"]
+      },
+      "spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent": {
+        "tenant_id": "kusari",
+        "permissions": ["observations:write"]
+      }
+    }
+---
+# Populated from the hub SPIRE server's federated osramp.local bundle, keys
+# with use=jwt-svid only. Shipped with an empty key set; signal-ingest fails
+# closed at boot until the bootstrap has synced real keys.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signal-ingest-jwks
+  labels:
+    app.kubernetes.io/name: signal-ingest
+    signalloom.io/card: SLDC-P2-2
+data:
+  jwks.json: '{"keys":[]}'

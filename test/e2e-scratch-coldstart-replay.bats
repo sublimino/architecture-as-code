@@ -31,8 +31,10 @@ setup() {
 
 @test "forensic evidence bundle packager creates and signs fresh replay evidence" {
   out_replay="$root/.evidence/fresh-replay"
-  mkdir -p "$out_replay"
-  run bash "$root/scripts/package-eap-evidence.sh" --output-dir "$out_replay"
+  mkdir -p "$out_replay/input"
+  cp "$root"/test/fixtures/eap-evidence/* "$out_replay/input/"
+  rm -f "$out_replay/input/audit-signature.sha256" "$out_replay/input/bundle-header.json"* "$out_replay/input/signing-key.pub.pem"
+  run bash "$root/scripts/package-eap-evidence.sh" "$out_replay/input" --output-dir "$out_replay"
   [ "$status" -eq 0 ]
   [ -f "$out_replay/audit-signature.sha256" ]
   [ -f "$out_replay/eap-kusari-containment.tar.gz" ]

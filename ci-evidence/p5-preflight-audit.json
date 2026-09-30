@@ -1,0 +1,229 @@
+{
+  "schema": "sldc-p5-preflight/v1",
+  "card": "SLDC-P5-PRE",
+  "generated_at": "2026-09-30T08:45:09Z",
+  "repo_head": "445dd4cf45db02b59f8922bf3c64e1b1f0b2ef8b",
+  "context": "kind-osramp",
+  "cluster_probed": true,
+  "gates": [
+    {
+      "id": "PF-1",
+      "name": "Swarm pod annotation",
+      "status": "fail",
+      "summary": "not annotated signalloom.io/stunned=true: agent-cardvault, agent-sir-lancelot, agent-nono-evidenced",
+      "static": {
+        "status": "n/a"
+      },
+      "live": {
+        "status": "probed",
+        "targets": [
+          {
+            "target": "agent-cardvault",
+            "found": true,
+            "kind": "Deployment",
+            "annotated": false,
+            "annotation": "",
+            "template_annotation": "",
+            "pod_label": ""
+          },
+          {
+            "target": "agent-sir-lancelot",
+            "found": true,
+            "kind": "Pod",
+            "annotated": false,
+            "annotation": "",
+            "template_annotation": "",
+            "pod_label": ""
+          },
+          {
+            "target": "agent-nono-evidenced",
+            "found": true,
+            "kind": "Deployment",
+            "annotated": false,
+            "annotation": "",
+            "template_annotation": "",
+            "pod_label": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "PF-2",
+      "name": "SPIRE registration job",
+      "status": "fail",
+      "summary": "no spire-register-entries Job manifest in repo; job/spire-register-entries absent or not succeeded in cluster; no SPIRE entry for sa/fleet-manager; 1 legacy signalloom-stun-sentinel SPIRE entries still registered",
+      "static": {
+        "job_manifests": []
+      },
+      "live": {
+        "status": "probed",
+        "job": [],
+        "spire_servers": [
+          {
+            "server": "spire-system:statefulset/spire-server:spire-server",
+            "reachable": true,
+            "entries": 5,
+            "stun_sentinel": 1,
+            "fleet_manager": 0,
+            "legacy_signalloom_stun_sentinel": 0
+          },
+          {
+            "server": "inf-bao:deploy/spire-server:spire-server",
+            "reachable": true,
+            "entries": 42,
+            "stun_sentinel": 0,
+            "fleet_manager": 0,
+            "legacy_signalloom_stun_sentinel": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "PF-3",
+      "name": "OpenBao JWT glob setting",
+      "status": "pass",
+      "summary": "OpenBao role signalloom-cardvault-agent bound_claims_type=glob (static=glob live=glob)",
+      "static": {
+        "file": "d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml",
+        "role": "signalloom-cardvault-agent",
+        "bound_claims_type": "glob"
+      },
+      "live": {
+        "status": "probed",
+        "bound_claims_type": "glob"
+      }
+    },
+    {
+      "id": "PF-4",
+      "name": "CEL admission whitelist",
+      "status": "pass",
+      "summary": "supercred-demo-runner in isGovernorOrAdmin (static=true live=true)",
+      "static": {
+        "file": "d2-agent-trust/policies/agent-identity-state-protection.yaml",
+        "runner_whitelisted": true
+      },
+      "live": {
+        "status": "probed",
+        "runner_whitelisted": "true"
+      }
+    },
+    {
+      "id": "PF-5",
+      "name": "Owner-record phase gating",
+      "status": "fail",
+      "summary": "legacy reconciler (d2-signalloom/apps/signalloom-stun-sentinel/main.go) freezes stunned pods in any phase but Succeeded/Failed; HTTP /stun gate skips the phase check when the caller omits phase (optional); F.4 target d2-signalloom/apps/stun-sentinel/reconciler.go does not exist",
+      "static": {
+        "f4_named_file_exists": false,
+        "legacy_reconciler": "ungated",
+        "check_freezable": "gated",
+        "ebpf_correlator_path": "gated",
+        "http_stun_path": "optional"
+      },
+      "live": {
+        "status": "probed",
+        "daemonset_image": "stun-sentinel:latest",
+        "legacy_reconciler_stun_unstun_events": 738,
+        "running_build": "signalloom-stun-sentinel reconciler"
+      }
+    },
+    {
+      "id": "PF-6",
+      "name": "Acceptance test DaemonSet name",
+      "status": "fail",
+      "summary": "test/swarm-fleet-acceptance.bats asserts stun-sentinel 0 times and legacy signalloom-stun-sentinel 3 times (live ds=present)",
+      "static": {
+        "file": "test/swarm-fleet-acceptance.bats",
+        "stun_sentinel_refs": 0,
+        "legacy_refs": 3
+      },
+      "live": {
+        "status": "probed",
+        "daemonset_stun_sentinel": "present"
+      }
+    }
+  ],
+  "auxiliary": [
+    {
+      "id": "AUX-RBAC",
+      "name": "Sentinel pod informer RBAC",
+      "status": "fail",
+      "summary": "stun-sentinel SA can list pods cluster-wide: no",
+      "static": {
+        "status": "n/a"
+      },
+      "live": {
+        "can_list_pods": "no"
+      }
+    },
+    {
+      "id": "AUX-ACT",
+      "name": "Kusari stub /act API",
+      "status": "fail",
+      "summary": "/act/healthz not registered in d2-signalloom/apps/kusari-agent/main.go; /act/read-passwd not registered in d2-signalloom/apps/kusari-agent/main.go; /act/cpu-burn not registered in d2-signalloom/apps/kusari-agent/main.go; live /act/healthz did not return {\"status\":\"ready\"}",
+      "static": {
+        "registered_act_routes": []
+      },
+      "live": {
+        "status": "probed",
+        "pod": "agent-kusari-5685ff664b-46q85",
+        "healthz": "{\"status\":\"ok\"}",
+        "act_healthz": "error: the server could not find the requested resource"
+      }
+    },
+    {
+      "id": "AUX-FORENSIC",
+      "name": "Forensic staging directory",
+      "status": "pass",
+      "summary": "/tmp/sldc-forensics writable=true free_kb=225676304 (min 2097152)",
+      "static": {
+        "dir": "/tmp/sldc-forensics",
+        "writable": true,
+        "free_kb": 225676304
+      },
+      "live": {
+        "status": "n/a"
+      }
+    },
+    {
+      "id": "AUX-KEYS",
+      "name": "Signing keys in .keys/",
+      "status": "pass",
+      "summary": "public keys parse and cosign.key is an encrypted Sigstore key: pass",
+      "static": {
+        "keys": [
+          {
+            "file": "cosign.pub",
+            "parses": true
+          },
+          {
+            "file": "witness-pub.pem",
+            "parses": true
+          },
+          {
+            "file": "orbit-approval-pub.pem",
+            "parses": true
+          },
+          {
+            "file": "cosign.key",
+            "encrypted_sigstore_header": true
+          }
+        ]
+      },
+      "live": {
+        "status": "n/a"
+      }
+    }
+  ],
+  "verdict": {
+    "pass": false,
+    "failed": [
+      "PF-1",
+      "PF-2",
+      "PF-5",
+      "PF-6",
+      "AUX-RBAC",
+      "AUX-ACT"
+    ],
+    "proceed_p5": false
+  }
+}

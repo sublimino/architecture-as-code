@@ -1,0 +1,106 @@
+{
+  "card": "SLDC-P4-PRE",
+  "context": "kind-osramp",
+  "node": "osramp-control-plane",
+  "proxy_path": "/api/v1/nodes/osramp-control-plane/proxy/metrics/cadvisor",
+  "proxy_reachable": true,
+  "headers": {
+    "content_type": "text/plain; version=0.0.4; charset=utf-8; escaping=underscores",
+    "exposition_0_0_4": true
+  },
+  "schema": {
+    "ok": true,
+    "bytes": 12333441,
+    "lines": 27843,
+    "sha256": "991aec3441fad52e67f42079fe662cffb10e3e0ebecb52f94ee202391222484c",
+    "metrics": [
+      {
+        "metric": "container_cpu_usage_seconds_total",
+        "expected_type": "counter",
+        "declared_type": "counter",
+        "samples": 275,
+        "labels": [
+          "container",
+          "cpu",
+          "id",
+          "image",
+          "name",
+          "namespace",
+          "pod"
+        ],
+        "missing_labels": [],
+        "legacy_label_names": false
+      },
+      {
+        "metric": "container_memory_rss",
+        "expected_type": "gauge",
+        "declared_type": "gauge",
+        "samples": 275,
+        "labels": [
+          "container",
+          "id",
+          "image",
+          "name",
+          "namespace",
+          "pod"
+        ],
+        "missing_labels": [],
+        "legacy_label_names": false
+      },
+      {
+        "metric": "container_cpu_cfs_throttled_periods_total",
+        "expected_type": "counter",
+        "declared_type": "counter",
+        "samples": 60,
+        "labels": [
+          "container",
+          "id",
+          "image",
+          "name",
+          "namespace",
+          "pod"
+        ],
+        "missing_labels": [],
+        "legacy_label_names": false
+      }
+    ]
+  },
+  "rbac": {
+    "subject": "system:serviceaccount:fe-signalloom:fe-signalloom",
+    "service_account_exists": true,
+    "can_get": {
+      "nodes/proxy": false,
+      "nodes/metrics": false
+    },
+    "apiserver_proxy_ready": false,
+    "kubelet_direct_ready": false
+  },
+  "cadence": {
+    "samples": 11,
+    "interval_s": 1,
+    "series": 99,
+    "series_without_refresh": 20,
+    "intervals": 81,
+    "refresh_s": {
+      "min": 10.33,
+      "p50": 15.17,
+      "p90": 19.09,
+      "max": 19.98
+    },
+    "rate_window_s": 2,
+    "rate_window_viable": false
+  },
+  "routes": {
+    "file": "d2-signalloom/apps/dashboard-signalloom/src/App.tsx",
+    "agents_route_registered": true,
+    "line": "415:                <Route path=\"/agents\" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />"
+  },
+  "gates": {
+    "proxy_reachable": true,
+    "exposition_format": true,
+    "schema": true,
+    "sa_rbac_apiserver_proxy": false,
+    "rate_window_viable": false,
+    "agents_route": true
+  }
+}

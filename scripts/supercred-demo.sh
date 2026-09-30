@@ -282,6 +282,7 @@ seed_openbao_secrets() {
 path "kv/data/signalloom/cardvault-agent" { capabilities = ["read"] }
 POLICY
     bao policy write signalloom-cardvault-agent /tmp/policy.hcl
+    bao delete auth/jwt/role/signalloom-cardvault-agent 2>/dev/null || true
     bao write auth/jwt/role/signalloom-cardvault-agent \
       role_type=jwt bound_audiences=openbao \
       bound_subject="spiffe://signalloom.demo/ns/'"$NAMESPACE_AGENTS"'/sa/cardvault-agent" \

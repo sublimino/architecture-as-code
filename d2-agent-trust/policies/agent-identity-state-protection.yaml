@@ -36,6 +36,7 @@ spec:
       expression: >-
         request.userInfo.username == 'system:serviceaccount:fe-signalloom:swarm-governor' ||
         request.userInfo.username == 'system:serviceaccount:fe-signalloom-agents:swarm-governor' ||
+        request.userInfo.username == 'system:serviceaccount:fe-signalloom:supercred-demo-runner' ||
         request.userInfo.username == 'kubernetes-admin' ||
         request.userInfo.username == 'kind-osramp' ||
         request.userInfo.username.startsWith('system:admin') ||

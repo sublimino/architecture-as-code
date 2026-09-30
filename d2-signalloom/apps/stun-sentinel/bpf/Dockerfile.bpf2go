@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# Pinned toolchain for the in-sentinel syscall probe (sentinel_probe.c).
+#
+# Differs from Dockerfile.builder in one respect: bpf2go needs Go AND clang in
+# the same filesystem, because it shells out to clang and then writes Go. The
+# module requires go 1.27, which Debian trixie does not package, so this image
+# starts from the official Go image and adds the LLVM/libbpf toolchain on top.
+#
+# It also serves as the runtime for the live loader tests, which run it under
+# `docker run --privileged` so the kernel verifier is the oracle, not a mock.
+FROM golang:1.27-trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends \
+      clang \
+      llvm \
+      libbpf-dev \
+      linux-libc-dev \
+      make \
+      bpftool \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src

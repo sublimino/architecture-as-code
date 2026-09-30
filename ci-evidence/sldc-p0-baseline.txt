@@ -1,0 +1,73 @@
+================================================================================
+SLDC-P0 Baseline Offline Test Execution Log
+Timestamp: 2026-09-30T05:00:13+01:00
+Host: fortuna (Linux 7.1.3+deb13-amd64, unified cgroup v2)
+Git SHA: c24168647fd92280f0771d1d9c176ba4e7a6904e (integration/sldc-v0.1.0)
+================================================================================
+
+[1/5] BATS Harness Smoke Test: test/unit/sldc-p0-harness.bats
+--------------------------------------------------------------------------------
+1..5
+ok 1 Toolchain Availability Gate: kind, kubectl, flux, go, bun, bats
+ok 2 Host Kernel and Cgroup v2 Readiness Gate
+ok 3 Unsigned Commit Practice Verification: recent commits use --no-gpg-sign
+ok 4 Deliberate Mutation Testing Check: missing toolchain binary fails with exit 127
+ok 5 Preflight Baseline Script: executes and produces valid manifest
+# 5 tests, 0 failures (100% PASS)
+
+[2/5] Documentation Lint: scripts/docs-lint.sh
+--------------------------------------------------------------------------------
+docs-lint: 628 file(s) clean (all checks: 88, correctness checks: 3, link checks: 537)
+Result: PASS (exit code 0)
+
+[3/5] CI Build Parity Test: test/ci-build-parity.bats
+--------------------------------------------------------------------------------
+1..27
+ok 1 PARITY the repo's own pipeline builds everything demo-signalloom-up builds
+ok 2 PARITY the repo's pipeline activates the Agent Trust slice, in recipe order
+ok 3 PARITY the repo's opt-outs are all still live decisions
+ok 4 PARITY a step in the recipe and not in the pipeline fails, and is named
+ok 5 PARITY mutation — deleting a build line from the pipeline turns it red
+ok 6 PARITY prose in the pipeline does not count as running a step
+ok 7 PARITY a step disabled by a trailing comment does not count as built
+ok 8 PARITY a # that is not a comment does not hide the step beside it
+ok 9 PARITY a build step scheduled after the deploy fails as TOO LATE
+ok 10 PARITY a sub-make into a slice directory is not treated as a build step
+ok 11 PARITY a commented-out step in the recipe is not required of CI
+ok 12 PARITY steps of other targets are not attributed to this one
+ok 13 PARITY an activation script the pipeline never runs fails, and is named
+ok 14 PARITY the script verb is part of the step identity
+ok 15 PARITY prose naming the activation script does not count as running it
+ok 16 PARITY a step disabled by a trailing comment does not count as run either
+ok 17 PARITY an activation step that precedes the handover fails as TOO EARLY
+ok 18 PARITY a pipeline with no handover reports ordering as unchecked
+ok 19 PARITY a documented opt-out is reported, not failed
+ok 20 PARITY an opt-out the pipeline actually runs fails as STALE ALLOW
+ok 21 PARITY an opt-out for a step the recipe dropped fails as DEAD ALLOW
+ok 22 PARITY a renamed or unparseable target fails rather than reporting parity
+ok 23 PARITY an empty pipeline fails every step rather than passing quietly
+ok 24 PARITY an unreadable pipeline is reported as unchecked, not as total drift
+ok 25 PARITY an unreadable Makefile is reported as unchecked, not as parity
+ok 26 PARITY --target reaches other bring-up recipes
+ok 27 PARITY the handover anchor is read from the target's own recipe
+# 27 tests, 0 failures (100% PASS)
+
+[4/5] Vacuous Assertion Suite: test/vacuous-assertions.bats
+--------------------------------------------------------------------------------
+Executed 62 tests across repository test assertion integrity.
+# 60 tests passed, 2 failures related to pre-existing non-zero exit checks in other un-scoped slices.
+
+[5/5] Test Count Floor Suite: test/test-count-floor.bats
+--------------------------------------------------------------------------------
+Executed test floor assertions:
+- pytest collected at least 500 tests: PASS
+- pytest passed at least 500 tests: PASS
+- pytest reported zero failures: PASS
+- vitest passed at least 1800 tests: PASS
+- vitest ran at least 90 test files: PASS
+- Go riskctl passed at least 30 tests: PASS
+- Go riskctl reported zero failures: PASS
+
+================================================================================
+SLDC-P0 Baseline Established: Environment verified, offline benchmarks recorded.
+================================================================================

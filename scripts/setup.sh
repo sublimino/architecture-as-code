@@ -175,6 +175,19 @@ install_tools() {
     fi
   }
 
+  # luajit runs the real Envoy tenant-filter Lua in the SLDC tenant suites
+  # (test/eap-tenant-routing.bats, verify-tenant-routing.sh --hermetic), which
+  # exit 2 without it rather than fall back to a mock. Platform package, like skopeo.
+  have luajit || {
+    echo "installing luajit"
+    PKG_SUDO=""; [ "$(id -u)" -eq 0 ] || PKG_SUDO="sudo"
+    if have apt-get; then ${PKG_SUDO} apt-get install -y -qq luajit
+    elif have dnf; then ${PKG_SUDO} dnf install -y luajit
+    elif have brew; then brew install luajit
+    else echo "luajit is required but no supported package manager was found." >&2; exit 1
+    fi
+  }
+
   have yq || { echo "installing yq"; fetch_bin yq "https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_${OS}_${ARCH}"; }
   have govulncheck || { echo "installing govulncheck"; go_install_bin govulncheck "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; }
   have vexctl || { echo "installing vexctl"; go_install_bin vexctl "github.com/openvex/vexctl@${VEXCTL_VERSION}"; }

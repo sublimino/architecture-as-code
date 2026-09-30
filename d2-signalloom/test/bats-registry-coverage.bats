@@ -648,7 +648,13 @@ $(sed 's/#.*//' "$runner")"
 	#                               stage. Its value is the FLOOR assertion, not
 	#   docs-lint.bats, docs-index-sync.bats, docs-rewrite-guard.bats - documentation lint suites owned by `make docs-lint-test`.
 	#   dashboard-route-collisions.bats - offline route collision lint suite.
+	#   e2e-dual-cluster-containment.bats - SLDC five-step live suite; needs BOTH
+	#                               kind clusters and the kusari workload, which no
+	#                               pipeline stands up. Owned by
+	#                               make test-e2e-dual-cluster-containment; its
+	#                               offline siblings run in stage 1k.
 	local root_excluded="supercred-images.bats
+e2e-dual-cluster-containment.bats
 agent-trust-lifecycle.bats
 deployed-staleness.bats
 signalloom-flux-integration.bats

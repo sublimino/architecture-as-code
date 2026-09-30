@@ -757,6 +757,29 @@ run_stage \
   "stage1h-bats-registry.tap" \
   "cd ${WORK_DIR} && bats --tap d2-signalloom/test/bats-registry-coverage.bats"
 
+# Stage 1k: SLDC dual-cluster EAP pilot, offline. Every suite below runs with
+# KUBECONFIG=/dev/null and stubbed cluster clients; none of them needs a
+# cluster, and until this stage none of them was run by anything but a hand.
+# The live five-step suite (e2e-dual-cluster-containment.bats) needs both kind
+# clusters and is owned by make test-e2e-dual-cluster-containment instead.
+run_stage \
+  "SLDC dual-cluster EAP pilot (offline)" \
+  "stage1k-sldc-offline.tap" \
+  "cd ${WORK_DIR} && KUBECONFIG=/dev/null bats --tap \
+     test/dual-cluster-networking.bats test/e2e-scratch-coldstart-replay.bats \
+     test/eap-evidence-adversarial.bats test/eap-evidence-attestation.bats \
+     test/eap-evidence-mutation-gate.bats test/eap-evidence-runner.bats \
+     test/eap-evidence-schema-lite.bats test/eap-evidence-supertest.bats \
+     test/eap-tenant-routing.bats test/evidence-bundle-integrity.bats \
+     test/federation-bao-role-glob.bats test/federation-bootstrap-openbao.bats \
+     test/final-mission-governor.bats test/p1-sentinel-preflight.bats \
+     test/p2-dualcluster-preflight.bats test/p3-tenant-preflight.bats \
+     test/p4-cadvisor-preflight.bats test/p5-operational-preflight.bats \
+     test/p6-teardown-preflight.bats test/p6-teardown-safety.bats \
+     test/phase1-governor-verification.bats test/phase2-governor-verification.bats \
+     test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
+     test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats"
+
 # Stage 1i: Audit-guard reintroduction proof (12 cases)
 #
 # Reintroduces, one at a time, each defect the audit provenance guard exists to

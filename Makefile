@@ -1053,6 +1053,39 @@ test-e2e-dual-cluster-containment: ## Five-step Deploy/Claim/Provoke/Detect/Free
 test-e2e-containment-mutation-proof: ## Prove every containment assertion is non-vacuous against fixtures (no cluster required).
 	bash test/e2e-mutation-proof.sh
 
+# SLDC offline gate. The bats list mirrors stage 1k in both pipelines; the Go,
+# pytest and bun suites are the code under those scripts. Flat, like
+# test-eap-offline: every stage runs and the first non-zero status is returned.
+.PHONY: test-sldc-offline test-sldc-mutation-proof
+SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart-replay.bats \
+	test/eap-evidence-adversarial.bats test/eap-evidence-attestation.bats \
+	test/eap-evidence-mutation-gate.bats test/eap-evidence-runner.bats \
+	test/eap-evidence-schema-lite.bats test/eap-evidence-supertest.bats \
+	test/eap-tenant-routing.bats test/evidence-bundle-integrity.bats \
+	test/federation-bao-role-glob.bats test/federation-bootstrap-openbao.bats \
+	test/final-mission-governor.bats test/p1-sentinel-preflight.bats \
+	test/p2-dualcluster-preflight.bats test/p3-tenant-preflight.bats \
+	test/p4-cadvisor-preflight.bats test/p5-operational-preflight.bats \
+	test/p6-teardown-preflight.bats test/p6-teardown-safety.bats \
+	test/phase1-governor-verification.bats test/phase2-governor-verification.bats \
+	test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
+	test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats
+SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
+	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
+	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest/api
+
+test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytest and bun suite (no cluster; KUBECONFIG=/dev/null).
+	@status=0; \
+	KUBECONFIG=/dev/null bats $(SLDC_OFFLINE_BATS) || status=$$?; \
+	for d in $(SLDC_GO_DIRS); do (cd $$d && go test -count=1 ./...) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; done; \
+	python3 -m pytest -q d2-signalloom/apps/fe-signalloom/src/tests/test_cadvisor_poller.py test/unit/test_tenant_hash.py || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+	bun test test/unit/tenant-hash.test.ts || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+	exit $$status
+
+test-sldc-mutation-proof: ## Break the real SLDC production lines each suite guards and require red (clean tree required; mutates then restores).
+	KUBECONFIG=/dev/null bash test/eap-tenant-routing-mutation-proof.sh
+	KUBECONFIG=/dev/null bash test/eap-evidence-mutation-proof.sh
+
 .PHONY: test-supervise-port-forward test-signalloom-portforward
 test-supervise-port-forward: ## Verify port-forward supervision against fake kubectl/curl clients (no cluster required).
 	bats test/supervise-port-forward.bats

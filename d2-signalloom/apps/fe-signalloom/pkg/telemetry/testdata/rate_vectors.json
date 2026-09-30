@@ -1,0 +1,20 @@
+{
+  "_comment": "Shared CPU rate vectors. Read by cadvisor_collector_test.go (ComputeRate) and src/tests/test_cadvisor_poller.py (compute_cpu_rate) so the Go and Python engines cannot drift. Counters are cAdvisor container_cpu_usage_seconds_total (seconds, not cgroup nanoseconds). Values are strings so NaN/Inf survive JSON. want = millicores, or null when no honest rate exists.",
+  "vectors": [
+    {"name": "steady load", "prev": "10.0", "curr": "10.2", "dt": "2", "want": 100.0},
+    {"name": "one full core, seconds not nanoseconds", "prev": "0", "curr": "1.5", "dt": "1.5", "want": 1000.0},
+    {"name": "exact zero delta flatlines to 0.000", "prev": "42.123456", "curr": "42.123456", "dt": "2", "want": 0.0},
+    {"name": "sub-epsilon delta flatlines to 0.000", "prev": "42.123456", "curr": "42.1235", "dt": "2", "want": 0.0},
+    {"name": "delta exactly at epsilon is a rate", "prev": "0", "curr": "0.0001", "dt": "2", "want": 0.05},
+    {"name": "counter reset counts from zero", "prev": "150", "curr": "0.5", "dt": "2", "want": 250.0},
+    {"name": "counter reset to zero flatlines", "prev": "150", "curr": "0", "dt": "2", "want": 0.0},
+    {"name": "identical timestamps have no rate", "prev": "10", "curr": "12", "dt": "0", "want": null},
+    {"name": "clock running backwards has no rate", "prev": "10", "curr": "12", "dt": "-1", "want": null},
+    {"name": "NaN current counter has no rate", "prev": "10", "curr": "NaN", "dt": "2", "want": null},
+    {"name": "NaN previous counter has no rate", "prev": "NaN", "curr": "10", "dt": "2", "want": null},
+    {"name": "infinite counter has no rate", "prev": "10", "curr": "+Inf", "dt": "2", "want": null},
+    {"name": "negative counter has no rate", "prev": "10", "curr": "-1", "dt": "2", "want": null},
+    {"name": "NaN elapsed has no rate", "prev": "10", "curr": "12", "dt": "NaN", "want": null},
+    {"name": "infinite elapsed has no rate", "prev": "10", "curr": "12", "dt": "+Inf", "want": null}
+  ]
+}

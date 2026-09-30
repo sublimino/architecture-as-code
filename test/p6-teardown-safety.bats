@@ -107,3 +107,9 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 	! grep -q 'docker start osramp-control-plane' "$STUB_LOG"
 	[ ! -e "$SLDC_SAVED_CONTAINERS_FILE" ]
 }
+
+@test "a cluster whose name only contains an SLDC name is never deleted" {
+	KIND_CLUSTERS=$'osramp-staging\nsignalloom-hub-old' run bash "$teardown_sh"
+	[ "$status" -eq 0 ]
+	! grep -q '^kind delete' "$STUB_LOG"
+}

@@ -109,6 +109,11 @@ func DecodeSyscallEvent(raw []byte) (*SyscallEvent, error) {
 		Comm:        cString(raw[offComm : offComm+commLen]),
 		Filename:    cString(raw[offFilename : offFilename+filenameLen]),
 	}
+	switch ev.Type {
+	case EventOpenat, EventExecve, EventConnect, EventOpenat2:
+	default:
+		return nil, fmt.Errorf("syscall event with unknown event type %d", raw[offType])
+	}
 	if ev.Type == EventConnect {
 		ev.Family = ne.Uint16(raw[offFamily:])
 		ev.DestPort = ne.Uint16(raw[offDport:])

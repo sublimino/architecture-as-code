@@ -3,6 +3,7 @@ import { useAuth0 } from '../auth/oidc'
 import { useAppContext } from '../App'
 import HelpModal from './HelpModal'
 import NotificationBell from './NotificationBell'
+import MetricsTopBar from './MetricsTopBar'
 
 const NAV_LINKS = [
   { to: '/agents', label: 'Agents' },
@@ -84,6 +85,8 @@ export default function TopNav() {
             </NavLink>
           ))}
         </div>
+
+        <MetricsTopBar />
 
         {/* Right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

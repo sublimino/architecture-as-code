@@ -1,6 +1,7 @@
 // Filter interaction adapted from Beautiful UI Filter Table (MIT); see
 // THIRD_PARTY_NOTICES.md. Signal Loom owns data, tokens, and semantics.
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import AgentCockpitSection from '../components/AgentCockpitSection'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -1804,6 +1805,9 @@ export default function AgentsPage() {
           </HelpHint>
         </div>
       </div>
+
+      {/* SLDC-P4-2: live cAdvisor cockpit, self-contained */}
+      <AgentCockpitSection />
 
       {/* Subnavigation Tabs */}
       <div

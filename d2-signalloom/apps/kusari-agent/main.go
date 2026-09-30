@@ -345,11 +345,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (a *agent) handleQuote(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
-		return
+// getOnly refuses every method but GET with 405 and an Allow header.
+func getOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
+			return
+		}
+		h(w, r)
 	}
+}
+
+func (a *agent) handleQuote(w http.ResponseWriter, r *http.Request) {
 	n := a.requests.Add(1)
 	input := r.URL.Query().Get("input")
 
@@ -515,10 +523,10 @@ func (a *agent) handleCPUBurn(w http.ResponseWriter, r *http.Request) {
 
 func (a *agent) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/quote", a.handleQuote)
-	mux.HandleFunc("/{$}", a.handleQuote)
-	mux.HandleFunc("/stats", a.handleStats)
-	mux.HandleFunc("/healthz", handleHealthz)
+	mux.HandleFunc("/quote", getOnly(a.handleQuote))
+	mux.HandleFunc("/{$}", getOnly(a.handleQuote))
+	mux.HandleFunc("/stats", getOnly(a.handleStats))
+	mux.HandleFunc("/healthz", getOnly(handleHealthz))
 	mux.HandleFunc("/act/read-passwd", a.postOnly("read-passwd", a.handleReadPasswd))
 	mux.HandleFunc("/act/read-shadow", a.postOnly("read-shadow", a.handleReadShadow))
 	mux.HandleFunc("/act/cpu-burn", a.postOnly("cpu-burn", a.handleCPUBurn))

@@ -277,12 +277,21 @@ https() {
     rogue) certargs="-cert /svid/rogue-leaf.pem -key /svid/rogue-leaf.key" ;;
     none) certargs="" ;;
   esac
-  local LAST_RESPONSE
-  LAST_RESPONSE=$(printf '%b' "$req" | pexec "$p" tool sh -c \
-    "openssl s_client -quiet -connect $FRONT_HOST:$FRONT_PORT -servername $FRONT_SNI \
-       -CAfile /svid/federated_bundle.0.0.pem -verify_return_error -verify_hostname $FRONT_SNI $certargs 2>/dev/null" || true)
-  local status cv tls
-  status=$(printf '%s' "$LAST_RESPONSE" | awk 'NR==1 {print $2}')
+  # Transport failures (no response, 502/503/504 from the front's upstream)
+  # are retried up to 5 times, 2s apart, per the card's retry contract.
+  # An auth decision (any other status) is returned as-is, never retried.
+  local LAST_RESPONSE status attempt
+  for attempt in 1 2 3 4 5; do
+    LAST_RESPONSE=$(printf '%b' "$req" | pexec "$p" tool sh -c \
+      "openssl s_client -quiet -connect $FRONT_HOST:$FRONT_PORT -servername $FRONT_SNI \
+         -CAfile /svid/federated_bundle.0.0.pem -verify_return_error -verify_hostname $FRONT_SNI $certargs 2>/dev/null" || true)
+    status=$(printf '%s' "$LAST_RESPONSE" | awk 'NR==1 {print $2}')
+    case "${status:-none}" in
+      none|502|503|504) audit "transport retry $attempt/5: $m $path via $p -> ${status:-none}"; sleep 2 ;;
+      *) break ;;
+    esac
+  done
+  local cv tls
   cv=$(printf '%s' "$LAST_RESPONSE" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-sldc-client-verify" {print $2}')
   tls=$(printf '%s' "$LAST_RESPONSE" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-sldc-tls" {print $2}')
   printf '%s' "$LAST_RESPONSE" >"$P2GOV_TMP/last_response"
@@ -417,10 +426,14 @@ g6_negative() {
   [ "${rogue_x509%%|*}" = 400 ] || all_ok=0
   if [ "$host_anon" != 401 ] && [[ "$host_anon" =~ ^2 ]]; then BLOCKER=1; fi
   if [[ "${anon%%|*}" =~ ^2 ]] || [[ "${anon_post%%|*}" =~ ^2 ]]; then BLOCKER=1; fi
+  local restarts
+  restarts=$(khub -n "$HUB_NS" get pods -l app=signal-ingest -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{"\n"}{end}' | awk '{s+=$1} END {print s+0}')
+  audit "signal-ingest restarts after negative probes: $restarts"
+  [ "$restarts" = 0 ] || { all_ok=0; audit "$(khub -n "$HUB_NS" logs deploy/signal-ingest --previous --tail=40 2>&1)"; }
   if [ "$all_ok" = 1 ]; then
-    gate G6 negative pass "anonymous 401 (host GET, pod GET, pod POST); route proven live by valid-token GET=403; tampered sig ${bad%%|*}, rogue.local JWT ${rogue%%|*}, forged osramp.local JWT ${forged_osr%%|*}, wrong aud ${wrongaud%%|*}, unbound subject ${nobind%%|*}; rogue.local client cert refused at TLS ${rogue_x509%%|*}"
+    gate G6 negative pass "signal-ingest restarts=0; anonymous 401 (host GET, pod GET, pod POST); route proven live by valid-token GET=403; tampered sig ${bad%%|*}, rogue.local JWT ${rogue%%|*}, forged osramp.local JWT ${forged_osr%%|*}, wrong aud ${wrongaud%%|*}, unbound subject ${nobind%%|*}; rogue.local client cert refused at TLS ${rogue_x509%%|*}"
   else
-    gate G6 negative fail "host_anon=$host_anon anon=$anon anon_post=$anon_post readperm=$readperm bad=$bad rogue=$rogue forged=$forged_osr wrongaud=$wrongaud nobind=$nobind rogue_x509=$rogue_x509"
+    gate G6 negative fail "restarts=$restarts host_anon=$host_anon anon=$anon anon_post=$anon_post readperm=$readperm bad=$bad rogue=$rogue forged=$forged_osr wrongaud=$wrongaud nobind=$nobind rogue_x509=$rogue_x509"
   fi
 }
 

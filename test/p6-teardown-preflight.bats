@@ -141,6 +141,19 @@ fails_only() { # CHECK-NAME: exit 1, exactly one failed check, and it is this on
 	[ -z "$missing" ]
 }
 
+@test "committed catalog: each manifest declares the catalogued kind, and workloads pin the catalogued image" {
+	wrong=""
+	while IFS=$'\t' read -r c k p img _; do
+		grep -qE "^kind: ${k}\$" "$root/$p" || wrong="$wrong $c:kind=$k"
+		case "$k" in
+		HelmRelease | ResourceSet) ;;
+		*) grep -qF "image: ${img}" "$root/$p" || wrong="$wrong $c:image=$img" ;;
+		esac
+	done < <(tail -n +2 "$root/test/fixtures/cold-start-manifests.tsv")
+	echo "wrong:$wrong" >&3
+	[ -z "$wrong" ]
+}
+
 # --- cluster-reset-helpers ----------------------------------------------------------
 
 ip_links='13: veth664d764@if2: <UP> mtu 1500 master br-f7f9 state UP mode DEFAULT

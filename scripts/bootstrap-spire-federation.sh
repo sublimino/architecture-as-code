@@ -13,6 +13,8 @@
 # Usage: bootstrap-spire-federation.sh [STEP...]
 #   render WHICH       print the federation manifest rendered for workload|hub
 #   apply              render + kubectl apply on both clusters, wait for servers
+#   relay              hostNetwork bundle-endpoint relay on the workload bridge IP
+#                      (Cilium serves no NodePort on eth1; SLDC-P2-GOV)
 #   seed               exchange trust bundles once (bundle set, both directions)
 #   federate           poll "federation refresh" both ways until both succeed
 #   entries            idempotent node-alias + workload registration entries
@@ -55,6 +57,9 @@ BACKOFF_MAX_ATTEMPTS="${BACKOFF_MAX_ATTEMPTS:-8}"
 BACKOFF_CAP_SECONDS="${BACKOFF_CAP_SECONDS:-30}"
 
 FEDERATION_MANIFEST="$REPO_ROOT/d2-agent-trust/spire-federation-config.yaml"
+RELAY_MANIFEST="$REPO_ROOT/d2-agent-trust/spire-federation-bridge-relay.yaml"
+WORKLOAD_BRIDGE_IP="${WORKLOAD_BRIDGE_IP:-172.19.0.10}"
+WORKLOAD_RELAY="${WORKLOAD_RELAY:-1}"
 ROLE_MANIFEST="$REPO_ROOT/d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml"
 INGEST_MANIFEST="$REPO_ROOT/d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml"
 
@@ -106,11 +111,27 @@ render() {
 
 server_healthy() { "$@" healthcheck >/dev/null 2>&1; }
 
+render_relay() {
+  SPIRE_RELAY_BIND_IP=$WORKLOAD_BRIDGE_IP SPIRE_BUNDLE_NODEPORT=$BUNDLE_NODEPORT \
+    envsubst '${SPIRE_RELAY_BIND_IP} ${SPIRE_BUNDLE_NODEPORT}' <"$RELAY_MANIFEST"
+}
+
+# Cilium on the workload cluster attaches its NodePort datapath to eth0 only,
+# so the bridge IP refuses 31843. A TLS pass-through relay on the host stack
+# fixes reachability without touching Cilium; WORKLOAD_RELAY=0 skips it.
+step_relay() {
+  [[ "$WORKLOAD_RELAY" == 1 ]] || { log "relay disabled (WORKLOAD_RELAY=$WORKLOAD_RELAY)"; return 0; }
+  render_relay | "$KUBECTL_BIN" --context "$WORKLOAD_CONTEXT" apply -f -
+  "$KUBECTL_BIN" --context "$WORKLOAD_CONTEXT" -n "$SPIRE_NS" rollout status \
+    deploy/spire-federation-bridge-relay --timeout=120s
+}
+
 step_apply() {
   render workload | "$KUBECTL_BIN" --context "$WORKLOAD_CONTEXT" apply -f -
   render hub | "$KUBECTL_BIN" --context "$HUB_CONTEXT" apply -f -
   retry_backoff "workload spire-server healthy" server_healthy spire_workload
   retry_backoff "hub spire-server healthy" server_healthy spire_hub
+  step_relay
 }
 
 # --- federation ---------------------------------------------------------------
@@ -146,7 +167,9 @@ ensure_entry() {
 }
 
 step_entries() {
-  local node="spiffe://$WORKLOAD_TD/spire/node/$WORKLOAD_CLUSTER" fed="spiffe://$HUB_TD"
+  # /spire/* is reserved for server-issued IDs; SPIRE 1.11 rejects a
+  # registration entry there, so the node alias lives under /k8s-cluster/.
+  local node="spiffe://$WORKLOAD_TD/k8s-cluster/$WORKLOAD_CLUSTER" fed="spiffe://$HUB_TD"
   if ! spire_workload entry show -spiffeID "$node" 2>/dev/null | grep -q 'Entry ID'; then
     spire_workload entry create -node -spiffeID "$node" -selector "k8s_psat:cluster:$WORKLOAD_CLUSTER" >/dev/null
   fi
@@ -262,6 +285,7 @@ main() {
     case "$s" in
       render) render "${2:?render needs workload|hub}"; return ;;
       apply) step_apply ;;
+      relay) step_relay ;;
       seed) step_seed ;;
       federate) step_federate ;;
       entries) step_entries ;;

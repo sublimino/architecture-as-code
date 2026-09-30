@@ -1,0 +1,47 @@
+# @id test/fixtures/phase2-governor/workload-probe.yaml
+# @target scripts/test-phase2-governor.sh
+#
+# SLDC-P2-GOV ephemeral test agent pod on kind-osramp. One pod per identity:
+# the SPIRE k8s workload attestor keys the SVID on the calling pod's
+# namespace + service account, so each subject under test needs its own pod.
+#
+#   agent  spire-agent CLI against the node's Workload API socket (the image
+#          has no shell, so `api watch` is the keep-alive and `kubectl exec`
+#          runs `api fetch jwt|x509` beside it)
+#   tool   alpine/openssl: dispatches HTTP/1.1 over TLS 1.3 across the bridge
+#          with the pod's X.509-SVID as client certificate
+#
+# Rendered with envsubst: ${PROBE_NAME} ${PROBE_NS} ${PROBE_SA}. Deleted by
+# the runner's EXIT trap.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${PROBE_NAME}
+  namespace: ${PROBE_NS}
+  labels:
+    signalloom.io/card: SLDC-P2-GOV
+    signalloom.io/fixture: "true"
+spec:
+  serviceAccountName: ${PROBE_SA}
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 1
+  restartPolicy: Always
+  containers:
+    - name: agent
+      image: ghcr.io/spiffe/spire-agent:1.11.1
+      imagePullPolicy: IfNotPresent
+      command: ["/opt/spire/bin/spire-agent", "api", "watch", "-socketPath", "/run/spire/sockets/agent.sock"]
+      volumeMounts:
+        - { name: sockets, mountPath: /run/spire/sockets, readOnly: true }
+        - { name: svid, mountPath: /svid }
+    - name: tool
+      image: alpine/openssl:latest
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "3600"]
+      volumeMounts:
+        - { name: svid, mountPath: /svid }
+  volumes:
+    - name: sockets
+      hostPath: { path: /run/spire-system/sockets, type: Directory }
+    - name: svid
+      emptyDir: {}

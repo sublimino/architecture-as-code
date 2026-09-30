@@ -1,0 +1,287 @@
+# @id test/fixtures/phase2-governor/hub-fixture.yaml
+# @target scripts/test-phase2-governor.sh
+# @doc docs/eap/SLDC-P2-GOVERNOR-REPORT.md
+#
+# SLDC-P2-GOV disposable hub fixture (kind-signalloom-hub, ns sldc-p2-gov).
+#
+# Phase 2 ships the trust plumbing (SPIRE federation, OpenBao JWT role,
+# signal-ingest JWKS config) but nothing that serves it on the hub: the
+# Envoy Gateway listener and HTTPRoutes are Phase 3 (SLDC-P3-2). The governor
+# therefore stands up the smallest thing that exercises the Phase 2 contract
+# and deletes it afterwards, so NodePort 31443 is free again for Phase 3:
+#
+#   openbao        OpenBao 2.1.1 dev server, NodePort 30820 (root token from
+#                  Secret sldc-p2-gov-bao, never on argv)
+#   signal-ingest  image built from the integration tree, the shipped
+#                  signal-ingest-jwt-auth + signal-ingest-jwks ConfigMaps
+#   audit-db       postgres:16-alpine holding signal_audit_trail, so
+#                  signal-ingest runs with its fail-closed audit writer
+#   sl-eap-front   TLS 1.3-only terminator on NodePort 31443. Its server
+#                  certificate is a signalloom.hub X.509-SVID (DNS SAN
+#                  sl-eap-4b53ab6b.ts.net) fetched from the hub SPIRE agent at
+#                  start, and it verifies client certificates against the
+#                  federated osramp.local bundle: SPIFFE mutual TLS across the
+#                  bridge. Client certificates are optional so an anonymous
+#                  caller reaches signal-ingest and gets its 401; a presented
+#                  certificate that does not chain to osramp.local is refused.
+#
+# Rendered with envsubst: ${SI_IMAGE}.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sldc-p2-gov
+  labels:
+    signalloom.io/card: SLDC-P2-GOV
+    signalloom.io/fixture: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sldc-p2-gov-front
+  namespace: sldc-p2-gov
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openbao
+  namespace: sldc-p2-gov
+  labels: { app: openbao }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: openbao } }
+  template:
+    metadata:
+      labels: { app: openbao }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: openbao
+          image: quay.io/openbao/openbao:2.1.1
+          imagePullPolicy: IfNotPresent
+          args: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+          env:
+            - name: SKIP_SETCAP
+              value: "true"
+            - name: BAO_DEV_ROOT_TOKEN_ID
+              valueFrom: { secretKeyRef: { name: sldc-p2-gov-bao, key: token } }
+          ports: [{ containerPort: 8200 }]
+          readinessProbe:
+            httpGet: { path: /v1/sys/health, port: 8200 }
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openbao
+  namespace: sldc-p2-gov
+spec:
+  type: NodePort
+  selector: { app: openbao }
+  ports: [{ port: 8200, targetPort: 8200, nodePort: 30820 }]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-db-init
+  namespace: sldc-p2-gov
+data:
+  # Column shape of signal_audit_trail as written by audit/postgres.go. The
+  # production event_type CHECK and actor FK are dropped: the fixture records
+  # whatever the router audits instead of turning a schema gap into a 500.
+  001-audit.sql: |
+    CREATE TABLE IF NOT EXISTS signal_audit_trail (
+      id         BIGSERIAL PRIMARY KEY,
+      tenant_id  TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      actor_id   TEXT,
+      detail     JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-db
+  namespace: sldc-p2-gov
+  labels: { app: audit-db }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: audit-db } }
+  template:
+    metadata:
+      labels: { app: audit-db }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: POSTGRES_USER, value: audit }
+            - { name: POSTGRES_DB, value: audit }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: sldc-p2-gov-audit, key: password } }
+          ports: [{ containerPort: 5432 }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "audit", "-d", "audit"] }
+            periodSeconds: 3
+          volumeMounts:
+            - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+      volumes:
+        - name: init
+          configMap: { name: audit-db-init }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-db
+  namespace: sldc-p2-gov
+spec:
+  selector: { app: audit-db }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-ingest
+  namespace: sldc-p2-gov
+  labels: { app: signal-ingest }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: signal-ingest } }
+  template:
+    metadata:
+      labels: { app: signal-ingest }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: signal-ingest
+          image: ${SI_IMAGE}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "8082"
+            # The protected router refuses to start without a healthy
+            # fail-closed audit writer, so the fixture carries Postgres.
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: sldc-p2-gov-audit, key: dsn } }
+            - name: IDENTITY_ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: sldc-p2-gov-identity, key: encryption-key } }
+            - name: IDENTITY_PSEUDONYM_KEY
+              valueFrom: { secretKeyRef: { name: sldc-p2-gov-identity, key: pseudonym-key } }
+          envFrom:
+            - configMapRef: { name: signal-ingest-jwt-auth }
+          ports: [{ containerPort: 8082 }]
+          # /healthz sits behind the protected router (401 without a
+          # JWT-SVID), so readiness is a TCP check.
+          readinessProbe:
+            tcpSocket: { port: 8082 }
+            periodSeconds: 3
+          volumeMounts:
+            - { name: signal-auth-jwks, mountPath: /etc/signal-ingest/auth, readOnly: true }
+      volumes:
+        - name: signal-auth-jwks
+          configMap: { name: signal-ingest-jwks }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-ingest
+  namespace: sldc-p2-gov
+spec:
+  selector: { app: signal-ingest }
+  ports: [{ port: 8082, targetPort: 8082 }]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sl-eap-front
+  namespace: sldc-p2-gov
+data:
+  nginx.conf: |
+    master_process off;
+    worker_processes 1;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr info;
+    events { worker_connections 256; }
+    http {
+      log_format sldc '$remote_addr "$request" $status tls=$ssl_protocol/$ssl_cipher '
+                      'client_verify=$ssl_client_verify client_s_dn="$ssl_client_s_dn"';
+      access_log /dev/stdout sldc;
+      client_body_temp_path /tmp/cb;
+      proxy_temp_path /tmp/pt;
+      fastcgi_temp_path /tmp/ft;
+      uwsgi_temp_path /tmp/ut;
+      scgi_temp_path /tmp/st;
+      server {
+        listen 8443 ssl;
+        server_name sl-eap-4b53ab6b.ts.net;
+        ssl_certificate /svid/svid.0.pem;
+        ssl_certificate_key /svid/svid.0.key;
+        ssl_protocols TLSv1.3;
+        ssl_ecdh_curve X25519:prime256v1:secp384r1;
+        ssl_client_certificate /svid/federated_bundle.0.0.pem;
+        ssl_verify_client optional;
+        ssl_verify_depth 2;
+        location / {
+          proxy_pass http://signal-ingest:8082;
+          add_header X-SLDC-Client-Verify $ssl_client_verify always;
+          add_header X-SLDC-TLS "$ssl_protocol $ssl_cipher" always;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sl-eap-front
+  namespace: sldc-p2-gov
+  labels: { app: sl-eap-front }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sl-eap-front } }
+  template:
+    metadata:
+      labels: { app: sl-eap-front }
+    spec:
+      serviceAccountName: sldc-p2-gov-front
+      initContainers:
+        # spire-agent image has no shell; the CLI writes svid.0.pem/key,
+        # bundle.0.pem and federated_bundle.0.0.pem (osramp.local) itself.
+        - name: fetch-svid
+          image: ghcr.io/spiffe/spire-agent:1.11.1
+          imagePullPolicy: IfNotPresent
+          command: ["/opt/spire/bin/spire-agent", "api", "fetch", "x509",
+                    "-socketPath", "/run/spire/sockets/agent.sock", "-write", "/svid", "-timeout", "60s"]
+          volumeMounts:
+            - { name: sockets, mountPath: /run/spire/sockets, readOnly: true }
+            - { name: svid, mountPath: /svid }
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          command: ["nginx", "-c", "/etc/front/nginx.conf", "-g", "daemon off;"]
+          ports: [{ containerPort: 8443 }]
+          readinessProbe:
+            tcpSocket: { port: 8443 }
+            periodSeconds: 3
+          volumeMounts:
+            - { name: conf, mountPath: /etc/front, readOnly: true }
+            - { name: svid, mountPath: /svid, readOnly: true }
+      volumes:
+        - name: conf
+          configMap: { name: sl-eap-front }
+        - name: svid
+          emptyDir: {}
+        - name: sockets
+          hostPath: { path: /run/spire-system/sockets, type: Directory }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sl-eap-front
+  namespace: sldc-p2-gov
+spec:
+  type: NodePort
+  selector: { app: sl-eap-front }
+  ports: [{ port: 8443, targetPort: 8443, nodePort: 31443 }]

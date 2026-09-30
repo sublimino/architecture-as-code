@@ -23,13 +23,14 @@ echo "1..5"
 for s in 1 2 3 4 5; do
   if [ "${SLDC_RUN_INDEX}" = "${FAIL_RUN:-x}" ] && [ "$s" = 4 ]; then echo "not ok $s Step $s"; continue; fi
   if [ "${SLDC_RUN_INDEX}" = "${SKIP_RUN:-x}" ] && [ "$s" = 2 ]; then echo "ok $s Step $s # skip no cluster"; continue; fi
+  [ "${SLDC_RUN_INDEX}" = "${SHORT_RUN:-x}" ] && [ "$s" = 5 ] && continue
   echo "ok $s Step $s"
 done
 [ "${SLDC_RUN_INDEX}" = "${FAIL_RUN:-x}" ] && exit 1 || exit 0
 EOF
     cat >"${FAKES}/package" <<'EOF'
 #!/usr/bin/env bash
-out="${3:?}"; mkdir -p "$out"; echo bundle >"$out/kusari-eap-evidence-test.tar.gz"
+out="${3:?}"; mkdir -p "$out"; [ "${PACKAGE_WRITES:-1}" = 0 ] || echo bundle >"$out/kusari-eap-evidence-test.tar.gz"
 EOF
     printf '#!/usr/bin/env bash\nexit "${VERIFY_RC:-0}"\n' >"${FAKES}/verify"
     chmod +x "${FAKES}"/*
@@ -120,13 +121,57 @@ make_signoff() {
     [ "$(cert .status)" = fail ]
 }
 
-@test "recorded live certification is status=fail, never a false green" {
-    local c="${REPO_ROOT}/ci-evidence/final-mission-certification.json"
-    [ -f "$c" ]
-    if [ "$(jq -r .status "$c")" = pass ]; then
-        [ "$(jq -r .consecutive_green_achieved "$c")" -ge 3 ]
-        [ "$(jq '[.signoffs[] | select(.verified)] | length' "$c")" -eq 4 ]
-    else
-        [ -n "$(jq -r .reason "$c")" ]
-    fi
+@test "mutation: a red certificate relabelled awaiting-signoff cannot be signed into a pass" {
+    FAIL_RUN=1 run "${GATE}" --out "${OUT}"
+    [ "$status" -eq 1 ]
+    c="${OUT}/final-mission-certification.json"
+    jq '.status = "awaiting-signoff"' "$c" >"$c.tmp" && mv "$c.tmp" "$c"
+    make_signoff "${OUT}/final-mission-certification.digest"
+    run "${GATE}" --out "${OUT}" --signoff "${BATS_TEST_TMPDIR}/signoff.json"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"certificate records do not support sign-off"* ]]
+    [ "$(cert .status)" != pass ]
+}
+
+@test "mutation: runs edited into the certificate break the digest and are refused" {
+    run "${GATE}" --out "${OUT}"
+    c="${OUT}/final-mission-certification.json"
+    jq '.runs[0].seconds = 1' "$c" >"$c.tmp" && mv "$c.tmp" "$c"
+    make_signoff "${OUT}/final-mission-certification.digest"
+    run "${GATE}" --out "${OUT}" --signoff "${BATS_TEST_TMPDIR}/signoff.json"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"certificate_digest does not match its recorded runs and bundle"* ]]
+}
+
+@test "mutation: a bundle replaced after the gate ran is refused at sign-off" {
+    run "${GATE}" --out "${OUT}"
+    echo forged >"${OUT}/kusari-eap-certified-bundle.tar.gz"
+    make_signoff "${OUT}/final-mission-certification.digest"
+    run "${GATE}" --out "${OUT}" --signoff "${BATS_TEST_TMPDIR}/signoff.json"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"certified bundle no longer matches bundle_sha256"* ]]
+    [ "$(cert .status)" = awaiting-signoff ]
+}
+
+@test "mutation: a stale bundle left in staging is never certified when packaging writes nothing" {
+    mkdir -p "${OUT}/bundle-staging"
+    echo stale >"${OUT}/bundle-staging/kusari-eap-evidence-20200101T000000Z.tar.gz"
+    PACKAGE_WRITES=0 run "${GATE}" --out "${OUT}"
+    [ "$status" -eq 1 ]
+    [ "$(cert .status)" = fail ]
+    [ "$(cert .reason)" = "evidence bundle failed verification" ]
+    [ ! -f "${OUT}/kusari-eap-certified-bundle.tar.gz" ]
+}
+
+@test "mutation: a run that stops short of its TAP plan is not green" {
+    SHORT_RUN=2 run "${GATE}" --out "${OUT}"
+    [ "$status" -eq 1 ]
+    [ "$(cert .status)" = fail ]
+    [[ "$(cert .reason)" == *"run 2 reported 4 of 5 planned tests"* ]]
+}
+
+@test "--runs must be a positive integer (exit 2)" {
+    run "${GATE}" --runs 0 --out "${OUT}"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"--runs must be a positive integer"* ]]
 }

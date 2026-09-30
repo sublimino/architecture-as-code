@@ -108,9 +108,15 @@ gate() {
 PROBES_UP=()
 # https()/bao_login() run inside $(...), so side results travel via files
 P2GOV_TMP=$(mktemp -d)
+CERT_WRITTEN=0
 cleanup() {
   local rc=$?
   rm -rf "$P2GOV_TMP"
+  if [ "$CERT_WRITTEN" = 0 ] && [ -n "${STARTED:-}" ]; then
+    # aborted mid-run: never leave an earlier run's certificate standing
+    gate ABORT runner fail "runner exited rc=$rc before all gates ran"
+    write_cert fail
+  fi
   if [ "$KEEP_FIXTURES" = 1 ]; then log "keeping fixtures (--keep-fixtures)"; return "$rc"; fi
   log "cleanup: deleting probe pods, fixture entries and hub fixture namespace"
   for p in "${PROBES_UP[@]}"; do
@@ -188,6 +194,14 @@ wait_rollout() { "$KUBECTL_BIN" --context "$1" -n "$2" rollout status "deploy/$3
 fixtures_up() {
   local node_hub="spiffe://signalloom.hub/k8s-cluster/$SLDC_HUB_CLUSTER"
   local node_osr="spiffe://osramp.local/k8s-cluster/$SLDC_OSRAMP_CLUSTER"
+  # leftovers from an interrupted run: a Terminating namespace or old probe
+  # pods would swallow this run's objects, so let them finish going first
+  for p in kusari cardvault unauth expiry; do
+    kosr -n "${PROBE_NS[$p]}" delete pod "p2gov-$p" --ignore-not-found --wait=true --timeout=120s >/dev/null 2>&1 || true
+  done
+  if [ "$(kosr get ns agent-trust -o jsonpath='{.status.phase}' 2>/dev/null)" = Terminating ]; then
+    kosr wait --for=delete ns/agent-trust --timeout=180s >/dev/null
+  fi
   # workload identities under test
   if ! kosr get ns agent-trust >/dev/null 2>&1; then
     kosr create ns agent-trust >/dev/null
@@ -498,8 +512,8 @@ if [ "$BLOCKER" = 0 ]; then
   g8_mutation
 fi
 
-STATUS=pass; [ "$FAILED" = 0 ] || STATUS=fail
-jq -n --arg status "$STATUS" --arg started "$STARTED" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+write_cert() {
+jq -n --arg status "$1" --arg started "$STARTED" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg head "$(git -C "$REPO_ROOT" rev-parse HEAD)" --arg p21 "$P2_1_SHA" --arg p22 "$P2_2_SHA" \
   --arg si "$SI_IMAGE" --argjson blocker "$BLOCKER" --argjson gates "$GATES_JSON" '{
     schema: "sldc.phase2-governance-certification/v1",
@@ -511,7 +525,12 @@ jq -n --arg status "$STATUS" --arg started "$STARTED" --arg finished "$(date -u 
                hub: {context: "kind-signalloom-hub", ip: "172.19.0.20", trust_domain: "signalloom.hub"}},
     fixture: {hub_namespace: "sldc-p2-gov", signal_ingest_image: $si, torn_down: true},
     gates: $gates }' >"$CERT_JSON"
-[ "$KEEP_FIXTURES" = 1 ] && jq '.fixture.torn_down = false' "$CERT_JSON" >"$CERT_JSON.tmp" && mv "$CERT_JSON.tmp" "$CERT_JSON"
+  if [ "$KEEP_FIXTURES" = 1 ]; then jq '.fixture.torn_down = false' "$CERT_JSON" >"$CERT_JSON.tmp" && mv "$CERT_JSON.tmp" "$CERT_JSON"; fi
+  CERT_WRITTEN=1
+}
+
+STATUS=pass; [ "$FAILED" = 0 ] || STATUS=fail
+write_cert "$STATUS"
 log "certification: $STATUS ($CERT_JSON)"
 [ "$BLOCKER" = 0 ] || exit 3
 [ "$STATUS" = pass ]

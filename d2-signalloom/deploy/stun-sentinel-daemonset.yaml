@@ -101,6 +101,10 @@ spec:
     spec:
       serviceAccountName: stun-sentinel
       hostPID: true
+      # SLDC-P1-3: tc clsact filters and RTM_GETLINK veth resolution must run
+      # in the host netns, where container veth peers live.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       # Containment must remain available while the node is under the memory
       # or CPU pressure an attacker may be deliberately causing. A daemon
       # evicted at the moment it is needed is not a control.
@@ -113,10 +117,28 @@ spec:
           image: ghcr.io/controlplaneio-in-toto/stun-sentinel:v0.1.0
           imagePullPolicy: IfNotPresent
           args:
-            - --listen-addr=:8080
+            # hostNetwork: bind the pod IP (== node IP) only, never 0.0.0.0.
+            - --listen-addr=$(POD_IP):8080
             - --cgroup-root=/sys/fs/cgroup
             - --freeze-deadline=50ms
           env:
+            # Downward API identity for self-pod exclusion (pkg/filter).
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: STUN_FREEZE_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -147,6 +169,14 @@ spec:
             runAsUser: 0
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: true
+            # Declared explicitly although privileged implies them, so the
+            # capability contract is auditable (SLDC-P1-3).
+            capabilities:
+              add:
+                - SYS_PTRACE
+                - BPF
+                - NET_ADMIN
+                - SYS_ADMIN
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
@@ -154,6 +184,17 @@ spec:
               mountPath: /sys/fs/cgroup
               # NOT readOnly. This is the whole point of the DaemonSet.
               readOnly: false
+              mountPropagation: HostToContainer
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+            - name: btf
+              mountPath: /sys/kernel/btf
+              readOnly: true
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+              mountPropagation: HostToContainer
             - name: tmp
               mountPath: /tmp
           # Both probes hit /healthz, which performs a real mkdir/rmdir
@@ -184,6 +225,18 @@ spec:
         - name: cgroup
           hostPath:
             path: /sys/fs/cgroup
+            type: Directory
+        - name: modules
+          hostPath:
+            path: /lib/modules
+            type: DirectoryOrCreate
+        - name: btf
+          hostPath:
+            path: /sys/kernel/btf
+            type: DirectoryOrCreate
+        - name: host-proc
+          hostPath:
+            path: /proc
             type: Directory
         - name: tmp
           emptyDir: {}

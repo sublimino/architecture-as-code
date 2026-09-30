@@ -27,8 +27,12 @@ import (
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/auth"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/filter"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/quarantine"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/telemetry"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type config struct {
@@ -144,6 +148,52 @@ type server struct {
 	keyRegistry    auth.OperatorKeyRegistry
 	policy         auth.ResumeTokenPolicy
 	replayLedger   *auth.ReplayLedger
+	// exclusion guards infrastructure namespaces and the sentinel itself.
+	// nil means filter.Default(): the guard cannot be switched off.
+	exclusion *filter.Filter
+}
+
+func (s *server) exclusionFilter() *filter.Filter {
+	if s.exclusion != nil {
+		return s.exclusion
+	}
+	return filter.Default()
+}
+
+// exclusionGate refuses a stun aimed at an excluded pod (infrastructure
+// namespace, the sentinel itself, a peer sentinel), a pod reported as not
+// Running, or a cgroup that turns out to hold the sentinel's own process. It
+// runs after bearer authentication so the policy cannot be probed anonymously.
+// Returns false after writing the refusal.
+func (s *server) exclusionGate(w http.ResponseWriter, podUID, podName, namespace, phase string) bool {
+	f := s.exclusionFilter()
+	target := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace, UID: types.UID(podUID)},
+		Status:     corev1.PodStatus{Phase: corev1.PodPhase(phase)},
+	}
+	if d := f.Evaluate(target); d.Excluded {
+		f.AuditSkip(target, d)
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": filter.ErrExcluded.Error(), "skipped": true, "reason": d.Reason, "detail": d.Detail})
+		return false
+	}
+	// Phase is optional on the wire; when the caller knows it, a pod that is
+	// not Running (e.g. still ContainerCreating) is refused rather than
+	// frozen half-way through runtime setup.
+	if phase != "" {
+		if err := f.CheckFreezable(target); err != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "skipped": true, "reason": filter.ReasonNotRunning})
+			return false
+		}
+	}
+	if cgPath, err := s.freezer.ResolvePodCgroup(podUID); err == nil {
+		pids, _ := cgroup.ListProcs(cgPath)
+		if d := f.ContainsSelf(s.freezer.Root(), cgPath, pids); d.Excluded {
+			f.AuditSkip(target, d)
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": filter.ErrExcluded.Error(), "skipped": true, "reason": d.Reason, "detail": d.Detail})
+			return false
+		}
+	}
+	return true
 }
 
 func observationFrom(res *cgroup.FreezeResult, podName, namespace string) telemetry.FreezeObservation {
@@ -237,9 +287,14 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		Namespace         string `json:"namespace"`
 		CaptureQuarantine bool   `json:"capture_quarantine"`
 		Quarantine        bool   `json:"quarantine"`
+		// Phase is the pod phase as last observed by the caller (optional).
+		Phase string `json:"phase"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
+		return
+	}
+	if !s.exclusionGate(w, req.PodUID, req.PodName, req.Namespace, req.Phase) {
 		return
 	}
 	credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -577,7 +632,10 @@ func run(args []string) error {
 		keyRegistry:    registry,
 		policy:         policy,
 		replayLedger:   ledger,
+		exclusion: filter.New(filter.SelfFromEnv(),
+			filter.WithExtraNamespaces(strings.Split(os.Getenv("STUN_EXTRA_EXCLUDED_NAMESPACES"), ",")...)),
 	}
+	fmt.Fprintf(os.Stderr, "stun-sentinel: exclusion namespaces=%s\n", strings.Join(srv.exclusion.ExcludedNamespaces(), ","))
 
 	// Fail loudly at startup rather than at the first incident.
 	if err := srv.freezer.HealthCheck(); err != nil {

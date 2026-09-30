@@ -1,7 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# Base DaemonSet specification for stun-sentinel
+# Base DaemonSet specification for stun-sentinel.
+#
+# SLDC-P1-3 hardening. Every grant below is load-bearing; each says why.
+#   hostPID       host PIDs in freeze results; /proc/<pid>/ns/net for veth lookup.
+#   hostNetwork   tc clsact filters and RTM_GETLINK must run in the HOST netns
+#                 where the container veth peers live.
+#   privileged    cgroup-v2 writes to other containers' cgroup.freeze.
+#   capabilities  declared explicitly even though privileged implies them, so
+#                 the contract is auditable and survives a future drop of
+#                 privileged:
+#                   SYS_PTRACE  read /proc/<pid>/ns/net and environ of other
+#                               containers (omitting it = EACCES on setns path)
+#                   SYS_ADMIN   setns(CLONE_NEWNET), cgroup writes, bpffs
+#                   BPF         load tc_drop.bpf.o
+#                   NET_ADMIN   clsact qdisc + tc filter attach
+#
+# The sentinel never freezes kube-system, spire, flux-system, cert-manager,
+# envoy-gateway-system, inf-signalloom, itself, or a peer sentinel
+# (pkg/filter). POD_NAME/POD_NAMESPACE/POD_UID feed that self-exclusion.
+# Under hostNetwork the HTTP listener binds the pod IP (== node IP) only,
+# never 0.0.0.0.
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -16,6 +36,10 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: stun-sentinel
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
   template:
     metadata:
       labels:
@@ -26,13 +50,39 @@ spec:
       serviceAccountName: stun-sentinel
       hostPID: true
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       priorityClassName: system-node-critical
+      terminationGracePeriodSeconds: 10
       tolerations:
         - operator: Exists
       containers:
         - name: stun-sentinel
           image: ghcr.io/controlplaneio-in-toto/stun-sentinel:v0.1.0
           imagePullPolicy: IfNotPresent
+          args:
+            - --listen-addr=$(POD_IP):8080
+            - --cgroup-root=/sys/fs/cgroup
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
           securityContext:
             privileged: true
             runAsUser: 0
@@ -50,6 +100,7 @@ spec:
             - name: cgroup
               mountPath: /sys/fs/cgroup
               readOnly: false
+              mountPropagation: HostToContainer
             - name: modules
               mountPath: /lib/modules
               readOnly: true
@@ -59,6 +110,12 @@ spec:
             - name: host-proc
               mountPath: /host/proc
               readOnly: true
+              mountPropagation: HostToContainer
+            - name: bpffs
+              # Pinned isolation maps must outlive a sentinel restart and be
+              # visible on the host, so pins propagate both ways.
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
       volumes:
         - name: cgroup
           hostPath:
@@ -76,3 +133,7 @@ spec:
           hostPath:
             path: /proc
             type: Directory
+        - name: bpffs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate

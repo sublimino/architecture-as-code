@@ -1,0 +1,8 @@
+# SLDC-P5-PRE forensic staging check  captured: 2026-09-30 09:45:08 +0100
+$ test -d /tmp/sldc-forensics || mkdir -p /tmp/sldc-forensics && touch /tmp/sldc-forensics/.test && rm /tmp/sldc-forensics/.test
+  exit=0
+$ test -d /tmp/kusari-e2e || mkdir -p /tmp/kusari-e2e && touch /tmp/kusari-e2e/.test && rm /tmp/kusari-e2e/.test
+  exit=0
+$ df -h /tmp
+  Filesystem             Size  Used Avail Use% Mounted on
+  /dev/mapper/md0_crypt  1.8T  1.5T  216G  88% /

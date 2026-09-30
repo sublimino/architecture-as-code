@@ -6,14 +6,15 @@ package correlator
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ var DefaultSensitivePrefixes = []string{
 	"/etc/passwd",
 	"/etc/shadow",
 	"/var/run/secrets/kubernetes.io/serviceaccount",
+	"/run/secrets/kubernetes.io/serviceaccount", // /var/run is a symlink to /run
 	"/root/.ssh",
 }
 
@@ -195,6 +197,9 @@ func (m *SentinelProbeManager) initInformer() {
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
+			if tomb, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				obj = tomb.Obj
+			}
 			if pod, ok := obj.(*corev1.Pod); ok {
 				m.removePod(pod)
 			}
@@ -250,10 +255,18 @@ func (m *SentinelProbeManager) removePod(pod *corev1.Pod) {
 	}
 }
 
-// IsSensitivePath evaluates whether a given file path targets a sensitive system prefix.
-func (m *SentinelProbeManager) IsSensitivePath(path string) bool {
+// IsSensitivePath reports whether an absolute path, once lexically cleaned,
+// is a sensitive prefix or lies beneath one. Matching is per path component:
+// /etc/passwd covers /etc/passwd/x but not /etc/passwdX. Relative paths are
+// never sensitive here; see sensitiveTarget.
+func (m *SentinelProbeManager) IsSensitivePath(p string) bool {
+	if !path.IsAbs(p) {
+		return false
+	}
+	p = path.Clean(p)
 	for _, prefix := range m.sensitiveList {
-		if strings.HasPrefix(path, prefix) {
+		prefix = path.Clean(prefix)
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
 			return true
 		}
 	}
@@ -464,29 +477,21 @@ func (m *SentinelProbeManager) Start(ctx context.Context, rd *ringbuf.Reader) er
 // freezing the owning agent pod when policy allows. ok is false when the
 // record carries nothing to report.
 func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation, bool) {
-	var raw SyscallEvent
-	var filename string
-	var targetPID uint32
-
-	if ev, err := ebpf.DecodeSyscallEvent(sample); err == nil {
-		raw.PID = ev.PID
-		raw.TGID = ev.TGID
-		raw.UID = ev.UID
-		raw.Type = uint8(ev.Type)
-		copy(raw.Comm[:], ev.Comm)
-		copy(raw.Filename[:], ev.Filename)
-		filename = ev.Filename
-		targetPID = ev.PID
-	} else {
-		if err := binary.Read(bytes.NewReader(sample), binary.LittleEndian, &raw); err != nil {
-			return TelemetryObservation{}, false
-		}
-		filename = strings.TrimRight(string(raw.Filename[:]), "\x00")
-		if i := strings.IndexByte(filename, 0); i >= 0 {
-			filename = filename[:i]
-		}
-		targetPID = raw.PID
+	// Records that do not decode as syscall_event_t are dropped: guessing at
+	// another layout would feed misaligned PIDs and paths into a freeze.
+	ev, err := ebpf.DecodeSyscallEvent(sample)
+	if err != nil {
+		return TelemetryObservation{}, false
 	}
+	var raw SyscallEvent
+	raw.PID = ev.PID
+	raw.TGID = ev.TGID
+	raw.UID = ev.UID
+	raw.Type = uint8(ev.Type)
+	copy(raw.Comm[:], ev.Comm)
+	copy(raw.Filename[:], ev.Filename)
+	filename := ev.Filename
+	targetPID := ev.PID
 
 	if _, ok := m.sensitiveTarget(filename, targetPID); !ok {
 		return TelemetryObservation{}, false
@@ -511,9 +516,20 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	return obs, true
 }
 
-// sensitiveTarget reports whether filename, as opened by pid, is sensitive.
+// sensitiveTarget resolves filename as pid would see it and reports whether
+// it is sensitive. The probe captures the raw argument, so a relative path is
+// joined to the process cwd; if the cwd is unreadable the process has exited
+// and there is nothing left to freeze. dirfd-relative opens and symlinks are
+// not resolved here (the probe does not capture dirfd or the opened inode).
 func (m *SentinelProbeManager) sensitiveTarget(filename string, pid uint32) (string, bool) {
-	return filename, m.IsSensitivePath(filename)
+	if filename != "" && !path.IsAbs(filename) {
+		cwd, err := os.Readlink(filepath.Join(m.procRoot, strconv.FormatUint(uint64(pid), 10), "cwd"))
+		if err != nil || !path.IsAbs(cwd) {
+			return "", false
+		}
+		filename = path.Join(cwd, filename)
+	}
+	return path.Clean(filename), m.IsSensitivePath(filename)
 }
 
 // dispatchWorker consumes telemetry observations from the internal queue and sends them to signal-ingest.

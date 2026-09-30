@@ -224,9 +224,15 @@ describe('AgentCockpitTelemetry (error states never read as a reading)', () => {
     new Response(body, { status, headers: { 'content-type': 'application/json' } })
 
   async function settlesOffline(respond: () => Response) {
-    const fetchImpl = vi.fn(async () => respond()) as unknown as typeof fetch
+    let streamAttempts = 0
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if ((init?.headers as Record<string, string>).Accept === 'text/event-stream') streamAttempts += 1
+      return respond()
+    }) as unknown as typeof fetch
     render(<AgentCockpitTelemetry podName={POD} options={{ ...FAST, maxStreamFailures: 2, fetchImpl }} />)
     await waitFor(() => expect(screen.getByTestId('cockpit-connection')).toHaveAttribute('data-connection', 'error'))
+    // Each stream attempt failed and was retried: none was mistaken for a snapshot.
+    expect(streamAttempts).toBe(2)
     expect(cpuText()).toBe('awaiting')
     expect(screen.queryByTestId('cockpit-state-badge')).toBeNull()
     expect(screen.getByTestId('cockpit-awaiting')).toHaveTextContent('Telemetry stream unavailable.')

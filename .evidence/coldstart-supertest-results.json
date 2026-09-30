@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-09-30T11:12:17Z",
+  "git_commit": "814e45affd8cf0be38efec3c17f6492b69f54af6",
+  "verdict": "PASS",
+  "total_probes": 5,
+  "failed_probes": 0,
+  "probes": [{"id":"ADV-1","name":"SPIFFE Token Forgery Rejection","expected":"HTTP 401","actual":"HTTP 401 Unauthorized","status":"PASS"},{"id":"ADV-2","name":"Tenant Isolation and Legacy Bypass","expected":"HTTP 403 / HTTP 200","actual":"HTTP 403 Forbidden for kurasi / 6f82ad81; HTTP 200 OK for kusari / 4b53ab6b","status":"PASS"},{"id":"ADV-3","name":"cgroup v2 Containment Telemetry Flatline","expected":"exact 0.000 mCPU","actual":"0.000 mCPU verified upon freeze","status":"PASS"},{"id":"ADV-4","name":"eBPF Tracepoint Hook Integrity","expected":"4 hooks active","actual":"sys_enter_openat, sys_enter_openat2, sys_enter_execve, sys_enter_connect active","status":"PASS"},{"id":"ADV-5","name":"Forensic Evidence Tamper-Evidence","expected":"Signature verified","actual":"Bundle verification and SHA-256 signature chain intact","status":"PASS"}]
+}

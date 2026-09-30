@@ -1,0 +1,134 @@
+SLDC-P2-GOV token exchange audit - started 2026-09-30T06:50:52Z - HEAD ec46c3543ddbcb4a009b91e81cae3642c17117d5
+Tokens are recorded as decoded header+claims only; signatures and OpenBao client tokens are never written.
+merge: HEAD=ec46c3543ddbcb4a009b91e81cae3642c17117d5 re-merge rc=0 output='Already up to date.'
+GATE G1 merge: pass - P2-1 3598eab5 and P2-2 16ed92d1 are ancestors of HEAD; --no-ff --no-commit re-merge is a no-op; 0 conflict markers; 0 tracked files modified at gate time
+==> bridge: signalloom-bridge already holds 172.19.0.0/16
+==> cluster osramp: exists, attaching (not recreating)
+==> cluster signalloom-hub: exists
+==> attach: osramp-control-plane already 172.19.0.10 on signalloom-bridge
+==> attach: signalloom-hub-control-plane already 172.19.0.20 on signalloom-bridge
+==> ready: both control planes Ready
+==> dns: stub.server already spliced; Corefile unchanged
+==> dns: stub.server already spliced; Corefile unchanged
+==> verify: signal-ingest.signalloom.hub -> 172.19.0.20 from inside kind-osramp deploy/probe
+==> dual-cluster topology up: kind-osramp=172.19.0.10 kind-signalloom-hub=172.19.0.20 on signalloom-bridge
+namespace/spire-system unchanged
+serviceaccount/spire-server unchanged
+serviceaccount/spire-agent unchanged
+clusterrole.rbac.authorization.k8s.io/spire-system-server unchanged
+clusterrolebinding.rbac.authorization.k8s.io/spire-system-server unchanged
+role.rbac.authorization.k8s.io/spire-server-bundle unchanged
+rolebinding.rbac.authorization.k8s.io/spire-server-bundle unchanged
+clusterrole.rbac.authorization.k8s.io/spire-system-agent unchanged
+clusterrolebinding.rbac.authorization.k8s.io/spire-system-agent unchanged
+configmap/spire-bundle unchanged
+configmap/spire-server unchanged
+configmap/spire-agent unchanged
+statefulset.apps/spire-server configured
+service/spire-server unchanged
+service/spire-server-federation unchanged
+deployment.apps/spire-agent unchanged
+namespace/spire-system unchanged
+serviceaccount/spire-server unchanged
+serviceaccount/spire-agent unchanged
+clusterrole.rbac.authorization.k8s.io/spire-system-server unchanged
+clusterrolebinding.rbac.authorization.k8s.io/spire-system-server unchanged
+role.rbac.authorization.k8s.io/spire-server-bundle unchanged
+rolebinding.rbac.authorization.k8s.io/spire-server-bundle unchanged
+clusterrole.rbac.authorization.k8s.io/spire-system-agent unchanged
+clusterrolebinding.rbac.authorization.k8s.io/spire-system-agent unchanged
+configmap/spire-bundle unchanged
+configmap/spire-server unchanged
+configmap/spire-agent unchanged
+statefulset.apps/spire-server configured
+service/spire-server unchanged
+service/spire-server-federation unchanged
+deployment.apps/spire-agent unchanged
+configmap/spire-federation-bridge-relay unchanged
+deployment.apps/spire-federation-bridge-relay unchanged
+deployment "spire-federation-bridge-relay" successfully rolled out
+[spire-federation] seeded osramp.local <-> signalloom.hub
+[spire-federation] federation active in both directions
+[spire-federation] entry exists: spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel
+[spire-federation] entry exists: spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent
+[spire-federation] entry exists: spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault-worker-1
+[spire-federation] entry exists: spiffe://osramp.local/ns/spire-system/sa/spire-agent
+GATE G2 bringup: pass - both clusters Ready, 0 non-running kube-system pods, federation refresh ok hub<-osramp.local and osramp<-signalloom.hub
+configmap/signal-ingest-jwt-auth created
+configmap/signal-ingest-jwks created
+configmap/signal-ingest-jwks configured
+[spire-federation] deploy/signal-ingest not present in sldc-p2-gov; config applied, Deployment patch skipped
+[spire-federation] OpenBao: auth/jwt-osramp/role/agent-cardvault trusts 1 federated osramp.local key(s)
+--- openssl s_client (default) ---
+Connecting to 172.19.0.20
+depth=0 C=US, O=SPIRE, CN=sl-eap-4b53ab6b.ts.net
+verify error:num=20:unable to get local issuer certificate
+depth=0 C=US, O=SPIRE, CN=sl-eap-4b53ab6b.ts.net
+verify error:num=21:unable to verify the first certificate
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+Ciphersuite: TLS_AES_256_GCM_SHA384
+Requested Signature Algorithms: id-ml-dsa-65:id-ml-dsa-87:id-ml-dsa-44:ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:ed25519:ed448:ecdsa_brainpoolP256r1_sha256:ecdsa_brainpoolP384r1_sha384:ecdsa_brainpoolP512r1_sha512:rsa_pss_pss_sha256:rsa_pss_pss_sha384:rsa_pss_pss_sha512:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512
+Peer certificate: C=US, O=SPIRE, CN=sl-eap-4b53ab6b.ts.net
+Hash used: SHA256
+Signature type: ecdsa_secp256r1_sha256
+Verification error: unable to verify the first certificate
+Peer Temp Key: X25519, 253 bits
+DONE
+--- openssl s_client -tls1_2 ---
+Connecting to 172.19.0.20
+C0B5F9A8F07F0000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:ssl/record/rec_layer_s3.c:918:SSL alert number 70
+C0B5F9A8F07F0000:error:0A000197:SSL routines:SSL_shutdown:shutdown while in init:ssl/ssl_lib.c:2804:
+GATE G3 tls: pass - protocol=TLSv1.3 cipher=TLS_AES_256_GCM_SHA384 group=X25519, 253 bits; TLS 1.2 handshake refused
+--- mTLS from kind-osramp p2gov-kusari (attempt 1) ---
+Connecting to 172.19.0.20
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+Ciphersuite: TLS_AES_256_GCM_SHA384
+Requested Signature Algorithms: id-ml-dsa-65:id-ml-dsa-87:id-ml-dsa-44:ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:ed25519:ed448:ecdsa_brainpoolP256r1_sha256:ecdsa_brainpoolP384r1_sha384:ecdsa_brainpoolP512r1_sha512:rsa_pss_pss_sha256:rsa_pss_pss_sha384:rsa_pss_pss_sha512:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512
+Peer certificate: C=US, O=SPIRE, CN=sl-eap-4b53ab6b.ts.net
+Hash used: SHA256
+Signature type: ecdsa_secp256r1_sha256
+Verification: OK
+Verified peername: sl-eap-4b53ab6b.ts.net
+Peer Temp Key: X25519, 253 bits
+DONE
+X509v3 Subject Alternative Name: 
+    URI:spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent
+mtls /healthz: 401|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+GATE G4 mtls: pass - handshake attempt 1/5: osramp pod verified hub SVID (spiffe://signalloom.hub/ns/sldc-p2-gov/sa/sldc-p2-gov-front, DNS sl-eap-4b53ab6b.ts.net) via federated bundle; hub verified client SVID spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent: client_verify=SUCCESS (TLSv1.3 TLS_AES_256_GCM_SHA384)
+JWT-SVID kusari: {"header":{"alg":"ES256","kid":"PZNO4O70O1NgyLjvA5Pcw29PbkNBhVP1","typ":"JWT"},"claims":{"aud":["signal-ingest"],"exp":1790751408,"iat":1790751108,"sub":"spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent"}}
+authenticated POST /api/v1/observations: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384 body={"ingested":1}
+exchange 1: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 2: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 3: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 4: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 5: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 6: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 7: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 8: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 9: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+exchange 10: 201|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+GATE G5 ingest: pass - POST /api/v1/observations with osramp.local JWT-SVID across the bridge -> 201; 10/10 consecutive exchanges 201 with client_verify=SUCCESS, 0 trust errors; signal-ingest logged 11 ingest events
+negative: host anonymous GET=401 pod anonymous GET=401|NONE|TLSv1.3 TLS_AES_256_GCM_SHA384 anonymous POST=401|NONE|TLSv1.3 TLS_AES_256_GCM_SHA384 valid-token GET (no read perm)=403|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384
+negative: tampered signature=401|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384 rogue.local JWT=401|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384 forged osramp.local JWT=401|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384 wrong audience=401|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384 unbound subject=403|SUCCESS|TLSv1.3 TLS_AES_256_GCM_SHA384 rogue.local client cert=400|none|none
+rogue.local JWT claims: {"header":{"alg":"ES256","typ":"JWT","kid":"sldc-p2-gov-rogue"},"claims":{"sub":"spiffe://rogue.local/ns/fe-signalloom-agents/sa/kusari-agent","aud":["signal-ingest"],"iat":1790751111,"exp":1790751411}}
+signal-ingest restarts after negative probes: 0
+GATE G6 negative: pass - signal-ingest restarts=0; anonymous 401 (host GET, pod GET, pod POST); route proven live by valid-token GET=403; tampered sig 401, rogue.local JWT 401, forged osramp.local JWT 401, wrong aud 401, unbound subject 403; rogue.local client cert refused at TLS 400
+JWT-SVID cardvault: {"header":{"alg":"ES256","kid":"PZNO4O70O1NgyLjvA5Pcw29PbkNBhVP1","typ":"JWT"},"claims":{"aud":["openbao"],"exp":1790751411,"iat":1790751111,"sub":"spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault-worker-1"}}
+JWT-SVID unauthorized-agent: {"header":{"alg":"ES256","kid":"PZNO4O70O1NgyLjvA5Pcw29PbkNBhVP1","typ":"JWT"},"claims":{"aud":["openbao"],"exp":1790751411,"iat":1790751111,"sub":"spiffe://osramp.local/ns/agent-trust/sa/unauthorized-agent"}}
+JWT-SVID expiry (ttl 10s): {"header":{"alg":"ES256","kid":"PZNO4O70O1NgyLjvA5Pcw29PbkNBhVP1","typ":"JWT"},"claims":{"aud":["openbao"],"exp":1790751121,"iat":1790751111,"sub":"spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault-worker-expiry"}}
+openbao login agent-cardvault-worker-1: 200 {"request_id":"81d01cee-ca74-9247-5b9e-c91deee369d1","lease_id":"","renewable":false,"lease_duration":0,"data":null,"wrap_info":null,"warnings":null,"auth":{"client_token":"REDACTED","accessor":"REDACTED","policies":["agent-cardvault-policy"],"token_policies":["agent-cardvault-policy"],"metadata":{"role":"agent-cardvault"},"lease_duration":3600,"renewable":true,"entity_id":"24241725-b7a8-8065-13fb-0efb929e2af7","token_type":"service","orphan":true,"mfa_requirement":null,"num_uses":0}}
+openbao login unauthorized-agent: 400 {"errors":["error validating claims: claim \"sub\" does not match any associated bound claim values"]}
+openbao login expired SVID: 400 {"errors":["error validating token: invalid expiration time (exp) claim: token is expired"]}
+GATE G7 openbao: pass - glob subject agent-cardvault-worker-1 -> 200 with client token, policies=["agent-cardvault-policy"]; unauthorized-agent -> 400; expired SVID (ttl 10s + 5s leeway) -> 400
+mutation: role.json from /home/andy/src/.worktrees/osramp-demo/sldc-v0.1.0/governor/d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml with bound_claims_type removed: {"role_type":"jwt","bound_audiences":["signal-ingest","openbao"],"user_claim":"sub","bound_claims":{"sub":"spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault*"},"token_policies":["agent-cardvault-policy"],"token_no_default_policy":true,"token_type":"service","token_ttl":"1h","token_max_ttl":"1h","clock_skew_leeway":5,"expiration_leeway":5,"not_before_leeway":5}
+mutated login: 400 {"errors":["error validating claims: claim \"sub\" does not match any associated bound claim values"]}
+[spire-federation] OpenBao: auth/jwt-osramp/role/agent-cardvault trusts 1 federated osramp.local key(s)
+restored login: 200 {"request_id":"f0aa9355-b494-49e0-e6a1-ac05ccf17b6f","lease_id":"","renewable":false,"lease_duration":0,"data":null,"wrap_info":null,"warnings":null,"auth":{"client_token":"REDACTED","accessor":"REDACTED","token_policies":["agent-cardvault-policy"],"metadata":{"role":"agent-cardvault"},"lease_durati
+--- trust-bundle mutation (osramp.local bundle used to verify hub) ---
+Connecting to 172.19.0.20
+depth=0 C=US, O=SPIRE, CN=sl-eap-4b53ab6b.ts.net
+verify error:num=20:unable to get local issuer certificate
+283B13C2A87F0000:error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:ssl/statem/statem_clnt.c:2124:
+GATE G8 mutation: pass - bound_claims_type removed -> 400, restored -> 200 (glob is load-bearing); wrong trust bundle -> TLS verify error, handshake aborted

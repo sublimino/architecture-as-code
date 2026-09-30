@@ -1,0 +1,82 @@
+{
+  "schema": "sldc.phase2-governance-certification/v1",
+  "card": "SLDC-P2-GOV",
+  "status": "pass",
+  "hard_blocker": false,
+  "proceed_to_phase3": true,
+  "human_signoff_required": true,
+  "started": "2026-09-30T06:50:52Z",
+  "finished": "2026-09-30T06:52:09Z",
+  "integration_head": "ec46c3543ddbcb4a009b91e81cae3642c17117d5",
+  "merged": {
+    "SLDC-P2-1": "3598eab5df94a9f93e4cc7b85e1410d2b7fad2a0",
+    "SLDC-P2-2": "16ed92d1f80ee07947df9562788a21cef461cf39"
+  },
+  "topology": {
+    "workload": {
+      "context": "kind-osramp",
+      "ip": "172.19.0.10",
+      "trust_domain": "osramp.local"
+    },
+    "hub": {
+      "context": "kind-signalloom-hub",
+      "ip": "172.19.0.20",
+      "trust_domain": "signalloom.hub"
+    }
+  },
+  "fixture": {
+    "hub_namespace": "sldc-p2-gov",
+    "signal_ingest_image": "signal-ingest:sldc-p2-gov-ec46c354",
+    "torn_down": true
+  },
+  "gates": [
+    {
+      "id": "G1",
+      "name": "merge",
+      "status": "pass",
+      "detail": "P2-1 3598eab5 and P2-2 16ed92d1 are ancestors of HEAD; --no-ff --no-commit re-merge is a no-op; 0 conflict markers; 0 tracked files modified at gate time"
+    },
+    {
+      "id": "G2",
+      "name": "bringup",
+      "status": "pass",
+      "detail": "both clusters Ready, 0 non-running kube-system pods, federation refresh ok hub<-osramp.local and osramp<-signalloom.hub"
+    },
+    {
+      "id": "G3",
+      "name": "tls",
+      "status": "pass",
+      "detail": "protocol=TLSv1.3 cipher=TLS_AES_256_GCM_SHA384 group=X25519, 253 bits; TLS 1.2 handshake refused"
+    },
+    {
+      "id": "G4",
+      "name": "mtls",
+      "status": "pass",
+      "detail": "handshake attempt 1/5: osramp pod verified hub SVID (spiffe://signalloom.hub/ns/sldc-p2-gov/sa/sldc-p2-gov-front, DNS sl-eap-4b53ab6b.ts.net) via federated bundle; hub verified client SVID spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent: client_verify=SUCCESS (TLSv1.3 TLS_AES_256_GCM_SHA384)"
+    },
+    {
+      "id": "G5",
+      "name": "ingest",
+      "status": "pass",
+      "detail": "POST /api/v1/observations with osramp.local JWT-SVID across the bridge -> 201; 10/10 consecutive exchanges 201 with client_verify=SUCCESS, 0 trust errors; signal-ingest logged 11 ingest events"
+    },
+    {
+      "id": "G6",
+      "name": "negative",
+      "status": "pass",
+      "detail": "signal-ingest restarts=0; anonymous 401 (host GET, pod GET, pod POST); route proven live by valid-token GET=403; tampered sig 401, rogue.local JWT 401, forged osramp.local JWT 401, wrong aud 401, unbound subject 403; rogue.local client cert refused at TLS 400"
+    },
+    {
+      "id": "G7",
+      "name": "openbao",
+      "status": "pass",
+      "detail": "glob subject agent-cardvault-worker-1 -> 200 with client token, policies=[\"agent-cardvault-policy\"]; unauthorized-agent -> 400; expired SVID (ttl 10s + 5s leeway) -> 400"
+    },
+    {
+      "id": "G8",
+      "name": "mutation",
+      "status": "pass",
+      "detail": "bound_claims_type removed -> 400, restored -> 200 (glob is load-bearing); wrong trust bundle -> TLS verify error, handshake aborted"
+    }
+  ]
+}

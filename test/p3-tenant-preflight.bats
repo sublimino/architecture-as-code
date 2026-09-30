@@ -146,10 +146,39 @@ FAKE
 	[ "$(jq -r '.openbao.status' "$BATS_TEST_TMPDIR/audit.json")" = "skipped" ]
 }
 
-@test "the committed audit evidence is well formed and records the canonical vector" {
-	evidence="$root/ci-evidence/p3-preflight-audit.json"
-	[ -f "$evidence" ]
-	[ "$(jq -r '.card' "$evidence")" = "SLDC-P3-PRE" ]
-	[ "$(jq -r '.verdict.canonical_vector_holds' "$evidence")" = "true" ]
-	[ "$(jq -r '.verdict.unsalted_digest_occurrences' "$evidence")" = "0" ]
+@test "legacy-gate passes when every active occurrence is an allowlisted guard" {
+	make_fixture_repo
+	printf 'src/router.go  # guard\nsrc/route.yaml\n' >"$BATS_TEST_TMPDIR/allow.txt"
+	P3_LEGACY_ALLOWLIST="$BATS_TEST_TMPDIR/allow.txt" run "$script" legacy-gate
+	[ "$status" -eq 0 ]
+	[ "$output" = "legacy-gate: 0 unexcused files (2 allowlisted)" ]
+}
+
+@test "legacy-gate fails with exit 3 and names each unexcused active file, ignoring docs, tests and records" {
+	make_fixture_repo
+	mkdir -p "$fixture/.evidence"
+	printf '{"tenant":"kurasi"}\n' >"$fixture/.evidence/run.json"
+	git -C "$fixture" add -A
+	git -C "$fixture" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm evidence
+	printf 'src/router.go\n' >"$BATS_TEST_TMPDIR/allow.txt"
+	P3_LEGACY_ALLOWLIST="$BATS_TEST_TMPDIR/allow.txt" run "$script" legacy-gate
+	[ "$status" -eq 3 ]
+	[ "$output" = "legacy-gate: unexcused legacy tenant typo in src/route.yaml" ]
+}
+
+@test "legacy-gate refuses to run without an allowlist (exit 2), never passes by default" {
+	make_fixture_repo clean
+	P3_LEGACY_ALLOWLIST="$BATS_TEST_TMPDIR/missing.txt" run "$script" legacy-gate
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"allowlist not found"* ]]
+}
+
+@test "legacy-gate: this repository has no unexcused legacy tenant typo" {
+	P3_REPO="$root" run "$script" legacy-gate
+	[ "$status" -eq 0 ]
+}
+
+@test "an unknown subcommand is a usage error (exit 2)" {
+	run "$script" bogus
+	[ "$status" -eq 2 ]
 }

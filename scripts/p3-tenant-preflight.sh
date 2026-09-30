@@ -15,6 +15,8 @@
 #   P3_BAO_CONTEXT     kube context hosting OpenBao   (default: kind-osramp)
 #   P3_BAO_NAMESPACE   namespace of the openbao deploy (default: inf-bao)
 #   P3_SKIP_CLUSTER=1  skip the live OpenBao probe; report it as "skipped"
+#   P3_LEGACY_ALLOWLIST  guards allowed to name the typo
+#                      (default: test/fixtures/tenant/legacy-typo-allowlist.txt)
 #
 # Usage:
 #   p3-tenant-preflight.sh vectors            JSON hash vectors
@@ -24,6 +26,8 @@
 #   p3-tenant-preflight.sh bao                JSON OpenBao salt probe
 #   p3-tenant-preflight.sh gateway            JSON HTTPRoute/Dex readiness for the canonical host
 #   p3-tenant-preflight.sh audit [--out FILE] full JSON report
+#   p3-tenant-preflight.sh legacy-gate        exit 0 if every active file naming the
+#                                             typo is allowlisted, 3 otherwise
 # ==============================================================================
 set -eo pipefail
 
@@ -104,7 +108,7 @@ cmd_classify() {
 classify_path() {
   local p="$1"
   case "$p" in
-    .kanban-review-ledger.json | ci-evidence/* | docs/* | *.log | */evidence/*) echo "historical_record" ;;
+    .kanban-review-ledger.json | ci-evidence/* | .evidence/* | docs/* | *.log | */evidence/*) echo "historical_record" ;;
     *_test.go | */tests/* | test/* | */test/* | *.bats | */fixtures/*) echo "test_fixture" ;;
     *.md | *.mdx) echo "published_docs" ;;
     *) echo "active_code" ;;
@@ -166,6 +170,26 @@ cmd_scan() {
   jq -n --slurpfile l "$tmp/legacy.json" --slurpfile u "$tmp/unsalted.json" \
     '{legacy_typo: ({pattern: "kurasi|6f82ad81"} + $l[0]), unsalted_digest: ({pattern: "d9d69501"} + $u[0])}'
   rm -rf "$tmp"
+}
+
+# Zero-tolerance gate: every active_code file naming the retired typo must be a
+# listed guard (a rejector or detector). Tests, docs and records are exempt.
+cmd_legacy_gate() {
+  local allow="${P3_LEGACY_ALLOWLIST:-$REPO/test/fixtures/tenant/legacy-typo-allowlist.txt}"
+  [[ -f "$allow" ]] || die "legacy-gate: allowlist not found: $allow"
+  local tmp unexcused listed
+  tmp="$(mktemp -d)"
+  cmd_scan >"$tmp/scan.json"
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$allow" | jq -R . | jq -s . >"$tmp/allow.json"
+  unexcused="$(jq -r --slurpfile a "$tmp/allow.json" \
+    '[.legacy_typo.occurrences[] | select(.category == "active_code") | .file] | unique - $a[0] | .[]' "$tmp/scan.json")"
+  listed="$(jq 'length' "$tmp/allow.json")"
+  rm -rf "$tmp"
+  if [[ -n "$unexcused" ]]; then
+    sed 's/^/legacy-gate: unexcused legacy tenant typo in /' <<<"$unexcused" >&2
+    return 3
+  fi
+  echo "legacy-gate: 0 unexcused files ($listed allowlisted)"
 }
 
 cmd_bao() {
@@ -241,8 +265,9 @@ main() {
     bao) cmd_bao ;;
     gateway) cmd_gateway ;;
     audit) cmd_audit "$@" ;;
-    -h | --help | help) sed -n '2,28p' "$0" ;;
-    *) sed -n '2,28p' "$0" >&2; exit 2 ;;
+    legacy-gate) cmd_legacy_gate ;;
+    -h | --help | help) sed -n '2,32p' "$0" ;;
+    *) sed -n '2,32p' "$0" >&2; exit 2 ;;
   esac
 }
 

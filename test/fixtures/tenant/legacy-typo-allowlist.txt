@@ -1,0 +1,14 @@
+# Active (non-test, non-record) files allowed to name the retired tenant typo
+# 'kurasi' / '6f82ad81', because each one REJECTS or DETECTS it. Consumed by
+# `scripts/p3-tenant-preflight.sh legacy-gate`; any other active file naming the
+# typo fails the gate (exit 3). Add a file here only with the reason it names it.
+d2-infra/components/ingress/tenant-filter-policy.yaml   # Envoy filter + SecurityPolicy deny lists
+d2-signalloom/apps/fe-signalloom/pkg/tenant/hash.go     # ErrRetiredTenant
+scripts/derive_tenant_hash.py                          # RetiredTenantError
+scripts/derive_tenant_hash.ts                          # RetiredTenantError
+scripts/lib/eap-evidence.sh                            # evidence scanner fails closed on it
+scripts/package-eap-evidence.sh                        # comment describing that scanner
+scripts/verify-mutation-gate.sh                        # mutation probe plants it in a fixture
+scripts/verify-tenant-routing.sh                       # negative probes P6/P7/P9/P10
+scripts/test-phase3-governor.sh                        # negative probes and scan gate
+scripts/super-test-adversarial.sh                      # probe 2 description (see SLDC hardening report)

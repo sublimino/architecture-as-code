@@ -21,6 +21,8 @@ setup() {
 	stub="$BATS_TEST_TMPDIR/bin"
 	mkdir -p "$stub"
 	for tool in go bun bats; do stub_tool "$tool" 0; done
+	# No live traffic can leave this suite: a non-hermetic probe gets "refused".
+	stub_tool curl 7
 	stub_tool mutation-proof 0
 	export PATH="$stub:$PATH"
 	export PHASE3_MUTATION_PROOF="$stub/mutation-proof"

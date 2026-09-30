@@ -1,0 +1,74 @@
+{
+  "certificate": "SLDC-P3-GOVERNANCE-APPROVAL",
+  "version": "v0.1.0",
+  "timestamp": "2026-09-30T07:43:08Z",
+  "commit_sha": "ec30913e9d13e77782abda004384121260f12c1a",
+  "governor_status": "PASS",
+  "canonical_vector": {
+    "tenant_name": "kusari",
+    "tenant_hash": "4b53ab6b",
+    "canonical_fqdn": "sl-eap-4b53ab6b.ts.net"
+  },
+  "metrics": {
+    "gates_total": 8,
+    "gates_passed": 8,
+    "gates_failed": 0,
+    "probes_total": 11,
+    "probes_passed": 11
+  },
+  "gates": [
+    {
+      "gate": "G1_BRANCH_MERGE",
+      "name": "Branch Clean Integration",
+      "status": "PASS",
+      "details": "Clean integration of feat/sldc-p3-1 and feat/sldc-p3-2 with 0 conflicts (SHA: ec30913e)"
+    },
+    {
+      "gate": "G2_CRYPTO_VECTORS",
+      "name": "Cryptographic Derivation Matrix",
+      "status": "PASS",
+      "details": "All Go, Python, TypeScript, and Shell test vectors verified"
+    },
+    {
+      "gate": "G3_HTTPROUTE_CONFIG",
+      "name": "Gateway API HTTPRoute Manifest",
+      "status": "PASS",
+      "details": "HTTPRoute binds canonical hostnames to fe-signalloom-service:3000"
+    },
+    {
+      "gate": "G4_DEX_OIDC_ALIGNMENT",
+      "name": "Dex OIDC Redirect Alignment",
+      "status": "PASS",
+      "details": "Canonical callback URI https://sl-eap-4b53ab6b.ts.net/auth/callback registered"
+    },
+    {
+      "gate": "G5_POSITIVE_ROUTING",
+      "name": "Positive Ingress Tenant Routing",
+      "status": "PASS",
+      "details": "5/5 positive probes succeeded (HTTP 200)"
+    },
+    {
+      "gate": "G6_NEGATIVE_ISOLATION",
+      "name": "Cross-Tenant Boundary Isolation",
+      "status": "PASS",
+      "details": "6/6 negative probes rejected fail-closed (HTTP 403/404)"
+    },
+    {
+      "gate": "G7_MUTATION_TESTING",
+      "name": "Deliberate Mutation Assurance",
+      "status": "PASS",
+      "details": "Mutation tests assert falsification when security policy or vectors are broken"
+    },
+    {
+      "gate": "G8_ZERO_TOLERANCE_SCAN",
+      "name": "Repository Typo Zero-Tolerance",
+      "status": "PASS",
+      "details": "Zero active code occurrences of legacy kurasi or 6f82ad81"
+    }
+  ],
+  "signoff": {
+    "authorized_for_phase4": true,
+    "governor_role": "SLDC Phase 3 Governor (sl-governor)",
+    "next_phase": "SLDC-P4-PRE (cAdvisor metrics inspection)"
+  }
+}

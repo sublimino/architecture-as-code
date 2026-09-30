@@ -77,3 +77,103 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+---
+# SLDC-P2-2: cross-cluster JWT role for workload-domain (osramp.local)
+# cardvault agents, consumed by scripts/bootstrap-spire-federation.sh on the
+# hub OpenBao. It is applied to the auth mount that trusts the *federated*
+# osramp.local JWT-SVID keys (auth/jwt-osramp by default), not to the
+# signalloom.demo auth/jwt mount the Job above configures.
+#
+# bound_claims_type "glob" is load-bearing. OpenBao's default is "string",
+# which compares the "*" in bound_claims.sub as a literal asterisk and rejects
+# every real SVID with HTTP 400 "claim \"sub\" does not match any associated
+# bound claim values" (proposal F.4 PF-3). The mutation test in
+# test/spire-federation-openbao-jwt.bats proves this on a live OpenBao.
+#
+# The glob is pinned to one namespace and one service-account prefix. A
+# namespace or SA wildcard ("ns/*", "sa/*") would admit any workload in
+# osramp.local; the static test rejects both shapes.
+#
+# clock_skew_leeway / expiration_leeway / not_before_leeway are 5s rather
+# than OpenBao's 60s/150s defaults: an expired SVID is refused within 5s,
+# matching the Kind-node skew tolerance in the proposal's failure modes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-jwt-role-config
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    signalloom.io/card: SLDC-P2-2
+data:
+  auth-mount: jwt-osramp
+  role-name: agent-cardvault
+  transit-key: agent-cardvault
+  role.json: |
+    {
+      "role_type": "jwt",
+      "bound_audiences": ["signal-ingest", "openbao"],
+      "user_claim": "sub",
+      "bound_claims_type": "glob",
+      "bound_claims": {"sub": "spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault*"},
+      "token_policies": ["agent-cardvault-policy"],
+      "token_no_default_policy": true,
+      "token_type": "service",
+      "token_ttl": "1h",
+      "token_max_ttl": "1h",
+      "clock_skew_leeway": 5,
+      "expiration_leeway": 5,
+      "not_before_leeway": 5
+    }
+  # Read + lease on the agent's own transit key. Explicit deny wins over any
+  # grant in OpenBao, so the deny stanzas hold even if a broader policy is
+  # ever attached: no child/orphan tokens, no role or policy edits, no key
+  # rotation/export/config, no mount or auth-method changes.
+  agent-cardvault-policy.hcl: |
+    path "transit/keys/agent-cardvault" {
+      capabilities = ["read"]
+    }
+    path "sys/leases/lookup" {
+      capabilities = ["update"]
+    }
+    path "sys/leases/renew" {
+      capabilities = ["update"]
+    }
+    path "auth/token/lookup-self" {
+      capabilities = ["read"]
+    }
+    path "auth/token/renew-self" {
+      capabilities = ["update"]
+    }
+    path "auth/token/create" {
+      capabilities = ["deny"]
+    }
+    path "auth/token/create/*" {
+      capabilities = ["deny"]
+    }
+    path "auth/token/create-orphan" {
+      capabilities = ["deny"]
+    }
+    path "auth/jwt-osramp/role/*" {
+      capabilities = ["deny"]
+    }
+    path "sys/policy/*" {
+      capabilities = ["deny"]
+    }
+    path "sys/policies/*" {
+      capabilities = ["deny"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["deny"]
+    }
+    path "sys/mounts/*" {
+      capabilities = ["deny"]
+    }
+    path "transit/keys/agent-cardvault/config" {
+      capabilities = ["deny"]
+    }
+    path "transit/keys/agent-cardvault/rotate" {
+      capabilities = ["deny"]
+    }
+    path "transit/export/*" {
+      capabilities = ["deny"]
+    }

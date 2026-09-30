@@ -635,6 +635,8 @@ func main() {
 		slog.Error("HTTP authenticator initialization failed; refusing startup", "error", err)
 		os.Exit(1)
 	}
+	// SLDC-P2-2: re-read SIGNAL_AUTH_JWKS_FILE on its refresh interval (no-op for inline JWKS).
+	authenticator.StartKeyRefresh(ctx)
 	protectedRouter, err := api.NewProtectedRouter(handlers, authenticator, auditWriter, metricsHandler, api.RouterOptions{})
 	if err != nil {
 		slog.Error("protected HTTP router initialization failed", "error", err)

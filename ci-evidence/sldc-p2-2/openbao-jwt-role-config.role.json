@@ -1,0 +1,16 @@
+{
+  "role_type": "jwt",
+  "bound_audiences": ["signal-ingest", "openbao"],
+  "user_claim": "sub",
+  "bound_claims_type": "glob",
+  "bound_claims": {"sub": "spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault*"},
+  "token_policies": ["agent-cardvault-policy"],
+  "token_no_default_policy": true,
+  "token_type": "service",
+  "token_ttl": "1h",
+  "token_max_ttl": "1h",
+  "clock_skew_leeway": 5,
+  "expiration_leeway": 5,
+  "not_before_leeway": 5
+}
+

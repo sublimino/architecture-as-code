@@ -52,6 +52,7 @@ const REVOKED = '[data-testid="credential-state-revoked"]';
 /** Phase 4's button on the instructor panel (components/SuperCredInstructorPanel.tsx). */
 const RUN_PHASE_4 = '[data-testid="supercred-run-step-4"]';
 const RUN_PHASE_2 = '[data-testid="supercred-run-step-2"]';
+const RUN_PHASE_1 = '[data-testid="supercred-run-step-1"]';
 const RUN_STATUS = '[data-testid="supercred-run-status"]';
 
 test.describe("SuperCredential demo — instructor window and audience window", () => {
@@ -107,6 +108,12 @@ test.describe("SuperCredential demo — instructor window and audience window", 
       // ── Precondition: phase 4 requires active agent state ──────────────
       // A clean deploy begins idle and a rehearsal can leave it stunned, so
       // establish the credential chain through the instructor UI every time.
+      if (!supercred.agentDeployed()) {
+        await instructor.locator(RUN_PHASE_1).click();
+        await expect(instructor.locator(RUN_STATUS)).toContainText(/succeeded/, {
+          timeout: 10 * 60_000,
+        });
+      }
       await instructor.locator(RUN_PHASE_2).click();
       await expect(instructor.locator(RUN_STATUS)).toContainText(/succeeded/, {
         timeout: 10 * 60_000,

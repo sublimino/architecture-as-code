@@ -54,6 +54,7 @@ spec:
                 "role_type": "jwt",
                 "bound_audiences": ["openbao"],
                 "bound_claims": {"sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*cardvault*"},
+                "bound_claims_type": "glob",
                 "user_claim": "sub",
                 "policies": ["signalloom-cardvault-agent"]
               }

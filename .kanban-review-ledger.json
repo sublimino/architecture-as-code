@@ -3863,5 +3863,25 @@
     "verdict": "pass",
     "model": null,
     "reason": "P1-PRE verified: host BTF, cgroup v2, capability audit, and 7/7 bats tests passed on commit ac882387"
+  },
+  "b9307": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "b9307",
+        "reviewed_at": "2026-09-30T04:51:42.547Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "P1-2 verified: in-sentinel correlator, syscall normalizer, mock informer, and pipeline tests passed on commit 634095fc"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "b9307",
+    "reviewed_at": "2026-09-30T04:51:42.547Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "P1-2 verified: in-sentinel correlator, syscall normalizer, mock informer, and pipeline tests passed on commit 634095fc"
   }
 }

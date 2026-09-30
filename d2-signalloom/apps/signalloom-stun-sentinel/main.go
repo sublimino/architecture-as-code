@@ -251,6 +251,12 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 	return nil
 }
 
+// newCorrelatorFreezeManager hands the eBPF correlator the same freezer engine,
+// and so the same dry-run and credential policy, as the reconciler.
+func newCorrelatorFreezeManager(f *cgroupFreezer) *correlator.FreezeManager {
+	return correlator.NewFreezeManager(f.engine)
+}
+
 func main() {
 	cfg := parseConfig(os.Args[1:])
 
@@ -341,7 +347,7 @@ func main() {
 			},
 		})
 
-		freezeMgr := correlator.NewFreezeManager(freezer.engine)
+		freezeMgr := newCorrelatorFreezeManager(freezer)
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})

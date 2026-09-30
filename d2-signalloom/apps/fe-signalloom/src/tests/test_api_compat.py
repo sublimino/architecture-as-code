@@ -82,8 +82,9 @@ def token_for(
         "iat": now,
         "nbf": now,
         "exp": expires_at if expires_at is not None else now + 300,
-        "azp": authorized_party,
     }
+    if authorized_party is not None:
+        claims["azp"] = authorized_party
     if subject is not None:
         claims["sub"] = subject
     if extra_claims:
@@ -219,6 +220,15 @@ def test_documented_dex_subject_maps_to_documented_demo_tenant(client, monkeypat
 
     assert response.status_code == 200
     assert response.json()["tenant_id"] == "tenant-demo"
+
+
+def test_single_audience_dex_token_without_azp_succeeds(client, monkeypatch):
+    monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-dashboard")
+    monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
+    token = token_for("alice", audience="signalloom-dashboard", authorized_party=None)
+    response = client.get("/api/tenant/settings", headers=bearer(token))
+    assert response.status_code == 200
+    assert response.json()["tenant_id"] == "tenant-a"
 
 
 def test_authenticated_tenant_is_derived_from_subject_not_token_tenant_claim(client):

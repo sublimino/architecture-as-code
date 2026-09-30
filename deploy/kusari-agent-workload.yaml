@@ -1,0 +1,151 @@
+# kusari-agent workload - SLDC-P5-1 containment-test shape.
+#
+# @id     kusari-agent-workload
+# @doc    docs/eap/SLDC-P5-1-E2E-CONTAINMENT.md
+# @tests  test/e2e-dual-cluster-containment.bats
+#
+# This is the standalone (non-Flux) manifest for the five-step containment test.
+# The Flux-managed copy at d2-signalloom/infra/agent-swarm/kusari-agent/ stays
+# the source of truth for the shared kind-osramp estate; this file exists so the
+# suite can be stood up in an isolated cluster without an OCIRepository, and so
+# the Option H1 probe shape is expressed somewhere reviewable.
+#
+# Two differences from the Flux copy, both deliberate:
+#
+#  1. NO livenessProbe. Forensic Preservation Contract (H1): a frozen container
+#     cannot answer /healthz, so a liveness probe guarantees the kubelet kills it
+#     and restartCount goes to 1 - destroying the volatile memory the forensic
+#     window exists to preserve. Readiness-only means the pod is correctly
+#     removed from Service endpoints while frozen and is never restarted.
+#     (The sentinel's synthetic probe preserver, pkg/probe, is the alternative
+#     for workloads that must keep a liveness probe; dropping the probe is the
+#     honest shape for a purpose-built test workload.)
+#  2. ACT_HOLD is set explicitly, because the suite asserts held_ms >= 50: the
+#     provocation must keep the descriptor open long enough for the in-kernel
+#     openat probe to correlate the syscall with the pod.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kusari-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kusari-agent
+    app.kubernetes.io/part-of: signalloom-swarm
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "supply-chain"
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-kusari
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kusari-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom-swarm
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: kusari-agent
+    signalloom.ai/framework: "custom"
+    signalloom.ai/role: "supply-chain"
+    signalloom.ai/harness: "go-http"
+    signalloom.ai/model: "deterministic"
+    signalloom.ai/tenant: "kusari"
+    signalloom.ai/project: "kusari-pilot"
+  annotations:
+    signalloom.ai/agent-display-name: "Kusari Agent (stub)"
+    signalloom.ai/description: >-
+      Stub Kusari pilot agent: quote API, a deliberate hostile file write every
+      5th request, and /act/* adversarial provocation endpoints for the five-step
+      containment suite.
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kusari-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kusari-agent
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: signalloom-swarm
+        signalloom.ai/agent: "true"
+        signalloom.ai/agent-name: kusari-agent
+        signalloom.ai/framework: "custom"
+        signalloom.ai/role: "supply-chain"
+        signalloom.ai/harness: "go-http"
+        signalloom.ai/model: "deterministic"
+        signalloom.ai/tenant: "kusari"
+        signalloom.ai/project: "kusari-pilot"
+    spec:
+      serviceAccountName: kusari-agent
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: kusari-agent:latest
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: HOSTILE_EVERY
+              value: "5"
+            - name: HOSTILE_PATH
+              value: "/tmp/hostile-test.txt"
+            # Hold the /etc/passwd descriptor open long enough for the
+            # in-sentinel openat probe to correlate the syscall to this pod.
+            - name: ACT_HOLD
+              value: "100ms"
+            - name: ACT_BURN_MAX
+              value: "60s"
+          # Readiness only - see the Option H1 note in the file header.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 500m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kusari-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kusari-agent
+    app.kubernetes.io/part-of: signalloom-swarm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kusari-agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

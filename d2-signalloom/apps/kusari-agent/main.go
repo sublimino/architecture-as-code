@@ -10,6 +10,22 @@
 //	GET /stats               request and hostile-write counters (ground truth).
 //	GET /healthz             liveness.
 //
+//	POST /act/read-passwd    provocation: open(2) /etc/passwd from the request
+//	                         thread, read it, hold the descriptor ACT_HOLD
+//	                         (default 100ms) so an in-kernel openat probe sees
+//	                         the live fd, and answer a JSON envelope
+//	                         {"action":"read-passwd","ok":true,...}. The file
+//	                         content is never returned.
+//	POST /act/read-shadow    same, against /etc/shadow; reports attempted=true
+//	                         even when the file is absent (distroless), because
+//	                         the sys_enter_openat is the signal, not the bytes.
+//	POST /act/cpu-burn       provocation: busy-loop ?threads=N (default
+//	                         GOMAXPROCS) for ?duration=D (default 5s, clamped
+//	                         to ACT_BURN_MAX, default 60s).
+//
+// The /act/* routes are the deliberate adversarial triggers the SLDC five-step
+// containment suite (test/e2e-dual-cluster-containment.bats) fires.
+//
 // Every HOSTILE_EVERY-th request (default 5) also writes HOSTILE_PATH
 // (default /tmp/hostile-test.txt) inside the container. That write is the
 // known-hostile action runtime monitoring is expected to catch. It is never
@@ -27,6 +43,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +73,14 @@ const (
 	sourceFallback = "fallback"
 
 	maxUpstreamBody = 64 << 10
+
+	defaultPasswdPath   = "/etc/passwd"
+	defaultShadowPath   = "/etc/shadow"
+	defaultActHold      = 100 * time.Millisecond
+	defaultBurnDuration = 5 * time.Second
+	defaultBurnMax      = 60 * time.Second
+	maxBurnThreads      = 64
+	maxActReadBytes     = 1 << 20
 )
 
 // fallbackQuotes keep the agent answering when egress is denied, which it is
@@ -76,6 +101,12 @@ type config struct {
 	quoteCooldown time.Duration
 	hostileEvery  int64
 	hostilePath   string
+
+	// /act/* provocation settings
+	passwdPath string
+	shadowPath string
+	actHold    time.Duration
+	burnMax    time.Duration
 }
 
 func envOr(getenv func(string) string, key, fallback string) string {
@@ -94,6 +125,24 @@ func configFromEnv(getenv func(string) string) (config, error) {
 		quoteCooldown: defaultQuoteCooldown,
 		hostileEvery:  defaultHostileEvery,
 		hostilePath:   envOr(getenv, "HOSTILE_PATH", defaultHostilePath),
+		passwdPath:    defaultPasswdPath,
+		shadowPath:    defaultShadowPath,
+		actHold:       defaultActHold,
+		burnMax:       defaultBurnMax,
+	}
+	if v := getenv("ACT_HOLD"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return cfg, fmt.Errorf("ACT_HOLD must be a non-negative duration, got %q", v)
+		}
+		cfg.actHold = d
+	}
+	if v := getenv("ACT_BURN_MAX"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return cfg, fmt.Errorf("ACT_BURN_MAX must be a positive duration, got %q", v)
+		}
+		cfg.burnMax = d
 	}
 	if v := getenv("HOSTILE_EVERY"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
@@ -327,12 +376,152 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// actResult is the envelope every /act/* route answers with. action and ok are
+// always present; the remaining fields describe what was done.
+type actResult struct {
+	Action     string `json:"action"`
+	OK         bool   `json:"ok"`
+	Error      string `json:"error,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Attempted  bool   `json:"attempted,omitempty"`
+	Bytes      int    `json:"bytes,omitempty"`
+	Lines      int    `json:"lines,omitempty"`
+	HeldMS     int64  `json:"held_ms,omitempty"`
+	PID        int    `json:"pid"`
+	TID        int    `json:"tid,omitempty"`
+	Threads    int    `json:"threads,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	Iterations uint64 `json:"iterations,omitempty"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+}
+
+func (a *agent) postOnly(action string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeJSON(w, http.StatusMethodNotAllowed, actResult{Action: action, Error: "POST only", PID: os.Getpid()})
+			return
+		}
+		h(w, r)
+	}
+}
+
+// readAndHold opens path directly from the calling OS thread (so the openat is
+// attributed to the traced thread, not a helper that exits before a probe can
+// correlate it), reads up to maxActReadBytes, and keeps the descriptor open for
+// hold. The content is counted, never returned.
+func (a *agent) readAndHold(action, path string) (actResult, int) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	res := actResult{Action: action, Path: path, Attempted: true, PID: os.Getpid(), TID: syscall.Gettid()}
+	start := a.now()
+	res.StartedAt = start.UTC().Format(time.RFC3339Nano)
+	status := http.StatusOK
+	f, err := os.Open(path)
+	if err != nil {
+		res.Error = err.Error()
+		if action == "read-passwd" {
+			status = http.StatusInternalServerError
+		}
+	} else {
+		data, rerr := io.ReadAll(io.LimitReader(f, maxActReadBytes))
+		held := time.Now()
+		if a.cfg.actHold > 0 {
+			time.Sleep(a.cfg.actHold)
+		}
+		res.HeldMS = time.Since(held).Milliseconds()
+		_ = f.Close()
+		if rerr != nil {
+			res.Error = rerr.Error()
+			status = http.StatusInternalServerError
+		} else {
+			res.OK = true
+			res.Bytes = len(data)
+			res.Lines = strings.Count(string(data), "\n")
+		}
+	}
+	res.FinishedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.logEvent("act", map[string]any{"action": action, "path": path, "ok": res.OK, "tid": res.TID, "error": res.Error})
+	return res, status
+}
+
+func (a *agent) handleReadPasswd(w http.ResponseWriter, _ *http.Request) {
+	res, status := a.readAndHold("read-passwd", a.cfg.passwdPath)
+	writeJSON(w, status, res)
+}
+
+func (a *agent) handleReadShadow(w http.ResponseWriter, _ *http.Request) {
+	res, status := a.readAndHold("read-shadow", a.cfg.shadowPath)
+	writeJSON(w, status, res)
+}
+
+// handleCPUBurn busy-loops threads goroutines, each locked to its own OS thread,
+// for the requested duration. It answers only when the burn is over.
+func (a *agent) handleCPUBurn(w http.ResponseWriter, r *http.Request) {
+	res := actResult{Action: "cpu-burn", PID: os.Getpid()}
+	q := r.URL.Query()
+	d := defaultBurnDuration
+	if v := q.Get("duration"); v != "" {
+		pd, err := time.ParseDuration(v)
+		if err != nil || pd <= 0 {
+			res.Error = fmt.Sprintf("duration must be a positive Go duration, got %q", v)
+			writeJSON(w, http.StatusBadRequest, res)
+			return
+		}
+		d = pd
+	}
+	if d > a.cfg.burnMax {
+		d = a.cfg.burnMax
+	}
+	threads := runtime.GOMAXPROCS(0)
+	if v := q.Get("threads"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > maxBurnThreads {
+			res.Error = fmt.Sprintf("threads must be an integer in 1..%d, got %q", maxBurnThreads, v)
+			writeJSON(w, http.StatusBadRequest, res)
+			return
+		}
+		threads = n
+	}
+	res.StartedAt = a.now().UTC().Format(time.RFC3339Nano)
+	deadline := time.Now().Add(d)
+	var iterations atomic.Uint64
+	var wg sync.WaitGroup
+	for i := 0; i < threads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			var n uint64
+			for time.Now().Before(deadline) {
+				for j := 0; j < 4096; j++ {
+					n++
+				}
+			}
+			iterations.Add(n)
+		}()
+	}
+	wg.Wait()
+	res.OK = true
+	res.Threads = threads
+	res.DurationMS = d.Milliseconds()
+	res.Iterations = iterations.Load()
+	res.FinishedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.logEvent("act", map[string]any{"action": "cpu-burn", "threads": threads, "duration_ms": res.DurationMS})
+	writeJSON(w, http.StatusOK, res)
+}
+
 func (a *agent) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/quote", a.handleQuote)
 	mux.HandleFunc("/{$}", a.handleQuote)
 	mux.HandleFunc("/stats", a.handleStats)
 	mux.HandleFunc("/healthz", handleHealthz)
+	mux.HandleFunc("/act/read-passwd", a.postOnly("read-passwd", a.handleReadPasswd))
+	mux.HandleFunc("/act/read-shadow", a.postOnly("read-shadow", a.handleReadShadow))
+	mux.HandleFunc("/act/cpu-burn", a.postOnly("cpu-burn", a.handleCPUBurn))
 	return mux
 }
 

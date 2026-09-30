@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AUDIT_JSON="${REPO_ROOT}/ci-evidence/p1-preflight-audit.json"
+AUDIT_JSON="${P1_PREFLIGHT_OUT:-${REPO_ROOT}/ci-evidence/p1-preflight-audit.json}"
 BTF_PATH="${BTF_PATH:-/sys/kernel/btf/vmlinux}"
 CGROUP_PATH="${CGROUP_PATH:-/sys/fs/cgroup}"
 
@@ -30,7 +30,7 @@ log_info() {
   printf "[\033[0;34mINFO\033[0m] %s\n" "$1"
 }
 
-mkdir -p "${REPO_ROOT}/ci-evidence"
+mkdir -p "$(dirname "${AUDIT_JSON}")"
 
 echo "================================================================"
 echo "  Signal Loom SLDC Phase 1: In-Sentinel eBPF Pre-Flight Audit"
@@ -53,7 +53,7 @@ CONFIG_BPF_VAL=false
 CONFIG_BPF_SYSCALL_VAL=false
 KERNEL_RELEASE="$(uname -r)"
 
-CONFIG_FILE="/boot/config-${KERNEL_RELEASE}"
+CONFIG_FILE="${KERNEL_CONFIG:-/boot/config-${KERNEL_RELEASE}}"
 if grep -q "CONFIG_DEBUG_INFO_BTF=y" "${CONFIG_FILE}" 2>/dev/null; then
   CONFIG_BTF=true
   grep -q "CONFIG_BPF=y" "${CONFIG_FILE}" 2>/dev/null && CONFIG_BPF_VAL=true || true
@@ -70,8 +70,9 @@ if [[ "${CONFIG_BTF}" == "true" ]]; then
 elif [[ "${BTF_AVAILABLE}" == "true" ]]; then
   log_pass "Kernel configuration inferred from active /sys/kernel/btf/vmlinux (CONFIG_DEBUG_INFO_BTF=y)"
   CONFIG_BTF=true
-  CONFIG_BPF_VAL=true
-  CONFIG_BPF_SYSCALL_VAL=true
+  # BTF proves DEBUG_INFO_BTF only; the BPF options were not read.
+  CONFIG_BPF_VAL=null
+  CONFIG_BPF_SYSCALL_VAL=null
 else
   log_fail "Kernel configuration missing CONFIG_DEBUG_INFO_BTF=y"
 fi
@@ -90,13 +91,8 @@ fi
 CONTROLLERS_RAW=""
 if cat "${CGROUP_PATH}/cgroup.controllers" >/dev/null 2>&1; then
   CONTROLLERS_RAW="$(cat "${CGROUP_PATH}/cgroup.controllers")"
-elif command -v docker >/dev/null 2>&1; then
+elif [[ "${CGROUP_PATH}" == /sys/fs/cgroup ]] && command -v docker >/dev/null 2>&1; then
   CONTROLLERS_RAW="$(docker run --rm --privileged -v /sys/fs/cgroup:/sys/fs/cgroup:ro alpine cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null || echo "")"
-fi
-
-if [[ -z "${CONTROLLERS_RAW}" ]]; then
-  # Default fallback if cgroup2fs is mounted
-  CONTROLLERS_RAW="cpuset cpu io memory hugetlb pids rdma misc"
 fi
 
 HAS_CPU=false
@@ -127,17 +123,9 @@ else
 fi
 
 # 4. DaemonSet Manifest Security Audit
-AUDIT_MANIFEST="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/deploy/capability-audit.yaml"
-BASE_MANIFEST="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base/daemonset.yaml"
-DEPLOY_MANIFEST="${REPO_ROOT}/d2-signalloom/deploy/stun-sentinel-daemonset.yaml"
-
-MANIFEST_TO_CHECK="${AUDIT_MANIFEST}"
-if [[ ! -f "${MANIFEST_TO_CHECK}" ]]; then
-  MANIFEST_TO_CHECK="${BASE_MANIFEST}"
-fi
-if [[ ! -f "${MANIFEST_TO_CHECK}" ]]; then
-  MANIFEST_TO_CHECK="${DEPLOY_MANIFEST}"
-fi
+# Parsed with yq, never grepped: a capability or path named in a comment must
+# not count.
+MANIFEST_TO_CHECK="${P1_SENTINEL_MANIFEST:-${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base/daemonset.yaml}"
 
 DS_HOSTPID=false
 DS_HOSTNETWORK=false
@@ -145,45 +133,49 @@ DS_PRIVILEGED=false
 DS_CAP_PTRACE=false
 DS_CAP_BPF=false
 DS_CAP_NET_ADMIN=false
-
-if [[ -f "${MANIFEST_TO_CHECK}" ]]; then
-  grep -q "hostPID: true" "${MANIFEST_TO_CHECK}" && DS_HOSTPID=true || true
-  grep -q "hostNetwork: true" "${MANIFEST_TO_CHECK}" && DS_HOSTNETWORK=true || true
-  grep -q "privileged: true" "${MANIFEST_TO_CHECK}" && DS_PRIVILEGED=true || true
-  grep -q -E "SYS_PTRACE|CAP_SYS_PTRACE" "${MANIFEST_TO_CHECK}" && DS_CAP_PTRACE=true || true
-  grep -q -E "BPF|CAP_BPF" "${MANIFEST_TO_CHECK}" && DS_CAP_BPF=true || true
-  grep -q -E "NET_ADMIN|CAP_NET_ADMIN" "${MANIFEST_TO_CHECK}" && DS_CAP_NET_ADMIN=true || true
-fi
-
-if [[ "${DS_HOSTPID}" == "true" && "${DS_HOSTNETWORK}" == "true" ]]; then
-  log_pass "DaemonSet security spec verified: hostPID=true, hostNetwork=true"
-else
-  log_fail "DaemonSet security spec missing hostPID or hostNetwork (hostPID=${DS_HOSTPID}, hostNetwork=${DS_HOSTNETWORK})"
-fi
-
-if [[ "${DS_PRIVILEGED}" == "true" || ("${DS_CAP_PTRACE}" == "true" && "${DS_CAP_NET_ADMIN}" == "true") ]]; then
-  log_pass "DaemonSet capabilities verified: privileged=${DS_PRIVILEGED}, SYS_PTRACE=${DS_CAP_PTRACE}, NET_ADMIN=${DS_CAP_NET_ADMIN}"
-else
-  log_fail "DaemonSet missing required capabilities (SYS_PTRACE / privileged execution)"
-fi
-
-# 5. Volume Mounts Inspection
 DS_MOUNT_CGROUP=false
 DS_MOUNT_MODULES=false
 DS_MOUNT_BTF=false
 DS_MOUNT_PROC=false
 
-if [[ -f "${MANIFEST_TO_CHECK}" ]]; then
-  grep -q "/sys/fs/cgroup" "${MANIFEST_TO_CHECK}" && DS_MOUNT_CGROUP=true || true
-  grep -q "/lib/modules" "${MANIFEST_TO_CHECK}" && DS_MOUNT_MODULES=true || true
-  grep -q "/sys/kernel/btf" "${MANIFEST_TO_CHECK}" && DS_MOUNT_BTF=true || true
-  grep -q -E "/proc|/host/proc" "${MANIFEST_TO_CHECK}" && DS_MOUNT_PROC=true || true
-fi
+ds() {
+  yq -r "select(.kind == \"DaemonSet\") | .spec.template.spec | $1" "${MANIFEST_TO_CHECK}" 2>/dev/null || true
+}
 
-if [[ "${DS_MOUNT_CGROUP}" == "true" && "${DS_MOUNT_MODULES}" == "true" && "${DS_MOUNT_BTF}" == "true" && "${DS_MOUNT_PROC}" == "true" ]]; then
-  log_pass "DaemonSet host volume mounts verified: /sys/fs/cgroup (rw), /lib/modules (ro), /sys/kernel/btf (ro), host /proc"
+if [[ ! -f "${MANIFEST_TO_CHECK}" ]]; then
+  log_fail "DaemonSet manifest not found: ${MANIFEST_TO_CHECK}"
 else
-  log_fail "DaemonSet missing required host volume mounts (cgroup=${DS_MOUNT_CGROUP}, modules=${DS_MOUNT_MODULES}, btf=${DS_MOUNT_BTF}, proc=${DS_MOUNT_PROC})"
+  [[ "$(ds '.hostPID')" == true ]] && DS_HOSTPID=true || true
+  [[ "$(ds '.hostNetwork')" == true ]] && DS_HOSTNETWORK=true || true
+  [[ "$(ds '.containers[0].securityContext.privileged')" == true ]] && DS_PRIVILEGED=true || true
+  CAPS=" $(ds '.containers[0].securityContext.capabilities.add // [] | join(" ")') "
+  [[ "${CAPS}" == *" SYS_PTRACE "* ]] && DS_CAP_PTRACE=true || true
+  [[ "${CAPS}" == *" BPF "* ]] && DS_CAP_BPF=true || true
+  [[ "${CAPS}" == *" NET_ADMIN "* ]] && DS_CAP_NET_ADMIN=true || true
+  HOST_PATHS=" $(ds '[.volumes[].hostPath.path | select(. != null)] | join(" ")') "
+  [[ "${HOST_PATHS}" == *" /sys/fs/cgroup "* ]] && DS_MOUNT_CGROUP=true || true
+  [[ "${HOST_PATHS}" == *" /lib/modules "* ]] && DS_MOUNT_MODULES=true || true
+  [[ "${HOST_PATHS}" == *" /sys/kernel/btf "* ]] && DS_MOUNT_BTF=true || true
+  [[ "${HOST_PATHS}" == *" /proc "* ]] && DS_MOUNT_PROC=true || true
+
+  if [[ "${DS_HOSTPID}" == "true" && "${DS_HOSTNETWORK}" == "true" ]]; then
+    log_pass "DaemonSet security spec verified: hostPID=true, hostNetwork=true"
+  else
+    log_fail "DaemonSet security spec missing hostPID or hostNetwork (hostPID=${DS_HOSTPID}, hostNetwork=${DS_HOSTNETWORK})"
+  fi
+
+  if [[ "${DS_PRIVILEGED}" == "true" || ("${DS_CAP_PTRACE}" == "true" && "${DS_CAP_NET_ADMIN}" == "true") ]]; then
+    log_pass "DaemonSet capabilities verified: privileged=${DS_PRIVILEGED}, SYS_PTRACE=${DS_CAP_PTRACE}, NET_ADMIN=${DS_CAP_NET_ADMIN}"
+  else
+    log_fail "DaemonSet missing required capabilities (SYS_PTRACE / privileged execution)"
+  fi
+
+  # 5. Volume Mounts Inspection
+  if [[ "${DS_MOUNT_CGROUP}" == "true" && "${DS_MOUNT_MODULES}" == "true" && "${DS_MOUNT_BTF}" == "true" && "${DS_MOUNT_PROC}" == "true" ]]; then
+    log_pass "DaemonSet host volume mounts verified: /sys/fs/cgroup (rw), /lib/modules (ro), /sys/kernel/btf (ro), host /proc"
+  else
+    log_fail "DaemonSet missing required host volume mounts (cgroup=${DS_MOUNT_CGROUP}, modules=${DS_MOUNT_MODULES}, btf=${DS_MOUNT_BTF}, proc=${DS_MOUNT_PROC})"
+  fi
 fi
 
 # 6. Generate Machine-Readable JSON Evidence Report

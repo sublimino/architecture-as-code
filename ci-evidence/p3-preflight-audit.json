@@ -1,0 +1,308 @@
+{
+  "card": "SLDC-P3-PRE",
+  "generated_at": "2026-09-30T07:07:38Z",
+  "scanned_commit": "1d84ff381b34b4463fd017d462fdc0632db2fa6e",
+  "vectors": {
+    "salt": "signalloom-eap-salt-2026-q3",
+    "implemented_formula": "sha256(salt + \":\" + lower(trim(tenant)))[0:8]",
+    "canonical": {
+      "tenant": "kusari",
+      "expected": "4b53ab6b",
+      "computed": "4b53ab6b",
+      "match": true,
+      "status": "canonical"
+    },
+    "retired": {
+      "tenant": "kurasi",
+      "expected": "6f82ad81",
+      "computed": "6f82ad81",
+      "match": true,
+      "status": "retired-fail-closed"
+    },
+    "unsalted": {
+      "formula": "sha256(tenant)[0:8]",
+      "tenant": "kusari",
+      "expected": "d9d69501",
+      "computed": "d9d69501",
+      "match": true,
+      "status": "rejected"
+    },
+    "card_formula_check": {
+      "formula": "HMAC-SHA256(key=salt, msg=tenant)[0:8]",
+      "kusari": "4a89f30d",
+      "kurasi": "b4c188df",
+      "yields_canonical_hash": false,
+      "note": "The card text names HMAC-SHA256, but 4b53ab6b is only produced by the implemented salted-concatenation formula."
+    }
+  },
+  "openbao": {
+    "status": "unprovisioned",
+    "context": "kind-osramp",
+    "path": "secret/signalloom/eap",
+    "exit_code": 2,
+    "detail": "command terminated with exit code 2"
+  },
+  "gateway": {
+    "canonical_host": "sl-eap-4b53ab6b.ts.net",
+    "httproute_template": {
+      "path": "d2-infra/components/ingress/eap-httproute-template.yaml",
+      "parameterised_on_eap_hash": true
+    },
+    "dex": {
+      "path": "d2-signalloom/infra/inf-signalloom/base/dex.yaml",
+      "has_canonical_redirect": false,
+      "has_legacy_redirect": false
+    },
+    "manifests_naming_canonical_host": [
+      "test/fixtures/phase2-governor/hub-fixture.yaml"
+    ]
+  },
+  "scan": {
+    "legacy_typo": {
+      "pattern": "kurasi|6f82ad81",
+      "total": 849,
+      "files": 40,
+      "by_category": {
+        "active_code": 1,
+        "historical_record": 820,
+        "published_docs": 22,
+        "test_fixture": 6
+      },
+      "active_files": [
+        "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+        "d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go"
+      ],
+      "historical_files": [
+        ".kanban-review-ledger.json",
+        "docs/eapr/p1-1/cost/cost-SLEA.json",
+        "docs/eapr/p1-1/cost/cost-SLED.json",
+        "docs/eapr/p1-1/cost/cost-SLES.json",
+        "docs/eapr/p1-1/cost/cost-SLET.json",
+        "docs/eapr/p1-1/doctor.md",
+        "docs/eapr/p2-1/proposal-errata.md",
+        "docs/signalloom/eap-netassert-2026-09-25.log",
+        "docs/signalloom/eapr-governor-log.md",
+        "docs/signalloom/evidence/sled-p3-cryptographic-evaluation.md",
+        "docs/signalloom/evidence/sled-p3-governor-audit.md",
+        "docs/signalloom/evidence/slet-p4-2/stability-10-iterations.txt",
+        "docs/signalloom/evidence/slet-p4-2/transcript-iteration-1.jsonl",
+        "docs/signalloom/evidence/slrc-p2-postgres-evidence.json",
+        "docs/signalloom/evidence/slrc-p4-preflight-facts.json",
+        "docs/signalloom/slea-mission-complete.md",
+        "docs/signalloom/slea-p4-2-kurasi-lifecycle-trace.json",
+        "docs/signalloom/slea-p4-acceptance-report.md",
+        "docs/signalloom/slea-p4-preflight.md",
+        "docs/signalloom/sled-mission-certification.md",
+        "docs/signalloom/sled-p2-certification.md",
+        "docs/signalloom/sled-p2-reaper.md",
+        "docs/signalloom/sled-p3-certification.md",
+        "docs/signalloom/sled-p3-network-teardown.md",
+        "docs/signalloom/sled-p3-preflight.md",
+        "docs/signalloom/sled-p4-preflight.md",
+        "docs/signalloom/sles-concurrency.md",
+        "docs/signalloom/sles-mission-certification.md",
+        "docs/signalloom/sles-p4-preflight.md",
+        "docs/signalloom/slet-mission-complete.md",
+        "docs/signalloom/slet-p4-acceptance-report.md",
+        "docs/signalloom/slet-p4-preflight.md",
+        "docs/signalloom/slte-architecture-summary.md",
+        "docs/signalloom/slte-mission-complete.md",
+        "docs/signalloom/slte-p4-acceptance-report.md",
+        "docs/signalloom/slte-p4-preflight.md"
+      ],
+      "occurrences": [
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 9,
+          "category": "published_docs",
+          "text": "that allows enterprise design partners and Early Access Program (EAP) evaluators - such as Kurasi - to"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 20,
+          "category": "published_docs",
+          "text": "      USER[\"Enterprise Customer (e.g. Kurasi)\"]"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 27,
+          "category": "published_docs",
+          "text": "      HASHER[\"Salted Hasher: SHA256(salt : 'kurasi') -> 6f82ad81\"]"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 33,
+          "category": "published_docs",
+          "text": "      TS[\"Tailscale Serve: https://sl-eap-6f82ad81.tailscale\"]"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 39,
+          "category": "published_docs",
+          "text": "      NS[\"Namespace: sl-eap-6f82ad81\"]"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 70,
+          "category": "published_docs",
+          "text": " - Input: `kurasi`"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 71,
+          "category": "published_docs",
+          "text": " - Normalized: `kurasi`"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 72,
+          "category": "published_docs",
+          "text": " - Hash: `6f82ad81`"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 73,
+          "category": "published_docs",
+          "text": " - Hostname: `sl-eap-6f82ad81`"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 74,
+          "category": "published_docs",
+          "text": " - Tailscale Internal Mesh URL: `https://sl-eap-6f82ad81.tailscale`"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 75,
+          "category": "published_docs",
+          "text": " - MagicDNS Public URL: `https://sl-eap-6f82ad81.<tailnet>.ts.net`"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 103,
+          "category": "published_docs",
+          "text": "    \"company_name\": \"kurasi\","
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 104,
+          "category": "published_docs",
+          "text": "    \"contact_email\": \"eval@kurasi.example.com\","
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 115,
+          "category": "published_docs",
+          "text": "  \"environment_id\": \"env-6f82ad81-eap\","
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 116,
+          "category": "published_docs",
+          "text": "  \"company_name\": \"kurasi\","
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 119,
+          "category": "published_docs",
+          "text": "    \"hostname\": \"sl-eap-6f82ad81\","
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 120,
+          "category": "published_docs",
+          "text": "    \"mesh_url\": \"https://sl-eap-6f82ad81.tailscale\","
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 121,
+          "category": "published_docs",
+          "text": "    \"external_fqdn\": \"sl-eap-6f82ad81.signal-loom.ts.net\""
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 128,
+          "category": "published_docs",
+          "text": "  \"namespace\": \"sl-eap-6f82ad81\""
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 148,
+          "category": "published_docs",
+          "text": "   Applies an isolated Kubernetes `HTTPRoute` matching host `sl-eap-6f82ad81.*` to forward traffic directly to the tenant's dedicated dashboard service."
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 175,
+          "category": "published_docs",
+          "text": "  --company \"kurasi\" \\"
+        },
+        {
+          "file": "d2-signalloom/apps/docs-signalloom/src/content/docs/operate/environment-routing.mdx",
+          "line": 176,
+          "category": "published_docs",
+          "text": "  --email \"security-lead@kurasi.com\" \\"
+        },
+        {
+          "file": "d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go",
+          "line": 402,
+          "category": "active_code",
+          "text": "\t\t\t\tif tenant == \"kurasi\" {"
+        },
+        {
+          "file": "d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator_test.go",
+          "line": 302,
+          "category": "test_fixture",
+          "text": "// TestForbiddenKurasiTypoCorrection verifies that legacy 'kurasi' typos are corrected to canonical 'kusari'."
+        },
+        {
+          "file": "d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator_test.go",
+          "line": 303,
+          "category": "test_fixture",
+          "text": "func TestForbiddenKurasiTypoCorrection(t *testing.T) {"
+        },
+        {
+          "file": "d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator_test.go",
+          "line": 306,
+          "category": "test_fixture",
+          "text": "\tpod := CreateTestPod(\"tenant-kusari\", \"kurasi-agent\", \"33333333-4444-5555-6666-777777777777\", \"kurasi-agent\", \"kurasi\")"
+        },
+        {
+          "file": "test/unit/correlator-pipeline.bats",
+          "line": 49,
+          "category": "test_fixture",
+          "text": "@test \"Forbidden Kurasi Typo Correction Test: canonicalizes to kusari\" {"
+        },
+        {
+          "file": "test/unit/correlator-pipeline.bats",
+          "line": 50,
+          "category": "test_fixture",
+          "text": "    run go test -v -run TestForbiddenKurasiTypoCorrection ./pkg/correlator/..."
+        },
+        {
+          "file": "test/unit/correlator-pipeline.bats",
+          "line": 52,
+          "category": "test_fixture",
+          "text": "    [[ \"$output\" =~ \"PASS: TestForbiddenKurasiTypoCorrection\" ]]"
+        }
+      ]
+    },
+    "unsalted_digest": {
+      "pattern": "d9d69501",
+      "total": 0,
+      "files": 0,
+      "by_category": {},
+      "active_files": [],
+      "historical_files": [],
+      "occurrences": []
+    }
+  },
+  "verdict": {
+    "canonical_vector_holds": true,
+    "card_hmac_formula_yields_canonical": false,
+    "active_legacy_files": 2,
+    "unsalted_digest_occurrences": 0,
+    "salt_provisioned": false,
+    "dex_ready_for_canonical_host": false
+  }
+}

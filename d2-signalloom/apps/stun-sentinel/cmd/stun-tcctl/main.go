@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	sentinelnl "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/netlink"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/tc"
 )
 
@@ -119,7 +120,9 @@ func resolveInterface(o *opts) (string, error) {
 	if o.iface != "" {
 		return o.iface, nil
 	}
-	d := tc.NewDiscoverer()
+	// Netlink (IFLA_LINK) resolution, not sysfs: /sys/class/net reflects the
+	// mount netns, so a sysfs read after setns reports the HOST eth0 (FIX-C).
+	d := sentinelnl.NewResolver()
 	if o.pid > 0 {
 		return d.HostVethForPID(o.pid)
 	}

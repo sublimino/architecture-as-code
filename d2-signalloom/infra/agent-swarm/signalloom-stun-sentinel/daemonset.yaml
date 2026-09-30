@@ -76,9 +76,15 @@ spec:
           securityContext:
             privileged: false
             capabilities:
+              # SLDC-P1-3: SYS_PTRACE is required to open another container's
+              # /proc/<pid>/ns/net for netlink veth resolution (EACCES without
+              # it); BPF loads the tc drop program; NET_ADMIN attaches it;
+              # SYS_ADMIN covers setns and cgroup-v2 freeze writes.
               add:
-                - SYS_ADMIN
+                - SYS_PTRACE
+                - BPF
                 - NET_ADMIN
+                - SYS_ADMIN
               drop:
                 - ALL
           volumeMounts:

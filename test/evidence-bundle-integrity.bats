@@ -56,7 +56,7 @@ repack() {
 	[ "$n" -eq 8 ]
 	[ "$(find "$ev" -type f -size 0c | wc -l)" -eq 0 ]
 	[ "$(wc -l <"$ev/audit-signature.sha256")" -eq 7 ]
-	! grep -Evq '^[0-9a-f]{64}  ' "$ev/audit-signature.sha256"
+	[ -z "$(grep -Ev '^[0-9a-f]{64}  ' "$ev/audit-signature.sha256")" ]
 }
 
 @test "sha256sum -c on the evidence directory reports 7 OK" {

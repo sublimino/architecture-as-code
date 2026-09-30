@@ -1591,6 +1591,17 @@ acceptance-test: ## Run browser-driven acceptance tests (Playwright). Pass DASHB
 	@DASHBOARD_URL="$${DASHBOARD_URL:-$(DASHBOARD_URL)}" \
 	./scripts/acceptance-test.sh $(ARGS)
 
+.PHONY: test-bot demo-jev-test-bot
+test-bot: ## Run the Jev-powered exploratory test bot. Pass URL=<url>, AREA=<path>, TURNS=<n>, MOCK=true/false, DEEP=true, TIMEOUT=<sec>.
+	@python3 scripts/jev-test-bot/bot.py \
+		--url "$${URL:-https://ftna-signalloom.taild4da3.ts.net/}" \
+		--area "$${AREA:-/}" \
+		--max-turns "$${TURNS:-10}" \
+		$$( [ "$${MOCK:-}" = "true" ] && echo "--mock" ) \
+		$$( [ "$${DEEP:-}" = "true" ] && echo "--deep" ) \
+		$$( [ -n "$${TIMEOUT:-}" ] && echo "--timeout $${TIMEOUT}" )
+demo-jev-test-bot: test-bot ## Alias for test-bot.
+
 ##@ Remote & Public access (Tailscale)
 # SignalLoom uses a contract-first Dex single-issuer lease mechanism.
 # Only one origin (Funnel, Serve, or IAP) can publish at a time.

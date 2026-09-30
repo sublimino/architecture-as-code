@@ -1,0 +1,42 @@
+# SLDC-P4-PRE evidence - captured 2026-09-30 08:57:23+01:00 against kind-osramp (node osramp-control-plane, v1.36.1)
+
+## 1. Raw response header dump (kubectl -v=8, auth headers redacted)
+round_trippers.go:527] "Request" verb="GET" url="https://127.0.0.1:34777/api/v1/nodes/osramp-control-plane/proxy/metrics/cadvisor" headers=<
+	Accept: application/json, */*
+	User-Agent: kubectl/v1.36.0 (linux/amd64) kubernetes/ecf6dec
+ >
+round_trippers.go:632] "Response" status="200 OK" headers=<
+	Audit-Id: 0aa04b52-a95f-476a-bf55-f00d6bd43960
+	Cache-Control: no-cache, private
+	Content-Type: text/plain; version=0.0.4; charset=utf-8; escaping=underscores
+	Date: Wed, 30 Sep 2026 07:57:34 GMT
+	Process-Start-Time-Unix: 1788546654
+ > milliseconds=96
+
+## 2. agent-kusari container_cpu_usage_seconds_total series (three per pod: pod-cgroup aggregate, pause sandbox, agent container)
+container_cpu_usage_seconds_total{container="",cpu="total",id="/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-poddc4ec3bc_284b_407e_a3fc_45470f5d53d0.slice",image="",name="",namespace="fe-signalloom-agents",pod="agent-kusari-5685ff664b-46q85"} 9.325321 1790755030196
+container_cpu_usage_seconds_total{container="",cpu="total",id="/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-poddc4ec3bc_284b_407e_a3fc_45470f5d53d0.slice/cri-containerd-cb477765b63f6d1ae22f2dbd8a2c71709380c3bb607bf8b62d5cdee2504d5f16.scope",image="registry.k8s.io/pause:3.10",name="cb477765b63f6d1ae22f2dbd8a2c71709380c3bb607bf8b62d5cdee2504d5f16",namespace="fe-signalloom-agents",pod="agent-kusari-5685ff664b-46q85"} 0.019743 1790755015912
+container_cpu_usage_seconds_total{container="agent",cpu="total",id="/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-poddc4ec3bc_284b_407e_a3fc_45470f5d53d0.slice/cri-containerd-c1e9c3f6f590f7a2ad05db91d19303b0dfa993aadabce64f92d769b88b00784b.scope",image="docker.io/library/kusari-agent:latest",name="c1e9c3f6f590f7a2ad05db91d19303b0dfa993aadabce64f92d769b88b00784b",namespace="fe-signalloom-agents",pod="agent-kusari-5685ff664b-46q85"} 9.305578 1790755027835
+
+## 3. /agents route definitions (d2-signalloom/apps/dashboard-signalloom/src/App.tsx)
+415:                <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
+416:                <Route path="/agents/:id" element={<ProtectedRoute><AgentDetailPage /></ProtectedRoute>} />
+
+## 4. Unreachable-node mutation probe
+Error from server (NotFound): nodes "nonexistent-node" not found
+EXIT:1
+
+## 5. RBAC
+can-i get nodes/proxy as system:serviceaccount:fe-signalloom:fe-signalloom -> no
+can-i get nodes/metrics as system:serviceaccount:fe-signalloom:fe-signalloom -> no
+KubeletFineGrainedAuthz: kubernetes_feature_enabled{name="KubeletFineGrainedAuthz",stage=""} 1
+Scratch-SA remediation proof (transient ns/ClusterRole/Binding, deleted on exit, zero leftovers verified):
+  no grant:            apiserver-proxy /metrics/cadvisor 403 | kubelet :10250 /metrics/cadvisor 403
+  nodes/metrics only:  apiserver-proxy /metrics/cadvisor 403 | kubelet :10250 /metrics/cadvisor 200 | kubelet :10250 /pods 403
+  nodes/proxy:         apiserver-proxy /metrics/cadvisor 200 | apiserver-proxy /pods 200 (grant spans every kubelet endpoint)
+
+## 6. Counter refresh cadence, 21 scrapes x 2 s over 40 s (container_cpu_usage_seconds_total, real containers only)
+{"containers":99,"window_s":40,"intervals":288,"containers_single_ts":0,"min":"10.01","p50":"15.14","p90":"19.09","max":"29.81"}
+
+## 7. Mutation testing (test/p4-cadvisor-preflight.bats vs scripts/p4-cadvisor-preflight.sh): 7/7 killed, script restored byte-identical
+M1 keep pod aggregate -> 1 failed | M2 window always viable -> 2 | M3 skip type check -> 1 | M4 drop pod label -> 1 | M5 accept any content-type -> 1 | M6 sample all namespaces -> 1 | M7 proxy failure returns 0 -> 2

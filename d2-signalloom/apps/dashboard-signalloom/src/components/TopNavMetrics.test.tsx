@@ -63,7 +63,7 @@ describe('MetricsTopBar (live estate stream)', () => {
     let ctrl!: ReadableStreamDefaultController<Uint8Array>
     const enc = new TextEncoder()
     const fetchImpl = vi.fn(async () =>
-      new Response(new ReadableStream<Uint8Array>({ start(c) { ctrl = c } }), { status: 200 }),
+      new Response(new ReadableStream<Uint8Array>({ start(c) { ctrl = c } }), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
     ) as unknown as typeof fetch
     render(<MetricsTopBar options={{ fetchImpl, getToken: async () => 't' }} />)
     await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1))
@@ -82,5 +82,35 @@ describe('MetricsTopBar (live estate stream)', () => {
     expect(screen.getByTestId('metrics-active')).toHaveTextContent('1')
     expect(screen.getByTestId('metrics-total')).toHaveTextContent('2')
     expect(screen.getByTestId('metrics-cpu')).toHaveTextContent('1.200 mCPU')
+  })
+})
+
+describe('MetricsTopBar (JSON estate endpoint)', () => {
+  it('polls a JSON estate snapshot instead of flapping between LIVE and reconnecting', async () => {
+    // fe-signalloom's estate route answers JSON keyed namespace/pod, never SSE.
+    const estate = {
+      'tenant-a/kusari-agent-0': { pod_name: 'kusari-agent-0', namespace: 'tenant-a', millicores: 1.5, memory_rss_mb: 40, status: 'ACTIVE' },
+      'tenant-b/kusari-agent-0': { pod_name: 'kusari-agent-0', namespace: 'tenant-b', millicores: 2.5, memory_rss_mb: 40, status: 'ACTIVE' },
+    }
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify(estate), { status: 200, headers: { 'content-type': 'application/json' } }),
+    ) as unknown as typeof fetch
+    render(<MetricsTopBar options={{ fetchImpl, getToken: async () => 't', initialBackoffMs: 5, maxBackoffMs: 20, pollIntervalMs: 15 }} />)
+    await waitFor(() => expect(screen.getByTestId('metrics-top-bar')).toHaveAttribute('data-connection', 'polling'))
+    expect(screen.getByTestId('metrics-total')).toHaveTextContent(/^2$/)
+    expect(screen.getByTestId('metrics-cpu')).toHaveTextContent('4.000 mCPU')
+    expect(screen.queryByTestId('metrics-stale')).toBeNull()
+    const accepts = (fetchImpl as unknown as { mock: { calls: [unknown, RequestInit][] } }).mock.calls.map(([, init]) => (init.headers as Record<string, string>).Accept)
+    expect(accepts.filter((a) => a === 'text/event-stream')).toHaveLength(1)
+  })
+
+  it('an estate 503 shows no numbers', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response('{"error":{"code":"telemetry_unavailable","message":"x"}}', { status: 503, headers: { 'content-type': 'application/json' } }),
+    ) as unknown as typeof fetch
+    render(<MetricsTopBar options={{ fetchImpl, getToken: async () => 't', initialBackoffMs: 5, maxBackoffMs: 20, pollIntervalMs: 15, maxStreamFailures: 2 }} />)
+    await waitFor(() => expect(screen.getByTestId('metrics-top-bar')).toHaveAttribute('data-connection', 'error'))
+    expect(screen.getByTestId('metrics-offline')).toHaveTextContent('Telemetry offline')
+    expect(screen.queryByTestId('metrics-cpu')).toBeNull()
   })
 })

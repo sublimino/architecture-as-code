@@ -218,3 +218,48 @@ describe('telemetry hook helpers', () => {
     expect(w[14].cpuMillicores).toBe(49)
   })
 })
+
+describe('AgentCockpitTelemetry (error states never read as a reading)', () => {
+  const json = (body: string, status = 200) =>
+    new Response(body, { status, headers: { 'content-type': 'application/json' } })
+
+  async function settlesOffline(respond: () => Response) {
+    const fetchImpl = vi.fn(async () => respond()) as unknown as typeof fetch
+    render(<AgentCockpitTelemetry podName={POD} options={{ ...FAST, maxStreamFailures: 2, fetchImpl }} />)
+    await waitFor(() => expect(screen.getByTestId('cockpit-connection')).toHaveAttribute('data-connection', 'error'))
+    expect(cpuText()).toBe('awaiting')
+    expect(screen.queryByTestId('cockpit-state-badge')).toBeNull()
+    expect(screen.getByTestId('cockpit-awaiting')).toHaveTextContent('Telemetry stream unavailable.')
+  }
+
+  it.each([401, 403, 404, 500, 503])('HTTP %i renders OFFLINE, never 0.000 mCPU', async (status) => {
+    await settlesOffline(() => json(JSON.stringify({ error: { code: 'x', message: 'y' } }), status))
+  })
+
+  it('a network error renders OFFLINE', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    }) as unknown as typeof fetch
+    render(<AgentCockpitTelemetry podName={POD} options={{ ...FAST, maxStreamFailures: 2, fetchImpl }} />)
+    await waitFor(() => expect(screen.getByTestId('cockpit-connection')).toHaveAttribute('data-connection', 'error'))
+    expect(cpuText()).toBe('awaiting')
+  })
+
+  it('malformed JSON is a failure, not a live connection', async () => {
+    await settlesOffline(() => json('{"pod_name": "kusari-agent-0", "millicores": '))
+  })
+
+  it('a 200 HTML page (SPA fallback, login proxy) is a failure, not a live stream', async () => {
+    await settlesOffline(() => new Response('<!doctype html><html></html>', { status: 200, headers: { 'content-type': 'text/html' } }))
+  })
+
+  it('a PENDING sample with null millicores is not rendered as 0.000', async () => {
+    const { fetchImpl, streams } = streamingFetch()
+    render(<AgentCockpitTelemetry podName={POD} options={{ ...FAST, fetchImpl }} />)
+    await waitFor(() => expect(streams.length).toBe(1))
+    act(() => streams[0].send({ pod_name: POD, namespace: 'n', millicores: null, memory_rss_mb: 42, status: 'PENDING' }))
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+    expect(cpuText()).toBe('awaiting')
+    expect(screen.queryByTestId('cockpit-state-badge')).toBeNull()
+  })
+})

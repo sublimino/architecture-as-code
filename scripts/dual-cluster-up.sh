@@ -260,6 +260,7 @@ verify_dns() {
 }
 
 main() {
+  sldc_require_tools "$DOCKER_BIN" "$KIND_BIN" "$KUBECTL_BIN" jq
   ensure_bridge
   ensure_clusters
   attach_node "$(sldc_node "$SLDC_OSRAMP_CLUSTER")" "$SLDC_OSRAMP_IP"

@@ -446,49 +446,9 @@ func (m *SentinelProbeManager) Start(ctx context.Context, rd *ringbuf.Reader) er
 			continue
 		}
 
-		var raw SyscallEvent
-		var filename string
-		var targetPID uint32
-
-		if ev, err := ebpf.DecodeSyscallEvent(record.RawSample); err == nil {
-			raw.PID = ev.PID
-			raw.TGID = ev.TGID
-			raw.UID = ev.UID
-			raw.Type = uint8(ev.Type)
-			copy(raw.Comm[:], ev.Comm)
-			copy(raw.Filename[:], ev.Filename)
-			filename = ev.Filename
-			targetPID = ev.PID
-		} else {
-			if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &raw); err != nil {
-				continue
-			}
-			filename = strings.TrimRight(string(raw.Filename[:]), "\x00")
-			if i := strings.IndexByte(filename, 0); i >= 0 {
-				filename = filename[:i]
-			}
-			targetPID = raw.PID
-		}
-
-		if !m.IsSensitivePath(filename) {
+		obs, ok := m.handleRecord(record.RawSample)
+		if !ok {
 			continue
-		}
-
-		pod := m.lookupPodByPID(targetPID)
-		if pod == nil && raw.TGID != 0 {
-			pod = m.lookupPodByPID(raw.TGID)
-		}
-		if pod == nil {
-			continue
-		}
-
-		obs := m.NormalizeObservation(raw, pod)
-
-		// Direct in-sentinel reactive freeze containment
-		if isAgentPod(pod) && m.freezeManager != nil {
-			if err := m.freezeManager.FreezePod(pod); err == nil {
-				obs.DirectReaction = ReactionCgroupFrozen
-			}
 		}
 
 		// Enqueue observation for non-blocking asynchronous streaming
@@ -498,6 +458,62 @@ func (m *SentinelProbeManager) Start(ctx context.Context, rd *ringbuf.Reader) er
 			// Queue full under extreme pressure: drop non-blocking to protect kernel ringbuf
 		}
 	}
+}
+
+// handleRecord turns one raw ring-buffer record into an observation,
+// freezing the owning agent pod when policy allows. ok is false when the
+// record carries nothing to report.
+func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation, bool) {
+	var raw SyscallEvent
+	var filename string
+	var targetPID uint32
+
+	if ev, err := ebpf.DecodeSyscallEvent(sample); err == nil {
+		raw.PID = ev.PID
+		raw.TGID = ev.TGID
+		raw.UID = ev.UID
+		raw.Type = uint8(ev.Type)
+		copy(raw.Comm[:], ev.Comm)
+		copy(raw.Filename[:], ev.Filename)
+		filename = ev.Filename
+		targetPID = ev.PID
+	} else {
+		if err := binary.Read(bytes.NewReader(sample), binary.LittleEndian, &raw); err != nil {
+			return TelemetryObservation{}, false
+		}
+		filename = strings.TrimRight(string(raw.Filename[:]), "\x00")
+		if i := strings.IndexByte(filename, 0); i >= 0 {
+			filename = filename[:i]
+		}
+		targetPID = raw.PID
+	}
+
+	if _, ok := m.sensitiveTarget(filename, targetPID); !ok {
+		return TelemetryObservation{}, false
+	}
+
+	pod := m.lookupPodByPID(targetPID)
+	if pod == nil && raw.TGID != 0 {
+		pod = m.lookupPodByPID(raw.TGID)
+	}
+	if pod == nil {
+		return TelemetryObservation{}, false
+	}
+
+	obs := m.NormalizeObservation(raw, pod)
+
+	// Direct in-sentinel reactive freeze containment
+	if isAgentPod(pod) && m.freezeManager != nil {
+		if err := m.freezeManager.FreezePod(pod); err == nil {
+			obs.DirectReaction = ReactionCgroupFrozen
+		}
+	}
+	return obs, true
+}
+
+// sensitiveTarget reports whether filename, as opened by pid, is sensitive.
+func (m *SentinelProbeManager) sensitiveTarget(filename string, pid uint32) (string, bool) {
+	return filename, m.IsSensitivePath(filename)
 }
 
 // dispatchWorker consumes telemetry observations from the internal queue and sends them to signal-ingest.

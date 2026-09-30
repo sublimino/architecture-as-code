@@ -41,6 +41,8 @@ if [ -z "$GIT_BRANCH" ]; then
     GIT_BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD)"
 fi
 GIT_STATUS_OUTPUT="$(git status --porcelain)"
+CLEAN_TREE=True
+[ -z "$GIT_STATUS_OUTPUT" ] || CLEAN_TREE=False
 
 # Check commit signing practice on last 6 commits
 UNSIGNED_COMMITS="$(git log --pretty="%h %G? %s" -n 6)"
@@ -186,7 +188,7 @@ data = {
   'git': {
     'commit_sha': '$GIT_SHA',
     'branch': '$GIT_BRANCH',
-    'clean_working_tree': True,
+    'clean_working_tree': $CLEAN_TREE,
     'commit_signing_practice': 'unsigned (--no-gpg-sign)'
   },
   'toolchain': {

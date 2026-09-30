@@ -1,0 +1,17 @@
+[Gate 1] Git HEAD SHA: ec30913e9d13e77782abda004384121260f12c1a
+[Gate 2] Cryptographic derivation tests: Python=PASS, TypeScript=PASS, Go=PASS, BATS=PASS
+[Gate 3] HTTPRoute manifest verified: /home/andy/src/.worktrees/9b0a6/osramp-demo/deploy/eap-tenant-httproute.yaml
+[Gate 4] Dex OIDC config verified: https://sl-eap-4b53ab6b.ts.net/auth/callback
+[HTTP Probe P1] Host: sl-eap-4b53ab6b.ts.net | Header: X-SignalLoom-Tenant='kusari' | Expected: 200 | Actual: 200
+[HTTP Probe P2] Host: sl-eap-4b53ab6b.ts.net | Header: X-Tenant-ID='kusari' | Expected: 200 | Actual: 200
+[HTTP Probe P3] Host: sl-eap-4b53ab6b.ts.net | Header: ='' | Expected: 200 | Actual: 200
+[HTTP Probe P4] Host: sl-eap-4b53ab6b.demo.signalloom.io | Header: ='' | Expected: 200 | Actual: 200
+[HTTP Probe P5] Host: sl-eap-4b53ab6b.ts.net | Header: X-Tenant-ID='  KUSARI  ' | Expected: 200 | Actual: 200
+[HTTP Probe N1] Host: sl-eap-4b53ab6b.ts.net | Header: X-Tenant-ID='kurasi' | Expected: 403 | Actual: 403
+[HTTP Probe N2] Host: sl-eap-4b53ab6b.ts.net | Header: X-Tenant-ID='6f82ad81' | Expected: 403 | Actual: 403
+[HTTP Probe N3] Host: sl-eap-4b53ab6b.ts.net | Header: X-SignalLoom-Tenant='rogue' | Expected: 403 | Actual: 403
+[HTTP Probe N4] Host: sl-eap-4b53ab6b.ts.net | Header: X-Tenant-ID='unauthorized-org' | Expected: 403 | Actual: 403
+[HTTP Probe N5] Host: sl-eap-4b53ab6b.ts.net | Header: X-Tenant-ID='  KuRaSi  ' | Expected: 403 | Actual: 403
+[HTTP Probe N6] Host: sl-eap-6f82ad81.ts.net | Header: X-Tenant-ID='kusari' | Expected: 404 | Actual: 404
+[Gate 7] Mutation testing: vector discrimination=PASS, policy mutation detection=PASS
+[Gate 8] Codebase scan clear: 0 active code violations

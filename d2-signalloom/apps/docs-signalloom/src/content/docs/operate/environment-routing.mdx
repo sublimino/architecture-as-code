@@ -6,7 +6,7 @@ description: Automated provisioning of isolated EAP customer evaluation sandboxe
 import Mermaid from "../../../components/Mermaid.astro";
 
 Signal Loom provides an **On-Demand EAP Environment Routing & Tailscale Provisioning Engine**
-that allows enterprise design partners and Early Access Program (EAP) evaluators—such as Kurasi—to
+that allows enterprise design partners and Early Access Program (EAP) evaluators-such as Kusari-to
 access dedicated, isolated governance sandboxes with a single API call.
 
 Rather than forcing prospective customers onto a shared, static demonstration estate or requiring manual
@@ -17,26 +17,26 @@ lifecycle: from cryptographic domain generation to ingress routing and TTL-based
   label="On-Demand Customer Environment Routing Architecture"
   diagram={`flowchart TD
     subgraph Trigger["Customer Request / External Trigger"]
-      USER["Enterprise Customer (e.g. Kurasi)"]
+      USER["Enterprise Customer (e.g. Kusari)"]
       CRM["Sales CRM / External Webhook Gateway"]
       REQ["POST /api/v1/environments/provision"]
     end
 
     subgraph Engine["Signal Loom Environment Controller"]
       ROUTER["FastAPI Router: /api/v1/environments"]
-      HASHER["Salted Hasher: SHA256(salt : 'kurasi') -> 6f82ad81"]
+      HASHER["Salted Hasher: SHA256(salt : 'kusari') -> 4b53ab6b"]
       STATE["Thread-Safe Environment Registry & TTL State Machine"]
       DEX["Dex OIDC Dynamic Origin Leaser"]
     end
 
     subgraph Ingress["Tailscale & Gateway Ingress Plane"]
-      TS["Tailscale Serve: https://sl-eap-6f82ad81.tailscale"]
+      TS["Tailscale Serve: https://sl-eap-4b53ab6b.ts.net"]
       FUNNEL["Tailscale Funnel (Optional Public Eval)"]
       ENVOY["Envoy Ingress Gateway (HTTPRoute)"]
     end
 
     subgraph Sandbox["Tenant Evaluation Workload"]
-      NS["Namespace: sl-eap-6f82ad81"]
+      NS["Namespace: sl-eap-4b53ab6b"]
       APP["Signal Loom Dashboard & API Backend"]
       SECRETS["Scoped OpenBao / SPIFFE Credentials"]
     end
@@ -67,12 +67,12 @@ Hash = SHA-256(SALT + ":" + lowercase(trim(company_name)))[0:8]
 
 - **Default Salt**: `signalloom-eap-salt-2026-q3` (configured via `SIGNAL_LOOM_EAP_SALT`).
 - **Canonical Customer Vector**:
-  - Input: `kurasi`
-  - Normalized: `kurasi`
-  - Hash: `6f82ad81`
-  - Hostname: `sl-eap-6f82ad81`
-  - Tailscale Internal Mesh URL: `https://sl-eap-6f82ad81.tailscale`
-  - MagicDNS Public URL: `https://sl-eap-6f82ad81.<tailnet>.ts.net`
+  - Input: `kusari`
+  - Normalized: `kusari`
+  - Hash: `4b53ab6b`
+  - Hostname: `sl-eap-4b53ab6b`
+  - Tailscale Internal Mesh URL: `https://sl-eap-4b53ab6b.ts.net`
+  - MagicDNS Public URL: `https://sl-eap-4b53ab6b.<tailnet>.ts.net`
 
 All generated hostnames strictly comply with RFC 1123 label standards (`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`).
 
@@ -100,8 +100,8 @@ curl -X POST https://dashboard.osramp.acme.local/api/v1/environments/provision \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "company_name": "kurasi",
-    "contact_email": "eval@kurasi.example.com",
+    "company_name": "kusari",
+    "contact_email": "eval@kusari.example.com",
     "initial_ttl_minutes": 1440,
     "enable_public_funnel": false,
     "seed_synthetic_fixtures": true
@@ -112,20 +112,20 @@ curl -X POST https://dashboard.osramp.acme.local/api/v1/environments/provision \
 
 ```json
 {
-  "environment_id": "env-6f82ad81-eap",
-  "company_name": "kurasi",
+  "environment_id": "env-4b53ab6b-eap",
+  "company_name": "kusari",
   "status": "ready",
   "domain": {
-    "hostname": "sl-eap-6f82ad81",
-    "mesh_url": "https://sl-eap-6f82ad81.tailscale",
-    "external_fqdn": "sl-eap-6f82ad81.signal-loom.ts.net"
+    "hostname": "sl-eap-4b53ab6b",
+    "mesh_url": "https://sl-eap-4b53ab6b.ts.net",
+    "external_fqdn": "sl-eap-4b53ab6b.signal-loom.ts.net"
   },
   "lease": {
     "created_at": "2026-09-19T15:30:00Z",
     "expires_at": "2026-09-20T15:30:00Z",
     "ttl_minutes_remaining": 1440
   },
-  "namespace": "sl-eap-6f82ad81"
+  "namespace": "sl-eap-4b53ab6b"
 }
 ```
 
@@ -145,7 +145,7 @@ Dynamic routing is orchestrated via the [`scripts/eap/tailscale-eap-env.sh`](fil
 3. **Dex OIDC Origin Lease**:
    Registers the new customer FQDN in Dex's redirect URI allowlist, eliminating OAuth origin bouncing errors during evaluator login.
 4. **Envoy Gateway HTTPRoute**:
-   Applies an isolated Kubernetes `HTTPRoute` matching host `sl-eap-6f82ad81.*` to forward traffic directly to the tenant's dedicated dashboard service.
+   Applies an isolated Kubernetes `HTTPRoute` matching host `sl-eap-4b53ab6b.*` to forward traffic directly to the tenant's dedicated dashboard service.
 
 ---
 
@@ -172,8 +172,8 @@ The platform supports hands-free sandbox creation via inbound webhooks (e.g. fro
 ```bash
 # Trigger automated EAP sandbox creation via authenticated webhook CLI
 ./scripts/eap/emit-eap-webhook.sh \
-  --company "kurasi" \
-  --email "security-lead@kurasi.com" \
+  --company "kusari" \
+  --email "security-lead@kusari.com" \
   --url "https://api.signalloom.cp.internal/api/v1/webhooks/eap" \
   --secret "$WEBHOOK_HMAC_SECRET"
 ```

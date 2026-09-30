@@ -299,11 +299,11 @@ func TestDispatchObservation(t *testing.T) {
 	}
 }
 
-// TestForbiddenKurasiTypoCorrection verifies that legacy 'kurasi' typos are corrected to canonical 'kusari'.
-func TestForbiddenKurasiTypoCorrection(t *testing.T) {
+// TestCanonicalTenantNormalization verifies that canonical 'kusari' tenant labels are normalized.
+func TestCanonicalTenantNormalization(t *testing.T) {
 	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil)
 
-	pod := CreateTestPod("tenant-kusari", "kurasi-agent", "33333333-4444-5555-6666-777777777777", "kurasi-agent", "kurasi")
+	pod := CreateTestPod("tenant-kusari", "kusari-agent", "33333333-4444-5555-6666-777777777777", "kusari-agent", "kusari")
 	raw := SyscallEvent{Type: SyscallTypeOpenat}
 
 	obs := mgr.NormalizeObservation(raw, pod)

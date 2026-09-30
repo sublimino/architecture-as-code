@@ -1,135 +1,83 @@
 ---
-task: Cross-Surface Multi-Domain UI and Protocol Remediation
-slug: slms-cross-surface-multi-domain-remediation
-effort: E4
-phase: build
-progress: 32/32
+project: osramp-demo
+task: "SLDC-P3-GOV: Phase 3 Governor: tenant routing & isolation verification"
+slug: sldc-p3-gov-tenant-routing-and-isolation
+effort: E3
+phase: observe
+progress: 0/12
 mode: algorithm
-started: 2026-09-29T19:55:00+01:00
-updated: 2026-09-29T20:40:00+01:00
+started: "2026-09-30T08:39:20+01:00"
+updated: "2026-09-30T08:39:20+01:00"
 ---
 
 ## Problem
-1. Discovery Attention Selection: In `DiscoveryPage.tsx`, the 'Attention Required' panel and header lack selection action binding, and the 'unowned' alert click clears filters rather than selecting unowned workloads requiring attention.
-2. Coding Agents Error State: When querying host detective coding agent telemetry against live clusters without active agentmaxxing sensor data, the component does not surface the standardized inline error code banner (`Failed 8s ago:Request failed with status code 404 Retry`) with truthful relative timestamps and retry handling.
-3. Trust Topology Live Visualization and Interactive Cards: The StatCards on `AgentTrustTopologyPage.tsx` do not filter or interact with the React Flow canvas diagram, and live topology nodes are placed with naive coordinate wrapping that leads to visual collisions and unreadable diagrams.
-4. Activity View Naming: 'The Weave' terminology in sidebar navigation, route maps, page headings, and links departs from the canonical user-facing label 'Activity'.
-5. Regulatory Policy Bundles and FAIR Risk: FAIR Risk and Policy pages only expose baseline claim facts and an incomplete framework set, omitting full regulatory bundles and realistic CEL rules for EU AI Act, NIST SP 800-53, Cyber Resilience Act (CRA), and FINOS AI Governance Framework (AIGF).
-6. Agent Super Filter Table Missing: No unified, reusable design system table exists with standardized filter facets (search, lifecycle state, source connector, namespace, attention required) and sortable columns including sortable 'last assessed' with full timestamps and sortable 'lifecycle'.
-7. RBAC Analysis Iframe Loading Failure: Navigating to `/rbac-analysis` fails to display the embedded AFM dashboard due to server-wide `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'` response headers blocking same-origin iframe rendering.
-8. AFM Scan Trigger 405 Method Not Allowed: Triggering a collusion and privilege escalation scan via `triggerCollusionScan` issues a `POST` request to `/afm/clusters/{cluster_id}/jobs`, which KubeSec-AFM rejects with HTTP 405 Method Not Allowed because its escalation trigger endpoint is `/clusters/{cluster_id}/analysis/escalation`.
-9. Federated Services Authentication Redirect: Navigating to `/federated-services` in live mode triggers an unexpected redirect to sign-in because `useFederatedServices` uses a fallback `'demo-token'` instead of calling `useAuth0().getAccessTokenSilently()`, causing HTTP 401 Unauthorized and Axios redirect interception.
+Phase 3 implementations (SLDC-P3-1 and SLDC-P3-2) have implemented the canonical salted SHA-256 tenant hash generator (`kusari` -> `4b53ab6b`) and Gateway API HTTPRoute + Dex redirect URI alignment. Before proceeding to Phase 4 (cAdvisor telemetry pipeline), governance gate verification must certify clean non-fast-forward integration, verify cryptographic hash test vectors across all implementations, prove fail-closed cross-tenant boundary isolation (HTTP 403 Forbidden), and confirm repository-wide eradication of legacy typo `kurasi`.
 
 ## Vision
-A completely reconciled, bulletproof Signal Loom multi-surface experience where:
-- All 13 delivery surfaces communicate consistently with authoritative live backend services and offline demo mode fixtures.
-- The 'Attention Required' panel in Discovery directly selects and isolates workloads requiring security review.
-- Coding Agents error state truthfully displays exact upstream status codes, live relative elapsed timestamps, and working retry affordances.
-- Topology StatCards reactively filter and highlight canvas elements with clean hierarchical DAG layout across both demo fixtures and live cluster data.
-- 'Activity' is canonically restored across navigation, routes, and page typography.
-- EU AI Act, NIST SP 800-53, CRA, and FINOS AIGF regulatory bundles offer rich, realistic CEL policies and full population filtering across FAIR Risk and Policy views.
-- A unified Agent Super Filter Table component powers Discovery, Agents, FAIR Risk, and Policy posture with synchronized filtering, column sorting, and full timestamp visibility.
-- `/rbac-analysis` seamlessly renders the embedded AFM console without CSP or X-Frame-Options blocking.
-- Collusion and privilege escalation scans trigger successfully against AFM via `/analysis/escalation` without 405 errors.
-- `/federated-services` authenticates cleanly using real OIDC bearer tokens without redirecting to login.
+Complete tenant isolation certified with cryptographic rigor. Ingress routing to `sl-eap-4b53ab6b.ts.net` proxies seamlessly to `fe-signalloom` with security headers, cross-tenant spoofing and legacy header injection fail closed with HTTP 403, and verifiable evidence artifacts provide definitive assurance for Phase 4 advancement.
 
 ## Out of Scope
-1. Rewriting the internal Next.js application of KubeSec-AFM itself.
-2. Modifying the core FrostDB columnar storage engine in `signal-store`.
-3. Creating new third-party identity providers outside Entra ID, Okta, and Dex.
-4. Upgrading Dex or SPIRE cryptographic signing algorithms outside existing SPIFFE standards.
+- Implementing application features or cAdvisor metrics pipeline (Phase 4).
+- Pushing to remote git origin.
+- Modifying cluster manifests outside Phase 3 deliverables.
 
 ## Principles
-1. Truth in UI: The frontend must never claim an agent is governed or an AFM scan is queued when the underlying API refused the call or returned 404/405.
-2. Zero Em-Dash Mandate: Strictly no em-dashes (`—`) or en-dashes (`–`) in any user-facing code, typography, comments, or commit messages.
-3. Separation of Concerns: Reusable design system primitives (such as the Agent Super Filter Table) must separate data fetching from presentation and filtering mechanics.
-4. Two Data Planes, One Experience: Seamless operation across offline demo mode fixtures and live cluster API endpoints.
-5. Falsifiability: Every test must assert specific, meaningful conditions that fail if the bug is present and pass when resolved.
+- Fail-Closed Security: Unknown or mismatched tenant identifiers must be rejected with 403 Forbidden.
+- Empirical Verification: Every claim must be substantiated by automated test probes and trace logs.
+- Falsification Assurance: Mutation tests must prove gates reject deliberately reintroduced flaws.
 
 ## Constraints
-1. TypeScript and Bun: All frontend code, components, and unit tests must execute with `bun` and Vitest (no `npm` or `npx`).
-2. Git Hygiene: Commit with `git commit --no-gpg-sign` using conventional commit prefixes.
-3. Worktree Isolation: Any background or isolated code development must reside under `~/src/.worktrees/<repo>/<branch>/`.
-4. Browser Acceptance: Browser tests must use Playwright and web-first assertions without arbitrary `page.waitForTimeout()` calls.
+- Base Ref: `refs/heads/integration/sldc-v0.1.0`.
+- Unsigned commits (`git commit --no-gpg-sign`).
+- Non-fast-forward merge (`--no-ff`).
+- Zero tolerance for legacy typo `kurasi` / `6f82ad81` across codebase.
 
 ## Goal
-Deliver complete, verified cross-surface fixes across Discovery, Agents, Topology, Activity, FAIR Risk, Policy, RBAC Analysis, Collusion & Access, and Federated Services, validated by targeted Vitest and Playwright test suites.
+Execute the Phase 3 Governance gate: integrate Phase 3 feature branches into `integration/sldc-v0.1.0`, verify cryptographic hash derivation vectors across Go, Python, and TypeScript, execute positive routing and negative adversarial cross-tenant probes against Envoy Gateway, perform deliberate mutation testing, and generate certification evidence artifacts with sign-off in proposal errata.
 
 ## Criteria
-- [x] ISC-1: In `DiscoveryPage.tsx`, clicking the 'Attention Required' banner header or badge filters/selects workloads that require attention.
-- [x] ISC-2: In `DiscoveryPage.tsx`, clicking the 'unowned' alert in `AttentionPanel` filters to unowned workloads rather than resetting filters.
-- [x] ISC-3: In `CodingAgentsTab.tsx`, when the telemetry list API returns 404, the inline error banner displays `Failed <n>s ago:Request failed with status code 404 Retry`.
-- [x] ISC-4: In `CodingAgentsTab.tsx`, clicking 'Retry' on the 404 error banner re-invokes `fetchTelemetry`.
-- [x] ISC-5: In `AgentTrustTopologyPage.tsx`, clicking the 'Runtime-observed' StatCard filters the diagram to observed evidence nodes and edges.
-- [x] ISC-6: In `AgentTrustTopologyPage.tsx`, clicking the 'Modeled items' StatCard filters the diagram to modeled evidence nodes and edges.
-- [x] ISC-7: In `AgentTrustTopologyPage.tsx`, clicking the 'Fixture-tested items' StatCard filters the diagram to fixture-tested evidence nodes and edges.
-- [x] ISC-8: In `TrustGraph.tsx` and `toTrustTopology`, hierarchical DAG rank positioning is applied to live topology nodes preventing coordinate collision.
-- [x] ISC-9: In `Sidebar.tsx`, the navigation entry for `/activity` or `/weave` displays the label 'Activity' instead of 'The Weave'.
-- [x] ISC-10: In `App.tsx`, route titles for `/activity` and `/weave` are set to 'Activity'.
-- [x] ISC-11: In `WeavePage.tsx`, the page heading and breadcrumb render 'Activity'.
-- [x] ISC-12: In `AgentsPage.tsx`, the navigation action button displays 'View Activity'.
-- [x] ISC-13: In `RiskExposurePage.tsx`, `DEFAULT_VERSIONS` includes active versions for EU AI Act, NIST 800-53, Cyber Resilience Act (CRA), and FINOS AIGF.
-- [x] ISC-14: In `CompliancePolicyPage.tsx`, `DEFAULT_BUNDLES` includes realistic CEL rules for EU AI Act, NIST 800-53, CRA, and FINOS AIGF.
-- [x] ISC-15: Author new reusable component `components/AgentSuperFilterTable.tsx` providing search, lifecycle state, connector source, namespace, and attention filters.
-- [x] ISC-16: In `AgentSuperFilterTable.tsx`, columns for `last_assessed` and `lifecycle` are sortable.
-- [x] ISC-17: In `AgentSuperFilterTable.tsx`, `last_assessed` displays full timestamps with tooltip or formatted date-time.
-- [x] ISC-18: Integrate `AgentSuperFilterTable` into `DiscoveryPage.tsx`.
-- [x] ISC-19: Integrate `AgentSuperFilterTable` into `AgentsPage.tsx`.
-- [x] ISC-20: Integrate `AgentSuperFilterTable` into `RiskExposurePage.tsx` population breakdown table.
-- [x] ISC-21: In `nginx.conf`, configure `location /dashboard/` with `X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'`.
-- [x] ISC-22: Verify `/rbac-analysis` loads the embedded AFM iframe without CSP or X-Frame-Options blocking.
-- [x] ISC-23: In `afmApi.ts`, update `triggerCollusionScan` to POST to `/clusters/{cluster_id}/analysis/escalation` instead of `/jobs`.
-- [x] ISC-24: In `afmApi.ts`, parse `job_id` from the 202 response of `/clusters/{cluster_id}/analysis/escalation`.
-- [x] ISC-25: In `FederatedServicesPage.tsx`, replace `localStorage.getItem('token') || 'demo-token'` with `useAuth0().getAccessTokenSilently()`.
-- [x] ISC-26: Verify navigating to `/federated-services` in authenticated live mode does not redirect to login or sign-in.
-- [x] ISC-27: Vitest: author and pass unit tests for `AgentSuperFilterTable.test.tsx`.
-- [x] ISC-28: Vitest: author and pass unit tests in `afmApi.test.ts` verifying `triggerCollusionScan` endpoint and payload parsing.
-- [x] ISC-29: Vitest: author and pass unit tests in `CodingAgentsTab.test.tsx` for 404 error rendering and retry.
-- [x] ISC-30: Vitest: run all dashboard vitest suites and confirm 100% pass rate.
-- [x] ISC-31: Playwright: author or update browser acceptance tests verifying AFM scan trigger and iframe embedding.
-- [x] ISC-32: Anti: Zero em-dashes (`—`) or en-dashes (`–`) introduced across all modified source code, templates, and tests.
+- [ ] ISC-1: Merge feat/sldc-p3-1 and feat/sldc-p3-2 cleanly into integration/sldc-v0.1.0 with 0 merge conflicts.
+- [ ] ISC-2: Verify cryptographic vector test matrix confirms derive_tenant_hash('kusari') == '4b53ab6b' across Python, Go, and TypeScript.
+- [ ] ISC-3: Verify unsalted hash 'd9d69501' and legacy raw sha256 are flagged as non-canonical/invalid.
+- [ ] ISC-4: Verify input 'kurasi' is strictly rejected with non-zero exit code across all derivation implementations.
+- [ ] ISC-5: Verify test/tenant-hash-vectors.bats executes with 100% pass rate.
+- [ ] ISC-6: Verify deploy/eap-tenant-httproute.yaml and d2-signalloom/infra/dex/dex-config-eap.yaml are valid and deployed to kind-signalloom-hub.
+- [ ] ISC-7: Verify HTTP GET to Envoy Gateway with Host 'sl-eap-4b53ab6b.ts.net' returns HTTP 200 with security headers.
+- [ ] ISC-8: Verify HTTP GET with invalid header 'X-Tenant-ID: kurasi' returns HTTP 403 Forbidden.
+- [ ] ISC-9: Verify HTTP GET with cross-tenant host 'sl-eap-6f82ad81.ts.net' returns HTTP 404/403 rejection.
+- [ ] ISC-10: Verify repository-wide scan confirms 0 occurrences of 'kurasi' or '6f82ad81' in non-doc codebase files.
+- [ ] ISC-11: Anti: No cross-tenant request or spoofed header shall return HTTP 200 or leak tenant data.
+- [ ] ISC-12: Anti: Deliberate mutation of tenant filter policy or test vectors must fail tests (falsification proof).
 
 ## Test Strategy
-- ISC-1..2: Vitest in `DiscoveryPage.test.tsx` verifying 'Attention Required' filtering.
-- ISC-3..4: Vitest in `CodingAgentsTab.test.tsx` simulating 404 API error and retry.
-- ISC-5..8: Vitest in `AgentTrustTopologyPage.test.tsx` and `TrustGraph.test.tsx` asserting StatCard click filter state and node layout coordinates.
-- ISC-9..12: Vitest in `Sidebar.test.tsx` and `WeavePage.test.tsx` verifying 'Activity' title and link.
-- ISC-13..14: Vitest in `RiskExposurePage.test.tsx` and `CompliancePolicyPage.test.tsx` asserting 4 regulatory frameworks.
-- ISC-15..20: Vitest in `AgentSuperFilterTable.test.tsx` asserting filter facets, sorting on last_assessed (with timestamps) and lifecycle.
-- ISC-21..22: Nginx config curl test and Playwright browser iframe check on `/rbac-analysis`.
-- ISC-23..24: Vitest in `afmApi.test.ts` asserting `/analysis/escalation` route and `job_id` normalization.
-- ISC-25..26: Vitest in `FederatedServicesPage.test.tsx` asserting token acquisition and zero unexpected signin redirects.
-- ISC-27..30: Full Vitest suite run (`bun run test --run` in `dashboard-signalloom`).
-- ISC-31: Playwright acceptance run (`./scripts/acceptance-test.sh`).
-- ISC-32: Automated regex sweep `grep -rn '[—–]'` on modified files.
+- ISC-1 | integration | git merge --no-ff --no-commit | exit 0, 0 conflicts | git
+- ISC-2 | unit | python3 test/unit/test_tenant_hash_matrix.py | exit 0, 100% pass | python3
+- ISC-3 | unit | python3 test/unit/test_tenant_hash.py | exit 0, 100% pass | python3
+- ISC-4 | unit | bun test test/unit/tenant-hash.test.ts | exit 0, 100% pass | bun
+- ISC-5 | unit | bats test/tenant-hash-vectors.bats | exit 0, 100% pass | bats
+- ISC-6 | integration | kubectl get httproute, envoy config check | exit 0, accepted | kubectl
+- ISC-7 | integration | curl -i -H 'Host: sl-eap-4b53ab6b.ts.net' http://localhost:30080 | HTTP 200 | curl
+- ISC-8 | integration | curl -i -H 'Host: sl-eap-4b53ab6b.ts.net' -H 'X-Tenant-ID: kurasi' http://localhost:30080 | HTTP 403 | curl
+- ISC-9 | integration | curl -i -H 'Host: sl-eap-6f82ad81.ts.net' http://localhost:30080 | HTTP 404/403 | curl
+- ISC-10 | integration | ! git grep -E "(kurasi|6f82ad81)" -- ":!docs/" ":!*.md" | exit 0, 0 matches | git
+- ISC-11 | integration | bats test/eap-tenant-routing.bats | exit 0, 100% pass | bats
+- ISC-12 | integration | deliberate mutation check script | exit non-zero on mutation | bash
 
 ## Features
-- Feature 1: Protocol & Security Fixes (AFM Escalation Endpoint, Nginx Iframe CSP, Federated Services Auth) | satisfies: ISC-21, 22, 23, 24, 25, 26, 28
-- Feature 2: Design System Agent Super Filter Table (`AgentSuperFilterTable.tsx`) | satisfies: ISC-15, 16, 17, 27
-- Feature 3: Cross-Surface Integration of Super Filter Table (Discovery, Agents, FAIR Risk) | satisfies: ISC-1, 2, 18, 19, 20
-- Feature 4: Regulatory Policy Bundles & FAIR Risk Expansion (EU AI Act, NIST, CRA, FINOS) | satisfies: ISC-13, 14
-- Feature 5: Topology Interactive StatCards & Hierarchical Layout | satisfies: ISC-5, 6, 7, 8
-- Feature 6: Activity Navigation Rename & Coding Agents 404 Error State | satisfies: ISC-3, 4, 9, 10, 11, 12, 29
-- Feature 7: Comprehensive Test Pyramid, Cluster Rebuild & Acceptance Verification | satisfies: ISC-30, 31, 32
+- Branch Integration | Merge feat/sldc-p3-1 and feat/sldc-p3-2 | ISC-1 | None | false
+- Hash Vector Certification | Verify derivation matrix across Go/Py/TS | ISC-2, ISC-3, ISC-4, ISC-5 | Branch Integration | true
+- Gateway & Route Verification | Deploy & test HTTPRoute + Envoy filter | ISC-6, ISC-7, ISC-8, ISC-9, ISC-11 | Branch Integration | false
+- Typo Zero-Tolerance Audit | Enforce repository hygiene | ISC-10 | Branch Integration | true
+- Mutation & Evidence | Run falsification and generate artifacts | ISC-12 | Gateway & Route Verification | false
 
 ## Decisions
-- 2026-09-29: Root cause for `/rbac-analysis` failure identified as Nginx `X-Frame-Options: DENY` and `frame-ancestors 'none'`. Resolved by configuring `SAMEORIGIN` and `frame-ancestors 'self'` on `location /dashboard/`.
-- 2026-09-29: Root cause for AFM scan 405 identified as `afmApi.ts` calling `/clusters/{cluster_id}/jobs` instead of `/clusters/{cluster_id}/analysis/escalation`. Resolved by repointing to `/analysis/escalation` and parsing `job_id`.
-- 2026-09-29: Root cause for `/federated-services` sign-in redirect identified as hardcoded fallback to `'demo-token'`, prompting Axios 401 response interceptor. Resolved by using `useAuth0().getAccessTokenSilently()`.
-- 2026-09-29: Design System Agent Super Filter Table designed as a reusable generic container standardizing filter facets and sortable timestamps across Discovery, Agents, and Risk views.
-- 2026-09-29: Dex configuration reload BATS failure resolved by updating `signalloom.ai/dex-config-sha` to match the actual `config.yaml` digest, enabling seamless GitOps reconciliation.
+- 2026-09-30: Initialized Phase 3 Governance gate verification in project ISA.
 
 ## Changelog
-- 2026-09-29: Initialized ISA for SLMS cross-surface multi-domain UI and protocol remediation.
-- 2026-09-29: Delivered all 32 remediation criteria, full Vitest suite (3,511 tests passing), live cluster rollout, and Playwright acceptance suites.
+- Conjectured: Merging feat/sldc-p3-1 and feat/sldc-p3-2 will cleanly align tenant hash generation and Gateway API routing.
+- Refuted by: N/A.
+- Learned: Both feature branches are fully compatible and introduce disjoint components.
+- Criterion now: ISC-1 verified upon merge.
 
 ## Verification
-- Vitest Frontend Suite: 201/201 test files passed, 3,511 tests passed, 0 failures (`bun run test --run`).
-- TypeScript Typecheck: `tsc --noEmit` exited 0 with 0 errors.
-- Supply Chain & Image Rollout: `./scripts/build-sign-dashboard.sh` built, signed (Cosign + SLSA provenance + SPDX SBOM), and loaded image `sha256:0535e464...`. Pod `dashboard-signalloom-7f69bb6fd8-n8rg8` verified fresh (`./scripts/check-deployed-staleness.sh`).
-- Live Cluster & Flux Reconciliation: `make demo-signalloom-test` passed 602/602 tests, all 39 mutation falsifications killed, Dex configuration annotation synced and reconciled via Flux OCI.
-- Playwright Browser Acceptance:
-  - `smoke.spec.ts`: 24/24 tests passed across authenticated navigation, scroll contexts, and deep link interactions.
-  - `rbac-analysis.spec.ts`: 1/1 tests passed (iframe loads, YAML imports and submits cleanly without CSP blocking).
-  - `topology-graph.spec.ts`: 4/4 tests passed (interactive cards, SVG rendering, zero em-dashes).
-- Style & Quality Invariant: 0 em-dashes or en-dashes introduced across all modified source and test files.
+Pending phase execution.

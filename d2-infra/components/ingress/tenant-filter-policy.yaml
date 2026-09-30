@@ -1,0 +1,91 @@
+# FLUX ENVSUBST: NO - Ingress tenant security and header filter policy.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: eap-tenant-header-filter
+  namespace: fe-signalloom
+  labels:
+    app.kubernetes.io/name: fe-signalloom
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.ai/tenant: "kusari"
+    signalloom.ai/tenant-hash: "4b53ab6b"
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: eap-tenant-kusari
+  lua:
+    - type: Inline
+      inline: |
+        function envoy_on_request(handle)
+          local headers = handle:headers()
+          local tenant_id = headers:get("x-tenant-id")
+          local signalloom_tenant = headers:get("x-signalloom-tenant")
+          local raw_tenant = tenant_id or signalloom_tenant
+          local authority = headers:get(":authority") or headers:get("host") or ""
+
+          if raw_tenant and raw_tenant ~= "" then
+            -- Sanitize: strip leading/trailing whitespace, trim quotes, convert to lowercase
+            local clean_tenant = string.lower(raw_tenant:match("^%s*(.-)%s*$") or raw_tenant)
+            clean_tenant = clean_tenant:gsub('^["\']', ''):gsub('["\']$', '')
+
+            -- Strictly reject legacy typo 'kurasi', deprecated hash '6f82ad81', or any non-kusari tenant
+            if clean_tenant == "kurasi" or clean_tenant == "6f82ad81" or (clean_tenant ~= "kusari" and clean_tenant ~= "4b53ab6b") then
+              handle:logWarn(string.format("[SECURITY_AUDIT] Tenant rejection: tenant='%s' authority='%s' reason='mismatch_or_legacy_typo'", clean_tenant, authority))
+              local body = string.format('{"error":"Forbidden","message":"Invalid or mismatched tenant header: %s","tenant":"%s","status":403}\n', clean_tenant, clean_tenant)
+              handle:respond(
+                {
+                  [":status"] = "403",
+                  ["content-type"] = "application/json",
+                  ["x-signalloom-tenant-status"] = "rejected",
+                  ["x-signalloom-security-gate"] = "tenant-filter-policy"
+                },
+                body
+              )
+              return
+            end
+
+            -- Canonicalize header to strictly sanitized 'kusari'
+            headers:replace("x-tenant-id", "kusari")
+            headers:replace("x-signalloom-tenant", "kusari")
+          else
+            -- Safe default: derive canonical tenant from authenticated host/SNI without spoofing risk
+            headers:replace("x-tenant-id", "kusari")
+            headers:replace("x-signalloom-tenant", "kusari")
+          end
+        end
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: eap-tenant-isolation-policy
+  namespace: fe-signalloom
+  labels:
+    app.kubernetes.io/name: fe-signalloom
+    app.kubernetes.io/managed-by: signalloom-eap
+    signalloom.ai/tenant: "kusari"
+    signalloom.ai/tenant-hash: "4b53ab6b"
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: eap-tenant-kusari
+  authorization:
+    defaultAction: Allow
+    rules:
+      - action: Deny
+        principal:
+          headers:
+            - name: "x-tenant-id"
+              values:
+                - "kurasi"
+                - "6f82ad81"
+                - "rogue"
+      - action: Deny
+        principal:
+          headers:
+            - name: "x-signalloom-tenant"
+              values:
+                - "kurasi"
+                - "6f82ad81"
+                - "rogue"

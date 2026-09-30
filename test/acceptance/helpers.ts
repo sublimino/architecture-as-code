@@ -259,7 +259,16 @@ export async function login(page: Page, opts?: { demoMode?: boolean; skipOnboard
     { demo: demoMode, skip: skipOnboarding },
   );
 
-  await page.goto(config.base, { waitUntil: "domcontentloaded" });
+  try {
+    await page.goto(config.base, { waitUntil: "domcontentloaded" });
+  } catch (err: any) {
+    if (err?.message?.includes("ERR_CONNECTION_REFUSED") || err?.message?.includes("ECONNREFUSED")) {
+      await page.waitForTimeout(1000);
+      await page.goto(config.base, { waitUntil: "domcontentloaded" });
+    } else {
+      throw err;
+    }
+  }
 
   const loginInput = page.locator('input[name="login"]');
   const needsLogin = await loginInput

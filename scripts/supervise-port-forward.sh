@@ -430,6 +430,15 @@ supervisor_loop() {
       continue
     fi
 
+    # If the forward child died, respawn immediately.
+    # Otherwise, re-probe once to avoid killing a live forward on a transient blip.
+    if pid_running "$(pid_from_file "$forward_file")"; then
+      sleep 1
+      if probe_endpoint; then
+        continue
+      fi
+    fi
+
     restarts=$((restarts + 1))
     append_log "$log_file" "${RESTART_MARKER}${restarts}: probe failed at $(state_endpoint), respawning kubectl port-forward"
     stop_pid_file "$forward_file" "port-forward child"

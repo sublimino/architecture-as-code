@@ -25,7 +25,7 @@ from cadvisor_poller import (
     parse_cadvisor_metrics,
 )
 from main import app
-from tests.conftest import EAPClient
+from conftest import EAPClient
 
 EAP_AUTHENTICATED = True
 

@@ -104,6 +104,11 @@ assert_no_residue() {
 }
 
 main() {
+  if [ "$SLDC_HUB_CLUSTER" = "$SLDC_OSRAMP_CLUSTER" ]; then
+    printf "ERROR: SLDC_HUB_CLUSTER '%s' is the shared workload cluster; refusing to delete it as the hub\n" "$SLDC_HUB_CLUSTER" >&2
+    exit 2
+  fi
+  sldc_require_tools "$DOCKER_BIN" "$KIND_BIN" "$KUBECTL_BIN" jq
   delete_cluster "$SLDC_HUB_CLUSTER"
   assert_no_residue "$SLDC_HUB_CLUSTER"
   if [ "$DELETE_OSRAMP" = 1 ]; then

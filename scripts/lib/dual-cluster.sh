@@ -45,6 +45,16 @@ khub() { "$KUBECTL_BIN" --context "$SLDC_HUB_CTX" "$@"; }
 sldc_log() { printf '==> %s\n' "$*" >&2; }
 sldc_die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+# Fail before any action when a required binary is absent. Without this a
+# missing kind reads as "cluster absent" (down reports a clean teardown, up
+# retries kind create) and a missing docker exits 127 with no message.
+sldc_require_tools() {
+  local t
+  for t in "$@"; do
+    command -v -- "$t" >/dev/null 2>&1 || sldc_die "missing required tool: $t"
+  done
+}
+
 # Kind names its single node "<cluster>-control-plane".
 sldc_node() { printf '%s-control-plane\n' "$1"; }
 

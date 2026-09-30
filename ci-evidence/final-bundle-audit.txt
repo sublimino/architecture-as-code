@@ -1,0 +1,7 @@
+evidence: /tmp/sldc-evidence-certified
+FAIL artifact preflight-manifest.json is missing
+FAIL artifact step2-registry-claim.json is missing
+FAIL artifact step4-ebpf-observation.json is missing
+FAIL artifact step5-cgroup-freeze.txt is missing
+FAIL artifact step5-cadvisor-metrics.prom is missing
+package-eap-evidence: refusing to sign: 5 evidence contract violation(s) above

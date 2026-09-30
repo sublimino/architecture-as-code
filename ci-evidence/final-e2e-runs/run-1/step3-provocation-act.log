@@ -1,0 +1,5 @@
+POST /api/v1/namespaces/fe-signalloom-agents/services/kusari-agent:8080/proxy/act/read-passwd
+{"action":"read-passwd","ok":true,"path":"/etc/passwd","attempted":true,"bytes":149,"lines":3,"held_ms":100,"pid":1,"tid":19,"started_at":"2026-09-30T10:40:36.341178964Z","finished_at":"2026-09-30T10:40:36.441419386Z"}
+
+POST /api/v1/namespaces/fe-signalloom-agents/services/kusari-agent:8080/proxy/act/read-shadow
+{"action":"read-shadow","ok":false,"error":"open /etc/shadow: no such file or directory","path":"/etc/shadow","attempted":true,"pid":1,"tid":18,"started_at":"2026-09-30T10:40:36.486305043Z","finished_at":"2026-09-30T10:40:36.486320201Z"}

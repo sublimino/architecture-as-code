@@ -1,0 +1,8 @@
+signalloom-hub-control-plane 172.18.0.8/16
+registry-cache-dockerio 172.18.0.2/16
+registry-cache-k8s 172.18.0.4/16
+registry-cache-gcrmirror 172.18.0.3/16
+registry-cache-ghcr 172.18.0.6/16
+registry-cache-quay 172.18.0.7/16
+osramp-control-plane 172.18.0.5/16
+

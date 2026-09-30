@@ -168,7 +168,7 @@ check_audit_redacted() {
   run grep -n 'BAO_TOKEN' "$REPO_ROOT/scripts/lib/p2gov-bao.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *'BAO_TOKEN="$BAO_DEV_ROOT_TOKEN_ID" exec bao'* ]]
-  ! grep -qE 'BAO_TOKEN=\$\{?[A-Za-z_]+\}? *\\?$|--token' "$REPO_ROOT/scripts/lib/p2gov-bao.sh"
+  if grep -qE 'BAO_TOKEN=\$\{?[A-Za-z_]+\}? *\\?$|--token' "$REPO_ROOT/scripts/lib/p2gov-bao.sh"; then return 1; fi
   # tokens reach jq/curl on stdin; none is ever passed as a --arg value
   ! grep -qE -- '--arg(json)? +[A-Za-z_]+ +"?\$\{?(tok|token|jwt|BAO_TOKEN)' "$RUNNER"
 }

@@ -274,7 +274,7 @@ EOF
 @test "P2PRE mutation: breaking CIDR overlap lets the 172.19 collision through (test is not vacuous)" {
   mutant="${BATS_TEST_TMPDIR}/mutant-cidr.sh"
   sed 's/^  \[\[ \$(( \$(ip2int "\$n1") & mask )) -eq .*/  false/' "$SCRIPT" >"$mutant"
-  ! cmp -s "$SCRIPT" "$mutant"
+  if cmp -s "$SCRIPT" "$mutant"; then echo "mutation did not apply"; return 1; fi
   echo "clawdbot_default|172.19.0.0/16|172.19.0.1|" >>"$FAKE_DIR/networks"
   run_fixture "$mutant"
   [ "$status" -eq 0 ]
@@ -284,7 +284,7 @@ EOF
 @test "P2PRE mutation: blinding the socket scan lets a 34777 collision through (test is not vacuous)" {
   mutant="${BATS_TEST_TMPDIR}/mutant-ports.sh"
   sed 's/^LISTEN=.*/LISTEN=""/' "$SCRIPT" >"$mutant"
-  ! cmp -s "$SCRIPT" "$mutant"
+  if cmp -s "$SCRIPT" "$mutant"; then echo "mutation did not apply"; return 1; fi
   echo "LISTEN 0 4096 127.0.0.1:34777 0.0.0.0:*" >>"$FAKE_DIR/ss"
   run_fixture "$mutant"
   [ "$status" -eq 0 ]

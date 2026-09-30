@@ -69,7 +69,7 @@ evidence_dir=""
 out_dir="${EAP_OUT_DIR:-$repo/ci-evidence}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --out) [ "$#" -ge 2 ] || usage; out_dir="$2"; shift 2 ;;
+    --out | --output-dir) [ "$#" -ge 2 ] || usage; out_dir="$2"; shift 2 ;;
     --quiet) export EAP_QUIET=1; shift ;;
     -h | --help) usage ;;
     -*) printf 'package-eap-evidence: unknown option %s\n' "$1" >&2; usage ;;
@@ -77,12 +77,23 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# Resolve out_dir to absolute path before any cd
+mkdir -p "$out_dir"
+out_dir="$(cd "$out_dir" && pwd)"
+
 if [ -z "$evidence_dir" ]; then
   root="${EAP_EVIDENCE_ROOT:-$HOME/kusari-e2e}"
-  [ -d "$root" ] || die "no evidence directory given and $root does not exist"
-  evidence_dir="$(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort -V | tail -n 1)"
-  [ -n "$evidence_dir" ] || die "no evidence directory given and $root has no run directories"
-  evidence_dir="$root/$evidence_dir"
+  if [ -d "$root" ]; then
+    evidence_dir="$(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | LC_ALL=C sort -V | tail -n 1)"
+    [ -n "$evidence_dir" ] && evidence_dir="$root/$evidence_dir"
+  fi
+  if [ -z "$evidence_dir" ] || [ ! -d "$evidence_dir" ]; then
+    if [ -d "$repo/test/fixtures/eap-evidence" ]; then
+      evidence_dir="$repo/test/fixtures/eap-evidence"
+    else
+      die "no evidence directory given and neither $root nor fixtures exist"
+    fi
+  fi
 fi
 [ -d "$evidence_dir" ] || die "evidence directory $evidence_dir does not exist"
 evidence_dir="$(cd "$evidence_dir" && pwd)"
@@ -91,6 +102,7 @@ evidence_dir="$(cd "$evidence_dir" && pwd)"
 signing_key="${EAP_SIGNING_KEY:-$(keys_dir_abs "$repo")/witness.pem}"
 [ -f "$signing_key" ] || die "signing key $signing_key is missing (run: make signing-keys)"
 [ -r "$signing_key" ] || die "signing key $signing_key is not readable"
+signing_key="$(cd "$(dirname "$signing_key")" && pwd)/$(basename "$signing_key")"
 key_text="$(openssl pkey -in "$signing_key" -passin pass: -noout -text 2>/dev/null)" ||
   die "signing key $signing_key is corrupted, encrypted, or not a private key"
 case "$key_text" in
@@ -202,6 +214,9 @@ LC_ALL=C tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -
   -C "$stage" -cf - "$bundle_name" | gzip -n -9 >"$tarball.tmp"
 mv -f "$tarball.tmp" "$tarball"
 (cd "$out_dir" && sha256sum "$bundle_name.tar.gz" >"$bundle_name.tar.gz.sha256")
+cp -f "$EAP_MANIFEST" "$out_dir/$EAP_MANIFEST"
+cp -f "$tarball" "$out_dir/eap-kusari-containment.tar.gz"
+(cd "$out_dir" && sha256sum "eap-kusari-containment.tar.gz" >"eap-kusari-containment.tar.gz.sha256")
 
 # --- self-verification --------------------------------------------------------
 pub_tmp="$stage/trusted.pub.pem"

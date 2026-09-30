@@ -1,0 +1,4 @@
+989e3839d4bf906d1521d75c34b598a880183464b217fa9fc31ffeb8f601edec  scripts/super-test-adversarial.sh
+4f0c8a63b79ed9f534065248ba39d04c36fa0cfbd3f4322218db00290b4b1574  scripts/verify-mutation-gate.sh
+0458cc372f7e6a7901d14858a57223c2165e73e0e09b31b715ee7ba2a45605c5  scripts/cluster-clean-teardown.sh
+05221755072971bafc506ec2684949726a1de15a4736393950226372926f3c5e  scripts/cluster-scratch-standup.sh

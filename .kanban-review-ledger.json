@@ -3823,5 +3823,25 @@
     "verdict": "PASS",
     "model": null,
     "reason": "Phase 5 Governor certification verified: all 5 offline stages green, zero em-dashes across all surfaces, latent defects resolved, all 28 tasks completed."
+  },
+  "0376f": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "0376f",
+        "reviewed_at": "2026-09-30T04:22:53.016Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Smoke test verified 5/5 green pass on commit 6ee5bb3b"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "0376f",
+    "reviewed_at": "2026-09-30T04:22:53.016Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Smoke test verified 5/5 green pass on commit 6ee5bb3b"
   }
 }

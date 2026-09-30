@@ -1,0 +1,5 @@
+# FIXTURE step 5: two kubelet cAdvisor scrapes 10s apart; equal counters = 0 mCPU
+# HELP container_cpu_usage_seconds_total Cumulative cpu time consumed in seconds.
+# TYPE container_cpu_usage_seconds_total counter
+container_cpu_usage_seconds_total{container="kusari-agent",namespace="fe-signalloom-agents",pod="agent-kusari-7c9f8d6b5-x2x4q"} 0.18422 1790726400000
+container_cpu_usage_seconds_total{container="kusari-agent",namespace="fe-signalloom-agents",pod="agent-kusari-7c9f8d6b5-x2x4q"} 0.18422 1790726410000

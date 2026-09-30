@@ -1,0 +1,68 @@
+{
+  "schema": "sldc-eap-evidence-bundle/v1",
+  "bundle_name": "kusari-eap-evidence-20260930T100557Z",
+  "signed_at": "2026-09-30T10:05:57Z",
+  "source_date_epoch": 1790762757,
+  "evidence_origin": "fixture",
+  "git": {
+    "commit": "8d599f148c970c01b50295b4632a4a4524c8bc82",
+    "branch": "feat/sldc-p5-2",
+    "dirty": true
+  },
+  "operator": {
+    "identity": "sublimino@gmail.com",
+    "source": "git config user.email"
+  },
+  "host": {
+    "os": "Linux",
+    "kernel_release": "7.1.3+deb13-amd64",
+    "architecture": "x86_64",
+    "container_runtime": "docker 29.7.1"
+  },
+  "artifacts": [
+    {
+      "name": "preflight-manifest.json",
+      "sha256": "138676d0c920ef95fb0e27a4a33dc96becf62309c7c15336ff82445c8c1c3350",
+      "bytes": 778
+    },
+    {
+      "name": "step1-flux-reconcile.txt",
+      "sha256": "3bbe64e059be0901daef2648b355ea5cc2109b569132fb74c2b7b2ab18467802",
+      "bytes": 351
+    },
+    {
+      "name": "step2-registry-claim.json",
+      "sha256": "7e8924df990a07780def8cb64258b268d15fb46485fa336ce5b70753d0c86923",
+      "bytes": 194
+    },
+    {
+      "name": "step3-provocation-act.log",
+      "sha256": "cdcc22d75474cac4c502da366363ae96c036b168a0a70fe76aba06afd233a420",
+      "bytes": 245
+    },
+    {
+      "name": "step4-ebpf-observation.json",
+      "sha256": "74c26bb5ef5c42e65a70bd3fd3c941f6bf7d5aa9cd073a2c37e6c28616400217",
+      "bytes": 413
+    },
+    {
+      "name": "step5-cgroup-freeze.txt",
+      "sha256": "806f02fbcfac7c641b050b97c8cbacbc9cdc0e3f341ae564b55106c05742c35f",
+      "bytes": 404
+    },
+    {
+      "name": "step5-cadvisor-metrics.prom",
+      "sha256": "0df782eb5eeb09e178ed0d2e82fe82541a0e2977522df5f75bdd367ef2db53e2",
+      "bytes": 513
+    }
+  ],
+  "manifest": {
+    "name": "audit-signature.sha256",
+    "sha256": "75d0ac17bac0085aff1afa3a983b615e31a81d8443e2cb05bb474076977c9bc5"
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "file": "bundle-header.json.sig",
+    "public_key_sha256": "e832a15ca62a292aedac2a81a50614e0e105fa982a5f6bd337d98d4b3e7ce0ea"
+  }
+}

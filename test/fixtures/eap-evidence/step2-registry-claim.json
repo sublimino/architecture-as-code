@@ -1,0 +1,8 @@
+{
+  "agent_name": "kusari-agent",
+  "tenant_id": "kusari",
+  "tenant_hash": "4b53ab6b",
+  "model_name": "deterministic",
+  "claimed_at": "2026-09-30T00:00:05Z",
+  "lifecycle_state": "claimed"
+}

@@ -1,0 +1,13 @@
+# FIXTURE step 5: kernel cgroup v2 state of the kusari-agent container
+cgroup: /sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod0000.slice/cri-containerd-0000.scope
+## cgroup.events
+populated 1
+frozen 1
+## cpu.stat
+usage_usec 184220
+user_usec 120110
+system_usec 64110
+## reconcile annotation
+kustomize.toolkit.fluxcd.io/reconcile: disabled
+## container status
+restartCount: 0

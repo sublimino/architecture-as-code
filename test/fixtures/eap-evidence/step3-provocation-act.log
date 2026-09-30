@@ -1,0 +1,3 @@
+# FIXTURE step 3: POST /api/v1/namespaces/fe-signalloom-agents/services/kusari-agent:8080/proxy/act/read-passwd
+2026-09-30T00:00:10Z request POST /act/read-passwd
+2026-09-30T00:00:10Z response 200 {"action":"read-passwd","ok":true,"bytes":1024}

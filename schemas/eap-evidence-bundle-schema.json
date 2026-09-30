@@ -1,0 +1,450 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalloom.io/schemas/eap-evidence-bundle/v1",
+  "title": "SLDC Kusari EAP forensic evidence bundle (Appendix F.2)",
+  "description": "Root schema validates bundle-header.json, the signed summary of a packaged evidence bundle. $defs validate each JSON evidence artifact; x-artifactSchemas maps artifact file names to their $defs entry. Only the keyword subset implemented by scripts/lib/json-schema-lite.jq is used (type, required, properties, additionalProperties=false, const, enum, pattern, minLength, minimum, maximum, minItems, maxItems, items, anyOf, $ref), so the bundle can be audited with jq alone.",
+  "x-artifactSchemas": {
+    "preflight-manifest.json": "#/$defs/preflightManifest",
+    "step2-registry-claim.json": "#/$defs/registryClaim",
+    "step4-ebpf-observation.json": "#/$defs/ebpfObservation"
+  },
+  "x-rawArtifacts": [
+    "preflight-manifest.json",
+    "step1-flux-reconcile.txt",
+    "step2-registry-claim.json",
+    "step3-provocation-act.log",
+    "step4-ebpf-observation.json",
+    "step5-cgroup-freeze.txt",
+    "step5-cadvisor-metrics.prom"
+  ],
+  "type": "object",
+  "required": [
+    "schema",
+    "bundle_name",
+    "signed_at",
+    "evidence_origin",
+    "git",
+    "operator",
+    "host",
+    "artifacts",
+    "manifest",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "sldc-eap-evidence-bundle/v1"
+    },
+    "bundle_name": {
+      "type": "string",
+      "pattern": "^kusari-eap-evidence-[0-9]{8}T[0-9]{6}Z$"
+    },
+    "signed_at": {
+      "$ref": "#/$defs/utcTimestamp"
+    },
+    "source_date_epoch": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evidence_origin": {
+      "$ref": "#/$defs/evidenceOrigin"
+    },
+    "git": {
+      "type": "object",
+      "required": [
+        "commit",
+        "dirty"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      }
+    },
+    "operator": {
+      "type": "object",
+      "required": [
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string"
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "required": [
+        "os",
+        "kernel_release",
+        "architecture",
+        "container_runtime"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kernel_release": {
+          "type": "string",
+          "minLength": 1
+        },
+        "architecture": {
+          "type": "string",
+          "minLength": 1
+        },
+        "container_runtime": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "sha256",
+          "bytes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "enum": [
+              "preflight-manifest.json",
+              "step1-flux-reconcile.txt",
+              "step2-registry-claim.json",
+              "step3-provocation-act.log",
+              "step4-ebpf-observation.json",
+              "step5-cgroup-freeze.txt",
+              "step5-cadvisor-metrics.prom"
+            ]
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "required": [
+        "name",
+        "sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "audit-signature.sha256"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "file",
+        "public_key_sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "ed25519"
+        },
+        "file": {
+          "const": "bundle-header.json.sig"
+        },
+        "public_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "evidenceOrigin": {
+      "enum": [
+        "live",
+        "fixture",
+        "unknown"
+      ]
+    },
+    "tenant": {
+      "type": "object",
+      "required": [
+        "id",
+        "domain_hash"
+      ],
+      "properties": {
+        "id": {
+          "const": "kusari"
+        },
+        "domain_hash": {
+          "const": "4b53ab6b"
+        }
+      }
+    },
+    "cluster": {
+      "type": "object",
+      "required": [
+        "context"
+      ],
+      "properties": {
+        "context": {
+          "type": "string",
+          "minLength": 1
+        },
+        "server_version": {
+          "type": "string"
+        },
+        "flux_revision": {
+          "type": "string"
+        }
+      }
+    },
+    "preflightManifest": {
+      "type": "object",
+      "required": [
+        "captured_at",
+        "tenant",
+        "clusters",
+        "git"
+      ],
+      "properties": {
+        "schema": {
+          "const": "sldc-eap-preflight/v1"
+        },
+        "captured_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_origin": {
+          "enum": [
+            "live",
+            "fixture"
+          ]
+        },
+        "tenant": {
+          "$ref": "#/$defs/tenant"
+        },
+        "clusters": {
+          "type": "object",
+          "required": [
+            "workload",
+            "hub"
+          ],
+          "properties": {
+            "workload": {
+              "$ref": "#/$defs/cluster"
+            },
+            "hub": {
+              "$ref": "#/$defs/cluster"
+            }
+          }
+        },
+        "git": {
+          "type": "object",
+          "required": [
+            "commit"
+          ],
+          "properties": {
+            "commit": {
+              "$ref": "#/$defs/gitSha"
+            },
+            "dirty": {
+              "type": "boolean"
+            },
+            "diffstat": {
+              "type": "string"
+            }
+          }
+        },
+        "tools": {
+          "type": "object"
+        }
+      }
+    },
+    "registryClaim": {
+      "type": "object",
+      "required": [
+        "tenant_hash",
+        "model_name"
+      ],
+      "properties": {
+        "agent_name": {
+          "const": "kusari-agent"
+        },
+        "tenant_id": {
+          "const": "kusari"
+        },
+        "tenant": {
+          "const": "kusari"
+        },
+        "tenant_hash": {
+          "const": "4b53ab6b"
+        },
+        "model_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claimed_at": {
+          "type": "string"
+        },
+        "lifecycle_state": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "row": {
+          "type": "string"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "tenant_id"
+          ]
+        },
+        {
+          "required": [
+            "tenant"
+          ]
+        }
+      ]
+    },
+    "normalizedEvent": {
+      "type": "object",
+      "required": [
+        "actor_id",
+        "pod_name",
+        "syscall"
+      ],
+      "properties": {
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pod_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cgroup_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "labels": {
+          "type": "object",
+          "properties": {
+            "cgroup_path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "syscall": {
+          "enum": [
+            "sys_enter_openat",
+            "tcp_connect",
+            "sys_enter_execve"
+          ]
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "remote_endpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenant_id": {
+          "const": "kusari"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "filename"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        },
+        {
+          "required": [
+            "remote_endpoint"
+          ]
+        }
+      ],
+      "x-cgroupPath": "cgroup_path or labels.cgroup_path is required; checked by eap_content_checks because anyOf here already carries the target alternatives"
+    },
+    "ebpfObservation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/normalizedEvent"
+        },
+        {
+          "type": "object",
+          "required": [
+            "observations"
+          ],
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "observations": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/normalizedEvent"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

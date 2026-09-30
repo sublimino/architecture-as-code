@@ -1,0 +1,46 @@
+{
+  "_comment": "Shared SLDC-P3-1 tenant hash vectors. Go (pkg/tenant), Python and TypeScript (scripts/derive_tenant_hash.*) must all produce `want` or refuse with `error` (empty | invalid | retired | salt). `repeat` means input repeated N times. Hashes are sha256(salt + ':' + tenant)[:8], computed independently with hashlib. Normalisation contract: trim ASCII whitespace only, refuse any non-ASCII byte BEFORE lowercasing, then ASCII-lowercase.",
+  "salt": "signalloom-eap-salt-2026-q3",
+  "vectors": [
+    {"name": "canonical", "input": "kusari", "want": "4b53ab6b"},
+    {"name": "ascii case and whitespace", "input": "  KuSaRi \t", "want": "4b53ab6b"},
+    {"name": "trailing newline", "input": "kusari\n", "want": "4b53ab6b"},
+    {"name": "vertical tab and form feed", "input": "\u000bkusari\f", "want": "4b53ab6b"},
+    {"name": "custom tenant", "input": "acme", "want": "fe61c31b"},
+    {"name": "single char", "input": "a", "want": "394e4b63"},
+    {"name": "hyphenated", "input": "tenant-01", "want": "697f3e46"},
+    {"name": "trailing hyphen", "input": "kusari-", "want": "ba9ef14a"},
+    {"name": "hash-shaped name is just a name", "input": "4b53ab6b", "want": "1fa22a10"},
+    {"name": "63 chars (max)", "input": "x", "repeat": 63, "want": "ff9e79ff"},
+    {"name": "utf-8 salt bytes", "input": "kusari", "salt": "sälz-🧂", "want": "dbde795f"},
+
+    {"name": "empty", "input": "", "error": "empty"},
+    {"name": "spaces only", "input": "   ", "error": "empty"},
+    {"name": "tab newline only", "input": "\t\n", "error": "empty"},
+    {"name": "retired typo", "input": "kurasi", "error": "retired"},
+    {"name": "retired typo upper padded", "input": " KURASI ", "error": "retired"},
+    {"name": "empty salt refuses (no default)", "input": "kusari", "salt": "", "error": "salt"},
+
+    {"name": "64 chars", "input": "x", "repeat": 64, "error": "invalid"},
+    {"name": "10000 chars", "input": "k", "repeat": 10000, "error": "invalid"},
+    {"name": "leading hyphen", "input": "-kusari", "error": "invalid"},
+    {"name": "inner space", "input": "kus ari", "error": "invalid"},
+    {"name": "dot", "input": "a.b", "error": "invalid"},
+    {"name": "path traversal", "input": "kusari/../x", "error": "invalid"},
+    {"name": "NUL byte", "input": "kusari\u0000", "error": "invalid"},
+    {"name": "CRLF header injection", "input": "kusari\r\nx-evil: 1", "error": "invalid"},
+
+    {"name": "cyrillic i homoglyph", "input": "kusarі", "error": "invalid"},
+    {"name": "turkish dotted capital I", "input": "KUSARİ", "error": "invalid"},
+    {"name": "kelvin sign K", "input": "Kusari", "error": "invalid"},
+    {"name": "fullwidth latin", "input": "ｋusari", "error": "invalid"},
+    {"name": "NFC accented", "input": "kusári", "error": "invalid"},
+    {"name": "NFD combining acute", "input": "kusári", "error": "invalid"},
+    {"name": "BOM prefix", "input": "﻿kusari", "error": "invalid"},
+    {"name": "NBSP padding", "input": " kusari ", "error": "invalid"},
+    {"name": "NEL prefix", "input": "\u0085kusari", "error": "invalid"},
+    {"name": "em space prefix", "input": " kusari", "error": "invalid"},
+    {"name": "ASCII file separator prefix", "input": "\u001ckusari", "error": "invalid"},
+    {"name": "zero width space", "input": "kus​ari", "error": "invalid"}
+  ]
+}

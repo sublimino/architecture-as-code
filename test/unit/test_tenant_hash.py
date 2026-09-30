@@ -15,6 +15,7 @@ address, so no test touches a live cluster.
 import hashlib
 import hmac
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -83,6 +84,29 @@ class CanonicalVectors(unittest.TestCase):
     def test_env_salt_used_when_no_explicit_salt(self):
         r = _run("--quiet", "kusari", env={"SIGNAL_LOOM_EAP_SALT": PILOT_SALT})
         self.assertEqual((r.returncode, r.stdout), (0, "4b53ab6b\n"), r.stderr)
+
+
+class SharedVectors(unittest.TestCase):
+    """The cross-language table Go and TypeScript also run."""
+
+    ERRORS = {"retired": dth.RetiredTenantError, "salt": dth.SaltUnavailableError,
+              "empty": dth.TenantHashError, "invalid": dth.TenantHashError}
+
+    def test_shared_vectors(self):
+        table = json.loads((ROOT / "test/fixtures/tenant/hash-vectors.json").read_text("utf-8"))
+        for v in table["vectors"]:
+            tenant = v["input"] * v.get("repeat", 1)
+            salt = v.get("salt", table["salt"])
+            with self.subTest(v["name"]):
+                if "want" in v:
+                    self.assertEqual(dth.derive_tenant_hash(tenant, salt=salt), v["want"])
+                    continue
+                with self.assertRaises(self.ERRORS[v["error"]]) as ctx:
+                    dth.derive_tenant_hash(tenant, salt=salt)
+                if v["error"] in ("empty", "invalid"):
+                    self.assertNotIsInstance(ctx.exception, dth.RetiredTenantError)
+                    self.assertEqual("cannot be empty" in str(ctx.exception),
+                                     v["error"] == "empty")
 
 
 class RejectedInputs(unittest.TestCase):

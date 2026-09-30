@@ -174,17 +174,17 @@ run_probe() {
 }
 
 ERRORS=0
-run_probe "P1" "Canonical host + valid X-SignalLoom-Tenant" "$CANONICAL_HOST" "X-SignalLoom-Tenant" "$CANONICAL_TENANT" "200" || ((ERRORS++))
-run_probe "P2" "Canonical host + valid X-Tenant-ID" "$CANONICAL_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "200" || ((ERRORS++))
-run_probe "P3" "Canonical host + inferred tenant (no header)" "$CANONICAL_HOST" "" "" "200" || ((ERRORS++))
-run_probe "P4" "Canonical host + mismatched tenant header" "$CANONICAL_HOST" "X-SignalLoom-Tenant" "rogue" "403" || ((ERRORS++))
-run_probe "P5" "Canonical host + mismatched X-Tenant-ID" "$CANONICAL_HOST" "X-Tenant-ID" "unauthorized-org" "403" || ((ERRORS++))
-run_probe "P6" "Canonical host + legacy typo kurasi header" "$CANONICAL_HOST" "X-Tenant-ID" "$RETIRED_TENANT" "403" || ((ERRORS++))
-run_probe "P7" "Canonical host + legacy typo hash header" "$CANONICAL_HOST" "X-Tenant-ID" "$RETIRED_HASH" "403" || ((ERRORS++))
-run_probe "P8" "Case-insensitive whitespace header normalization" "$CANONICAL_HOST" "X-Tenant-ID" "  KUSARI  " "200" || ((ERRORS++))
-run_probe "P9" "Case-insensitive legacy typo rejection" "$CANONICAL_HOST" "X-Tenant-ID" "  KuRaSi  " "403" || ((ERRORS++))
-run_probe "P10" "Legacy typo host rejection" "$RETIRED_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "404" || ((ERRORS++))
-run_probe "P11" "Canonical demo host routing" "$CANONICAL_DEMO_HOST" "" "" "200" || ((ERRORS++))
+run_probe "P1" "Canonical host + valid X-SignalLoom-Tenant" "$CANONICAL_HOST" "X-SignalLoom-Tenant" "$CANONICAL_TENANT" "200" || ERRORS=$((ERRORS + 1))
+run_probe "P2" "Canonical host + valid X-Tenant-ID" "$CANONICAL_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "200" || ERRORS=$((ERRORS + 1))
+run_probe "P3" "Canonical host + inferred tenant (no header)" "$CANONICAL_HOST" "" "" "200" || ERRORS=$((ERRORS + 1))
+run_probe "P4" "Canonical host + mismatched tenant header" "$CANONICAL_HOST" "X-SignalLoom-Tenant" "rogue" "403" || ERRORS=$((ERRORS + 1))
+run_probe "P5" "Canonical host + mismatched X-Tenant-ID" "$CANONICAL_HOST" "X-Tenant-ID" "unauthorized-org" "403" || ERRORS=$((ERRORS + 1))
+run_probe "P6" "Canonical host + legacy typo kurasi header" "$CANONICAL_HOST" "X-Tenant-ID" "$RETIRED_TENANT" "403" || ERRORS=$((ERRORS + 1))
+run_probe "P7" "Canonical host + legacy typo hash header" "$CANONICAL_HOST" "X-Tenant-ID" "$RETIRED_HASH" "403" || ERRORS=$((ERRORS + 1))
+run_probe "P8" "Case-insensitive whitespace header normalization" "$CANONICAL_HOST" "X-Tenant-ID" "  KUSARI  " "200" || ERRORS=$((ERRORS + 1))
+run_probe "P9" "Case-insensitive legacy typo rejection" "$CANONICAL_HOST" "X-Tenant-ID" "  KuRaSi  " "403" || ERRORS=$((ERRORS + 1))
+run_probe "P10" "Legacy typo host rejection" "$RETIRED_HOST" "X-Tenant-ID" "$CANONICAL_TENANT" "404" || ERRORS=$((ERRORS + 1))
+run_probe "P11" "Canonical demo host routing" "$CANONICAL_DEMO_HOST" "" "" "200" || ERRORS=$((ERRORS + 1))
 
 TOTAL_PROBES="${#RESULTS[@]}"
 PASSED_PROBES=$((TOTAL_PROBES - ERRORS))

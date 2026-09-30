@@ -3883,5 +3883,45 @@
     "verdict": "pass",
     "model": null,
     "reason": "P1-2 verified: in-sentinel correlator, syscall normalizer, mock informer, and pipeline tests passed on commit 634095fc"
+  },
+  "b70d7": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "b70d7",
+        "reviewed_at": "2026-09-30T05:02:15.100Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "P1-1 verified: in-sentinel eBPF syscall probe, bpf2go loader, and live tracing tests passed on commit 66cee5fc"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "b70d7",
+    "reviewed_at": "2026-09-30T05:02:15.100Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "P1-1 verified: in-sentinel eBPF syscall probe, bpf2go loader, and live tracing tests passed on commit 66cee5fc"
+  },
+  "d15fb": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "d15fb",
+        "reviewed_at": "2026-09-30T05:02:15.820Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "P1-3 verified: hardened DaemonSet, netlink veth resolution, and exclusion tests passed on commit 6d3b5f12"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "d15fb",
+    "reviewed_at": "2026-09-30T05:02:15.820Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "P1-3 verified: hardened DaemonSet, netlink veth resolution, and exclusion tests passed on commit 6d3b5f12"
   }
 }

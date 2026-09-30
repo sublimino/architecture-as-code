@@ -1,0 +1,45 @@
+
+ RUN  v3.2.7 /home/andy/src/.worktrees/6cb1e/osramp-demo/d2-signalloom/apps/dashboard-signalloom
+
+ ✓ src/components/TopNavMetrics.test.tsx > summariseEstate > counts total, active and stunned, and sums CPU with frozen pods contributing zero 1ms
+ ✓ src/components/TopNavMetrics.test.tsx > MetricsTopBarView > shows the active agent count and aggregate CPU 41ms
+ ✓ src/components/TopNavMetrics.test.tsx > MetricsTopBarView > shows no numbers at all when telemetry is offline 2ms
+ ✓ src/components/TopNavMetrics.test.tsx > MetricsTopBarView > marks retained figures stale once the stream is lost 2ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > subscribes to the per-pod SSE endpoint with a Bearer header, not a URL token 74ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - idle (1.2 mCPU) > renders the reading with three decimals and an ACTIVE badge 21ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - idle (1.2 mCPU) > colours the sparkline green in the normal band 3ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - idle (1.2 mCPU) > shows resident memory in MiB alongside CPU 3ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - spike (98.4 mCPU) > renders the spike and colours the path red (critical band) 3ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - spike (98.4 mCPU) > uses amber for the elevated 20-80 band 2ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - frozen (0.000 mCPU) > renders exactly 0.000 mCPU, the STUNNED badge and the CONTAINED pill 2ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - frozen (0.000 mCPU) > keeps memory steady - frozen in place, not terminated 3ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - frozen (0.000 mCPU) > draws a perfectly horizontal flatline on the zero axis 3ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - frozen (0.000 mCPU) > clamps residual floating-point CPU to 0.000 when the cgroup reports frozen 3ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - frozen (0.000 mCPU) > does NOT claim containment from a bare zero without the freeze signal 4ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - frozen (0.000 mCPU) > distinguishes termination: RSS released to zero 2ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - accessibility > labels the region and the sparkline image 27ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - accessibility > announces state politely while active and assertively when frozen 5ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > AgentCockpitTelemetryView - accessibility > shows an awaiting state before the first sample, and a stale warning when told 2ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > TelemetryErrorBoundary > replaces a crashed visualiser with a fallback message 8ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > telemetry normalisation > reads snake_case bytes and camelCase MiB, and the explicit freeze signal 0ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > telemetry normalisation > rejects payloads it would have to guess at 0ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > telemetry normalisation > clamps a negative rate (counter reset) to zero 0ms
+ ✓ src/components/__tests__/AgentCockpitTelemetry.test.tsx > telemetry normalisation > bands at the card thresholds 0ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > renders live CPU and memory as samples arrive 61ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > renders 0.000 mCPU on cgroup freeze 63ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > ignores keepalive comments without re-rendering 118ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > reconnects after the stream drops mid-session and picks up the freeze 112ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > falls back to HTTP polling after repeated stream failures 23ms
+ ✓ src/components/TopNavMetrics.test.tsx > MetricsTopBarView > animates counter changes through a CSS transition flag 457ms
+ ✓ src/components/TopNavMetrics.test.tsx > MetricsTopBar (live estate stream) > subscribes to the estate endpoint and aggregates per-pod frames 62ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > flags a reading stale when the stream goes quiet 96ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > caps the rolling window at 15 points in a long session 58ms
+ ✓ src/components/CockpitTelemetry.test.tsx > AgentCockpitTelemetry (live stream) > drops frames for other pods 62ms
+ ✓ src/components/CockpitTelemetry.test.tsx > telemetry hook helpers > backs off exponentially and caps 1ms
+ ✓ src/components/CockpitTelemetry.test.tsx > telemetry hook helpers > appendWindow never exceeds the window size 1ms
+
+ Test Files  3 passed (3)
+      Tests  36 passed (36)
+   Start at  09:15:00
+   Duration  1.29s (transform 215ms, setup 456ms, collect 364ms, tests 1.33s, environment 575ms, prepare 172ms)
+

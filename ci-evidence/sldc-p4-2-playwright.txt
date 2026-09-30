@@ -1,0 +1,14 @@
+
+Running 9 tests using 1 worker
+
+  ✓  1 [cockpit-telemetry] › agent-cockpit-telemetry.spec.ts:46:5 › idle -> provocation spike -> stun renders an exact 0.000 mCPU flatline within 3 s, memory held (2.6s)
+  ✓  2 [cockpit-telemetry] › agent-cockpit-telemetry.spec.ts:93:5 › a stream drop during the freeze does not leave the pre-freeze reading on screen (1.5s)
+  ✓  3 [cockpit-telemetry] › agent-cockpit-telemetry.spec.ts:111:5 › termination is visibly different from freeze: RSS released (443ms)
+  ✓  4 [cockpit-telemetry] › agent-cockpit-telemetry.spec.ts:121:5 › streams authenticate with a Bearer header and never put a token in the URL (162ms)
+  ✓  5 [cockpit-telemetry] › cockpit-telemetry.spec.ts:33:5 › #cockpit-cpu-metric is visible and formats as N.NNN mCPU in every state (627ms)
+  ✓  6 [cockpit-telemetry] › cockpit-telemetry.spec.ts:50:5 › top bar shows active and stunned counts and aggregate CPU, live (457ms)
+  ✓  7 [cockpit-telemetry] › cockpit-telemetry.spec.ts:66:7 › top bar does not push navigation off-screen at 1440px (298ms)
+  ✓  8 [cockpit-telemetry] › cockpit-telemetry.spec.ts:66:7 › top bar does not push navigation off-screen at 1024px (206ms)
+  ✓  9 [cockpit-telemetry] › cockpit-telemetry.spec.ts:88:5 › frozen cockpit badge DOM snapshot (1.4s)
+
+  9 passed (8.3s)

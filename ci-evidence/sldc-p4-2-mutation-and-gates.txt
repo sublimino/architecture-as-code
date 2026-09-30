@@ -1,0 +1,24 @@
+SLDC-P4-2 mutation proofs and gates - recorded 2026-09-30 09:15:20+01:00
+Base: integration/sldc-v0.1.0 @ 562693d2
+
+Mutation (each applied alone, suite re-run, file restored and cmp-verified):
+  M1 formatMillicores frozen -> '0 mCPU'             vitest 7/36 failed; named test "renders 0.000 mCPU on cgroup freeze" rc=1
+                                                      ("expected '0 mCPU' to match /^0\.000 mCPU$/"); Playwright format spec rc=1
+  M2 runStateOf: bare zero -> 'frozen'               vitest 3/36 failed (false-STUNNED guard)
+  M3 drop residual-float clamp                       vitest 1/36 failed
+  M4 rolling window uncapped                         vitest 2/36 failed
+  M5 no reconnect loop                               vitest 10/36 failed
+  M6 flatline back to stroke-dasharray:600 sweep     Playwright containment spec rc=1 (strokeDasharray Expected "none", Received "600px")
+  Restored tree: vitest 36/36, Playwright 9/9.
+
+Gates:
+  vitest (3 new suites)          36/36 pass
+  vitest (full dashboard suite)  204 files, 3580 passed, 3 skipped, 0 failed
+  eslint --max-warnings 0        clean on all new/touched files
+  vite build                     rc=0
+  tsc --noEmit                   24 errors, all pre-existing: identical set on a detached copy of 562693d2
+                                 (src/components/demos/bridge.test.ts x23, src/pages/AgentsPage.tsx:330 TS2367). Zero in files this card adds.
+  bun run build (tsc && vite)    fails on base for the same pre-existing tsc errors.
+  test/acceptance-spec-coverage.bats  7/7
+  Playwright                     9/9 on bundled Chromium (PW_CHANNEL=chromium); /opt/google/chrome/chrome is EACCES from this
+                                 process tree even unsandboxed (NoNewPrivs), so real branded Chrome could not be driven.

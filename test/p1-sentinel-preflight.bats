@@ -2,92 +2,89 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# test/p1-sentinel-preflight.bats — Automated BATS suite executing pre-flight assertions
-# against host Linux kernel interfaces, BTF symbols, cgroups v2, and DaemonSet configurations.
+# test/p1-sentinel-preflight.bats — scripts/p1-sentinel-preflight.sh.
+#
+# Test 1 audits the real host kernel (BTF, cgroup v2, kernel >= 5.8) against the
+# real base DaemonSet. Every other test drives one refusal path with an
+# injected fixture. docker is stubbed to fail so no fallback can reach the host,
+# and the report goes to a temp file so the tracked ci-evidence copy is never
+# rewritten by a test run.
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  SCRIPT="${REPO_ROOT}/scripts/p1-sentinel-preflight.sh"
+  BASE_DS="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base/daemonset.yaml"
+  export P1_PREFLIGHT_OUT="${BATS_TEST_TMPDIR}/audit.json"
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  printf '#!/bin/sh\nexit 1\n' >"${BATS_TEST_TMPDIR}/bin/docker"
+  chmod +x "${BATS_TEST_TMPDIR}/bin/docker"
+  export PATH="${BATS_TEST_TMPDIR}/bin:${PATH}"
 }
 
-@test "p1 preflight: scripts/p1-sentinel-preflight.sh executes cleanly and passes all checks" {
-  run bash "${REPO_ROOT}/scripts/p1-sentinel-preflight.sh"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "Preflight Audit Summary: 8 passed, 0 failed" ]]
-  [[ "$output" =~ "status=pass" ]]
+report() { jq -r "$1" "$P1_PREFLIGHT_OUT"; }
+
+manifest_with() {
+  local out="${BATS_TEST_TMPDIR}/ds.yaml"
+  yq "$1" "$BASE_DS" >"$out"
+  echo "$out"
 }
 
-@test "p1 preflight: kernel BTF support pre-flight (unit)" {
-  # BTF dump raw output validation via transparent wrapper or direct kernel reading
-  if [[ -x "${REPO_ROOT}/bin/bpftool" ]]; then
-    run bash "${REPO_ROOT}/bin/bpftool" btf dump file /sys/kernel/btf/vmlinux format raw
-  elif command -v docker >/dev/null 2>&1; then
-    run docker run --rm --privileged -v /sys/kernel/btf:/sys/kernel/btf:ro signalloom-bpf-builder:trixie bpftool btf dump file /sys/kernel/btf/vmlinux format raw
-  else
-    run head -c 64 /sys/kernel/btf/vmlinux
-  fi
+@test "p1 preflight: this host and the base DaemonSet pass all 8 checks" {
+  [ -r /sys/kernel/btf/vmlinux ] || skip "host has no readable /sys/kernel/btf/vmlinux"
+  run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  BYTE_COUNT=$(echo -n "$output" | head -c 64 | wc -c)
-  [ "$BYTE_COUNT" -eq 64 ]
+  [[ "$output" == *"Preflight Audit Summary: 8 passed, 0 failed (status=pass)"* ]]
+  [ "$(report .summary.status)" = pass ]
+  [ "$(report .daemonset_security.manifest_inspected)" = "$BASE_DS" ]
+  git -C "$REPO_ROOT" diff --quiet -- ci-evidence/p1-preflight-audit.json
 }
 
-@test "p1 preflight: cgroup v2 unified hierarchy and root controllers pre-flight (unit)" {
-  run stat -fc %T /sys/fs/cgroup/
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "cgroup2fs" ]]
-
-  # Check controller support
-  if cat /sys/fs/cgroup/cgroup.controllers >/dev/null 2>&1; then
-    run cat /sys/fs/cgroup/cgroup.controllers
-  elif command -v docker >/dev/null 2>&1; then
-    run docker run --rm --privileged -v /sys/fs/cgroup:/sys/fs/cgroup:ro alpine cat /sys/fs/cgroup/cgroup.controllers
-  else
-    run stat -fc %T /sys/fs/cgroup/
-  fi
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "cpu" ]] || [[ "$output" =~ "cgroup2fs" ]]
-}
-
-@test "p1 preflight: hostPID and hostNetwork DaemonSet inspection (integration)" {
-  run bash -c "kubectl get daemonset stun-sentinel -n fe-signalloom -o jsonpath='{.spec.template.spec.hostPID}:{.spec.template.spec.hostNetwork}' 2>/dev/null || (grep 'hostPID: true' '${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base/daemonset.yaml' && grep 'hostNetwork: true' '${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base/daemonset.yaml' && echo 'true:true')"
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "true:true" ]] || [[ "$output" =~ "hostPID: true" ]]
-}
-
-@test "p1 preflight: deliberate mutation testing check (missing BTF refusal proof)" {
-  run bash -c "test -r /sys/kernel/btf/vmlinux_nonexistent 2>&1; echo \"EXIT:\$?\""
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "EXIT:1" ]]
-
-  # Assert preflight script fails when pointing to nonexistent BTF
-  run bash -c "BTF_PATH=/sys/kernel/btf/vmlinux_nonexistent bash '${REPO_ROOT}/scripts/p1-sentinel-preflight.sh'"
+@test "p1 preflight: missing BTF fails with the path named and btf.available=false" {
+  run env BTF_PATH=/nonexistent/vmlinux bash "$SCRIPT"
   [ "$status" -eq 1 ]
-  [[ "$output" =~ "status=fail" ]]
-
-  # Restore passing evidence report
-  bash "${REPO_ROOT}/scripts/p1-sentinel-preflight.sh" >/dev/null 2>&1
+  [[ "$output" == *"Kernel BTF symbol table missing or unreadable at /nonexistent/vmlinux"* ]]
+  [ "$(report .summary.status)" = fail ]
+  [ "$(report .btf.available)" = false ]
 }
 
-@test "p1 preflight: machine-readable JSON summary conforms to schema and status=pass" {
-  [ -f "${REPO_ROOT}/ci-evidence/p1-preflight-audit.json" ]
-  run grep -q '"status": "pass"' "${REPO_ROOT}/ci-evidence/p1-preflight-audit.json"
-  [ "$status" -eq 0 ]
-  run grep -q '"unified_hierarchy": true' "${REPO_ROOT}/ci-evidence/p1-preflight-audit.json"
-  [ "$status" -eq 0 ]
-  run grep -q '"ring_buffer_supported": true' "${REPO_ROOT}/ci-evidence/p1-preflight-audit.json"
-  [ "$status" -eq 0 ]
+@test "p1 preflight: unreadable cgroup controllers are reported, never assumed" {
+  run env CGROUP_PATH="$BATS_TEST_TMPDIR" bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Cgroup v2 root controllers missing required set (cpu=false, memory=false, pids=false)"* ]]
+  [ "$(report .cgroup_v2.controllers_raw)" = "" ]
 }
 
-@test "p1 preflight: capability audit manifest specifies required capabilities and mounts" {
-  MANIFEST="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/deploy/capability-audit.yaml"
-  [ -f "$MANIFEST" ]
-  grep -q "hostPID: true" "$MANIFEST"
-  grep -q "hostNetwork: true" "$MANIFEST"
-  grep -q "privileged: true" "$MANIFEST"
-  grep -q "SYS_PTRACE" "$MANIFEST"
-  grep -q "BPF" "$MANIFEST"
-  grep -q "NET_ADMIN" "$MANIFEST"
-  grep -q "/sys/fs/cgroup" "$MANIFEST"
-  grep -q "/lib/modules" "$MANIFEST"
-  grep -q "/sys/kernel/btf" "$MANIFEST"
-  grep -q "/proc" "$MANIFEST"
+@test "p1 preflight: a controller set without pids fails" {
+  echo "cpuset cpu memory" >"${BATS_TEST_TMPDIR}/cgroup.controllers"
+  run env CGROUP_PATH="$BATS_TEST_TMPDIR" bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"(cpu=true, memory=true, pids=false)"* ]]
+}
+
+@test "p1 preflight: kernel config that could not be read is reported as unknown" {
+  run env KERNEL_CONFIG=/nonexistent/config bash "$SCRIPT"
+  [ "$(report .kernel.config_bpf)" = null ]
+  [ "$(report .kernel.config_bpf_syscall)" = null ]
+}
+
+@test "p1 preflight: a DaemonSet without hostPID fails" {
+  run env P1_SENTINEL_MANIFEST="$(manifest_with 'select(.kind == "DaemonSet").spec.template.spec.hostPID = false')" bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"hostPID=false, hostNetwork=true"* ]]
+}
+
+@test "p1 preflight: a capability named only in a comment does not count" {
+  local m
+  m="$(manifest_with '(select(.kind == "DaemonSet").spec.template.spec.containers[0].securityContext) |= (.privileged = false | .capabilities.add = ["BPF"])')"
+  echo "# SYS_PTRACE NET_ADMIN privileged: true" >>"$m"
+  run env P1_SENTINEL_MANIFEST="$m" bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DaemonSet missing required capabilities"* ]]
+  [ "$(report .daemonset_security.capabilities.sys_ptrace)" = false ]
+}
+
+@test "p1 preflight: a missing DaemonSet manifest fails closed" {
+  run env P1_SENTINEL_MANIFEST=/nonexistent/ds.yaml bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DaemonSet manifest not found: /nonexistent/ds.yaml"* ]]
 }

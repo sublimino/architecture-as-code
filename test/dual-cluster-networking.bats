@@ -345,6 +345,64 @@ EOF
   grep -q 'docker network rm signalloom-bridge' "$CALLS"
 }
 
+@test "down: a hub name aliasing the shared osramp cluster is refused (exit 2, nothing deleted)" {
+  make_fakes
+  printf 'signalloom-bridge|172.19.0.0/16|0\n' >"$FAKE/networks"
+  printf 'osramp\nsignalloom-hub\n' >"$FAKE/clusters"
+  SLDC_HUB_CLUSTER=osramp run bash "$DOWN"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"SLDC_HUB_CLUSTER 'osramp' is the shared workload cluster"* ]]
+  refute_called 'kind delete'
+}
+
+@test "down: unknown flag exits 2 before touching anything" {
+  make_fakes
+  run bash "$DOWN" --delete-everything
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--delete-osramp"* ]]
+  [ ! -s "$CALLS" ]
+}
+
+@test "down: a missing kind binary fails (exit 1) instead of reporting a clean teardown" {
+  make_fakes
+  printf 'osramp\nsignalloom-hub\n' >"$FAKE/clusters"
+  KIND_BIN="$BATS_TEST_TMPDIR/absent/kind" run bash "$DOWN"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"missing required tool: $BATS_TEST_TMPDIR/absent/kind"* ]]
+  [[ "$output" != *"teardown complete"* ]]
+}
+
+@test "up: a missing docker binary fails (exit 1) and names the tool" {
+  make_fakes
+  DOCKER_BIN="$BATS_TEST_TMPDIR/absent/docker" run bash "$UP"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"missing required tool: $BATS_TEST_TMPDIR/absent/docker"* ]]
+}
+
+@test "up: a missing kind binary fails before any cluster create is attempted" {
+  make_fakes
+  printf 'signalloom-bridge|172.19.0.0/16|0\n' >"$FAKE/networks"
+  KIND_BIN="$BATS_TEST_TMPDIR/absent/kind" run bash "$UP"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"missing required tool: $BATS_TEST_TMPDIR/absent/kind"* ]]
+  [[ "$output" != *"kind create"* ]]
+}
+
+@test "up: re-running against a complete topology creates, connects and recreates nothing" {
+  make_fakes
+  printf 'signalloom-bridge|172.19.0.0/16|0\n' >"$FAKE/networks"
+  printf 'osramp\nsignalloom-hub\n' >"$FAKE/clusters"
+  run bash "$UP"
+  [ "$status" -eq 0 ]
+  : >"$CALLS"
+  run bash "$UP"
+  [ "$status" -eq 0 ]
+  refute_called 'kind create'
+  refute_called 'network create'
+  refute_called 'network connect'
+  refute_called 'network rm'
+}
+
 # ---------------------------------------------------------------- tier 2 ----
 
 @test "live: kind get clusters lists osramp and signalloom-hub" {

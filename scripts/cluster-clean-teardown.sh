@@ -19,8 +19,11 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=scripts/lib/cluster-reset-helpers.sh
 source "$SCRIPT_DIR/lib/cluster-reset-helpers.sh"
 
-SAVED_CONTAINERS_FILE="/tmp/sldc-saved-containers.txt"
+# Per-user runtime dir, not a fixed /tmp name another local user could
+# pre-plant: standup starts every container named in this file.
+SAVED_CONTAINERS_FILE="${SLDC_SAVED_CONTAINERS_FILE:-${XDG_RUNTIME_DIR:-$REPO_ROOT/.evidence}/sldc-saved-containers.txt}"
 rm -f "$SAVED_CONTAINERS_FILE"
+FAILURES=0
 
 echo "════ Cluster Clean Teardown ════"
 
@@ -33,7 +36,10 @@ if command -v kind >/dev/null 2>&1; then
   for cluster in signalloom-hub osramp; do
     if kind get clusters 2>/dev/null | grep -qx "$cluster"; then
       echo "Deleting Kind cluster $cluster..."
-      kind delete cluster --name "$cluster" 2>/dev/null || true
+      if ! kind delete cluster --name "$cluster"; then
+        echo "ERROR: kind delete cluster --name $cluster failed" >&2
+        FAILURES=$((FAILURES + 1))
+      fi
     fi
   done
 fi
@@ -70,10 +76,10 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 echo "────────────────────────────────────────────────"
-if [ "$REMAINING" -eq 0 ]; then
+if [ "$REMAINING" -eq 0 ] && [ "$FAILURES" -eq 0 ]; then
   echo "VERDICT: PASS (0 lingering containers matching osramp|signalloom)"
   exit 0
 else
-  echo "VERDICT: FAIL ($REMAINING lingering containers)" >&2
+  echo "VERDICT: FAIL ($REMAINING lingering containers, $FAILURES failed deletes)" >&2
   exit 1
 fi

@@ -75,6 +75,7 @@ spec:
             periodSeconds: 5
           securityContext:
             privileged: false
+            readOnlyRootFilesystem: true
             capabilities:
               # SLDC-P1-3: SYS_PTRACE is required to open another container's
               # /proc/<pid>/ns/net for netlink veth resolution (EACCES without

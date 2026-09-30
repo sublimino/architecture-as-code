@@ -48,8 +48,8 @@ func TestDecodeSyscallEventRejectsUnknownType(t *testing.T) {
 }
 
 func TestDecodeSyscallEventUnterminatedFieldsStayInBounds(t *testing.T) {
-	comm := bytes.Repeat([]byte{'C'}, commLen)         // no NUL
-	name := bytes.Repeat([]byte{'/'}, filenameLen)     // no NUL
+	comm := bytes.Repeat([]byte{'C'}, commLen)          // no NUL
+	name := bytes.Repeat([]byte{'/'}, filenameLen)      // no NUL
 	raw := append(record(EventOpenat, comm, name), 'X') // trailing byte past the struct
 	ev, err := DecodeSyscallEvent(raw)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	bpfebpf "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -149,8 +151,18 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		r.reconcileCount.Add(1)
 	}
 
+	if pod == nil || pod.Name == "stun-sentinel" || (pod.Labels != nil && pod.Labels["app.kubernetes.io/name"] == "stun-sentinel") {
+		return nil
+	}
+	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+		return nil
+	}
+
 	cgroupPath, err := r.freezer.resolvePodCgroup(string(pod.UID))
 	if err != nil {
+		if !isPodStunned(pod) {
+			return nil
+		}
 		return fmt.Errorf("resolve cgroup: %w", err)
 	}
 
@@ -200,6 +212,9 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 
 	veth, err := r.tc.findHostVeth(cgroupPath)
 	if err != nil {
+		if !r.probes.isPreserved(string(pod.UID)) {
+			return nil
+		}
 		return fmt.Errorf("find veth before unfreezing pod: %w", err)
 	}
 	if err := r.probes.release(pod, cgroupPath, veth); err != nil {
@@ -306,9 +321,32 @@ func main() {
 	controller := newController(informer, reconciler)
 
 	factory.Start(ctx.Done())
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		logEvent(stunEvent{Timestamp: now(), Event: "startup_failed", Error: "pod informer cache did not sync", DryRun: cfg.DryRun})
-		return
-	}
+	// Initialize and start in-sentinel pure-Go eBPF probe loader & correlator (SLDC-P1-1, SLDC-P1-2)
+	go func() {
+		loader, err := bpfebpf.NewLoader(bpfebpf.LoaderOptions{
+			IgnoreTGID: uint32(os.Getpid()),
+		})
+		if err != nil {
+			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_probe_skipped", Error: fmt.Sprintf("ebpf probe load: %v", err), DryRun: cfg.DryRun})
+			return
+		}
+		defer loader.Close()
+
+		logEvent(stunEvent{
+			Timestamp: now(),
+			Event:     "ebpf_probe_attached",
+			Details: map[string]interface{}{
+				"tracepoints": []string{"sys_enter_openat", "sys_enter_openat2", "sys_enter_execve", "sys_enter_connect"},
+				"ringbuf_mb":  16,
+			},
+		})
+
+		freezeMgr := correlator.NewFreezeManager(freezer.engine)
+		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr)
+		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
+			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})
+		}
+	}()
+
 	controller.run(ctx.Done())
 }

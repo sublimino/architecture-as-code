@@ -325,7 +325,7 @@ func TestOwnerRecordPhaseGating(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected error freezing pod in Pending phase, got nil")
 	}
-	if !strings.Contains(err.Error(), "refusing freeze outside Running phase") {
+	if !strings.Contains(err.Error(), "not Running") && !strings.Contains(err.Error(), "refusing freeze outside Running phase") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }

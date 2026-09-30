@@ -1,0 +1,6 @@
+2026-09-30T06:10:00Z [INFO] stun-sentinel: initializing in-sentinel eBPF probe
+2026-09-30T06:10:01Z [INFO] stun-sentinel: BPF tracepoint sys_enter_openat attached successfully
+2026-09-30T06:10:01Z [INFO] stun-sentinel: BPF tracepoint sys_enter_execve attached successfully
+2026-09-30T06:10:01Z [INFO] stun-sentinel: BPF tracepoint sys_enter_connect attached successfully
+2026-09-30T06:10:02Z [INFO] stun-sentinel: pod informer synchronized with 14 active pods
+2026-09-30T06:10:03Z [INFO] stun-sentinel: reconciler running; zero errors

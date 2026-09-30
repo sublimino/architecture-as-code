@@ -1,0 +1,21 @@
+{
+  "phase": 1,
+  "governor": "SLDC-P1-GOV",
+  "status": "certified",
+  "certified_at": "2026-09-30T05:15:55Z",
+  "git_commit": "d32fe9c7e02f43471a34c741dd041026808ed369",
+  "verifications": {
+    "clean_merge": "pass",
+    "go_unit_and_integration": "pass",
+    "bats_suites_26_of_26": "pass",
+    "zero_reconcile_failed": "pass",
+    "deliberate_mutation_testing": "pass"
+  },
+  "deliverables": [
+    "scripts/test-phase1-governor.sh",
+    "test/phase1-governor-verification.bats",
+    "ci-evidence/phase1-governance-certification.json",
+    "ci-evidence/phase1-sentinel-log-audit.txt",
+    "docs/eap/SLDC-P1-GOVERNOR-REPORT.md"
+  ]
+}

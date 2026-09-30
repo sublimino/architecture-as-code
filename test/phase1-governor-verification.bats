@@ -67,7 +67,8 @@ cert() { jq -r "$1" "${P1_GOV_OUT}/phase1-governance-certification.json"; }
   [[ "$output" == *"FATAL: go test failed in d2-signalloom/apps/stun-sentinel"* ]]
   [ "$(cert .verifications.go_suites)" = fail ]
   [ "$(cert .verifications.bats_suites)" = not-run ]
-  ! grep -q '^bats' "$CALLS"
+  run grep -q '^bats' "$CALLS"
+  [ "$status" -eq 1 ]
 }
 
 @test "p1 governor: a failing BATS suite refuses certification" {

@@ -1,0 +1,13 @@
+{
+  "schema": "sldc-eap-preflight/v1",
+  "captured_at": "2026-09-30T00:00:00Z",
+  "evidence_origin": "fixture",
+  "note": "FIXTURE: synthetic evidence for tier-1 tests of scripts/package-eap-evidence.sh and scripts/verify-eap-evidence.sh. Not the output of a live containment run.",
+  "tenant": { "id": "kusari", "domain_hash": "4b53ab6b" },
+  "clusters": {
+    "workload": { "context": "kind-osramp", "server_version": "v1.31.0", "flux_revision": "integration/sldc-v0.1.0@sha1:0000000000000000000000000000000000000000" },
+    "hub": { "context": "kind-signalloom-hub", "server_version": "v1.31.0" }
+  },
+  "git": { "commit": "0000000000000000000000000000000000000000", "dirty": false, "diffstat": "" },
+  "tools": { "kubectl": "v1.31.0", "flux": "v2.4.0", "bats": "1.11.0" }
+}

@@ -1,0 +1,151 @@
+# SLDC-P5-2 required tests  captured: 2026-09-30 11:05:57 +0100  base: 8d599f148c970c01b50295b4632a4a4524c8bc82 (+ uncommitted P5-2 tree)
+# input: test/fixtures/eap-evidence/* copied to /tmp/sldc-forensics (evidence_origin=fixture; no live P5-1 run exists yet)
+
+$ bash scripts/package-eap-evidence.sh /tmp/sldc-forensics
+evidence: /tmp/sldc-forensics
+OK   all 7 raw artifacts present and non-empty
+OK   preflight-manifest.json conforms to schema #/$defs/preflightManifest
+OK   step2-registry-claim.json conforms to schema #/$defs/registryClaim
+OK   step4-ebpf-observation.json conforms to schema #/$defs/ebpfObservation
+OK   step5-cgroup-freeze.txt reports frozen 1
+OK   restartCount is 0 in every text artifact that records it
+OK   every eBPF observation carries a cgroup_path
+OK   step5-cadvisor-metrics.prom shows a flat container_cpu_usage_seconds_total series (0 mCPU)
+OK   no legacy tenant vector (kurasi / 6f82ad81) in evidence
+OK   audit-signature.sha256 lists 7 valid 64-hex SHA-256 digests
+OK   signed bundle-header.json (ed25519, key sha256:e832a15ca62a292aedac2a81a50614e0e105fa982a5f6bd337d98d4b3e7ce0ea)
+WARN evidence_origin is 'fixture': not proof of a live containment run
+VERDICT: PASS (tarball /home/andy/.cline/worktrees/9bdab/osramp-demo/ci-evidence/kusari-eap-evidence-20260930T100557Z.tar.gz)
+WARN evidence_origin is 'fixture': this bundle is not proof of a live containment run
+manifest: /tmp/sldc-forensics/audit-signature.sha256
+bundle: /home/andy/.cline/worktrees/9bdab/osramp-demo/ci-evidence/kusari-eap-evidence-20260930T100557Z.tar.gz
+bundle sha256: 7f2241b764b92b3c1afc5ebd17bdaf4d48deb65e14a42e30447b15279310c6e4
+exit=0
+
+$ ls -1 /tmp/sldc-forensics | grep -E "(8 artifact names)" | wc -l
+8
+
+$ find /tmp/sldc-forensics -type f -size 0c | wc -l
+0
+
+$ ls -l /tmp/sldc-forensics   (mode, bytes, name)
+-rw-rw-r-- 643 audit-signature.sha256
+-rw-rw-r-- 2034 bundle-header.json
+-rw-rw-r-- 64 bundle-header.json.sig
+-rw-rw-r-- 778 preflight-manifest.json
+-rw-rw-r-- 113 signing-key.pub.pem
+-rw-rw-r-- 351 step1-flux-reconcile.txt
+-rw-rw-r-- 194 step2-registry-claim.json
+-rw-rw-r-- 245 step3-provocation-act.log
+-rw-rw-r-- 413 step4-ebpf-observation.json
+-rw-rw-r-- 513 step5-cadvisor-metrics.prom
+-rw-rw-r-- 404 step5-cgroup-freeze.txt
+
+$ cd /tmp/sldc-forensics && sha256sum -c audit-signature.sha256
+preflight-manifest.json: OK
+step1-flux-reconcile.txt: OK
+step2-registry-claim.json: OK
+step3-provocation-act.log: OK
+step4-ebpf-observation.json: OK
+step5-cgroup-freeze.txt: OK
+step5-cadvisor-metrics.prom: OK
+exit=0
+
+$ jq empty preflight-manifest.json && jq empty step2-registry-claim.json && jq empty step4-ebpf-observation.json
+exit=0
+
+$ mutation (on a copy): printf " " >> step4-ebpf-observation.json; sha256sum -c audit-signature.sha256
+preflight-manifest.json: OK
+step1-flux-reconcile.txt: OK
+step2-registry-claim.json: OK
+step3-provocation-act.log: OK
+step4-ebpf-observation.json: FAILED
+step5-cgroup-freeze.txt: OK
+step5-cadvisor-metrics.prom: OK
+sha256sum: WARNING: 1 computed checksum did NOT match
+exit=1
+
+$ tar -tvzf ci-evidence/kusari-eap-evidence-20260930T100557Z.tar.gz
+drwxr-xr-x 0/0               0 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/
+-rw-r--r-- 0/0             643 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/audit-signature.sha256
+-rw-r--r-- 0/0            2034 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/bundle-header.json
+-rw-r--r-- 0/0              64 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/bundle-header.json.sig
+-rw-r--r-- 0/0             778 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/preflight-manifest.json
+-rw-r--r-- 0/0             113 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/signing-key.pub.pem
+-rw-r--r-- 0/0             351 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/step1-flux-reconcile.txt
+-rw-r--r-- 0/0             194 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/step2-registry-claim.json
+-rw-r--r-- 0/0             245 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/step3-provocation-act.log
+-rw-r--r-- 0/0             413 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/step4-ebpf-observation.json
+-rw-r--r-- 0/0             513 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/step5-cadvisor-metrics.prom
+-rw-r--r-- 0/0             404 2026-09-30 11:05 kusari-eap-evidence-20260930T100557Z/step5-cgroup-freeze.txt
+
+$ scripts/verify-eap-evidence.sh ci-evidence/kusari-eap-evidence-20260930T100557Z.tar.gz
+OK   bundle checksum matches kusari-eap-evidence-20260930T100557Z.tar.gz.sha256
+OK   archive layout: one directory (0755) of bundle files (0644)
+OK   all 7 raw artifacts present and non-empty
+OK   preflight-manifest.json conforms to schema #/$defs/preflightManifest
+OK   step2-registry-claim.json conforms to schema #/$defs/registryClaim
+OK   step4-ebpf-observation.json conforms to schema #/$defs/ebpfObservation
+OK   step5-cgroup-freeze.txt reports frozen 1
+OK   restartCount is 0 in every text artifact that records it
+OK   every eBPF observation carries a cgroup_path
+OK   step5-cadvisor-metrics.prom shows a flat container_cpu_usage_seconds_total series (0 mCPU)
+OK   no legacy tenant vector (kurasi / 6f82ad81) in evidence
+OK   audit-signature.sha256 lists 7 valid 64-hex SHA-256 digests
+OK   sha256sum -c audit-signature.sha256: 7 OK, 0 mismatches
+OK   bundle-header.json matches the manifest and all seven artifacts (commit 8d599f148c970c01b50295b4632a4a4524c8bc82, signed 2026-09-30T10:05:57Z by sublimino@gmail.com)
+OK   ed25519 signature over bundle-header.json verifies (key sha256:e832a15ca62a292aedac2a81a50614e0e105fa982a5f6bd337d98d4b3e7ce0ea)
+WARN evidence_origin is 'fixture': not proof of a live containment run
+VERDICT: PASS (tarball ci-evidence/kusari-eap-evidence-20260930T100557Z.tar.gz)
+exit=0
+
+$ scripts/verify-eap-evidence.sh --quiet --require-live ci-evidence/kusari-eap-evidence-20260930T100557Z.tar.gz
+FAIL evidence_origin is 'fixture' and --require-live was given
+VERDICT: FAIL (1 check(s) failed)
+exit=1
+
+$ by hand: openssl pkeyutl -verify ... ; pubkey fingerprint vs header
+Signature Verified Successfully
+e832a15ca62a292aedac2a81a50614e0e105fa982a5f6bd337d98d4b3e7ce0ea  -
+e832a15ca62a292aedac2a81a50614e0e105fa982a5f6bd337d98d4b3e7ce0ea
+
+$ bats test/evidence-bundle-integrity.bats
+1..37
+ok 1 packager signs the fixture: 8 artifacts, no empty files, exit 0
+ok 2 sha256sum -c on the evidence directory reports 7 OK
+ok 3 verifier accepts the untouched tarball and directory
+ok 4 tarball is reproducible: same inputs and SOURCE_DATE_EPOCH give the same digest
+ok 5 tarball entries are root-owned, files 0644, directory 0755
+ok 6 header records signing time, commit, operator, kernel, runtime and arch
+ok 7 mutation: one space appended to step4-ebpf-observation.json fails sha256sum -c
+ok 8 mutation: artifact edited inside the tarball (outer .sha256 refreshed) is caught
+ok 9 mutation: attacker also re-hashes the manifest; the signed header catches it
+ok 10 mutation: attacker rewrites manifest and header; the signature catches it
+ok 11 mutation: bundle re-signed with an attacker key fails against the trusted key
+ok 12 mutation: an extra file injected into the tarball is rejected
+ok 13 mutation: world-writable entry permissions are rejected
+ok 14 mutation: outer tarball checksum mismatch is reported
+ok 15 packager refuses a missing artifact, naming it, exit 1
+ok 16 packager refuses a zero-byte artifact, exit 1
+ok 17 packager refuses a symlinked artifact, exit 1
+ok 18 hard blocker: 'frozen 0' voids the primary forensic proof (packager and verifier)
+ok 19 mutation: no 'frozen 1' line at all is not proof of freeze
+ok 20 mutation: restartCount 1 breaks forensic preservation
+ok 21 mutation: a moving CPU counter is not a 0 mCPU flatline
+ok 22 mutation: legacy tenant kurasi fails closed, even in an unschematised text artifact
+ok 23 mutation: legacy tenant hash in the registry claim violates the schema
+ok 24 mutation: eBPF observation with an unnormalised syscall violates the schema
+ok 25 mutation: malformed JSON artifact is refused
+ok 26 packager refuses to re-sign evidence changed since its manifest was written
+ok 27 hard blocker: missing signing key, exit 1
+ok 28 hard blocker: corrupted signing key, exit 1
+ok 29 hard blocker: a non-Ed25519 signing key is refused
+ok 30 --require-live rejects fixture evidence; live-origin evidence passes it
+ok 31 no argument: packages the latest run under EAP_EVIDENCE_ROOT
+ok 32 usage errors exit 2
+ok 33 P5-1 wire shapes (claim row, bare event, text flatline, single scrape) package and verify
+ok 34 mutation: a moving cadvisor_cpu_seconds record fails even with a flat scrape
+ok 35 mutation: an eBPF observation without any cgroup_path is refused
+ok 36 mutation: a claim naming neither tenant nor tenant_id violates the schema
+ok 37 a key:value preflight-manifest.json.txt is not the F.2 preflight-manifest.json
+exit=0

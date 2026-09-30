@@ -1,0 +1,13 @@
+# SLDC-P5-PRE gate transcript  captured: 2026-09-30 09:45:08 +0100  context: kind-osramp  head: 445dd4cf45db02b59f8922bf3c64e1b1f0b2ef8b
+$ scripts/verify-operational-gates.sh --out ci-evidence/p5-preflight-audit.json
+PF-1 FAILED: not annotated signalloom.io/stunned=true: agent-cardvault, agent-sir-lancelot, agent-nono-evidenced
+PF-2 FAILED: no spire-register-entries Job manifest in repo; job/spire-register-entries absent or not succeeded in cluster; no SPIRE entry for sa/fleet-manager; 1 legacy signalloom-stun-sentinel SPIRE entries still registered
+PF-3 PASS: OpenBao role signalloom-cardvault-agent bound_claims_type=glob (static=glob live=glob)
+PF-4 PASS: supercred-demo-runner in isGovernorOrAdmin (static=true live=true)
+PF-5 FAILED: legacy reconciler (d2-signalloom/apps/signalloom-stun-sentinel/main.go) freezes stunned pods in any phase but Succeeded/Failed; HTTP /stun gate skips the phase check when the caller omits phase (optional); F.4 target d2-signalloom/apps/stun-sentinel/reconciler.go does not exist
+PF-6 FAILED: test/swarm-fleet-acceptance.bats asserts stun-sentinel 0 times and legacy signalloom-stun-sentinel 3 times (live ds=present)
+AUX-RBAC FAILED: stun-sentinel SA can list pods cluster-wide: no
+AUX-ACT FAILED: /act/healthz not registered in d2-signalloom/apps/kusari-agent/main.go; /act/read-passwd not registered in d2-signalloom/apps/kusari-agent/main.go; /act/cpu-burn not registered in d2-signalloom/apps/kusari-agent/main.go; live /act/healthz did not return {"status":"ready"}
+AUX-FORENSIC PASS: /tmp/sldc-forensics writable=true free_kb=225676304 (min 2097152)
+AUX-KEYS PASS: public keys parse and cosign.key is an encrypted Sigstore key: pass
+exit=1

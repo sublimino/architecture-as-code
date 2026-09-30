@@ -1,0 +1,23 @@
+# SLDC-P5-PRE Kusari stub probe log  captured: 2026-09-30 09:45:08 +0100
+$ kubectl --context kind-osramp exec -n fe-signalloom-agents deploy/agent-kusari -- curl -s http://localhost:8080/act/healthz
+  error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "6de46279ef93be60d19e8497f4f052385e06b74c1d18a9fdb7dad8cf566a105f": OCI runtime exec failed: exec failed: unable to start container process: exec: "curl": executable file not found in $PATH
+  exit=1  (image is gcr.io/distroless/static-debian12:nonroot: no shell, no curl)
+$ kubectl get --raw /api/v1/namespaces/fe-signalloom-agents/pods/agent-kusari-5685ff664b-46q85:8080/proxy/healthz
+  {"status":"ok"}
+  exit=0
+$ kubectl get --raw /api/v1/namespaces/fe-signalloom-agents/pods/agent-kusari-5685ff664b-46q85:8080/proxy/act/healthz
+  Error from server (NotFound): the server could not find the requested resource
+  exit=1
+$ kubectl get --raw /api/v1/namespaces/fe-signalloom-agents/pods/agent-kusari-5685ff664b-46q85:8080/proxy/act/read-passwd
+  Error from server (NotFound): the server could not find the requested resource
+  exit=1
+$ kubectl get --raw /api/v1/namespaces/fe-signalloom-agents/pods/agent-kusari-5685ff664b-46q85:8080/proxy/act/cpu-burn
+  Error from server (NotFound): the server could not find the requested resource
+  exit=1
+$ rg -n 'HandleFunc' d2-signalloom/apps/kusari-agent/main.go
+  332:	mux.HandleFunc("/quote", a.handleQuote)
+  333:	mux.HandleFunc("/{$}", a.handleQuote)
+  334:	mux.HandleFunc("/stats", a.handleStats)
+  335:	mux.HandleFunc("/healthz", handleHealthz)
+$ git log --all --oneline -S'read-passwd' -- d2-signalloom   (empty = never existed on any ref)
+# note: POST /act/read-passwd and /act/cpu-burn deliberately NOT invoked (provocations; preflight is non-destructive; routes absent in source)

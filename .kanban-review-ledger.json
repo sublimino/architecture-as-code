@@ -4175,5 +4175,45 @@
     "verdict": "pass",
     "model": null,
     "reason": "Preflight audit oracle delivered, live kind-osramp cAdvisor proxy verified, 18/18 BATS tests pass with zero skips, 7/7 mutants killed, evidence recorded"
+  },
+  "b2e25": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "b2e25",
+        "reviewed_at": "2026-09-30T08:18:56.024Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "cAdvisor poller and rate transformation engine delivered, freeze flatline verified, 8/8 Go unit tests, 8/8 Python tests, 12/12 BATS tests pass with zero failures"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "b2e25",
+    "reviewed_at": "2026-09-30T08:18:56.024Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "cAdvisor poller and rate transformation engine delivered, freeze flatline verified, 8/8 Go unit tests, 8/8 Python tests, 12/12 BATS tests pass with zero failures"
+  },
+  "6cb1e": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "6cb1e",
+        "reviewed_at": "2026-09-30T08:19:00.788Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "UI Cockpit telemetry visualizer and MetricsTopBar delivered, exact 0.000 mCPU freeze flatline verified, 204/204 Vitest suites and 9/9 Playwright acceptance tests pass with zero failures, 6/6 mutants killed"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "6cb1e",
+    "reviewed_at": "2026-09-30T08:19:00.788Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "UI Cockpit telemetry visualizer and MetricsTopBar delivered, exact 0.000 mCPU freeze flatline verified, 204/204 Vitest suites and 9/9 Playwright acceptance tests pass with zero failures, 6/6 mutants killed"
   }
 }

@@ -198,6 +198,26 @@
     "model": null,
     "reason": "SLRC-P4-PRE preflight verified: Kind cluster healthy, zero sled-cert residue, fortuna excluded, commit 4ef49976, deviations adjudicated (fail-closed mesh approved)"
   },
+  "77195": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "77195",
+        "reviewed_at": "2026-09-30T07:33:17.831Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Canonical salted SHA-256 tenant hash generator verified: 28 python unit tests, 12 bats tests, 6 bun tests, 5 go tests passing 100%, 8 python and 4 go/ts mutants turned red, kusari canonical 4b53ab6b verified"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "77195",
+    "reviewed_at": "2026-09-30T07:33:17.831Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Canonical salted SHA-256 tenant hash generator verified: 28 python unit tests, 12 bats tests, 6 bun tests, 5 go tests passing 100%, 8 python and 4 go/ts mutants turned red, kusari canonical 4b53ab6b verified"
+  },
   "80803": {
     "task_id": "80803",
     "reviewed_at": "2026-09-10T07:56:25Z",
@@ -4095,5 +4115,25 @@
     "verdict": "pass",
     "model": null,
     "reason": "Tenant domain preflight audit passed: 14/14 bats tests passing, F1 formula drift resolved to canonical salted SHA-256 (4b53ab6b), active kurasi occurrences inventoried"
+  },
+  "666fd": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "666fd",
+        "reviewed_at": "2026-09-30T07:33:09.935Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Gateway API HTTPRoute and Dex OIDC aligned for canonical tenant sl-eap-4b53ab6b.ts.net: 14/14 bats tests pass, tenant filter policy strictly rejects rogue/kurasi with 403 Forbidden"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "666fd",
+    "reviewed_at": "2026-09-30T07:33:09.935Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Gateway API HTTPRoute and Dex OIDC aligned for canonical tenant sl-eap-4b53ab6b.ts.net: 14/14 bats tests pass, tenant filter policy strictly rejects rogue/kurasi with 403 Forbidden"
   }
 }

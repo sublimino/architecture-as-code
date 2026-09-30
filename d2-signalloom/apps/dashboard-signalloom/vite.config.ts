@@ -13,7 +13,18 @@ export default defineConfig({
       '/afm': 'http://127.0.0.1:5173',
     },
   },
-  build: { outDir: 'dist', sourcemap: false },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-auth': ['oidc-client-ts', 'react-oidc-context'],
+        },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

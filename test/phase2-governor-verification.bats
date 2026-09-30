@@ -22,8 +22,6 @@ setup() {
   RELAY="$REPO_ROOT/d2-agent-trust/spire-federation-bridge-relay.yaml"
   BOOTSTRAP="$REPO_ROOT/scripts/bootstrap-spire-federation.sh"
   ROLE="$REPO_ROOT/d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml"
-  CERT="$REPO_ROOT/ci-evidence/phase2-governance-certification.json"
-  AUDIT="$REPO_ROOT/ci-evidence/phase2-token-exchange-audit.txt"
   FORGE="$REPO_ROOT/scripts/lib/p2gov-forge-jwt.ts"
   TMP="$BATS_TEST_TMPDIR"
 }
@@ -178,29 +176,53 @@ check_audit_redacted() {
   [ "$(yq -e 'select(.kind == "Namespace") | .metadata.labels."signalloom.io/fixture"' "$FIXTURE")" = true ]
 }
 
-@test "committed Phase 2 certificate records all eight gates as pass" {
-  [ -f "$CERT" ] || skip "no certificate yet: run scripts/test-phase2-governor.sh"
-  check_cert "$CERT"
+# The runner's own audit helpers, extracted verbatim and driven offline.
+runner_fn() { awk -v f="$1() {" 'index($0, f) == 1 {p = 1} p {print} p && /(^|; )}$/ {exit}' "$RUNNER"; }
+jws() { printf '%s.%s.%s' "$(printf '%s' "$1" | basenc --base64url -w0 | tr -d =)" "$(printf '%s' "$2" | basenc --base64url -w0 | tr -d =)" "$(head -c 64 /dev/urandom | basenc --base64url -w0 | tr -d =)"; }
+
+@test "runner claims(): the audit view of a JWT-SVID is header and claims, never the signature" {
+  eval "$(runner_fn claims)"
+  tok=$(jws '{"alg":"ES256","kid":"k"}' '{"sub":"spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault-worker-1","aud":["openbao"]}')
+  out=$(claims "$tok")
+  [ "$(jq -c . <<<"$out")" = '{"header":{"alg":"ES256","kid":"k"},"claims":{"sub":"spiffe://osramp.local/ns/agent-trust/sa/agent-cardvault-worker-1","aud":["openbao"]}}' ]
+  if grep -qF "${tok##*.}" <<<"$out"; then return 1; fi
+  printf 'x: %s\n' "$out" >"$TMP/a.txt"; check_audit_redacted "$TMP/a.txt"
+}
+
+@test "runner bao_login(): client token and accessor are redacted before the body reaches the audit" {
+  eval "$(runner_fn bao_login)"
+  mkdir -p "$TMP/bin"; P2GOV_TMP="$TMP"; BAO_ROLE=agent-cardvault BAO_MOUNT=jwt-osramp BAO_ADDR=http://x
+  cat >"$TMP/bin/curl" <<'CURL'
+#!/bin/sh
+cat >/dev/null
+printf '{"auth":{"client_token":"s.SECRETSECRETSECRET","accessor":"acc-SECRET","policies":["agent-cardvault-policy"]}}\n200'
+CURL
+  chmod +x "$TMP/bin/curl"
+  code=$(PATH="$TMP/bin:$PATH" bao_login eyJ.eyJ.sig)
+  [ "$code" = 200 ]
+  [ "$(cat "$TMP/bao_token_len")" = 20 ]
+  [ "$(jq -c .auth "$TMP/bao_body")" = '{"client_token":"REDACTED","accessor":"REDACTED","policies":["agent-cardvault-policy"]}' ]
+  if grep -q SECRET "$TMP/bao_body"; then return 1; fi
 }
 
 @test "MUTATION: a certificate with one failed gate is rejected" {
-  [ -f "$CERT" ] || skip "no certificate yet"
-  jq '.gates[4].status = "fail"' "$CERT" >"$TMP/c.json"
-  run check_cert "$TMP/c.json"
+  jq -n '{schema: "sldc.phase2-governance-certification/v1", card: "SLDC-P2-GOV", status: "pass", hard_blocker: false,
+          human_signoff_required: true, integration_head: ("a" * 40),
+          gates: [range(1; 9) | {id: "G\(.)", status: "pass"}]}' >"$TMP/c.json"
+  check_cert "$TMP/c.json"
+  jq '.gates[4].status = "fail"' "$TMP/c.json" >"$TMP/bad.json"
+  run check_cert "$TMP/bad.json"
   [ "$status" -ne 0 ]
 }
 
-@test "token-exchange audit holds claims only, never a signed token or OpenBao client token" {
-  [ -f "$AUDIT" ] || skip "no audit yet"
-  check_audit_redacted "$AUDIT"
-  grep -q '"client_token":"REDACTED"' "$AUDIT"
-}
-
-@test "MUTATION: an audit line with a raw JWT-SVID is rejected" {
-  [ -f "$AUDIT" ] || skip "no audit yet"
-  cp "$AUDIT" "$TMP/a.txt"
-  printf 'leak: %s\n' "$(printf '{"alg":"ES256"}' | basenc --base64url -w0).$(printf '{"sub":"spiffe://osramp.local/x"}' | basenc --base64url -w0).$(head -c 64 /dev/urandom | basenc --base64url -w0)" >>"$TMP/a.txt"
-  run check_audit_redacted "$TMP/a.txt"
+@test "MUTATION: an audit line with a raw JWT-SVID or OpenBao client token is rejected" {
+  printf 'openbao login: 200 {"auth":{"client_token":"REDACTED"}}\n' >"$TMP/a.txt"
+  check_audit_redacted "$TMP/a.txt"
+  printf 'leak: %s\n' "$(jws '{"alg":"ES256"}' '{"sub":"spiffe://osramp.local/x"}')" >"$TMP/jwt.txt"
+  run check_audit_redacted "$TMP/jwt.txt"
+  [ "$status" -ne 0 ]
+  printf '{"auth":{"client_token":"hvs.CAESIabc"}}\n' >"$TMP/tok.txt"
+  run check_audit_redacted "$TMP/tok.txt"
   [ "$status" -ne 0 ]
 }
 

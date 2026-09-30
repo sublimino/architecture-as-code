@@ -151,7 +151,7 @@ status without a linked record is "No completion record".
 | [AgentMaxxing Interactive Demo Console](Proposal%20—%20Signal%20Loom%20AgentMaxxing%20Interactive%20Demo%20Console%20%282026-Q3%29.md) | AMXD | No completion record. Baseline: [`amxd-p0-baseline.md`](amxd-p0-baseline.md) |
 | [Signal Fusion Actor-Resolution Spine V2](Proposal%20—%20Signal%20Fusion%20Actor-Resolution%20Spine%20V2%20%282026-Q3%29.md) | SFAS | Delivered: [programme certification](signalloom/sfas-final-programme-certification.md) |
 | [Signal Fusion Actor-Resolution Spine (V1)](Proposal%20—%20Signal%20Fusion%20Actor-Resolution%20Spine%20%282026-Q3%29.md) | SFDP | Delivered: [production certification](signalloom/sfdp-p3-1-production-certification.md). V2 supersedes it. |
-| [Signal Fusion Agents Page Operational Redesign](../PROPOSAL_AGENTS_PAGE_REDESIGN.md) | SFAGENTS | Draft, awaiting sign-off. Preflight: [`sfagents-p3-preflight-proof.md`](signalloom/sfagents-p3-preflight-proof.md) |
+| [Signal Fusion Agents Page Operational Redesign](Proposal%20—%20Signal%20Fusion%20Agents%20Page%20Operational%20Redesign%20and%20Evidence%20Dossier%20%282026-Q3%29.md) | SFAGENTS | Draft, awaiting sign-off. Preflight: [`sfagents-p3-preflight-proof.md`](signalloom/sfagents-p3-preflight-proof.md) |
 | [Signal Loom Security Remediation](signalloom/SLSEC-security-remediation-proposal.md) | SLSEC | Delivered: [operational hardening](signalloom/SLSEC-operational-hardening.md) |
 | [Exhaustive System Security and Vulnerability Audit](Proposal%20—%20Exhaustive%20System%20Security%20and%20Vulnerability%20Audit%20%282026-Q3%29.md) | — | No completion record |
 | [First User and Privileged-User Onboarding (precursor)](FIRST-USER-ONBOARDING-PROPOSAL.md) | — | Evidence analysis. SLON and AMXO build on it. |
@@ -216,18 +216,13 @@ author wrote it.
 
 ### Records at the repository root
 
-These files sit next to `README.md` because active work references them by
-that path. They are decision records, and `make docs-lint` checks that each
-one is linked here.
+This file sits next to `README.md` because active work references it by
+that path. It is a decision record, and `make docs-lint` checks that it is
+linked here.
 
 | Document | What it records |
 | :--- | :--- |
-| [`../PROPOSAL_AGENTS_PAGE_REDESIGN.md`](../PROPOSAL_AGENTS_PAGE_REDESIGN.md) | SFAGENTS mission proposal: the Signal Fusion agents page redesign and evidence dossier (2026-09-06) |
-| [`../CODEBASE-REVIEW-2026-09-05.md`](../CODEBASE-REVIEW-2026-09-05.md) | Codebase review of the signal-loop and bootstrap refactor branch (2026-09-05) |
 | [`../DEPLOYMENT-SCOPE.md`](../DEPLOYMENT-SCOPE.md) | Discussion draft of the release qualification and production deployment scope (2026-09-05) |
-| [`../PREFLIGHT-REPORT.md`](../PREFLIGHT-REPORT.md) | Agentic preflight score of the repository (2026-07-29) |
-| [`../PLAN-CI-FIXES.md`](../PLAN-CI-FIXES.md) | Analysis of five CI failures and the local fix plan (2026-07-31) |
-| [`../ISA.md`](../ISA.md) | Ideal State Artifact of the 2026-09 documentation overhaul |
 
 `MEMORY/WORK/` at the repository root holds session records. They are decision
 records, not descriptions of the current tree.
@@ -249,7 +244,7 @@ nothing for each file you move. It searches every branch, the scripts, the
 tests, the lint, and the kanban card specs:
 
 ```bash
-name='PROPOSAL_AGENTS_PAGE_REDESIGN.md'
+name='DEPLOYMENT-SCOPE.md'
 git grep -l -F "$name" $(git for-each-ref --format='%(refname)' refs/heads refs/remotes)
 git grep -l -F "$name" -- Makefile scripts test .github
 grep -rlF "$name" ~/.cline/kanban/card-specs

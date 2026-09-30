@@ -67,7 +67,7 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 @test "teardown fails while matching containers still run" {
 	STUB_LINGERING=osramp-worker STUB_REMAINING=$'abc\n' run --separate-stderr bash "$teardown_sh"
 	[ "$status" -eq 1 ]
-	[[ "$stderr" == *"VERDICT: FAIL (1 lingering containers)"* ]]
+	[[ "$stderr" == *"VERDICT: FAIL (1 lingering containers, 0 failed deletes)"* ]]
 	grep -qx 'docker stop osramp-worker' "$STUB_LOG"
 	[ "$(cat "$SLDC_SAVED_CONTAINERS_FILE")" = osramp-worker ]
 }

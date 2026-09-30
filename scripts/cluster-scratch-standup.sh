@@ -15,7 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
-SAVED_CONTAINERS_FILE="/tmp/sldc-saved-containers.txt"
+SAVED_CONTAINERS_FILE="${SLDC_SAVED_CONTAINERS_FILE:-${XDG_RUNTIME_DIR:-$REPO_ROOT/.evidence}/sldc-saved-containers.txt}"
 
 echo "════ Cluster Scratch Standup Orchestrator ════"
 
@@ -44,11 +44,11 @@ fi
 
 # 4. Deploy Signal Loom governance platform
 echo "Deploying Signal Loom slice..."
-make -C "$REPO_ROOT" demo-signalloom-up || true
+make -C "$REPO_ROOT" demo-signalloom-up
 
 # 5. Deploy Agent Trust slice
 echo "Deploying Agent Trust slice..."
-make -C "$REPO_ROOT" demo-agent-trust-up || true
+make -C "$REPO_ROOT" demo-agent-trust-up
 
 # 6. Verify health
 echo "Executing foundation healthcheck..."

@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-09-30T04:32:20Z",
+  "kernel": {
+    "release": "7.1.3+deb13-amd64",
+    "major": 7,
+    "minor": 1,
+    "arch": "x86_64",
+    "config_debug_info_btf": true,
+    "config_bpf": true,
+    "config_bpf_syscall": true
+  },
+  "btf": {
+    "path": "/sys/kernel/btf/vmlinux",
+    "available": true,
+    "size_bytes": 5401901,
+    "co_re_ready": true
+  },
+  "cgroup_v2": {
+    "mounted": true,
+    "path": "/sys/fs/cgroup",
+    "fs_type": "cgroup2fs",
+    "controllers_raw": "cpuset cpu io memory hugetlb pids rdma misc",
+    "has_cpu": true,
+    "has_memory": true,
+    "has_pids": true,
+    "unified_hierarchy": true
+  },
+  "ebpf": {
+    "ring_buffer_supported": true,
+    "bpf_map_type_ringbuf": true,
+    "co_re_relocations": true
+  },
+  "daemonset_security": {
+    "manifest_inspected": "/home/andy/src/.worktrees/3adb4/osramp-demo/d2-signalloom/apps/stun-sentinel/deploy/capability-audit.yaml",
+    "host_pid": true,
+    "host_network": true,
+    "privileged": true,
+    "capabilities": {
+      "sys_ptrace": true,
+      "bpf": true,
+      "net_admin": true
+    },
+    "volume_mounts": {
+      "cgroup": true,
+      "modules": true,
+      "btf": true,
+      "proc": true
+    }
+  },
+  "summary": {
+    "passed_checks": 8,
+    "failed_checks": 0,
+    "status": "pass"
+  }
+}

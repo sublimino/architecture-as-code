@@ -214,9 +214,6 @@ LC_ALL=C tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -
   -C "$stage" -cf - "$bundle_name" | gzip -n -9 >"$tarball.tmp"
 mv -f "$tarball.tmp" "$tarball"
 (cd "$out_dir" && sha256sum "$bundle_name.tar.gz" >"$bundle_name.tar.gz.sha256")
-cp -f "$EAP_MANIFEST" "$out_dir/$EAP_MANIFEST"
-cp -f "$tarball" "$out_dir/eap-kusari-containment.tar.gz"
-(cd "$out_dir" && sha256sum "eap-kusari-containment.tar.gz" >"eap-kusari-containment.tar.gz.sha256")
 
 # --- self-verification --------------------------------------------------------
 pub_tmp="$stage/trusted.pub.pem"
@@ -225,6 +222,11 @@ if ! "$here/verify-eap-evidence.sh" --quiet --pubkey "$pub_tmp" "$tarball"; then
   rm -f "$tarball" "$tarball.sha256"
   die "self-verification of $tarball failed; bundle deleted"
 fi
+
+# Aliases only for a bundle that verified.
+cp -f "$EAP_MANIFEST" "$out_dir/$EAP_MANIFEST"
+cp -f "$tarball" "$out_dir/eap-kusari-containment.tar.gz"
+(cd "$out_dir" && sha256sum "eap-kusari-containment.tar.gz" >"eap-kusari-containment.tar.gz.sha256")
 
 [ "$origin" = live ] || eap_warn "evidence_origin is '$origin': this bundle is not proof of a live containment run"
 printf 'manifest: %s\n' "$evidence_dir/$EAP_MANIFEST"

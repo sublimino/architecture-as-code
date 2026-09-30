@@ -111,6 +111,11 @@ elif [ -f "$target" ]; then
       *) eap_fail "archive entry '$n' is outside $top/"; archive_ok=0 ;;
     esac
   done <<<"$names"
+  # A repeated name extracts as whichever copy comes last, so what was audited
+  # need not be what an extracting reader sees.
+  while IFS= read -r n; do
+    [ -z "$n" ] || { eap_fail "archive entry '$n' appears more than once"; archive_ok=0; }
+  done <<<"$(printf '%s\n' "$names" | LC_ALL=C sort | uniq -d)"
   # tar -tv mode column: files -rw-r--r--, the directory drwxr-xr-x, nothing else.
   bad_modes="$(printf '%s\n' "$listing" | awk '$1 != "-rw-r--r--" && $1 != "drwxr-xr-x" {print $1, $NF}')"
   if [ -n "$bad_modes" ]; then
@@ -182,13 +187,22 @@ if [ -z "$pubkey" ]; then
   [ ! -f "$default_pub" ] || pubkey="$default_pub"
 fi
 embedded="$dir/$EAP_PUBKEY_FILE"
+sig_links=0
+for f in "$EAP_HEADER_SIG" "$EAP_PUBKEY_FILE"; do
+  if [ -L "$dir/$f" ]; then
+    eap_fail "$f is a symlink; bundle files must be regular files"
+    sig_links=1
+  fi
+done
 if [ -z "$pubkey" ]; then
   if [ -f "$embedded" ] && fp="$(eap_pubkey_fingerprint "$embedded")"; then
     eap_warn "no trusted public key; verifying against the bundle's own key sha256:$fp - compare it with the published ControlPlane fingerprint"
     pubkey="$embedded"
   fi
 fi
-if [ -z "$pubkey" ] || [ ! -f "$pubkey" ]; then
+if [ "$sig_links" -eq 1 ]; then
+  : # already failed: never verify through a link
+elif [ -z "$pubkey" ] || [ ! -f "$pubkey" ]; then
   eap_fail "no public key available to verify $EAP_HEADER_SIG"
 elif ! trusted_fp="$(eap_pubkey_fingerprint "$pubkey")"; then
   eap_fail "public key $pubkey cannot be parsed"

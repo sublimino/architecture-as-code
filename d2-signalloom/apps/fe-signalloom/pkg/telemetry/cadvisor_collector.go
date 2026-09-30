@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +20,9 @@ const (
 	DefaultPollInterval = 2 * time.Second
 	FreezeEpsilon       = 0.0001 // 0.1 ms threshold for freeze flatline invariant
 	DefaultTTL          = 60 * time.Second
+	// DefaultStaleAfter: no successful scrape for this long and the API answers
+	// 503 rather than presenting old numbers as current.
+	DefaultStaleAfter = 15 * time.Second
 )
 
 // ContainerKey uniquely identifies a container instance.
@@ -39,16 +44,28 @@ type CadvisorCollector struct {
 	pollInterval time.Duration
 	httpClient   *http.Client
 
-	mu             sync.RWMutex
-	sampleCache    map[string]MetricSample
-	lastSeen       map[string]time.Time
+	mu sync.RWMutex
+	// containers: per container, the baseline sample and the last honest rate.
+	containers map[string]containerState
+	lastSeen   map[string]time.Time
+	// telemetryCache: per pod, keyed "namespace/pod".
 	telemetryCache map[string]AgentTelemetry
+	lastSuccess    time.Time
+	lastErr        error
+	staleAfter     time.Duration
+	now            func() time.Time
 
 	subMu       sync.RWMutex
 	subscribers map[string][]chan AgentTelemetry
 
 	// For testing / direct metric injection
 	scrapeOverride func(ctx context.Context) ([]byte, error)
+}
+
+type containerState struct {
+	sample  MetricSample
+	rate    float64
+	hasRate bool
 }
 
 // NewCadvisorCollector creates a new CadvisorCollector instance.
@@ -70,9 +87,11 @@ func NewCadvisorCollector(clientset kubernetes.Interface, restClient rest.Interf
 		nodeName:       nodeName,
 		pollInterval:   pollInterval,
 		httpClient:     &http.Client{Transport: transport, Timeout: 10 * time.Second},
-		sampleCache:    make(map[string]MetricSample),
+		containers:     make(map[string]containerState),
 		lastSeen:       make(map[string]time.Time),
 		telemetryCache: make(map[string]AgentTelemetry),
+		staleAfter:     DefaultStaleAfter,
+		now:            time.Now,
 		subscribers:    make(map[string][]chan AgentTelemetry),
 	}
 }
@@ -84,10 +103,18 @@ func (c *CadvisorCollector) SetScrapeOverride(fn func(ctx context.Context) ([]by
 	c.scrapeOverride = fn
 }
 
-// ComputeRate calculates CPU consumption in millicores using rate differentials and enforces freeze flatline invariant.
-func ComputeRate(curr, prev MetricSample, deltaSec float64) float64 {
-	if deltaSec <= 0.0 {
-		return 0.0
+// ComputeRate calculates CPU consumption in millicores and enforces the freeze
+// flatline invariant. ok is false when the samples cannot honestly yield a
+// rate - no elapsed time, a clock running backwards, a non-finite or negative
+// counter - which is "no reading", never 0.000.
+func ComputeRate(curr, prev MetricSample, deltaSec float64) (millicores float64, ok bool) {
+	for _, v := range []float64{curr.CpuSecondsTotal, prev.CpuSecondsTotal, deltaSec} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, false
+		}
+	}
+	if deltaSec <= 0.0 || curr.CpuSecondsTotal < 0.0 || prev.CpuSecondsTotal < 0.0 {
+		return 0, false
 	}
 
 	deltaCPU := curr.CpuSecondsTotal - prev.CpuSecondsTotal
@@ -99,10 +126,10 @@ func ComputeRate(curr, prev MetricSample, deltaSec float64) float64 {
 
 	// Freeze flatline invariant: delta CPU below threshold outputs exact 0.000 mCPU
 	if deltaCPU < FreezeEpsilon {
-		return 0.0
+		return 0.0, true
 	}
 
-	return (deltaCPU / deltaSec) * 1000.0
+	return (deltaCPU / deltaSec) * 1000.0, true
 }
 
 // Scrape fetches raw cAdvisor metrics from the Kubelet proxy endpoint.
@@ -137,6 +164,14 @@ func ParsePrometheusMetrics(data []byte) (map[ContainerKey]MetricSample, error) 
 		return nil, fmt.Errorf("failed to parse prometheus metrics: %w", err)
 	}
 
+	sampleCount := 0
+	for _, family := range metricFamilies {
+		sampleCount += len(family.GetMetric())
+	}
+	if sampleCount == 0 {
+		return nil, fmt.Errorf("cadvisor body carried no Prometheus samples")
+	}
+
 	samples := make(map[ContainerKey]MetricSample)
 
 	// Process CPU usage seconds total
@@ -153,6 +188,11 @@ func ParsePrometheusMetrics(data []byte) (map[ContainerKey]MetricSample, error) 
 				cpuVal = m.GetCounter().GetValue()
 			} else if m.GetUntyped() != nil {
 				cpuVal = m.GetUntyped().GetValue()
+			} else {
+				continue
+			}
+			if math.IsNaN(cpuVal) || math.IsInf(cpuVal, 0) || cpuVal < 0 {
+				continue
 			}
 
 			s := samples[key]
@@ -170,6 +210,10 @@ func ParsePrometheusMetrics(data []byte) (map[ContainerKey]MetricSample, error) 
 				continue
 			}
 
+			s, hasCPU := samples[key]
+			if !hasCPU {
+				continue
+			}
 			var memVal uint64
 			if m.GetGauge() != nil {
 				memVal = uint64(m.GetGauge().GetValue())
@@ -177,10 +221,6 @@ func ParsePrometheusMetrics(data []byte) (map[ContainerKey]MetricSample, error) 
 				memVal = uint64(m.GetUntyped().GetValue())
 			}
 
-			s := samples[key]
-			if s.Timestamp.IsZero() {
-				s.Timestamp = extractTimestamp(m)
-			}
 			s.MemoryRssBytes = memVal
 			samples[key] = s
 		}
@@ -194,15 +234,15 @@ func ParsePrometheusMetrics(data []byte) (map[ContainerKey]MetricSample, error) 
 				continue
 			}
 
+			s, hasCPU := samples[key]
+			if !hasCPU {
+				continue
+			}
 			var throttleVal uint64
 			if m.GetCounter() != nil {
 				throttleVal = uint64(m.GetCounter().GetValue())
 			}
 
-			s := samples[key]
-			if s.Timestamp.IsZero() {
-				s.Timestamp = extractTimestamp(m)
-			}
 			s.ThrottleCount = throttleVal
 			samples[key] = s
 		}
@@ -253,65 +293,95 @@ func extractTimestamp(m *dto.Metric) time.Time {
 
 // CollectOnce executes a single scrape and rate transformation cycle.
 func (c *CadvisorCollector) CollectOnce(ctx context.Context) error {
-	raw, err := c.Scrape(ctx)
+	samples, err := c.scrapeAndParse(ctx)
 	if err != nil {
-		return fmt.Errorf("scrape cadvisor failed: %w", err)
+		c.mu.Lock()
+		c.lastErr = err
+		c.mu.Unlock()
+		return err
 	}
-
-	samples, err := ParsePrometheusMetrics(raw)
-	if err != nil {
-		return fmt.Errorf("parse cadvisor metrics failed: %w", err)
-	}
-
-	now := time.Now()
-	var updates []AgentTelemetry
 
 	c.mu.Lock()
+	now := c.now()
+	type podKey struct{ ns, pod string }
+	type part struct {
+		sample  MetricSample
+		rate    float64
+		hasRate bool
+	}
+	pods := make(map[podKey][]part)
 	for key, curr := range samples {
 		keyStr := key.String()
 		c.lastSeen[keyStr] = now
-
-		prev, hasPrev := c.sampleCache[keyStr]
-		var millicores float64
-		if hasPrev {
-			deltaSec := curr.Timestamp.Sub(prev.Timestamp).Seconds()
-			if deltaSec <= 0.0 {
-				deltaSec = c.pollInterval.Seconds()
-			}
-			millicores = ComputeRate(curr, prev, deltaSec)
-		} else {
-			millicores = 0.0
+		prev, seen := c.containers[keyStr]
+		var st containerState
+		switch {
+		case !seen:
+			st = containerState{sample: curr}
+		case curr.Timestamp.Equal(prev.sample.Timestamp):
+			// cAdvisor has not re-sampled (it refreshes every ~15 s): no new
+			// information, so the previous rate stands and so does the baseline.
+			st = prev
+		default:
+			rate, ok := ComputeRate(curr, prev.sample, curr.Timestamp.Sub(prev.sample.Timestamp).Seconds())
+			st = containerState{sample: curr, rate: rate, hasRate: ok}
 		}
-
-		c.sampleCache[keyStr] = curr
-
-		memMB := float64(curr.MemoryRssBytes) / (1024.0 * 1024.0)
-		status := "ACTIVE"
-		if millicores == 0.0 {
-			status = "FROZEN"
-		}
-
-		telemetry := AgentTelemetry{
-			PodName:     key.Pod,
-			Namespace:   key.Namespace,
-			Millicores:  millicores,
-			MemoryRssMB: memMB,
-			Status:      status,
-			LastUpdated: curr.Timestamp,
-		}
-
-		c.telemetryCache[key.Pod] = telemetry
-		c.telemetryCache[keyStr] = telemetry
-		updates = append(updates, telemetry)
+		c.containers[keyStr] = st
+		pk := podKey{key.Namespace, key.Pod}
+		pods[pk] = append(pods[pk], part{curr, st.rate, st.hasRate})
 	}
 
-	// TTL eviction for stale containers
+	var updates []AgentTelemetry
+	for pk, parts := range pods {
+		var sum float64
+		var rss uint64
+		complete := true
+		latest := parts[0].sample.Timestamp
+		for _, p := range parts {
+			complete = complete && p.hasRate
+			sum += p.rate
+			rss += p.sample.MemoryRssBytes
+			if p.sample.Timestamp.After(latest) {
+				latest = p.sample.Timestamp
+			}
+		}
+		t := AgentTelemetry{
+			PodName:     pk.pod,
+			Namespace:   pk.ns,
+			MemoryRssMB: float64(rss) / (1024.0 * 1024.0),
+			Status:      "PENDING",
+			LastUpdated: latest,
+		}
+		if complete {
+			mc := sum
+			t.Millicores = &mc
+			t.Status = "ACTIVE"
+			if mc == 0 {
+				*t.Millicores = 0 // never -0
+				t.Status = "FROZEN"
+			}
+		}
+		c.telemetryCache[pk.ns+"/"+pk.pod] = t
+		updates = append(updates, t)
+	}
+
+	// TTL eviction for stale containers, then for pods with no live container.
+	livePods := make(map[string]bool)
 	for keyStr, seen := range c.lastSeen {
 		if now.Sub(seen) > DefaultTTL {
-			delete(c.sampleCache, keyStr)
+			delete(c.containers, keyStr)
 			delete(c.lastSeen, keyStr)
+			continue
+		}
+		livePods[keyStr[:strings.LastIndex(keyStr, "/")]] = true
+	}
+	for podKeyStr := range c.telemetryCache {
+		if !livePods[podKeyStr] {
+			delete(c.telemetryCache, podKeyStr)
 		}
 	}
+	c.lastSuccess = now
+	c.lastErr = nil
 	c.mu.Unlock()
 
 	// Broadcast updates to active subscribers
@@ -320,6 +390,33 @@ func (c *CadvisorCollector) CollectOnce(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *CadvisorCollector) scrapeAndParse(ctx context.Context) (map[ContainerKey]MetricSample, error) {
+	raw, err := c.Scrape(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("scrape cadvisor failed: %w", err)
+	}
+	samples, err := ParsePrometheusMetrics(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse cadvisor metrics failed: %w", err)
+	}
+	return samples, nil
+}
+
+// Healthy reports whether a scrape succeeded recently enough that the cache
+// describes the present.
+func (c *CadvisorCollector) Healthy() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return !c.lastSuccess.IsZero() && c.now().Sub(c.lastSuccess) <= c.staleAfter
+}
+
+// LastError is the most recent scrape failure, nil after a success.
+func (c *CadvisorCollector) LastError() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastErr
 }
 
 // Start runs the collector polling loop until context is cancelled.
@@ -339,7 +436,11 @@ func (c *CadvisorCollector) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := c.CollectOnce(ctx); err != nil {
-				time.Sleep(backoff)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+				}
 				backoff *= 2
 				if backoff > maxBackoff {
 					backoff = maxBackoff
@@ -351,15 +452,21 @@ func (c *CadvisorCollector) Start(ctx context.Context) {
 	}
 }
 
-// GetLatestTelemetry returns the most recent telemetry for a given pod name.
-func (c *CadvisorCollector) GetLatestTelemetry(podName string) (AgentTelemetry, bool) {
+// FindTelemetry returns the telemetry of every monitored pod with this name,
+// across namespaces.
+func (c *CadvisorCollector) FindTelemetry(podName string) []AgentTelemetry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	t, ok := c.telemetryCache[podName]
-	return t, ok
+	var res []AgentTelemetry
+	for _, t := range c.telemetryCache {
+		if t.PodName == podName {
+			res = append(res, t)
+		}
+	}
+	return res
 }
 
-// GetAllTelemetry returns snapshot of all current agent telemetry.
+// GetAllTelemetry returns a snapshot of all current agent telemetry, keyed "namespace/pod".
 func (c *CadvisorCollector) GetAllTelemetry() map[string]AgentTelemetry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -379,7 +486,7 @@ func (c *CadvisorCollector) Subscribe(podName string) (<-chan AgentTelemetry, fu
 	c.subMu.Unlock()
 
 	// If cached telemetry exists, send immediately as initial state
-	if initial, ok := c.GetLatestTelemetry(podName); ok {
+	for _, initial := range c.FindTelemetry(podName) {
 		select {
 		case ch <- initial:
 		default:

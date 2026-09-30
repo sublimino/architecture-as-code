@@ -34,6 +34,9 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleList(w, r)
 		return
 	}
+	if !h.admit(w, r) {
+		return
+	}
 
 	// Check if client requests Server-Sent Events (SSE)
 	accept := r.Header.Get("Accept")
@@ -47,24 +50,60 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.handleJSON(w, r, pod)
 }
 
-func (h *TelemetryHandler) handleJSON(w http.ResponseWriter, r *http.Request, pod string) {
+// admit rejects anything but GET (405) and any request while the collector
+// has no recent successful scrape (503): old numbers are not current numbers.
+func (h *TelemetryHandler) admit(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method is not allowed")
+		return false
+	}
+	if !h.collector.Healthy() {
+		detail := "no successful cAdvisor scrape yet"
+		if err := h.collector.LastError(); err != nil {
+			detail = err.Error()
+		}
+		writeError(w, http.StatusServiceUnavailable, "telemetry_unavailable", "Agent telemetry is unavailable: "+detail)
+		return false
+	}
+	return true
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]map[string]string{"error": {"code": code, "message": message}})
+}
 
-	telemetry, ok := h.collector.GetLatestTelemetry(pod)
-	if !ok {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("no telemetry found for agent pod: %s", pod),
-		})
+func (h *TelemetryHandler) handleJSON(w http.ResponseWriter, r *http.Request, pod string) {
+	ns := r.URL.Query().Get("namespace")
+	var matches []AgentTelemetry
+	for _, t := range h.collector.FindTelemetry(pod) {
+		if ns == "" || t.Namespace == ns {
+			matches = append(matches, t)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		writeError(w, http.StatusNotFound, "telemetry_not_found", "No telemetry for this agent pod")
+		return
+	case 1:
+	default:
+		writeError(w, http.StatusConflict, "telemetry_ambiguous_pod", "Pod name exists in several namespaces; pass ?namespace=")
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(telemetry)
+	_ = json.NewEncoder(w).Encode(matches[0])
 }
 
 func (h *TelemetryHandler) handleList(w http.ResponseWriter, r *http.Request) {
+	if !h.admit(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -100,6 +139,9 @@ func (h *TelemetryHandler) handleSSE(w http.ResponseWriter, r *http.Request, pod
 		case data, ok := <-ch:
 			if !ok {
 				return
+			}
+			if ns := r.URL.Query().Get("namespace"); ns != "" && data.Namespace != ns {
+				continue
 			}
 			payload, err := json.Marshal(data)
 			if err != nil {

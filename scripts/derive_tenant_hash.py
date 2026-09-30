@@ -54,6 +54,7 @@ _ADDR_VARS = ("BAO_ADDR", "VAULT_ADDR", "OPENBAO_ADDR")
 _TOKEN_VARS = ("BAO_TOKEN", "VAULT_TOKEN")
 _TENANT_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{8}$")
+_ASCII_SPACE = " \t\n\r\v\f"
 
 
 class TenantHashError(ValueError):
@@ -71,7 +72,12 @@ class SaltUnavailableError(RuntimeError):
 def normalize_tenant(tenant_name: str) -> str:
     if not isinstance(tenant_name, str):
         raise TenantHashError("tenant name must be a string")
-    cleaned = tenant_name.strip().lower()
+    # ASCII whitespace only, and non-ASCII refused before lowercasing, so
+    # Unicode spaces and case folds (U+212A KELVIN SIGN) cannot reach kusari.
+    cleaned = tenant_name.strip(_ASCII_SPACE)
+    if not cleaned.isascii():
+        raise TenantHashError(f"invalid tenant name {cleaned!r} (non-ASCII input)")
+    cleaned = cleaned.lower()
     if not cleaned:
         raise TenantHashError("tenant name cannot be empty")
     if cleaned in RETIRED_TENANTS:

@@ -42,10 +42,20 @@ var (
 	tenantRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 )
 
-// NormalizeTenant trims and lowercases, then rejects empty, retired and
-// malformed names.
+// asciiSpace is the only whitespace trimmed; Unicode spaces are refused.
+const asciiSpace = " \t\n\r\v\f"
+
+// NormalizeTenant trims ASCII whitespace, refuses any non-ASCII byte before
+// lowercasing (so U+0130 and U+212A cannot fold onto an ASCII tenant), then
+// rejects empty, retired and malformed names.
 func NormalizeTenant(name string) (string, error) {
-	cleaned := strings.ToLower(strings.TrimSpace(name))
+	cleaned := strings.Trim(name, asciiSpace)
+	for i := 0; i < len(cleaned); i++ {
+		if cleaned[i] > 0x7f {
+			return "", fmt.Errorf("%w: non-ASCII input", ErrInvalidTenant)
+		}
+	}
+	cleaned = strings.ToLower(cleaned)
 	switch {
 	case cleaned == "":
 		return "", ErrEmptyTenant

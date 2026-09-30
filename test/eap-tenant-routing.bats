@@ -24,6 +24,11 @@ setup() {
 	POLICY="$REPO_ROOT/d2-infra/components/ingress/tenant-filter-policy.yaml"
 	VERIFY="$REPO_ROOT/scripts/verify-tenant-routing.sh"
 	export KUBECONFIG=/dev/null
+	# No live traffic can leave this suite: any non-hermetic curl is "refused".
+	mkdir -p "$BATS_TEST_TMPDIR/nocurl"
+	printf '#!/usr/bin/env bash\nexit 7\n' >"$BATS_TEST_TMPDIR/nocurl/curl"
+	chmod +x "$BATS_TEST_TMPDIR/nocurl/curl"
+	export PATH="$BATS_TEST_TMPDIR/nocurl:$PATH"
 	HASH="$(SIGNAL_LOOM_EAP_SALT=signalloom-eap-salt-2026-q3 python3 "$REPO_ROOT/scripts/derive_tenant_hash.py" --quiet kusari)"
 	tenant_lua_load "$POLICY"
 }

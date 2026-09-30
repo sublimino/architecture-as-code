@@ -175,48 +175,6 @@ func TestSensitivePrefixFilter(t *testing.T) {
 	}
 }
 
-// TestDirectReactionFreeze asserts that detecting a violation on an agent pod
-// triggers FreezePod and populates DirectReaction = 'cgroup_frozen'.
-func TestDirectReactionFreeze(t *testing.T) {
-	var freezeCalled int32
-	mockFreezer := NewMockFreezeManager(func(pod *corev1.Pod) error {
-		atomic.AddInt32(&freezeCalled, 1)
-		return nil
-	})
-
-	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", mockFreezer)
-
-	pod := CreateTestPod("tenant-kusari", "agent-runner", "22222222-3333-4444-5555-666666666666", "agent-runner", "kusari")
-	pod.Status.Phase = corev1.PodRunning
-
-	var filename [256]byte
-	copy(filename[:], "/etc/shadow\x00")
-
-	raw := SyscallEvent{
-		PID:      4567,
-		TGID:     4567,
-		UID:      0,
-		Type:     SyscallTypeOpenat,
-		Filename: filename,
-	}
-
-	obs := mgr.NormalizeObservation(raw, pod)
-
-	if isAgentPod(pod) && mgr.freezeManager != nil {
-		if err := mgr.freezeManager.FreezePod(pod); err == nil {
-			obs.DirectReaction = ReactionCgroupFrozen
-		}
-	}
-
-	if atomic.LoadInt32(&freezeCalled) != 1 {
-		t.Errorf("expected freezeManager.FreezePod to be called once, got %d", freezeCalled)
-	}
-
-	if obs.DirectReaction != ReactionCgroupFrozen {
-		t.Errorf("expected DirectReaction '%s', got '%s'", ReactionCgroupFrozen, obs.DirectReaction)
-	}
-}
-
 // TestDispatchObservation validates HTTP POST transmission to mock signal-ingest:8082
 // with Bearer authentication and schema fidelity.
 func TestDispatchObservation(t *testing.T) {

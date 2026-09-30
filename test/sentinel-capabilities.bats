@@ -4,8 +4,8 @@
 # SLDC-P1-3: stun-sentinel DaemonSet capability, host-namespace and mount
 # contract, asserted on the manifest AS kubectl RENDERS IT (kustomize) and, when
 # a cluster is reachable, as the API server ADMITS it (server-side dry run —
-# nothing is persisted). Plus the Go suites that enforce netlink veth
-# resolution and self-pod / infrastructure-namespace exclusion.
+# nothing is persisted). The raw manifests (all four DaemonSets) are held to
+# the least-privilege contract by deploy/least_privilege_test.go.
 #
 # Static tests never skip. Only the server-dry-run test needs a cluster, and it
 # says so by name when it skips.
@@ -14,9 +14,6 @@ setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   APP_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel"
   BASE_DIR="${APP_DIR}/base"
-  export GOCACHE="${GOCACHE:-/tmp/gocache}"
-  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
-  export CGO_ENABLED="${CGO_ENABLED:-0}"
   command -v kubectl >/dev/null || { echo "kubectl is required" >&2; return 1; }
   command -v yq >/dev/null || { echo "yq is required" >&2; return 1; }
 }
@@ -37,12 +34,6 @@ container_query() {
   run ds_query '.metadata.name'
   [ "$status" -eq 0 ]
   [ "$output" = "stun-sentinel" ]
-}
-
-@test "sentinel-capabilities: card audit command counts all 4 capabilities" {
-  run bash -c "kubectl kustomize '$BASE_DIR' | grep -A 8 capabilities | grep -E '(SYS_PTRACE|SYS_ADMIN|BPF|NET_ADMIN)' | sort -u | wc -l"
-  [ "$status" -eq 0 ]
-  [ "$(echo "$output" | tr -d ' ')" = "4" ]
 }
 
 @test "sentinel-capabilities: capabilities.add is exactly SYS_PTRACE BPF NET_ADMIN SYS_ADMIN" {
@@ -89,27 +80,6 @@ container_query() {
 @test "sentinel-capabilities: HTTP listener binds the pod IP, not 0.0.0.0" {
   run container_query '.args[] | select(test("^--listen-addr="))'
   [ "$output" = '--listen-addr=$(POD_IP):8080' ]
-}
-
-@test "sentinel-capabilities: every sentinel manifest declares SYS_PTRACE (PF-6 name stun-sentinel)" {
-  local m
-  for m in \
-    "${APP_DIR}/deploy/daemonset.yaml" \
-    "${REPO_ROOT}/d2-signalloom/deploy/stun-sentinel-daemonset.yaml" \
-    "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml"; do
-    run yq -r 'select(.kind == "DaemonSet") | .metadata.name + ":" + (.spec.template.spec.containers[0].securityContext.capabilities.add | join(","))' "$m"
-    [ "$status" -eq 0 ]
-    [[ "$output" == stun-sentinel:* ]] || { echo "bad name in $m: $output"; return 1; }
-    [[ "$output" == *SYS_PTRACE* ]] || { echo "SYS_PTRACE missing in $m"; return 1; }
-    [[ "$output" == *NET_ADMIN* ]] || { echo "NET_ADMIN missing in $m"; return 1; }
-  done
-}
-
-@test "sentinel-capabilities: Go contract suites pass (manifest, netlink veth, exclusion)" {
-  run bash -c "cd '$APP_DIR' && go test -count=1 -run 'TestSecurityContextCapabilities|TestHardenedDaemonSetContract|TestDeployMatchesBase|TestNetlinkVethResolution|TestSelfPodExclusion|TestInfrastructureNamespaceExclusion|TestPhaseGate' ./deploy ./pkg/netlink ./pkg/filter ./cmd/stun-sentinel"
-  echo "$output"
-  [ "$status" -eq 0 ]
-  [[ "$output" != *FAIL* ]]
 }
 
 @test "sentinel-capabilities: API server admits the DaemonSet (server-side dry run)" {

@@ -100,7 +100,23 @@ assert_refused "Missing manifest catalog" "FAIL Cold-start manifest catalog read
 echo "──────────────────────────────────────────────────────────────────────────"
 printf 'MUTATION GATE: %d/%d mutations proven\n' "$PROVEN_MUTATIONS" "$TOTAL_MUTATIONS"
 
-if [ "$PROVEN_MUTATIONS" -eq "$TOTAL_MUTATIONS" ]; then
+# Code mutations: break the REAL production lines behind each defence and watch
+# the suites go red (sentinel-guarded; restores content and mode).
+CODE_PROOF="${MUTATION_GATE_CODE_PROOF:-$REPO_ROOT/test/eap-evidence-mutation-proof.sh}"
+code_ok=0
+if [ "$CHECK_ALL" -eq 1 ]; then
+  if bash "$CODE_PROOF"; then
+    code_ok=1
+    echo "CODE MUTATION PROOF: PASS"
+  else
+    echo "CODE MUTATION PROOF: FAIL ($CODE_PROOF)"
+  fi
+else
+  code_ok=1
+  echo "CODE MUTATION PROOF: not run (pass --check-all)"
+fi
+
+if [ "$PROVEN_MUTATIONS" -eq "$TOTAL_MUTATIONS" ] && [ "$code_ok" -eq 1 ]; then
   echo "VERDICT: PASS"
   exit 0
 fi

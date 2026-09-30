@@ -36,49 +36,66 @@ done
 
 echo "════ Mutation Verification Gate (Shared Pattern 6: No Vacuous Greens) ════"
 
+# Each mutation breaks one fact in a pristine copy of the fixture evidence and
+# must be refused by the REAL packager or verifier with its own message. A
+# control first proves the pristine copy is accepted, so a tool that refuses
+# everything cannot pass as a tool that catches everything.
+PACKAGE="${MUTATION_GATE_PACKAGE:-$REPO_ROOT/scripts/package-eap-evidence.sh}"
+VERIFY="${MUTATION_GATE_VERIFY:-$REPO_ROOT/scripts/verify-eap-evidence.sh}"
+FIXTURES="$REPO_ROOT/test/fixtures/eap-evidence"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+openssl genpkey -algorithm ed25519 -out "$WORK/key.pem" 2>/dev/null
+openssl pkey -in "$WORK/key.pem" -pubout -out "$WORK/pub.pem"
+export EAP_SIGNING_KEY="$WORK/key.pem" EAP_VERIFY_PUBKEY="$WORK/pub.pem"
+export EAP_OPERATOR="mutation-gate" EAP_CONTAINER_RUNTIME="mutation-gate" SOURCE_DATE_EPOCH=1790726400
+
 TOTAL_MUTATIONS=0
 PROVEN_MUTATIONS=0
 
-assert_mutation_fails() {
-  local name="$1"
-  local cmd="$2"
+fresh() { rm -rf "$WORK/$1" && mkdir -p "$WORK/$1" && cp "$FIXTURES"/* "$WORK/$1/" && printf '%s' "$WORK/$1"; }
+pack() { "$PACKAGE" --quiet --out "$WORK/out-$(basename "$1")" "$1" 2>&1; }
+
+# assert_refused NAME MESSAGE COMMAND...: COMMAND must exit non-zero AND say MESSAGE.
+assert_refused() {
+  local name="$1" msg="$2" out ec
+  shift 2
   TOTAL_MUTATIONS=$((TOTAL_MUTATIONS + 1))
-
-  set +e
-  local out
-  out="$(eval "$cmd" 2>&1)"
-  local ec=$?
-  set -e
-
-  if [ "$ec" -ne 0 ]; then
+  out="$("$@" 2>&1)" && ec=0 || ec=$?
+  if [ "$ec" -ne 0 ] && [[ "$out" == *"$msg"* ]]; then
     PROVEN_MUTATIONS=$((PROVEN_MUTATIONS + 1))
-    printf 'MUTATION PROVEN [%s]: failed as expected (exit %d)\n' "$name" "$ec"
+    printf 'MUTATION PROVEN [%s]: refused with "%s" (exit %d)\n' "$name" "$msg" "$ec"
   else
-    printf 'MUTATION VOID [%s]: test passed when it should have failed!\n' "$name" >&2
-    return 1
+    printf 'MUTATION VOID [%s]: exit %d without "%s"\n' "$name" "$ec" "$msg"
   fi
 }
 
-# Mutation 1: Tampered manifest digest in evidence bundle
-assert_mutation_fails "Tampered Manifest Digest" \
-  'stage="$(mktemp -d)" && trap "rm -rf $stage" EXIT && \
-   cp -r test/fixtures/eap-evidence/* "$stage/" && \
-   echo "tamper" >> "$stage/step4-ebpf-observation.json" && \
-   (cd "$stage" && sha256sum -c audit-signature.sha256 >/dev/null 2>&1)'
+control="$(fresh control)"
+if pack "$control" >/dev/null && "$VERIFY" --quiet "$control" >/dev/null 2>&1; then
+  echo "CONTROL: untampered evidence packages and verifies"
+else
+  echo "CONTROL FAILED: untampered evidence was refused; no mutation can be proven"
+  echo "VERDICT: FAIL" >&2
+  exit 1
+fi
 
-# Mutation 2: Legacy tenant vector in evidence must be caught
-assert_mutation_fails "Legacy Tenant Vector Injection" \
-  'grep -q "kurasi" test/fixtures/eap-evidence/step2-registry-claim.json || \
-   (grep -q "6f82ad81" test/fixtures/eap-evidence/step2-registry-claim.json)'
+tampered="$(fresh tampered)"
+pack "$tampered" >/dev/null
+printf ' ' >>"$tampered/step4-ebpf-observation.json"
+assert_refused "Tampered artifact" "step4-ebpf-observation.json: FAILED" "$VERIFY" "$tampered"
 
-# Mutation 3: Frozen 0 must void containment proof
-assert_mutation_fails "Thawed Pod Rejected" \
-  'grep -q "frozen 0" test/fixtures/eap-evidence/step5-cgroup-freeze.txt'
+legacy="$(fresh legacy)"
+echo 'X-Tenant-ID: kurasi' >>"$legacy/step3-provocation-act.log"
+assert_refused "Legacy tenant vector" "legacy tenant 'kurasi'" pack "$legacy"
 
-# Mutation 4: Missing manifest catalog fails pre-flight verification
-assert_mutation_fails "Missing Manifest Catalog" \
-  'tmp="$(mktemp -d)" && trap "rm -rf $tmp" EXIT && \
-   REPO_ROOT="$tmp" bash scripts/verify-teardown-prereqs.sh --dry-run'
+thawed="$(fresh thawed)"
+sed -i 's/^frozen 1$/frozen 0/' "$thawed/step5-cgroup-freeze.txt"
+assert_refused "Thawed pod" "PRIMARY FORENSIC PROOF INVALID" pack "$thawed"
+
+catalog_root="$WORK/no-catalog"
+mkdir -p "$catalog_root"
+assert_refused "Missing manifest catalog" "FAIL Cold-start manifest catalog ready" \
+  env REPO_ROOT="$catalog_root" bash "$REPO_ROOT/scripts/verify-teardown-prereqs.sh" --dry-run --out "$catalog_root/r.json"
 
 echo "──────────────────────────────────────────────────────────────────────────"
 printf 'MUTATION GATE: %d/%d mutations proven\n' "$PROVEN_MUTATIONS" "$TOTAL_MUTATIONS"
@@ -86,7 +103,6 @@ printf 'MUTATION GATE: %d/%d mutations proven\n' "$PROVEN_MUTATIONS" "$TOTAL_MUT
 if [ "$PROVEN_MUTATIONS" -eq "$TOTAL_MUTATIONS" ]; then
   echo "VERDICT: PASS"
   exit 0
-else
-  echo "VERDICT: FAIL" >&2
-  exit 1
 fi
+echo "VERDICT: FAIL" >&2
+exit 1

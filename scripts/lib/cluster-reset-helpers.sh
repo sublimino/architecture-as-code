@@ -10,14 +10,16 @@
 # Utility functions to inspect, verify, and clean host network and container
 # resources prior to cold-start dual-cluster provisioning.
 
+# A veth enslaved to a bridge (docker0, br-*, kind) carries a live
+# container's traffic; only a veth attached to no master is an orphan.
 find_orphaned_veths() {
   local orphaned=()
   if command -v ip >/dev/null 2>&1; then
     while IFS= read -r iface; do
       [ -n "$iface" ] && orphaned+=("$iface")
-    done < <(ip -o link show type veth 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1)
+    done < <(ip -o link show type veth 2>/dev/null | awk -F': ' '$0 !~ / master / {print $2}' | cut -d'@' -f1)
   fi
-  printf '%s\n' "${orphaned[@]:-}"
+  [ "${#orphaned[@]}" -eq 0 ] || printf '%s\n' "${orphaned[@]}"
 }
 
 cleanup_orphaned_veths() {
@@ -70,7 +72,7 @@ verify_docker_bridge_released() {
 }
 
 check_cgroup_v2_status() {
-  if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+  if [ -f "${CGROUP_ROOT:-/sys/fs/cgroup}/cgroup.controllers" ]; then
     return 0
   fi
   if command -v docker >/dev/null 2>&1; then

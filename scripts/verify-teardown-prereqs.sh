@@ -27,7 +27,9 @@ OUT_FILE=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
-    --out) shift; OUT_FILE="${1:-}" ;;
+    --out)
+      [ "$#" -ge 2 ] || { echo "ERROR: --out requires a path" >&2; exit 2; }
+      shift; OUT_FILE="$1" ;;
     -h|--help)
       echo "Usage: scripts/verify-teardown-prereqs.sh [--dry-run] [--out PATH]"
       exit 0
@@ -111,10 +113,13 @@ fi
 # 6. Phase 5 forensic evidence bundle
 EAP_TAR="$REPO_ROOT/.evidence/eap-kusari-containment.tar.gz"
 EAP_SIG="$REPO_ROOT/.evidence/audit-signature.sha256"
-if [ -f "$EAP_TAR" ] && [ -f "$EAP_SIG" ]; then
-  check_pass "Phase 5 forensic evidence bundle preserved" "$(basename "$EAP_TAR")"
-else
+if [ ! -f "$EAP_TAR" ] || [ ! -f "$EAP_SIG" ]; then
   check_fail "Phase 5 forensic evidence bundle preserved" "bundle or signature missing in .evidence/"
+elif ! bash "$SCRIPT_DIR/verify-eap-evidence.sh" --quiet "$EAP_TAR" >/dev/null 2>&1; then
+  # Present is not preserved: a bundle that no longer verifies is lost evidence.
+  check_fail "Phase 5 forensic evidence bundle preserved" "$(basename "$EAP_TAR") fails verify-eap-evidence.sh"
+else
+  check_pass "Phase 5 forensic evidence bundle preserved" "$(basename "$EAP_TAR") verifies"
 fi
 
 # 7. Zot cache status
@@ -124,8 +129,16 @@ check_pass "Zot OCI registry cache inspected" "$(check_zot_cache_status "$REPO_R
 # 8. Manifest catalog
 CATALOG="$REPO_ROOT/test/fixtures/cold-start-manifests.tsv"
 if [ -f "$CATALOG" ]; then
-  CATALOG_COUNT="$(grep -c -v '^component' "$CATALOG" || echo "0")"
-  check_pass "Cold-start manifest catalog ready" "$CATALOG_COUNT components declared"
+  CATALOG_COUNT=0 MISSING_MANIFESTS=""
+  while IFS=$'\t' read -r component _ manifest_path _; do
+    CATALOG_COUNT=$((CATALOG_COUNT + 1))
+    [ -e "$REPO_ROOT/$manifest_path" ] || MISSING_MANIFESTS="$MISSING_MANIFESTS $component:$manifest_path"
+  done < <(tail -n +2 "$CATALOG")
+  if [ -n "$MISSING_MANIFESTS" ]; then
+    check_fail "Cold-start manifest catalog ready" "manifests not in repo:$MISSING_MANIFESTS"
+  else
+    check_pass "Cold-start manifest catalog ready" "$CATALOG_COUNT components declared, all manifests present"
+  fi
 else
   check_fail "Cold-start manifest catalog ready" "catalog missing at $CATALOG"
 fi

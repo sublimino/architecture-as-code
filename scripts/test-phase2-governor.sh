@@ -104,6 +104,24 @@ gate() {
   [ "$3" = pass ] || FAILED=1
 }
 
+# Defined before the EXIT trap so an abort mid-gates can still write "fail".
+write_cert() {
+jq -n --arg status "$1" --arg started "$STARTED" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg head "$(git -C "$REPO_ROOT" rev-parse HEAD)" --arg p21 "$P2_1_SHA" --arg p22 "$P2_2_SHA" \
+  --arg si "$SI_IMAGE" --argjson blocker "$BLOCKER" --argjson gates "$GATES_JSON" '{
+    schema: "sldc.phase2-governance-certification/v1",
+    card: "SLDC-P2-GOV", status: $status, hard_blocker: ($blocker == 1),
+    proceed_to_phase3: ($status == "pass"), human_signoff_required: true,
+    started: $started, finished: $finished,
+    integration_head: $head, merged: {"SLDC-P2-1": $p21, "SLDC-P2-2": $p22},
+    topology: {workload: {context: "kind-osramp", ip: "172.19.0.10", trust_domain: "osramp.local"},
+               hub: {context: "kind-signalloom-hub", ip: "172.19.0.20", trust_domain: "signalloom.hub"}},
+    fixture: {hub_namespace: "sldc-p2-gov", signal_ingest_image: $si, torn_down: true},
+    gates: $gates }' >"$CERT_JSON"
+  if [ "$KEEP_FIXTURES" = 1 ]; then jq '.fixture.torn_down = false' "$CERT_JSON" >"$CERT_JSON.tmp" && mv "$CERT_JSON.tmp" "$CERT_JSON"; fi
+  CERT_WRITTEN=1
+}
+
 # --- cleanup ------------------------------------------------------------------
 PROBES_UP=()
 # https()/bao_login() run inside $(...), so side results travel via files
@@ -511,23 +529,6 @@ if [ "$BLOCKER" = 0 ]; then
   g7_openbao
   g8_mutation
 fi
-
-write_cert() {
-jq -n --arg status "$1" --arg started "$STARTED" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --arg head "$(git -C "$REPO_ROOT" rev-parse HEAD)" --arg p21 "$P2_1_SHA" --arg p22 "$P2_2_SHA" \
-  --arg si "$SI_IMAGE" --argjson blocker "$BLOCKER" --argjson gates "$GATES_JSON" '{
-    schema: "sldc.phase2-governance-certification/v1",
-    card: "SLDC-P2-GOV", status: $status, hard_blocker: ($blocker == 1),
-    proceed_to_phase3: ($status == "pass"), human_signoff_required: true,
-    started: $started, finished: $finished,
-    integration_head: $head, merged: {"SLDC-P2-1": $p21, "SLDC-P2-2": $p22},
-    topology: {workload: {context: "kind-osramp", ip: "172.19.0.10", trust_domain: "osramp.local"},
-               hub: {context: "kind-signalloom-hub", ip: "172.19.0.20", trust_domain: "signalloom.hub"}},
-    fixture: {hub_namespace: "sldc-p2-gov", signal_ingest_image: $si, torn_down: true},
-    gates: $gates }' >"$CERT_JSON"
-  if [ "$KEEP_FIXTURES" = 1 ]; then jq '.fixture.torn_down = false' "$CERT_JSON" >"$CERT_JSON.tmp" && mv "$CERT_JSON.tmp" "$CERT_JSON"; fi
-  CERT_WRITTEN=1
-}
 
 STATUS=pass; [ "$FAILED" = 0 ] || STATUS=fail
 write_cert "$STATUS"

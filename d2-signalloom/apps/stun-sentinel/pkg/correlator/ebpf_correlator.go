@@ -53,13 +53,15 @@ var podUIDRegex = regexp.MustCompile(`pod[_\-]?([0-9a-fA-F]{8}[_\-][0-9a-fA-F]{4
 
 // FreezeManager encapsulates cgroup freeze containment for Kubernetes pods.
 type FreezeManager struct {
-	freezer  *cgroup.Freezer
-	freezeFn func(pod *corev1.Pod) error
+	freezer    *cgroup.Freezer
+	credential string
+	freezeFn   func(pod *corev1.Pod) error
 }
 
-// NewFreezeManager creates a FreezeManager backed by the provided cgroup.Freezer.
-func NewFreezeManager(freezer *cgroup.Freezer) *FreezeManager {
-	return &FreezeManager{freezer: freezer}
+// NewFreezeManager creates a FreezeManager backed by the provided
+// cgroup.Freezer, presenting credential to its freeze validator.
+func NewFreezeManager(freezer *cgroup.Freezer, credential string) *FreezeManager {
+	return &FreezeManager{freezer: freezer, credential: credential}
 }
 
 // NewMockFreezeManager creates a FreezeManager backed by a custom callback function for testing.
@@ -87,7 +89,7 @@ func (fm *FreezeManager) FreezePod(pod *corev1.Pod) error {
 	}
 
 	if fm.freezer != nil {
-		_, err := fm.freezer.FreezePod(string(pod.UID), "in-sentinel-governance")
+		_, err := fm.freezer.FreezePod(string(pod.UID), fm.credential)
 		return err
 	}
 

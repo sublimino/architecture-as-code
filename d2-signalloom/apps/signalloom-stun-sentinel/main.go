@@ -254,7 +254,7 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 // newCorrelatorFreezeManager hands the eBPF correlator the same freezer engine,
 // and so the same dry-run and credential policy, as the reconciler.
 func newCorrelatorFreezeManager(f *cgroupFreezer) *correlator.FreezeManager {
-	return correlator.NewFreezeManager(f.engine)
+	return correlator.NewFreezeManager(f.engine, f.freezeToken)
 }
 
 func main() {

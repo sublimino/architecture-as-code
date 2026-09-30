@@ -1,0 +1,51 @@
+# FLUX ENVSUBST: NO - Dex OIDC configuration for Kusari EAP tenant integration.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex
+  namespace: auth
+  labels:
+    app.kubernetes.io/name: dex
+    app.kubernetes.io/part-of: signalloom-eap
+    signalloom.ai/tenant: "kusari"
+    signalloom.ai/tenant-hash: "4b53ab6b"
+data:
+  config.yaml: |
+    issuer: https://sl-eap-4b53ab6b.ts.net/dex
+    storage:
+      type: memory
+    web:
+      http: 0.0.0.0:5556
+    frontend:
+      dir: /srv/dex/web
+      theme: dark
+    oauth2:
+      skipApprovalScreen: true
+      passwordConnector: local
+    enablePasswordDB: true
+
+    staticClients:
+      - id: signalloom-dashboard
+        name: "Signal Loom Dashboard"
+        public: true
+        redirectURIs:
+          - "https://sl-eap-4b53ab6b.ts.net/auth/callback"
+          - "https://sl-eap-4b53ab6b.ts.net/callback"
+          - "https://sl-eap-4b53ab6b.demo.signalloom.io/auth/callback"
+          - "https://sl-eap-4b53ab6b.demo.signalloom.io/callback"
+          - "http://localhost:5173/callback"
+      - id: signalloom-api
+        name: "Signal Loom API"
+        secret: signalloom-api-local-only
+        trustedPeers:
+          - signalloom-dashboard
+
+    staticPasswords:
+      - email: demo-user@signalloom.local
+        hash: $2b$10$NZGZWtWZgbrmmuDU5Bf.N.38ar7tskOwJ176v1qo5p3UWw1dlIE4C
+        username: demo-user
+        userID: demo-user
+      - email: viewer@signalloom.local
+        hash: $2b$10$gNhgjlqGP5VFva0S/bJtz.J2h0UTQAqYNh0OQRsJdCbRR0Yf.gitq
+        username: viewer
+        userID: viewer

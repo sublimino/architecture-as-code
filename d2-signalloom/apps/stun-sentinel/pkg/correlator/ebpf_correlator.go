@@ -399,12 +399,7 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 
 			// Canonical Tenant Vector (Shared Pattern 1)
 			if tenant, ok := pod.Labels["tenant"]; ok && tenant != "" {
-				if tenant == "kurasi" {
-					// Legacy typo forbidden; canonicalize to kusari
-					obs.TenantID = DefaultTenantID
-				} else {
-					obs.TenantID = tenant
-				}
+				obs.TenantID = tenant
 			} else if tenant, ok := pod.Labels["kusari"]; ok && tenant != "" {
 				obs.TenantID = DefaultTenantID
 			}

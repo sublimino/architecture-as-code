@@ -1,0 +1,126 @@
+{
+  "card": "SLDC-P3-2",
+  "timestamp": "2026-09-30T07:20:44Z",
+  "canonical_host": "sl-eap-4b53ab6b.ts.net",
+  "canonical_tenant": "kusari",
+  "canonical_hash": "4b53ab6b",
+  "hermetic": false,
+  "summary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0,
+    "status": "PASS"
+  },
+  "probes": [
+    {
+      "id": "P1",
+      "name": "Canonical host + valid X-SignalLoom-Tenant",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-SignalLoom-Tenant",
+      "value": "kusari",
+      "expected": 200,
+      "actual": "200",
+      "pass": true
+    },
+    {
+      "id": "P2",
+      "name": "Canonical host + valid X-Tenant-ID",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-Tenant-ID",
+      "value": "kusari",
+      "expected": 200,
+      "actual": "200",
+      "pass": true
+    },
+    {
+      "id": "P3",
+      "name": "Canonical host + inferred tenant (no header)",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "",
+      "value": "",
+      "expected": 200,
+      "actual": "200",
+      "pass": true
+    },
+    {
+      "id": "P4",
+      "name": "Canonical host + mismatched tenant header",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-SignalLoom-Tenant",
+      "value": "rogue",
+      "expected": 403,
+      "actual": "403",
+      "pass": true
+    },
+    {
+      "id": "P5",
+      "name": "Canonical host + mismatched X-Tenant-ID",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-Tenant-ID",
+      "value": "unauthorized-org",
+      "expected": 403,
+      "actual": "403",
+      "pass": true
+    },
+    {
+      "id": "P6",
+      "name": "Canonical host + legacy typo kurasi header",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-Tenant-ID",
+      "value": "kurasi",
+      "expected": 403,
+      "actual": "403",
+      "pass": true
+    },
+    {
+      "id": "P7",
+      "name": "Canonical host + legacy typo hash header",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-Tenant-ID",
+      "value": "6f82ad81",
+      "expected": 403,
+      "actual": "403",
+      "pass": true
+    },
+    {
+      "id": "P8",
+      "name": "Case-insensitive whitespace header normalization",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-Tenant-ID",
+      "value": "  KUSARI  ",
+      "expected": 200,
+      "actual": "200",
+      "pass": true
+    },
+    {
+      "id": "P9",
+      "name": "Case-insensitive legacy typo rejection",
+      "host": "sl-eap-4b53ab6b.ts.net",
+      "header": "X-Tenant-ID",
+      "value": "  KuRaSi  ",
+      "expected": 403,
+      "actual": "403",
+      "pass": true
+    },
+    {
+      "id": "P10",
+      "name": "Legacy typo host rejection",
+      "host": "sl-eap-6f82ad81.ts.net",
+      "header": "X-Tenant-ID",
+      "value": "kusari",
+      "expected": 404,
+      "actual": "404",
+      "pass": true
+    },
+    {
+      "id": "P11",
+      "name": "Canonical demo host routing",
+      "host": "sl-eap-4b53ab6b.demo.signalloom.io",
+      "header": "",
+      "value": "",
+      "expected": 200,
+      "actual": "200",
+      "pass": true
+    }
+  ]
+}

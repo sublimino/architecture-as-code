@@ -70,10 +70,12 @@ for i in $(seq 1 "${REPEAT}"); do
     cmd+=("${SUITE}")
     [ ${#BATS_ARGS[@]} -gt 0 ] && cmd+=("${BATS_ARGS[@]}")
 
-    rc=0
-    EVIDENCE_DIR="${run_dir}" "${cmd[@]}" 2>&1 | tee "${run_dir}/bats-output.log" || rc=$?
-    # tee masks bats' status; recover it from PIPESTATUS.
-    rc="${PIPESTATUS[0]:-${rc}}"
+    # Read PIPESTATUS straight after the pipeline: any later command (even the
+    # `rc=$?` of an `|| rc=$?` fallback) resets it to that command's 0.
+    set +e
+    EVIDENCE_DIR="${run_dir}" "${cmd[@]}" 2>&1 | tee "${run_dir}/bats-output.log"
+    rc="${PIPESTATUS[0]}"
+    set -e
 
     passed="$(grep -cE '^ok [0-9]+' "${run_dir}/bats-output.log" || true)"
     failed="$(grep -cE '^not ok [0-9]+' "${run_dir}/bats-output.log" || true)"

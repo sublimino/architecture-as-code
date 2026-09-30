@@ -209,6 +209,23 @@ g2_bringup() {
 # --- fixtures -------------------------------------------------------------------------
 wait_rollout() { "$KUBECTL_BIN" --context "$1" -n "$2" rollout status "deploy/$3" --timeout=180s >/dev/null; }
 
+# The hub fixture runs signal-ingest at SI_IMAGE, which is tagged by HEAD. Nothing
+# else builds that tag, so without this every fresh commit timed out in the
+# signal-ingest rollout (ImagePull on a tag the node never had). Build when the
+# tag is absent locally, then load it onto the hub node.
+ensure_si_image() {
+  if ! "$DOCKER_BIN" image inspect "$SI_IMAGE" >/dev/null 2>&1 \
+    && ! "$DOCKER_BIN" build -q -t "$SI_IMAGE" -f "$REPO_ROOT/d2-signalloom/apps/signal-ingest/Dockerfile" \
+      "$REPO_ROOT/d2-signalloom/apps" >>"$AUDIT_TXT" 2>&1; then
+    echo "p2-gov: docker build of $SI_IMAGE failed (see $AUDIT_TXT)" >&2
+    return 1
+  fi
+  if ! "$KIND_BIN" load docker-image --name "$SLDC_HUB_CLUSTER" "$SI_IMAGE" >>"$AUDIT_TXT" 2>&1; then
+    echo "p2-gov: kind load of $SI_IMAGE into $SLDC_HUB_CLUSTER failed" >&2
+    return 1
+  fi
+}
+
 fixtures_up() {
   local node_hub="spiffe://signalloom.hub/k8s-cluster/$SLDC_HUB_CLUSTER"
   local node_osr="spiffe://osramp.local/k8s-cluster/$SLDC_OSRAMP_CLUSTER"
@@ -252,6 +269,7 @@ fixtures_up() {
   { printf 'password=%s\n' "$pgpw"; printf 'dsn=postgres://audit:%s@audit-db:5432/audit?sslmode=disable\n' "$pgpw"; } \
     | khub -n "$HUB_NS" create secret generic sldc-p2-gov-audit --from-env-file=/dev/stdin \
       --dry-run=client -o yaml | khub apply -f - >/dev/null
+  ensure_si_image
   # the shipped signal-ingest config, then the fixture that mounts it
   HUB_APP_NS=$HUB_NS "$BOOTSTRAP" signal-ingest >>"$AUDIT_TXT" 2>&1
   SI_IMAGE=$SI_IMAGE envsubst '${SI_IMAGE}' <"$FIXTURE_DIR/hub-fixture.yaml" | khub apply -f - >/dev/null

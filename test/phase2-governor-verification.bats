@@ -205,6 +205,39 @@ CURL
   if grep -q SECRET "$TMP/bao_body"; then return 1; fi
 }
 
+# ensure_si_image(): fake docker/kind record argv; FK_HAVE=1 means the tag exists.
+si_fakes() {
+  mkdir -p "$TMP/bin"; : >"$TMP/calls"
+  printf '#!/bin/sh\necho "docker $*" >>"%s"\ncase "$1" in image) [ "${FK_HAVE:-0}" = 1 ];; build) [ "${FK_BUILD_FAIL:-0}" != 1 ];; esac\n' "$TMP/calls" >"$TMP/bin/docker"
+  printf '#!/bin/sh\necho "kind $*" >>"%s"\n' "$TMP/calls" >"$TMP/bin/kind"
+  chmod +x "$TMP/bin/docker" "$TMP/bin/kind"
+  DOCKER_BIN="$TMP/bin/docker" KIND_BIN="$TMP/bin/kind" SI_IMAGE=signal-ingest:sldc-p2-gov-abc12345
+  SLDC_HUB_CLUSTER=signalloom-hub AUDIT_TXT="$TMP/audit.txt" REPO_ROOT=/repo
+}
+
+@test "runner ensure_si_image(): a HEAD tag the host lacks is built from signal-ingest and loaded onto the hub" {
+  eval "$(runner_fn ensure_si_image)"; si_fakes
+  ensure_si_image
+  [ "$(grep -c '^docker build' "$TMP/calls")" -eq 1 ]
+  grep -qx 'docker build -q -t signal-ingest:sldc-p2-gov-abc12345 -f /repo/d2-signalloom/apps/signal-ingest/Dockerfile /repo/d2-signalloom/apps' "$TMP/calls"
+  [ "$(tail -1 "$TMP/calls")" = "kind load docker-image --name signalloom-hub signal-ingest:sldc-p2-gov-abc12345" ]
+}
+
+@test "runner ensure_si_image(): an existing tag is loaded without a rebuild" {
+  eval "$(runner_fn ensure_si_image)"; si_fakes
+  FK_HAVE=1 ensure_si_image
+  [ "$(grep -c '^docker build' "$TMP/calls")" -eq 0 ]
+  grep -qx 'kind load docker-image --name signalloom-hub signal-ingest:sldc-p2-gov-abc12345' "$TMP/calls"
+}
+
+@test "runner ensure_si_image(): a failed build stops before loading and names the image" {
+  eval "$(runner_fn ensure_si_image)"; si_fakes
+  FK_BUILD_FAIL=1 run ensure_si_image
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"docker build of signal-ingest:sldc-p2-gov-abc12345 failed"* ]]
+  [ "$(grep -c '^kind' "$TMP/calls")" -eq 0 ]
+}
+
 @test "MUTATION: a certificate with one failed gate is rejected" {
   jq -n '{schema: "sldc.phase2-governance-certification/v1", card: "SLDC-P2-GOV", status: "pass", hard_blocker: false,
           human_signoff_required: true, integration_head: ("a" * 40),

@@ -84,7 +84,7 @@ live() { [[ "${SLDC_P22_LIVE:-}" == 1 ]] || skip "live lab tier: set SLDC_P22_LI
 @test "federation manifest renders per side with no unrendered variables" {
   run "$SCRIPT" render workload
   [ "$status" -eq 0 ]
-  ! grep -q '\${' <<<"$output"
+  if grep -q '\${' <<<"$output"; then echo "unrendered variable"; return 1; fi
   grep -Fq 'trust_domain = "osramp.local"' <<<"$output"
   grep -Fq 'federates_with "signalloom.hub"' <<<"$output"
   grep -Fq 'bundle_endpoint_url = "https://172.19.0.20:31843"' <<<"$output"
@@ -155,7 +155,7 @@ EOF
   [ "$status" -eq 0 ]
   [ "$(wc -l <"$BATS_TEST_TMPDIR/creates")" -eq 5 ]
   grep -qxF 'spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel' "$BATS_TEST_TMPDIR/entries"
-  ! grep -q 'signalloom-stun-sentinel' "$BATS_TEST_TMPDIR/entries"
+  if grep -q 'signalloom-stun-sentinel' "$BATS_TEST_TMPDIR/entries"; then return 1; fi
   SPIRE_WORKLOAD_CMD="$BATS_TEST_TMPDIR/spire" run "$SCRIPT" entries
   [ "$status" -eq 0 ]
   [ "$(wc -l <"$BATS_TEST_TMPDIR/creates")" -eq 5 ]

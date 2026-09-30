@@ -23,6 +23,11 @@ export default defineConfig({
   timeout: 30_000,
   retries: 1,
   use: {
+    baseURL: (
+      process.env.SIGNALLOOM_UI_URL ??
+      process.env.DASHBOARD_URL ??
+      "https://dashboard.osramp.acme.local:30754"
+    ).replace(/\/+$/, ""),
     headless: true,
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",

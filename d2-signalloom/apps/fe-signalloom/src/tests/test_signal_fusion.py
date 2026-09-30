@@ -46,8 +46,14 @@ class TestRouterMounting:
     """The signal fusion router is reachable on the expected paths."""
 
     def test_signal_routes_registered(self):
-        """All signal fusion routes appear in the app's route table."""
-        route_paths = {r.path for r in app.routes if hasattr(r, "path")}
+        route_paths = set()
+        for r in app.routes:
+            if hasattr(r, "path"):
+                route_paths.add(r.path)
+            elif hasattr(r, "routes"):
+                route_paths.update(sub.path for sub in r.routes if hasattr(sub, "path"))
+            elif hasattr(r, "original_router") and hasattr(r.original_router, "routes"):
+                route_paths.update(sub.path for sub in r.original_router.routes if hasattr(sub, "path"))
         expected = {
             "/api/signals/observations",
             "/api/signals/actors",

@@ -1,15 +1,15 @@
 {
-  "timestamp": "2026-09-30T11:04:27Z",
-  "git_commit": "be0bbf8a521e6f752c43ade1c4ccc6213cf0d08d",
-  "verdict": "FAIL",
+  "timestamp": "2026-09-30T11:23:47Z",
+  "git_commit": "20f1fcedea6c40b27aabbb5dee02b7cc5b00e3a7",
+  "verdict": "PASS",
   "dry_run": true,
   "total_checks": 8,
-  "failed_checks": 1,
+  "failed_checks": 0,
   "tools": {
     "docker": "29.7.1",
     "kind": "v0.32.0",
     "cgroup_version": "2",
-    "signing_keys_dir": "/tmp/bats-run-QLlpKh/test/8/empty_keys"
+    "signing_keys_dir": "/home/andy/src/cp/osramp-demo/.keys"
   },
   "evidence": {
     "bundle_present": true,

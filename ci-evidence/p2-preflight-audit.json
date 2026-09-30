@@ -1,0 +1,238 @@
+{
+  "task": "SLDC-P2-PRE",
+  "timestamp": "2026-09-30T05:26:00Z",
+  "host": "fortuna",
+  "status": "fail",
+  "summary": {
+    "passed": 10,
+    "blockers": 3,
+    "drift": 7,
+    "advisory": 6
+  },
+  "expected_topology": {
+    "bridge": {
+      "name": "signalloom-bridge",
+      "cidr": "172.19.0.0/16",
+      "gateway": "172.19.0.1",
+      "state": "absent"
+    },
+    "node_ips": [
+      "172.19.0.10",
+      "172.19.0.20"
+    ],
+    "host_ports": [
+      34777,
+      34788,
+      31443,
+      30080
+    ],
+    "trust_domains": {
+      "workload": "osramp.local",
+      "hub": "signalloom.hub"
+    }
+  },
+  "l3_probe_requested": true,
+  "checks": [
+    {
+      "id": "bridge.exists",
+      "severity": "advisory",
+      "summary": "signalloom-bridge not yet created (P2-1 creates it)",
+      "evidence": ""
+    },
+    {
+      "id": "bridge.overlap.docker",
+      "severity": "blocker",
+      "summary": "172.19.0.0/16 already allocated to: clawdbot_default=172.19.0.0/16 (containers=0)",
+      "evidence": "clawdbot_default=172.19.0.0/16 (containers=0)"
+    },
+    {
+      "id": "bridge.overlap.routes",
+      "severity": "pass",
+      "summary": "no VPN/host route overlaps 172.19.0.0/16",
+      "evidence": ""
+    },
+    {
+      "id": "node.ips",
+      "severity": "pass",
+      "summary": "reserved node IPs 172.19.0.10, 172.19.0.20 unheld",
+      "evidence": ""
+    },
+    {
+      "id": "port.34777",
+      "severity": "blocker",
+      "summary": "host TCP 34777 bound (127.0.0.1:34777) by osramp-control-plane",
+      "evidence": "127.0.0.1:34777"
+    },
+    {
+      "id": "port.34788",
+      "severity": "pass",
+      "summary": "host TCP 34788 free",
+      "evidence": ""
+    },
+    {
+      "id": "port.31443",
+      "severity": "pass",
+      "summary": "host TCP 31443 free",
+      "evidence": ""
+    },
+    {
+      "id": "port.30080",
+      "severity": "pass",
+      "summary": "host TCP 30080 free",
+      "evidence": ""
+    },
+    {
+      "id": "port.443.advisory",
+      "severity": "advisory",
+      "summary": "host TCP 443 bound (100.92.129.16:443 [fd7a:115c:a1e0::1535:8110]:443) by non-docker process; in-cluster only in Appendix B, blocks host port-forwards on this port",
+      "evidence": "100.92.129.16:443 [fd7a:115c:a1e0::1535:8110]:443"
+    },
+    {
+      "id": "port.8082.advisory",
+      "severity": "advisory",
+      "summary": "host TCP 8082 bound (0.0.0.0:8082 [::]:8082) by archivista-archivista-1; in-cluster only in Appendix B, blocks host port-forwards on this port",
+      "evidence": "0.0.0.0:8082 [::]:8082"
+    },
+    {
+      "id": "port.8200.advisory",
+      "severity": "advisory",
+      "summary": "host TCP 8200 bound (127.0.0.1:8200) by non-docker process; in-cluster only in Appendix B, blocks host port-forwards on this port",
+      "evidence": "127.0.0.1:8200"
+    },
+    {
+      "id": "kind.osramp",
+      "severity": "blocker",
+      "summary": "kind cluster osramp already exists on kind=172.18.0.5, not signalloom-bridge; P2-1 cannot create it without deleting or migrating it",
+      "evidence": "kind=172.18.0.5"
+    },
+    {
+      "id": "kind.signalloom-hub",
+      "severity": "pass",
+      "summary": "no existing kind cluster named signalloom-hub",
+      "evidence": ""
+    },
+    {
+      "id": "manifest.cluster-osramp",
+      "severity": "drift",
+      "summary": "infra/kind/cluster-osramp.yaml absent; P2-1 must author it from Appendix B.2",
+      "evidence": ""
+    },
+    {
+      "id": "manifest.cluster-signalloom-hub",
+      "severity": "drift",
+      "summary": "infra/kind/cluster-signalloom-hub.yaml absent; P2-1 must author it from Appendix B.2",
+      "evidence": ""
+    },
+    {
+      "id": "trustdomain.workload",
+      "severity": "drift",
+      "summary": "no SPIRE server declares trust_domain osramp.local; servers declare [signalloom.demo], all references [signalloom.demo]",
+      "evidence": "servers=signalloom.demo; all=signalloom.demo"
+    },
+    {
+      "id": "trustdomain.hub",
+      "severity": "drift",
+      "summary": "no SPIRE server declares trust_domain signalloom.hub; servers declare [signalloom.demo], all references [signalloom.demo]",
+      "evidence": "servers=signalloom.demo; all=signalloom.demo"
+    },
+    {
+      "id": "coredns.stub",
+      "severity": "drift",
+      "summary": "kind-osramp Corefile has only '.:53' forwarding to /etc/resolv.conf; a signalloom.hub (or hub service) stub zone is required for cross-cluster names",
+      "evidence": "forward=/etc/resolv.conf"
+    },
+    {
+      "id": "openbao.glob",
+      "severity": "pass",
+      "summary": "openbao-supercred-bootstrap.yaml sets bound_claims_type glob",
+      "evidence": ""
+    },
+    {
+      "id": "openbao.sub_td",
+      "severity": "drift",
+      "summary": "bound sub trust domain is [signalloom.demo], not osramp.local; cross-cluster tokens will not match",
+      "evidence": "signalloom.demo"
+    },
+    {
+      "id": "openbao.jwks",
+      "severity": "drift",
+      "summary": "jwks_url is cluster-local (http://spire-oidc.inf-bao.svc.cluster.local:8008/keys); hub OpenBao cannot verify osramp.local SVIDs without a federated bundle or cross-cluster JWKS endpoint",
+      "evidence": "http://spire-oidc.inf-bao.svc.cluster.local:8008/keys"
+    },
+    {
+      "id": "openbao.transit",
+      "severity": "advisory",
+      "summary": "no transit engine bootstrap in inf-bao manifests; any transit mount is created outside the GitOps bootstrap",
+      "evidence": ""
+    },
+    {
+      "id": "host.ram",
+      "severity": "pass",
+      "summary": "MemTotal 61 GiB >= 8 GiB",
+      "evidence": "MemTotal=64765432kB"
+    },
+    {
+      "id": "host.inotify",
+      "severity": "pass",
+      "summary": "inotify watches=1048576 instances=10240 meet 524288/8192",
+      "evidence": ""
+    },
+    {
+      "id": "host.sudo",
+      "severity": "advisory",
+      "summary": "non-interactive sudo unavailable in this context; docker-group access suffices for bridge management",
+      "evidence": ""
+    },
+    {
+      "id": "l3.probe",
+      "severity": "pass",
+      "summary": "static IPs .10/.20 honoured and bidirectional ICMP on disposable 172.31.0.0/16",
+      "evidence": "sldc-p2-preflight-2449331-n10=172.31.0.10 sldc-p2-preflight-2449331-n20=172.31.0.20 "
+    }
+  ],
+  "base": {
+    "head": "ab89bffe81a3fcff1c766783be9a51694c07bc50",
+    "integration_ref": "integration/sldc-v0.1.0",
+    "integration_sha": "ab89bffe81a3fcff1c766783be9a51694c07bc50"
+  },
+  "card_required_tests": [
+    {
+      "name": "Docker Bridge Subnet Availability",
+      "rc": 0,
+      "output": "172.18.0.0/16",
+      "expected": "172.19.0.0/16",
+      "result": "fail",
+      "note": "card probe inspects the existing `kind` network (172.18.0.0/16); its `|| echo 172.19.0.0/16` fallback would print the expected value whenever `kind` is absent, so the probe is vacuous in that branch. Real bridge verdict: check bridge.overlap.docker."
+    },
+    {
+      "name": "Port Conflict Pre-Flight Scan",
+      "rc": 0,
+      "output": "tcp   LISTEN 0      4096                     127.0.0.1:34777      0.0.0.0:*                                                 ",
+      "expected": "empty",
+      "result": "fail",
+      "note": "34777 held by osramp-control-plane (existing kind-osramp)."
+    },
+    {
+      "name": "Kind Multi-Cluster Manifest Syntax Verification",
+      "rc": 1,
+      "expected": "rc 0",
+      "result": "fail",
+      "note": "infra/kind/ does not exist on integration/sldc-v0.1.0; manifests are P2-1 deliverables per Appendix B.2."
+    },
+    {
+      "name": "Deliberate Mutation Testing Check (nc on 34777)",
+      "rc": 0,
+      "expected": "rc 0",
+      "result": "pass",
+      "note": "passes vacuously on this host: nc cannot bind 34777 (EADDRINUSE, osramp-control-plane holds 127.0.0.1:34777), the scan detects the pre-existing holder. Non-vacuous replacement: bats test 22 binds free port 34788 and asserts a blocker."
+    }
+  ],
+  "baseline": {
+    "command": "make test",
+    "result": "8/8 ok, 0 skipped, rc 0"
+  },
+  "verdict": {
+    "proceed": false,
+    "reason": "3 blockers need a principal decision before P2-1 provisions: 172.19.0.0/16 held by clawdbot_default, kind-osramp already exists on the kind network holding 127.0.0.1:34777, and the name osramp is taken"
+  }
+}

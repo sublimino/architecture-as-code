@@ -256,7 +256,10 @@ func missingTCObject(output []byte) bool {
 	return strings.Contains(message, "No such file") ||
 		strings.Contains(message, "Cannot find") ||
 		strings.Contains(message, "No such process") ||
-		strings.Contains(message, "Invalid argument")
+		strings.Contains(message, "Invalid argument") ||
+		strings.Contains(message, "Parent Qdisc doesn't exist") ||
+		strings.Contains(message, "Parent Qdisc doesn't exists") ||
+		strings.Contains(message, "Error: Parent Qdisc")
 }
 
 func tcError(operation, iface string, output []byte, err error) error {

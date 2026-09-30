@@ -20,6 +20,8 @@ import (
 
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/filter"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
 )
@@ -73,10 +75,9 @@ func (fm *FreezeManager) FreezePod(pod *corev1.Pod) error {
 		return errors.New("pod is nil")
 	}
 
-	// Owner-record phase gating (PF-5): Sentinel must verify pod status.phase is Running
-	// before attempting cgroup freeze; freezing during ContainerCreating causes permanent wedging.
-	if pod.Status.Phase != "" && pod.Status.Phase != corev1.PodRunning {
-		return fmt.Errorf("pod %s/%s phase is %s, refusing freeze outside Running phase", pod.Namespace, pod.Name, pod.Status.Phase)
+	// Owner-record phase gating (PF-5) & Self/Infra Exclusion (SLDC-P1-3)
+	if err := filter.Default().CheckFreezable(pod); err != nil {
+		return err
 	}
 
 	if fm.freezeFn != nil {
@@ -451,16 +452,37 @@ func (m *SentinelProbeManager) Start(ctx context.Context, rd *ringbuf.Reader) er
 		}
 
 		var raw SyscallEvent
-		if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &raw); err != nil {
-			continue
+		var filename string
+		var targetPID uint32
+
+		if ev, err := ebpf.DecodeSyscallEvent(record.RawSample); err == nil {
+			raw.PID = ev.PID
+			raw.TGID = ev.TGID
+			raw.UID = ev.UID
+			raw.Type = uint8(ev.Type)
+			copy(raw.Comm[:], ev.Comm)
+			copy(raw.Filename[:], ev.Filename)
+			filename = ev.Filename
+			targetPID = ev.PID
+		} else {
+			if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &raw); err != nil {
+				continue
+			}
+			filename = strings.TrimRight(string(raw.Filename[:]), "\x00")
+			if i := strings.IndexByte(filename, 0); i >= 0 {
+				filename = filename[:i]
+			}
+			targetPID = raw.PID
 		}
 
-		filename := strings.TrimRight(string(raw.Filename[:]), "\x00")
 		if !m.IsSensitivePath(filename) {
 			continue
 		}
 
-		pod := m.lookupPodByPID(raw.PID)
+		pod := m.lookupPodByPID(targetPID)
+		if pod == nil && raw.TGID != 0 {
+			pod = m.lookupPodByPID(raw.TGID)
+		}
 		if pod == nil {
 			continue
 		}

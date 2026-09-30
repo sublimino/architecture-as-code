@@ -160,6 +160,9 @@ func selfPIDNamespace() (dev, ino uint64, err error) {
 // tracepoint name. Nil unless LoaderOptions.CaptureVerifierLog was set.
 func (l *Loader) VerifierLogs() map[string]string { return l.verifierLogs }
 
+// Reader returns the underlying ring-buffer reader.
+func (l *Loader) Reader() *ringbuf.Reader { return l.reader }
+
 // EventsMap exposes the ring buffer map for inspection (type, capacity).
 func (l *Loader) EventsMap() *ebpf.Map { return l.objs.Events }
 

@@ -108,6 +108,7 @@ fake_kubectl() {
 args="$*"
 ann() { [[ -n "$FK_STUNNED" ]] && printf '{"signalloom.io/stunned":"%s"}' "$FK_STUNNED" || printf '{}'; }
 case "$args" in
+*"version"*) [[ "${FK_DOWN:-0}" == 1 ]] && exit 1; exit 0 ;;
 *"get deploy agent-sir-lancelot"*) exit 1 ;;
 *"get deploy agent-"*) printf '{"kind":"Deployment","metadata":{"annotations":%s},"spec":{"template":{"metadata":{}}}}\n' "$(ann)" ;;
 *"get pod agent-sir-lancelot"*) printf '{"kind":"Pod","metadata":{"annotations":%s}}\n' "$(ann)" ;;
@@ -304,6 +305,15 @@ EOF
 	before="$(git -C "$fx" status --porcelain)"
 	run "$script" --out "$BATS_TEST_TMPDIR/full.json"
 	[ "$(git -C "$fx" status --porcelain)" = "$before" ]
+}
+
+@test "an unreachable cluster is not reported as probed, and its live halves fail" {
+	fake_kubectl
+	export FK_DOWN=1 FK_STUNNED=true FK_BCT=glob
+	run "$script" --quiet --out "$BATS_TEST_TMPDIR/down.json"
+	[ "$status" -ne 0 ]
+	run jq -e '.cluster_probed==false and .verdict.pass==false' "$BATS_TEST_TMPDIR/down.json"
+	[ "$status" -eq 0 ]
 }
 
 # ------------------------------------------------------------------ tier 2 (live, read-only)

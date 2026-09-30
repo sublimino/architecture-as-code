@@ -85,6 +85,10 @@ FAILED=()
 
 k() { "$KUBECTL" --context "$CTX" --request-timeout=15s "$@"; }
 live() { [[ "$SKIP_CLUSTER" != "1" ]]; }
+# Whether the cluster actually answered. "Not skipped" is not "probed": with an
+# unreachable API every live half fails, and the report must not claim otherwise.
+REACHABLE=0
+if live && k version >/dev/null 2>&1; then REACHABLE=1; fi
 repo_file() { [[ -f "$REPO/$1" ]]; }
 
 # record ID NAME STATUS SUMMARY STATIC_JSON LIVE_JSON
@@ -342,13 +346,13 @@ for g in "${GATES[@]}"; do
 done
 
 report="$(jq -s --arg ctx "$CTX" --arg head "$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unresolved)" \
-	--arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skip "$SKIP_CLUSTER" '{
+	--arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skip "$SKIP_CLUSTER" --arg reach "$REACHABLE" '{
 	schema: "sldc-p5-preflight/v1",
 	card: "SLDC-P5-PRE",
 	generated_at: $at,
 	repo_head: $head,
 	context: $ctx,
-	cluster_probed: ($skip != "1"),
+	cluster_probed: ($skip != "1" and $reach == "1"),
 	gates: map(select(.id|startswith("PF-"))),
 	auxiliary: map(select(.id|startswith("AUX-"))),
 	verdict: {

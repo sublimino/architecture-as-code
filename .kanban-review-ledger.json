@@ -4075,5 +4075,25 @@
     "verdict": "pass",
     "model": null,
     "reason": "Phase 2 Governor gate certified pass: all 8 gates G1-G8 verified passing on live dual-Kind clusters, zero trust errors, 21 BATS tests passing"
+  },
+  "41a51": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "41a51",
+        "reviewed_at": "2026-09-30T07:13:24.166Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Tenant domain preflight audit passed: 14/14 bats tests passing, F1 formula drift resolved to canonical salted SHA-256 (4b53ab6b), active kurasi occurrences inventoried"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "41a51",
+    "reviewed_at": "2026-09-30T07:13:24.166Z",
+    "reviewer": "supervisor",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Tenant domain preflight audit passed: 14/14 bats tests passing, F1 formula drift resolved to canonical salted SHA-256 (4b53ab6b), active kurasi occurrences inventoried"
   }
 }

@@ -284,8 +284,10 @@ func TestCollect_EvictsVanishedPod(t *testing.T) {
 
 func TestCollect_FailedScrapeMarksUnhealthy(t *testing.T) {
 	cases := map[string]func(context.Context) ([]byte, error){
-		"kubelet error": func(context.Context) ([]byte, error) { return nil, errors.New("the server has asked for the client to provide credentials (401)") },
-		"malformed":     func(context.Context) ([]byte, error) { return []byte("<html>login</html>"), nil },
+		"kubelet error": func(context.Context) ([]byte, error) {
+			return nil, errors.New("the server has asked for the client to provide credentials (401)")
+		},
+		"malformed": func(context.Context) ([]byte, error) { return []byte("<html>login</html>"), nil },
 	}
 	for name, fn := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -487,5 +489,27 @@ func TestHandler_SSEFlushesHeadersBeforeAnyEvent(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 || resp.Header.Get("Cache-Control") != "no-cache" {
 		t.Fatalf("status %d Cache-Control %q", resp.StatusCode, resp.Header.Get("Cache-Control"))
+	}
+}
+
+func TestHandler_SSENamespaceFilterDropsOtherTenantsFrames(t *testing.T) {
+	c, _ := newTestCollector()
+	collect(t, c, scrape("1", t0ms, scrapeOpt{ns: "tenant-a", pod: "kusari-agent-0"})+scrape("1", t0ms, scrapeOpt{ns: "tenant-b", pod: "kusari-agent-0"}))
+	srv := httptest.NewServer(newTestServerMux(c))
+	defer srv.Close()
+	for i := 0; i < 5; i++ { // map order varies; the filter must hold for every order
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/telemetry/agents/kusari-agent-0?stream=true&namespace=tenant-b", nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		line, _ := bufio.NewReader(resp.Body).ReadString('\n')
+		var ev AgentTelemetry
+		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev) != nil || ev.Namespace != "tenant-b" {
+			t.Fatalf("first frame %q, want tenant-b only", line)
+		}
+		cancel()
+		resp.Body.Close()
 	}
 }

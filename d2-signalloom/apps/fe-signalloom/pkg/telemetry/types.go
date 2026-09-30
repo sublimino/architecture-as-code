@@ -14,9 +14,11 @@ type MetricSample struct {
 
 // AgentTelemetry represents processed live telemetry for an agent pod with calculated rate and memory.
 type AgentTelemetry struct {
-	PodName     string    `json:"pod_name"`
-	Namespace   string    `json:"namespace"`
-	Millicores  float64   `json:"millicores"`
+	PodName   string `json:"pod_name"`
+	Namespace string `json:"namespace"`
+	// Millicores is nil (JSON null) until two distinct cAdvisor samples exist:
+	// no rate is not a zero rate, and a zero rate is a freeze claim.
+	Millicores  *float64  `json:"millicores"`
 	MemoryRssMB float64   `json:"memory_rss_mb"`
 	Status      string    `json:"status"`
 	LastUpdated time.Time `json:"last_updated"`

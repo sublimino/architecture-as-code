@@ -404,3 +404,12 @@ async def test_sse_stream_sends_current_state_and_unsubscribes_on_disconnect(pol
     assert poller.subscriber_count(POD) == 1
     await resp.body_iterator.aclose()
     assert poller.subscriber_count(POD) == 0
+
+
+@pytest.mark.anyio
+async def test_sse_namespace_filter_drops_other_tenants_frames(poller):
+    await poll(poller, scrape(ns="tenant-a", pod="kusari-agent-0") + scrape(ns="tenant-b", pod="kusari-agent-0"))
+    resp = await cadvisor_poller.get_agent_telemetry("kusari-agent-0", stream=True, namespace="tenant-b", request=None)
+    first = await asyncio.wait_for(resp.body_iterator.__anext__(), timeout=1)
+    await resp.body_iterator.aclose()
+    assert json.loads(first[len("data: "):])["namespace"] == "tenant-b"

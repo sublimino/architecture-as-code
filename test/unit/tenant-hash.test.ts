@@ -8,6 +8,7 @@
  * @task   SLDC-P3-1
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   CANONICAL_HASH,
   PILOT_SALT,
@@ -59,4 +60,40 @@ describe("resolveSalt", () => {
   test("fails closed with no salt anywhere", async () => {
     await expect(resolveSalt({}, bao({}))).rejects.toThrow(SaltUnavailableError);
   });
+});
+
+describe("shared cross-language vectors", () => {
+  const table = JSON.parse(
+    readFileSync(new URL("../fixtures/tenant/hash-vectors.json", import.meta.url), "utf8"),
+  ) as {
+    salt: string;
+    vectors: { name: string; input: string; repeat?: number; salt?: string; want?: string; error?: string }[];
+  };
+  const errors: Record<string, new (...a: never[]) => Error> = {
+    retired: RetiredTenantError,
+    salt: SaltUnavailableError,
+    empty: TenantHashError,
+    invalid: TenantHashError,
+  };
+  for (const v of table.vectors) {
+    test(v.name, () => {
+      const tenant = v.input.repeat(v.repeat ?? 1);
+      const salt = v.salt ?? table.salt;
+      if (v.want) {
+        expect(deriveTenantHash(tenant, salt)).toBe(v.want);
+        return;
+      }
+      let caught: unknown;
+      try {
+        deriveTenantHash(tenant, salt);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(errors[v.error!]);
+      if (v.error === "empty" || v.error === "invalid") {
+        expect(caught).not.toBeInstanceOf(RetiredTenantError);
+        expect(String(caught).includes("cannot be empty")).toBe(v.error === "empty");
+      }
+    });
+  }
 });

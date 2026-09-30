@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -78,5 +81,54 @@ func TestResolveSaltFailsClosed(t *testing.T) {
 		env(map[string]string{"BAO_ADDR": "http://127.0.0.1:9", "BAO_TOKEN": "x"}))
 	if !errors.Is(err, ErrSaltUnavailable) {
 		t.Fatalf("err = %v; want ErrSaltUnavailable", err)
+	}
+}
+
+// TestSharedVectors runs the cross-language table that the Python and
+// TypeScript implementations also run (test/fixtures/tenant/hash-vectors.json).
+func TestSharedVectors(t *testing.T) {
+	raw, err := os.ReadFile("../../../../../test/fixtures/tenant/hash-vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Salt    string `json:"salt"`
+		Vectors []struct {
+			Name   string  `json:"name"`
+			Input  string  `json:"input"`
+			Repeat int     `json:"repeat"`
+			Salt   *string `json:"salt"`
+			Want   string  `json:"want"`
+			Error  string  `json:"error"`
+		} `json:"vectors"`
+	}
+	if err := json.Unmarshal(raw, &table); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := map[string]error{
+		"empty": ErrEmptyTenant, "invalid": ErrInvalidTenant,
+		"retired": ErrRetiredTenant, "salt": ErrSaltUnavailable,
+	}
+	for _, v := range table.Vectors {
+		t.Run(v.Name, func(t *testing.T) {
+			in := v.Input
+			if v.Repeat > 0 {
+				in = strings.Repeat(in, v.Repeat)
+			}
+			salt := table.Salt
+			if v.Salt != nil {
+				salt = *v.Salt
+			}
+			got, err := DeriveTenantHash(in, salt)
+			if v.Error != "" {
+				if !errors.Is(err, wantErr[v.Error]) {
+					t.Fatalf("%q: got (%q, %v); want error %s", in, got, err, v.Error)
+				}
+				return
+			}
+			if err != nil || got != v.Want {
+				t.Fatalf("%q: got (%q, %v); want %s", in, got, err, v.Want)
+			}
+		})
 	}
 }

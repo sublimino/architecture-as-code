@@ -28,6 +28,7 @@ import {
   fetchTelemetrySnapshot,
   runStateOf,
   streamTelemetry,
+  type StreamEnd,
   type TelemetrySample,
 } from '../api/agentTelemetry'
 
@@ -110,8 +111,9 @@ function useTelemetryConnection(
       setStatus('connecting')
       while (!signal.aborted && failures < maxStreamFailures) {
         let opened = false
+        let end: StreamEnd | null = null
         try {
-          await streamTelemetry({
+          end = await streamTelemetry({
             url,
             token: await token(),
             signal,
@@ -127,6 +129,8 @@ function useTelemetryConnection(
           // fall through to reconnect bookkeeping
         }
         if (signal.aborted) return
+        // The endpoint answers JSON, not a stream: poll it, don't reconnect.
+        if (end === 'snapshot') break
         // A stream that opened and then ended is a drop, not a failure to
         // connect: it does not count towards the polling threshold.
         if (!opened) failures += 1

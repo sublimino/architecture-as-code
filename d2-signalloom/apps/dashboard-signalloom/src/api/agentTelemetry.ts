@@ -221,12 +221,20 @@ export async function streamTelemetry(opts: TelemetryStreamOptions): Promise<Str
 
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('application/json')) {
+    // Parse before declaring the connection open: a body that is not JSON is
+    // a failed attempt, not a live one.
+    const items = payloadItems(await res.json())
     opts.onOpen?.()
-    for (const item of payloadItems(await res.json())) {
+    for (const item of items) {
       const s = normalizeSample(item)
       if (s) opts.onSample(s)
     }
     return 'snapshot'
+  }
+  // Anything else (an SPA's index.html, a login page) would otherwise be read
+  // as an empty stream and shown as LIVE.
+  if (!contentType.includes('text/event-stream')) {
+    throw new Error(`telemetry stream: unexpected content-type ${contentType || '(none)'}`)
   }
   if (!res.body) throw new Error('telemetry stream carried no body')
 

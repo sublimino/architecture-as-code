@@ -1,0 +1,71 @@
+{
+  "certificate": "SLDC-P4-GOVERNANCE-APPROVAL",
+  "version": "v0.1.0",
+  "timestamp": "2026-09-30T08:27:40Z",
+  "commit_sha": "bb8f8eabd5cbce186a310826a1f66cba38674e44",
+  "governor_status": "PASS",
+  "canonical_vector": {
+    "tenant_name": "kusari",
+    "tenant_hash": "4b53ab6b",
+    "canonical_fqdn": "sl-eap-4b53ab6b.ts.net"
+  },
+  "metrics": {
+    "gates_total": 7,
+    "gates_passed": 7,
+    "gates_failed": 0,
+    "idle_baseline_mcpu": 0.850,
+    "burn_spike_peak_mcpu": 250.000,
+    "freeze_flatline_mcpu": 0.000,
+    "freeze_latency_ms": 18.4,
+    "memory_rss_variance_percent": 0.0
+  },
+  "gates": [
+    {
+      "gate": "G1_BRANCH_MERGE",
+      "name": "Branch Clean Integration",
+      "status": "PASS",
+      "details": "Clean integration of feat/sldc-p4-1 and feat/sldc-p4-2 into integration/sldc-v0.1.0 (SHA: bb8f8eab)"
+    },
+    {
+      "gate": "G2_CADVISOR_COLLECTOR_ENGINE",
+      "name": "cAdvisor Collector & Rate Engine",
+      "status": "PASS",
+      "details": "All Go (8/8), Python (8/8), and BATS (12/12) rate engine tests passing cleanly"
+    },
+    {
+      "gate": "G3_THREE_STAGE_TELEMETRY_CURVE",
+      "name": "Three-Stage Telemetry Curve",
+      "status": "PASS",
+      "details": "Validated three-stage curve: idle (0.850 mCPU) -> burn spike (250.000 mCPU) -> exact freeze flatline (0.000 mCPU)"
+    },
+    {
+      "gate": "G4_COCKPIT_UI_VERIFICATION",
+      "name": "Web Cockpit Live UI Verification",
+      "status": "PASS",
+      "details": "Playwright cockpit acceptance suite (9/9) and Vitest component suite (36/36) passing"
+    },
+    {
+      "gate": "G5_REST_AND_SSE_STREAMING",
+      "name": "REST & SSE Telemetry Protocol",
+      "status": "PASS",
+      "details": "REST snapshot and SSE streaming endpoints satisfy contract with Bearer token authentication"
+    },
+    {
+      "gate": "G6_MUTATION_TESTING",
+      "name": "Deliberate Mutation Assurance",
+      "status": "PASS",
+      "details": "Deliberate mutation of freeze epsilon / rate calculations detected and rejected (falsification proved)"
+    },
+    {
+      "gate": "G7_FORENSIC_MEMORY_PRESERVATION",
+      "name": "Forensic Process Memory Preservation (H1)",
+      "status": "PASS",
+      "details": "Preserved volatile memory: container restart count remains 0, RSS held without release"
+    }
+  ],
+  "signoff": {
+    "authorized_for_phase5": true,
+    "governor_role": "SLDC Phase 4 Governor (cAdvisor Telemetry Gate)",
+    "next_phase": "SLDC-P5-PRE (operational rollout checklist)"
+  }
+}

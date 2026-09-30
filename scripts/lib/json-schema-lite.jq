@@ -5,8 +5,10 @@
 # Supported keywords: $ref (local "#/..." pointers only), type, const, enum,
 # pattern, minLength, minimum, maximum, required, properties,
 # additionalProperties (false only), items, minItems, maxItems, anyOf.
-# Any other keyword is ignored, so schemas/eap-evidence-bundle-schema.json
-# must stay inside this subset.
+# Annotations (title, description, $comment, $schema, $id, $defs, x-*) are
+# accepted. Any other keyword, a $ref with sibling keywords, or a $ref that
+# does not resolve is reported as a violation: a constraint this validator
+# cannot enforce must never pass silently.
 #
 # Usage (every input via --slurpfile, so no document ever travels in argv):
 #   jq -n -r --slurpfile schema S.json --slurpfile doc D.json \
@@ -16,16 +18,43 @@
 
 def pointer_path: ltrimstr("#") | ltrimstr("/") | if . == "" then [] else split("/") end;
 
+def annotations: ["title", "description", "$comment", "$schema", "$id", "$defs"];
+
+def supported:
+  annotations + ["type", "const", "enum", "pattern", "minLength", "minimum", "maximum",
+                 "required", "properties", "additionalProperties", "items", "minItems",
+                 "maxItems", "anyOf"];
+
+# Resolve local $refs; an unresolvable one becomes {"$unresolved": ref}.
 def resolve($root):
-  if type == "object" and has("$ref") then (.["$ref"] | pointer_path) as $path | $root | getpath($path) | resolve($root)
+  if type == "object" and has("$ref") then
+    .["$ref"] as $r
+    | (if ($r | type) == "string" and ($r | startswith("#")) then $root | getpath($r | pointer_path) else null end) as $t
+    | if $t == null then {"$unresolved": $r} else $t | resolve($root) end
   else . end;
+
+def unsupported_keywords:
+  if has("$ref") then
+    [keys[] | select(. != "$ref" and (. as $k | annotations | index($k) | not))]
+  else
+    [keys[] | select((startswith("x-") | not) and (. as $k | supported | index($k) | not))]
+    + (if has("additionalProperties") and .additionalProperties != false then ["additionalProperties"] else [] end)
+  end;
 
 def json_types:
   if type == "number" and . == floor then ["integer", "number"] else [type] end;
 
 def check($root; $schema; $v; $p):
+  if ($schema | type) == "object" and ($schema | unsupported_keywords | length) > 0 then
+    "\($p): unsupported schema keyword \($schema | unsupported_keywords | join(", "))"
+  else
   ($schema | resolve($root)) as $s
-  | (
+  | if ($s | type) == "object" and ($s | has("$unresolved")) then "\($p): unresolvable $ref \($s["$unresolved"])"
+    elif ($s | type) != "object" then "\($p): schema node is not an object"
+    elif ($s | unsupported_keywords | length) > 0 then
+      "\($p): unsupported schema keyword \($s | unsupported_keywords | join(", "))"
+    else
+  (
       (if $s | has("type") then
          ($s.type | if type == "array" then . else [.] end) as $want
          | ($v | json_types) as $have
@@ -79,7 +108,10 @@ def check($root; $schema; $v; $p):
          if any($s.anyOf[]; . as $sub | [check($root; $sub; $v; $p)] | length == 0) then empty
          else "\($p): matches none of the anyOf alternatives" end
        else empty end)
-    );
+    )
+    end
+  end;
 
 $schema[0] as $root
-| check($root; ($root | getpath($ptr | pointer_path)); $doc[0]; "$")
+| if ($doc | length) != 1 then "$: expected exactly one JSON document, got \($doc | length)"
+  else check($root; {"$ref": $ptr}; $doc[0]; "$") end

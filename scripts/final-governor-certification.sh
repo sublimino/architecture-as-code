@@ -92,6 +92,17 @@ if [ -n "${SIGNOFF}" ]; then
     digest_file="${OUT_DIR}/final-mission-certification.digest"
     [ "$(cat "${digest_file}")" = "$(jq -r .certificate_digest "${CERT}")" ] \
         || { echo "error: digest file does not match certificate" >&2; exit 1; }
+    # The status label is only a hint: re-derive it from the records the
+    # approvers' digest covers, so an edited certificate cannot be signed off.
+    [ "$(jq -cj '{runs, bundle_sha256, integration_head}' "${CERT}" | sha256sum | cut -d' ' -f1)" \
+        = "$(jq -r .certificate_digest "${CERT}")" ] \
+        || { echo "error: certificate_digest does not match its recorded runs and bundle" >&2; exit 1; }
+    jq -e '(.runs | length) == .consecutive_green_required and .consecutive_green_achieved == .consecutive_green_required
+           and all(.runs[]; .exit == 0 and .failed == 0 and .skipped == 0 and .passed > 0)
+           and (.bundle_sha256 | test("^[0-9a-f]{64}$"))' "${CERT}" >/dev/null \
+        || { echo "error: certificate records do not support sign-off (red, short or bundle-less run)" >&2; exit 1; }
+    [ "$(sha256sum "$(jq -r .bundle "${CERT}")" 2>/dev/null | cut -d' ' -f1)" = "$(jq -r .bundle_sha256 "${CERT}")" ] \
+        || { echo "error: certified bundle no longer matches bundle_sha256" >&2; exit 1; }
     missing=""
     if verify_signoffs "${digest_file}"; then st=pass; rs=""; else st=awaiting-signoff; rs="human sign-off missing or unverifiable for ${missing}"; fi
     jq --arg st "${st}" --arg rs "${rs}" --argjson so "${SIGNOFF_JSON}" \
@@ -130,6 +141,10 @@ for i in $(seq 1 "${RUNS}"); do
     if [ "${skipped}" -ne 0 ] || [ "${passed}" -eq 0 ]; then
         status="fail"; reason="run ${i} had ${skipped} skipped / ${passed} passed; a skip or empty run is not green"; break
     fi
+    planned=$(sed -nE 's/^1\.\.([0-9]+)$/\1/p' "${run_dir}/tap.txt" | head -1)
+    if [ "${planned:-0}" -ne "${passed}" ]; then
+        status="fail"; reason="run ${i} reported ${passed} of ${planned:-no} planned tests; a short run is not green"; break
+    fi
     green=$((green + 1))
     if [ "${i}" -lt "${RUNS}" ]; then
         log "=== reset before run $((i + 1))"
@@ -140,6 +155,8 @@ done
 bundle=""; bundle_sha=""
 if [ "${status}" = "pass" ]; then
     last="${RUN_ROOT}/run-${RUNS}"
+    # Only a bundle built from this run may be certified: never a leftover.
+    rm -rf "${OUT_DIR}/bundle-staging"
     if bash -c "${PACKAGE_CMD} '${last}' --out '${OUT_DIR}/bundle-staging'" >>"${LOG}" 2>&1; then
         built=$(ls -1t "${OUT_DIR}"/bundle-staging/*.tar.gz 2>/dev/null | head -1 || true)
         if [ -n "${built}" ] && bash -c "${VERIFY_CMD} '${built}'" >>"${LOG}" 2>&1; then

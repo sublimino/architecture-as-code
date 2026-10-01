@@ -1,0 +1,16 @@
+slice	rc	seconds	tail
+acceptance-eap-offline	2	54	make: *** [Makefile:556: test-eap-offline] Error 1
+acceptance-postgres-persistence	0	1	ok 7 PostgreSQL data recreate functions cleanly when no deployment is present
+acceptance-zot-cache	0	0	ok 3 Kind cache preparation is applied even for an existing cluster
+acceptance-healthcheck	0	1	cluster foundation is healthy; no demos are running
+ingress-eap-reconcile	1	8	ok 15 ROUTELIVE the probes detect an absent route rather than passing regardless
+api-fe-signalloom-pytest	1	313	19 failed, 2347 passed, 94 skipped, 1 xfailed, 24 warnings in 308.86s (0:05:08)
+api-authz-liveness	0	8	ok 3 the parametrised sweeps have not been hollowed out
+spiffe-agent-trust	0	2	make: Leaving directory '/home/andy/src/.worktrees/ec835/osramp-demo/d2-agent-trust'
+spiffe-bao-spire-proof	0	1	ok 7 STALE the freshness check actually reads each Job's creation timestamp
+containment-stun-sentinel-go	0	10	ok   github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/telemetry 0.154s
+containment-signalloom-stun-sentinel-go	0	21	ok   github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signalloom-stun-sentinel/telemetry 0.153s
+containment-nono-probe-go	0	1	ok   github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/nono-containment-probe 0.042s
+containment-olly-sentinel-pytest	0	8	45 passed, 17 warnings in 3.61s
+containment-tetragon-bats	0	7	ok 27 tetragon docs: pipeline documentation exists and covers the export contract
+estate-test-all-offline	2	46	make: *** [Makefile:490: test-all-offline] Error 2

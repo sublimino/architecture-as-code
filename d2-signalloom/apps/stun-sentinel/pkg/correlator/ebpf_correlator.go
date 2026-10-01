@@ -144,6 +144,8 @@ type SentinelProbeManager struct {
 	workers int
 	wg      sync.WaitGroup
 	rateLim chan struct{}
+
+	stats pipelineStats
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -458,8 +460,10 @@ func (m *SentinelProbeManager) Start(ctx context.Context, rd *ringbuf.Reader) er
 			if errors.Is(err, ringbuf.ErrClosed) {
 				return nil
 			}
+			m.stats.readErrors.Add(1)
 			continue
 		}
+		m.stats.recordsRead.Add(1)
 
 		obs, ok := m.handleRecord(record.RawSample)
 		if !ok {
@@ -469,7 +473,9 @@ func (m *SentinelProbeManager) Start(ctx context.Context, rd *ringbuf.Reader) er
 		// Enqueue observation for non-blocking asynchronous streaming
 		select {
 		case m.queue <- obs:
+			m.stats.enqueued.Add(1)
 		default:
+			m.stats.queueDropped.Add(1)
 			// Queue full under extreme pressure: drop non-blocking to protect kernel ringbuf
 		}
 	}
@@ -483,6 +489,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	// another layout would feed misaligned PIDs and paths into a freeze.
 	ev, err := ebpf.DecodeSyscallEvent(sample)
 	if err != nil {
+		m.stats.decodeErrors.Add(1)
 		return TelemetryObservation{}, false
 	}
 	var raw SyscallEvent
@@ -496,6 +503,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	targetPID := ev.PID
 
 	if _, ok := m.sensitiveTarget(filename, targetPID); !ok {
+		m.stats.notSensitive.Add(1)
 		return TelemetryObservation{}, false
 	}
 
@@ -504,8 +512,10 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 		pod = m.lookupPodByPID(raw.TGID)
 	}
 	if pod == nil {
+		m.stats.noPod.Add(1)
 		return TelemetryObservation{}, false
 	}
+	m.stats.matched.Add(1)
 
 	obs := m.NormalizeObservation(raw, pod)
 
@@ -546,7 +556,7 @@ func (m *SentinelProbeManager) dispatchWorker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			_ = m.dispatchObservation(obs)
+			m.recordDispatch(m.dispatchObservation(obs))
 		}
 	}
 }

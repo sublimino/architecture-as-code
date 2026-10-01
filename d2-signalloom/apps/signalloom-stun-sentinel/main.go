@@ -349,10 +349,34 @@ func main() {
 
 		freezeMgr := newCorrelatorFreezeManager(freezer)
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr)
+		go reportCorrelatorStats(ctx, probeMgr.Stats, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})
 		}
 	}()
 
 	controller.run(ctx.Done())
+}
+
+// reportCorrelatorStats logs the correlator's pipeline counters whenever they
+// change. The correlator itself has no logger, and on a live node a provoked
+// sensitive read once produced no observation with nothing to say which stage
+// dropped it. One line per interval, only on change, keeps it quiet at rest.
+func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	var last correlator.Stats
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s := stats()
+			if s == last {
+				continue
+			}
+			last = s
+			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stats", Details: map[string]interface{}{"stats": s}})
+		}
+	}
 }

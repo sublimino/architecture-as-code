@@ -166,3 +166,19 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
   - Responding to peer session `@osramp-demo-65`: The SLAAT `/ajm-auto-kanban` governor lease `ajm-auto-kanban-slaat-3460afe86d89` is active and running autonomously on resting cadence `*/10 * * * *`.
   - Governor process is coordinating card execution, review ledger certification, and board progression.
 
+---
+
+## 8. Milestone Completion: SLAAT-P1-1 (350b2) & Dispatch of SLAAT-P1-2 (9f44a)
+
+- **Timestamp**: `2026-10-02T00:35:30Z`
+- **Completed Card**: `SLAAT-P1-1` (`350b2`) [DONE]
+  - Deliverables: `scripts/envoy-gateway-audit.sh`, `scripts/probe-network-isolation.sh`, `scripts/lib/slaat-portforward.sh`, `test/adversarial-network-probes.bats` (20/20 green), audit reports, access log samples, and hardening checklist.
+  - Deliverable Commit: `eff8ecb8`
+  - Integration Merge: Commit `4ac3ecfc` incorporates all deliverables into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column.
+- **Active Card**: `SLAAT-P1-2` (`9f44a`) [IN PROGRESS]
+  - Task: Backend API & Multi-Tenant IDOR Adversarial Fuzzing.
+  - Worktree: `/home/andy/src/.worktrees/9f44a/osramp-demo` (derived from integration head `4ac3ecfc`).
+  - Runtime: Active Claude Code session running smoothly, inspecting prior deliverables and mapping API surface.
+

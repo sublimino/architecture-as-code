@@ -348,7 +348,7 @@ func main() {
 		})
 
 		freezeMgr := newCorrelatorFreezeManager(freezer)
-		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr)
+		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr, correlator.WithCgroupRoot(cfg.CgroupRoot))
 		go reportCorrelatorStats(ctx, probeMgr.Stats, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})

@@ -31,6 +31,13 @@ metadata:
   labels:
     app.kubernetes.io/name: signal-ingest
     signalloom.io/card: SLDC-P2-2
+  annotations:
+    # TEMPORARY static bearer credential below expires on this date. The
+    # annotation is here so `kubectl get cm signal-ingest-jwt-auth -o yaml`
+    # answers "when does this go away" without reading Go. It is asserted
+    # equal to api.StaticBearerSunset by
+    # TestStaticBearerDeployedExpiryMatchesSunset, so the two cannot drift.
+    signalloom.ai/expires: "2026-11-12"
 data:
   SIGNAL_AUTH_AUDIENCE: signal-ingest
   SIGNAL_AUTH_TRUST_DOMAIN: osramp.local
@@ -49,6 +56,45 @@ data:
         "permissions": ["observations:write"]
       }
     }
+  # ---------------------------------------------------------------------------
+  # TEMPORARY — remove on or before 2026-11-12 (signalloom.ai/expires above).
+  #
+  # The stun-sentinel correlator posts observations with a static bearer token
+  # compiled into its binary (DefaultBearerToken in
+  # d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go).
+  # Nothing accepted that token, so every correlator POST was a 401 and no
+  # observation ever landed. These five keys make signal-ingest accept exactly
+  # that one token, as exactly one principal, with exactly the two permissions
+  # the correlator needs.
+  #
+  # The keys are opt-in: delete all five and signal-ingest behaves as it did
+  # before they existed (a static bearer is a 401). Delete only some and
+  # signal-ingest refuses to start rather than running a half-configured gate.
+  #
+  # The replacement is already provisioned: the correlator runs as
+  # spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel, which is
+  # bound above with the same two permissions. Moving the correlator onto its
+  # JWT-SVID is all that is needed to delete this block.
+  #
+  # This is a SHARED SECRET, and not a secret in any real sense: the value is
+  # a literal in the correlator's source, so it is in git and in the image.
+  # Anything that can reach signal-ingest and knows the string can write
+  # observations and seed collectors for tenant kusari until the expiry. That
+  # is the accepted residual risk for this phase; the bound is the scope and
+  # the date, not the confidentiality. Because the value is already public,
+  # holding it in a ConfigMap rather than a Secret adds no exposure — but the
+  # service reads it from the environment, so an operator who wants it in a
+  # Secret can drop this key and add an equivalent secretKeyRef env entry with
+  # no code change.
+  #
+  # SUBJECT is deliberately not a SPIFFE ID: signal-ingest refuses a
+  # SPIFFE-shaped static subject so that an audit record produced by this
+  # credential can never be mistaken for one produced by a verified SVID.
+  SIGNAL_AUTH_STATIC_BEARER_TOKEN: sentinel-in-cluster-token
+  SIGNAL_AUTH_STATIC_BEARER_SUBJECT: static-bearer/stun-sentinel-correlator
+  SIGNAL_AUTH_STATIC_BEARER_TENANT: kusari
+  SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS: observations:write,collectors:write
+  SIGNAL_AUTH_STATIC_BEARER_EXPIRES: "2026-11-12"
 ---
 # Populated from the hub SPIRE server's federated osramp.local bundle, keys
 # with use=jwt-svid only. Shipped with an empty key set; signal-ingest fails

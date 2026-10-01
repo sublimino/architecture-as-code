@@ -344,6 +344,28 @@ func buildKeyDestroyer(auditWriter audit.AuditWriter, encryptor identity.Encrypt
 	return saga, nil
 }
 
+// httpAuthenticator returns the authenticator the protected router should use.
+//
+// TEMPORARY — delete this function, its call in main, and api/static_bearer.go
+// on or before api.StaticBearerSunset. It exists only to let the stun-sentinel
+// correlator's static bearer token through while the correlator is moved onto
+// the JWT-SVID it already has a binding for in deploy/jwt-auth-config.yaml.
+//
+// With no SIGNAL_AUTH_STATIC_BEARER_* variable set it returns jwt unchanged,
+// so the shipped default is exactly the JWT-SVID gate. A half-configured
+// credential is an error for the caller to refuse startup on, never a weaker
+// gate.
+func httpAuthenticator(jwt api.Authenticator) (api.Authenticator, error) {
+	staticBearer, err := api.StaticBearerConfigFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	if staticBearer == nil {
+		return jwt, nil
+	}
+	return api.NewStaticBearerAuthenticator(*staticBearer, jwt)
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -638,27 +660,15 @@ func main() {
 	// SLDC-P2-2: re-read SIGNAL_AUTH_JWKS_FILE on its refresh interval (no-op for inline JWKS).
 	authenticator.StartKeyRefresh(ctx)
 
-	// TEMPORARY — delete this block with api/static_bearer.go on or before
-	// api.StaticBearerSunset. It lets the stun-sentinel correlator's static
-	// bearer token through while the correlator is moved onto the JWT-SVID it
-	// already has a binding for. With no SIGNAL_AUTH_STATIC_BEARER_* variable
-	// set, StaticBearerConfigFromEnv returns nil and the authenticator below
-	// is the unmodified JWT one.
-	var httpAuthenticator api.Authenticator = authenticator
-	staticBearer, err := api.StaticBearerConfigFromEnv()
+	// TEMPORARY — delete this call, httpAuthenticator below, and
+	// api/static_bearer.go, on or before api.StaticBearerSunset.
+	gateway, err := httpAuthenticator(authenticator)
 	if err != nil {
 		slog.Error("static bearer configuration invalid; refusing startup", "error", err)
 		os.Exit(1)
 	}
-	if staticBearer != nil {
-		httpAuthenticator, err = api.NewStaticBearerAuthenticator(*staticBearer, authenticator)
-		if err != nil {
-			slog.Error("static bearer authenticator initialization failed; refusing startup", "error", err)
-			os.Exit(1)
-		}
-	}
 
-	protectedRouter, err := api.NewProtectedRouter(handlers, httpAuthenticator, auditWriter, metricsHandler, api.RouterOptions{})
+	protectedRouter, err := api.NewProtectedRouter(handlers, gateway, auditWriter, metricsHandler, api.RouterOptions{})
 	if err != nil {
 		slog.Error("protected HTTP router initialization failed", "error", err)
 		os.Exit(1)

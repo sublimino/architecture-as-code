@@ -146,6 +146,11 @@ type SentinelProbeManager struct {
 	rateLim chan struct{}
 
 	stats pipelineStats
+
+	cgroupRoot      string
+	cgMu            sync.Mutex
+	cgroupIndex     map[uint64]string // cgroup inode -> pod UID
+	cgroupIndexedAt time.Time
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -507,7 +512,12 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 		return TelemetryObservation{}, false
 	}
 
-	pod := m.lookupPodByPID(targetPID)
+	// The cgroup inode first: it is namespace-independent. The PID is the
+	// kernel's root-namespace PID, which the sentinel cannot see on kind.
+	pod := m.lookupPodByCgroupID(ev.CgroupID)
+	if pod == nil {
+		pod = m.lookupPodByPID(targetPID)
+	}
 	if pod == nil && raw.TGID != 0 {
 		pod = m.lookupPodByPID(raw.TGID)
 	}

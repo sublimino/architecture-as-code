@@ -188,4 +188,57 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 
 ### Spec: Errata
 
-*(Empty. Populated at runtime during card execution.)*
+#### Errata — SLAAT-P1-PRE (preflight)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-01T23:25:43+01:00
+**Last Updated:** 2026-10-01T23:27:16+01:00
+
+##### Task identity
+- Card: `SLAAT-P1-PRE` (kanban `ec835`)
+- Shortcode: `SLAAT`
+**Status:** pass
+- Task base: `73499882e3e68a69dddf4ef27aee217b8a502d7b` (detached). Card commits were rebased onto `refs/heads/integration/slaat-whole-system-adversarial` @ `47d124eec7ebd0cbf95c72bd2a461818b6813d45`, so integration fast-forwards to them. Without the rebase the merge hit an add/add conflict on this proposal, because integration carries rebased copies of the two proposal commits. Canonical repo is `/home/andy/src/cp/osramp-demo`; this worktree's `.cline` path resolves to `/home/andy/src/.worktrees/ec835/osramp-demo`.
+- Result: environment validated and pre-attack baseline captured. Pre-existing reds and environment hazards are recorded, not fixed. No production files were changed.
+**Phase 1 can proceed:** yes
+
+##### Deliverable verification
+- `scripts/slaat-preflight.sh` → exit `0`, `status: pass`. Proof at `docs/slaat/p1-pre/preflight-env.json`.
+  - Tools: bats 1.13.0, go 1.26.2, pytest 9.1.1 (uv, py3.12), uv 0.5.10, kubectl v1.36.0, curl 8.20.0, jq 1.8.1.
+  - `go env` reports `GOCACHE`/`GOMODCACHE` overridden and `CGO_ENABLED=0`.
+- Cluster `kind-osramp` (read-only checks): 1/1 node Ready, `inf-signalloom/postgresql` 1/1, `registry/zot` 1/1, `make healthcheck` green.
+- `scripts/slaat-baseline.sh` captured 15 slices. Per-slice results are in `docs/slaat/p1-pre/baseline-summary.tsv`, with the analysis in `docs/slaat/p1-pre/baseline.md`.
+- Acceptance commands:
+  - `make test-postgres-persistence`: 7/7.
+  - `make test-zot-cache`: 3/3.
+  - `make healthcheck`: green.
+  - **`make test-eap-offline`: red, rc 2.** pytest 4 failed / 246 passed. ROUTELIVE test 11 not ok: the dashboard calls `/api/discovery/claim`, which the running portal does not serve.
+  - **`make test-all-offline`: not measurable in a worktree.** Stage 1 Go was clean (105 ok, 0 FAIL), then stage 2 `bun install` stopped with `EEXIST` through a shared `node_modules` symlink (hazard 1 below).
+- Attack slices:
+  - Ingress: 14/15.
+  - API: fe-signalloom pytest 19 failed / 2347 passed / 94 skipped; authz-liveness 3/3.
+  - SPIFFE: agent-trust 8/8; bao-spire-proof 7/7.
+  - Containment: stun-sentinel Go (12 packages), signalloom-stun-sentinel Go (3 packages) and nono-probe Go all green; olly sentinel pytest 45/45; tetragon bats 27/27.
+- `ajm-auto-kanban/Tools/kanban-check.sh`:
+  - `link-check --shortcode SLAAT` → exit 0, CRITICAL=0 FAIL=0 WARN=0.
+  - `doctor` → UNHEALTHY, with two exceptions attributed and not blocking:
+    - DOC-3: the principal checkout holds another session's uncommitted files.
+    - DOC-6: this card's 5× spawn flap, already root-caused in `slaat-governor-log.md` as a `kpai` interactive-PTY exit.
+
+##### Drift and findings
+- **Base drift (resolved by rebase, not blocking).** The card base `73499882` was 4 behind and diverged from integration `47d124ee`; its 2 proposal commits are patch-equivalent to integration's `21e1ad5a`/`99352ba6`. After the rebase HEAD is ahead 2, behind 0.
+  - Integration carries `924e359a` (sentinel Kustomization per-cluster overlay) and `47d124ee` (sentinel image canonical tag).
+  - Peer session `osramp-demo-65` reports `ab392c5f` (stun-sentinel RoleBinding single owner) on `feat/signal-loop-and-bootstrap-refactor` and already live on `kind-osramp`, so the integration ref is one commit behind what is deployed. Moving the ref is the Governor's decision.
+- **Pre-existing EAP/API reds.** These are leads for `SLAAT-P1-2`; the details are in `docs/slaat/p1-pre/baseline.md`.
+  - 9 authenticated routes sit outside the tenant-scope sweep.
+  - 15 mutating routes have no audit decision.
+  - 2 in-memory audit writes: `agents.py:181` and `discovery.py:264`.
+  - The `GET /api/v1/discovery/workloads` DB-route entry checks nothing.
+- **Live cluster state (checked read-only).**
+  - `fe-signalloom/signal-ingest` runs `signal-ingest:local`. The peer says this image is pre-auth and has no `SIGNAL_AUTH`.
+  - `stun-sentinel` DaemonSet runs `signalloom-stun-sentinel:v0.2.0` at 1/1.
+  - The postgresql pod was recreated at `2026-10-01T20:59:35Z`. The peer reports `agent_registry` was emptied by the persistence rollout.
+- **Hazards for later cards.**
+  1. Four `node_modules` dirs are symlinks into the principal checkout, so `bun install` in a worktree mutates another tree. `slaat-preflight.sh` now warns on these.
+  2. Suites rewrite two tracked evidence files: `redteam_cascade_ceiling.json` and `sler-p6-3-acceptance-runtime.jsonl`. Both were reverted here.
+  3. Without `UV_CACHE_DIR`, `uv run` fails because `~/.cache/uv` is sandbox-denied.
+  4. `scripts/kanban-check.sh` points at the removed `ajm-cline-kanban` path (rc 127).

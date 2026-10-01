@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+
+	"github.com/cilium/ebpf/link"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -505,3 +507,57 @@ func drainClosed(ch <-chan SyscallEvent, within time.Duration) error {
 		}
 	}
 }
+
+// NewLoader's contract is "on any failure everything already created is
+// released before returning". It was not: the function uses NAMED returns, so
+// `return nil, err` after a successful LoadAndAssign assigns nil to l, and the
+// deferred cleanup then called l.Close() on that nil. Any tracepoint-attach or
+// ring-buffer failure therefore panicked with SIGSEGV and took the whole
+// sentinel down instead of degrading to the cgroup reconciler. Observed on a
+// live node 2026-10-01 under a non-privileged securityContext:
+//
+//	panic: runtime error: invalid memory address or nil pointer dereference
+//	  ebpf.(*Loader).Close(...) loader.go:256
+//	  ebpf.NewLoader.func1()    loader.go:120
+//
+// These two tests pin both halves of the fix: Close tolerates a nil receiver,
+// and a partially-initialised Loader really does release what it holds.
+func TestLoaderCloseOnNilReceiverIsNotAPanic(t *testing.T) {
+	var l *Loader
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close on a nil *Loader: want nil error, got %v", err)
+	}
+}
+
+func TestLoaderCloseReleasesPartiallyInitialisedLoader(t *testing.T) {
+	// The shape NewLoader holds when a tracepoint attach fails: programs and
+	// maps loaded, one link attached, no ring-buffer reader yet.
+	first := &countingLink{}
+	second := &countingLink{}
+	l := &Loader{links: []link.Link{first, second}}
+
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close on a partially-initialised Loader: %v", err)
+	}
+	if first.closed != 1 || second.closed != 1 {
+		t.Fatalf("every attached link must be detached exactly once, got first=%d second=%d",
+			first.closed, second.closed)
+	}
+	if l.links != nil {
+		t.Fatal("links must be released, not retained")
+	}
+	// Idempotent: the deferred cleanup and an explicit Close both run.
+	if err := l.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if first.closed != 1 {
+		t.Fatalf("Close must be once-only, link closed %d times", first.closed)
+	}
+}
+
+type countingLink struct {
+	link.Link
+	closed int
+}
+
+func (c *countingLink) Close() error { c.closed++; return nil }

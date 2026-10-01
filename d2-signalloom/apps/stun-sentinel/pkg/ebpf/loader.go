@@ -115,9 +115,14 @@ func NewLoader(opts LoaderOptions) (l *Loader, err error) {
 		}
 		return nil, fmt.Errorf("load sentinel probe: %w", err)
 	}
+	// Cleanup must hold its OWN pointer. l is a named return, so every
+	// `return nil, err` below assigns nil to it before this defer runs -- and
+	// a nil l here meant a SIGSEGV that took the whole sentinel down rather
+	// than the documented graceful release. See the two TestLoaderClose tests.
+	created := l
 	defer func() {
 		if err != nil {
-			_ = l.Close()
+			_ = created.Close()
 			l = nil
 		}
 	}()
@@ -253,6 +258,11 @@ func sendErr(errs chan<- error, err error) {
 // and maps. Safe to call more than once and from multiple goroutines; a
 // concurrent ReadEvent/Events returns ringbuf.ErrClosed.
 func (l *Loader) Close() error {
+	// A nil receiver is a real call site: NewLoader's cleanup path can reach
+	// Close before the Loader is fully built.
+	if l == nil {
+		return nil
+	}
 	l.closeOnce.Do(func() {
 		var errs []error
 		// Detach first so no program fires into a map that is going away.

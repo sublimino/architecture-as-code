@@ -10,38 +10,15 @@
 # This is deliberately scoped to fe-signalloom-agents only — the sentinel
 # has no business touching pods in other namespaces.
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: stun-sentinel
-  namespace: fe-signalloom-agents
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/part-of: signalloom-swarm
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch", "patch"]
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: stun-sentinel
-  namespace: fe-signalloom-agents
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/part-of: signalloom-swarm
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: stun-sentinel
-subjects:
-  - kind: ServiceAccount
-    name: signalloom-stun-sentinel
-    namespace: fe-signalloom-agents
+# The namespaced Role and RoleBinding "stun-sentinel" USED to live here. They
+# now have exactly one owner: signalloom-stun-sentinel/rbac.yaml, reconciled by
+# the agent-signalloom-stun-sentinel Kustomization. Declaring them here as well
+# made two Flux Kustomizations own one object, and this copy bound the
+# pre-rename SA signalloom-stun-sentinel, which no workload runs as. Whichever
+# Kustomization reconciled last won, so the running sentinel's
+# `auth can-i list pods` flipped between yes and no and its pod index stayed
+# empty (SLDC-P5-PRE B5; re-observed live 2026-10-01). Do not re-add them:
+# test/sentinel-capabilities.bats fails on any object owned by both.
 ---
 # Cluster-scoped: the sentinel reads node cgroup paths for eBPF program
 # attachment points. This is read-only and cannot be namespace-scoped.

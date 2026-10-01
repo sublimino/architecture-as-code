@@ -172,3 +172,32 @@ mount_triples() {
   [[ "$output" == *"daemonset.apps/stun-sentinel"*"(server dry run)"* ]]
   [[ "$output" != *"violates PodSecurity"* ]]
 }
+
+# The sentinel's RBAC was owned TWICE. agent-swarm/ebpf-sentinel-rbac.yaml (in
+# the agent-swarm-base Kustomization) and signalloom-stun-sentinel/rbac.yaml
+# (in agent-signalloom-stun-sentinel) both declared RoleBinding
+# fe-signalloom-agents/stun-sentinel, with DIFFERENT subjects: the first bound
+# the pre-rename SA signalloom-stun-sentinel. Two Flux Kustomizations then
+# fought over one object and whichever reconciled last won, so the running
+# sentinel's `auth can-i list pods` flipped between yes and no (live,
+# 2026-10-01) and its pod index stayed empty. These two tests pin both halves.
+@test "sentinel-capabilities: no namespaced object is declared by both agent-swarm-base and the sentinel Kustomization" {
+  local root="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
+  run bash -c "comm -12 \
+    <(kubectl kustomize '${root}' | yq -N '[.kind, .metadata.namespace // \"-\", .metadata.name] | join(\"/\")' | sort -u) \
+    <(kubectl kustomize '${BASE_DIR}' | yq -N '[.kind, .metadata.namespace // \"-\", .metadata.name] | join(\"/\")' | sort -u)"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "owned by two Kustomizations: $output"; return 1; }
+}
+
+@test "sentinel-capabilities: the binding to the sentinel's Role binds the SA the DaemonSet runs as" {
+  local root="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
+  local sa
+  sa="$(kubectl kustomize "${BASE_DIR}" | yq -N 'select(.kind == "DaemonSet") | .spec.template.spec.serviceAccountName')"
+  [ "$sa" = "stun-sentinel" ]
+  run bash -c "{ kubectl kustomize '${root}'; echo '---'; kubectl kustomize '${BASE_DIR}'; } \
+    | yq -N 'select(.kind == \"RoleBinding\" or .kind == \"ClusterRoleBinding\") | select(.roleRef.kind == \"Role\" and .roleRef.name == \"stun-sentinel\") | .subjects[].name' | sort -u"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  [ "$output" = "$sa" ] || { echo "sentinel bindings name: $output (DaemonSet runs as $sa)"; return 1; }
+}

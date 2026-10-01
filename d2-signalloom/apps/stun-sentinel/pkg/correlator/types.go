@@ -28,6 +28,7 @@ const (
 
 // SyscallEvent represents the binary layout of raw syscall events emitted by kernel eBPF probes.
 type SyscallEvent struct {
+	TsNs     uint64 // bpf_ktime_get_ns() at the syscall (CLOCK_MONOTONIC)
 	PID      uint32
 	TGID     uint32
 	UID      uint32

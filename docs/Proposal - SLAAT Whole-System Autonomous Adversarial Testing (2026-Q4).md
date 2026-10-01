@@ -191,7 +191,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 #### Errata — SLAAT-P1-PRE (preflight)
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-10-01T23:25:43+01:00
-**Last Updated:** 2026-10-01T23:27:16+01:00
+**Last Updated:** 2026-10-01T23:29:45+01:00
 
 ##### Task identity
 - Card: `SLAAT-P1-PRE` (kanban `ec835`)
@@ -237,6 +237,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
   - `fe-signalloom/signal-ingest` runs `signal-ingest:local`. The peer says this image is pre-auth and has no `SIGNAL_AUTH`.
   - `stun-sentinel` DaemonSet runs `signalloom-stun-sentinel:v0.2.0` at 1/1.
   - The postgresql pod was recreated at `2026-10-01T20:59:35Z`. The peer reports `agent_registry` was emptied by the persistence rollout.
+- **Controller stalled (peer-reported).** `osramp-demo-65` reports that the SLAAT supervisor cron has not ticked since 2026-10-01T22:01Z, because its host session `osramp-demo-b2` exited. Nothing advances the board until the governor lease is re-hosted. That peer will not run `bun install` while SLAAT cards are active.
 - **Hazards for later cards.**
   1. Four `node_modules` dirs are symlinks into the principal checkout, so `bun install` in a worktree mutates another tree. `slaat-preflight.sh` now warns on these.
   2. Suites rewrite two tracked evidence files: `redteam_cascade_ceiling.json` and `sler-p6-3-acceptance-runtime.jsonl`. Both were reverted here.

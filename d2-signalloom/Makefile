@@ -233,8 +233,15 @@ swarm-interactive-images: swarm-zulip-image swarm-governor-image swarm-deploy-ga
 swarm-nono-probe-image: ## Build nono-containment-probe image
 	docker build -t nono-containment-probe:latest apps/nono-containment-probe/
 
-swarm-stun-sentinel-image: ## Build signalloom-stun-sentinel DaemonSet image
-	docker build -t stun-sentinel:latest apps/signalloom-stun-sentinel/
+# Build context is apps/, NOT apps/signalloom-stun-sentinel/. The Dockerfile
+# COPYs both apps/stun-sentinel (the library module providing pkg/{ebpf,correlator},
+# unified in 6e50309f) and apps/signalloom-stun-sentinel (the main package), so a
+# narrower context fails on the first COPY. Broken since that unification; the
+# image had to be built by hand. Tag matches the canonical manifest's overlay.
+SENTINEL_IMAGE_TAG ?= v0.2.0
+swarm-stun-sentinel-image: ## Build the one signalloom-stun-sentinel DaemonSet image (superset binary: informer + reconciler + eBPF + correlator + freezer).
+	docker build -t stun-sentinel:$(SENTINEL_IMAGE_TAG) \
+		-f apps/signalloom-stun-sentinel/Dockerfile apps/
 
 swarm-kusari-image: ## Build kusari-agent stub image (Tier 9 Kusari pilot stand-in)
 	docker build -t kusari-agent:latest apps/kusari-agent/

@@ -239,8 +239,15 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 # narrower context fails on the first COPY. Broken since that unification; the
 # image had to be built by hand. Tag matches the canonical manifest's overlay.
 SENTINEL_IMAGE_TAG ?= v0.2.0
+# Tagged TWICE on purpose. The canonical manifest pins the registry reference
+# so a remote cluster really pulls it; a kind cluster has no such registry, so
+# `kind load docker-image <canonical>` side-loads it and imagePullPolicy
+# IfNotPresent finds it locally. Tagging only the short name left the base
+# manifest unpullable and the DaemonSet in ImagePullBackOff (2026-10-01).
+SENTINEL_IMAGE_CANONICAL ?= ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
 swarm-stun-sentinel-image: ## Build the one signalloom-stun-sentinel DaemonSet image (superset binary: informer + reconciler + eBPF + correlator + freezer).
 	docker build -t stun-sentinel:$(SENTINEL_IMAGE_TAG) \
+		-t $(SENTINEL_IMAGE_CANONICAL):$(SENTINEL_IMAGE_TAG) \
 		-f apps/signalloom-stun-sentinel/Dockerfile apps/
 
 swarm-kusari-image: ## Build kusari-agent stub image (Tier 9 Kusari pilot stand-in)

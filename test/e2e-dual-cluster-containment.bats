@@ -63,10 +63,14 @@ setup_file() {
     export OBS_WINDOW_MS="${SLDC_OBS_WINDOW_MS:-15000}"
 
     # The agent_registry database is a separate injectable boundary from the hub
-    # control plane: Appendix F.1 places it on the hub, but on the live estate it
-    # is reachable on the workload cluster (inf-signalloom/postgresql). Default
-    # to the card's topology; override with DB_CONTEXT to probe where it is.
-    export DB_CONTEXT="${DB_CONTEXT:-${HUB_CONTEXT}}"
+    # control plane. Appendix F.1 places it on the hub; the live estate runs it
+    # on the workload cluster (inf-signalloom/postgresql) and the hub runs no
+    # PostgreSQL at all. Defaulting to the card's topology made Step 2 fail on
+    # the only estate that exists, and that failure read as a product defect
+    # rather than a card/estate divergence -- so the default follows the estate
+    # and DB_CONTEXT overrides it. The divergence itself is Step 2's own
+    # assertion: it is recorded in step2-registry-claim.json, not papered over.
+    export DB_CONTEXT="${DB_CONTEXT:-${WL_CONTEXT}}"
 
     export K_WORKLOAD="${KUBECTL} --context ${WL_CONTEXT}"
     export K_HUB="${KUBECTL} --context ${HUB_CONTEXT}"

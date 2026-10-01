@@ -562,6 +562,10 @@ test-eap-offline: ## Run the EAP gate: four EAP pytest files + test_audit_proven
 	@# appending it to the bats line above so its status joins the same chain.
 	@# bats d2-signalloom/test/eap-netpol.bats
 
+.PHONY: test-slaat-p1-1-network-probes
+test-slaat-p1-1-network-probes: ## SLAAT-P1-1 adversarial probe suite: Envoy Gateway + NetworkPolicy isolation. Needs a live kind-osramp cluster; not part of test-all-offline.
+	bats test/adversarial-network-probes.bats
+
 test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	@echo "=== [Cluster] Live Kind Cluster Slices & Runtime Tests ==="
 	$(MAKE) test

@@ -15,8 +15,10 @@ resources:
   - configmap.yaml
   - daemonset.yaml
 
-# The single override point for the image. An overlay sets newName (its own
-# registry) and/or newTag in one line instead of patching the container.
-images:
-  - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
-    newTag: v0.2.0
+# No `images:` block here, deliberately. An `images` entry with a newTag wins
+# over the container's own tag, so declaring one at this level would put the
+# version in two places and make daemonset.yaml's tag decorative — a
+# mutation-proof run caught exactly that: changing the image to :latest in
+# daemonset.yaml left the render unchanged. The tag lives in daemonset.yaml,
+# once. Overlays override it with an `images:` entry of their own, which is
+# where that transformer belongs.

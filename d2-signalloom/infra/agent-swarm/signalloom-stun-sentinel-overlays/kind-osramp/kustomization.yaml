@@ -14,10 +14,12 @@ kind: Kustomization
 resources:
   - ../../signalloom-stun-sentinel
 
+# newName only, no newTag: the version lives in the base daemonset.yaml and is
+# inherited, so a version bump there does not have to be chased into every
+# overlay. This overlay changes WHERE the image comes from, not WHICH version.
 images:
   - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
     newName: stun-sentinel
-    newTag: v0.2.0
 
 patches:
   - target:

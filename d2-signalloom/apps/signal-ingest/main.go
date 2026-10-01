@@ -637,7 +637,28 @@ func main() {
 	}
 	// SLDC-P2-2: re-read SIGNAL_AUTH_JWKS_FILE on its refresh interval (no-op for inline JWKS).
 	authenticator.StartKeyRefresh(ctx)
-	protectedRouter, err := api.NewProtectedRouter(handlers, authenticator, auditWriter, metricsHandler, api.RouterOptions{})
+
+	// TEMPORARY — delete this block with api/static_bearer.go on or before
+	// api.StaticBearerSunset. It lets the stun-sentinel correlator's static
+	// bearer token through while the correlator is moved onto the JWT-SVID it
+	// already has a binding for. With no SIGNAL_AUTH_STATIC_BEARER_* variable
+	// set, StaticBearerConfigFromEnv returns nil and the authenticator below
+	// is the unmodified JWT one.
+	var httpAuthenticator api.Authenticator = authenticator
+	staticBearer, err := api.StaticBearerConfigFromEnv()
+	if err != nil {
+		slog.Error("static bearer configuration invalid; refusing startup", "error", err)
+		os.Exit(1)
+	}
+	if staticBearer != nil {
+		httpAuthenticator, err = api.NewStaticBearerAuthenticator(*staticBearer, authenticator)
+		if err != nil {
+			slog.Error("static bearer authenticator initialization failed; refusing startup", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	protectedRouter, err := api.NewProtectedRouter(handlers, httpAuthenticator, auditWriter, metricsHandler, api.RouterOptions{})
 	if err != nil {
 		slog.Error("protected HTTP router initialization failed", "error", err)
 		os.Exit(1)

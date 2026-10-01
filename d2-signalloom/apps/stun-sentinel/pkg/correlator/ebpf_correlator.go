@@ -150,6 +150,7 @@ type SentinelProbeManager struct {
 	cgroupRoot      string
 	cgMu            sync.Mutex
 	cgroupIndex     map[uint64]string // cgroup inode -> pod UID
+	cgroupPaths     map[uint64]string // cgroup inode -> path below the cgroup root
 	cgroupIndexedAt time.Time
 }
 
@@ -408,7 +409,12 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 	if pod != nil {
 		obs.PodName = pod.Name
 		obs.Namespace = pod.Namespace
-		obs.Labels = pod.Labels
+		// A copy: pod.Labels is the informer's cached map, and the wire
+		// payload adds keys to the observation's labels.
+		obs.Labels = make(map[string]string, len(pod.Labels))
+		for k, v := range pod.Labels {
+			obs.Labels[k] = v
+		}
 
 		if pod.Labels != nil {
 			if actor, ok := pod.Labels["signalloom.ai/agent-name"]; ok && actor != "" {
@@ -528,6 +534,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	m.stats.matched.Add(1)
 
 	obs := m.NormalizeObservation(raw, pod)
+	obs.CgroupPath = m.cgroupPathFor(ev.CgroupID, targetPID)
 
 	// Direct in-sentinel reactive freeze containment
 	if isAgentPod(pod) && m.freezeManager != nil {
@@ -573,7 +580,7 @@ func (m *SentinelProbeManager) dispatchWorker(ctx context.Context) {
 
 // dispatchObservation transmits a single TelemetryObservation to signal-ingest via HTTP POST.
 func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) error {
-	payload, err := json.Marshal(obs)
+	payload, err := json.Marshal([]ingestObservation{obs.toIngest()})
 	if err != nil {
 		return err
 	}

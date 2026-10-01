@@ -201,13 +201,16 @@ func TestDispatchObservation(t *testing.T) {
 			return
 		}
 
-		var obs TelemetryObservation
-		if err := json.Unmarshal(body, &obs); err != nil {
+		// The real signal-ingest decodes a JSON ARRAY of observations; this mock
+		// used to decode a single object, i.e. the shape the real service
+		// rejects with 400, so it certified a contract that never existed.
+		var batch []ingestObservation
+		if err := json.Unmarshal(body, &batch); err != nil || len(batch) != 1 {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
 
-		receivedRequest.Store(&obs)
+		receivedRequest.Store(&batch[0])
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"status":"created"}`))
 	}))
@@ -241,19 +244,19 @@ func TestDispatchObservation(t *testing.T) {
 		t.Fatalf("server did not receive telemetry observation")
 	}
 
-	receivedObs, ok := val.(*TelemetryObservation)
+	receivedObs, ok := val.(*ingestObservation)
 	if !ok || receivedObs == nil {
-		t.Fatalf("received request is not TelemetryObservation")
+		t.Fatalf("received request is not an ingest observation")
 	}
 
-	if receivedObs.Target != "/etc/passwd" {
-		t.Errorf("expected Target '/etc/passwd', got '%s'", receivedObs.Target)
+	if receivedObs.Labels["target"] != "/etc/passwd" {
+		t.Errorf("expected target '/etc/passwd', got '%s'", receivedObs.Labels["target"])
 	}
-	if receivedObs.TenantID != "kusari" {
-		t.Errorf("expected TenantID 'kusari', got '%s'", receivedObs.TenantID)
+	if receivedObs.Labels["tenant_id"] != "kusari" {
+		t.Errorf("expected tenant_id 'kusari', got '%s'", receivedObs.Labels["tenant_id"])
 	}
-	if receivedObs.DirectReaction != ReactionCgroupFrozen {
-		t.Errorf("expected DirectReaction 'cgroup_frozen', got '%s'", receivedObs.DirectReaction)
+	if receivedObs.Labels["direct_reaction"] != ReactionCgroupFrozen {
+		t.Errorf("expected direct_reaction 'cgroup_frozen', got '%s'", receivedObs.Labels["direct_reaction"])
 	}
 }
 

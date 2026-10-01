@@ -1083,7 +1083,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/sentinel-capabilities.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
-	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest/api
+	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest/api \
+	d2-signalloom/apps/signal-ingest/model
 # Package specs run as `go test .` (NOT ./...), for a directory whose subtree
 # holds a test that mutates tracked files. signal-ingest's root package carries
 # the static-bearer wiring test -- the only proof the credential is wired into

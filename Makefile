@@ -1083,11 +1083,19 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest/api
+# Package specs run as `go test .` (NOT ./...), for a directory whose subtree
+# holds a test that mutates tracked files. signal-ingest's root package carries
+# the static-bearer wiring test -- the only proof the credential is wired into
+# main -- while its sibling correlation/redteam_cascade_test.go rewrites the
+# committed redteam_cascade_ceiling.json on every run, so `./...` here would
+# leave the tree dirty after every gate run.
+SLDC_GO_PKGS = d2-signalloom/apps/signal-ingest
 
 test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytest and bun suite (no cluster; KUBECONFIG=/dev/null).
 	@status=0; \
 	KUBECONFIG=/dev/null bats $(SLDC_OFFLINE_BATS) || status=$$?; \
 	for d in $(SLDC_GO_DIRS); do (cd $$d && go test -count=1 ./...) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; done; \
+	for d in $(SLDC_GO_PKGS); do (cd $$d && go test -count=1 .) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; done; \
 	python3 -m pytest -q d2-signalloom/apps/fe-signalloom/src/tests/test_cadvisor_poller.py test/unit/test_tenant_hash.py || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	bun test test/unit/tenant-hash.test.ts || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	exit $$status

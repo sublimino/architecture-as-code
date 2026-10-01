@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# Per-cluster configuration for the sentinel. One key today; the point is that
+# it is a ConfigMap, so kind-osramp and kind-signalloom-hub each carry their
+# own value without a second copy of the DaemonSet.
+#
+# The live pod before consolidation carried
+# SIGNAL_INGEST_URL=http://10.96.224.2:8082 — a ClusterIP someone patched in by
+# hand. A ClusterIP is the wrong thing to commit: it is reassigned on every
+# cluster rebuild, so the manifest goes stale silently and the sentinel posts
+# telemetry into a dead address. The Service FQDN is stable across rebuilds.
+#
+# Why the FULLY-QUALIFIED name and not "signal-ingest:8082":
+#   signal-ingest is a Service in namespace fe-signalloom (placed there by
+#   targetNamespace on the Flux Kustomization that reconciles
+#   apps/fe-signalloom/base). The sentinel runs in fe-signalloom-agents, so a
+#   bare short name resolves against that namespace's search path first and
+#   never reaches fe-signalloom. The FQDN skips the search path entirely.
+#   It resolves only because the DaemonSet sets
+#   dnsPolicy: ClusterFirstWithHostNet — see daemonset.yaml.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stun-sentinel-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "sentinel"
+data:
+  SIGNAL_INGEST_URL: "http://signal-ingest.fe-signalloom.svc.cluster.local:8082"

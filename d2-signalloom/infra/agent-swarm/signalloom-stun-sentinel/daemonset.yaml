@@ -1,3 +1,56 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# THE stun-sentinel DaemonSet. There is exactly one, and this is it.
+#
+# It runs apps/signalloom-stun-sentinel, the unified deployable: that main.go
+# imports apps/stun-sentinel/pkg/{ebpf,correlator}, loads the eBPF probe, and
+# runs the correlator, the pod informer/reconciler and the cgroup freezer in
+# one process (unification commit 6e50309f, SLER-P4-1). apps/stun-sentinel is
+# the library module; its cmd/stun-sentinel HTTP server is a separate binary
+# and is not what ships here.
+#
+# Three other manifests used to declare a competing sentinel DaemonSet. All
+# three are now tombstones naming this file:
+#   apps/stun-sentinel/base/daemonset.yaml       -> overlay of this directory
+#   apps/stun-sentinel/deploy/daemonset.yaml     -> retired
+#   deploy/stun-sentinel-daemonset.yaml          -> retired
+# deploy/manifest_test.go fails if a DaemonSet reappears at any of them.
+#
+# ── Why each grant is here (measured on kind-osramp, 2026-10-01) ─────────────
+#   hostPID       host PIDs in freeze results; /proc/<pid>/ns/net for the
+#                 netlink veth lookup.
+#   hostNetwork   tc clsact filters and RTM_GETLINK must run in the HOST netns,
+#                 where the container veth peers live.
+#   SYS_PTRACE    open another container's /proc/<pid>/ns/net (EACCES without).
+#   BPF           load the tc drop program and the tracepoint probe.
+#   NET_ADMIN     attach the clsact qdisc and tc filter.
+#   SYS_ADMIN     setns and cgroup-v2 freeze writes.
+#   /host-cgroup  the freeze IS a write to the host cgroup hierarchy, so this
+#                 mount is read-write. CGROUP_ROOT points the binary at it.
+#   /sys/kernel/debug (debugfs)
+#                 REQUIRED, and the single mount that decides whether the probe
+#                 loads at all. link.Tracepoint reads
+#                 /sys/kernel/debug/tracing/events/<grp>/<name>/id and calls
+#                 perf_event_open; without it the sentinel logs
+#                 "attach tracepoint syscalls/sys_enter_openat: neither debugfs
+#                 nor tracefs are mounted" and attaches nothing. Read-only is
+#                 sufficient: the id file is only read.
+#
+#   privileged: false — the four capabilities above are enough. Measured
+#   logging ebpf_probe_attached with all four tracepoints
+#   (sys_enter_openat, sys_enter_openat2, sys_enter_execve, sys_enter_connect)
+#   under privileged: false and readOnlyRootFilesystem: true.
+#
+# ── Mounts deliberately ABSENT, so nobody re-adds them speculatively ─────────
+#   /sys/fs/bpf (bpffs)   nothing is pinned. Maps and links live for the life
+#                         of the process; there is no pin path to share.
+#   /sys/kernel/btf       the probe is bpf2go-embedded, so its BTF travels in
+#                         the object. No CO-RE relocation reads the host BTF.
+#   /lib/modules          nothing loads a kernel module or reads module BTF.
+# Each of the three was present on the manifests this file replaces, and
+# removing them cost nothing: the probe attaches without any of them.
+# deploy/least_privilege_test.go fails if one returns.
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -32,12 +85,26 @@ spec:
       serviceAccountName: stun-sentinel
       hostPID: true
       hostNetwork: true
+      # Load-bearing, and the reason the ingest URL was unreachable before.
+      # For a hostNetwork pod Kubernetes silently DOWNGRADES the default
+      # dnsPolicy (ClusterFirst) to Default, which means the node's
+      # /etc/resolv.conf — no cluster DNS at all, so neither "signal-ingest"
+      # nor its FQDN resolves. ClusterFirstWithHostNet keeps cluster DNS while
+      # staying on the host network.
+      dnsPolicy: ClusterFirstWithHostNet
       tolerations:
         - operator: Exists
       containers:
         - name: sentinel
-          image: stun-sentinel:latest
-          imagePullPolicy: Never
+          # Overlay-overridable via the `images:` entry in kustomization.yaml:
+          # a kind cluster retags to its locally loaded image, a remote cluster
+          # points newName at its own registry. Registry-qualified and pinned
+          # so a remote cluster can pull it without an overlay at all, and so a
+          # rollout does not depend on when a node last pulled :latest.
+          image: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:v0.2.0
+          # IfNotPresent, never Never: Never cannot pull, so it makes this base
+          # unusable anywhere the image was not side-loaded first.
+          imagePullPolicy: IfNotPresent
           env:
             - name: WATCH_NAMESPACE
               value: "fe-signalloom-agents"
@@ -45,6 +112,22 @@ spec:
               value: "/host-cgroup"
             - name: HEALTH_ADDR
               value: ":8081"
+            # main.go:351 reads this; correlator.NewSentinelProbeManager falls
+            # back to http://signal-ingest:8082 when it is empty, and that
+            # short name cannot resolve from fe-signalloom-agents — the
+            # Service lives in fe-signalloom, so the search path tries
+            # fe-signalloom-agents.svc.cluster.local first and gives up.
+            # Hence the FQDN, and hence a ConfigMap: each cluster carries its
+            # own value without editing this file.
+            - name: SIGNAL_INGEST_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: stun-sentinel-config
+                  key: SIGNAL_INGEST_URL
+                  # NOT optional. A missing ConfigMap must stop the pod, not
+                  # let it start and quietly post telemetry into a name that
+                  # does not resolve.
+                  optional: false
             - name: STUN_FREEZE_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -92,6 +175,11 @@ spec:
             - name: cgroup
               mountPath: /host-cgroup
               readOnly: false
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              # Read-only is enough: link.Tracepoint only reads the tracepoint
+              # id file. Nothing writes to tracefs.
+              readOnly: true
           resources:
             limits:
               memory: 128Mi
@@ -103,4 +191,8 @@ spec:
         - name: cgroup
           hostPath:
             path: /sys/fs/cgroup
+            type: Directory
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
             type: Directory

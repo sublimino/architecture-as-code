@@ -5,7 +5,7 @@
 # test/p1-sentinel-preflight.bats — scripts/p1-sentinel-preflight.sh.
 #
 # Test 1 audits the real host kernel (BTF, cgroup v2, kernel >= 5.8) against the
-# real base DaemonSet. Every other test drives one refusal path with an
+# real canonical DaemonSet. Every other test drives one refusal path with an
 # injected fixture. docker is stubbed to fail so no fallback can reach the host,
 # and the report goes to a temp file so the tracked ci-evidence copy is never
 # rewritten by a test run.
@@ -13,7 +13,9 @@
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   SCRIPT="${REPO_ROOT}/scripts/p1-sentinel-preflight.sh"
-  BASE_DS="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base/daemonset.yaml"
+  # THE sentinel DaemonSet. apps/stun-sentinel/base/daemonset.yaml was one of
+  # four competing copies and is deleted; this is the one that deploys.
+  BASE_DS="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml"
   export P1_PREFLIGHT_OUT="${BATS_TEST_TMPDIR}/audit.json"
   mkdir -p "${BATS_TEST_TMPDIR}/bin"
   printf '#!/bin/sh\nexit 1\n' >"${BATS_TEST_TMPDIR}/bin/docker"

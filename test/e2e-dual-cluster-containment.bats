@@ -196,11 +196,26 @@ observations_json() {
 
 # sensitive_openat_observations filters the feed down to the openat events this
 # suite provoked: sys_enter_openat against /etc/passwd or /etc/shadow.
+#
+# signal-ingest stores its own model.Observation, which has no syscall or
+# target field: the sentinel carries the Shared Pattern 2 fields in labels, as
+# every collector does. This used to read them at the top level, which the
+# system of record can never return, so Step 4 could not pass against a real
+# signal-ingest. Labels are read first, the top level is the fallback, and each
+# match is normalised back to the Shared Pattern 2 event the assertions and the
+# evidence schema ($defs/normalizedEvent) expect.
 sensitive_openat_observations() {
     observations_json | jq -c '
         [ .[]?
-          | select((.syscall? // "") == "sys_enter_openat")
-          | select(((.target? // "") | test("^/etc/(passwd|shadow)$")))
+          | . as $o | (($o.labels? // {}) | if type == "object" then . else {} end) as $l
+          | select(($l.syscall // $o.syscall // "") == "sys_enter_openat")
+          | select((($l.target // $o.target // "")) | test("^/etc/(passwd|shadow)$"))
+          | { id: $o.id, source: $o.source, timestamp: $o.timestamp, actor_id: $o.actor_id,
+              syscall: ($l.syscall // $o.syscall), target: ($l.target // $o.target),
+              tenant_id: ($l.tenant_id // $o.tenant_id), pod_name: ($l.pod_name // $o.pod_name),
+              namespace: ($l.namespace // $o.namespace),
+              direct_reaction: ($l.direct_reaction // $o.direct_reaction),
+              cgroup_path: ($l.cgroup_path // $o.cgroup_path), labels: $l }
         ]' 2>/dev/null
 }
 

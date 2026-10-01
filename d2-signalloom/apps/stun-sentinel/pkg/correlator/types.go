@@ -48,4 +48,5 @@ type TelemetryObservation struct {
 	Severity       string            `json:"severity"`
 	Labels         map[string]string `json:"labels"`
 	DirectReaction string            `json:"direct_reaction"`
+	CgroupPath     string            `json:"cgroup_path,omitempty"`
 }

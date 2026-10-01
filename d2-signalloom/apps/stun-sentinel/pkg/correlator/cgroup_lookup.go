@@ -5,7 +5,9 @@ package correlator
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -36,7 +38,7 @@ func (m *SentinelProbeManager) lookupPodByCgroupID(id uint64) *corev1.Pod {
 	m.cgMu.Lock()
 	uid, ok := m.cgroupIndex[id]
 	if !ok && time.Since(m.cgroupIndexedAt) >= cgroupIndexMinInterval {
-		m.cgroupIndex = indexPodCgroups(m.cgroupRoot)
+		m.cgroupIndex, m.cgroupPaths = indexPodCgroups(m.cgroupRoot)
 		m.cgroupIndexedAt = time.Now()
 		uid, ok = m.cgroupIndex[id]
 	}
@@ -49,8 +51,9 @@ func (m *SentinelProbeManager) lookupPodByCgroupID(id uint64) *corev1.Pod {
 
 // indexPodCgroups maps the inode of every cgroup directory at or below a pod
 // slice to that pod's UID (dashed form).
-func indexPodCgroups(root string) map[uint64]string {
+func indexPodCgroups(root string) (map[uint64]string, map[uint64]string) {
 	idx := make(map[uint64]string)
+	paths := make(map[uint64]string)
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
@@ -62,10 +65,35 @@ func indexPodCgroups(root string) map[uint64]string {
 		var st syscall.Stat_t
 		if syscall.Stat(p, &st) == nil {
 			idx[st.Ino] = strings.ReplaceAll(match[1], "_", "-")
+			if rel, err := filepath.Rel(root, p); err == nil {
+				paths[st.Ino] = "/" + rel
+			}
 		}
 		return nil
 	})
-	return idx
+	return idx, paths
+}
+
+// cgroupPathFor reports the cgroup an event came from: the indexed path for
+// its inode, else the cgroup-v2 line of /proc/<pid>/cgroup (real nodes, where
+// the PID is visible), else empty.
+func (m *SentinelProbeManager) cgroupPathFor(id uint64, pid uint32) string {
+	m.cgMu.Lock()
+	p := m.cgroupPaths[id]
+	m.cgMu.Unlock()
+	if p != "" {
+		return p
+	}
+	data, err := os.ReadFile(filepath.Join(m.procRoot, strconv.FormatUint(uint64(pid), 10), "cgroup"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if rest, ok := strings.CutPrefix(line, "0::"); ok {
+			return rest
+		}
+	}
+	return ""
 }
 
 // podByUID finds an indexed or informer-known pod by UID. A UID the informer

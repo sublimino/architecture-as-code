@@ -113,10 +113,10 @@ SLAAT executes a three-phase closed-loop adversarial lifecycle:
 - **Scheduled Cadence:** `*/5 * * * *`
 - **Acceptance Commands:**
   - `make test-all-offline`
+  - `make test-eap-offline`
   - `make healthcheck`
   - `make test-postgres-persistence`
   - `make test-zot-cache`
-  - `bats test/acceptance-spec-coverage.bats`
 
 # Decision Log
 

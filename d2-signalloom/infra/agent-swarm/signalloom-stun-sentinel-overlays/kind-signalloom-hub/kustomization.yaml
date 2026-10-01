@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# kind-signalloom-hub. Same side-loaded image story as kind-osramp.
+#
+# The ingest URL below is the hub's OWN in-cluster Service: a sentinel reports
+# to the ingest on its own cluster. If the hub should instead collect osramp's
+# telemetry, the cross-cluster name proven resolving in
+# ci-evidence/sldc-p2-1-dual-cluster.txt is
+# http://signal-ingest.fe-signalloom.signalloom.hub:8082 — that is a topology
+# decision, so it is named here rather than silently assumed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../signalloom-stun-sentinel
+
+images:
+  - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
+    newName: stun-sentinel
+    newTag: v0.2.0
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: stun-sentinel-config
+    patch: |
+      - op: replace
+        path: /data/SIGNAL_INGEST_URL
+        value: http://signal-ingest.fe-signalloom.svc.cluster.local:8082

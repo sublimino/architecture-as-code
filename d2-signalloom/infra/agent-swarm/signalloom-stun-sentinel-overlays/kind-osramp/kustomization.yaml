@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# kind-osramp. The image is side-loaded by `kind load docker-image` rather than
+# pulled, so the registry-qualified base reference is retagged to the local
+# name that `make -C d2-signalloom swarm-stun-sentinel-image` produces.
+#
+# The ingest URL is stated explicitly even though it currently matches the base
+# default. That is the point of the overlay: when this cluster's ingest moves,
+# this file changes and kind-signalloom-hub does not.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../signalloom-stun-sentinel
+
+images:
+  - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
+    newName: stun-sentinel
+    newTag: v0.2.0
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: stun-sentinel-config
+    patch: |
+      - op: replace
+        path: /data/SIGNAL_INGEST_URL
+        value: http://signal-ingest.fe-signalloom.svc.cluster.local:8082

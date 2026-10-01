@@ -1,311 +1,41 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# CRKC-P1-2 — Tier 0 kernel execution-state containment.
+# TOMBSTONE. This file no longer declares anything.
 #
-# stun-sentinel runs on every node and halts a compromised agent container's
-# CPU execution in-kernel by writing "1" to its cgroup-v2 cgroup.freeze.
+# It was the CRKC-P1-2 standalone install bundle: a `signalloom-system`
+# Namespace labelled pod-security enforce=privileged, a ServiceAccount,
+# a ClusterRole/ClusterRoleBinding, a privileged sentinel DaemonSet, a headless
+# Service on 8080 and a NetworkPolicy. Measured 2026-10-01: nothing applied it.
+# No kustomization listed it, no script applied it, no Flux Kustomization named
+# it; its only references in the tree were the two Go tests that asserted on it
+# and the docs that described it. It was a third sentinel spec, in a third
+# namespace, that had never run.
 #
-# Why this needs host access, stated plainly rather than buried in a flag:
-#   - hostPID:   the daemon reports the PID set it froze. Without the host PID
-#                namespace those PIDs would be meaningless to any operator or
-#                forensic tool outside this pod.
-#   - hostPath /sys/fs/cgroup, READ-WRITE: the freeze IS a write to the host
-#                cgroup hierarchy. A read-only mount passes every stat, every
-#                read, and every "does the path exist" probe, and fails only
-#                at the moment containment is needed — which is why /healthz
-#                probes writability with a real mkdir rather than a stat.
-#   - privileged: writing another container's cgroup control files is denied
-#                to an unprivileged process regardless of file modes.
+# REPLACEMENT — the one sentinel manifest, in fe-signalloom-agents:
+#   d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/
+#     daemonset.yaml        the DaemonSet
+#     service-account.yaml  the ServiceAccount
+#     rbac.yaml             namespace-scoped Role + RoleBinding (not ClusterRole)
+#     configmap.yaml        per-cluster SIGNAL_INGEST_URL
 #
-# The blast radius is deliberately narrowed elsewhere: the container is
-# otherwise read-only, drops all capabilities it does not need, and the
-# resume credential is mounted from a Secret rather than set inline.
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: signalloom-system
-  labels:
-    app.kubernetes.io/part-of: signalloom
-    # The sentinel is privileged by necessity; the namespace says so out loud
-    # rather than relying on an absent Pod Security admission label being read
-    # as an oversight.
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: stun-sentinel
-  namespace: signalloom-system
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/component: tier-0-containment
-    app.kubernetes.io/part-of: signalloom
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: stun-sentinel
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-rules:
-  # Read-only. The daemon resolves a pod UID to a cgroup path; it never
-  # mutates Kubernetes objects. Tier 1 configuration state (labels, Flux
-  # spec.ignore) belongs to CRKC-P1-1, deliberately separated so a compromise
-  # of the Tier 0 daemon cannot rewrite the audit trail it produces.
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: stun-sentinel
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: stun-sentinel
-subjects:
-  - kind: ServiceAccount
-    name: stun-sentinel
-    namespace: signalloom-system
----
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: stun-sentinel
-  namespace: signalloom-system
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/component: tier-0-containment
-    app.kubernetes.io/part-of: signalloom
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: stun-sentinel
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: stun-sentinel
-        app.kubernetes.io/component: tier-0-containment
-        app.kubernetes.io/part-of: signalloom
-    spec:
-      serviceAccountName: stun-sentinel
-      hostPID: true
-      # SLDC-P1-3: tc clsact filters and RTM_GETLINK veth resolution must run
-      # in the host netns, where container veth peers live.
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      # Containment must remain available while the node is under the memory
-      # or CPU pressure an attacker may be deliberately causing. A daemon
-      # evicted at the moment it is needed is not a control.
-      priorityClassName: system-node-critical
-      terminationGracePeriodSeconds: 10
-      tolerations:
-        - operator: Exists
-      containers:
-        - name: stun-sentinel
-          image: ghcr.io/controlplaneio-in-toto/stun-sentinel:v0.1.0
-          imagePullPolicy: IfNotPresent
-          args:
-            # hostNetwork: bind the pod IP (== node IP) only, never 0.0.0.0.
-            - --listen-addr=$(POD_IP):8080
-            - --cgroup-root=/sys/fs/cgroup
-            - --freeze-deadline=50ms
-          env:
-            # Downward API identity for self-pod exclusion (pkg/filter).
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: POD_UID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.uid
-            - name: POD_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-            - name: STUN_FREEZE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: stun-sentinel-governance
-                  key: freeze-token
-                  # Absent secret => empty token => server refuses to start (fail-fast)
-                  # or denies requests. Gating freeze ensures unauthenticated callers cannot
-                  # freeze workloads arbitrarily.
-                  optional: true
-            - name: STUN_RESUME_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: stun-sentinel-governance
-                  key: resume-token
-                  # Absent secret => empty token => every resume is refused.
-                  # Failing closed is the correct posture for the one
-                  # operation that returns capability to a contained workload.
-                  optional: true
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
-          securityContext:
-            # Required: writing another container's cgroup control files is
-            # denied to an unprivileged process whatever the file modes say.
-            privileged: true
-            runAsNonRoot: false
-            runAsUser: 0
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: true
-            # Declared explicitly although privileged implies them, so the
-            # capability contract is auditable (SLDC-P1-3).
-            capabilities:
-              add:
-                - SYS_PTRACE
-                - BPF
-                - NET_ADMIN
-                - SYS_ADMIN
-            seccompProfile:
-              type: RuntimeDefault
-          volumeMounts:
-            - name: cgroup
-              mountPath: /sys/fs/cgroup
-              # NOT readOnly. This is the whole point of the DaemonSet.
-              readOnly: false
-              mountPropagation: HostToContainer
-            - name: modules
-              mountPath: /lib/modules
-              readOnly: true
-            - name: btf
-              mountPath: /sys/kernel/btf
-              readOnly: true
-            - name: host-proc
-              mountPath: /host/proc
-              readOnly: true
-              mountPropagation: HostToContainer
-            - name: tmp
-              mountPath: /tmp
-          # Both probes hit /healthz, which performs a real mkdir/rmdir
-          # against the cgroup hierarchy. A read-only or missing mount fails
-          # here at deploy time rather than during an incident.
-          startupProbe:
-            httpGet: {path: /healthz, port: http}
-            failureThreshold: 12
-            periodSeconds: 5
-          livenessProbe:
-            httpGet: {path: /healthz, port: http}
-            periodSeconds: 30
-            timeoutSeconds: 5
-          readinessProbe:
-            httpGet: {path: /readyz, port: http}
-            periodSeconds: 10
-            timeoutSeconds: 5
-          resources:
-            requests:
-              cpu: 20m
-              memory: 32Mi
-            limits:
-              # No CPU limit, deliberately. Throttling the containment daemon
-              # under exactly the load an attacker can generate would add
-              # latency to the one operation that must not have any.
-              memory: 128Mi
-      volumes:
-        - name: cgroup
-          hostPath:
-            path: /sys/fs/cgroup
-            type: Directory
-        - name: modules
-          hostPath:
-            path: /lib/modules
-            type: DirectoryOrCreate
-        - name: btf
-          hostPath:
-            path: /sys/kernel/btf
-            type: DirectoryOrCreate
-        - name: host-proc
-          hostPath:
-            path: /proc
-            type: Directory
-        - name: tmp
-          emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: stun-sentinel
-  namespace: signalloom-system
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-spec:
-  selector:
-    app.kubernetes.io/name: stun-sentinel
-  ports:
-    - name: http
-      port: 8080
-      targetPort: http
-  # The stun path is node-local: a caller must reach the sentinel on the node
-  # hosting the target pod, so load balancing across endpoints would be wrong.
-  clusterIP: None
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: stun-sentinel
-  namespace: signalloom-system
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/component: tier-0-containment
-    app.kubernetes.io/part-of: signalloom
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: stun-sentinel
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    # Allow traffic on port 8080 from authorized signalloom components (e.g. fleet-manager).
-    # NOTE: When running with hostPID/hostNetwork, standard pod-level CNI NetworkPolicies
-    # cannot filter node-network interfaces. The application-layer bearer token authentication
-    # (STUN_FREEZE_TOKEN / STUN_RESUME_TOKEN) and source checks serve as the primary security
-    # control, while this NetworkPolicy provides defence-in-depth for non-hostNetwork deployments.
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: fe-signalloom
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: fleet-manager
-        - namespaceSelector:
-            matchLabels:
-              app.kubernetes.io/part-of: signalloom
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/part-of: signalloom
-      ports:
-        - port: 8080
-          protocol: TCP
-  egress:
-    # Allow DNS and in-cluster Kubernetes API egress
-    - to: []
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-        - port: 443
-          protocol: TCP
-        - port: 6443
-          protocol: TCP
+# Three things this bundle had and the canonical base deliberately does not:
+#
+#   1. A Service. The unified deployable
+#      (apps/signalloom-stun-sentinel) exposes only /healthz and /readyz on
+#      HEALTH_ADDR (:8081), which the kubelet reaches directly on a hostNetwork
+#      pod. The :8080 /stun HTTP API belongs to the OTHER binary,
+#      apps/stun-sentinel/cmd/stun-sentinel, which is not deployed. A Service
+#      fronting a port nothing serves is how "the dispatcher targets a route no
+#      deployed sentinel serves" happened; do not re-add one without first
+#      deciding which binary answers it.
+#   2. A privileged Namespace. The canonical profile is privileged: false, so
+#      the namespace does not need a privileged Pod Security level.
+#   3. Cluster-scoped RBAC. The sentinel watches one namespace
+#      (WATCH_NAMESPACE=fe-signalloom-agents), so a namespaced Role is enough.
+#
+# The sibling stun-sentinel-networkpolicy.yaml in this directory is untouched
+# and equally unreferenced; it is outside this consolidation's scope.
+#
+# deploy-side contract tests: apps/stun-sentinel/deploy/manifest_test.go
+# (TestRetiredManifestsStayRetired fails if a DaemonSet reappears here).

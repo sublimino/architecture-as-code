@@ -1,7 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# The canonical sentinel base. Consume this directory directly (Flux
+# Kustomization agent-signalloom-stun-sentinel does), or build an overlay on it
+# — see ../signalloom-stun-sentinel-overlays/ for the two kind clusters, which
+# differ only in the image tag they retag to. An overlay cannot live inside
+# this directory: kustomize refuses a root that contains a visited root.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
   - service-account.yaml
   - rbac.yaml
+  - configmap.yaml
   - daemonset.yaml
+
+# The single override point for the image. An overlay sets newName (its own
+# registry) and/or newTag in one line instead of patching the container.
+images:
+  - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
+    newTag: v0.2.0

@@ -1,7 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
+#
+# TOMBSTONE for base/daemonset.yaml, which is deleted.
+#
+# This directory used to carry its own full copy of the sentinel DaemonSet —
+# privileged: true, an external ghcr.io/.../stun-sentinel:v0.1.0 image, and
+# five host mounts. It was a second source of truth and it had drifted from the
+# thing that actually runs: it deployed the apps/stun-sentinel cmd/ HTTP server
+# contract (--listen-addr, POD_IP downward API) rather than the unified
+# deployable in apps/signalloom-stun-sentinel.
+#
+# The sentinel manifest now lives in exactly one place:
+#   d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/
+#
+# This kustomization is kept, rather than deleted, because it is a stable
+# render entrypoint several callers already use — test/sentinel-capabilities.bats
+# and scripts/test-phase1-governor.sh among them. `kubectl kustomize` here now
+# renders the canonical base verbatim, so those callers keep working and keep
+# testing the real thing.
+#
+# For a cluster-specific render use the overlays instead:
+#   infra/agent-swarm/signalloom-stun-sentinel-overlays/{kind-osramp,kind-signalloom-hub}
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - daemonset.yaml
+  - ../../../infra/agent-swarm/signalloom-stun-sentinel

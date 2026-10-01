@@ -1,9 +1,49 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# SLDC-P1-PRE: Capability and Security Context Audit Specification for stun-sentinel
-# Defines the required kernel capabilities, host namespaces, and host volume mounts
-# necessary for pure-Go in-sentinel eBPF telemetry and cgroup-v2 process containment.
+# SLDC-P1-PRE: capability and security-context audit SPECIFICATION for
+# stun-sentinel. This is a specification document, NOT a deployable — nothing
+# applies it and nothing should. It records, in manifest shape, the kernel
+# capabilities, host namespaces and host mounts the sentinel actually needs for
+# in-process eBPF telemetry and cgroup-v2 containment.
+#
+# The deployable is:
+#   d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml
+#
+# CORRECTED 2026-10-01 against a measured run on kind-osramp. The previous
+# version of this spec was wrong in three ways that mattered, and each wrong
+# line had been copied into the manifests it was supposed to govern:
+#
+#   privileged: true      -> false. The four capabilities below are sufficient.
+#                            Measured: the probe logs ebpf_probe_attached with
+#                            all four tracepoints (sys_enter_openat,
+#                            sys_enter_openat2, sys_enter_execve,
+#                            sys_enter_connect) under privileged: false and
+#                            readOnlyRootFilesystem: true.
+#   /sys/kernel/debug     -> REQUIRED, and was absent from this spec entirely.
+#                            It is the mount that decides whether the probe
+#                            loads: link.Tracepoint reads
+#                            /sys/kernel/debug/tracing/events/<grp>/<name>/id
+#                            and calls perf_event_open. Without it the sentinel
+#                            fails with "attach tracepoint
+#                            syscalls/sys_enter_openat: neither debugfs nor
+#                            tracefs are mounted" and attaches nothing.
+#                            Read-only suffices; nothing writes to tracefs.
+#   /sys/kernel/btf,      -> REMOVED. Not needed, and never were. The probe is
+#   /lib/modules,            bpf2go-embedded, so its BTF travels inside the
+#   /sys/fs/bpf              object and no CO-RE relocation reads host BTF;
+#                            nothing loads a kernel module; and nothing is
+#                            pinned, so there is no bpffs pin path to share.
+#                            A privileged container plus three unnecessary host
+#                            mounts was the cost of this spec being written
+#                            from expectation rather than from a measurement.
+#
+# Also removed: the host /proc mount. The sentinel reads /proc through the host
+# PID namespace it already has, not through a bind mount.
+#
+# deploy/manifest_test.go asserts this spec agrees with the canonical manifest
+# on privileged, capabilities and the host mount set, so the two cannot drift
+# apart again.
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -28,16 +68,16 @@ spec:
       serviceAccountName: stun-sentinel
       hostPID: true
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       priorityClassName: system-node-critical
       tolerations:
         - operator: Exists
       containers:
         - name: sentinel
-          image: ghcr.io/controlplaneio-in-toto/stun-sentinel:v0.1.0
+          image: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:v0.2.0
           imagePullPolicy: IfNotPresent
           securityContext:
-            privileged: true
-            allowPrivilegeEscalation: true
+            privileged: false
             readOnlyRootFilesystem: true
             capabilities:
               add:
@@ -49,31 +89,17 @@ spec:
                 - ALL
           volumeMounts:
             - name: cgroup
-              mountPath: /sys/fs/cgroup
+              mountPath: /host-cgroup
               readOnly: false
-            - name: modules
-              mountPath: /lib/modules
-              readOnly: true
-            - name: btf
-              mountPath: /sys/kernel/btf
-              readOnly: true
-            - name: host-proc
-              mountPath: /host/proc
+            - name: debugfs
+              mountPath: /sys/kernel/debug
               readOnly: true
       volumes:
         - name: cgroup
           hostPath:
             path: /sys/fs/cgroup
             type: Directory
-        - name: modules
+        - name: debugfs
           hostPath:
-            path: /lib/modules
-            type: DirectoryOrCreate
-        - name: btf
-          hostPath:
-            path: /sys/kernel/btf
-            type: DirectoryOrCreate
-        - name: host-proc
-          hostPath:
-            path: /proc
+            path: /sys/kernel/debug
             type: Directory

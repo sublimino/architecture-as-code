@@ -125,7 +125,11 @@ fi
 # 4. DaemonSet Manifest Security Audit
 # Parsed with yq, never grepped: a capability or path named in a comment must
 # not count.
-MANIFEST_TO_CHECK="${P1_SENTINEL_MANIFEST:-${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base/daemonset.yaml}"
+
+# THE sentinel DaemonSet. The previous default was
+# apps/stun-sentinel/base/daemonset.yaml, one of four competing copies; that
+# file is gone and its directory now renders this one.
+MANIFEST_TO_CHECK="${P1_SENTINEL_MANIFEST:-${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml}"
 
 DS_HOSTPID=false
 DS_HOSTNETWORK=false
@@ -134,9 +138,7 @@ DS_CAP_PTRACE=false
 DS_CAP_BPF=false
 DS_CAP_NET_ADMIN=false
 DS_MOUNT_CGROUP=false
-DS_MOUNT_MODULES=false
-DS_MOUNT_BTF=false
-DS_MOUNT_PROC=false
+DS_MOUNT_DEBUGFS=false
 
 ds() {
   yq -r "select(.kind == \"DaemonSet\") | .spec.template.spec | $1" "${MANIFEST_TO_CHECK}" 2>/dev/null || true
@@ -154,9 +156,7 @@ else
   [[ "${CAPS}" == *" NET_ADMIN "* ]] && DS_CAP_NET_ADMIN=true || true
   HOST_PATHS=" $(ds '[.volumes[].hostPath.path | select(. != null)] | join(" ")') "
   [[ "${HOST_PATHS}" == *" /sys/fs/cgroup "* ]] && DS_MOUNT_CGROUP=true || true
-  [[ "${HOST_PATHS}" == *" /lib/modules "* ]] && DS_MOUNT_MODULES=true || true
-  [[ "${HOST_PATHS}" == *" /sys/kernel/btf "* ]] && DS_MOUNT_BTF=true || true
-  [[ "${HOST_PATHS}" == *" /proc "* ]] && DS_MOUNT_PROC=true || true
+  [[ "${HOST_PATHS}" == *" /sys/kernel/debug "* ]] && DS_MOUNT_DEBUGFS=true || true
 
   if [[ "${DS_HOSTPID}" == "true" && "${DS_HOSTNETWORK}" == "true" ]]; then
     log_pass "DaemonSet security spec verified: hostPID=true, hostNetwork=true"
@@ -171,10 +171,18 @@ else
   fi
 
   # 5. Volume Mounts Inspection
-  if [[ "${DS_MOUNT_CGROUP}" == "true" && "${DS_MOUNT_MODULES}" == "true" && "${DS_MOUNT_BTF}" == "true" && "${DS_MOUNT_PROC}" == "true" ]]; then
-    log_pass "DaemonSet host volume mounts verified: /sys/fs/cgroup (rw), /lib/modules (ro), /sys/kernel/btf (ro), host /proc"
+  #
+  # Two mounts, measured on kind-osramp 2026-10-01. /lib/modules, host /proc
+  # and /sys/kernel/btf were required here until that measurement and are now
+  # deliberately NOT checked: the probe is bpf2go-embedded so no CO-RE
+  # relocation reads host BTF, nothing loads a module, and /proc is reached
+  # through the host PID namespace rather than a bind mount. debugfs replaced
+  # them as the mount that actually decides whether the probe loads —
+  # link.Tracepoint reads /sys/kernel/debug/tracing/events/<grp>/<name>/id.
+  if [[ "${DS_MOUNT_CGROUP}" == "true" && "${DS_MOUNT_DEBUGFS}" == "true" ]]; then
+    log_pass "DaemonSet host volume mounts verified: /sys/fs/cgroup (rw), /sys/kernel/debug (ro, tracepoint attach)"
   else
-    log_fail "DaemonSet missing required host volume mounts (cgroup=${DS_MOUNT_CGROUP}, modules=${DS_MOUNT_MODULES}, btf=${DS_MOUNT_BTF}, proc=${DS_MOUNT_PROC})"
+    log_fail "DaemonSet missing required host volume mounts (cgroup=${DS_MOUNT_CGROUP}, debugfs=${DS_MOUNT_DEBUGFS})"
   fi
 fi
 
@@ -229,9 +237,7 @@ cat <<EOF > "${AUDIT_JSON}"
     },
     "volume_mounts": {
       "cgroup": ${DS_MOUNT_CGROUP},
-      "modules": ${DS_MOUNT_MODULES},
-      "btf": ${DS_MOUNT_BTF},
-      "proc": ${DS_MOUNT_PROC}
+      "debugfs": ${DS_MOUNT_DEBUGFS}
     }
   },
   "summary": {

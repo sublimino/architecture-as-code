@@ -335,6 +335,12 @@ not at import time.
 The cache directory `.cache/zot/` stays after `make down`. Run
 `make zot-cache-reset` to clear it.
 
+### The PostgreSQL data cache stays after `make down`
+
+The database cache directory `.cache/postgres/` stays after `make down`. Run
+`make postgres-data-reset` to clear it. Run `make postgres-data-recreate` to
+wipe the data and re-bootstrap the database pod fresh.
+
 ### Flux variable substitution
 
 `postBuild.substituteFrom` in a Flux Kustomization replaces variables in the

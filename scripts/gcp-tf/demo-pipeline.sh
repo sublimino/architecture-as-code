@@ -768,7 +768,7 @@ run_stage \
      test/registry-cache-mapping.bats \
      test/supercred-state.bats test/supervise-port-forward.bats \
      test/supervise-port-forward-eperm.bats \
-     test/zot-cache.bats \
+     test/zot-cache.bats test/postgres-persistence.bats \
      test/kagent-adversarial.bats test/kagent-agents.bats \
      test/kagent-anti-stub.bats test/kagent-credentials.bats \
      test/kagent-demo-harness.bats test/kagent-infra.bats \

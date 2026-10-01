@@ -64,6 +64,7 @@ D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
 SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
 CPAI_CLI_ROOT ?= /home/andy/src/cp/cpai-cli
 ZOT_CACHE_DIR ?= .cache/zot
+POSTGRES_DATA_DIR ?= .cache/postgres
 # Observability (kube-prometheus-stack + trivy-system) is OFF by default.
 # These tenants are not dependencies of any demo slice and dominate cluster
 # build time (~3 minutes of reconciliation waits). Opt in explicitly:
@@ -152,8 +153,8 @@ test-worktree-confinement: ## Prove Rule SP-1 against the live kernel and regene
 ##@ Cluster lifecycle
 
 .PHONY: cluster
-cluster: ## Create the Kind cluster with a persistent host-backed Zot cache.
-	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" ./scripts/create-kind-cluster.sh
+cluster: ## Create the Kind cluster with persistent host-backed Zot and Postgres caches.
+	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" ./scripts/create-kind-cluster.sh
 
 .PHONY: cluster-up
 cluster-up: cluster ## Phase 2 alias: create the shared Kind cluster.
@@ -180,6 +181,14 @@ teardown-all: ## Tear down everything, including the tools setup.sh installed.
 .PHONY: zot-cache-reset
 zot-cache-reset: ## Remove persisted local Zot OCI data; the next `make up` repopulates it.
 	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" ./scripts/zot-cache-reset.sh
+
+.PHONY: postgres-data-reset
+postgres-data-reset: ## Remove persisted local PostgreSQL data; the next pod restart re-bootstraps it.
+	CLUSTER_NAME="$(CLUSTER_NAME)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" ./scripts/postgres-data-reset.sh
+
+.PHONY: postgres-data-recreate
+postgres-data-recreate: ## Reset persisted local PostgreSQL data and recreate pod to re-bootstrap fresh.
+	CLUSTER_NAME="$(CLUSTER_NAME)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" ./scripts/postgres-data-recreate.sh
 
 .PHONY: registry
 registry: ## Deploy the in-cluster zot registry.
@@ -506,6 +515,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	$(MAKE) demo-osramp-test-config
 	$(MAKE) demo-olly-test-config
 	$(MAKE) test-zot-cache
+	$(MAKE) test-postgres-persistence
 	$(MAKE) test-demo-lifecycle
 	$(MAKE) test-node-doctor
 	$(MAKE) test-cosign-signing-consistency
@@ -1357,6 +1367,10 @@ demo-signalloom-stack-purge-force: demo-signalloom-stack-down ## Explicitly over
 .PHONY: test-zot-cache
 test-zot-cache: ## Verify the Kind/Zot persistent-cache configuration without a cluster.
 	bats test/zot-cache.bats
+
+.PHONY: test-postgres-persistence
+test-postgres-persistence: ## Verify the Kind/PostgreSQL persistent-disk configuration and reset/recreate lifecycle without a cluster.
+	bats test/postgres-persistence.bats
 
 .PHONY: test-demo-lifecycle
 test-demo-lifecycle: ## Validate composable lifecycle aliases and fail-closed purge semantics.

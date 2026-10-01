@@ -18,13 +18,20 @@ spec:
             - {name: POSTGRES_DB, value: signalloom}
             - {name: POSTGRES_USER, value: signalloom}
             - {name: POSTGRES_PASSWORD, value: signalloom}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
           ports: [{name: postgresql, containerPort: 5432}]
-          volumeMounts: [{name: init, mountPath: /docker-entrypoint-initdb.d}]
+          volumeMounts:
+            - {name: init, mountPath: /docker-entrypoint-initdb.d}
+            - {name: data, mountPath: /var/lib/postgresql/data}
           readinessProbe:
             exec: {command: [pg_isready, -U, signalloom, -d, signalloom]}
       volumes:
         - name: init
           configMap: {name: discovery-portal-bootstrap}
+        - name: data
+          hostPath:
+            path: /var/local/signalloom-postgres-data
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

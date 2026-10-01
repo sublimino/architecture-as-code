@@ -6,6 +6,7 @@ CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 KIND_BIN="${KIND_BIN:-kind}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 ZOT_CACHE_DIR="${ZOT_CACHE_DIR:-.cache/zot}"
+POSTGRES_DATA_DIR="${POSTGRES_DATA_DIR:-.cache/postgres}"
 
 # Pull-through registry caches for upstream base images. Started before the
 # cluster so the shared docker network exists and the kind nodes' containerd can
@@ -21,6 +22,10 @@ mkdir -p "$ZOT_CACHE_DIR"
 # dir un-enterable by the invoking user. cd-ing into it here would fail on every
 # re-run. The parent is owned by the invoking user, so resolving via it is safe.
 ZOT_CACHE_DIR="$(cd "$(dirname "$ZOT_CACHE_DIR")" && pwd -P)/$(basename "$ZOT_CACHE_DIR")"
+
+mkdir -p "$POSTGRES_DATA_DIR"
+POSTGRES_DATA_DIR="$(cd "$(dirname "$POSTGRES_DATA_DIR")" && pwd -P)/$(basename "$POSTGRES_DATA_DIR")"
+
 # This cache is deliberately local-only. Kind makes it available inside the
 # control-plane container; prepare ownership there before Zot is deployed.
 # The pod itself remains non-root and has no privileged init container.
@@ -33,14 +38,24 @@ prepare_zot_cache() {
     chmod 0750 /var/local/osramp-zot-cache
 }
 
+prepare_postgres_cache() {
+  "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
+    mkdir -p /var/local/signalloom-postgres-data
+  "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
+    chown -R 70:70 /var/local/signalloom-postgres-data
+  "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
+    chmod 0700 /var/local/signalloom-postgres-data
+}
+
 # Ensure the pull-through caches (and the shared kind network) exist first.
 registry_cache_up
 
 EXISTING_CLUSTERS="$("$KIND_BIN" get clusters 2>/dev/null || true)"
 if grep -qx "$CLUSTER_NAME" <<<"$EXISTING_CLUSTERS"; then
   prepare_zot_cache
+  prepare_postgres_cache
   registry_cache_configure_node "${CLUSTER_NAME}-control-plane"
-  echo "Kind cluster $CLUSTER_NAME already exists; preserving Zot cache at $ZOT_CACHE_DIR"
+  echo "Kind cluster $CLUSTER_NAME already exists; preserving Zot cache at $ZOT_CACHE_DIR and Postgres data at $POSTGRES_DATA_DIR"
   exit 0
 fi
 
@@ -49,6 +64,13 @@ fi
 case "$ZOT_CACHE_DIR" in
   *$'\n'*|*:*|*'#'*|*'['*|*']'*|*'{'*|*'}'*|*'&'*|*'*'*|*'!'*|*'|'*|*'>'*|*'"'*|*"'"*)
     echo "ZOT_CACHE_DIR contains YAML control characters: $ZOT_CACHE_DIR" >&2
+    exit 1
+    ;;
+esac
+
+case "$POSTGRES_DATA_DIR" in
+  *$'\n'*|*:*|*'#'*|*'['*|*']'*|*'{'*|*'}'*|*'&'*|*'*'*|*'!'*|*'|'*|*'>'*|*'"'*|*"'"*)
+    echo "POSTGRES_DATA_DIR contains YAML control characters: $POSTGRES_DATA_DIR" >&2
     exit 1
     ;;
 esac
@@ -103,11 +125,14 @@ nodes:
     extraMounts:
       - hostPath: $ZOT_CACHE_DIR
         containerPath: /var/local/osramp-zot-cache
+      - hostPath: $POSTGRES_DATA_DIR
+        containerPath: /var/local/signalloom-postgres-data
 EOF
 
-echo "Creating Kind cluster $CLUSTER_NAME with Zot cache $ZOT_CACHE_DIR"
+echo "Creating Kind cluster $CLUSTER_NAME with Zot cache $ZOT_CACHE_DIR and Postgres data $POSTGRES_DATA_DIR"
 "$KIND_BIN" create cluster --name "$CLUSTER_NAME" --config "$kind_config"
 prepare_zot_cache
+prepare_postgres_cache
 # Point the node's containerd at the pull-through caches (hosts.toml is read
 # dynamically per pull; no containerd restart needed).
 registry_cache_configure_node "${CLUSTER_NAME}-control-plane"

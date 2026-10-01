@@ -576,7 +576,13 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./signalloom-stun-sentinel
+        # The per-cluster OVERLAY, not the base. The base carries the registry
+        # image for remote clusters; this cluster side-loads its tag with
+        # `make -C d2-signalloom swarm-stun-sentinel-image` + `kind load`, and
+        # the overlay supplies SIGNAL_INGEST_URL for this cluster. kind-signalloom-hub
+        # runs no Flux (zero fluxcd CRDs, verified 2026-10-01), so it has an
+        # overlay but no fleet entry to point at it.
+        path: ./signalloom-stun-sentinel-overlays/kind-osramp
         prune: true
         ignore:
           - target:

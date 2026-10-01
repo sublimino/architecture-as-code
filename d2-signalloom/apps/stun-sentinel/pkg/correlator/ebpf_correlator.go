@@ -399,7 +399,7 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 	}
 
 	obs := TelemetryObservation{
-		Timestamp:      time.Now().UTC().Format(time.RFC3339Nano),
+		Timestamp:      eventWallTime(raw.TsNs).UTC().Format(time.RFC3339Nano),
 		Syscall:        syscallName,
 		Target:         filename,
 		Severity:       SeverityCritical,
@@ -504,6 +504,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 		return TelemetryObservation{}, false
 	}
 	var raw SyscallEvent
+	raw.TsNs = ev.TimestampNs
 	raw.PID = ev.PID
 	raw.TGID = ev.TGID
 	raw.UID = ev.UID

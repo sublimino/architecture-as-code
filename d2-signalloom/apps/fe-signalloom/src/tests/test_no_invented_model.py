@@ -36,6 +36,8 @@ def client(monkeypatch: pytest.MonkeyPatch):
         return None
 
     monkeypatch.setattr(api_compat, "_get_pool", _no_pool)
+    # The memory branch only: with DATABASE_URL set, writes require the database.
+    monkeypatch.setattr(api_compat.settings, "database_url", "")
 
     def _no_network(*_a: Any, **_k: Any) -> None:
         raise AssertionError("external network access is forbidden in these tests")

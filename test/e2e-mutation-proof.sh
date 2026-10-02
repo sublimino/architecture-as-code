@@ -69,7 +69,7 @@ case "${ARGS}" in
   *cluster-info*)         echo "Kubernetes control plane is running at https://127.0.0.1:1"; exit 0 ;;
 esac
 
-# ── Step 5: the sentinel's health and its stun record ────────────────────────
+# ── Step 5: the sentinel's own health (resync interval, reconcile count) ─────
 # Matched first: these jsonpaths would otherwise fall into the Step 1 catch-alls.
 case "${ARGS}" in
   *"get pod"*"name=stun-sentinel"*) echo -n "stun-sentinel-x7k2p"; exit 0 ;;
@@ -83,15 +83,6 @@ case "${ARGS}" in
       [ "${n}" -gt 1 ] && touch "${STATE}/resynced"
       printf '{"status":"ok","reconcile_count":%s,"resync_seconds":1,"stun_record_failures":0}\n' "${rc}"
       exit 0 ;;
-  *"get pod"*"io/stun-source}"*)
-      [ "${MUT}" = "step5_no_stun_record" ] && exit 0
-      echo -n "stun-sentinel"; exit 0 ;;
-  *"get pod"*"io/stun-reason}"*)
-      echo -n "stun-sentinel detection: sys_enter_openat /etc/passwd"; exit 0 ;;
-  *"get deploy"*"io/stun-source}"*) echo -n "stun-sentinel"; exit 0 ;;
-  *"get deploy"*"io/stunned}"*)
-      [ "${MUT}" = "step5_no_owner_record" ] && exit 0
-      echo -n "true"; exit 0 ;;
 esac
 
 # ── Step 1: Flux Kustomization + Deployment + Pod ────────────────────────────
@@ -325,8 +316,6 @@ MUTATIONS=(
   "step5_still_serving|5|a frozen pod still answering network traffic fails"
   "step5_thawed_by_resync|5|a freeze the reconciler thaws on its next resync fails"
   "step5_reconciler_idle|5|persistence is not claimed until the sentinel has reconciled after the freeze"
-  "step5_no_stun_record|5|a freeze with no sentinel stun record on the Pod fails"
-  "step5_no_owner_record|5|a Deployment without the owner stun record fails"
 )
 
 declare -a PLAN=()

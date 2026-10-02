@@ -497,14 +497,14 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 			obs.Labels[k] = v
 		}
 
-		if pod.Labels != nil {
-			if actor, ok := pod.Labels["signalloom.ai/agent-name"]; ok && actor != "" {
-				obs.ActorID = actor
-			} else if actor, ok := pod.Labels["agent-name"]; ok && actor != "" {
-				obs.ActorID = actor
-			} else if actor, ok := pod.Labels["app"]; ok && actor != "" {
-				obs.ActorID = actor
-			}
+		// The actor is the pod's service account, never a label: labels are
+		// written by whoever creates the pod, so `signalloom.ai/agent-name:
+		// kusari-agent` on any watched pod used to credit kusari's agent. Same
+		// residual as tenancy: anyone who can create pods in a namespace can
+		// run them as any SA there, so the namespace is the real boundary.
+		obs.ActorID = pod.Spec.ServiceAccountName
+		if obs.ActorID == "" {
+			obs.ActorID = "default" // what the API server admits an unset name as
 		}
 	}
 

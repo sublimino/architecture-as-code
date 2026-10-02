@@ -102,6 +102,7 @@ func TestNormalizeTelemetryObservation(t *testing.T) {
 	}
 
 	pod := CreateTestPod("tenant-kusari", "kusari-builder", "11111111-2222-3333-4444-555555555555", "kusari-builder", "kusari")
+	pod.Spec.ServiceAccountName = "kusari-builder" // actor_id is the SA, not the agent-name label (actor_test.go)
 
 	obs := mgr.NormalizeObservation(raw, pod)
 

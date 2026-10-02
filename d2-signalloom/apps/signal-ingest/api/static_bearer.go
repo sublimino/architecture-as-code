@@ -74,6 +74,7 @@ var KnownPermissions = map[Permission]bool{
 	PermissionErasureRequest:   true,
 	PermissionPrivacyExport:    true,
 	PermissionPrivacyAdmin:     true,
+	PermissionCrossTenantRead:  true,
 }
 
 // StaticBearerConfig is one named static key: its value, the single principal it maps to, and

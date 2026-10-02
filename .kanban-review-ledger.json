@@ -74,6 +74,26 @@
     "verdict": "APPROVED",
     "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
   },
+  "28303": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "28303",
+        "reviewed_at": "2026-10-02T11:21:50.609Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Phase 3 Pre-Flight certified: cluster and test rigs ready"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "28303",
+    "reviewed_at": "2026-10-02T11:21:50.609Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Phase 3 Pre-Flight certified: cluster and test rigs ready"
+  },
   "36157": {
     "task_id": "36157",
     "reviewed_at": "2026-09-05T15:35:26Z",

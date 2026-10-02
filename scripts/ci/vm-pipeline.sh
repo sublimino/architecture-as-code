@@ -740,7 +740,9 @@ run_stage \
       test/supercred-spire-preflight.bats test/tc-ebpf-drop.bats \
       test/tetragon-telemetry-stream.bats test/wait-deadline.bats test/wait-pods-service.bats \
       test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats \
-      test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats"
+      test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats \
+      test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
+      test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats"
 
 # Stage 1h: bats registry coverage (BATS TAP)
 #

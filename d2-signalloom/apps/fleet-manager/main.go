@@ -676,6 +676,9 @@ func main() {
 		if len(names) == 0 {
 			slog.Warn("no caller keys configured; every mutating fleet route will answer 401")
 		}
+		if len(keys.disabled) > 0 {
+			slog.Warn("callers with scopes but no key are disabled", "callers", keys.disabled)
+		}
 		slog.Info("caller keys loaded", "callers", names)
 	}
 

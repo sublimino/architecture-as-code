@@ -151,6 +151,24 @@ spec:
                   name: stun-sentinel-ingest-token
                   key: token
                   optional: true
+            # fleet-manager stun cascade (fleetstun.go): a new correlator freeze
+            # is recorded and Flux-pinned by fleet-manager, the one writer of
+            # the pin. The key is the stun-sentinel caller key (scope stun
+            # only), created by scripts/fleet-manager-caller-keys.sh. OPTIONAL
+            # for the same reason as SIGNAL_INGEST_TOKEN: without it the freeze
+            # still holds, and fleet_stun_failed is logged and counted.
+            - name: FLEET_MANAGER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: stun-sentinel-config
+                  key: FLEET_MANAGER_URL
+                  optional: false
+            - name: FLEET_MANAGER_STUN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stun-sentinel-fleet-key
+                  key: token
+                  optional: true
             - name: STUN_FREEZE_TOKEN
               valueFrom:
                 secretKeyRef:

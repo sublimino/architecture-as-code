@@ -190,7 +190,23 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               is the only context in which its precondition
 #                               holds, and it is the contract the file's own
 #                               header already asks for.
-EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats test/supercred-demo-api.bats test/supercred-step1-runtime.bats
+#
+#   test/runtime.bats, test/test-1-runtime.bats and test/spire-jwks-live.bats
+#                             - LIVE-cluster suites, and they write to it:
+#                               runtime.bats and test-1-runtime.bats create and
+#                               delete probe pods, all three `kubectl get/wait`
+#                               against whatever context is current. The glob
+#                               ran them from `make demo-signalloom-test-config`,
+#                               the target documented as "without a cluster", so
+#                               offline they failed 17 tests on connection
+#                               refused, and with an operator's kubeconfig loaded
+#                               they acted on the shared cluster from a config
+#                               check. runtime.bats and test-1-runtime.bats keep
+#                               their owners: stage 7 of scripts/ci/vm-pipeline.sh
+#                               and the root `demo-signalloom-runtime-test`.
+#                               spire-jwks-live.bats belongs in the same stage 7
+#                               list; it had no other runner.
+EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats test/supercred-demo-api.bats test/supercred-step1-runtime.bats test/runtime.bats test/test-1-runtime.bats test/spire-jwks-live.bats
 
 bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.
 	./test/validate-bao-spire.sh

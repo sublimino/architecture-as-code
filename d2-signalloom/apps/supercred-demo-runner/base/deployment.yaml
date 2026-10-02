@@ -96,6 +96,11 @@ spec:
             # in it. A plausible-looking FQDN there resolves to nothing.
             - name: SIGNAL_INGEST_URL
               value: http://signal-ingest:8082
+            # The demo's own signal-ingest key (signalfusion-demo), a mounted
+            # Secret; demo_runner forwards this path to the script, which
+            # hands the key to curl as a header file (never argv).
+            - name: SIGNAL_INGEST_KEY_FILE
+              value: /etc/signalfusion-demo/ingest-key/token
             # Resolves the kind node name (${CLUSTER_NAME}-control-plane) for
             # the `docker` shim that answers the script's image preflight.
             # One of the five variables demo_runner.py forwards to the child.
@@ -204,6 +209,9 @@ spec:
               mountPath: /tmp
             - name: kube-cache
               mountPath: /home/appuser/.kube
+            - name: signalfusion-demo-key
+              mountPath: /etc/signalfusion-demo/ingest-key
+              readOnly: true
           resources:
             requests:
               cpu: 10m
@@ -215,3 +223,10 @@ spec:
           emptyDir: {}
         - name: kube-cache
           emptyDir: {}
+        # optional: without it only the Signal Fusion acts fail (no key),
+        # with the script's own message naming how to mint one.
+        - name: signalfusion-demo-key
+          secret:
+            secretName: signalfusion-demo-ingest-key
+            optional: true
+            defaultMode: 0440

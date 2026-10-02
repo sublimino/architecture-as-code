@@ -24,6 +24,8 @@ spec:
       serviceAccountName: fe-signalloom
       securityContext:
         runAsNonRoot: true
+        # Group-owns the signal-ingest key volume (0440) for the portal's uid.
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
       initContainers:
@@ -61,6 +63,11 @@ spec:
           env:
             - name: SL_ENV
               value: demo
+            # fe-signalloom's own signal-ingest key (fe-signalloom-gateway),
+            # read from the mounted Secret by src/ingest_client.py on every
+            # call, so a rotation needs no restart. A path, never the value.
+            - name: SIGNAL_INGEST_KEY_FILE
+              value: /etc/fe-signalloom/ingest-key/token
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -142,6 +149,10 @@ spec:
             httpGet:
               path: /readyz
               port: http
+          volumeMounts:
+            - name: signal-ingest-key
+              mountPath: /etc/fe-signalloom/ingest-key
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -155,3 +166,12 @@ spec:
               memory: 128Mi
             limits:
               memory: 256Mi
+      volumes:
+        # optional: a key not yet minted leaves the proxies answering 503
+        # (ingest_credential_unavailable) instead of holding the whole portal
+        # in ContainerCreating. Mode 0440 + fsGroup: readable by uid 999 only.
+        - name: signal-ingest-key
+          secret:
+            secretName: fe-signalloom-ingest-key
+            optional: true
+            defaultMode: 0440

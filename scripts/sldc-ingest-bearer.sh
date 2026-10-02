@@ -42,6 +42,11 @@ ISSUER_PREFIX=signal-ingest-key-
 # name|consumer-namespace|consumer-secret|restart-target   (empty consumer: none)
 KEYS=(
 	"stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun-sentinel"
+	"fe-signalloom-gateway|fe-signalloom|fe-signalloom-ingest-key|deploy/fe-signalloom"
+	"signalfusion-demo|fe-signalloom|signalfusion-demo-ingest-key|deploy/supercred-demo-runner"
+	# Operator tools outside the cluster read the issuer Secret directly.
+	"sldc-live-bats|||"
+	"sldc-evidence-reader|||"
 )
 # Tests (and a one-off operator) may substitute the registry: newline-separated rows.
 if [[ -n "${SLDC_INGEST_KEYS:-}" ]]; then

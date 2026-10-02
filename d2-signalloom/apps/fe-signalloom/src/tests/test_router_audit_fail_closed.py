@@ -69,3 +69,25 @@ def test_claim_answers_503_and_records_nothing_when_the_database_is_down(unreach
     assert "agent.claimed" not in _memory_audit_types()
     with api_compat._STORE_LOCK:
         assert not api_compat._CLAIMS.get(EAP_TENANT_A)
+
+
+def test_agent_claim_answers_503_and_persists_nothing_when_the_database_is_down(unreachable_database, monkeypatch) -> None:
+    # api_compat._execute_claim, the path every claim route shares, gated on
+    # _get_pool and so took its memory branch on a configured deployment.
+    declared_workloads.install(monkeypatch).declare("workload-y", EAP_TENANT_A)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/api/v1/agents/claim",
+        json={
+            "pod_name": "workload-y",
+            "namespace": "fe-signalloom-agents",
+            "spiffe_id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/workload-y",
+        },
+        headers=eap_bearer(),
+    )
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "database_unavailable"
+    assert "agent.claimed" not in _memory_audit_types()
+    with api_compat._STORE_LOCK:
+        assert not api_compat._CLAIMS.get(EAP_TENANT_A)
+        assert not api_compat._AGENTS.get(EAP_TENANT_A)

@@ -4217,7 +4217,7 @@ async def _execute_claim(
         agent_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{tenant_id}:{body.pod_name}")
     agent_id = str(agent_uuid)
 
-    pool = await _get_pool()
+    pool = await _require_pool("Claiming an agent")
     if pool is not None:
         async with _write(pool) as conn:
             # Check cross-tenant conflict: if already claimed by another tenant

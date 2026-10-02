@@ -322,21 +322,22 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect all currently stunned agents from the DAG state
-	var stunnedIDs []string
-	for _, a := range s.dag.AllAgents() {
-		if a.State == StateStunned {
-			stunnedIDs = append(stunnedIDs, a.ID)
-		}
+	// An explicit agent_ids list recovers exactly those agents. It used to be
+	// read only when nothing was stunned in memory, so a caller recovering ONE
+	// agent (the e2e teardown undoing its own stun on a shared cluster)
+	// thawed every stunned agent instead, including other cards' deliberate
+	// freezes. With no list, every agent stunned in memory is recovered.
+	var req struct {
+		AgentIDs []string `json:"agent_ids"`
 	}
-
-	// If no agents are tracked as stunned in-memory, fall back to the request body
-	if len(stunnedIDs) == 0 {
-		var req struct {
-			AgentIDs []string `json:"agent_ids"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && len(req.AgentIDs) > 0 {
-			stunnedIDs = req.AgentIDs
+	var stunnedIDs []string
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && len(req.AgentIDs) > 0 {
+		stunnedIDs = req.AgentIDs
+	} else {
+		for _, a := range s.dag.AllAgents() {
+			if a.State == StateStunned {
+				stunnedIDs = append(stunnedIDs, a.ID)
+			}
 		}
 	}
 

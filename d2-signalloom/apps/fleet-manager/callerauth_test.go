@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -208,5 +209,25 @@ func TestACallerWithoutItsSecretIsDisabledNotEveryCaller(t *testing.T) {
 	s.callerKeys = keys
 	if w := call(t, s.routes(), http.MethodPost, "/api/v1/fleet/recover", "{}", "Bearer "); w.Code != http.StatusUnauthorized {
 		t.Fatalf("a disabled caller's route answered %d without a key; want 401", w.Code)
+	}
+}
+
+// The e2e teardown recovers only the agent it stunned. On a shared cluster
+// other agents are deliberately stunned and must stay so.
+func TestARecoverNamingOneAgentLeavesOtherStunnedAgentsStunned(t *testing.T) {
+	s := newTestServer(t)
+	s.dag.GetAgent("agent-cardvault").State = StateStunned
+	s.dag.GetAgent("agent-txn-pipeline").State = StateStunned
+	s.callerKeys = testCallerKeys(t)
+	w := call(t, s.routes(), http.MethodPost, "/api/v1/fleet/recover", `{"agent_ids":["agent-txn-pipeline"]}`, "Bearer "+operatorKey)
+	if w.Code != http.StatusOK {
+		t.Fatalf("targeted recover: %d %s", w.Code, w.Body.String())
+	}
+	var res CascadeResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.RecoveryOrder) != 1 || res.RecoveryOrder[0] != "agent-txn-pipeline" {
+		t.Fatalf("recovered %v; want exactly [agent-txn-pipeline]", res.RecoveryOrder)
 	}
 }

@@ -3,12 +3,13 @@
 # @target scripts/sldc-ingest-bearer.sh
 # @doc d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml
 #
-# The ingest credential contract: one random token, ≥32 bytes, held in two
-# Secrets with the same value —
-#   signal-ingest-static-bearer/token  (fe-signalloom)         issuer
-#   stun-sentinel-ingest-token/token   (fe-signalloom-agents)  consumer
+# The ingest credential contract, per named key: one random value, ≥32 bytes,
+# held in two Secrets with the same value —
+#   signal-ingest-key-<name>/token  (fe-signalloom)       issuer
+#   <consumer secret>/token         (caller's namespace)  consumer, if any
 # minted or rotated per --context, idempotently, and never printed, never in
-# argv, never in a ConfigMap.
+# argv, never in a ConfigMap. The single-key cases use the shipped registry
+# (stun-sentinel); the multi-key cases substitute SLDC_INGEST_KEYS.
 #
 # The fake kubectl keeps Secrets in a state directory (so idempotence and
 # convergence are questions about what the PREVIOUS call wrote) and logs every
@@ -19,7 +20,7 @@ REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/sldc-ingest-bearer.sh"
 
 ISSUER_NS=fe-signalloom
-ISSUER=signal-ingest-static-bearer
+ISSUER=signal-ingest-key-stun-sentinel
 CONSUMER_NS=fe-signalloom-agents
 CONSUMER=stun-sentinel-ingest-token
 GOOD_TOKEN="qV3x9Lw2pN7cR1tY8kD4hF6jS0aZ5mE2uB7oG3iX1wQ"
@@ -238,4 +239,40 @@ assert_never_leaked() { # assert_never_leaked VALUE
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"--context"* ]]
 	[ ! -s "$FAKE_LOG" ]
+}
+
+@test "an unknown --key is a usage error (exit 2) naming the known keys" {
+	run "$SCRIPT" --context kind-osramp --key nobody
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"unknown key: nobody"* ]]
+	[[ "$output" == *"stun-sentinel"* ]]
+	[ ! -s "$FAKE_LOG" ]
+}
+
+TWO_KEYS=$'stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun-sentinel\nsldc-evidence-reader|||'
+
+@test "every key gets its own value; a key with no consumer writes only its issuer Secret" {
+	SLDC_INGEST_KEYS="$TWO_KEYS" run "$SCRIPT" --context kind-osramp
+	[ "$status" -eq 0 ]
+	sentinel=$(token kind-osramp "$ISSUER_NS" signal-ingest-key-stun-sentinel)
+	reader=$(token kind-osramp "$ISSUER_NS" signal-ingest-key-sldc-evidence-reader)
+	[ "${#reader}" -ge 43 ]
+	[ "$sentinel" != "$reader" ]
+	[ "$(token kind-osramp "$CONSUMER_NS" "$CONSUMER")" = "$sentinel" ]
+	[ "$(applies)" -eq 3 ]
+	assert_never_leaked "$reader"
+}
+
+@test "--key limits the run to the named key" {
+	SLDC_INGEST_KEYS="$TWO_KEYS" run "$SCRIPT" --context kind-osramp --key sldc-evidence-reader
+	[ "$status" -eq 0 ]
+	[ -f "$FAKE_STATE/kind-osramp/$ISSUER_NS/signal-ingest-key-sldc-evidence-reader" ]
+	[ ! -f "$FAKE_STATE/kind-osramp/$ISSUER_NS/$ISSUER" ]
+}
+
+@test "--from-stdin across more than one key is a usage error (exit 2): one value, one caller" {
+	SLDC_INGEST_KEYS="$TWO_KEYS" run bash -c "printf '%s' '$GOOD_TOKEN' | '$SCRIPT' --context kind-osramp --from-stdin"
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"--from-stdin installs one key"* ]]
+	[ "$(applies)" -eq 0 ]
 }
